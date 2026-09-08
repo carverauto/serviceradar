@@ -1,0 +1,115 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+load("//build:benchmarks.bzl", "go_benchmark")
+
+go_library(
+    name = "remoteaccess",
+    srcs = [
+        "adapters.go",
+        "app_tcp_frames.go",
+        "application_http.go",
+        "desktop.go",
+        "desktop_adapter.go",
+        "desktop_adapter_probe.go",
+        "desktop_audit.go",
+        "desktop_credential.go",
+        "desktop_frame.go",
+        "desktop_media.go",
+        "desktop_media_ack.go",
+        "desktop_media_credit.go",
+        "desktop_media_frame.go",
+        "desktop_session_guard.go",
+        "desktop_target.go",
+        "enhanced_recorder.go",
+        "enhanced_recording.go",
+        "enhanced_recording_ebpf.go",
+        "enhanced_recording_ebpf_loss.go",
+        "enhanced_recording_linux.go",
+        "enhanced_recording_platform_linux.go",
+        "enhanced_recording_platform_other.go",
+        "enhanced_recording_sanitize.go",
+        "file_transfer.go",
+        "file_transfer_policy.go",
+        "frame_auth.go",
+        "manager.go",
+        "sftp.go",
+        "ssh.go",
+        "ssh_host_key.go",
+        "ssh_open.go",
+        "tcp_adapter.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/agent/remoteaccess",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//go/pkg/agent/ebpf/probes",
+        "@com_github_pkg_sftp//:sftp",
+        "@org_golang_x_crypto//ssh",
+        "@org_golang_x_crypto//ssh/knownhosts",
+    ] + select({
+        "@io_bazel_rules_go//go/platform:android": [
+            "//go/pkg/agent/ebpf",
+        ],
+        "@io_bazel_rules_go//go/platform:linux": [
+            "//go/pkg/agent/ebpf",
+        ],
+        "//conditions:default": [],
+    }),
+)
+
+go_test(
+    name = "remoteaccess_test",
+    srcs = [
+        "adapters_test.go",
+        "app_tcp_frames_test.go",
+        "application_http_test.go",
+        "desktop_adapter_probe_test.go",
+        "desktop_adapter_test.go",
+        "desktop_audit_test.go",
+        "desktop_credential_test.go",
+        "desktop_frame_test.go",
+        "desktop_media_ack_test.go",
+        "desktop_media_benchmark_test.go",
+        "desktop_media_credit_test.go",
+        "desktop_media_frame_test.go",
+        "desktop_media_test.go",
+        "desktop_session_guard_media_test.go",
+        "desktop_session_guard_test.go",
+        "desktop_target_test.go",
+        "desktop_test.go",
+        "enhanced_recorder_test.go",
+        "enhanced_recording_linux_test.go",
+        "enhanced_recording_test.go",
+        "file_transfer_policy_test.go",
+        "file_transfer_test.go",
+        "frame_auth_test.go",
+        "manager_test.go",
+        "sftp_test.go",
+        "ssh_host_key_test.go",
+        "ssh_open_test.go",
+        "ssh_test.go",
+        "tcp_adapter_test.go",
+    ],
+    embed = [":remoteaccess"],
+    # desktop_adapter_probe_test.go writes an RDP adapter stub into t.TempDir() and execs it
+    # to exercise ProbeRDPAdapterCapabilities. The sandbox denies that exec, so the probe sits
+    # until its own 5s deadline and the failure surfaces as `signal: killed` -- which reads
+    # like a hung helper rather than the filesystem restriction it is.
+    tags = ["no-sandbox"],
+    deps = [
+        "//go/pkg/agent/ebpf/probes",
+        "@org_golang_x_crypto//ssh",
+        "@org_golang_x_crypto//ssh/knownhosts",
+    ] + select({
+        "@io_bazel_rules_go//go/platform:android": [
+            "//go/pkg/agent/ebpf",
+        ],
+        "@io_bazel_rules_go//go/platform:linux": [
+            "//go/pkg/agent/ebpf",
+        ],
+        "//conditions:default": [],
+    }),
+)
+
+go_benchmark(
+    name = "remoteaccess_bench",
+    binary = ":remoteaccess_test",
+)

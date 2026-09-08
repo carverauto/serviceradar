@@ -1,0 +1,31 @@
+{
+  "nodes": [
+    { "id": "inputNode", "type": "inputNode", "name": "Request", "position": { "x": 80, "y": 150 } },
+    {
+      "id": "setSyslogSeverity",
+      "type": "expressionNode",
+      "name": "Set Syslog Severity",
+      "position": { "x": 300, "y": 150 },
+      "content": {
+        "expressions": [
+          {
+            "id": "expr1",
+            "key": "severity_text",
+            "value": "len(severity_text ?? '') > 0 ? severity_text : ((level ?? -1) == 0 or (level ?? -1) == 1 or (level ?? -1) == 2 ? 'FATAL' : (level ?? -1) == 3 ? 'ERROR' : (level ?? -1) == 4 ? 'WARN' : (level ?? -1) == 5 or (level ?? -1) == 6 ? 'INFO' : (level ?? -1) == 7 ? 'DEBUG' : severity_text)"
+          },
+          {
+            "id": "expr2",
+            "key": "severity_number",
+            "value": "len(severity_text ?? '') > 0 ? severity_number : ((level ?? -1) == 0 or (level ?? -1) == 1 or (level ?? -1) == 2 ? 21 : (level ?? -1) == 3 ? 19 : (level ?? -1) == 4 ? 15 : (level ?? -1) == 5 or (level ?? -1) == 6 ? 9 : (level ?? -1) == 7 ? 5 : severity_number)"
+          }
+        ]
+      }
+    },
+    { "id": "outputNode", "type": "outputNode", "name": "Response", "position": { "x": 560, "y": 150 } }
+  ],
+  "edges": [
+    { "id": "e1", "sourceId": "inputNode", "targetId": "setSyslogSeverity", "type": "edge" },
+    { "id": "e2", "sourceId": "setSyslogSeverity", "targetId": "outputNode", "type": "edge" },
+    { "id": "e3", "sourceId": "inputNode", "targetId": "outputNode", "type": "edge" }
+  ]
+}

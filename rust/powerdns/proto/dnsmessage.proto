@@ -1,0 +1,192 @@
+/*
+ * This file describes the message format used by the protobuf logging feature in PowerDNS and dnsdist.
+ *
+ * MIT License
+ *
+ * Copyright (c) 2016-now PowerDNS.COM B.V. and its contributors.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+syntax = "proto2";
+
+message PBDNSMessage {
+  enum Type {
+    DNSQueryType = 1;
+    DNSResponseType = 2;
+    DNSOutgoingQueryType = 3;
+    DNSIncomingResponseType = 4;
+  }
+  enum SocketFamily {
+    INET = 1;
+    INET6 = 2;
+  }
+  enum SocketProtocol {
+    UDP = 1;
+    TCP = 2;
+    DOT = 3;
+    DOH = 4;
+    DNSCryptUDP = 5;
+    DNSCryptTCP = 6;
+    DOQ = 7;
+  }
+  enum HTTPVersion {
+    HTTP1 = 1;
+    HTTP2 = 2;
+    HTTP3 = 3;
+  }
+  enum PolicyType {
+    UNKNOWN = 1;
+    QNAME = 2;
+    CLIENTIP = 3;
+    RESPONSEIP = 4;
+    NSDNAME = 5;
+    NSIP = 6;
+  }
+  enum PolicyKind {
+    NoAction = 1;
+    Drop = 2;
+    NXDOMAIN = 3;
+    NODATA = 4;
+    Truncate= 5;
+    Custom = 6;
+  }
+  enum VState {
+    Indeterminate = 1;
+    Insecure = 2;
+    Secure = 3;
+    BogusNoValidDNSKEY = 4;
+    BogusInvalidDenial = 5;
+    BogusUnableToGetDSs = 6;
+    BogusUnableToGetDNSKEYs = 7;
+    BogusSelfSignedDS = 8;
+    BogusNoRRSIG = 9;
+    BogusNoValidRRSIG = 10;
+    BogusMissingNegativeIndication = 11;
+    BogusSignatureNotYetValid = 12;
+    BogusSignatureExpired = 13;
+    BogusUnsupportedDNSKEYAlgo = 14;
+    BogusUnsupportedDSDigestType = 15;
+    BogusNoZoneKeyBitSet = 16;
+    BogusRevokedDNSKEY = 17;
+    BogusInvalidDNSKEYProtocol = 18;
+  }
+  required Type type = 1;
+  optional bytes messageId = 2;
+  optional bytes serverIdentity = 3;
+  optional SocketFamily socketFamily = 4;
+  optional SocketProtocol socketProtocol = 5;
+  optional bytes from = 6;
+  optional bytes to = 7;
+  optional uint64 inBytes = 8;
+  optional uint32 timeSec = 9;
+  optional uint32 timeUsec = 10;
+  optional uint32 id = 11;
+
+  message DNSQuestion {
+    optional string qName = 1;
+    optional uint32 qType = 2;
+    optional uint32 qClass = 3;
+  }
+  optional DNSQuestion question = 12;
+
+  message DNSResponse {
+    message DNSRR {
+      optional string name = 1;
+      optional uint32 type = 2;
+      optional uint32 class = 3;
+      optional uint32 ttl = 4;
+      optional bytes rdata = 5;
+      optional bool  udr = 6;
+    }
+    optional uint32 rcode = 1;
+    repeated DNSRR rrs = 2;
+    optional string appliedPolicy = 3;
+    repeated string tags = 4;
+    optional uint32 queryTimeSec = 5;
+    optional uint32 queryTimeUsec = 6;
+    optional PolicyType appliedPolicyType = 7;
+    optional string appliedPolicyTrigger = 8;
+    optional string appliedPolicyHit = 9;
+    optional PolicyKind appliedPolicyKind = 10;
+    optional VState validationState = 11;
+  }
+
+  optional DNSResponse response = 13;
+  optional bytes originalRequestorSubnet = 14;
+  optional string requestorId = 15;
+  optional bytes initialRequestId = 16;
+  optional bytes deviceId = 17;
+  optional bool  newlyObservedDomain = 18;
+  optional string deviceName = 19;
+  optional uint32 fromPort = 20;
+  optional uint32 toPort = 21;
+
+  message MetaValue {
+    repeated string stringVal = 1;
+    repeated int64 intVal = 2;
+  }
+
+  message Meta {
+    required string key = 1;
+    required MetaValue value = 2;
+  }
+  repeated Meta meta = 22;
+
+  enum EventType {
+    CustomEvent = 0;
+    ReqRecv = 1;
+    PCacheCheck = 2;
+    AnswerSent = 3;
+    SyncRes = 100;
+    LuaGetTag = 101;
+    LuaGetTagFFI = 102;
+    LuaIPFilter = 103;
+    LuaPreRPZ = 104;
+    LuaPreResolve = 105;
+    LuaPreOutQuery = 106;
+    LuaPostResolve = 107;
+    LuaNoData = 108;
+    LuaNXDomain = 109;
+    LuaPostResolveFFI = 110;
+  }
+
+  message Event {
+    required int64 ts = 1;
+    required EventType event = 2;
+    required bool start = 3;
+    optional bool boolVal = 4;
+    optional int64 intVal = 5;
+    optional string stringVal = 6;
+    optional bytes bytesVal = 7;
+    optional string custom = 8;
+  }
+  repeated Event trace = 23;
+
+  optional HTTPVersion httpVersion = 24;
+  optional uint64 workerId = 25;
+  optional bool packetCacheHit = 26;
+  optional uint32 outgoingQueries = 27;
+  optional uint32 headerFlags = 28;
+  optional uint32 ednsVersion = 29;
+  optional bytes openTelemetryData = 30;
+}
+
+message PBDNSMessageList {
+  repeated PBDNSMessage msg = 1;
+}

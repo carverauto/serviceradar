@@ -1,0 +1,23 @@
+[package]
+name = "config-bootstrap"
+version = "0.1.0"
+description = "Configuration bootstrapper for ServiceRadar services (mirrors Go pkg/config/bootstrap)"
+edition = "2024"
+license = "Apache-2.0"
+
+[lib]
+name = "config_bootstrap"
+path = "src/lib.rs"
+
+[dependencies]
+kvutil = { path = "../kvutil" }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "fs", "time"] }
+toml = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }

@@ -1,0 +1,97 @@
+# ServiceRadar OTEL Collector Configuration
+# Copy this file to otel.toml and customize as needed
+
+[server]
+# Address to bind the OTEL collector to
+bind_address = "0.0.0.0"
+# Port to listen on for OTLP/gRPC (standard port 4317)
+port = 4317
+# Maximum accepted OTLP export request size in bytes. Applies to both the
+# gRPC decode limit and the OTLP/HTTP body limit (default: 64 MiB).
+# Stock OTel Collector batching can easily exceed gRPC's usual 4 MiB default.
+max_request_bytes = 67108864
+
+# OTLP/HTTP listener (standard port 4318). Enabled by default so stock OTLP
+# producers configured with http/protobuf "just work". Accepts binary
+# protobuf (Content-Type: application/x-protobuf), optionally gzip-encoded.
+# OTLP/JSON is not supported. Reuses the [grpc_tls] server certificate when
+# configured; plaintext otherwise.
+[server.http]
+enabled = true
+bind_address = "0.0.0.0"
+port = 4318
+# CORS origins allowed for browser-based OTLP exporters. "*" allows any
+# origin; restrict this list when exposing the listener publicly.
+allowed_origins = ["*"]
+
+[server.metrics]
+# Address and port for the Prometheus scrape endpoint (GET /metrics)
+bind_address = "0.0.0.0"
+port = 9464
+
+[nats]
+# NATS server URL (required to enable NATS output)
+url = "nats://localhost:4222"
+
+# Subject to publish traces/metrics to (default: otel)
+subject = "otel"
+
+# Subject to publish logs to (default: <subject>.logs)
+logs_subject = "logs.otel"
+
+# JetStream stream name (default: events)
+stream = "events"
+
+# Timeout for NATS operations in seconds (default: 30)
+timeout_secs = 30
+
+# Optional NATS TLS configuration
+# Uncomment and set paths to enable TLS for NATS client authentication
+# [nats.tls]
+# cert_file = "/path/to/nats-client.crt"
+# key_file = "/path/to/nats-client.key"
+# ca_file = "/path/to/nats-ca.crt"
+
+# Optional gRPC TLS configuration
+# Uncomment and set paths to enable TLS for gRPC server
+# [grpc_tls]
+# cert_file = "/path/to/grpc-server.crt"
+# key_file = "/path/to/grpc-server.key"
+# ca_file = "/path/to/grpc-ca.crt"
+#
+# Client certificate policy when ca_file is set (default: "required"):
+#   client_auth = "required"  -> strict mTLS; clients must present a cert
+#                                signed by ca_file (previous behavior).
+#   client_auth = "optional"  -> client certs are verified when presented,
+#                                but plain TLS clients are also accepted.
+#   client_auth = "none"      -> never request client certificates, even if
+#                                ca_file is set.
+# Operators exposing external OTLP ingest (e.g. third-party SDKs that only
+# do server-side TLS) should use "optional" or "none"; "required" rejects
+# every stock external producer at the TLS handshake.
+# client_auth = "required"
+
+# Token-based ingestion authentication for BOTH OTLP listeners (gRPC 4317
+# and HTTP 4318). Disabled by default: on trusted networks exports are
+# accepted anonymously. When enabled, every export must present a configured
+# token via either header/metadata key:
+#   x-serviceradar-ingestion-key: <token>
+#   authorization: Bearer <token>
+# Invalid or missing tokens are rejected (gRPC UNAUTHENTICATED / HTTP 401);
+# CORS preflight (OPTIONS) requests are never authenticated.
+#
+# Each token maps to an identity that is stamped on every published NATS
+# message as the `Sr-Ingest-Identity` header for downstream attribution.
+# Exactly one of `token` (inline) or `token_file` (path whose trimmed
+# contents are the token; preferred for secret-managed deployments) must be
+# set per entry. Tokens also resolve identities when enforcement is off.
+# [auth]
+# enabled = false
+#
+# [[auth.tokens]]
+# identity = "tenant-a"
+# token = "replace-with-ingestion-key"
+#
+# [[auth.tokens]]
+# identity = "tenant-b"
+# token_file = "/etc/serviceradar/ingest-auth/ingestion-key"

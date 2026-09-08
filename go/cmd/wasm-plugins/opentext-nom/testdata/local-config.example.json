@@ -1,0 +1,17 @@
+{
+  "instance_id": "network-automation-local",
+  "nnm_url": "https://nnm.example.com:443",
+  "api_url": "https://na.example.com/nom/api/automation/v1/wrapper",
+  "queries": [
+    {
+      "name": "switches",
+      "parameters": {
+        "type": "Switch"
+      }
+    }
+  ],
+  "page_size": 1000,
+  "max_rows": 25000,
+  "request_timeout_seconds": 30,
+  "max_retries": 2
+}

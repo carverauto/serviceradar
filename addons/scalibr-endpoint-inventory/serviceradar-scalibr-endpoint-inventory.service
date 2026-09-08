@@ -1,0 +1,41 @@
+[Unit]
+Description=ServiceRadar ScaLibr Endpoint Software Inventory Scanner
+Documentation=https://serviceradar.cloud/docs/endpoint-software-security
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+# Group=serviceradar so the shared endpoint-inventory spool/cache/tmp/profile
+# dirs stay owned by the serviceradar group and the non-root agent can keep
+# writing upload markers after this scanner runs.
+Group=serviceradar
+WorkingDirectory=/var/lib/serviceradar/endpoint-inventory
+Environment="HOME=/var/lib/serviceradar/endpoint-inventory"
+# Staged binaries inherit SELinux var_lib_t. systemd (init_t) cannot exec that
+# label (status=203/EXEC). Relabel immediately before start. The + prefix keeps
+# this root-owned if User= ever changes. Missing chcon (non-SELinux) is ignored.
+ExecStartPre=+/bin/sh -c '/usr/bin/chcon -t bin_t /var/lib/serviceradar/agent/addons/scalibr-endpoint-inventory/current/serviceradar-scalibr-endpoint-inventory >/dev/null 2>&1 || true'
+ExecStart=/var/lib/serviceradar/agent/addons/scalibr-endpoint-inventory/current/serviceradar-scalibr-endpoint-inventory -config /var/lib/serviceradar/agent/addons/scalibr-endpoint-inventory/current/scalibr-endpoint-inventory.json
+# Group-writable umask so the non-root agent can write into the shared dirs.
+UMask=0007
+# Share cgroup accounting with the host agent while preserving independent
+# systemd supervision, privileges, and hardening.
+Slice=serviceradar.slice
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadOnlyPaths=/
+# The staged binary path must be writable so ExecStartPre=+ chcon can set
+# bin_t under ProtectSystem=strict (and ReadOnlyPaths=/). Without it, chcon
+# fails silently (|| true) and systemd still hits 203/EXEC on Enforcing hosts.
+ReadWritePaths=/var/lib/serviceradar/endpoint-inventory /var/lib/serviceradar/agent/addons/scalibr-endpoint-inventory
+StateDirectory=serviceradar/endpoint-inventory serviceradar/endpoint-inventory/profile serviceradar/endpoint-inventory/cache serviceradar/endpoint-inventory/spool serviceradar/endpoint-inventory/spool/runs serviceradar/endpoint-inventory/tmp
+# setgid (2) + group-write so dirs stay group-owned and group-writable across
+# every run; systemd re-asserts this on each start.
+StateDirectoryMode=2770
+
+[Install]
+WantedBy=multi-user.target

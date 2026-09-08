@@ -1,0 +1,45 @@
+{
+  "id": "com.carverauto.unifi_protect.camera_event.display",
+  "version": "1.1.0",
+  "schema_id": "com.carverauto.unifi_protect.camera_event",
+  "schema_version": "1.0.0",
+  "widgets": [
+    {
+      "type": "summary",
+      "title": "message",
+      "message": "status_detail",
+      "source": "log_provider",
+      "severity": "severity"
+    },
+    {
+      "type": "badges",
+      "fields": [
+        { "label": "Provider", "path": "log_provider" },
+        { "label": "Model", "path": "unmapped.protect_ws_payload.modelKey" },
+        { "label": "Action", "path": "unmapped.protect_ws_payload.action" },
+        { "label": "Severity", "path": "severity", "tone": "severity" }
+      ]
+    },
+    {
+      "type": "facts",
+      "fields": [
+        { "label": "Time", "path": "time", "format": "timestamp" },
+        { "label": "Camera", "path": "device.name" },
+        { "label": "Camera ID", "path": "device.uid" },
+        { "label": "MAC", "path": "device.mac" }
+      ]
+    },
+    {
+      "type": "timeline",
+      "fields": [
+        { "label": "Event time", "path": "time", "format": "timestamp" },
+        { "label": "Logged time", "path": "metadata.logged_time", "format": "timestamp" }
+      ]
+    },
+    {
+      "type": "json_section",
+      "title": "Protect payload",
+      "paths": ["unmapped.protect_ws_payload"]
+    }
+  ]
+}

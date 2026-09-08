@@ -1,0 +1,79 @@
+#!/bin/bash
+
+# This script will be run bazel when building process starts to
+# generate key-value information that represents the status of the
+# workspace. The output should be like
+#
+# KEY1 VALUE1
+# KEY2 VALUE2
+#
+# If the script exits with non-zero code, it's considered as a failure
+# and the output will be discarded.
+
+set -eo pipefail # exit immediately if any command fails.
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if WORKSPACE_ROOT="$(git -C "${SCRIPT_DIR}/.." rev-parse --show-toplevel 2>/dev/null)"; then
+  :
+else
+  WORKSPACE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+fi
+cd "${WORKSPACE_ROOT}"
+
+function remove_url_credentials() {
+  which perl >/dev/null && perl -pe 's#//.*?:.*?@#//#' || cat
+}
+
+function emit_agent_release_public_key() {
+  local key="${SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY:-}"
+  local key_file="${SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY_FILE:-${WORKSPACE_ROOT}/.bazel-agent-release-public-key}"
+  if [[ -z "${key}" && -f "${key_file}" ]]; then
+    key="$(tr -d '\r\n' < "${key_file}")"
+  fi
+  if [[ -n "${key}" ]]; then
+    echo "STABLE_AGENT_RELEASE_PUBLIC_KEY ${key}"
+  fi
+}
+
+repo_url=$(git config --get remote.origin.url | remove_url_credentials)
+echo "REPO_URL $repo_url"
+
+commit_sha=$(git rev-parse HEAD)
+echo "COMMIT_SHA $commit_sha"
+
+git_branch=$(git rev-parse --abbrev-ref HEAD)
+echo "GIT_BRANCH $git_branch"
+
+git_tree_status=$(git diff-index --quiet HEAD -- && echo 'Clean' || echo 'Modified')
+echo "GIT_TREE_STATUS $git_tree_status"
+
+if [[ -f VERSION ]]; then
+  version=$(tr -d '\n' < VERSION)
+else
+  version="dev"
+fi
+if [[ -n "$version" && "$version" != "dev" ]]; then
+  if ! git tag --points-at HEAD | grep -Fxq "v${version}"; then
+    version="dev"
+  fi
+fi
+echo "STABLE_VERSION $version"
+
+# Note: the "STABLE_" suffix causes these to be part of the "stable" workspace
+# status, which may trigger rebuilds of certain targets if these values change
+# and you're building with the "--stamp" flag.
+#latest_version_tag=$(./tools/latest_version_tag.sh)
+#echo "STABLE_VERSION_TAG $latest_version_tag"
+echo "STABLE_COMMIT_SHA $commit_sha"
+emit_agent_release_public_key
+
+build_id="${BUILD_ID:-}"
+if [[ -n "$build_id" ]]; then
+  echo "STABLE_BUILD_ID $build_id"
+fi
+
+now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+now_compact=$(date -u +"%Y%m%dT%H%M%SZ")
+
+echo "BUILD_TIMESTAMP $now"
+echo "BUILD_TIMESTAMP_COMPACT $now_compact"

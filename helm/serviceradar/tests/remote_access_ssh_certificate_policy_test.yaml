@@ -1,0 +1,113 @@
+suite: remote access SSH certificate policy custody
+templates:
+  - templates/core.yaml
+  - templates/web.yaml
+# Assertions are scoped with `template:` and select documents by a path that is unique
+# within that template. Selecting on metadata.name matches several documents here and
+# fails with `multiple indexes found`. See README.md in this directory.
+tests:
+  - it: fails rendering when enabled without an operator-owned Secret
+    set:
+      remoteAccess.sshCertificatePolicy.enabled: true
+    asserts:
+      - failedTemplate:
+          errorMessage: remoteAccess.sshCertificatePolicy.existingSecretName is required when remoteAccess.sshCertificatePolicy.enabled=true
+        template: templates/web.yaml
+
+  - it: mounts only the selected Secret key into web by default
+    set:
+      remoteAccess.sshCertificatePolicy.enabled: true
+      remoteAccess.sshCertificatePolicy.existingSecretName: serviceradar-ssh-policy
+      remoteAccess.sshCertificatePolicy.secretKey: reviewed-policy.json
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_REMOTE_ACCESS_SSH_CERTIFICATE_POLICY_FILE
+            value: /etc/serviceradar/remote-access-ssh-policy/certificate-policy.json
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: remote-access-ssh-certificate-policy
+            mountPath: /etc/serviceradar/remote-access-ssh-policy
+            readOnly: true
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: remote-access-ssh-certificate-policy
+            secret:
+              secretName: serviceradar-ssh-policy
+              defaultMode: 288
+              items:
+                - key: reviewed-policy.json
+                  path: certificate-policy.json
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_REMOTE_ACCESS_SSH_CERTIFICATE_POLICY_JSON
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: can scope the policy Secret to core instead of web
+    set:
+      remoteAccess.sshCertificatePolicy.enabled: true
+      remoteAccess.sshCertificatePolicy.existingSecretName: serviceradar-core-ssh-policy
+      remoteAccess.sshCertificatePolicy.workloads.web: false
+      remoteAccess.sshCertificatePolicy.workloads.core: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_REMOTE_ACCESS_SSH_CERTIFICATE_POLICY_FILE
+            value: /etc/serviceradar/remote-access-ssh-policy/certificate-policy.json
+        template: templates/core.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: remote-access-ssh-certificate-policy
+            secret:
+              secretName: serviceradar-core-ssh-policy
+              defaultMode: 288
+              items:
+                - key: certificate-policy.json
+                  path: certificate-policy.json
+        template: templates/core.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_REMOTE_ACCESS_SSH_CERTIFICATE_POLICY_FILE
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: rejects an enabled policy with no workload custody
+    set:
+      remoteAccess.sshCertificatePolicy.enabled: true
+      remoteAccess.sshCertificatePolicy.existingSecretName: serviceradar-ssh-policy
+      remoteAccess.sshCertificatePolicy.workloads.web: false
+      remoteAccess.sshCertificatePolicy.workloads.core: false
+    asserts:
+      - failedTemplate:
+          errorMessage: remoteAccess.sshCertificatePolicy must be mounted in at least one workload
+        template: templates/web.yaml

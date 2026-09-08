@@ -1,0 +1,91 @@
+{
+  "type": "object",
+  "title": "UniFi Protect Camera",
+  "x-serviceradar-docs-url": "https://docs.serviceradar.cloud/docs/unifi-protect",
+  "properties": {
+    "host": {
+      "type": "string",
+      "x-serviceradar-ui-hidden": true,
+      "x-serviceradar-credential-materialized": true,
+      "description": "UniFi OS / Protect controller host. Injected from the credential rule (controller host override or the SRQL target). Never entered on the plugin assignment form."
+    },
+    "username": {
+      "type": "string",
+      "x-serviceradar-ui-hidden": true,
+      "x-serviceradar-credential-materialized": true,
+      "description": "Local UniFi OS account. Stored on a username/password credential secret, not on this assignment."
+    },
+    "password": {
+      "type": "string",
+      "x-serviceradar-ui-hidden": true,
+      "x-serviceradar-credential-materialized": true,
+      "description": "Local UniFi OS password. Stored on a credential secret, not on this assignment."
+    },
+    "api_key": {
+      "type": "string",
+      "x-serviceradar-ui-hidden": true,
+      "x-serviceradar-credential-materialized": true,
+      "description": "UniFi OS API key. Stored on an API-key credential secret, not on this assignment."
+    },
+    "cookie": {
+      "type": "string",
+      "x-serviceradar-ui-hidden": true,
+      "x-serviceradar-credential-materialized": true,
+      "description": "Optional pre-provisioned Cookie header. Do not paste session cookies into plugin assignment."
+    },
+    "scheme": {
+      "type": "string",
+      "description": "http or https. UniFi OS almost always uses https.",
+      "default": "https",
+      "x-serviceradar-ui-advanced": true
+    },
+    "timeout_ms": {
+      "type": "integer",
+      "description": "Request timeout in milliseconds",
+      "default": 30000,
+      "x-serviceradar-ui-advanced": true
+    },
+    "insecure_skip_verify": {
+      "type": "boolean",
+      "description": "Allow the controller's self-signed TLS certificate. Set this on the credential rule TLS policy (skip_verify) rather than here when possible.",
+      "default": false,
+      "x-serviceradar-ui-advanced": true
+    },
+    "discover_streams": {
+      "type": "boolean",
+      "description": "Discover RTSP stream profiles from bootstrap",
+      "default": true,
+      "x-serviceradar-ui-advanced": true
+    },
+    "collect_events": {
+      "type": "boolean",
+      "description": "Collect a bounded Protect websocket event sample",
+      "default": false,
+      "x-serviceradar-ui-advanced": true
+    },
+    "event_sources": {
+      "type": "string",
+      "description": "Protect event source selector; current plugin uses the updates feed",
+      "default": "updates",
+      "x-serviceradar-ui-advanced": true
+    },
+    "bootstrap_path": {
+      "type": "string",
+      "description": "Protect bootstrap path on UniFi OS. Default /proxy/protect/api/bootstrap.",
+      "default": "/proxy/protect/api/bootstrap",
+      "x-serviceradar-ui-advanced": true
+    },
+    "login_path": {
+      "type": "string",
+      "description": "UniFi OS login path. Default /api/auth/login.",
+      "default": "/api/auth/login",
+      "x-serviceradar-ui-advanced": true
+    },
+    "rtsp_port": {
+      "type": "integer",
+      "description": "Protect RTSP/RTSPS relay port (7447, or 7441 on some controllers)",
+      "default": 7447,
+      "x-serviceradar-ui-advanced": true
+    }
+  }
+}

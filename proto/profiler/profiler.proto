@@ -1,0 +1,51 @@
+syntax = "proto3";
+
+package profiler;
+
+option go_package = "github.com/carverauto/serviceradar/proto/profiler";
+
+// The eBPF Profiler Service
+service ProfilerService {
+    // Starts a new profiling session for a given process
+    rpc StartProfiling(StartProfilingRequest) returns (StartProfilingResponse) {}
+
+    // Retrieves the results of a profiling session as a stream of folded stacks
+    rpc GetProfilingResults(GetProfilingResultsRequest) returns (stream ProfilingResultsChunk) {}
+
+    // Health check endpoint
+    rpc GetStatus(GetStatusRequest) returns (GetStatusResponse) {}
+}
+
+message StartProfilingRequest {
+    int32 process_id = 1;        // PID of the process to profile
+    int32 duration_seconds = 2;  // How long to run the profiler
+    int32 frequency = 3;         // Sampling frequency in Hz (e.g., 99)
+}
+
+message StartProfilingResponse {
+    bool success = 1;
+    string message = 2;          // e.g., "Profiling started successfully"
+    string session_id = 3;       // Unique ID for this profiling session
+}
+
+message GetProfilingResultsRequest {
+    string session_id = 1;       // The ID of the session to retrieve results for
+}
+
+message ProfilingResultsChunk {
+    bytes data = 1;              // A chunk of the folded stack trace data
+    bool is_final = 2;           // True if this is the last chunk for the session
+    int32 chunk_index = 3;       // The index of this chunk
+    int64 timestamp = 4;         // Timestamp of when the data was generated
+}
+
+message GetStatusRequest {
+    // Empty for now, can be extended later
+}
+
+message GetStatusResponse {
+    bool healthy = 1;
+    string version = 2;
+    int32 active_sessions = 3;   // Number of currently active profiling sessions
+    string message = 4;
+}

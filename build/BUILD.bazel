@@ -1,0 +1,201 @@
+# Package placeholder for repository alias helper.
+load("@bazel_skylib//rules:common_settings.bzl", "bool_flag", "string_flag")
+load("@rules_elixir//:ex_unit_test.bzl", "ex_unit_test")
+load("@rules_elixir//:mix_payloads.bzl", "mix_payloads")
+load(":integration_shards.bzl", "integration_selection_runner_names")
+load(
+    ":integration_shards_test.bzl",
+    "insufficient_capacity",
+    "insufficient_capacity_failure_test",
+    "integration_shards_topology_test",
+    "missing_fixed_source",
+    "missing_fixed_source_failure_test",
+)
+load(":run_id.bzl", "run_id_file")
+load(":template_authority.bzl", "template_authority_file")
+
+package(default_visibility = ["//visibility:public"])
+
+ex_unit_test(
+    name = "integration_selection_formatter_test",
+    size = "small",
+    srcs = ["integration_selection_formatter_test.exs"],
+    data = [
+        "//elixir/serviceradar_core:test/support/integration_selection_formatter.ex",
+        "//elixir/serviceradar_core:test/support/integration_selection_manifest.ex",
+    ],
+)
+
+_INTEGRATION_SELECTION_RUNNERS = integration_selection_runner_names()
+
+ex_unit_test(
+    name = "integration_selection_equivalence_test",
+    size = "large",
+    srcs = ["integration_selection_equivalence_test.exs"],
+    data = [
+        ":integration_test_dispositions.bzl",
+        "//elixir/serviceradar_core:test/INTEGRATION_SOURCE_DISPOSITIONS.tsv",
+    ],
+    env = {
+        "SERVICERADAR_SELECTION_LOAD_ONLY_RUNNERS": ",".join(_INTEGRATION_SELECTION_RUNNERS.load_only),
+        "SERVICERADAR_SELECTION_SELECTED_RUNNERS": ",".join(_INTEGRATION_SELECTION_RUNNERS.selected),
+    },
+    tools = [
+        "//elixir/serviceradar_core:{}".format(name)
+        for name in _INTEGRATION_SELECTION_RUNNERS.selected + _INTEGRATION_SELECTION_RUNNERS.load_only
+    ],
+)
+
+integration_shards_topology_test(
+    name = "integration_shards_topology_test",
+)
+
+missing_fixed_source(
+    name = "missing_fixed_source",
+    # Deliberately fails analysis; only its analysistest wrapper should select it.
+    tags = ["manual"],
+)
+
+missing_fixed_source_failure_test(
+    name = "missing_fixed_source_failure_test",
+    target_under_test = ":missing_fixed_source",
+)
+
+insufficient_capacity(
+    name = "insufficient_capacity",
+    # Deliberately fails analysis; only its analysistest wrapper should select it.
+    tags = ["manual"],
+)
+
+insufficient_capacity_failure_test(
+    name = "insufficient_capacity_failure_test",
+    target_under_test = ":insufficient_capacity",
+)
+
+test_suite(
+    name = "integration_shards_test",
+    tests = [
+        ":insufficient_capacity_failure_test",
+        ":integration_shards_topology_test",
+        ":missing_fixed_source_failure_test",
+    ],
+)
+
+exports_files([
+    "benchmark_runner.py",
+    "elixir_test_config_loader.exs",
+    "integration_shards.bzl",
+    "integration_test_dispositions.bzl",
+    "integration_tests.bzl",
+    "repo_alias.bzl",
+    # Read as text by //:ci_heavy_gate_contract_test, which pins the authority marker written
+    # here against the two consumers that must agree with it.
+    "template_authority.bzl",
+])
+
+# Opt-in switch for tests that talk to the shared CNPG fixture.
+#
+# These tests run real DDL against a database several pull requests share. Nothing may run
+# them by accident, and the guard must be visible at the target rather than buried in a
+# .bazelrc nobody reads -- so it is declared per target as:
+#
+#     target_compatible_with = integration_test_only(),
+#
+# and enabled per invocation as:
+#
+#     bazel test //... --test_tag_filters=integration_test --//build:enable_integration_tests
+#
+# Without the flag those targets are INCOMPATIBLE: a wildcard skips them and says so, and
+# naming one explicitly is a hard error that names the target. Compare `manual`, which
+# silently vanished from wildcards and gave no hint why.
+bool_flag(
+    name = "enable_integration_tests",
+    build_setting_default = False,
+)
+
+config_setting(
+    name = "integration_tests_enabled",
+    flag_values = {":enable_integration_tests": "True"},
+)
+
+# The run correlation id for one integration lifecycle.
+#
+# Six separate Bazel invocations (sweep, prepare template, migrate, provision, test, teardown)
+# must agree on one disposable database name and must not collide with a concurrent run. They
+# share no process, so the id comes from the caller and is repeated on every invocation:
+#
+#     bazel test ... --//build:run_id=$(uuidgen | tr -d - | tr 'A-Z' 'a-z')
+#
+# There is deliberately NO default. A constant fallback name is what allowed two runs against
+# one fixture to share a database and drop each other's data. See //build:run_id.bzl.
+string_flag(
+    name = "run_id",
+    build_setting_default = "",
+)
+
+# The base database name as a file, so no step reads it from ambient environment.
+run_id_file(
+    name = "run_id_file",
+    run_id = ":run_id",
+)
+
+# Whether this checkout may WRITE the shared template database, `sr_core_template`.
+#
+# That template is cloned by every run and only ever ratchets forward, so whoever migrates it
+# decides the schema every other branch gets. Leaving that open to any caller is what let seven
+# migrations from an unmerged pull request wedge every open pull request on 2026-09-04: the
+# branch never landed, so the "rebase onto the branch that added those migrations" the
+# ahead-check prescribes had nothing to rebase onto.
+#
+# Being GREEN is not the property that matters -- a passing unmerged branch ratchets it exactly
+# the same way. Being on TRUNK is. So exactly one action in //buildbuddy.yaml passes this --
+# `LargeIngestionGate`, which triggers on push to `staging` -- and pull requests, benchmark
+# branches and workstations apply their migrations to the per-run base instead.
+#
+# What it gates is the RATCHET, precisely: the migration set the template carries. It does not
+# gate `ensure_template`'s create-if-absent, which `provision_base` still performs on any run --
+# an empty template is a cache MISS for everyone (every reader clones it and migrates its own
+# base), not a decision about anyone's schema. Applying a migration is the decision, and that is
+# what only trunk may do.
+#
+# Default false, and every consumer fails CLOSED: an absent, empty or mangled marker refuses
+# the write. A run that wrongly believes it is not the authority fails loudly and changes
+# nothing; a run that wrongly believes it IS poisons the fixture for everyone.
+bool_flag(
+    name = "template_authority",
+    build_setting_default = False,
+)
+
+# The authority decision as a file, so no step reads it from ambient environment -- and so the
+# Rust and Elixir halves of the trunk lifecycle read the SAME answer. See
+# //build/template_authority.bzl.
+template_authority_file(
+    name = "template_authority_file",
+    template_authority = ":template_authority",
+)
+
+# Inputs every Mix compile in this repository needs. Resolved as a toolchain (registered in
+# //MODULE.bazel), so neither the ~15 first-party call sites nor the 269 generated Hex stubs
+# repeat any of it.
+mix_payloads(
+    name = "payloads",
+    # The Hex package manager itself, as a Mix archive. Not used to fetch anything -- every
+    # dependency is already a Bazel repository and mix runs with --no-deps-check -- but Mix
+    # refuses to resolve a project without it, aborting with "Could not find an SCM for
+    # dependency" even for a dev-only dep nothing would compile.
+    archives = ["@hex//:archive"],
+    # A NIF that compiles C++ and links no C++ runtime builds clean, then fails dlopen on its
+    # first unresolved symbol.
+    cxx_static_runtime = "@llvm//runtimes/cxxstdlib:static_runtime_lib",
+    elixir_make_nifs = ["//third_party/precompiled_nifs:elixir_make_nifs"],
+    elixir_make_nifs_target = ["//third_party/precompiled_nifs:elixir_make_nifs_target"],
+    openssl_sysroot = "//third_party/openssl:sysroot_tar",
+    precompiled_nifs = ["//third_party/precompiled_nifs:precompiled_nifs"],
+    precompiled_os_deps = ["//third_party/membrane:precompiled_os_deps"],
+)
+
+toolchain(
+    name = "mix_payloads",
+    toolchain = ":payloads",
+    toolchain_type = "@rules_elixir//:mix_payloads_toolchain_type",
+)

@@ -1,0 +1,711 @@
+use super::{BindParam, QueryPlan};
+use crate::{
+    error::{Result, ServiceError},
+    jsonb::DbJson,
+    models::OtelMetricRow,
+    parser::{Entity, Filter, FilterOp, OrderClause, OrderDirection},
+    schema::otel_metrics::dsl::{
+        component as col_component, grpc_method as col_grpc_method,
+        grpc_service as col_grpc_service, grpc_status_code as col_grpc_status,
+        http_method as col_http_method, http_route as col_http_route,
+        http_status_code as col_http_status, ingest_agent_id as col_ingest_agent_id,
+        ingest_identity as col_ingest_identity, ingest_partition as col_ingest_partition,
+        is_slow as col_is_slow, level as col_level, metric_type as col_metric_type, otel_metrics,
+        service_name as col_service_name, span_id as col_span_id, span_kind as col_span_kind,
+        span_name as col_span_name, timestamp as col_timestamp, trace_id as col_trace_id,
+    },
+    time::TimeRange,
+};
+use chrono::{DateTime, Utc};
+use diesel::PgTextExpressionMethods;
+use diesel::pg::Pg;
+use diesel::prelude::*;
+use diesel::query_builder::{AsQuery, BoxedSelectStatement, BoxedSqlQuery, FromClause, SqlQuery};
+use diesel::sql_query;
+use diesel::sql_types::{Array, Bool, Jsonb, Nullable, Text, Timestamptz};
+use diesel_async::{AsyncPgConnection, RunQueryDsl};
+use serde_json::Value;
+
+type MetricsTable = crate::schema::otel_metrics::table;
+type MetricsFromClause = FromClause<MetricsTable>;
+type MetricsQuery<'a> =
+    BoxedSelectStatement<'a, <MetricsTable as AsQuery>::SqlType, MetricsFromClause, Pg>;
+
+pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> Result<Vec<Value>> {
+    ensure_entity(plan)?;
+
+    if let Some(stats_sql) = build_stats_query(plan)? {
+        let query = stats_sql.to_boxed_query();
+        let rows: Vec<MetricsStatsPayload> = query
+            .load::<MetricsStatsPayload>(conn)
+            .await
+            .map_err(|err| ServiceError::Internal(err.into()))?;
+        return Ok(rows
+            .into_iter()
+            .filter_map(|row| row.payload.map(serde_json::Value::from))
+            .collect());
+    }
+
+    let query = build_query(plan)?;
+    let rows: Vec<OtelMetricRow> = query
+        .limit(plan.limit)
+        .offset(plan.offset)
+        .load(conn)
+        .await
+        .map_err(|err| ServiceError::Internal(err.into()))?;
+
+    Ok(rows.into_iter().map(OtelMetricRow::into_json).collect())
+}
+
+pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
+    ensure_entity(plan)?;
+
+    if let Some(stats_sql) = build_stats_query(plan)? {
+        let sql = rewrite_placeholders(&stats_sql.sql);
+        let params = stats_sql
+            .binds
+            .into_iter()
+            .map(bind_param_from_stats)
+            .collect();
+        return Ok((sql, params));
+    }
+
+    let query = build_query(plan)?.limit(plan.limit).offset(plan.offset);
+    let sql = super::diesel_sql(&query)?;
+
+    let mut params = Vec::new();
+    if let Some(TimeRange { start, end }) = &plan.time_range {
+        params.push(BindParam::timestamptz(*start));
+        params.push(BindParam::timestamptz(*end));
+    }
+
+    for filter in &plan.filters {
+        collect_filter_params(&mut params, filter)?;
+    }
+
+    super::reconcile_limit_offset_binds(&sql, &mut params, plan.limit, plan.offset)?;
+
+    #[cfg(any(test, debug_assertions))]
+    {
+        let bind_count = super::diesel_bind_count(&query)?;
+        if bind_count != params.len() {
+            return Err(ServiceError::Internal(anyhow::anyhow!(
+                "bind count mismatch (diesel {bind_count} vs params {})",
+                params.len()
+            )));
+        }
+    }
+
+    Ok((sql, params))
+}
+
+fn ensure_entity(plan: &QueryPlan) -> Result<()> {
+    match plan.entity {
+        Entity::OtelMetrics => Ok(()),
+        _ => Err(ServiceError::InvalidRequest(
+            "entity not supported by otel_metrics query".into(),
+        )),
+    }
+}
+
+fn build_query(plan: &QueryPlan) -> Result<MetricsQuery<'static>> {
+    let mut query = otel_metrics.into_boxed::<Pg>();
+
+    if let Some(TimeRange { start, end }) = &plan.time_range {
+        query = query.filter(col_timestamp.ge(*start).and(col_timestamp.le(*end)));
+    }
+
+    for filter in &plan.filters {
+        query = apply_filter(query, filter)?;
+    }
+
+    query = apply_ordering(query, &plan.order);
+    Ok(query)
+}
+
+fn collect_text_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
+    match filter.op {
+        FilterOp::Eq | FilterOp::NotEq | FilterOp::Like | FilterOp::NotLike => {
+            params.push(BindParam::Text(filter.value.as_scalar()?.to_string()));
+            Ok(())
+        }
+        FilterOp::In | FilterOp::NotIn => {
+            let values = filter.value.as_list()?.to_vec();
+            if values.is_empty() {
+                return Ok(());
+            }
+            params.push(BindParam::TextArray(values));
+            Ok(())
+        }
+        _ => Err(ServiceError::InvalidRequest(format!(
+            "unsupported operator for text filter: {:?}",
+            filter.op
+        ))),
+    }
+}
+
+fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
+    match filter.field.as_str() {
+        "trace_id" | "span_id" | "service_name" | "service" | "span_name" | "span_kind"
+        | "metric_type" | "type" | "component" | "level" | "http_method" | "http_route"
+        | "http_status_code" | "grpc_service" | "grpc_method" | "grpc_status_code"
+        | "ingest_identity" | "ingest_agent_id" | "ingest_partition" => {
+            collect_text_params(params, filter)
+        }
+        "is_slow" => {
+            params.push(BindParam::Bool(parse_bool(filter.value.as_scalar()?)?));
+            Ok(())
+        }
+        other => Err(ServiceError::InvalidRequest(format!(
+            "unsupported filter field for otel_metrics: '{other}'"
+        ))),
+    }
+}
+
+fn apply_filter<'a>(mut query: MetricsQuery<'a>, filter: &Filter) -> Result<MetricsQuery<'a>> {
+    match filter.field.as_str() {
+        "trace_id" => {
+            query = apply_text_filter!(query, filter, col_trace_id)?;
+        }
+        "span_id" => {
+            query = apply_text_filter!(query, filter, col_span_id)?;
+        }
+        "service_name" | "service" => {
+            query = apply_text_filter!(query, filter, col_service_name)?;
+        }
+        "span_name" => {
+            query = apply_text_filter!(query, filter, col_span_name)?;
+        }
+        "span_kind" => {
+            query = apply_text_filter!(query, filter, col_span_kind)?;
+        }
+        "metric_type" | "type" => {
+            query = apply_text_filter!(query, filter, col_metric_type)?;
+        }
+        "component" => {
+            query = apply_text_filter!(query, filter, col_component)?;
+        }
+        "level" => {
+            query = apply_text_filter!(query, filter, col_level)?;
+        }
+        "http_method" => {
+            query = apply_text_filter!(query, filter, col_http_method)?;
+        }
+        "http_route" => {
+            query = apply_text_filter!(query, filter, col_http_route)?;
+        }
+        "http_status_code" => {
+            query = apply_text_filter!(query, filter, col_http_status)?;
+        }
+        "grpc_service" => {
+            query = apply_text_filter!(query, filter, col_grpc_service)?;
+        }
+        "grpc_method" => {
+            query = apply_text_filter!(query, filter, col_grpc_method)?;
+        }
+        "grpc_status_code" => {
+            query = apply_text_filter!(query, filter, col_grpc_status)?;
+        }
+        "ingest_identity" => {
+            query = apply_text_filter!(query, filter, col_ingest_identity)?;
+        }
+        "ingest_agent_id" => {
+            query = apply_text_filter!(query, filter, col_ingest_agent_id)?;
+        }
+        "ingest_partition" => {
+            query = apply_text_filter!(query, filter, col_ingest_partition)?;
+        }
+        "is_slow" => {
+            let value = parse_bool(filter.value.as_scalar()?)?;
+            match filter.op {
+                FilterOp::Eq => query = query.filter(col_is_slow.eq(value)),
+                FilterOp::NotEq => query = query.filter(col_is_slow.ne(value)),
+                _ => {
+                    return Err(ServiceError::InvalidRequest(
+                        "is_slow filter only supports equality".into(),
+                    ));
+                }
+            }
+        }
+        other => {
+            return Err(ServiceError::InvalidRequest(format!(
+                "unsupported filter field for otel_metrics: '{other}'"
+            )));
+        }
+    }
+
+    Ok(query)
+}
+
+fn apply_ordering<'a>(mut query: MetricsQuery<'a>, order: &[OrderClause]) -> MetricsQuery<'a> {
+    let mut applied = false;
+    for clause in order {
+        query = if !applied {
+            applied = true;
+            match clause.field.as_str() {
+                "timestamp" => match clause.direction {
+                    OrderDirection::Asc => query.order(col_timestamp.asc()),
+                    OrderDirection::Desc => query.order(col_timestamp.desc()),
+                },
+                "service_name" | "service" => match clause.direction {
+                    OrderDirection::Asc => query.order(col_service_name.asc()),
+                    OrderDirection::Desc => query.order(col_service_name.desc()),
+                },
+                "metric_type" | "type" => match clause.direction {
+                    OrderDirection::Asc => query.order(col_metric_type.asc()),
+                    OrderDirection::Desc => query.order(col_metric_type.desc()),
+                },
+                _ => query,
+            }
+        } else {
+            match clause.field.as_str() {
+                "timestamp" => match clause.direction {
+                    OrderDirection::Asc => query.then_order_by(col_timestamp.asc()),
+                    OrderDirection::Desc => query.then_order_by(col_timestamp.desc()),
+                },
+                "service_name" | "service" => match clause.direction {
+                    OrderDirection::Asc => query.then_order_by(col_service_name.asc()),
+                    OrderDirection::Desc => query.then_order_by(col_service_name.desc()),
+                },
+                "metric_type" | "type" => match clause.direction {
+                    OrderDirection::Asc => query.then_order_by(col_metric_type.asc()),
+                    OrderDirection::Desc => query.then_order_by(col_metric_type.desc()),
+                },
+                _ => query,
+            }
+        };
+    }
+
+    if !applied {
+        query = query.order(col_timestamp.desc());
+    }
+
+    query
+}
+
+fn parse_bool(raw: &str) -> Result<bool> {
+    match raw.to_lowercase().as_str() {
+        "true" | "1" | "yes" => Ok(true),
+        "false" | "0" | "no" => Ok(false),
+        other => Err(ServiceError::InvalidRequest(format!(
+            "invalid boolean value '{other}'"
+        ))),
+    }
+}
+
+#[derive(Debug, Clone)]
+struct MetricsStatsSql {
+    sql: String,
+    binds: Vec<SqlBindValue>,
+}
+
+impl MetricsStatsSql {
+    fn to_boxed_query(&self) -> BoxedSqlQuery<'_, Pg, SqlQuery> {
+        let mut query = sql_query(rewrite_placeholders(&self.sql)).into_boxed::<Pg>();
+        for bind in &self.binds {
+            query = bind.apply(query);
+        }
+        query
+    }
+}
+
+#[derive(Debug, Clone)]
+enum SqlBindValue {
+    Text(String),
+    TextArray(Vec<String>),
+    Bool(bool),
+    Timestamp(DateTime<Utc>),
+}
+
+impl SqlBindValue {
+    fn apply<'a>(&self, query: BoxedSqlQuery<'a, Pg, SqlQuery>) -> BoxedSqlQuery<'a, Pg, SqlQuery> {
+        match self {
+            SqlBindValue::Text(value) => query.bind::<Text, _>(value.clone()),
+            SqlBindValue::TextArray(values) => query.bind::<Array<Text>, _>(values.clone()),
+            SqlBindValue::Bool(value) => query.bind::<Bool, _>(*value),
+            SqlBindValue::Timestamp(value) => query.bind::<Timestamptz, _>(*value),
+        }
+    }
+}
+
+fn bind_param_from_stats(value: SqlBindValue) -> BindParam {
+    match value {
+        SqlBindValue::Text(value) => BindParam::Text(value),
+        SqlBindValue::TextArray(values) => BindParam::TextArray(values),
+        SqlBindValue::Bool(value) => BindParam::Bool(value),
+        SqlBindValue::Timestamp(value) => BindParam::timestamptz(value),
+    }
+}
+
+#[derive(Debug, QueryableByName)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+struct MetricsStatsPayload {
+    #[diesel(sql_type = Nullable<Jsonb>)]
+    payload: Option<DbJson>,
+}
+
+#[derive(Debug, Clone)]
+struct MetricsStatsSpec {
+    alias: String,
+    group_field: Option<MetricsGroupField>,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum MetricsGroupField {
+    ServiceName,
+}
+
+impl MetricsGroupField {
+    fn column(&self) -> &'static str {
+        match self {
+            MetricsGroupField::ServiceName => "service_name",
+        }
+    }
+
+    fn response_key(&self) -> &'static str {
+        match self {
+            MetricsGroupField::ServiceName => "service_name",
+        }
+    }
+}
+
+fn build_stats_query(plan: &QueryPlan) -> Result<Option<MetricsStatsSql>> {
+    let stats_raw = match plan.stats.as_ref() {
+        Some(value) if !value.as_raw().trim().is_empty() => value.as_raw().trim(),
+        _ => return Ok(None),
+    };
+
+    let stats = parse_stats_spec(stats_raw)?;
+    let mut binds = Vec::new();
+    let mut clauses = Vec::new();
+
+    if let Some(TimeRange { start, end }) = &plan.time_range {
+        clauses.push("timestamp >= ?".to_string());
+        binds.push(SqlBindValue::Timestamp(*start));
+        clauses.push("timestamp <= ?".to_string());
+        binds.push(SqlBindValue::Timestamp(*end));
+    }
+
+    for filter in &plan.filters {
+        if let Some((clause, mut bind_values)) = build_stats_filter_clause(filter)? {
+            clauses.push(clause);
+            binds.append(&mut bind_values);
+        }
+    }
+
+    let mut sql = String::from("SELECT ");
+    let group_field = stats.group_field;
+    if let Some(group_field) = group_field {
+        let column = group_field.column();
+        sql.push_str(&format!(
+            "jsonb_build_object('{}', {column}, '{}', COUNT(*)) AS payload",
+            group_field.response_key(),
+            stats.alias
+        ));
+    } else {
+        sql.push_str(&format!(
+            "jsonb_build_object('{}', COUNT(*)) AS payload",
+            stats.alias
+        ));
+    }
+    sql.push_str("\nFROM otel_metrics");
+    if !clauses.is_empty() {
+        sql.push_str("\nWHERE ");
+        sql.push_str(&clauses.join(" AND "));
+    }
+
+    if let Some(group_field) = group_field {
+        let column = group_field.column();
+        sql.push_str(&format!("\nGROUP BY {column}"));
+        let order_sql = build_stats_order_clause(plan, stats.alias.as_str(), column);
+        sql.push_str(&order_sql);
+        sql.push_str(&format!("\nLIMIT {} OFFSET {}", plan.limit, plan.offset));
+    }
+
+    Ok(Some(MetricsStatsSql { sql, binds }))
+}
+
+fn build_stats_order_clause(plan: &QueryPlan, alias: &str, group_column: &str) -> String {
+    if plan.order.is_empty() {
+        return "\nORDER BY COUNT(*) DESC".to_string();
+    }
+
+    let mut parts = Vec::new();
+    for clause in &plan.order {
+        let expr = if clause.field.eq_ignore_ascii_case(alias) {
+            "COUNT(*)".to_string()
+        } else if matches!(clause.field.as_str(), "service" | "service_name" | "name") {
+            group_column.to_string()
+        } else {
+            continue;
+        };
+
+        let dir = match clause.direction {
+            OrderDirection::Asc => "ASC",
+            OrderDirection::Desc => "DESC",
+        };
+        parts.push(format!("{expr} {dir}"));
+    }
+
+    if parts.is_empty() {
+        "\nORDER BY COUNT(*) DESC".to_string()
+    } else {
+        format!("\nORDER BY {}", parts.join(", "))
+    }
+}
+
+fn build_stats_filter_clause(filter: &Filter) -> Result<Option<(String, Vec<SqlBindValue>)>> {
+    let mut binds = Vec::new();
+    let clause = match filter.field.as_str() {
+        "trace_id" => build_text_clause("trace_id", filter, &mut binds)?,
+        "span_id" => build_text_clause("span_id", filter, &mut binds)?,
+        "service_name" | "service" => build_text_clause("service_name", filter, &mut binds)?,
+        "span_name" => build_text_clause("span_name", filter, &mut binds)?,
+        "metric_type" | "type" => build_text_clause("metric_type", filter, &mut binds)?,
+        "component" => build_text_clause("component", filter, &mut binds)?,
+        "http_method" => build_text_clause("http_method", filter, &mut binds)?,
+        "http_route" => build_text_clause("http_route", filter, &mut binds)?,
+        "http_status_code" => build_text_clause("http_status_code", filter, &mut binds)?,
+        "grpc_service" => build_text_clause("grpc_service", filter, &mut binds)?,
+        "grpc_method" => build_text_clause("grpc_method", filter, &mut binds)?,
+        "grpc_status_code" => build_text_clause("grpc_status_code", filter, &mut binds)?,
+        "ingest_identity" => build_text_clause("ingest_identity", filter, &mut binds)?,
+        "ingest_agent_id" => build_text_clause("ingest_agent_id", filter, &mut binds)?,
+        "ingest_partition" => build_text_clause("ingest_partition", filter, &mut binds)?,
+        "is_slow" => {
+            let value = parse_bool(filter.value.as_scalar()?)?;
+            binds.push(SqlBindValue::Bool(value));
+            match filter.op {
+                FilterOp::Eq => "is_slow = ?".to_string(),
+                FilterOp::NotEq => "(is_slow IS NULL OR is_slow <> ?)".to_string(),
+                _ => {
+                    return Err(ServiceError::InvalidRequest(
+                        "is_slow filter only supports equality".into(),
+                    ));
+                }
+            }
+        }
+        other => {
+            return Err(ServiceError::InvalidRequest(format!(
+                "unsupported filter field for otel_metrics stats: '{other}'"
+            )));
+        }
+    };
+
+    Ok(Some((clause, binds)))
+}
+
+fn build_text_clause(
+    column: &str,
+    filter: &Filter,
+    binds: &mut Vec<SqlBindValue>,
+) -> Result<String> {
+    match filter.op {
+        FilterOp::Eq => {
+            binds.push(SqlBindValue::Text(filter.value.as_scalar()?.to_string()));
+            Ok(format!("{column} = ?"))
+        }
+        FilterOp::NotEq => {
+            binds.push(SqlBindValue::Text(filter.value.as_scalar()?.to_string()));
+            Ok(format!("{column} <> ?"))
+        }
+        FilterOp::Like => {
+            binds.push(SqlBindValue::Text(filter.value.as_scalar()?.to_string()));
+            Ok(format!("{column} ILIKE ?"))
+        }
+        FilterOp::NotLike => {
+            binds.push(SqlBindValue::Text(filter.value.as_scalar()?.to_string()));
+            Ok(format!("{column} NOT ILIKE ?"))
+        }
+        FilterOp::In | FilterOp::NotIn => {
+            let values: Vec<String> = filter
+                .value
+                .as_list()?
+                .iter()
+                .map(|v| v.to_string())
+                .collect();
+            if values.is_empty() {
+                return Ok("1=1".into());
+            }
+            binds.push(SqlBindValue::TextArray(values));
+            let operator = if matches!(filter.op, FilterOp::In) {
+                "= ANY(?)"
+            } else {
+                "<> ALL(?)"
+            };
+            Ok(format!("{column} {operator}"))
+        }
+        _ => Err(ServiceError::InvalidRequest(format!(
+            "text filter {column} does not support operator {:?}",
+            filter.op
+        ))),
+    }
+}
+
+fn parse_stats_spec(raw: &str) -> Result<MetricsStatsSpec> {
+    let tokens: Vec<&str> = raw.split_whitespace().collect();
+    if tokens.len() < 3 {
+        return Err(ServiceError::InvalidRequest(
+            "stats expressions must be of the form 'count() as alias'".into(),
+        ));
+    }
+
+    if !tokens[0].eq_ignore_ascii_case("count()") || !tokens[1].eq_ignore_ascii_case("as") {
+        return Err(ServiceError::InvalidRequest(
+            "only count() aggregations are supported for otel_metrics".into(),
+        ));
+    }
+
+    let alias = tokens[2]
+        .trim_matches('"')
+        .trim_matches('\'')
+        .to_lowercase();
+    if alias.is_empty() {
+        return Err(ServiceError::InvalidRequest(
+            "stats alias cannot be empty".into(),
+        ));
+    }
+
+    let mut group_field = None;
+    if tokens.len() >= 5 {
+        if !tokens[3].eq_ignore_ascii_case("by") {
+            return Err(ServiceError::InvalidRequest(
+                "expected 'by <field>' after stats alias".into(),
+            ));
+        }
+        group_field = Some(parse_group_field(tokens[4])?);
+    }
+
+    Ok(MetricsStatsSpec { alias, group_field })
+}
+
+fn parse_group_field(raw: &str) -> Result<MetricsGroupField> {
+    match raw.to_lowercase().as_str() {
+        "service_name" | "service" | "name" => Ok(MetricsGroupField::ServiceName),
+        other => Err(ServiceError::InvalidRequest(format!(
+            "unsupported stats group field '{other}'"
+        ))),
+    }
+}
+
+fn rewrite_placeholders(sql: &str) -> String {
+    let mut result = String::with_capacity(sql.len());
+    let mut index = 1;
+    for ch in sql.chars() {
+        if ch == '?' {
+            result.push('$');
+            result.push_str(&index.to_string());
+            index += 1;
+        } else {
+            result.push(ch);
+        }
+    }
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser::{Entity, Filter, FilterOp, FilterValue};
+    use chrono::{Duration as ChronoDuration, TimeZone, Utc};
+
+    fn base_plan(filters: Vec<Filter>) -> QueryPlan {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::hours(1);
+        QueryPlan {
+            entity: Entity::OtelMetrics,
+            filters,
+            order: Vec::new(),
+            limit: 100,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: None,
+            downsample: None,
+            rollup_stats: None,
+            other: false,
+            include_deleted: false,
+        }
+    }
+
+    #[test]
+    fn ingest_identity_eq_filter_generates_sql_and_bind() {
+        let plan = base_plan(vec![Filter {
+            field: "ingest_identity".into(),
+            op: FilterOp::Eq,
+            value: FilterValue::Scalar("spiffe://sr/agent/edge-1".to_string()),
+        }]);
+
+        let (sql, params) = to_sql_and_params(&plan).expect("sql should generate");
+
+        assert!(
+            sql.contains("\"otel_metrics\".\"ingest_identity\" = $3"),
+            "{sql}"
+        );
+        assert!(
+            matches!(&params[2], BindParam::Text(value) if value == "spiffe://sr/agent/edge-1"),
+            "params: {params:?}"
+        );
+    }
+
+    #[test]
+    fn ingest_agent_id_like_filter_uses_ilike() {
+        let plan = base_plan(vec![Filter {
+            field: "ingest_agent_id".into(),
+            op: FilterOp::Like,
+            value: FilterValue::Scalar("%edge%".to_string()),
+        }]);
+
+        let (sql, params) = to_sql_and_params(&plan).expect("sql should generate");
+
+        assert!(
+            sql.contains("\"otel_metrics\".\"ingest_agent_id\" ILIKE $3"),
+            "{sql}"
+        );
+        assert!(
+            matches!(&params[2], BindParam::Text(value) if value == "%edge%"),
+            "params: {params:?}"
+        );
+    }
+
+    #[test]
+    fn ingest_partition_in_filter_generates_any_clause() {
+        let plan = base_plan(vec![Filter {
+            field: "ingest_partition".into(),
+            op: FilterOp::In,
+            value: FilterValue::List(vec!["default".into(), "tenant-a".into()]),
+        }]);
+
+        let (sql, params) = to_sql_and_params(&plan).expect("sql should generate");
+
+        assert!(
+            sql.contains("\"otel_metrics\".\"ingest_partition\" = ANY($3)"),
+            "{sql}"
+        );
+        assert!(
+            matches!(&params[2], BindParam::TextArray(values)
+                if values == &vec!["default".to_string(), "tenant-a".to_string()]),
+            "params: {params:?}"
+        );
+    }
+
+    #[test]
+    fn unknown_filter_field_returns_error() {
+        let plan = base_plan(vec![Filter {
+            field: "unknown_field".into(),
+            op: FilterOp::Eq,
+            value: FilterValue::Scalar("test".to_string()),
+        }]);
+
+        let result = build_query(&plan);
+        match result {
+            Err(err) => {
+                assert!(
+                    err.to_string().contains("unsupported filter field"),
+                    "error should mention unsupported filter field: {}",
+                    err
+                );
+            }
+            Ok(_) => panic!("expected error for unknown filter field"),
+        }
+    }
+}

@@ -1,0 +1,30 @@
+[Unit]
+Description=ServiceRadar FieldSurvey Sidekick RF bridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/serviceradar/fieldsurvey-sidekick.env
+ExecStart=/usr/local/bin/serviceradar-fieldsurvey-sidekick --config /etc/serviceradar/fieldsurvey-sidekick.toml
+ExecReload=/bin/kill -s HUP $MAINPID
+ExecStop=/bin/kill -s SIGINT $MAINPID
+Restart=always
+RestartSec=5
+StateDirectory=serviceradar/fieldsurvey-sidekick
+LogsDirectory=serviceradar
+StandardOutput=append:/var/log/serviceradar/fieldsurvey-sidekick.log
+StandardError=append:/var/log/serviceradar/fieldsurvey-sidekick-error.log
+LimitNOFILE=1048576
+
+# The daemon configures monitor-mode radios, opens AF_PACKET sockets, and may
+# configure the Pi Wi-Fi uplink. Keep this service root-owned until radio setup
+# is split into a smaller privileged helper.
+User=root
+Group=root
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_DAC_OVERRIDE CAP_KILL CAP_SETUID CAP_SETGID
+NoNewPrivileges=false
+
+[Install]
+WantedBy=multi-user.target

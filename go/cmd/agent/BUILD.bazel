@@ -1,0 +1,33 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+load("@serviceradar_version//:defs.bzl", "FULL_VERSION")
+
+go_library(
+    name = "agent_lib",
+    srcs = ["main.go"],
+    embedsrcs = ["config.json"],
+    importpath = "github.com/carverauto/serviceradar/go/cmd/agent",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//go/pkg/agent",
+        "//go/pkg/agentgateway",
+        "//go/pkg/lifecycle",
+        "//go/pkg/logger",
+    ],
+)
+
+go_binary(
+    name = "agent",
+    embed = [":agent_lib"],
+    visibility = ["//visibility:public"],
+    # FULL_VERSION below is NOT a stamp key. It is a Starlark constant from @serviceradar_version,
+    # a repository rule that reads the //VERSION source file.
+    x_defs = {
+        "github.com/carverauto/serviceradar/go/cmd/agent.Version": FULL_VERSION,
+    },
+)
+
+go_test(
+    name = "agent_test",
+    srcs = ["main_test.go"],
+    embed = [":agent_lib"],
+)

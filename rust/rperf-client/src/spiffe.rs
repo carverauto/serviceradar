@@ -1,0 +1,81 @@
+use anyhow::{Context, Result, anyhow};
+use pem::Pem;
+use spiffe::bundle::BundleSource;
+use spiffe::cert::Certificate as SpiffeCertificate;
+use spiffe::{TrustDomain, X509Source, X509SourceBuilder};
+use std::sync::Arc;
+use tonic::transport::{Certificate, Identity};
+
+const CERT_TAG: &str = "CERTIFICATE";
+const KEY_TAG: &str = "PRIVATE KEY";
+
+pub struct ServerCredentials {
+    pub identity: Identity,
+    pub client_ca: Certificate,
+    guard: SpiffeSourceGuard,
+}
+
+impl ServerCredentials {
+    pub fn into_parts(self) -> (Identity, Certificate, SpiffeSourceGuard) {
+        (self.identity, self.client_ca, self.guard)
+    }
+}
+
+#[derive(Debug)]
+pub struct SpiffeSourceGuard {
+    #[allow(dead_code)]
+    source: Arc<X509Source>,
+}
+
+impl Drop for SpiffeSourceGuard {
+    fn drop(&mut self) {}
+}
+
+pub async fn load_server_credentials(
+    workload_socket: &str,
+    trust_domain: &str,
+) -> Result<ServerCredentials> {
+    let source = X509SourceBuilder::new()
+        .endpoint(workload_socket)
+        .build()
+        .await
+        .context("failed to initialize SPIFFE X.509 source")?;
+
+    let svid = source
+        .svid()
+        .map_err(|err| anyhow!("failed to fetch default X.509 SVID from workload API: {err}"))?;
+
+    let trust_domain = TrustDomain::try_from(trust_domain)
+        .map_err(|e| anyhow!("invalid trust domain {trust_domain}: {e}"))?;
+
+    let bundle = source
+        .bundle_for_trust_domain(&trust_domain)
+        .map_err(|err| anyhow!("failed to fetch X.509 bundle for trust domain: {err}"))?
+        .ok_or_else(|| anyhow!("no X.509 bundle available for trust domain {trust_domain}"))?;
+
+    let cert_pem = encode_chain(svid.cert_chain());
+    let key_pem = encode_block(KEY_TAG, svid.private_key().as_ref());
+    let ca_pem = encode_chain(bundle.authorities());
+
+    let identity = Identity::from_pem(cert_pem.into_bytes(), key_pem.into_bytes());
+    let client_ca = Certificate::from_pem(ca_pem.into_bytes());
+
+    Ok(ServerCredentials {
+        identity,
+        client_ca,
+        guard: SpiffeSourceGuard {
+            source: Arc::new(source),
+        },
+    })
+}
+
+fn encode_chain(items: &[SpiffeCertificate]) -> String {
+    items
+        .iter()
+        .map(|cert| encode_block(CERT_TAG, cert.as_ref()))
+        .collect()
+}
+
+fn encode_block(tag: &str, der: &[u8]) -> String {
+    pem::encode(&Pem::new(tag.to_string(), der.to_vec()))
+}

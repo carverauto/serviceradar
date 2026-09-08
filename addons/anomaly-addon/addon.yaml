@@ -1,0 +1,75 @@
+# Anomaly detection native add-on (OpenSpec: move-anomaly-detection-to-edge).
+#
+# Runs co-located with serviceradar-agent as a go-plugin sidecar. It consumes the
+# agent's local metric feed (metric-feed:v1) and scores each sample per series
+# with the shared serviceradar-anomaly-core detector, then emits anomaly verdicts
+# upstream over native-telemetry:v1.
+# Capabilities here match what the binary reports from Info().
+id: anomaly
+name: Anomaly Detection Add-on
+version: 0.3.6
+description: >-
+  Edge per-series anomaly detection. Analyzes the agent's locally collected
+  sysmon / SNMP / ICMP metrics on-host and ships verdicts instead of every raw
+  point, removing the central anomaly fan-out for agent-sourced series.
+
+kind: native
+delivery: pushed-artifact     # compiled-in | pushed-artifact | os-package
+supervision: agent-sidecar    # config-toggle | agent-sidecar | systemd-service | systemd-timer | ephemeral-helper
+language: rust                # go | rust
+
+capabilities:
+  - metric-feed:v1
+  - native-telemetry:v1
+
+requires:
+  base_agent: ">=1.2.0"
+  platforms: [linux]
+  os_capabilities: []
+  run_as: serviceradar
+
+plugin:
+  protocol: grpc
+  app_protocol_version: 1
+
+exec:
+  binary: serviceradar-anomaly-addon
+  install_path: /usr/local/lib/serviceradar/bin
+
+# Hard resource bounds so edge compute cannot impact the host or the base agent.
+# The supervisor (agent-sidecar) and the systemd unit generator enforce these.
+resources:
+  cpu_max_percent: 50            # <= half of one core
+  memory_max_bytes: 268435456    # 256 MiB hard ceiling (MemoryMax / memory.max)
+  memory_high_bytes: 201326592   # 192 MiB soft pressure threshold (MemoryHigh)
+  tasks_max: 32
+  slice: serviceradar-addons.slice
+
+# The verdict event the add-on emits over native-telemetry:v1 — an OCSF
+# Detection Finding (class_uid 2004) so core ingests/displays it like a central
+# anomaly verdict.
+signal_schemas:
+  - id: com.carverauto.anomaly.detection_finding
+    version: 1.0.0
+    signal_type: event
+    payload_kind: ocsf_event
+    payload_schema: schemas/detection_finding.schema.json
+    display_contract: display/detection_finding.display.json
+    display_contract_id: com.carverauto.anomaly.detection_finding.display
+    display_contract_version: 1.1.0
+    ocsf_schema_version: 1.5.0
+    class_uid: 2004
+    type_uid: 200401
+  - id: com.carverauto.anomaly.capacity_shed
+    version: 1.0.0
+    signal_type: event
+    payload_kind: ocsf_event
+    payload_schema: schemas/capacity_shed.schema.json
+    display_contract: display/capacity_shed.display.json
+    display_contract_id: com.carverauto.anomaly.capacity_shed.display
+    display_contract_version: 1.0.0
+    ocsf_schema_version: 1.7.0
+    class_uid: 1008
+    type_uid: 100801
+
+config_schema: config.schema.json

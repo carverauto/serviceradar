@@ -1,0 +1,142 @@
+suite: agent gateway Gateway API routes
+templates:
+  - templates/gateway-api.yaml
+# Pinned explicitly so the parentRefs assertions below prove the routes carry
+# .Release.Namespace rather than a hardcoded value. helm-unittest's default
+# release namespace is the literal "NAMESPACE", which is indistinguishable from
+# a template bug when the expected value is also a plausible default.
+release:
+  namespace: serviceradar-test
+tests:
+  # Documents are selected by name/kind, never by documentIndex. helm-unittest
+  # indexes documents in raw template order, while `helm template` prints them in
+  # Helm's kind-sorted install order -- indices copied from `helm template` output
+  # therefore address the wrong document. Selectors are also stable when a
+  # listener or route is toggled off and every later index shifts.
+  - it: renders managed TCP listeners and routes for agent gateway ports
+    set:
+      gatewayApi.enabled: true
+      gatewayApi.host: acme.serviceradar.cloud
+      gatewayApi.agentGateway.enabled: true
+      agentGateway.service.type: ClusterIP
+    asserts:
+      - hasDocuments:
+          count: 7
+      - isKind:
+          of: Gateway
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-edge-gateway
+      - contains:
+          path: spec.listeners
+          content:
+            name: agent-grpc
+            port: 50052
+            protocol: TCP
+            allowedRoutes:
+              namespaces:
+                from: Same
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-edge-gateway
+      - contains:
+          path: spec.listeners
+          content:
+            name: agent-artifacts
+            port: 50053
+            protocol: TCP
+            allowedRoutes:
+              namespaces:
+                from: Same
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-edge-gateway
+      - isKind:
+          of: TCPRoute
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-agent-grpc
+      - isAPIVersion:
+          of: gateway.networking.k8s.io/v1alpha2
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-agent-grpc
+      - contains:
+          path: spec.parentRefs
+          content:
+            name: serviceradar-edge-gateway
+            namespace: serviceradar-test
+            sectionName: agent-grpc
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-agent-grpc
+      - equal:
+          path: spec.rules[0].backendRefs[0].name
+          value: serviceradar-agent-gateway
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-agent-grpc
+      - equal:
+          path: spec.rules[0].backendRefs[0].port
+          value: 50052
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-agent-grpc
+      - isKind:
+          of: TCPRoute
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-agent-artifacts
+      - contains:
+          path: spec.parentRefs
+          content:
+            name: serviceradar-edge-gateway
+            namespace: serviceradar-test
+            sectionName: agent-artifacts
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-agent-artifacts
+      - equal:
+          path: spec.rules[0].backendRefs[0].name
+          value: serviceradar-agent-gateway
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-agent-artifacts
+      - equal:
+          path: spec.rules[0].backendRefs[0].port
+          value: 50053
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-agent-artifacts
+
+  - it: can omit the artifact listener and route
+    set:
+      gatewayApi.enabled: true
+      gatewayApi.host: acme.serviceradar.cloud
+      gatewayApi.agentGateway.enabled: true
+      gatewayApi.agentGateway.artifacts.enabled: false
+      agentGateway.service.type: ClusterIP
+    asserts:
+      - hasDocuments:
+          count: 6
+      - isKind:
+          of: TCPRoute
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-agent-grpc
+
+  - it: requires attach-mode parent refs when enabled
+    set:
+      gatewayApi.enabled: true
+      gatewayApi.mode: attach
+      gatewayApi.host: acme.serviceradar.cloud
+      gatewayApi.parentRefs:
+        - group: gateway.networking.k8s.io
+          kind: Gateway
+          name: shared-gateway
+          namespace: shared
+          sectionName: https
+      gatewayApi.agentGateway.enabled: true
+    asserts:
+      - failedTemplate:
+          errorMessage: "gatewayApi.agentGateway.grpc.parentRefs is required when gatewayApi.agentGateway.enabled=true and gatewayApi.mode=attach"

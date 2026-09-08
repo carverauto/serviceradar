@@ -1,0 +1,133 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<SIPSERVER created="2010-07-18" last_updated="2024-05-27" author="xnih13@gmail.com" last_edited_by="xnih13@gmail.com" last_edited_with="Fingerprint Editor">
+    <fingerprints>
+        <fingerprint name="3CX IP Phone System" os_name="" os_class="" os_vendor="" os_url="" device_type="VoIP Phone" device_vendor="3cx" device_url="http://www.3cx.com/phone-system/index.html" comments="" author="xnih13@gmail.com" last_updated="2010-07-21">
+            <sipserver_tests>
+                <test weight="5" matchtype="partial" sipserver="3CXPhoneSystem"/>
+            </sipserver_tests>
+        </fingerprint>
+        <fingerprint name="3CX IP SoftPhone" os_name="" os_class="" os_vendor="" os_url="" device_type="VoIP Phone" device_vendor="3cx" device_url="http://www.3cx.com/VOIP/voip-phone.html" comments="" author="xnih13@gmail.com" last_updated="2010-07-21">
+            <sipserver_tests>
+                <test weight="5" matchtype="partial" sipserver="3CX Phone"/>
+                <test weight="5" matchtype="partial" sipserver="3CXPhone"/>
+                <test weight="5" matchtype="partial" sipserver="3CXVoipPhone"/>
+            </sipserver_tests>
+        </fingerprint>
+        <fingerprint name="Aastra 312 IP Phone" os_name="" os_class="" os_vendor="" os_url="" device_type="VoIP Phone" device_vendor="Aastra Technologies Limited" device_url="http://www.aastratelecom.com" comments="" author="xnih13@gmail.com" last_updated="2010-07-21">
+            <sipserver_tests>
+                <test weight="5" matchtype="partial" sipserver="Aastra 312"/>
+                <test weight="5" matchtype="partial" sipserver="AastraPhone312"/>
+            </sipserver_tests>
+        </fingerprint>
+        <fingerprint name="Aastra 480 IP Phone" os_name="" os_class="" os_vendor="" os_url="" device_type="VoIP Phone" device_vendor="Aastra Technologies Limited" device_url="http://www.aastratelecom.com" comments="" author="xnih13@gmail.com" last_updated="2010-07-21">
+            <sipserver_tests>
+                <test weight="5" matchtype="partial" sipserver="Aastra 480i"/>
+            </sipserver_tests>
+        </fingerprint>
+        <fingerprint name="Aastra 55i IP Phone" os_name="" os_class="" os_vendor="" os_url="" device_type="VoIP Phone" device_vendor="Aastra Technologies Limited" device_url="http://www.aastratelecom.com" comments="" author="xnih13@gmail.com" last_updated="2010-07-21">
+            <sipserver_tests>
+                <test weight="5" matchtype="partial" sipserver="Aastra 55i"/>
+            </sipserver_tests>
+        </fingerprint>
+        <fingerprint name="Aastra 57i IP Phone" os_name="" os_class="" os_vendor="" os_url="" device_type="VoIP Phone" device_vendor="Aastra Technologies Limited" device_url="http://www.aastratelecom.com" comments="" author="xnih13@gmail.com" last_updated="2010-07-21">
+            <sipserver_tests>
+                <test weight="5" matchtype="partial" sipserver="Aastra 57i"/>
+            </sipserver_tests>
+        </fingerprint>
+        <fingerprint name="Aastra 6730i IP Phone" os_name="" os_class="" os_vendor="" os_url="" device_type="VoIP Phone" device_vendor="Aastra Technologies Limited" device_url="http://www.aastratelecom.com" comments="" author="xnih13@gmail.com" last_updated="2010-07-21">
+            <sipserver_tests>
+                <test weight="5" matchtype="partial" sipserver="Aastra 6730i"/>
+            </sipserver_tests>
+        </fingerprint>
+        <fingerprint name="Aastra 9112i IP Phone" os_name="" os_class="" os_vendor="" os_url="" device_type="VoIP Phone" device_vendor="Aastra Technologies Limited" device_url="http://www.aastratelecom.com" comments="" author="xnih13@gmail.com" last_updated="2010-07-21">
+            <sipserver_tests>
+                <test weight="5" matchtype="partial" sipserver="Aastra 9112i"/>
+            </sipserver_tests>
+        </fingerprint>
+        <fingerprint name="Aastra 9133i IP Phone" os_name="" os_class="" os_vendor="" os_url="" device_type="VoIP Phone" device_vendor="Aastra Technologies Limited" device_url="http://www.aastratelecom.com" comments="" author="xnih13@gmail.com" last_updated="2010-07-21">
+            <sipserver_tests>
+                <test weight="5" matchtype="partial" sipserver="Aastra 9133i"/>
+            </sipserver_tests>
+        </fingerprint>
+        <fingerprint name="Aastra OpenComm 1000 IP Phone" os_name="" os_class="" os_vendor="" os_url="" device_type="VoIP Phone" device_vendor="Aastra DeTeWe GmbH" device_url="http://www.detewe.ru/oc1k_br_01.htm" comments="" author="xnih13@gmail.com" last_updated="2010-07-21">
+            <sipserver_tests>
+                <test weight="5" matchtype="partial" sipserver="OpenCom1000"/>
+            </sipserver_tests>
+        </fingerprint>
+        <fingerprint name="Accton IP Phone" os_name="" os_class="" os_vendor="" os_url="" device_type="VoIP Phone" device_vendor="Accton Technology Corporation" device_url="http://www.accton.com/" comments="" author="xnih13@gmail.com" last_updated="2010-07-21">
+            <sipserver_tests>
+                <test weight="5" matchtype="partial" sipserver="AcctonVoIP"/>
+            </sipserver_tests>
+        </fingerprint>
+        <fingerprint name="Asterisk IP Phone System" os_name="" os_class="" os_vendor="" os_url="" device_type="VoIP Phone" device_vendor="Asterisk" device_url="http://www.asterisk.org/" comments="" author="xnih13@gmail.com" last_updated="2010-07-21">
+            <sipserver_tests>
+                <test weight="5" matchtype="partial" sipserver="Asterisk PBX"/>
+            </sipserver_tests>
+        </fingerprint>
+        <fingerprint name="Cisco 7960x IP Phone" os_name="" os_class="" os_vendor="" os_url="" device_type="VoIP Phone" device_vendor="Cisco Systems, Inc." device_url="http://www.cisco.com" comments="" author="xnih13@gmail.com" last_updated="2010-07-21">
+            <sipserver_tests>
+                <test weight="5" matchtype="partial" sipserver="Cisco-CP7960"/>
+            </sipserver_tests>
+        </fingerprint>
+        <fingerprint name="eyeBeam IP SoftPhone" os_name="" os_class="" os_vendor="" os_url="" device_type="VoIP Phone" device_vendor="Counterpath" device_url="http://www.counterpath.com/eyebeam.html" comments="" author="xnih13@gmail.com" last_updated="2010-07-21">
+            <sipserver_tests>
+                <test weight="5" matchtype="partial" sipserver="eyeBeam"/>
+            </sipserver_tests>
+        </fingerprint>
+        <fingerprint name="Linksys PAP IP Phone Gateway" os_name="" os_class="" os_vendor="" os_url="" device_type="VoIP Gateway" device_vendor="Cisco Systems, Inc." device_url="http://www.cisco.com" comments="" author="xnih13@gmail.com" last_updated="2010-07-21">
+            <sipserver_tests>
+                <test weight="5" matchtype="partial" sipserver="Linksys/PAP2"/>
+            </sipserver_tests>
+        </fingerprint>
+        <fingerprint name="Linksys RT IP Phone Gateway" os_name="" os_class="" os_vendor="" os_url="" device_type="VoIP Gateway" device_vendor="Cisco Systems, Inc." device_url="http://www.cisco.com" comments="" author="xnih13@gmail.com" last_updated="2010-07-21">
+            <sipserver_tests>
+                <test weight="5" matchtype="partial" sipserver="Linksys/RT"/>
+            </sipserver_tests>
+        </fingerprint>
+        <fingerprint name="LinkSys SPA IP Phone" os_name="" os_class="" os_vendor="" os_url="" device_type="VoIP Phone" device_vendor="Cisco Systems, Inc." device_url="http://www.cisco.com" comments="" author="xnih13@gmail.com" last_updated="2010-07-21">
+            <sipserver_tests>
+                <test weight="5" matchtype="partial" sipserver="Linksys/SPA"/>
+            </sipserver_tests>
+        </fingerprint>
+        <fingerprint name="Linksys WIP IP Wireless Phone" os_name="" os_class="" os_vendor="" os_url="" device_type="VoIP Phone" device_vendor="Cisco Systems, Inc." device_url="http://www.cisco.com" comments="" author="xnih13@gmail.com" last_updated="2010-07-21">
+            <sipserver_tests>
+                <test weight="5" matchtype="partial" sipserver="Linksys/WIP"/>
+            </sipserver_tests>
+        </fingerprint>
+        <fingerprint name="Linksys WRP IP Wireless Phone Gateway" os_name="" os_class="" os_vendor="" os_url="" device_type="VoIP Gateway" device_vendor="Cisco Systems, Inc." device_url="http://www.cisco.com" comments="" author="xnih13@gmail.com" last_updated="2010-07-21">
+            <sipserver_tests>
+                <test weight="5" matchtype="partial" sipserver="Linksys/WRP"/>
+            </sipserver_tests>
+        </fingerprint>
+        <fingerprint name="Linux" os_name="Linux" os_class="Linux" os_vendor="" os_url="http://www.kernel.org/" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2012-01-09">
+            <sipserver_tests>
+                <test weight="5" matchtype="partial" sipserver="linux"/>
+            </sipserver_tests>
+        </fingerprint>
+        <fingerprint name="Samsung SmartTV" os_name="VDLinux 2.6" os_class="Linux" os_vendor="Samsung" os_url="http://developer.samsung.com/devices/tv-specs" device_type="SmartTV" device_vendor="Samsung" device_url="http://developer.samsung.com/devices/tv-specs" comments="" author="xnih13@gmail.com" last_updated="2014-06-23">
+            <sipserver_tests>
+                <test weight="5" matchtype="partial" sipserver="Samsung UPnP"/>
+            </sipserver_tests>
+        </fingerprint>
+        <fingerprint name="SJphone IP Phone" os_name="" os_class="" os_vendor="" os_url="" device_type="VoIP Phone" device_vendor="SJLabs" device_url="http://www.sjlabs.com" comments="" author="xnih13@gmail.com" last_updated="2010-07-21">
+            <sipserver_tests>
+                <test weight="5" matchtype="partial" sipserver="SJphone"/>
+            </sipserver_tests>
+        </fingerprint>
+        <fingerprint name="snom IP Phone" os_name="" os_class="" os_vendor="" os_url="" device_type="VoIP Phone" device_vendor="snom" device_url="http://www.snom.com/en/products/ip-phones/" comments="" author="xnih13@gmail.com" last_updated="2010-07-21">
+            <sipserver_tests>
+                <test weight="5" matchtype="partial" sipserver="snom"/>
+            </sipserver_tests>
+        </fingerprint>
+        <fingerprint name="Xbox 360" os_name="" os_class="" os_vendor="" os_url="" device_type="Game Console" device_vendor="Microsoft Corp." device_url="http://www.xbox.com" comments="" author="xnih13@gmail.com" last_updated="2014-06-23">
+            <sipserver_tests>
+                <test weight="5" matchtype="partial" sipserver="Xbox/2"/>
+            </sipserver_tests>
+        </fingerprint>
+        <fingerprint name="X-Lite IP SoftPhone" os_name="" os_class="" os_vendor="" os_url="" device_type="VoIP Phone" device_vendor="Counterpath" device_url="http://www.counterpath.com/x-lite.html" comments="" author="xnih13@gmail.com" last_updated="2010-07-21">
+            <sipserver_tests>
+                <test weight="5" matchtype="partial" sipserver="X-Lite"/>
+            </sipserver_tests>
+        </fingerprint>
+    </fingerprints>
+</SIPSERVER>

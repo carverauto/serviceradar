@@ -1,0 +1,899 @@
+# Copyright 2025 Carver Automation Corporation.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Publish Release Artifacts
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to retry (for example, v1.4.22)."
+        required: true
+        type: string
+      dry_run:
+        description: "Run publish_packages in --dry_run mode."
+        required: false
+        type: boolean
+        default: false
+      append_notes:
+        description: "Append notes when updating an existing release."
+        required: false
+        type: boolean
+        default: false
+      prerelease:
+        description: "Mark the GitHub release as a prerelease."
+        required: false
+        type: boolean
+        default: false
+      draft:
+        description: "Create the GitHub release as a draft."
+        required: false
+        type: boolean
+        default: false
+      overwrite_assets:
+        description: "Replace assets on the release when filenames match."
+        required: false
+        type: boolean
+        default: true
+
+concurrency:
+  group: release-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  id-token: write
+  statuses: read
+
+jobs:
+  publish:
+    runs-on: serviceradar-signing
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      version: ${{ steps.release.outputs.version }}
+      commit: ${{ steps.release.outputs.commit }}
+      dry_run: ${{ steps.release.outputs.dry_run }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
+      draft: ${{ steps.release.outputs.draft }}
+      release_id: ${{ steps.release_assets.outputs.release_id }}
+    environment: release
+    env:
+      BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY || secrets.BUILDBUDDY_API_KEY }}
+      GH_TOKEN: ${{ github.token }}
+      GITHUB_TOKEN: ${{ github.token }}
+      OCI_REGISTRY: registry.carverauto.dev
+      OCI_PROJECT: serviceradar
+      OCI_CHART_REPOSITORY: serviceradar/charts
+      OCI_USERNAME: ${{ secrets.HARBOR_ROBOT_USERNAME }}
+      OCI_TOKEN: ${{ secrets.HARBOR_ROBOT_SECRET }}
+      # Harbor above is where this job PUSHES. The pair below is where Bazel still PULLS from
+      # upstream, and it is now down to a SINGLE image.
+      #
+      # The base images were mirrored into Harbor: of the oci pulls in //MODULE.bazel, 11 now
+      # resolve to registry.carverauto.dev and exactly one does not --
+      #   image = "docker.io/pgduckdb/pgduckdb"   (@pgduckdb_18, base of the analytics head)
+      # DOCKERHUB_* stays for that one pull. Anonymous fetches hit Docker Hub's
+      # 100-per-6h-per-IP limit, and a throttled fetch surfaces as a Bazel "no such package"
+      # loading error rather than anything resembling a rate limit.
+      # buildbuddy_setup_docker_auth.sh writes an entry per registry.
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+      COSIGN_KEYLESS: ${{ secrets.COSIGN_KEYLESS }}
+      SIGSTORE_FULCIO_URL: ${{ secrets.SIGSTORE_FULCIO_URL }}
+      SIGSTORE_REKOR_URL: ${{ secrets.SIGSTORE_REKOR_URL }}
+      SIGSTORE_OIDC_ISSUER: ${{ secrets.SIGSTORE_OIDC_ISSUER }}
+      SIGSTORE_OIDC_CLIENT_ID: ${{ secrets.SIGSTORE_OIDC_CLIENT_ID }}
+      SIGSTORE_OIDC_AUDIENCE: ${{ secrets.SIGSTORE_OIDC_AUDIENCE }}
+      SIGSTORE_TRUSTED_ROOT: ${{ secrets.SIGSTORE_TRUSTED_ROOT }}
+      SIGSTORE_TRUSTED_ROOT_FILE: ${{ secrets.SIGSTORE_TRUSTED_ROOT_FILE }}
+      SIGSTORE_ROOT_PEM: ${{ secrets.SIGSTORE_ROOT_PEM }}
+      SIGSTORE_ROOT_FILE: ${{ secrets.SIGSTORE_ROOT_FILE }}
+      SIGSTORE_CT_LOG_PUBLIC_KEY: ${{ secrets.SIGSTORE_CT_LOG_PUBLIC_KEY }}
+      SIGSTORE_CT_LOG_PUBLIC_KEY_FILE: ${{ secrets.SIGSTORE_CT_LOG_PUBLIC_KEY_FILE }}
+      SIGSTORE_REKOR_PUBLIC_KEY_PEM: ${{ secrets.SIGSTORE_REKOR_PUBLIC_KEY_PEM }}
+      SIGSTORE_REKOR_PUBLIC_KEY_FILE: ${{ secrets.SIGSTORE_REKOR_PUBLIC_KEY_FILE }}
+      COSIGN_CERTIFICATE_IDENTITY: ${{ secrets.COSIGN_CERTIFICATE_IDENTITY }}
+      COSIGN_CERTIFICATE_IDENTITY_REGEXP: ${{ secrets.COSIGN_CERTIFICATE_IDENTITY_REGEXP }}
+      COSIGN_CERTIFICATE_OIDC_ISSUER: ${{ secrets.COSIGN_CERTIFICATE_OIDC_ISSUER }}
+      COSIGN_CERTIFICATE_OIDC_ISSUER_REGEXP: ${{ secrets.COSIGN_CERTIFICATE_OIDC_ISSUER_REGEXP }}
+      # (Wasm plugin upload-signing secrets moved to wasm-plugins.yml, which now owns
+      # publishing the plugins on `v*` tags.)
+      BAZELISK_HOME: ${{ github.workspace }}/.cache/bazelisk
+      # serviceradar-signing does not mount /bazel-cache (that path is the ARC
+      # workflow-runner volume). --config=ci therefore dies with Permission
+      # denied on the repo-contents cache. --config=remote is the same
+      # remote_base RBE graph with $HOME caches.
+      BAZEL_BUILD_FLAGS: -c opt --config=remote --remote_download_outputs=all
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Enforce release source
+        id: source
+        env:
+          INPUT_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || '' }}
+          RELEASE_BASE_REF: origin/staging
+        run: |
+          set -euo pipefail
+
+          git fetch --no-tags origin +refs/heads/staging:refs/remotes/origin/staging
+
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            tag="${INPUT_TAG}"
+            if [[ -z "${tag}" ]]; then
+              echo "Manual release dispatch requires an existing release tag." >&2
+              exit 1
+            fi
+            ./scripts/validate-release-tag.sh "${tag}"
+            git fetch --no-tags origin "refs/tags/${tag}:refs/tags/${tag}"
+          elif [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            tag="${GITHUB_REF#refs/tags/}"
+            ./scripts/validate-release-tag.sh "${tag}"
+          else
+            echo "Release publication requires a tag-push event or an explicit manual tag." >&2
+            exit 1
+          fi
+
+          if ! git rev-parse -q --verify "refs/tags/${tag}^{commit}" >/dev/null; then
+            echo "Release tag ${tag} is not available in this checkout." >&2
+            exit 1
+          fi
+          release_commit="$(git rev-list -n1 "refs/tags/${tag}^{commit}")"
+
+          if ! git merge-base --is-ancestor "${release_commit}" "${RELEASE_BASE_REF}"; then
+            echo "Release commit ${release_commit} is not reachable from ${RELEASE_BASE_REF}" >&2
+            exit 1
+          fi
+
+          ./scripts/validate-release-metadata.sh "${tag}" "${release_commit}"
+          printf 'tag=%s\ncommit=%s\n' "${tag}" "${release_commit}" >> "${GITHUB_OUTPUT}"
+
+      - name: Cache Bazel artifacts
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # actions/cache@v6.1.0
+        with:
+          path: |
+            ${{ env.BAZELISK_HOME }}
+          # Keyed on .bazelversion ONLY. This cache holds just the downloaded bazel binaries.
+          key: ${{ runner.os }}-bazelisk-${{ hashFiles('.bazelversion') }}
+          restore-keys: |
+            ${{ runner.os }}-bazelisk-
+            
+      # Only the credential and the three strategy overrides belong here now. Everything else is
+      # inherited, so it cannot drift from //.bazelrc.
+      - name: Configure BuildBuddy remote cache
+        run: |
+          set -euo pipefail
+
+          if [ -z "${BUILDBUDDY_ORG_API_KEY:-}" ]; then
+            echo "BUILDBUDDY_ORG_API_KEY is unavailable; --config=remote cannot authenticate." >&2
+            exit 1
+          fi
+
+          umask 077
+          printf 'common --remote_header=x-buildbuddy-api-key=%s\n' "${BUILDBUDDY_ORG_API_KEY}" > .bazelrc.remote
+
+      - name: Install Bazelisk
+        run: ./scripts/install-bazelisk.sh
+
+      # The large-ingestion waiter shells out to `gh`. serviceradar-signing does
+      # not ship it, and `bazel run` hides $HOME/.local/bin. Install here so the
+      # next step can see it; the waiter also prepends this directory to PATH.
+      - name: Install GitHub CLI
+        run: |
+          set -euo pipefail
+          source ./scripts/install-download-integrity.sh
+          VERSION="2.98.0"
+          INSTALL_DIR="${HOME}/.local/bin"
+          mkdir -p "${INSTALL_DIR}"
+          echo "${INSTALL_DIR}" >> "${GITHUB_PATH}"
+          if [[ -x "${INSTALL_DIR}/gh" ]]; then
+            echo "gh already installed at ${INSTALL_DIR}/gh"
+            "${INSTALL_DIR}/gh" --version
+            exit 0
+          fi
+          archive="gh_${VERSION}_linux_amd64.tar.gz"
+          url="https://github.com/cli/cli/releases/download/v${VERSION}/${archive}"
+          expected_sha256="3b8ac6b30336802fc1a858d7c084e11cdf24ac1a761ca90b68022d7d729208de"
+          tmpdir="$(mktemp -d)"
+          trap 'rm -rf "${tmpdir}"' EXIT
+          sr_require_sha256 "$expected_sha256" "gh v${VERSION} ${archive}"
+          curl --fail --location --retry 5 --retry-all-errors --output "${tmpdir}/${archive}" "${url}"
+          sr_verify_sha256 "${tmpdir}/${archive}" "$expected_sha256" "gh v${VERSION} ${archive}"
+          tar -xzf "${tmpdir}/${archive}" -C "${tmpdir}"
+          install -m 0755 "${tmpdir}/gh_${VERSION}_linux_amd64/bin/gh" "${INSTALL_DIR}/gh"
+          echo "Installed gh $("${INSTALL_DIR}/gh" --version | head -n1) to ${INSTALL_DIR}/gh"
+
+      - name: Wait for large-ingestion gate
+        env:
+          RELEASE_COMMIT: ${{ steps.source.outputs.commit }}
+        run: |
+          set -euo pipefail
+          bazel run ${BAZEL_BUILD_FLAGS} //build/ci:wait_for_large_ingestion_gate -- \
+            --repository "${GITHUB_REPOSITORY}" \
+            --commit "${RELEASE_COMMIT}" \
+            --base-ref origin/staging \
+            --token-env GH_TOKEN \
+            --timeout-seconds 5400 \
+            --poll-seconds 15 \
+            --target-url-prefix https://carverauto.buildbuddy.io/invocation/
+
+      - name: Install Cosign
+        run: ./scripts/install-cosign.sh
+
+      - name: Install ORAS
+        run: ./scripts/install-oras.sh
+
+      - name: Resolve release metadata
+        id: release
+        env:
+          GATED_TAG: ${{ steps.source.outputs.tag }}
+          GATED_COMMIT: ${{ steps.source.outputs.commit }}
+          INPUT_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run || 'false' }}
+          INPUT_APPEND_NOTES: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.append_notes || 'false' }}
+          INPUT_PRERELEASE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.prerelease || 'false' }}
+          INPUT_DRAFT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.draft || 'false' }}
+          INPUT_OVERWRITE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.overwrite_assets || 'true' }}
+        run: |
+          set -euo pipefail
+
+          tag="${GATED_TAG}"
+          release_commit="${GATED_COMMIT}"
+          if [[ -z "$tag" || -z "$release_commit" ]]; then
+            echo "Canonical release source outputs are incomplete" >&2
+            exit 1
+          fi
+
+          ./scripts/validate-release-metadata.sh "${tag}" "${release_commit}" >/dev/null
+          version="${tag#v}"
+
+          # Auto-detect pre-release from version pattern
+          is_prerelease="${INPUT_PRERELEASE}"
+          if [[ "$version" =~ -pre[0-9]*$ ]] || \
+             [[ "$version" =~ -rc[0-9]*$ ]] || \
+             [[ "$version" =~ -alpha[0-9]*$ ]] || \
+             [[ "$version" =~ -beta[0-9]*$ ]]; then
+            is_prerelease="true"
+            echo "Auto-detected pre-release version: $version"
+          fi
+
+          {
+            echo "tag=${tag}"
+            echo "version=${version}"
+            echo "commit=${release_commit}"
+            echo "dry_run=${INPUT_DRY_RUN}"
+            echo "append_notes=${INPUT_APPEND_NOTES}"
+            echo "prerelease=${is_prerelease}"
+            echo "draft=${INPUT_DRAFT}"
+            echo "overwrite_assets=${INPUT_OVERWRITE}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Checkout release commit
+        env:
+          RELEASE_COMMIT: ${{ steps.release.outputs.commit }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${RELEASE_COMMIT}" ]]; then
+            echo "Resolved release commit is empty" >&2
+            exit 1
+          fi
+
+          if [[ -x scripts/check-oci-image-tags-exist.sh ]]; then
+            cp scripts/check-oci-image-tags-exist.sh "${RUNNER_TEMP}/check-oci-image-tags-exist.sh"
+            chmod +x "${RUNNER_TEMP}/check-oci-image-tags-exist.sh"
+          fi
+          if [[ -f scripts/oci_registry.sh ]]; then
+            cp scripts/oci_registry.sh "${RUNNER_TEMP}/oci_registry.sh"
+          fi
+          if [[ -x scripts/verify-oci-publish.sh ]]; then
+            cp scripts/verify-oci-publish.sh "${RUNNER_TEMP}/verify-oci-publish.sh"
+            chmod +x "${RUNNER_TEMP}/verify-oci-publish.sh"
+          fi
+          if [[ -f scripts/cosign_common.sh ]]; then
+            cp scripts/cosign_common.sh "${RUNNER_TEMP}/cosign_common.sh"
+          fi
+
+          # Manual retries intentionally execute the current protected workflow
+          # while publishing an older immutable tag. Preserve the current signer
+          # before detaching to that tag so retry-safety fixes remain available.
+          if [[ -x scripts/sign-oci-publish.sh ]]; then
+            cp scripts/sign-oci-publish.sh "${RUNNER_TEMP}/sign-oci-publish.sh"
+            chmod +x "${RUNNER_TEMP}/sign-oci-publish.sh"
+          fi
+
+          if [[ -x scripts/install-skopeo.sh ]]; then
+            cp scripts/install-skopeo.sh "${RUNNER_TEMP}/install-skopeo.sh"
+            chmod +x "${RUNNER_TEMP}/install-skopeo.sh"
+          fi
+          if [[ -f scripts/install-download-integrity.sh ]]; then
+            cp scripts/install-download-integrity.sh "${RUNNER_TEMP}/install-download-integrity.sh"
+          fi
+          if [[ -x scripts/run-helm.sh ]]; then
+            cp scripts/run-helm.sh "${RUNNER_TEMP}/run-helm.sh"
+            chmod +x "${RUNNER_TEMP}/run-helm.sh"
+          fi
+
+          git checkout --detach "${RELEASE_COMMIT}"
+          echo "Checked out release commit ${RELEASE_COMMIT}"
+
+      - name: Derive managed agent release public key
+        env:
+          SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY: ${{ secrets.SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+
+          # `bazel run`, not `go run`: this was the only consumer of actions/setup-go in the
+          # job, and building the tool through bazel means it compiles on the executors under
+          # the same configuration as everything else instead of needing a host Go toolchain.
+          # The tool still EXECUTES locally, so the signing secret in this step's env reaches
+          # it and never leaves the runner. Same pattern as native-addons.yml.
+          public_key="$(bazel run ${BAZEL_BUILD_FLAGS} \
+            //tools/go/derive_agent_release_public_key 2>/dev/null | tail -n1)"
+          if [[ -z "${public_key}" ]]; then
+            echo "derived managed agent release public key is empty" >&2
+            exit 1
+          fi
+
+          # The env var below is still needed: verify-agent-release-key-stamp.sh takes it as the
+          # EXPECTED value and asserts the committed key matches what the signing secret derives.
+          echo "SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY=${public_key}" >> "$GITHUB_ENV"
+
+      - name: Generate release notes from CHANGELOG
+        id: notes
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          notes_file="${RUNNER_TEMP}/release-notes.md"
+          if scripts/extract-changelog.py "$VERSION" --output "$notes_file"; then
+            echo "Using changelog entry for version $VERSION" >&2
+          else
+            echo "CHANGELOG entry not found for $VERSION, falling back to autogenerated notes" >&2
+            {
+              printf '# ServiceRadar %s\n\n' "$VERSION"
+              printf 'Automated release generated by GitHub Actions.\n'
+            } > "$notes_file"
+          fi
+          echo "path=${notes_file}" >> "$GITHUB_OUTPUT"
+          echo "---- release notes preview ----"
+          cat "$notes_file"
+          echo "--------------------------------"
+
+      - name: Authenticate Docker for OCI registry
+        run: |
+          set -euo pipefail
+          login_registry() {
+            local user="${1:-}"
+            local token="${2:-}"
+            if [[ -z "${user}" || -z "${token}" ]]; then
+              return 1
+            fi
+            # oras writes the docker config without talking to dockerd.
+            echo "${token}" | oras login "${OCI_REGISTRY}" -u "${user}" --password-stdin
+          }
+
+          if [[ -z "${OCI_USERNAME:-}" || -z "${OCI_TOKEN:-}" ]]; then
+            echo "Missing Harbor robot credentials. Set HARBOR_ROBOT_USERNAME and HARBOR_ROBOT_SECRET." >&2
+            exit 1
+          fi
+
+          login_registry "${OCI_USERNAME}" "${OCI_TOKEN}"
+
+          export OCI_DOCKER_AUTH=""
+          unset OCI_DOCKER_AUTH || true
+          {
+            echo "OCI_USERNAME=${OCI_USERNAME}"
+            echo "OCI_TOKEN=${OCI_TOKEN}"
+            echo "OCI_DOCKER_AUTH="
+          } >> "${GITHUB_ENV}"
+
+          chmod +x ./buildbuddy_setup_docker_auth.sh
+          ./buildbuddy_setup_docker_auth.sh
+
+      # Flags come from BAZEL_BUILD_FLAGS so this stamp check and //:push share one
+      # configuration. The script appends --stamp and --remote_download_outputs=all itself;
+      # the duplicates are harmless (same values).
+      - name: Verify managed agent release key stamp
+        run: |
+          set -euo pipefail
+
+          # ASSERT THE FLAGS ARRIVED. Unquoted ${BAZEL_BUILD_FLAGS} is deliberate -- the flags
+          # have to word-split into separate arguments -- but that also means an empty or
+          # renamed variable expands to NOTHING, and the script's `bazel_args=("$@")` becomes an
+          # empty array. Bazel would then build //go/cmd/agent:agent with no config: locally, in
+          # fastbuild, on a runner with no C toolchain, sharing nothing with the release cache.
+          #
+          # And it would still PASS. The release key is embedded from a committed source file
+          # now, so the key check succeeds regardless of how the binary was built -- the step
+          # would go green having verified a binary nothing like the one that ships.
+          if [[ -z "${BAZEL_BUILD_FLAGS:-}" ]]; then
+            echo "BAZEL_BUILD_FLAGS is empty; refusing to build the agent without a config." >&2
+            exit 1
+          fi
+
+          ./scripts/verify-agent-release-key-stamp.sh ${BAZEL_BUILD_FLAGS}
+
+      # Alpine replaces package revisions in-place on a stable branch. A yanked
+      # http_file pin 404s only after Bazel has already spent the analyze pass
+      # on //:push. Fail here so a missing APK is a 30-second log line.
+      - name: Verify Alpine APK pins
+        run: |
+          set -euo pipefail
+          failed=0
+          while IFS= read -r url; do
+            [[ -z "${url}" ]] && continue
+            code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 -I "${url}" || true)"
+            echo "${code} ${url}"
+            if [[ "${code}" != "200" ]]; then
+              echo "Alpine pin is not fetchable (${code}): ${url}" >&2
+              failed=1
+            fi
+          done < <(grep -oE 'https://dl-cdn\.alpinelinux\.org/[^"]+' MODULE.bazel | sort -u)
+          if [[ "${failed}" -ne 0 ]]; then
+            echo "Update the yanked http_file pins in MODULE.bazel before retrying publish." >&2
+            exit 1
+          fi
+
+      - name: Publish container images
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_COMMIT: ${{ steps.release.outputs.commit }}
+          OPENBAO_ADDR: https://openbao-active.openbao-system.svc.cluster.local:8200
+          OPENBAO_K8S_ROLE: github-signing-runner
+          OPENBAO_SIGNING_ALLOWED_REFS_REGEX: '^refs/(tags/v.*|heads/(staging|main|master))$'
+          COSIGN_KEY_REF: hashivault://cosign-release
+        run: |
+          set -euo pipefail
+          release_sha_tag="sha-${RELEASE_COMMIT}"
+          extra_args=()
+          if [[ -n "${RELEASE_TAG}" ]]; then
+            extra_args+=(-- --tag "${RELEASE_TAG}")
+          fi
+
+          if ! command -v oras >/dev/null 2>&1; then
+            echo "oras is required to inspect published image tags" >&2
+            exit 1
+          fi
+
+          tag_check_script="./scripts/check-oci-image-tags-exist.sh"
+          if [[ -x "${RUNNER_TEMP}/check-oci-image-tags-exist.sh" ]]; then
+            tag_check_script="${RUNNER_TEMP}/check-oci-image-tags-exist.sh"
+          fi
+
+          skip_push=false
+          if [[ -n "${RELEASE_TAG}" ]]; then
+            if "${tag_check_script}" "${release_sha_tag}" "${RELEASE_TAG}" latest; then
+              echo "All release image tags match the immutable release digest; skipping image push and continuing to signing/verification."
+              skip_push=true
+            else
+              tag_check_status=$?
+              if [[ "${tag_check_status}" -ne 1 ]]; then
+                echo "Release image tag preflight failed with status ${tag_check_status}; refusing to publish through an unhealthy registry path." >&2
+                exit "${tag_check_status}"
+              fi
+
+              echo "Release image tags are missing or mismatched; running the idempotent publish graph."
+            fi
+          fi
+
+          if [[ "${skip_push}" != "true" ]]; then
+            # BAZEL_BUILD_FLAGS is defined once at job level -- see the comment there.
+            run_remote_publish() {
+              bazel run ${BAZEL_BUILD_FLAGS} //:push "${extra_args[@]}"
+            }
+
+            # ONE RETRY, THEN FAIL. 
+            # the first link with `collect2: cannot find 'ld'`.
+            if ! run_remote_publish; then
+              echo "Remote bazel run failed; retrying once with the completed action cache." >&2
+              bazel shutdown || true
+              sleep 5
+
+              run_remote_publish
+            fi
+          fi
+
+          echo "Rechecking release image digest equality after publish/build handling."
+          if "${tag_check_script}" "${release_sha_tag}" "${RELEASE_TAG}" latest; then
+            echo "Post-publish release image digests match the immutable release digest."
+          else
+            tag_check_status=$?
+            echo "Post-publish release image digest verification failed with status ${tag_check_status}; refusing to sign or advance the release." >&2
+            exit "${tag_check_status}"
+          fi
+
+          verify_tags=(latest "${release_sha_tag}")
+          if [[ -n "${RELEASE_TAG}" ]]; then
+            verify_tags+=("${RELEASE_TAG}")
+          fi
+          source ./scripts/ci/prepare-openbao-cosign-env.sh
+          sign_script="./scripts/sign-oci-publish.sh"
+          if [[ -x "${RUNNER_TEMP}/sign-oci-publish.sh" ]]; then
+            sign_script="${RUNNER_TEMP}/sign-oci-publish.sh"
+          fi
+          SERVICERADAR_COSIGN_COMMON="${PWD}/scripts/cosign_common.sh" \
+            SERVICERADAR_REPO_ROOT="${PWD}" \
+            SERVICERADAR_SIGN_REGISTRY_TAG="${release_sha_tag}" \
+            "${sign_script}"
+          verify_script="./scripts/verify-oci-publish.sh"
+          if [[ -x "${RUNNER_TEMP}/verify-oci-publish.sh" ]]; then
+            verify_script="${RUNNER_TEMP}/verify-oci-publish.sh"
+          fi
+          SERVICERADAR_COSIGN_COMMON="${PWD}/scripts/cosign_common.sh" \
+            SERVICERADAR_REPO_ROOT="${PWD}" \
+            "${verify_script}" "${verify_tags[@]}"
+          unset VAULT_TOKEN VAULT_ADDR COSIGN_KEY_REF
+
+      - name: Publish Helm chart to OCI registry
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_COMMIT: ${{ steps.release.outputs.commit }}
+          VERSION: ${{ steps.release.outputs.version }}
+          CHART_OCI_USERNAME: ${{ secrets.HARBOR_CHART_ROBOT_USERNAME }}
+          CHART_OCI_TOKEN: ${{ secrets.HARBOR_CHART_ROBOT_SECRET }}
+        run: |
+          set -euo pipefail
+          export HELM_STATE_DIR="${PWD}/.helm-home"
+          rm -rf "${HELM_STATE_DIR}"
+          mkdir -p "${HELM_STATE_DIR}"
+          trap 'rm -rf "${HELM_STATE_DIR}"' EXIT
+
+          helm_runner="./scripts/run-helm.sh"
+          if [[ -x "${RUNNER_TEMP}/run-helm.sh" ]]; then
+            helm_runner="${RUNNER_TEMP}/run-helm.sh"
+          fi
+
+          login_registry() {
+            local user="${1:-}"
+            local token="${2:-}"
+            if [[ -z "${user}" || -z "${token}" ]]; then
+              return 1
+            fi
+            echo "${token}" | "${helm_runner}" registry login "${OCI_REGISTRY}" -u "${user}" --password-stdin
+          }
+
+          if [[ -z "${CHART_OCI_USERNAME:-}" || -z "${CHART_OCI_TOKEN:-}" ]]; then
+            echo "Missing protected chart publisher credentials. Configure HARBOR_CHART_ROBOT_USERNAME and HARBOR_CHART_ROBOT_SECRET in the release environment." >&2
+            exit 1
+          fi
+
+          login_registry "${CHART_OCI_USERNAME}" "${CHART_OCI_TOKEN}"
+
+          ./scripts/validate-release-metadata.sh "${RELEASE_TAG}" "${RELEASE_COMMIT}" >/dev/null
+          set +e
+          SERVICERADAR_HELM_RUNNER="${helm_runner}" \
+            ./scripts/check-oci-chart-version-available.sh "${VERSION}"
+          chart_status=$?
+          set -e
+          # 0 = version is free (push). 1 = already published (retry skip).
+          # 2 = occupancy probe failed (refuse).
+          if [[ "${chart_status}" -eq 1 ]]; then
+            echo "Helm chart ${VERSION} already published; skipping OCI push"
+          elif [[ "${chart_status}" -ne 0 ]]; then
+            exit "${chart_status}"
+          else
+            "${helm_runner}" package helm/serviceradar
+            "${helm_runner}" push "serviceradar-${VERSION}.tgz" "oci://${OCI_REGISTRY}/${OCI_CHART_REPOSITORY}"
+            rm -f "serviceradar-${VERSION}.tgz"
+            echo "Published Helm chart: oci://${OCI_REGISTRY}/${OCI_CHART_REPOSITORY}/serviceradar:${VERSION}"
+          fi
+
+      # Wasm plugins are published, signed, indexed, and attached to the release by
+      # wasm-plugins.yml, which runs in parallel on the same `v*` tag (mirroring
+      # native-addons.yml). Inlining it here as well would double-publish and race the
+      # index upload, so it is intentionally NOT part of the release job.
+      - name: Publish release packages and agent manifest assets
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          NOTES_FILE: ${{ steps.notes.outputs.path }}
+          DRY_RUN: ${{ steps.release.outputs.dry_run }}
+          APPEND_NOTES: ${{ steps.release.outputs.append_notes }}
+          PRERELEASE: ${{ steps.release.outputs.prerelease }}
+          DRAFT: ${{ steps.release.outputs.draft }}
+          OVERWRITE_ASSETS: ${{ steps.release.outputs.overwrite_assets }}
+          SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY: ${{ secrets.SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "$RELEASE_TAG" ]]; then
+            echo "Release tag is empty" >&2
+            exit 1
+          fi
+
+          # Detach earlier selected the immutable tag tree for image/package
+          # bits. publish_packages.go must come from the workflow ref so a
+          # retry-safety fix can land without moving v1.4.35 (and forcing a
+          # second //:push). ^{commit} peels annotated tag objects.
+          workflow_commit="$(git rev-parse --verify "${GITHUB_SHA}^{commit}")"
+          git checkout --detach "${workflow_commit}"
+          echo "Checked out workflow commit ${workflow_commit} for publish_packages"
+
+          declare -a args
+          args+=("--tag" "$RELEASE_TAG")
+          args+=("--commit" "${{ steps.release.outputs.commit }}")
+          if [[ -n "$NOTES_FILE" ]]; then
+            args+=("--notes_file" "$NOTES_FILE")
+          fi
+          if [[ "$DRY_RUN" == "true" ]]; then
+            args+=("--dry_run")
+          fi
+          if [[ "$APPEND_NOTES" == "true" ]]; then
+            args+=("--append_notes")
+          fi
+          if [[ "$PRERELEASE" == "true" ]]; then
+            args+=("--prerelease")
+          fi
+          # Always create/update the release as a draft so assets can be uploaded
+          # even when immutable releases are enforced. We'll publish afterward
+          # if the workflow input did not request a draft.
+          args+=("--draft")
+          if [[ "$OVERWRITE_ASSETS" != "true" ]]; then
+            args+=("--overwrite_assets=${OVERWRITE_ASSETS}")
+          fi
+
+          # EXACTLY the same flags as every other bazel call in this job. No --platforms override.
+          #
+          # This step used to append --platforms=//build/platforms:linux_pkg_local, which
+          # OVERRODE the --platforms=//build/rbe:rbe_platform that --config=ci sets (later
+          # occurrence of the same flag wins). The consequence was not local execution -- actions
+          # still went to the executors -- but a private CONFIGURATION:
+          #
+          #   push step      (--config=ci):                  //go/cmd/agent:agent (c78306a)
+          #   packaging step (+ --platforms=linux_pkg_local): //go/cmd/agent:agent (7f63100)
+          #
+          # so every binary common to the images and the packages was built TWICE per release,
+          # sharing no cache with the push step or with any CI build.
+          #
+          # NOTHING REQUIRED THE OVERRIDE. rules_pkg's rpm targets are
+          # `target_compatible_with = ["@platforms//os:linux"]`, which rbe_platform satisfies;
+          # `rpm_disable_remote` (the only other branch) has zero users; the rpmbuild toolchain
+          # resolves to rbe_platform either way; and the `@rules_pkg//pkg:not_compatible`
+          # constraint that platform carries exists for the LEGACY make_rpm path, which
+          # //build/packaging/package_rules.bzl does not use (it passes `srcs=`, selecting
+          # pkg_rpm_pfg).
+          #
+          # VERIFIED BY BUILDING BOTH WAYS AND COMPARING BITS, not by argument. The agent binary
+          # differs in exactly 14 embedded `bazel-out/<platform>-opt/...` path strings -- an
+          # artifact of --experimental_platform_in_output_dir naming the platform -- and in
+          # nothing else: substantive string counts are identical (114,835 each) and there are
+          # ZERO differences that are not one of those paths.
+          #
+          # Removing it also fixes a real inconsistency: the container images are built without
+          # the override, so the .rpm used to ship a DIFFERENT build of the agent than the image
+          # did, from the same commit. Now they are the same artifact.
+          #
+          # No local fallback here either, for the reasons given at the image-publish step: this
+          # job signs what it builds.
+          bazel run \
+            ${BAZEL_BUILD_FLAGS} \
+            //build/release:publish_packages \
+            -- "${args[@]}"
+
+      # Parallel assets are checked by the unprivileged finalizer job after this
+      # signing job exits, so waiting never occupies a signing runner.
+      - name: Verify uploaded release assets via GitHub API
+        if: ${{ steps.release.outputs.dry_run != 'true' }}
+        id: release_assets
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.version }}
+          GITHUB_TOKEN: ${{ github.token }}
+          REQUIRE_MAC_PKG: ${{ env.REQUIRE_MAC_PKG }}
+        run: |
+          set -euo pipefail
+          api_base="https://api.github.com/repos/${GITHUB_REPOSITORY}"
+          gh_headers=(
+            -H "Accept: application/vnd.github+json"
+            -H "Authorization: Bearer ${GITHUB_TOKEN}"
+            -H "X-GitHub-Api-Version: 2022-11-28"
+          )
+          api_url="${api_base}/releases/tags/${RELEASE_TAG}"
+          response=$(curl -sSf "${gh_headers[@]}" "$api_url" || true)
+          release_id=$(echo "$response" | jq -r '.id // empty')
+          if [[ -z "${release_id}" ]]; then
+            releases_url="${api_base}/releases?per_page=100"
+            release_id=$(curl -sSf "${gh_headers[@]}" "$releases_url" \
+              | jq -r --arg tag "${RELEASE_TAG}" '.[] | select(.tag_name == $tag) | .id' \
+              | head -n1)
+            if [[ -n "${release_id}" ]]; then
+              response=$(curl -sSf \
+                "${gh_headers[@]}" \
+                "${api_base}/releases/${release_id}")
+            fi
+          fi
+          if [[ ! "${release_id}" =~ ^[0-9]+$ ]]; then
+            echo "Unable to resolve draft release id for ${RELEASE_TAG}" >&2
+            exit 1
+          fi
+          printf 'Release asset summary for %s:\n' "$RELEASE_TAG"
+          echo "$response" | jq '.assets[]? | {name, size, download_count}'
+          deb_count=$(echo "$response" | jq '[.assets[]? | select(.name | endswith(".deb"))] | length')
+          rpm_count=$(echo "$response" | jq '[.assets[]? | select(.name | endswith(".rpm"))] | length')
+          pkg_count=$(echo "$response" | jq '[.assets[]? | select(.name | endswith(".pkg"))] | length')
+          agent_runtime_count=$(echo "$response" | jq --arg asset "serviceradar-agent_${VERSION}_linux_amd64.tar.gz" '[.assets[]? | select(.name == $asset)] | length')
+          agent_manifest_count=$(echo "$response" | jq '[.assets[]? | select(.name == "serviceradar-agent-release-manifest.json")] | length')
+          agent_manifest_sig_count=$(echo "$response" | jq '[.assets[]? | select(.name == "serviceradar-agent-release-manifest.sig")] | length')
+          if (( deb_count == 0 )); then
+            echo "No .deb assets detected for ${RELEASE_TAG}" >&2
+            exit 1
+          fi
+          if (( rpm_count == 0 )); then
+            echo "No .rpm assets detected for ${RELEASE_TAG}" >&2
+            exit 1
+          fi
+          if (( agent_runtime_count == 0 )); then
+            echo "No managed agent runtime asset detected for ${RELEASE_TAG}" >&2
+            exit 1
+          fi
+          if (( agent_manifest_count == 0 )); then
+            echo "No agent release manifest asset detected for ${RELEASE_TAG}" >&2
+            exit 1
+          fi
+          if (( agent_manifest_sig_count == 0 )); then
+            echo "No agent release manifest signature asset detected for ${RELEASE_TAG}" >&2
+            exit 1
+          fi
+          if [[ "${REQUIRE_MAC_PKG:-false}" == "true" ]] && (( pkg_count == 0 )); then
+            echo "No .pkg assets detected for ${RELEASE_TAG}" >&2
+            exit 1
+          fi
+          echo "Validated presence of ${deb_count} .deb, ${rpm_count} .rpm, ${pkg_count} .pkg, ${agent_runtime_count} runtime archive, ${agent_manifest_count} manifest, and ${agent_manifest_sig_count} signature assets."
+          printf 'release_id=%s\n' "${release_id}" >> "${GITHUB_OUTPUT}"
+
+  # Keep release finalization off the privileged signing pool. Catalog and security
+  # workflows attach assets in parallel; this job waits until every required upload
+  # is visible before making the draft immutable.
+  finalize:
+    needs: publish
+    if: ${{ needs.publish.outputs.dry_run != 'true' && needs.publish.outputs.draft != 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 95
+    environment: release
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout release commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.publish.outputs.commit }}
+
+      - name: Wait for parallel release assets
+        id: parallel_assets
+        env:
+          RELEASE_TAG: ${{ needs.publish.outputs.tag }}
+          RELEASE_ID: ${{ needs.publish.outputs.release_id }}
+          PARALLEL_ASSET_WAIT_TIMEOUT_SECONDS: "5400"
+          PARALLEL_ASSET_POLL_SECONDS: "10"
+        run: |
+          set -euo pipefail
+
+          if [[ ! "${RELEASE_ID}" =~ ^[0-9]+$ ]]; then
+            echo "Verified release id is invalid for ${RELEASE_TAG}: ${RELEASE_ID}" >&2
+            exit 1
+          fi
+          if [[ ! "${PARALLEL_ASSET_WAIT_TIMEOUT_SECONDS}" =~ ^[1-9][0-9]*$ ]] || \
+             [[ ! "${PARALLEL_ASSET_POLL_SECONDS}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Parallel asset wait bounds must be positive integers" >&2
+            exit 1
+          fi
+
+          api_url="https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}"
+          required_assets=(
+            "serviceradar-native-addon-index.json"
+            "serviceradar-wasm-plugin-index.json"
+            "serviceradar-source-security.tar.gz"
+            "serviceradar-image-security-${RELEASE_TAG}.tar.gz"
+          )
+          deadline=$((SECONDS + PARALLEL_ASSET_WAIT_TIMEOUT_SECONDS))
+          last_state="GitHub API unavailable"
+
+          while (( SECONDS <= deadline )); do
+            response=""
+            if response="$(curl -sSf --connect-timeout 5 --max-time 10 \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              "${api_url}")"; then
+              response_id="$(jq -r '.id // empty' <<<"${response}")"
+              response_tag="$(jq -r '.tag_name // empty' <<<"${response}")"
+              response_draft="$(jq -r '.draft // empty' <<<"${response}")"
+              if [[ "${response_id}" != "${RELEASE_ID}" || "${response_tag}" != "${RELEASE_TAG}" ]]; then
+                echo "GitHub returned an unexpected release while verifying ${RELEASE_TAG}" >&2
+                exit 1
+              fi
+              if [[ "${response_draft}" != "true" ]]; then
+                echo "Release ${RELEASE_TAG} is no longer a draft; refusing parallel asset verification" >&2
+                exit 1
+              fi
+
+              missing_assets=()
+              for asset in "${required_assets[@]}"; do
+                asset_count="$(jq -r --arg name "${asset}" \
+                  '[.assets[]? | select(.name == $name and ((.size // 0) > 0))] | length' \
+                  <<<"${response}")"
+                if [[ "${asset_count}" != "1" ]]; then
+                  missing_assets+=("${asset}")
+                fi
+              done
+
+              if (( ${#missing_assets[@]} == 0 )); then
+                echo "Verified required catalogs and security bundles on draft ${RELEASE_TAG}."
+                printf 'release_id=%s\n' "${RELEASE_ID}" >> "${GITHUB_OUTPUT}"
+                exit 0
+              fi
+              last_state="$(IFS=,; echo "${missing_assets[*]}")"
+            fi
+
+            if (( SECONDS >= deadline )); then
+              break
+            fi
+            echo "Waiting for required parallel release assets on ${RELEASE_TAG}: ${last_state}"
+            remaining=$((deadline - SECONDS))
+            sleep_seconds="${PARALLEL_ASSET_POLL_SECONDS}"
+            if (( sleep_seconds > remaining )); then
+              sleep_seconds="${remaining}"
+            fi
+            sleep "${sleep_seconds}"
+          done
+
+          echo "Timed out waiting for required parallel assets on ${RELEASE_TAG}: ${last_state}" >&2
+          echo "Release ${RELEASE_TAG} remains a draft; refusing finalization and demo branch advancement." >&2
+          exit 1
+
+      - name: Finalize GitHub release
+        id: finalize_release
+        env:
+          RELEASE_TAG: ${{ needs.publish.outputs.tag }}
+          RELEASE_ID: ${{ steps.parallel_assets.outputs.release_id }}
+        run: |
+          set -euo pipefail
+          if [[ ! "${RELEASE_ID}" =~ ^[0-9]+$ ]]; then
+            echo "Verified release id is invalid for ${RELEASE_TAG}: ${RELEASE_ID}" >&2
+            exit 1
+          fi
+
+          curl -sSf -X PATCH \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" \
+            -d '{"draft": false}' >/dev/null
+          echo "Published release ${RELEASE_TAG}"
+
+      - name: Advance demo release source branch
+        if: ${{ needs.publish.outputs.prerelease != 'true' && steps.parallel_assets.outcome == 'success' && steps.finalize_release.outcome == 'success' }}
+        env:
+          DEMO_RELEASE_BRANCH: demo/prod-release
+        run: |
+          set -euo pipefail
+          if [[ -z "${GITHUB_TOKEN:-}" ]]; then
+            echo "GITHUB_TOKEN is required to advance ${DEMO_RELEASE_BRANCH}" >&2
+            exit 1
+          fi
+
+          git config user.name "ServiceRadar Release Bot"
+          git config user.email "release-bot@serviceradar.local"
+
+          remote_url="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git remote remove demo-release 2>/dev/null || true
+          git remote add demo-release "${remote_url}"
+
+          git fetch demo-release "refs/heads/${DEMO_RELEASE_BRANCH}:refs/remotes/demo-release/${DEMO_RELEASE_BRANCH}" || true
+          git push --force-with-lease demo-release "HEAD:refs/heads/${DEMO_RELEASE_BRANCH}"
+
+          echo "Advanced ${DEMO_RELEASE_BRANCH} to ${{ needs.publish.outputs.commit }}"

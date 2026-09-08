@@ -1,0 +1,28 @@
+[package]
+name = "serviceradar-bmp-collector"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "serviceradar-bmp-collector"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+arancini-lib ={ workspace = true }
+async-nats = { workspace = true }
+# parser only: we decode in-memory BMP frames and never fetch remote MRT files, so
+# bgpkit-parser's default "rustls" feature (which drags in the whole oneio HTTP/S3
+# stack) is dead weight. Load-bearing since arancini-lib 0.7.3: earlier versions took
+# bgpkit-parser with default features, which re-enabled oneio here regardless.
+bgpkit-parser = { workspace = true, features = ["parser"] }
+bytes = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
+clap = {  workspace = true , features = ["derive"] }
+env_logger = { workspace = true }
+hex ={ workspace = true }
+log ={ workspace = true }
+rustls = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "io-util", "time"] }

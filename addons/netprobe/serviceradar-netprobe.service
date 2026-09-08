@@ -1,0 +1,84 @@
+[Unit]
+Description=ServiceRadar netprobe host-network-visibility add-on
+Documentation=https://docs.serviceradar.cloud/
+# eBPF + AF_PACKET/raw capture needs the network stack up before launch.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Start as root for the short privileged eBPF setup phase, then netprobe drops to this
+# group/user via --drop-user before serving IPC. Starting directly as User=serviceradar
+# lacks enough privilege on common kernels to create all eBPF maps.
+Group=serviceradar
+UMask=0027
+# Share cgroup accounting with the host agent while remaining independently
+# supervised. The agent attaches over IPC and reports add-on ownership/status.
+Slice=serviceradar.slice
+
+# Installed verbatim by the root-owned agent-updater (ExecStart is NOT templated), so all
+# paths are the FIXED add-on staging layout produced by the agent's activation runtime
+# (resolveAddonArtifactRoot -> <release-runtime-root>/addons/<id>/current/), NOT the
+# manifest's install_path. Flags:
+#   --socket        netprobe binds this IPC socket; the agent connects as a client and pushes
+#                   the full VisibilityConfig (device bindings, DPI) over IPC.
+#   --config        the agent-written bootstrap (enabled + capture_interfaces + flow-table);
+#                   netprobe reads it at startup so the eBPF/AF_XDP runtime attaches to the
+#                   capture interfaces. The agent writes it before enabling this unit, and it
+#                   persists across systemd restarts.
+#   --ebpf-object   the compiled BPF object shipped flat in the bundle (data_entries). Required:
+#                   continuous capture refuses to start without it after the Phase 3 eBPF
+#                   cutover (rust/netprobe/src/main.rs); IPC config cannot enable capture later.
+# Staged binaries inherit SELinux var_lib_t. systemd (init_t) cannot exec that
+# label (status=203/EXEC). Relabel immediately before start. The + prefix runs
+# as PID 1 (full caps), not as a child of serviceradar-agent. Missing chcon
+# (non-SELinux) is ignored.
+ExecStartPre=+/bin/sh -c '/usr/bin/chcon -t bin_t /var/lib/serviceradar/agent/addons/netprobe/current/serviceradar-netprobe >/dev/null 2>&1 || true'
+ExecStart=/var/lib/serviceradar/agent/addons/netprobe/current/serviceradar-netprobe \
+    --socket /run/serviceradar/netprobe/ipc.sock \
+    --config /etc/serviceradar/sidecars/netprobe.json \
+    --ebpf-object /var/lib/serviceradar/agent/addons/netprobe/current/netprobe_ebpf.o \
+    --drop-user serviceradar
+
+# /run/serviceradar/netprobe holds the IPC socket; /var/lib/serviceradar/netprobe is the
+# manifest state_dir. Keep these directories under the explicit root ExecStartPre
+# setup below: systemd's RuntimeDirectory=/StateDirectory= handling creates a mount
+# namespace that can deny the post-drop serviceradar process write access to the IPC
+# socket path on Ubuntu/systemd 255.
+ExecStartPre=+/usr/bin/install -d -o serviceradar -g serviceradar -m 0750 /run/serviceradar /run/serviceradar/netprobe /var/lib/serviceradar/netprobe
+ExecStartPre=+/usr/bin/install -d -o root -g root -m 0700 /sys/fs/bpf/serviceradar /sys/fs/bpf/serviceradar/netprobe
+ExecStartPre=+/usr/bin/rm -f /sys/fs/bpf/flow_events /sys/fs/bpf/flow_table /sys/fs/bpf/flow_to_pid /sys/fs/bpf/interface_allowlist /sys/fs/bpf/l2_observations /sys/fs/bpf/l2_ring_drops /sys/fs/bpf/l2_seen /sys/fs/bpf/mdns_observations /sys/fs/bpf/mdns_seen /sys/fs/bpf/process_info /sys/fs/bpf/socket_to_pid /sys/fs/bpf/tc_tail_calls /sys/fs/bpf/tcp_syn_signatures /sys/fs/bpf/xsk_sockets
+ExecStartPre=+/usr/bin/rm -f /sys/fs/bpf/serviceradar/netprobe/flow_events /sys/fs/bpf/serviceradar/netprobe/flow_table /sys/fs/bpf/serviceradar/netprobe/flow_to_pid /sys/fs/bpf/serviceradar/netprobe/interface_allowlist /sys/fs/bpf/serviceradar/netprobe/l2_observations /sys/fs/bpf/serviceradar/netprobe/l2_ring_drops /sys/fs/bpf/serviceradar/netprobe/l2_seen /sys/fs/bpf/serviceradar/netprobe/mdns_observations /sys/fs/bpf/serviceradar/netprobe/mdns_seen /sys/fs/bpf/serviceradar/netprobe/process_info /sys/fs/bpf/serviceradar/netprobe/socket_to_pid /sys/fs/bpf/serviceradar/netprobe/tc_tail_calls /sys/fs/bpf/serviceradar/netprobe/tcp_syn_signatures /sys/fs/bpf/serviceradar/netprobe/xsk_sockets
+
+Restart=on-failure
+RestartSec=5
+
+# Host-network visibility needs raw packet capture (CAP_NET_RAW) plus eBPF/perf for the
+# flow table, DPI, and process attribution (CAP_BPF, CAP_PERFMON). XSKMAP creation
+# needs CAP_NET_ADMIN on common kernels even in attribution-only mode. CAP_SETUID and
+# CAP_SETGID stay in the bounding set so the root-started process can drop to the
+# unprivileged serviceradar account after loading eBPF programs.
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN CAP_BPF CAP_PERFMON
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN CAP_BPF CAP_PERFMON CAP_SETUID CAP_SETGID
+# File capabilities on the staged binary are only honored on exec when no_new_privs is
+# off; leaving it off also lets the updater's setcap grant take effect.
+NoNewPrivileges=false
+
+# Hardening tuned for an eBPF/raw-capture daemon (cf. the base agent unit and the add-on
+# template). Deliberately NOT set, because each would break eBPF/capture:
+#   MemoryDenyWriteExecute        - eBPF JIT needs W^X relaxed
+#   SystemCallFilter=~@privileged  - would block bpf()/perf_event_open()
+#   PrivateDevices                - perf + raw capture need device access
+# The final hardening set is locked in by the migrate-netprobe §4.3 scratch-agent e2e.
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/run/serviceradar /run/serviceradar/netprobe /var/lib/serviceradar /var/lib/serviceradar/netprobe /sys/fs/bpf
+ProtectHome=true
+ProtectControlGroups=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

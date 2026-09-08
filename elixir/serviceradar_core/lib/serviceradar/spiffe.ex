@@ -1,0 +1,802 @@
+defmodule ServiceRadar.SPIFFE do
+  @moduledoc """
+  SPIFFE/SPIRE integration for ServiceRadar distributed cluster.
+
+  This module provides helpers for:
+  - Loading X.509 SVIDs from SPIRE Workload API or filesystem
+  - Verifying SPIFFE IDs for node authorization
+  - Configuring TLS options for ERTS distribution
+  - Certificate rotation monitoring
+
+  ## SPIFFE ID Format
+
+  ServiceRadar uses SPIFFE IDs in the format:
+  ```
+  spiffe://serviceradar.local/<node-type>/<partition-id>/<node-id>
+  ```
+
+  Where:
+  - `node-type` is one of: `core`, `gateway`, `agent`
+  - `partition-id` is the partition identifier
+  - `node-id` is the unique node identifier
+
+  ## Configuration
+
+  Configure SPIFFE in your application:
+
+      config :serviceradar_core, :spiffe,
+        trust_domain: "serviceradar.local",
+        workload_api_socket: "/run/spire/sockets/agent.sock",
+        cert_dir: "/etc/serviceradar/certs",
+        # Or use filesystem mode for non-SPIRE deployments
+        mode: :filesystem  # or :workload_api
+
+  ## Usage
+
+  ```elixir
+  # Get TLS options for ERTS distribution
+  {:ok, ssl_opts} = ServiceRadar.SPIFFE.ssl_dist_opts()
+
+  # Verify a peer's SPIFFE ID
+  {:ok, spiffe_id} = ServiceRadar.SPIFFE.verify_peer_id(peer_cert)
+  ```
+  """
+
+  alias ServiceRadar.SPIFFE.WorkloadAPI
+
+  require Logger
+
+  @type spiffe_id :: String.t()
+  @type node_type :: :core | :gateway | :agent
+  @type ssl_opts :: keyword()
+
+  @trust_domain_default "serviceradar.local"
+  @cert_dir_default "/etc/serviceradar/certs"
+
+  # SPIFFE ID URI prefix
+  @spiffe_uri_prefix "spiffe://"
+
+  @doc """
+  Returns SSL/TLS options for ERTS distribution with SPIFFE certificates.
+
+  ## Options
+
+  - `:verify_fun` - Custom verification function (default: SPIFFE ID verification)
+  - `:cert_dir` - Directory containing certificates (filesystem mode)
+  - `:trust_domain` - Expected SPIFFE trust domain
+
+  ## Returns
+
+  `{:ok, ssl_opts}` or `{:error, reason}`
+  """
+  @spec ssl_dist_opts(keyword()) :: {:ok, ssl_opts()} | {:error, term()}
+  def ssl_dist_opts(opts \\ []) do
+    mode = config(:mode, :filesystem)
+
+    case mode do
+      :filesystem -> ssl_dist_opts_filesystem(opts)
+      :workload_api -> ssl_dist_opts_workload_api(opts)
+      other -> {:error, {:invalid_mode, other}}
+    end
+  end
+
+  @doc """
+  Returns SSL/TLS options for client connections (e.g., gRPC to gateways).
+  """
+  @spec client_ssl_opts(keyword()) :: {:ok, ssl_opts()} | {:error, term()}
+  def client_ssl_opts(opts \\ []) do
+    with {:ok, base_opts} <- ssl_dist_opts(opts) do
+      # Client options don't need server-specific settings
+      client_opts =
+        base_opts
+        |> Keyword.delete(:fail_if_no_peer_cert)
+        |> Keyword.put(:verify, :verify_peer)
+        |> Keyword.put(:customize_hostname_check, match_fun: &allow_any_hostname/2)
+
+      {:ok, client_opts}
+    end
+  end
+
+  @doc """
+  Returns SSL/TLS options for server connections.
+  """
+  @spec server_ssl_opts(keyword()) :: {:ok, ssl_opts()} | {:error, term()}
+  def server_ssl_opts(opts \\ []) do
+    with {:ok, base_opts} <- ssl_dist_opts(opts) do
+      server_opts =
+        base_opts
+        |> Keyword.put(:verify, :verify_peer)
+        |> Keyword.put(:fail_if_no_peer_cert, true)
+
+      {:ok, server_opts}
+    end
+  end
+
+  @doc """
+  Extracts and verifies the SPIFFE ID from a peer certificate.
+
+  Returns `{:ok, spiffe_id}` if valid, `{:error, reason}` otherwise.
+  """
+  @spec verify_peer_id(binary() | tuple()) :: {:ok, spiffe_id()} | {:error, term()}
+  def verify_peer_id(cert) when is_binary(cert) do
+    case :public_key.pkix_decode_cert(cert, :otp) do
+      {:OTPCertificate, _, _, _} = decoded -> verify_peer_id(decoded)
+      error -> {:error, {:decode_failed, error}}
+    end
+  end
+
+  def verify_peer_id({:OTPCertificate, tbs_cert, _, _}) do
+    case extract_spiffe_id(tbs_cert) do
+      {:ok, spiffe_id} -> verify_spiffe_id(spiffe_id)
+      error -> error
+    end
+  end
+
+  def verify_peer_id(_), do: {:error, :invalid_certificate}
+
+  @doc """
+  Parses a SPIFFE ID into its components.
+
+  ## Examples
+
+      iex> ServiceRadar.SPIFFE.parse_spiffe_id("spiffe://serviceradar.local/gateway/partition-1/gateway-001")
+      {:ok, %{trust_domain: "serviceradar.local", node_type: :gateway, partition_id: "partition-1", node_id: "gateway-001"}}
+  """
+  @spec parse_spiffe_id(spiffe_id()) :: {:ok, map()} | {:error, term()}
+  def parse_spiffe_id(spiffe_id) when is_binary(spiffe_id) do
+    case String.replace_prefix(spiffe_id, @spiffe_uri_prefix, "") do
+      ^spiffe_id ->
+        {:error, :invalid_spiffe_uri}
+
+      path ->
+        case String.split(path, "/", parts: 4) do
+          [trust_domain, node_type_str, partition_id, node_id] ->
+            with {:ok, node_type} <- parse_node_type(node_type_str) do
+              {:ok,
+               %{
+                 trust_domain: trust_domain,
+                 node_type: node_type,
+                 partition_id: partition_id,
+                 node_id: node_id
+               }}
+            end
+
+          [trust_domain, node_type_str, node_id] ->
+            # Simple format without partition
+            with {:ok, node_type} <- parse_node_type(node_type_str) do
+              {:ok,
+               %{
+                 trust_domain: trust_domain,
+                 node_type: node_type,
+                 partition_id: "default",
+                 node_id: node_id
+               }}
+            end
+
+          _ ->
+            {:error, :invalid_spiffe_path}
+        end
+    end
+  end
+
+  defp parse_k8s_spiffe_id(spiffe_id) when is_binary(spiffe_id) do
+    case String.replace_prefix(spiffe_id, @spiffe_uri_prefix, "") do
+      ^spiffe_id ->
+        {:error, :invalid_spiffe_uri}
+
+      path ->
+        case String.split(path, "/", parts: 5) do
+          [trust_domain, "ns", namespace, "sa", service_account] ->
+            {:ok,
+             %{trust_domain: trust_domain, namespace: namespace, service_account: service_account}}
+
+          _ ->
+            {:error, :invalid_spiffe_path}
+        end
+    end
+  end
+
+  @doc """
+  Builds a SPIFFE ID from components.
+
+  ## Examples
+
+      iex> ServiceRadar.SPIFFE.build_spiffe_id(:gateway, "partition-1", "gateway-001")
+      "spiffe://serviceradar.local/gateway/partition-1/gateway-001"
+  """
+  @spec build_spiffe_id(node_type(), String.t(), String.t(), keyword()) :: spiffe_id()
+  def build_spiffe_id(node_type, partition_id, node_id, opts \\ []) do
+    trust_domain = Keyword.get(opts, :trust_domain, config(:trust_domain, @trust_domain_default))
+    "#{@spiffe_uri_prefix}#{trust_domain}/#{node_type}/#{partition_id}/#{node_id}"
+  end
+
+  @doc """
+  Checks if a SPIFFE ID is authorized to connect as a specific node type.
+  """
+  @spec authorized?(spiffe_id(), node_type()) :: boolean()
+  def authorized?(spiffe_id, expected_type) do
+    case parse_spiffe_id(spiffe_id) do
+      {:ok, %{node_type: ^expected_type, trust_domain: domain}} ->
+        domain == config(:trust_domain, @trust_domain_default)
+
+      _ ->
+        false
+    end
+  end
+
+  @doc """
+  Returns the certificate directory path.
+  """
+  @spec cert_dir() :: String.t()
+  def cert_dir do
+    config(:cert_dir, @cert_dir_default)
+  end
+
+  @doc """
+  Checks if certificates exist and are readable.
+  """
+  @spec certs_available?() :: boolean()
+  def certs_available? do
+    case config(:mode, :filesystem) do
+      :workload_api ->
+        socket = config(:workload_api_socket, "/run/spire/sockets/agent.sock")
+        socket_path = workload_api_socket_path(socket)
+        is_binary(socket_path) and File.exists?(socket_path)
+
+      _ ->
+        dir = cert_dir()
+
+        File.exists?(Path.join(dir, "svid.pem")) and
+          File.exists?(Path.join(dir, "svid-key.pem")) and
+          File.exists?(Path.join(dir, "bundle.pem"))
+    end
+  end
+
+  @doc """
+  Returns SPIFFE certificate expiry information.
+
+  Reads the SVID certificate and returns expiration details.
+  """
+  @spec cert_expiry(keyword()) :: {:ok, map()} | {:error, term()}
+  def cert_expiry(opts \\ []) do
+    case Keyword.get(opts, :mode, config(:mode, :filesystem)) do
+      :workload_api ->
+        cert_expiry_workload_api(opts)
+
+      _ ->
+        cert_expiry_filesystem(opts)
+    end
+  end
+
+  @doc """
+  Monitors certificate files for rotation and returns when they change.
+
+  This is useful for reloading TLS contexts when SPIRE rotates certificates.
+  """
+  @spec watch_certificates(keyword()) :: {:ok, pid()} | {:error, term()}
+  def watch_certificates(opts \\ []) do
+    callback = Keyword.get(opts, :callback, fn -> :ok end)
+
+    case config(:mode, :filesystem) do
+      :workload_api ->
+        watch_workload_api(callback, opts)
+
+      _ ->
+        watch_filesystem(callback, opts)
+    end
+  end
+
+  # Private functions
+
+  defp watch_workload_api(callback, opts) do
+    interval = Keyword.get(opts, :poll_interval, 60_000)
+
+    socket =
+      Keyword.get(
+        opts,
+        :workload_api_socket,
+        config(:workload_api_socket, "/run/spire/sockets/agent.sock")
+      )
+
+    trust_domain = Keyword.get(opts, :trust_domain, config(:trust_domain, @trust_domain_default))
+    fingerprint = workload_api_fingerprint(socket, trust_domain)
+
+    pid =
+      spawn_link(fn ->
+        poll_workload_api(callback, interval, socket, trust_domain, fingerprint)
+      end)
+
+    {:ok, pid}
+  end
+
+  defp watch_filesystem(callback, opts) do
+    dir = cert_dir()
+
+    # Use file_system library if available, otherwise poll
+    if Code.ensure_loaded?(FileSystem) do
+      {:ok, pid} = FileSystem.start_link(dirs: [dir])
+      FileSystem.subscribe(pid)
+
+      spawn_link(fn ->
+        watch_loop(callback)
+      end)
+
+      {:ok, pid}
+    else
+      # Fallback to polling
+      interval = Keyword.get(opts, :poll_interval, 60_000)
+
+      pid =
+        spawn_link(fn ->
+          poll_certificates(callback, interval, get_cert_mtimes(dir))
+        end)
+
+      {:ok, pid}
+    end
+  end
+
+  defp ssl_dist_opts_filesystem(opts) do
+    dir = Keyword.get(opts, :cert_dir, cert_dir())
+
+    cert_file = Path.join(dir, "svid.pem")
+    key_file = Path.join(dir, "svid-key.pem")
+    ca_file = Path.join(dir, "bundle.pem")
+
+    cond do
+      not File.exists?(cert_file) ->
+        {:error, {:cert_not_found, cert_file}}
+
+      not File.exists?(key_file) ->
+        {:error, {:key_not_found, key_file}}
+
+      not File.exists?(ca_file) ->
+        {:error, {:ca_not_found, ca_file}}
+
+      true ->
+        trust_domain =
+          Keyword.get(opts, :trust_domain, config(:trust_domain, @trust_domain_default))
+
+        ssl_opts = [
+          certfile: String.to_charlist(cert_file),
+          keyfile: String.to_charlist(key_file),
+          cacertfile: String.to_charlist(ca_file),
+          verify: :verify_peer,
+          fail_if_no_peer_cert: true,
+          verify_fun: {&verify_peer_callback/3, %{trust_domain: trust_domain}},
+          depth: 2,
+          versions: [:"tlsv1.3", :"tlsv1.2"]
+        ]
+
+        ssl_opts =
+          case extra_cacerts(opts) do
+            [] -> ssl_opts
+            extra -> Keyword.put(ssl_opts, :cacerts, extra)
+          end
+
+        {:ok, ssl_opts}
+    end
+  end
+
+  defp ssl_dist_opts_workload_api(opts) do
+    socket =
+      Keyword.get(
+        opts,
+        :workload_api_socket,
+        config(:workload_api_socket, "/run/spire/sockets/agent.sock")
+      )
+
+    trust_domain = Keyword.get(opts, :trust_domain, config(:trust_domain, @trust_domain_default))
+
+    case WorkloadAPI.fetch_x509_svid(socket, trust_domain: trust_domain) do
+      {:ok, %{certs: certs, cacerts: cacerts, key: key}} ->
+        extra_cacerts = extra_cacerts(opts)
+        all_cacerts = cacerts ++ extra_cacerts
+
+        ssl_opts = [
+          cert: certs,
+          key: key,
+          verify: :verify_peer,
+          fail_if_no_peer_cert: true,
+          verify_fun: {&verify_peer_callback/3, %{trust_domain: trust_domain}},
+          depth: 2,
+          versions: [:"tlsv1.3", :"tlsv1.2"]
+        ]
+
+        ssl_opts = Keyword.put(ssl_opts, :cacerts, all_cacerts)
+
+        {:ok, ssl_opts}
+
+      {:error, {:workload_api_unavailable, _}} = error ->
+        error
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp cert_expiry_workload_api(opts) do
+    socket =
+      Keyword.get(
+        opts,
+        :workload_api_socket,
+        config(:workload_api_socket, "/run/spire/sockets/agent.sock")
+      )
+
+    trust_domain = Keyword.get(opts, :trust_domain, config(:trust_domain, @trust_domain_default))
+
+    with {:ok, %{certs: [leaf | _]}} <-
+           WorkloadAPI.fetch_x509_svid(socket, trust_domain: trust_domain),
+         {:ok, validity} <- decode_validity(leaf),
+         {:ok, not_before} <- parse_asn1_time(elem(validity, 1)),
+         {:ok, not_after} <- parse_asn1_time(elem(validity, 2)) do
+      seconds_remaining = DateTime.diff(not_after, DateTime.utc_now(), :second)
+      days_remaining = div(seconds_remaining, 86_400)
+
+      {:ok,
+       %{
+         not_before: not_before,
+         expires_at: not_after,
+         seconds_remaining: seconds_remaining,
+         days_remaining: days_remaining
+       }}
+    else
+      {:error, _} = error -> error
+    end
+  end
+
+  defp cert_expiry_filesystem(opts) do
+    cert_dir = Keyword.get(opts, :cert_dir, cert_dir())
+    cert_file = Keyword.get(opts, :cert_file, Path.join(cert_dir, "svid.pem"))
+
+    with {:ok, pem} <- File.read(cert_file),
+         {:ok, der} <- extract_der_cert(pem),
+         {:ok, validity} <- decode_validity(der),
+         {:ok, not_before} <- parse_asn1_time(elem(validity, 1)),
+         {:ok, not_after} <- parse_asn1_time(elem(validity, 2)) do
+      seconds_remaining = DateTime.diff(not_after, DateTime.utc_now(), :second)
+      days_remaining = div(seconds_remaining, 86_400)
+
+      {:ok,
+       %{
+         not_before: not_before,
+         expires_at: not_after,
+         seconds_remaining: seconds_remaining,
+         days_remaining: days_remaining
+       }}
+    else
+      {:error, _} = error -> error
+    end
+  end
+
+  defp workload_api_socket_path(socket) when is_binary(socket) do
+    case URI.parse(socket) do
+      %URI{scheme: "unix", path: path} when is_binary(path) -> path
+      %URI{scheme: nil} -> socket
+      %URI{scheme: "unix"} -> socket
+      _ -> nil
+    end
+  end
+
+  defp workload_api_socket_path(_), do: nil
+
+  defp workload_api_fingerprint(socket, trust_domain) do
+    case WorkloadAPI.fetch_x509_svid(socket, trust_domain: trust_domain) do
+      {:ok, %{certs: [leaf | _]}} -> :crypto.hash(:sha256, leaf)
+      _ -> nil
+    end
+  end
+
+  defp poll_workload_api(callback, interval, socket, trust_domain, last_fingerprint) do
+    current = workload_api_fingerprint(socket, trust_domain)
+
+    if last_fingerprint && current && current != last_fingerprint do
+      callback.()
+    end
+
+    :timer.sleep(interval)
+
+    next_fingerprint = if current, do: current, else: last_fingerprint
+    poll_workload_api(callback, interval, socket, trust_domain, next_fingerprint)
+  end
+
+  defp extract_der_cert(pem) do
+    pem
+    |> :public_key.pem_decode()
+    |> Enum.find(&match?({:Certificate, _, _}, &1))
+    |> case do
+      {:Certificate, der, _} -> {:ok, der}
+      nil -> {:error, :no_certificate}
+    end
+  end
+
+  defp allow_any_hostname(_hostname, _cert), do: true
+
+  defp extra_cacerts(opts) do
+    bundle_path = trust_bundle_path(opts)
+
+    cond do
+      not is_binary(bundle_path) or bundle_path == "" ->
+        []
+
+      not File.exists?(bundle_path) ->
+        []
+
+      true ->
+        bundle_path
+        |> File.read()
+        |> case do
+          {:ok, pem} -> pem_cacerts(pem)
+          _ -> []
+        end
+    end
+  end
+
+  defp trust_bundle_path(opts) do
+    Keyword.get(opts, :trust_bundle_path) ||
+      config(:trust_bundle_path, System.get_env("SPIFFE_TRUST_BUNDLE_PATH"))
+  end
+
+  defp pem_cacerts(pem) do
+    pem
+    |> :public_key.pem_decode()
+    |> Enum.flat_map(fn
+      {:Certificate, der, _} -> [der]
+      _ -> []
+    end)
+  end
+
+  defp decode_validity(der) do
+    case :public_key.pkix_decode_cert(der, :otp) do
+      {:OTPCertificate, tbs_certificate, _sig_alg, _sig} when is_tuple(tbs_certificate) ->
+        if tuple_size(tbs_certificate) >= 6 do
+          {:ok, elem(tbs_certificate, 5)}
+        else
+          {:error, {:invalid_certificate, tbs_certificate}}
+        end
+
+      other ->
+        {:error, {:invalid_certificate, other}}
+    end
+  end
+
+  defp parse_asn1_time({:utcTime, time}) do
+    parse_time_string(List.to_string(time), :utc)
+  end
+
+  defp parse_asn1_time({:generalTime, time}) do
+    parse_time_string(List.to_string(time), :general)
+  end
+
+  defp parse_asn1_time(other) do
+    {:error, {:unsupported_time, other}}
+  end
+
+  defp parse_time_string(time_str, :utc) do
+    case time_str do
+      <<yy::binary-size(2), mm::binary-size(2), dd::binary-size(2), hh::binary-size(2),
+        mi::binary-size(2), ss::binary-size(2), "Z">> ->
+        year = normalize_year(String.to_integer(yy))
+        build_datetime(year, mm, dd, hh, mi, ss)
+
+      _ ->
+        {:error, {:invalid_time_format, time_str}}
+    end
+  end
+
+  defp parse_time_string(time_str, :general) do
+    case time_str do
+      <<yyyy::binary-size(4), mm::binary-size(2), dd::binary-size(2), hh::binary-size(2),
+        mi::binary-size(2), ss::binary-size(2), "Z">> ->
+        year = String.to_integer(yyyy)
+        build_datetime(year, mm, dd, hh, mi, ss)
+
+      _ ->
+        {:error, {:invalid_time_format, time_str}}
+    end
+  end
+
+  defp normalize_year(year) when year < 50, do: 2000 + year
+  defp normalize_year(year), do: 1900 + year
+
+  defp build_datetime(year, mm, dd, hh, mi, ss) do
+    with {month, ""} <- Integer.parse(mm),
+         {day, ""} <- Integer.parse(dd),
+         {hour, ""} <- Integer.parse(hh),
+         {minute, ""} <- Integer.parse(mi),
+         {second, ""} <- Integer.parse(ss),
+         {:ok, date} <- Date.new(year, month, day),
+         {:ok, time} <- Time.new(hour, minute, second),
+         {:ok, datetime} <- DateTime.new(date, time, "Etc/UTC") do
+      {:ok, datetime}
+    else
+      _ -> {:error, :invalid_datetime}
+    end
+  end
+
+  defp verify_peer_callback(_cert, {:bad_cert, _reason} = error, _state), do: {:fail, error}
+  defp verify_peer_callback(_cert, {:extension, _}, state), do: {:unknown, state}
+  defp verify_peer_callback(_cert, :valid, state), do: {:valid, state}
+
+  defp verify_peer_callback(cert, :valid_peer, state) do
+    # Verify the SPIFFE ID in the peer certificate
+    case verify_peer_id(cert) do
+      {:ok, spiffe_id} ->
+        verify_spiffe_id(spiffe_id, state)
+
+      {:error, :no_san_extension} ->
+        if certificate_ca?(cert) do
+          {:valid, state}
+        else
+          Logger.warning("Failed to verify peer SPIFFE ID: :no_san_extension")
+          {:fail, :no_san_extension}
+        end
+
+      {:error, reason} ->
+        Logger.warning("Failed to verify peer SPIFFE ID: #{inspect(reason)}")
+        {:fail, reason}
+    end
+  end
+
+  defp verify_spiffe_id(spiffe_id, state) do
+    case parse_spiffe_id(spiffe_id) do
+      {:ok, %{trust_domain: domain}} ->
+        verify_trust_domain(spiffe_id, domain, state)
+
+      {:error, _reason} ->
+        case parse_k8s_spiffe_id(spiffe_id) do
+          {:ok, %{trust_domain: domain}} -> verify_trust_domain(spiffe_id, domain, state)
+          {:error, reason} -> {:fail, reason}
+        end
+    end
+  end
+
+  defp verify_trust_domain(spiffe_id, domain, state) do
+    if domain == state.trust_domain do
+      Logger.debug("Verified peer SPIFFE ID: #{spiffe_id}")
+      {:valid, state}
+    else
+      Logger.warning("Peer trust domain mismatch: #{domain} != #{state.trust_domain}")
+      {:fail, :trust_domain_mismatch}
+    end
+  end
+
+  defp extract_spiffe_id(tbs_cert) do
+    # Extract the Subject Alternative Name extension which contains the SPIFFE ID
+    # The SPIFFE ID is stored as a URI type SAN
+    extensions =
+      if tuple_size(tbs_cert) > 10 do
+        elem(tbs_cert, 10)
+      else
+        :asn1_NOVALUE
+      end
+
+    case find_san_extension(extensions) do
+      nil ->
+        {:error, :no_san_extension}
+
+      san_ext ->
+        case find_uri_san(san_ext) do
+          nil -> {:error, :no_uri_san}
+          uri -> {:ok, uri}
+        end
+    end
+  end
+
+  defp find_san_extension(extensions) when is_list(extensions) do
+    # OID for Subject Alternative Name: 2.5.29.17
+    san_oid = {2, 5, 29, 17}
+
+    Enum.find_value(extensions, fn
+      {:Extension, ^san_oid, _critical, value} -> value
+      _ -> nil
+    end)
+  end
+
+  defp find_san_extension(_), do: nil
+
+  defp find_uri_san(san_value) when is_list(san_value) do
+    Enum.find_value(san_value, fn
+      {:uniformResourceIdentifier, uri} when is_list(uri) ->
+        uri_str = List.to_string(uri)
+
+        if String.starts_with?(uri_str, @spiffe_uri_prefix) do
+          uri_str
+        end
+
+      {:uniformResourceIdentifier, uri} when is_binary(uri) ->
+        if String.starts_with?(uri, @spiffe_uri_prefix), do: uri
+
+      _ ->
+        nil
+    end)
+  end
+
+  defp find_uri_san(_), do: nil
+
+  defp certificate_ca?(cert) when is_binary(cert) do
+    case :public_key.pkix_decode_cert(cert, :otp) do
+      {:OTPCertificate, tbs_cert, _, _} ->
+        extensions =
+          if tuple_size(tbs_cert) > 10 do
+            elem(tbs_cert, 10)
+          else
+            :asn1_NOVALUE
+          end
+
+        Enum.any?(extensions, fn
+          {:Extension, {2, 5, 29, 19}, _critical, {:BasicConstraints, true, _}} -> true
+          _ -> false
+        end)
+
+      _ ->
+        false
+    end
+  end
+
+  defp verify_spiffe_id(spiffe_id) do
+    trust_domain = config(:trust_domain, @trust_domain_default)
+
+    case parse_spiffe_id(spiffe_id) do
+      {:ok, %{trust_domain: ^trust_domain}} ->
+        {:ok, spiffe_id}
+
+      {:ok, %{trust_domain: other}} ->
+        {:error, {:trust_domain_mismatch, other, trust_domain}}
+
+      {:error, _reason} ->
+        case parse_k8s_spiffe_id(spiffe_id) do
+          {:ok, %{trust_domain: ^trust_domain}} -> {:ok, spiffe_id}
+          {:ok, %{trust_domain: other}} -> {:error, {:trust_domain_mismatch, other, trust_domain}}
+          error -> error
+        end
+    end
+  end
+
+  defp parse_node_type("core"), do: {:ok, :core}
+  defp parse_node_type("gateway"), do: {:ok, :gateway}
+  defp parse_node_type("agent"), do: {:ok, :agent}
+  defp parse_node_type("web"), do: {:ok, :core}
+  defp parse_node_type(other), do: {:error, {:unknown_node_type, other}}
+
+  defp watch_loop(callback) do
+    receive do
+      {:file_event, _pid, {_path, _events}} ->
+        Logger.info("Certificate files changed, triggering reload")
+        callback.()
+        watch_loop(callback)
+
+      {:file_event, _pid, :stop} ->
+        :ok
+    end
+  end
+
+  defp poll_certificates(callback, interval, last_mtimes) do
+    Process.sleep(interval)
+    dir = cert_dir()
+    current_mtimes = get_cert_mtimes(dir)
+
+    if current_mtimes != last_mtimes do
+      Logger.info("Certificate files changed (poll), triggering reload")
+      callback.()
+    end
+
+    poll_certificates(callback, interval, current_mtimes)
+  end
+
+  defp get_cert_mtimes(dir) do
+    Map.new(["svid.pem", "svid-key.pem", "bundle.pem"], fn file ->
+      path = Path.join(dir, file)
+
+      case File.stat(path) do
+        {:ok, %{mtime: mtime}} -> {file, mtime}
+        _ -> {file, nil}
+      end
+    end)
+  end
+
+  defp config(key, default) do
+    :serviceradar_core
+    |> Application.get_env(:spiffe, [])
+    |> Keyword.get(key, default)
+  end
+end

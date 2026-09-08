@@ -1,0 +1,32 @@
+suite: syslog collector format defaults
+templates:
+  - templates/log-collector.yaml
+  - templates/log-collector-tcp.yaml
+tests:
+  - it: defaults the UDP collector to auto format detection
+    template: templates/log-collector.yaml
+    documentSelector:
+      path: metadata.name
+      value: serviceradar-log-collector-config
+    asserts:
+      - matchRegex:
+          path: data["flowgger.toml"]
+          pattern: '(?m)^format = "auto"$'
+      - matchRegex:
+          path: data["flowgger.toml"]
+          pattern: '(?m)^nats_connect_attempts = 10\nnats_connect_initial_backoff_ms = 500\nnats_connect_max_backoff_ms = 30000$'
+
+  - it: defaults the TCP collector to auto format detection
+    template: templates/log-collector-tcp.yaml
+    documentSelector:
+      path: metadata.name
+      value: serviceradar-log-collector-tcp-config
+    set:
+      logCollector.tcpCollector.enabled: true
+    asserts:
+      - matchRegex:
+          path: data["flowgger.toml"]
+          pattern: '(?m)^format = "auto"$'
+      - matchRegex:
+          path: data["flowgger.toml"]
+          pattern: '(?m)^nats_connect_attempts = 10\nnats_connect_initial_backoff_ms = 500\nnats_connect_max_backoff_ms = 30000$'

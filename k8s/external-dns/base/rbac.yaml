@@ -1,0 +1,31 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: external-dns
+rules:
+  # Existing permissions
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get","watch","list"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get","watch","list"]
+  - apiGroups: ["networking","networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get","watch","list"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get","watch","list"]
+  - apiGroups: [""]
+    resources: ["endpoints"]
+    verbs: ["get","watch","list"]
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["get","watch","list"]
+  # Add DNS CRD permissions
+  - apiGroups: ["dns.tunnel.carverauto.dev"]
+    resources: ["dnsendpoints"]
+    verbs: ["get","watch","list","create","update","patch","delete"]
+  - apiGroups: ["dns.tunnel.carverauto.dev"]
+    resources: ["dnsendpoints/status"]
+    verbs: ["get","update","patch"]

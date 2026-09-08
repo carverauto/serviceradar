@@ -1,0 +1,23 @@
+# EEF-CVE-2026-43966 / cowlib HTTP response splitting,
+# EEF-CVE-2026-43969 / GHSA-g2wm-735q-3f56 / cowlib cookie encoder, and
+# EEF-CVE-2026-43971 / cowlib Link header directive smuggling have no patched
+# Hex release as of cowlib 2.19.0. That release fixed only the HPACK/QPACK
+# decoder DoS (EEF-CVE-2026-59248). 43971 (published 2026-08-18) has a git
+# fix at ninenines/cowlib@89da27ee but no Hex package that closes the range.
+# core_elx does not call the affected structured-header, cookie, or Link
+# encoders; its Gun 2.4.1 transport also rejects CR/LF request headers.
+# Remove these waivers as soon as cowlib publishes a patched Hex release.
+EEF-CVE-2026-43966
+EEF-CVE-2026-43969
+EEF-CVE-2026-43971
+GHSA-g2wm-735q-3f56
+
+# mix hex.audit and mix deps.audit report the cowlib response-splitting defect
+# under different ids, and the mix_audit ignore file matches on the advisory id
+# exactly (MixAudit.CLI.Audit rejects `&1.id in ignored_advisory_ids`), so the
+# GitHub id has to be listed alongside the EEF id above. It is the same defect:
+# the advisory text is verbatim about cowlib, reported here against the
+# dependent package gun. Note that gun cannot be upgraded out of it -- the gun
+# row carries cowboy's range data (`< 2.16.0`, first patched `2.16.0`) while
+# gun's newest release is 2.5.0, so no gun version can ever satisfy it.
+GHSA-w4f7-4cxr-rv3c

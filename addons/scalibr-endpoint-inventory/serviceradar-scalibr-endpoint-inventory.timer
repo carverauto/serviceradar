@@ -1,0 +1,12 @@
+[Unit]
+Description=Run ServiceRadar ScaLibr Endpoint Software Inventory Scanner
+
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=10m
+AccuracySec=1m
+Persistent=true
+Unit=serviceradar-scalibr-endpoint-inventory.service
+
+[Install]
+WantedBy=timers.target

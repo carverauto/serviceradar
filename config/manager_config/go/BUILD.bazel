@@ -1,0 +1,74 @@
+# gazelle:ignore
+
+load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+load("@aspect_bazel_lib//lib:write_source_files.bzl", "write_source_files")
+
+# ConfigManager, Go. Mirrors //config/manager_config/rust: the same one variable, the same
+# source-from-kind mapping, the same identity check, and loading that validates.
+#
+# It depends on the CHECKED-IN bindings rather than the generated go_proto_library because a Go
+# source file can only name one import path. //config/proto:binding_drift_go_{config,rules}_test
+# is what makes that safe.
+go_library(
+    name = "manager",
+    srcs = [
+        "manager.go",
+        "rules.go",
+        "selector.go",
+    ],
+    # The embedded rule set. go:embed cannot reach outside its own package, which is why this is
+    # a per-language copy rather than one shared file; :ruleset_drift_test keeps it byte-identical
+    # to protoc's output for //config/rules:ruleset.textproto.
+    embedsrcs = ["ruleset.binpb"],
+    importpath = "github.com/carverauto/serviceradar/config/manager_config/go",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//config/proto_bindings/go:configpb",
+        "//config/manager_validator/go:validator",
+        "@org_golang_google_protobuf//proto",
+    ],
+)
+
+# The whole test surface as an external test package, so everything is exercised through the
+# public API exactly as a consumer sees it.
+#
+# These tests validate against the REAL committed rule set, because that is the only one the
+# manager will ever use. A synthetic rule set would test the manager against rules no deployment
+# has, which is why the fixture that built one was deleted.
+go_test(
+    name = "manager_test",
+    srcs = [
+        "fixtures_test.go",
+        "manager_test.go",
+        "selector_message_test.go",
+        "selector_test.go",
+    ],
+    deps = [
+        ":manager",
+        "//config/proto_bindings/go:configpb",
+        "@org_golang_google_protobuf//proto",
+    ],
+)
+
+# The embedded copy must equal protoc's output for the committed textproto. Same pattern and same
+# reason as //config/proto:binding_drift_go_*_test.
+diff_test(
+    name = "ruleset_drift_test",
+    file1 = "//config/rules:ruleset_binpb",
+    file2 = "ruleset.binpb",
+)
+
+# Write-back for the committed copies of generated artifacts.
+#
+# The copies exist so `go build` / `mix` reach them without Bazel, and the diff test beside them
+# makes the two impossible to disagree. Refreshing them is THIS target's job: nobody reaches into
+# bazel-out, which is a per-configuration path the tree deliberately hides (//.bazelrc sets
+# --experimental_convenience_symlinks=clean), so any absolute path found by hand encodes the
+# platform and compilation mode it happened to be built with.
+#
+#     bazel run //config/manager_config/go:update_ruleset
+write_source_files(
+    name = "update_ruleset",
+    files = {"ruleset.binpb": "//config/rules:ruleset_binpb"},
+)

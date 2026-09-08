@@ -1,0 +1,504 @@
+load("@aspect_bazel_lib//lib:copy_to_bin.bzl", "copy_to_bin")
+load("@rules_elixir//:elixir_tests.bzl", "ex_unit_tests")
+load("@rules_elixir//:ex_unit_test.bzl", "ex_unit_test")
+load("@rules_elixir//:mix_app.bzl", "mix_app")
+load("@serviceradar//build:integration_tests.bzl", "requires_shared_fixture")
+load(
+    "//build:elixir_release.bzl",
+    "SHIPPED_ERTS_OTP_ROOT",
+    "SHIPPED_ERTS_ROOT_MARKER",
+    "elixir_release",
+)
+
+# REMOVED FOR NOW: :precommit / :precommit_check, and the two mix_deps cache layers
+# (:deps_cache, :path_deps_cache) that existed only to feed them.
+#
+# :precommit_check fails on `mix format --check-formatted` against pre-existing HEEx
+# formatting, which has nothing to do with the build graph and blocks `//elixir/...` from
+# going green. The two cache layers went with it because nothing else consumed them, and
+# :deps_cache alone was a 214s `mix deps.get + deps.compile` action -- the second-largest
+# single action in the Elixir tree.
+#
+# Restore from git history once the tree is formatted. //build:mix_deps.bzl and
+# //build:mix_precommit.bzl are deleted too -- they had no loader left, and mix_deps was
+# superseded by per-package mix_app compilation, which is lockfile-keyed and remotely
+# cacheable rather than one 214s action. Lint runs as `mix precommit` from the Makefile.
+#
+# Two CI references went with it, and both have to come back deliberately:
+#
+#   * precommit-web-ng.yml was deleted. Its only substantive step was
+#     `bazel test //elixir/web-ng:precommit`, so with the target gone every run exited 1.
+#   * main.yml's test sweep dropped its `except set(//elixir/web-ng:precommit)` clause. That
+#     was not cosmetic: `set()` hard-errors on an unknown label, so the dangling reference
+#     aborted the entire query with exit 7 and the sweep ran no tests at all.
+#
+# The exclusion existed so a web-ng lint failure produced its own red X rather than one
+# indistinguishable from a compile break. If the target returns, decide again whether that is
+# worth a separate workflow before re-adding either reference.
+
+package(default_visibility = ["//visibility:public"])
+
+# Read by //:first_party_plugin_cosign_key_consistency_test. config/ has no BUILD file of its
+# own, so the file lives in this package. It is already swept up by the `config/**` globs in
+# :deps_srcs and :unit_tests, but naming it here is deliberate: relying on incidental
+# filegroup membership would break the test the moment one of those globs is reorganised.
+exports_files(["config/config.exs"])
+
+# Standalone HEEx templates scanned at runtime by TimestampFormatterInventoryTest.
+# Keep this a named input so a broad unit-test data-glob refactor cannot silently
+# remove production templates from the audit.
+filegroup(
+    name = "timestamp_formatter_audit_heex_srcs",
+    srcs = glob(
+        ["lib/**/*.heex"],
+        allow_empty = True,
+    ),
+)
+
+filegroup(
+    name = "srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "bazel-*",
+            "_build/**",
+            "assets/**",
+            "deps/**",
+            "native/**/target/**",
+            "node_modules/**",
+            "tmp/**",
+            ".git/**",
+        ],
+    ) + [
+        # assets/ is its own package now (it owns package-lock.json for npm_translate_lock),
+        # and a glob does not cross a package boundary. Without this label the assets would
+        # drop out of every consumer silently -- the excluded "assets/**" above is there to
+        # make that fact explicit rather than implied.
+        "//elixir/web-ng/assets:all_srcs",
+    ],
+)
+
+filegroup(
+    name = "deps_srcs",
+    srcs = [
+        "mix.exs",
+        "mix.lock",
+    ] + glob(["config/**"]),
+)
+
+# What `mix compile` actually needs -- :srcs minus the test files it never compiles.
+# See the long note on //elixir/serviceradar_core:compile_srcs; the reasoning is identical.
+# mix.exs:54 is `elixirc_paths(:test), do: ["lib", "test/support"]`, so 324 of the 343 files
+# under test/ were declared inputs that the application never reads, and touching any one of
+# them rebuilt this app plus everything downstream of it.
+filegroup(
+    name = "compile_srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "bazel-*",
+            "_build/**",
+            "assets/**",
+            "deps/**",
+            "native/**/target/**",
+            "node_modules/**",
+            "tmp/**",
+            ".git/**",
+            "test/**",
+        ],
+    ) + glob(
+        ["test/support/**"],
+        allow_empty = True,
+    ) + [
+        # Same reason as :srcs -- assets/ is its own package and a glob cannot cross the
+        # boundary, so the label is named explicitly.
+        "//elixir/web-ng/assets:all_srcs",
+    ],
+)
+
+# The release RECIPE, as opposed to the release CONTENTS: mix.exs supplies releases/0,
+# config/ and rel/ supply what `mix release` renders. Compiled code is not here -- it
+# reaches the release through the ErlangAppInfo closure of :erlang_app_prod.
+filegroup(
+    name = "release_recipe",
+    srcs = [
+        "mix.exs",
+        "mix.lock",
+    ] + glob(
+        [
+            "config/**",
+            "rel/**",
+        ],
+        allow_empty = True,
+    ),
+)
+
+# Read by Tailwind, not by Elixir. css/app.css declares
+# `@source "../../lib/serviceradar_web_ng_web"`, so v4 scans these templates to decide
+# which utility classes to emit; without them as declared inputs the stylesheet builds
+# clean and nearly empty, and the change would not invalidate the CSS bundle.
+#
+# copy_to_bin, not a plain filegroup: rules_js stages every src of a js_run_binary through
+# copy_to_bin, which refuses a source file owned by a different package. Copying them here,
+# in their own package, makes them bazel-out files that //elixir/web-ng/assets can consume.
+# It also lands them at bazel-out/.../elixir/web-ng/lib/..., which is exactly where
+# `@source "../../lib/serviceradar_web_ng_web"` resolves from the assets working directory.
+copy_to_bin(
+    name = "web_templates",
+    srcs = glob(
+        [
+            "lib/serviceradar_web_ng_web/**/*.ex",
+            "lib/serviceradar_web_ng_web/**/*.heex",
+        ],
+        allow_empty = True,
+    ),
+)
+
+# Static files that are committed rather than generated. mix_release preserved these by
+# copying them aside before wiping priv/static; as a target they are just inputs.
+#
+# The excludes are the gitignored outputs of the local asset loop AGENTS.md documents:
+# `npm run build:js` / `build:css` write priv/static/assets, `mix phx.digest` writes
+# cache_manifest.json. Neither exists in a clean CI checkout, so the glob only picks them
+# up on a developer's machine -- where they collide with the Bazel-built bundles that
+# //elixir/web-ng/assets:static_undigested already gets from :css_bundle and :js_bundle,
+# taking down `make test`. Do NOT reach for allow_overwrites instead: it resolves the
+# collision by source order, which would let a stale local bundle shadow the one Bazel
+# just built.
+filegroup(
+    name = "static_files",
+    srcs = glob(
+        ["priv/static/**"],
+        allow_empty = True,
+        exclude = [
+            "priv/static/assets/**",
+            "priv/static/cache_manifest.json",
+        ],
+    ),
+)
+
+# Shared between the :test and :prod compilations below, which differ only in mix_env.
+WEB_NG_SRCS = [
+    ":compile_srcs",
+    # Signal display contracts, read at compile time and baked in with
+    # @external_resource (lib/serviceradar_web_ng/observability/signal_display.ex).
+    # It resolves them against Path.expand("../..", File.cwd!()), i.e. the repo root,
+    # which is why mix_app mirrors the workspace layout inside the action.
+    "//addons/powerdns:powerdns_manifest",
+    "//go/cmd/wasm-plugins/axis:srcs",
+    "//go/cmd/wasm-plugins/proxmox:srcs",
+    "//go/cmd/wasm-plugins/unifi-protect:srcs",
+    "//go/pkg/trivysidecar:display_contracts",
+    "//integrations/falco:display_contracts",
+]
+
+# Bazel builds the cdylib; Mix must not shell out to cargo.
+WEB_NG_EXTRA_CONFIG = [
+    "config :serviceradar_web_ng, ServiceRadarWebNG.Topology.Native, skip_compilation?: true",
+]
+
+WEB_NG_NATIVE_LIBS = {
+    "//elixir/web-ng/native/god_view_nif:god_view_nif": "god_view_nif",
+}
+
+# serviceradar_core is deliberately absent: each mix_app below prepends the build of it
+# that matches its own env. Listing it here too would duplicate the label.
+WEB_NG_DEPS = [
+    "//third_party/hex_vendored/connection:erlang_app",
+    "//elixir/datasvc:erlang_app",
+    "//elixir/serviceradar_srql:erlang_app",
+    "@hexpm//:ash_ai",
+    "@hexpm//:ash_phoenix",
+    "@hexpm//:bandit",
+    "@hexpm//:bcrypt_elixir",
+    "@hexpm//:boundary",
+    "@hexpm//:broadway_dashboard",
+    "@hexpm//:castore",
+    "@hexpm//:dns_cluster",
+    "@hexpm//:ecto_sql",
+    "@hexpm//:elixlsx",
+    "@hexpm//:esbuild",
+    "@hexpm//:gen_smtp",
+    "@hexpm//:gettext",
+    "@hexpm//:gnat",
+    "@hexpm//:guardian",
+    "@hexpm//:jason",
+    "@hexpm//:mdex",
+    "@hexpm//:oban_web",
+    "@hexpm//:open_api_spex",
+    "@hexpm//:permit",
+    "@hexpm//:permit_ecto",
+    "@hexpm//:permit_phoenix",
+    "@hexpm//:phoenix",
+    "@hexpm//:phoenix_ecto",
+    "@hexpm//:phoenix_html",
+    "@hexpm//:phoenix_live_dashboard",
+    "@hexpm//:phoenix_live_view",
+    "@hexpm//:phoenix_react_ng",
+    "@hexpm//:postgrex",
+    "@hexpm//:protobuf",
+    "@hexpm//:redoc_ui_plug",
+    "@hexpm//:req",
+    "@hexpm//:samly",
+    "@hexpm//:stream_data",
+    "@hexpm//:swoosh",
+    "@hexpm//:tailwind",
+    "@hexpm//:telemetry_metrics",
+    "@hexpm//:telemetry_metrics_prometheus_core",
+    "@hexpm//:telemetry_poller",
+    "@hexpm//:ueberauth",
+    "@hexpm//:ueberauth_oidcc",
+    "@rules_elixir//elixir",
+]
+
+# Declared `only: [:dev, :test]` in mix.exs, most with `runtime: false`. Mix therefore
+# excludes every one of them under MIX_ENV=prod -- but the Bazel :erlang_app_prod target was
+# declaring them anyway, which staged them into the prod compile's ERL_LIBS and, more
+# importantly, carried them through ErlangAppInfo into the OTP release closure that becomes
+# the shipped image. Lint and static-analysis tooling has no business in a production
+# release.
+#
+# Kept on the :test target, which is the env that actually resolves them.
+WEB_NG_DEV_DEPS = [
+    "@hexpm//:ash_credo",
+    "@hexpm//:credo",
+    "@hexpm//:dialyxir",
+    "@hexpm//:ex_dna",
+    "@hexpm//:ex_slop",
+    "@hexpm//:igniter",
+    "@hexpm//:jump_credo_checks",
+    "@hexpm//:lazy_html",
+    "@hexpm//:mix_audit",
+    "@hexpm//:phoenix_live_reload",
+    "@hexpm//:sobelow",
+    "@hexpm//:styler",
+]
+
+# Compiled by Mix inside a single hermetic Bazel action. mix_env is "test" because
+# mix.exs sets elixirc_paths(:test) => ["lib", "test/support"].
+mix_app(
+    name = "erlang_app",
+    srcs = WEB_NG_SRCS,
+    app_name = "serviceradar_web_ng",
+    extra_config = WEB_NG_EXTRA_CONFIG,
+    mix_env = "test",
+    native_libs = WEB_NG_NATIVE_LIBS,
+    deps = ["//elixir/serviceradar_core:erlang_app"] + WEB_NG_DEPS + WEB_NG_DEV_DEPS,
+)
+
+# The release build. Under :prod, elixirc_paths drops test/support and every
+# Application.compile_env/2 read resolves against config/prod.exs rather than
+# config/test.exs -- shipping the :test build would bake test configuration into the
+# image. Pulls the :prod build of serviceradar_core for the same reason.
+mix_app(
+    name = "erlang_app_prod",
+    srcs = WEB_NG_SRCS,
+    app_name = "serviceradar_web_ng",
+    extra_config = WEB_NG_EXTRA_CONFIG,
+    mix_env = "prod",
+    native_libs = WEB_NG_NATIVE_LIBS,
+    deps = ["//elixir/serviceradar_core:erlang_app_prod"] + WEB_NG_DEPS,
+)
+
+# Assembly-only release: no deps.get, no recompilation, no cargo, no bun, no network.
+# Application code comes from the ErlangAppInfo closure of :erlang_app_prod; the digested
+# CSS/JS arrives as a declared overlay instead of being built inside this action.
+elixir_release(
+    name = "release_tar",
+    srcs = [
+        ":release_recipe",
+        # Mix reads each PATH dependency's mix.exs to learn its app name and version,
+        # transitively. Only the manifest is needed -- compiled code arrives via `app`.
+        "//third_party/hex_vendored/connection:mix.exs",
+        "//elixir/datasvc:mix.exs",
+        "//third_party/hex_vendored/elixir_uuid:mix.exs",
+        "//elixir/serviceradar_core:mix.exs",
+        "//elixir/serviceradar_srql:mix.exs",
+        "//third_party/hex_vendored/opentelemetry_oban:mix.exs",
+    ],
+    out = "serviceradar-web-ng-release.tar.gz",
+    app = ":erlang_app_prod",
+    # Named release matches mix.exs releases/0 (validate_compile_env: false).
+    erts_otp_root = SHIPPED_ERTS_OTP_ROOT,
+    erts_root_marker = SHIPPED_ERTS_ROOT_MARKER,
+    # The same list :erlang_app_prod compiled with. `mix release` compares every
+    # Application.compile_env/2 key against its compile-time value and refuses to assemble
+    # if they differ, so these have to agree -- hence the shared variable rather than two
+    # copies. serviceradar_core's entries are here for the same reason: it is part of the
+    # release and was compiled with them.
+    extra_config = WEB_NG_EXTRA_CONFIG + [
+        "config :serviceradar_core, ServiceRadar.Observability.Zen.Native, skip_compilation?: true",
+        "config :serviceradar_core, ServiceRadar.Observability.DispositionKernels, skip_compilation?: true",
+    ],
+    overlays = {
+        "//elixir/web-ng/assets:static": "priv",
+    },
+    release_name = "serviceradar_web_ng",
+)
+
+ex_unit_tests(
+    name = "unit_tests",
+    # test/integration and test/property are excluded because this target is the
+    # DATABASE-FREE tier, and not one file in either directory carries
+    # @moduletag :db_free -- they need a database, the SRQL NIF, or AGE/Cypher.
+    #
+    # Globbing them in did not run them; it generated
+    # //elixir/web-ng:unit_tests_integration and :unit_tests_property, which
+    # loaded their files, excluded every test, and reported PASSED on
+    # "0 tests, 0 failures (11 excluded)". Two green CI targets covering nothing,
+    # for as long as they have existed. test_helper.exs now fails a target that
+    # executes zero tests, which is what surfaced them.
+    #
+    # Excluding them states the truth -- these are not database-free tests --
+    # instead of tagging them :db_free, which would make them run without the
+    # database they need. They belong in a DB-backed target; until one exists
+    # they are not covered by Bazel, and that is now visible rather than
+    # disguised as green.
+    srcs = glob(
+        ["test/**/*_test.exs"],
+        exclude = [
+            "test/integration/**",
+            "test/property/**",
+        ],
+    ),
+    config_loader = "//build:elixir_test_config_loader.exs",
+    data = glob(
+        [
+            "config/**",
+            "lib/**",
+            "priv/**",
+            "test/**",
+        ],
+        allow_empty = True,
+        exclude = [
+            # Named explicitly below as an audit runfile.
+            "lib/**/*.heex",
+            "test/**/*_test.exs",
+            # Named explicitly below so the timestamp audit cannot lose its
+            # checked classification artifact in a broad data-glob refactor.
+            "test/fixtures/timestamp_formatter_inventory.json",
+        ],
+    ) + [
+        # Runtime inputs for ContractRegistryTest's actual first-party package
+        # reachability checks. mix_app compile inputs do not automatically become
+        # an ex_unit_test's runfiles.
+        "//addons/anomaly-addon:anomaly_manifest",
+        "//addons/powerdns:powerdns_manifest",
+        # assets/ is its own package; glob() here cannot see css/app.css.
+        # DashboardLayoutTest reads it at runtime.
+        "//elixir/web-ng/assets:css/app.css",
+        # TimestampFormatterInventoryTest scans production JavaScript at runtime.
+        # assets/ is a separate package, so these sources must be explicit runfiles.
+        "//elixir/web-ng/assets:timestamp_formatter_audit_js_srcs",
+        ":timestamp_formatter_audit_heex_srcs",
+        "test/fixtures/timestamp_formatter_inventory.json",
+        # PluginConfigFormTest reads the live OpenText schema via Path.expand
+        # from __DIR__. ex_unit_test mirrors the workspace layout, so this
+        # declared input is what makes that relative path exist in the sandbox.
+        "//go/cmd/wasm-plugins/opentext-nom:config.schema.json",
+        "//go/cmd/wasm-plugins/axis:srcs",
+        "//go/cmd/wasm-plugins/proxmox:srcs",
+        "//go/cmd/wasm-plugins/unifi-protect:srcs",
+        # TimezoneMigrationTest asserts on the generated core migration, so its
+        # cross-package source must be in runfiles.
+        "//elixir/serviceradar_core:migrations",
+    ],
+    # web-ng already defines a database-free tier: with ALLOW_DB_FREE_TESTS set and neither
+    # CI nor REQUIRE_DB_TESTS, test_helper.exs skips Application.ensure_all_started and runs
+    # only `:db_free`-tagged tests (87 of 316 files). That is the project's own notion of
+    # what runs without a database, so this job uses it rather than inventing a second one.
+    # CI is pinned empty because the helper treats CI=true as "a database is required".
+    env = {
+        "SERVICERADAR_ALLOW_DB_FREE_TESTS": "1",
+        "CI": "",
+    },
+    test_helper = "test/test_helper.exs",
+    deps = [":erlang_app"],
+)
+
+# The database-free unit target above deliberately excludes the tagged cases in these files.
+# Run them after the ordinary serviceradar_core integration lanes, when serial_0 is quiescent
+# but still exists, so the guarded CI lifecycle gains focused coverage without provisioning
+# another database or raising the observer's peak connection budget. This target is manual
+# because Bazel cannot express its required ordering relative to the core lanes and fixture
+# teardown. Its helper selects only `:web_ng_shared_fixture_db`; adding a source alone does not
+# silently opt every pre-existing case in that file into this lane.
+ex_unit_test(
+    name = "networks_live_db_test",
+    size = "enormous",
+    srcs = [
+        "test/app_domain/dashboards/group_access_db_test.exs",
+        "test/app_domain/dashboards/report_jobs_test.exs",
+        "test/phoenix/auth/sso_provisioning_test.exs",
+        "test/phoenix/controllers/api/admin_authorization_test.exs",
+        "test/phoenix/controllers/api/api_endpoint_integration_test.exs",
+        "test/phoenix/live/alert_live/show_test.exs",
+        "test/phoenix/live/authored_dashboard_live_test.exs",
+        "test/phoenix/live/camera_analysis_worker_live_test.exs",
+        "test/phoenix/live/device_live/endpoint_inventory_data_db_test.exs",
+        "test/phoenix/live/device_live_test.exs",
+        "test/phoenix/live/event_live/show_test.exs",
+        "test/phoenix/live/log_live/index_test.exs",
+        "test/phoenix/live/log_live/netflows_test.exs",
+        "test/phoenix/live/log_live/show_test.exs",
+        "test/phoenix/live/metric_live/timestamp_rendering_test.exs",
+        "test/phoenix/live/security_dashboard_routes_test.exs",
+        "test/phoenix/live/settings/ansible_live_test.exs",
+        "test/phoenix/live/settings/networks_live_test.exs",
+        "test/phoenix/live/settings/notifications_live_test.exs",
+        "test/phoenix/live/settings/rbac_live_test.exs",
+        "test/phoenix/live/settings/snmp_profiles_live/profile_lifecycle_test.exs",
+        "test/phoenix/live/trace_live/show_test.exs",
+        "test/phoenix/live/user_live/settings_test.exs",
+        "test/serviceradar/identity/timezone_migration_db_test.exs",
+        "test/serviceradar/identity/timezone_preference_test.exs",
+    ],
+    data = glob(
+        [
+            "config/**",
+            "lib/**",
+            "priv/**",
+            "test/**",
+        ],
+        allow_empty = True,
+        exclude = ["test/**/*_test.exs"],
+    ) + [
+        "//build:elixir_test_config_loader.exs",
+        "//build:run_id_file",
+        "//config/environments:ci_binpb",
+        "//elixir/serviceradar_core:config/test_database_guard.exs",
+        "//elixir/serviceradar_core:test/db/fixture_config.exs",
+        "//elixir/serviceradar_core:test/db/integration_env.exs",
+        "//elixir/serviceradar_core:test/db/integration_env_config.exs",
+    ],
+    elixir_opts = [
+        "-r",
+        "../serviceradar_core/test/db/integration_env.exs",
+        "-r",
+        "../../build/elixir_test_config_loader.exs",
+        "-r",
+        "test/db/networks_live_db_test_helper.exs",
+    ],
+    env = {
+        "SERVICERADAR_REQUIRE_DB_TESTS": "1",
+        "SERVICERADAR_TEST_DATABASE_OWNERSHIP_TIMEOUT_MS": "600000",
+        "SERVICERADAR_TEST_DB_SHARD": "serial_0",
+        # A single RBAC LiveView mount starts three async database loads. Keep
+        # enough connections for that fan-out plus the endpoint's own request
+        # and application processes; the 15-second query timeout still catches
+        # a real hang.
+        "TEST_CNPG_POOL_SIZE": "8",
+        "TEST_CNPG_QUEUE_INTERVAL_MS": "10000",
+        "TEST_CNPG_QUEUE_TARGET_MS": "10000",
+    },
+    tags = [
+        "integration_test",
+        "manual",
+    ],
+    target_compatible_with = requires_shared_fixture(),
+    deps = [
+        ":erlang_app",
+        "//config/manager_config/elixir:manager",
+        "//config/manager_secret/elixir:secret",
+    ],
+)

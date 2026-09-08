@@ -1,0 +1,60 @@
+# ServiceRadar environment configuration: saas
+#
+# GROUND TRUTH. This file is authored and reviewed here; a build action compiles it to a
+# binary message that every implementation loads. Do not edit the generated .binpb.
+#
+# NO SECRETS. Passwords, private keys and certificate material are resolved by
+# SecretManager. A build-time check rejects credential-shaped values in this file.
+#
+# The hosted deployment. Single-instance by definition, which is why it carries no
+# `instance` field -- only ENVIRONMENT_KIND_ONPREM is multi-tenant, and INSTANCE_REQUIRED_FOR_ONPREM
+# scopes that requirement to that kind alone.
+
+kind: ENVIRONMENT_KIND_SAAS
+
+database {
+  # The CNPG read-write service. A Kubernetes service name, so it resolves only in-cluster.
+  host: "cnpg-rw.serviceradar.svc.cluster.local"
+  port: 5432
+  database: "serviceradar"
+
+  # Identities, not credentials. The password is a secret and is never written here.
+  connecting_role: "serviceradar"
+  owning_role: "serviceradar"
+
+  # Full verification, including the hostname. CNPG issues its serving certificate for the
+  # service DNS name, so a client connecting by that name can and must check it.
+  tls_mode: TLS_MODE_VERIFY_FULL
+  tls_server_name: "cnpg-rw.serviceradar.svc.cluster.local"
+
+  search_path: "platform, ag_catalog"
+
+  # Larger than ci: this pool serves real request traffic rather than one test shard.
+  pool_size: 25
+  queue_target_ms: 500
+  queue_interval_ms: 1000
+  ownership_timeout_ms: 60000
+}
+
+nats {
+  url: "tls://nats.serviceradar.svc.cluster.local:4222"
+  server_name: "nats"
+}
+
+core {
+  address: "serviceradar-core:50052"
+  api_url: "http://serviceradar-core:8090"
+  security_mode: SECURITY_MODE_MTLS
+  server_name: "serviceradar-core"
+}
+
+dgraph {
+  # The alpha Service the chart renders, not a guess: release `dgraph` yields
+  # <release>-dgraph-alpha. Deployed by //k8s/dgraph/demo.
+  host: "dgraph-dgraph-alpha.dgraph.svc.cluster.local"
+  port: 9080
+
+  # Verified against an in-cluster CA supplied as `dgraph.ca_cert`, not the system
+  # roots: no public authority signs a *.svc.cluster.local name.
+  tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+}

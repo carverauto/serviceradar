@@ -1,0 +1,38 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+load("//build:benchmarks.bzl", "go_benchmark")
+
+go_library(
+    name = "fastsum",
+    srcs = [
+        "api.go",
+        "sum_amd64.go",
+        "sum_amd64.s",
+        "sum_arm64.go",
+        "sum_arm64.s",
+        "sum_generic.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/go/internal/fastsum",
+    visibility = ["//:__subpackages__"],
+)
+
+go_test(
+    name = "fastsum_test",
+    srcs = ["api_test.go"],
+    deps = [":fastsum"],
+)
+
+# sum_test.go sits behind `//go:build fastsumtest`, so it is OPT-IN rather than neglected -- and
+# nothing opted in, which is why its benchmarks were in no target at all. A separate target
+# carries the tag: folding it into :fastsum_test would either do nothing (the tag is unset) or
+# change what the correctness test compiles, and neither is what is wanted here.
+go_test(
+    name = "fastsum_bench_test",
+    srcs = ["sum_test.go"],
+    gotags = ["fastsumtest"],
+    deps = [":fastsum"],
+)
+
+go_benchmark(
+    name = "fastsum_bench",
+    binary = ":fastsum_bench_test",
+)

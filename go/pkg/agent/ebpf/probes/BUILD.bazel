@@ -1,0 +1,110 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "probes",
+    srcs = [
+        "command.go",
+        "command_bpfeb.go",
+        "command_bpfel.go",
+        "file.go",
+        "file_bpfeb.go",
+        "file_bpfel.go",
+        "loss.go",
+        "network.go",
+        "network_bpfeb.go",
+        "network_bpfel.go",
+        "selftest.go",
+        "selftest_bpfeb.go",
+        "selftest_bpfel.go",
+    ],
+    embedsrcs = select({
+        "@io_bazel_rules_go//go/platform:386": [
+            "command_bpfel.o",
+            "file_bpfel.o",
+            "network_bpfel.o",
+            "selftest_bpfel.o",
+        ],
+        "@io_bazel_rules_go//go/platform:amd64": [
+            "command_bpfel.o",
+            "file_bpfel.o",
+            "network_bpfel.o",
+            "selftest_bpfel.o",
+        ],
+        "@io_bazel_rules_go//go/platform:arm": [
+            "command_bpfel.o",
+            "file_bpfel.o",
+            "network_bpfel.o",
+            "selftest_bpfel.o",
+        ],
+        "@io_bazel_rules_go//go/platform:arm64": [
+            "command_bpfel.o",
+            "file_bpfel.o",
+            "network_bpfel.o",
+            "selftest_bpfel.o",
+        ],
+        "@io_bazel_rules_go//go/platform:mips": [
+            "command_bpfeb.o",
+            "file_bpfeb.o",
+            "network_bpfeb.o",
+            "selftest_bpfeb.o",
+        ],
+        "@io_bazel_rules_go//go/platform:mips64": [
+            "command_bpfeb.o",
+            "file_bpfeb.o",
+            "network_bpfeb.o",
+            "selftest_bpfeb.o",
+        ],
+        "@io_bazel_rules_go//go/platform:mips64le": [
+            "command_bpfel.o",
+            "file_bpfel.o",
+            "network_bpfel.o",
+            "selftest_bpfel.o",
+        ],
+        "@io_bazel_rules_go//go/platform:mipsle": [
+            "command_bpfel.o",
+            "file_bpfel.o",
+            "network_bpfel.o",
+            "selftest_bpfel.o",
+        ],
+        "@io_bazel_rules_go//go/platform:ppc64": [
+            "command_bpfeb.o",
+            "file_bpfeb.o",
+            "network_bpfeb.o",
+            "selftest_bpfeb.o",
+        ],
+        "@io_bazel_rules_go//go/platform:ppc64le": [
+            "command_bpfel.o",
+            "file_bpfel.o",
+            "network_bpfel.o",
+            "selftest_bpfel.o",
+        ],
+        "@io_bazel_rules_go//go/platform:riscv64": [
+            "command_bpfel.o",
+            "file_bpfel.o",
+            "network_bpfel.o",
+            "selftest_bpfel.o",
+        ],
+        "@io_bazel_rules_go//go/platform:s390x": [
+            "command_bpfeb.o",
+            "file_bpfeb.o",
+            "network_bpfeb.o",
+            "selftest_bpfeb.o",
+        ],
+        "@io_bazel_rules_go//go/platform:wasm": [
+            "command_bpfel.o",
+            "file_bpfel.o",
+            "network_bpfel.o",
+            "selftest_bpfel.o",
+        ],
+        "//conditions:default": [],
+    }),
+    importpath = "github.com/carverauto/serviceradar/go/pkg/agent/ebpf/probes",
+    visibility = ["//visibility:public"],
+    deps = ["@com_github_cilium_ebpf//:ebpf"],
+)
+
+go_test(
+    name = "probes_test",
+    srcs = ["selftest_test.go"],
+    deps = [":probes"],
+)

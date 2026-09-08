@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="csrf-token" content={get_csrf_token()} />
+    <%!-- Demo is for evaluation, not organic search. --%>
+    <meta name="robots" content="noindex, nofollow" />
+    <.live_title default="ServiceRadar" suffix=" · ServiceRadar">
+      {assigns[:page_title]}
+    </.live_title>
+    <link rel="icon" href={~p"/favicon.ico"} sizes="any" />
+    <link rel="icon" href={~p"/images/logo.svg"} type="image/svg+xml" />
+    <link phx-track-static rel="stylesheet" href={~p"/assets/css/app.css"} />
+    <link phx-track-static rel="stylesheet" href={~p"/assets/js/app.css"} />
+    <script defer phx-track-static type="text/javascript" src={~p"/assets/js/app.js"}>
+    </script>
+    <script phx-track-static type="text/javascript" src={~p"/assets/js/theme_init.js"}>
+    </script>
+  </head>
+  <body>
+    {@inner_content}
+  </body>
+</html>

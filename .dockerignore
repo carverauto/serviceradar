@@ -1,0 +1,13 @@
+**/target
+**/node_modules
+release-artifacts
+.git
+*.log
+*.md
+*.lock
+!Cargo.lock
+!rust/flowgger/Cargo.lock
+!rust/trapd/Cargo.lock
+!rust/otel/Cargo.lock
+!rust/rperf-client/Cargo.lock
+demo-staging

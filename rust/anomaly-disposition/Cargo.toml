@@ -1,0 +1,23 @@
+[package]
+name = "serviceradar-anomaly-disposition"
+version = "0.1.0"
+description = "Central disposition kernels (seasonal residual-z, capacity least-squares / Holt-Winters forecast) — robust STATISTICS, not causal inference. Hosted on the shared serviceradar-anomaly-core streaming substrate (a CausalFlow pipeline combinator from the DeepCausality library, used here as plumbing only). The thin Rustler NIF wraps these kernels; this crate carries zero rustler dep so it stays linkable by bazel, tests, and correlation-engine (OpenSpec: add-core-causal-disposition-nif)."
+edition = "2024"
+license = "Apache-2.0"
+
+[lib]
+name = "serviceradar_anomaly_disposition"
+path = "src/lib.rs"
+
+[dependencies]
+deep_causality_core = { workspace = true }
+rustler = { workspace = true, optional = true, default-features = false }
+serviceradar-anomaly-core = { path = "../anomaly-core" }
+
+[features]
+default = []
+# Turn on the typed NIF ABI derives (NifTaggedEnum / NifMap / NifUnitEnum). We
+# pull rustler with default-features off to stay light, so re-assert the minimal
+# NIF version rustler's own default would set (`nif_version_2_15`); without it the
+# rustler build script aborts. Only `native/anomaly_disposition_nif` enables this.
+rustler = ["dep:rustler", "rustler/nif_version_2_15"]

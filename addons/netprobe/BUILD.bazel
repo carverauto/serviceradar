@@ -1,0 +1,23 @@
+exports_files([
+    "addon.yaml",
+    "config.schema.json",
+    "serviceradar-netprobe.service",
+])
+
+filegroup(
+    name = "netprobe_manifest",
+    srcs = [
+        "addon.yaml",
+        "config.schema.json",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+# The systemd-service unit shipped inside the pushed-artifact bundle. The root-owned
+# agent-updater installs it verbatim (discoverStagedAddonUnits -> InstallAddonSystemdUnits),
+# so its ExecStart hardcodes the fixed add-on staging path.
+filegroup(
+    name = "netprobe_systemd_unit",
+    srcs = ["serviceradar-netprobe.service"],
+    visibility = ["//visibility:public"],
+)

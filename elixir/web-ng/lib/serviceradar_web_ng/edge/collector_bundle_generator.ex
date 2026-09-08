@@ -1,0 +1,867 @@
+defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
+  @moduledoc """
+  Generates downloadable installation bundles for collector edge components.
+
+  A collector bundle contains everything needed to configure an already-installed collector:
+  - NATS credentials file (.creds) for account-isolated messaging
+  - mTLS certificates for secure communication on host-installed collectors
+  - Collector configuration file (TOML for flowgger/otel, JSON for trapd/netflow)
+  - Update or deploy script for the target runtime
+
+  ## Bundle Structure
+
+      collector-package-<id>/
+      ├── creds/
+      │   └── nats.creds           # NATS account credentials
+      ├── certs/
+      │   ├── collector.pem        # TLS certificate
+      │   ├── collector-key.pem    # TLS private key
+      │   └── ca-chain.pem         # CA certificate chain
+      ├── config/
+      │   └── <collector>.toml     # Collector configuration (or .json)
+      ├── update.sh                # Script to copy files and restart service
+      └── README.md                # Installation instructions
+
+  Falcosidekick is the Kubernetes exception: its bundle ships Helm values and
+  a deploy script, and it expects the cluster-wide `serviceradar-runtime-certs`
+  secret to already exist instead of bundling a second certificate set.
+
+  ## Prerequisites
+
+  Collectors must be installed via platform packages (deb/rpm) before using this bundle.
+  The bundle only updates credentials, certificates, and configuration.
+
+  ## Edge Site Integration
+
+  When a collector is assigned to an edge site (via `edge_site_id`), the generated
+  configuration uses the local NATS leaf URL instead of the upstream NATS URL. This
+  enables:
+  - Low-latency local message delivery
+  - WAN resilience (collectors buffer locally when upstream is down)
+  - Simplified network topology (only leaf -> upstream connection needed)
+  """
+
+  alias ServiceRadar.Edge.CollectorPackage
+  alias ServiceRadar.Edge.EdgeSite
+  alias ServiceRadarWebNG.Shell
+  alias ServiceRadarWebNG.TempArchive
+  alias ServiceRadarWebNG.Web.EndpointConfig
+
+  Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
+
+  @doc """
+  Creates a tarball bundle for the given collector package.
+
+  ## Parameters
+
+    * `package` - The CollectorPackage struct (must have TLS certs populated)
+    * `nats_creds` - The decrypted NATS credentials content
+    * `tls_key_pem` - The decrypted TLS private key
+    * `opts` - Additional options:
+      * `:nats_url` - NATS server URL (default: from config)
+
+  ## Returns
+
+    * `{:ok, tarball_binary}` - The gzipped tarball as binary
+    * `{:error, reason}` - If bundle creation fails
+  """
+  @spec create_tarball(CollectorPackage.t(), String.t(), String.t(), keyword()) ::
+          {:ok, binary()} | {:error, term()}
+  def create_tarball(package, nats_creds, tls_key_pem, opts \\ []) do
+    package_dir = "collector-package-#{short_id(package.id)}"
+
+    files =
+      case package.collector_type do
+        :falcosidekick ->
+          # Falcosidekick deploys via Helm in k8s and reuses the shared
+          # serviceradar-runtime-certs secret that already exists in-cluster.
+          [
+            {"#{package_dir}/creds/nats.creds", nats_creds},
+            {"#{package_dir}/#{config_filename(package)}", generate_config(package, opts)},
+            {"#{package_dir}/deploy.sh", generate_falcosidekick_deploy_script(package)},
+            {"#{package_dir}/README.md", generate_readme(package)}
+          ]
+
+        _ ->
+          # Standard collectors: systemd services on bare metal / VMs
+          [
+            {"#{package_dir}/creds/nats.creds", nats_creds},
+            {"#{package_dir}/certs/collector.pem", package.tls_cert_pem},
+            {"#{package_dir}/certs/collector-key.pem", tls_key_pem},
+            {"#{package_dir}/certs/ca-chain.pem", package.ca_chain_pem},
+            {"#{package_dir}/config/#{config_filename(package)}", generate_config(package, opts)},
+            {"#{package_dir}/update.sh", generate_update_script(package)},
+            {"#{package_dir}/README.md", generate_readme(package)}
+          ]
+      end
+
+    create_tar_gz(files)
+  end
+
+  @doc """
+  Returns the bundle filename for a collector package.
+  """
+  @spec bundle_filename(CollectorPackage.t()) :: String.t()
+  def bundle_filename(package) do
+    "collector-package-#{short_id(package.id)}.tar.gz"
+  end
+
+  @doc """
+  Generates a one-liner install command for updating an existing collector.
+  """
+  @spec update_command(CollectorPackage.t(), String.t(), keyword()) :: String.t()
+  def update_command(package, _download_token, opts \\ [])
+
+  def update_command(%{collector_type: :falcosidekick} = package, _download_token, opts) do
+    base_url = Keyword.get_lazy(opts, :base_url, &default_base_url/0)
+    bundle_url = "#{base_url}/api/collectors/#{package.id}/bundle"
+
+    String.trim("""
+    SR_TOKEN="${SERVICERADAR_DOWNLOAD_TOKEN:-}"; if [ -z "$SR_TOKEN" ]; then read -rsp "Download token: " SR_TOKEN; echo; fi; \\
+    curl -fsSL -X POST -H "x-serviceradar-download-token: ${SR_TOKEN}" #{Shell.literal(bundle_url)} | tar xzf - && \\
+    cd collector-package-#{short_id(package.id)} && \\
+    ./deploy.sh
+    """)
+  end
+
+  def update_command(package, _download_token, opts) do
+    base_url = Keyword.get_lazy(opts, :base_url, &default_base_url/0)
+    bundle_url = "#{base_url}/api/collectors/#{package.id}/bundle"
+
+    String.trim("""
+    SR_TOKEN="${SERVICERADAR_DOWNLOAD_TOKEN:-}"; if [ -z "$SR_TOKEN" ]; then read -rsp "Download token: " SR_TOKEN; echo; fi; \\
+    curl -fsSL -X POST -H "x-serviceradar-download-token: ${SR_TOKEN}" #{Shell.literal(bundle_url)} | tar xzf - && \\
+    cd collector-package-#{short_id(package.id)} && \\
+    sudo ./update.sh
+    """)
+  end
+
+  # Private functions
+
+  defp short_id(id) when is_binary(id), do: String.slice(id, 0, 8)
+
+  defp config_filename(package) do
+    case package.collector_type do
+      :flowgger -> "flowgger.toml"
+      :otel -> "otel.toml"
+      :trapd -> "trapd.json"
+      :netflow -> "netflow.json"
+      :sflow -> "sflow.json"
+      :falcosidekick -> "falcosidekick.yaml"
+      _ -> "config.toml"
+    end
+  end
+
+  defp generate_config(package, opts) do
+    case package.collector_type do
+      :flowgger -> generate_flowgger_config(package, opts)
+      :otel -> generate_otel_config(package, opts)
+      :trapd -> generate_trapd_config(package, opts)
+      :netflow -> generate_netflow_config(package, opts)
+      :sflow -> generate_sflow_config(package, opts)
+      :falcosidekick -> generate_falcosidekick_config(package, opts)
+      _ -> generate_flowgger_config(package, opts)
+    end
+  end
+
+  defp generate_flowgger_config(package, opts) do
+    nats_url = get_nats_url(package, opts)
+    site = package.site || "default"
+
+    # Apply any config overrides
+    input_listen = get_in(package.config_overrides, ["input", "listen"]) || "0.0.0.0:514"
+    input_format = get_in(package.config_overrides, ["input", "format"]) || "auto"
+
+    input_timezone =
+      get_in(package.config_overrides, ["input", "rfc3164_timezone"]) ||
+        get_in(package.config_overrides, ["input", "timezone"]) ||
+        "local"
+
+    """
+    # ServiceRadar Flowgger Configuration
+    # Package ID: #{package.id}
+    # Site: #{site}
+    # Generated: #{DateTime.to_iso8601(DateTime.utc_now())}
+
+    [input]
+    type = "udp"
+    listen = #{encode_toml_value(input_listen)}
+    format = #{encode_toml_value(input_format)}
+    rfc3164_timezone = #{encode_toml_value(input_timezone)}
+
+    [output]
+    type = "nats"
+    format = "gelf"
+    framing = "noop"
+    partition = #{encode_toml_value(site)}
+    nats_url = #{encode_toml_value(nats_url)}
+    nats_subject = "logs.syslog"
+    nats_stream = "events"
+    nats_tls_ca_file = "/etc/serviceradar/certs/ca-chain.pem"
+    nats_tls_cert = "/etc/serviceradar/certs/collector.pem"
+    nats_tls_key = "/etc/serviceradar/certs/collector-key.pem"
+    nats_creds_file = "/etc/serviceradar/creds/nats.creds"
+
+    [grpc]
+    listen_addr = "127.0.0.1:50044"
+    mode = "mtls"
+    cert_dir = "/etc/serviceradar/certs"
+    cert_file = "/etc/serviceradar/certs/collector.pem"
+    key_file = "/etc/serviceradar/certs/collector-key.pem"
+    ca_file = "/etc/serviceradar/certs/ca-chain.pem"
+    """
+  end
+
+  defp generate_otel_config(package, opts) do
+    nats_url = get_nats_url(package, opts)
+    site = package.site || "default"
+
+    # Apply any config overrides
+    grpc_port = normalize_port(get_in(package.config_overrides, ["server", "port"]), 4317)
+
+    """
+    # ServiceRadar OpenTelemetry Collector Configuration
+    # Package ID: #{package.id}
+    # Site: #{site}
+    # Generated: #{DateTime.to_iso8601(DateTime.utc_now())}
+
+    [server]
+    bind_address = "0.0.0.0"
+    port = #{encode_toml_value(grpc_port)}
+
+    [nats]
+    url = #{encode_toml_value(nats_url)}
+    subject = "otel"
+    logs_subject = "logs.otel"
+    stream = "events"
+    timeout_secs = 30
+    creds_file = "/etc/serviceradar/creds/nats.creds"
+
+    [nats.tls]
+    cert_file = "/etc/serviceradar/certs/collector.pem"
+    key_file = "/etc/serviceradar/certs/collector-key.pem"
+    ca_file = "/etc/serviceradar/certs/ca-chain.pem"
+
+    [grpc_tls]
+    cert_file = "/etc/serviceradar/certs/collector.pem"
+    key_file = "/etc/serviceradar/certs/collector-key.pem"
+    ca_file = "/etc/serviceradar/certs/ca-chain.pem"
+    """
+  end
+
+  defp generate_trapd_config(package, opts) do
+    nats_url = get_nats_url(package, opts)
+    site = package.site || "default"
+
+    # Apply any config overrides
+    listen_addr = get_in(package.config_overrides, ["listen_addr"]) || "0.0.0.0:162"
+    grpc_port = get_in(package.config_overrides, ["grpc_port"]) || 50_043
+
+    config = %{
+      "listen_addr" => listen_addr,
+      "nats_url" => nats_url,
+      "nats_domain" => "edge",
+      "stream_name" => "events",
+      "subject" => "logs.snmp",
+      "partition" => site,
+      "nats_creds_file" => "/etc/serviceradar/creds/nats.creds",
+      "nats_security" => %{
+        "mode" => "mtls",
+        "cert_file" => "/etc/serviceradar/certs/collector.pem",
+        "key_file" => "/etc/serviceradar/certs/collector-key.pem",
+        "ca_file" => "/etc/serviceradar/certs/ca-chain.pem"
+      },
+      "grpc_listen_addr" => "0.0.0.0:#{grpc_port}",
+      "grpc_security" => %{
+        "mode" => "mtls",
+        "cert_dir" => "/etc/serviceradar/certs",
+        "cert_file" => "/etc/serviceradar/certs/collector.pem",
+        "key_file" => "/etc/serviceradar/certs/collector-key.pem",
+        "ca_file" => "/etc/serviceradar/certs/ca-chain.pem"
+      }
+    }
+
+    Jason.encode!(config, pretty: true)
+  end
+
+  defp generate_netflow_config(package, opts) do
+    nats_url = get_nats_url(package, opts)
+    site = package.site || "default"
+
+    # Apply any config overrides
+    listen_addr = get_in(package.config_overrides, ["listen_addr"]) || "0.0.0.0:2055"
+    grpc_port = get_in(package.config_overrides, ["grpc_port"]) || 50_045
+
+    config = %{
+      "listen_addr" => listen_addr,
+      "protocols" => ["netflow-v5", "netflow-v9", "ipfix", "sflow"],
+      "nats_url" => nats_url,
+      "stream_name" => "events",
+      "subject" => "events.netflow",
+      "partition" => site,
+      "nats_creds_file" => "/etc/serviceradar/creds/nats.creds",
+      "nats_security" => %{
+        "mode" => "mtls",
+        "cert_file" => "/etc/serviceradar/certs/collector.pem",
+        "key_file" => "/etc/serviceradar/certs/collector-key.pem",
+        "ca_file" => "/etc/serviceradar/certs/ca-chain.pem"
+      },
+      "grpc_listen_addr" => "0.0.0.0:#{grpc_port}",
+      "grpc_security" => %{
+        "mode" => "mtls",
+        "cert_dir" => "/etc/serviceradar/certs",
+        "cert_file" => "/etc/serviceradar/certs/collector.pem",
+        "key_file" => "/etc/serviceradar/certs/collector-key.pem",
+        "ca_file" => "/etc/serviceradar/certs/ca-chain.pem"
+      }
+    }
+
+    Jason.encode!(config, pretty: true)
+  end
+
+  defp generate_sflow_config(package, opts) do
+    nats_url = get_nats_url(package, opts)
+    site = package.site || "default"
+
+    # Apply any config overrides
+    listen_addr = get_in(package.config_overrides, ["listen_addr"]) || "0.0.0.0:6343"
+
+    config = %{
+      "listen_addr" => listen_addr,
+      "nats_url" => nats_url,
+      "stream_name" => "events",
+      "subject" => "flows.raw.sflow",
+      "partition" => site,
+      "nats_creds_file" => "/etc/serviceradar/creds/nats.creds",
+      "security" => %{
+        "mode" => "mtls",
+        "cert_dir" => "/etc/serviceradar/certs",
+        "tls" => %{
+          "cert_file" => "collector.pem",
+          "key_file" => "collector-key.pem",
+          "ca_file" => "ca-chain.pem"
+        }
+      }
+    }
+
+    Jason.encode!(config, pretty: true)
+  end
+
+  defp generate_falcosidekick_config(package, opts) do
+    nats_url = get_nats_url(package, opts)
+
+    # Apply any config overrides
+    namespace =
+      get_in(package.config_overrides, ["namespace"]) || "demo"
+
+    release_name =
+      get_in(package.config_overrides, ["release_name"]) || "falcosidekick-nats-auth"
+
+    subject_template =
+      get_in(package.config_overrides, ["subject_template"]) || "falco.<priority>.<rule>"
+
+    agent_id_template =
+      get_in(package.config_overrides, ["agent_id_template"]) ||
+        ~s({{ with index . "k8s.node.name" }}agent-{{ . }}{{ end }})
+
+    otlp_endpoint =
+      get_in(package.config_overrides, ["otlp_endpoint"]) ||
+        "https://serviceradar-log-collector:4317"
+
+    """
+    # Falcosidekick Helm Values for ServiceRadar
+    # Package ID: #{package.id}
+    # Site: #{package.site || "default"}
+    # Generated: #{DateTime.to_iso8601(DateTime.utc_now())}
+    #
+    # Usage:
+    #   helm upgrade -n #{namespace} #{release_name} falcosecurity/falcosidekick \\
+    #     -f falcosidekick.yaml
+    #
+    # Or run the included deploy.sh script which verifies the shared runtime
+    # cert secret and runs helm upgrade for you.
+
+    config:
+      nats:
+        hostport: "#{nats_url}"
+        mutualtls: true
+        checkcert: true
+        subjecttemplate: "#{subject_template}"
+        minimumpriority: "debug"
+      templatedfields:
+        serviceradar.agent_id: '#{agent_id_template}'
+      tlsclient:
+        cacertfile: /etc/serviceradar/certs/root.pem
+      mutualtlsclient:
+        cacertfile: /etc/serviceradar/certs/root.pem
+        certfile: /etc/serviceradar/certs/falcosidekick.pem
+        keyfile: /etc/serviceradar/certs/falcosidekick-key.pem
+      otlp:
+        metrics:
+          endpoint: "#{otlp_endpoint}"
+          protocol: grpc
+          checkcert: true
+          minimumpriority: "debug"
+          extraenvvars:
+            OTEL_EXPORTER_OTLP_METRICS_CERTIFICATE: /etc/serviceradar/certs/root.pem
+            OTEL_EXPORTER_OTLP_METRICS_CLIENT_CERTIFICATE: /etc/serviceradar/certs/falcosidekick.pem
+            OTEL_EXPORTER_OTLP_METRICS_CLIENT_KEY: /etc/serviceradar/certs/falcosidekick-key.pem
+
+    extraVolumes:
+      - name: serviceradar-certs
+        secret:
+          secretName: serviceradar-runtime-certs
+
+    extraVolumeMounts:
+      - name: serviceradar-certs
+        mountPath: /etc/serviceradar/certs
+        readOnly: true
+    """
+  end
+
+  defp generate_falcosidekick_deploy_script(package) do
+    namespace =
+      get_in(package.config_overrides || %{}, ["namespace"]) || "demo"
+
+    release_name =
+      get_in(package.config_overrides || %{}, ["release_name"]) || "falcosidekick-nats-auth"
+
+    """
+    #!/bin/bash
+    # ServiceRadar Falcosidekick Deploy Script
+    # Package ID: #{package.id}
+    # Generated: #{DateTime.to_iso8601(DateTime.utc_now())}
+    #
+    # Verifies the shared runtime cert secret exists, then deploys/upgrades
+    # Falcosidekick via Helm with the generated values file.
+
+    set -e
+
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    NAMESPACE=#{Shell.literal(namespace)}
+    RELEASE=#{Shell.literal(release_name)}
+    SECRET_NAME="serviceradar-runtime-certs"
+
+    echo "ServiceRadar Falcosidekick Deploy"
+    echo "=================================="
+    echo "Namespace:  $NAMESPACE"
+    echo "Release:    $RELEASE"
+    echo ""
+
+    # Ensure helm repo is available
+    if ! helm repo list 2>/dev/null | grep -q falcosecurity; then
+        echo "Adding falcosecurity Helm repo..."
+        helm repo add falcosecurity https://falcosecurity.github.io/charts
+    fi
+    helm repo update falcosecurity
+
+    # Create namespace if needed
+    kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
+
+    if ! kubectl get secret "$SECRET_NAME" --namespace "$NAMESPACE" >/dev/null 2>&1; then
+        echo "Error: required secret $SECRET_NAME was not found in namespace $NAMESPACE."
+        echo "Install or upgrade the ServiceRadar chart in that namespace first so the"
+        echo "shared runtime cert bundle exists before deploying Falcosidekick."
+        exit 1
+    fi
+
+    # Deploy / upgrade Falcosidekick with the generated values
+    echo "Deploying Falcosidekick..."
+    helm upgrade --install "$RELEASE" falcosecurity/falcosidekick \\
+        --namespace "$NAMESPACE" \\
+        -f "$SCRIPT_DIR/falcosidekick.yaml"
+
+    echo ""
+    echo "Waiting for rollout..."
+    kubectl -n "$NAMESPACE" rollout status "deploy/$RELEASE" --timeout=120s
+
+    echo ""
+    echo "Deploy complete!"
+    echo ""
+    echo "Verify:"
+    echo "  kubectl -n $NAMESPACE logs deploy/$RELEASE --tail=20"
+    echo ""
+    echo "Expected output should include:"
+    echo "  Enabled Outputs: [NATS OTLPMetrics]"
+    echo "  NATS - Publish OK"
+    """
+  end
+
+  defp generate_update_script(package) do
+    collector_type = to_string(package.collector_type)
+    config_file = config_filename(package)
+
+    """
+    #!/bin/bash
+    # ServiceRadar Collector Update Script
+    # Collector: #{collector_type}
+    # Package ID: #{package.id}
+    # Generated: #{DateTime.to_iso8601(DateTime.utc_now())}
+    #
+    # This script updates credentials, certificates, and configuration for an
+    # already-installed collector service. Install the collector package first.
+
+    set -e
+
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    COLLECTOR_TYPE=#{Shell.literal(collector_type)}
+    SERVICE_NAME=#{Shell.literal("serviceradar-#{collector_type}")}
+    CONFIG_DIR="/etc/serviceradar"
+    CERTS_DIR="$CONFIG_DIR/certs"
+    CREDS_DIR="$CONFIG_DIR/creds"
+
+    echo "ServiceRadar Collector Update"
+    echo "============================="
+    echo "Collector Type: $COLLECTOR_TYPE"
+    echo ""
+
+    # Check if running as root
+    if [ "$EUID" -ne 0 ]; then
+        echo "Error: This script must be run as root (use sudo)"
+        exit 1
+    fi
+
+    # Check if service exists
+    if ! systemctl list-unit-files | grep -q "$SERVICE_NAME"; then
+        echo "Error: Service $SERVICE_NAME not found."
+        echo "Please install the serviceradar-$COLLECTOR_TYPE package first."
+        echo ""
+        echo "On Debian/Ubuntu:"
+        echo "  apt install serviceradar-$COLLECTOR_TYPE"
+        echo ""
+        echo "On RHEL/CentOS:"
+        echo "  dnf install serviceradar-$COLLECTOR_TYPE"
+        exit 1
+    fi
+
+    echo "Stopping $SERVICE_NAME..."
+    systemctl stop "$SERVICE_NAME" || true
+
+    echo "Creating directories..."
+    mkdir -p "$CERTS_DIR" "$CREDS_DIR" "$CONFIG_DIR"
+
+    echo "Installing credentials..."
+    cp "$SCRIPT_DIR/creds/nats.creds" "$CREDS_DIR/"
+    chmod 600 "$CREDS_DIR/nats.creds"
+
+    echo "Installing certificates..."
+    cp "$SCRIPT_DIR/certs/collector.pem" "$CERTS_DIR/"
+    cp "$SCRIPT_DIR/certs/collector-key.pem" "$CERTS_DIR/"
+    cp "$SCRIPT_DIR/certs/ca-chain.pem" "$CERTS_DIR/"
+    chmod 644 "$CERTS_DIR/collector.pem" "$CERTS_DIR/ca-chain.pem"
+    chmod 600 "$CERTS_DIR/collector-key.pem"
+
+    echo "Installing configuration..."
+    cp "$SCRIPT_DIR/config/#{config_file}" "$CONFIG_DIR/"
+    chmod 644 "$CONFIG_DIR/#{config_file}"
+
+    # Set ownership
+    if id -u serviceradar &>/dev/null; then
+        chown -R serviceradar:serviceradar "$CONFIG_DIR"
+    fi
+
+    echo "Starting $SERVICE_NAME..."
+    systemctl start "$SERVICE_NAME"
+
+    echo ""
+    echo "Update complete!"
+    echo ""
+    echo "Check service status:"
+    echo "  systemctl status $SERVICE_NAME"
+    echo ""
+    echo "View logs:"
+    echo "  journalctl -u $SERVICE_NAME -f"
+    """
+  end
+
+  defp encode_toml_value(value) do
+    # Jason encoding works well for TOML strings/numbers/booleans
+    Jason.encode!(value)
+  end
+
+  defp normalize_port(nil, default), do: default
+
+  defp normalize_port(value, default) when is_integer(value) do
+    if value > 0 and value <= 65_535, do: value, else: default
+  end
+
+  defp normalize_port(value, default) when is_binary(value) do
+    case Integer.parse(value) do
+      {port, ""} -> normalize_port(port, default)
+      _ -> default
+    end
+  end
+
+  defp normalize_port(_, default), do: default
+
+  defp generate_readme(%{collector_type: :falcosidekick} = package) do
+    namespace =
+      get_in(package.config_overrides || %{}, ["namespace"]) || "demo"
+
+    release_name =
+      get_in(package.config_overrides || %{}, ["release_name"]) || "falcosidekick-nats-auth"
+
+    """
+    # ServiceRadar Falcosidekick Package
+
+    **Collector Type:** falcosidekick
+    **Package ID:** #{package.id}
+    **Site:** #{package.site || "default"}
+    **Created:** #{format_datetime(package.inserted_at)}
+
+    ## Prerequisites
+
+    1. A Kubernetes cluster with `kubectl` and `helm` configured
+    2. Falco installed as a DaemonSet (namespace `falco`)
+    3. The `falcosecurity` Helm repo:
+       ```bash
+       helm repo add falcosecurity https://falcosecurity.github.io/charts
+       helm repo update
+       ```
+
+    ## Quick Start
+
+    Run the deploy script — it verifies `serviceradar-runtime-certs` exists and runs `helm upgrade`:
+
+    ```bash
+    ./deploy.sh
+    ```
+
+    ## Manual Deploy
+
+    ```bash
+    # 1. Confirm the shared runtime cert secret exists
+    kubectl get secret serviceradar-runtime-certs --namespace #{namespace}
+
+    # 2. Deploy Falcosidekick
+    helm upgrade --install #{release_name} falcosecurity/falcosidekick \\
+      --namespace #{namespace} \\
+      -f falcosidekick.yaml
+    ```
+
+    ## Contents
+
+    - `creds/nats.creds` - NATS account credentials (for future .creds auth support)
+    - `falcosidekick.yaml` - Helm values for Falcosidekick
+    - `deploy.sh` - Automated deploy script (checks runtime secret + helm upgrade)
+
+    ## Device Correlation
+
+    The generated `falcosidekick.yaml` adds a `serviceradar.agent_id`
+    templated field from `k8s.node.name` using the `agent-<node-name>`
+    convention. ServiceRadar uses that agent ID to resolve promoted Falco
+    Detection Finding events back to inventory devices. If your agent IDs use a
+    different convention, edit `config.templatedfields.serviceradar.agent_id`
+    before deploying.
+
+    ## Configure Falco to Forward Events
+
+    Falco must have HTTP output enabled and pointed at Falcosidekick:
+
+    ```bash
+    helm upgrade -n falco falco falcosecurity/falco \\
+      --reuse-values \\
+      --set falco.json_output=true \\
+      --set falco.http_output.enabled=true \\
+      --set-string falco.http_output.url=http://#{release_name}.#{namespace}.svc.cluster.local:2801/
+    ```
+
+    ## Verify
+
+    ```bash
+    # Check Falcosidekick logs
+    kubectl -n #{namespace} logs deploy/#{release_name} --tail=20
+
+    # Expected: "Enabled Outputs: [NATS OTLPMetrics]"
+    # Expected: "NATS - Publish OK"
+
+    # Subscribe to Falco events
+    kubectl -n #{namespace} exec deploy/serviceradar-tools -- \\
+      nats --context serviceradar sub 'falco.>'
+    ```
+
+    ## Security Notes
+
+    - Falcosidekick reuses the cluster's `serviceradar-runtime-certs` secret
+    - mTLS authenticates Falcosidekick to the NATS cluster
+    - All messages are scoped to this deployment's account
+    - Events publish to `falco.<priority>.<rule>` subjects
+
+    ## Support
+
+    Documentation: https://docs.serviceradar.cloud
+    Issues: https://github.com/carverauto/serviceradar/issues
+    """
+  end
+
+  defp generate_readme(package) do
+    collector_type = to_string(package.collector_type)
+    config_file = config_filename(package)
+
+    port_info =
+      case package.collector_type do
+        :flowgger -> "514 (TCP/UDP)"
+        :trapd -> "162 (UDP)"
+        :netflow -> "2055 (UDP)"
+        :sflow -> "6343 (UDP)"
+        :otel -> "4317 (gRPC), 4318 (HTTP)"
+        _ -> "N/A"
+      end
+
+    edge_site_section = generate_edge_site_section(package)
+
+    """
+    # ServiceRadar Collector Package
+
+    **Collector Type:** #{collector_type}
+    **Package ID:** #{package.id}
+    **Site:** #{package.site || "default"}
+    **Created:** #{format_datetime(package.inserted_at)}
+    #{edge_site_section}
+    ## Prerequisites
+
+    Install the collector package before using this bundle:
+
+    ```bash
+    # Debian/Ubuntu
+    sudo apt install serviceradar-#{collector_type}
+
+    # RHEL/CentOS
+    sudo dnf install serviceradar-#{collector_type}
+    ```
+
+    ## Quick Start
+
+    Prefer the enrollment command from the UI (token required):
+
+    ```bash
+    /usr/local/bin/serviceradar-cli enroll --core-url <your-serviceradar-url> --token <token>
+    ```
+
+    If you already downloaded this bundle, run the update script:
+
+    ```bash
+    sudo ./update.sh
+    ```
+
+    ## Contents
+
+    - `creds/nats.creds` - NATS account credentials
+    - `certs/collector.pem` - TLS certificate
+    - `certs/collector-key.pem` - TLS private key (keep secure!)
+    - `certs/ca-chain.pem` - CA certificate chain
+    - `config/#{config_file}` - Collector configuration
+    - `update.sh` - Update script (copies files, restarts service)
+
+    ## Network Ports
+
+    This collector listens on: #{port_info}
+
+    ## Security Notes
+
+    - The private key and NATS credentials should be kept secure (mode 600)
+    - Credentials authenticate this collector to your NATS account
+    - All messages are scoped to this deployment's account
+    - mTLS ensures encrypted, authenticated communication
+
+    ## Troubleshooting
+
+    Check collector status and logs:
+
+    ```bash
+    # Service status
+    systemctl status serviceradar-#{collector_type}
+
+    # View logs
+    journalctl -u serviceradar-#{collector_type} -f
+    ```
+
+    ## Support
+
+    Documentation: https://docs.serviceradar.cloud
+    Issues: https://github.com/carverauto/serviceradar/issues
+    """
+  end
+
+  defp generate_edge_site_section(%{edge_site: %EdgeSite{} = site}) do
+    """
+
+    ## Edge Site Deployment
+
+    This collector connects to a **local NATS leaf server** at your edge site.
+
+    **Edge Site:** #{site.name}
+    **NATS Leaf URL:** #{site.nats_leaf_url || "Not configured"}
+
+    ### Benefits
+
+    - **Low latency**: Messages are delivered locally before forwarding upstream
+    - **WAN resilience**: Local buffering when upstream connection is down
+    - **Simplified networking**: Only the leaf server needs outbound connectivity
+    """
+  end
+
+  defp generate_edge_site_section(_package), do: ""
+
+  defp format_datetime(nil), do: "N/A"
+  defp format_datetime(%DateTime{} = dt), do: DateTime.to_iso8601(dt)
+
+  defp format_datetime(%NaiveDateTime{} = dt) do
+    dt |> DateTime.from_naive!("Etc/UTC") |> DateTime.to_iso8601()
+  end
+
+  @sobelow_skip ["Traversal.FileModule"]
+  defp create_tar_gz(files) do
+    TempArchive.create_tar_gz("serviceradar-collector-bundle", files)
+  end
+
+  defp default_base_url do
+    EndpointConfig.base_url()
+  end
+
+  defp default_nats_url do
+    Application.get_env(:serviceradar_web_ng, :nats_url, "nats://nats:4222")
+  end
+
+  @doc """
+  Returns the NATS URL for a collector package.
+
+  Priority order:
+  1. Explicit :nats_url in opts
+  2. Edge site's nats_leaf_url (if package is assigned to an edge site)
+  3. Default NATS URL from config
+
+  The edge site relationship must be preloaded on the package for option 2 to work.
+  """
+  @spec get_nats_url(CollectorPackage.t(), keyword()) :: String.t()
+  def get_nats_url(package, opts \\ []) do
+    cond do
+      # Explicit override takes precedence
+      Keyword.has_key?(opts, :nats_url) ->
+        Keyword.get(opts, :nats_url)
+
+      # Edge site with configured NATS leaf URL
+      edge_site_nats_url(package) != nil ->
+        edge_site_nats_url(package)
+
+      # Fall back to default NATS URL
+      true ->
+        default_nats_url()
+    end
+  end
+
+  # Extract NATS leaf URL from preloaded edge site, if available
+  defp edge_site_nats_url(%{edge_site: %EdgeSite{nats_leaf_url: url}}) when is_binary(url) and url != "" do
+    url
+  end
+
+  defp edge_site_nats_url(_package), do: nil
+
+  @doc """
+  Returns whether the package is configured for edge site deployment.
+  """
+  @spec edge_site_deployment?(CollectorPackage.t()) :: boolean()
+  def edge_site_deployment?(package) do
+    edge_site_nats_url(package) != nil
+  end
+end

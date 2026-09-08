@@ -1,0 +1,255 @@
+{{- /* Component gate (issue #3859). ABSENT MEANS ENABLED: hasKey is used rather than a
+     truthiness test so that a chart or values file which never mentions `enabled`
+     renders exactly as before, and only an explicit `agent.enabled: false` removes
+     this component. `default true` cannot be used here -- Helm treats false as empty,
+     so it would resurrect anything explicitly disabled. */ -}}
+{{- $gate2 := default (dict) .Values.agent -}}
+{{- if or (not (hasKey $gate2 "enabled")) $gate2.enabled }}
+{{- $agentVals := default (dict) .Values.agent -}}
+{{- $agentGatewayVals := default (dict) .Values.agentGateway -}}
+{{- $agentSA := default "serviceradar-agent" $agentVals.serviceAccount -}}
+{{- $agentResources := default (dict) $agentVals.resources -}}
+{{- $agentStorage := default (dict) (get $agentVals "checkersStorage") -}}
+{{- $agentEBPF := default (dict) (get $agentVals "ebpf") -}}
+{{- $agentCacheStorage := default (dict) (get $agentVals "cacheStorage") -}}
+{{- $agentRuntimeStorage := default (dict) (get $agentVals "runtimeStorage") -}}
+{{- $endpointInventoryRuntimePath := default "/var/lib/serviceradar/endpoint-inventory" $agentRuntimeStorage.endpointInventoryPath -}}
+{{- $agentID := default "k8s-agent" $agentVals.agentId -}}
+{{- $agentPartition := coalesce .Values.partitionId $agentVals.partitionId $agentGatewayVals.partitionId "default" -}}
+{{- $agentComponentCert := printf "%s-%s-chain.pem" $agentID $agentPartition -}}
+{{- $agentComponentKey := printf "%s-%s-key.pem" $agentID $agentPartition -}}
+{{- $agentLimits := default (dict) $agentResources.limits -}}
+{{- $agentRequests := default (dict) $agentResources.requests -}}
+{{- $agentHostNetwork := true -}}
+{{- $agentAllowNetRaw := true -}}
+{{- $agentEBPFEnabled := false -}}
+{{- $agentEBPFPrivileged := false -}}
+{{- $agentEnabled := true -}}
+{{- if hasKey $agentVals "hostNetwork" -}}
+  {{- $agentHostNetwork = $agentVals.hostNetwork -}}
+{{- end -}}
+{{- if hasKey $agentVals "allowNetRaw" -}}
+  {{- $agentAllowNetRaw = $agentVals.allowNetRaw -}}
+{{- end -}}
+{{- if hasKey $agentEBPF "enabled" -}}
+  {{- $agentEBPFEnabled = $agentEBPF.enabled -}}
+{{- end -}}
+{{- if hasKey $agentEBPF "privileged" -}}
+  {{- $agentEBPFPrivileged = $agentEBPF.privileged -}}
+{{- end -}}
+{{- if hasKey $agentVals "enabled" -}}
+  {{- $agentEnabled = $agentVals.enabled -}}
+{{- end -}}
+{{- if $agentEnabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-agent
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: serviceradar-agent
+  template:
+    metadata:
+      labels:
+        app: serviceradar-agent
+        app.kubernetes.io/part-of: serviceradar
+      annotations:
+        {{- include "serviceradar.runtimeCertRollAnnotations" . | nindent 8 }}
+        checksum/serviceradar-config: {{ include (print $.Template.BasePath "/serviceradar-config.yaml") . | sha256sum }}
+        {{- if .Values.global.forceRolloutOnUpgrade }}
+        serviceradar.io/release-revision: {{ .Release.Revision | quote }}
+        {{- end }}
+    spec:
+      {{- include "serviceradar.topologySpread" (dict "root" . "app" "serviceradar-agent") | nindent 6 }}
+      serviceAccountName: {{ $agentSA }}
+      hostNetwork: {{ $agentHostNetwork }}
+      dnsPolicy: {{ ternary "ClusterFirstWithHostNet" "ClusterFirst" $agentHostNetwork }}
+      {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      securityContext:
+        fsGroup: 1001
+        {{- if or $agentAllowNetRaw $agentEBPFEnabled }}
+        runAsNonRoot: false
+        {{- else }}
+        runAsNonRoot: true
+        {{- end }}
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: init-checkers
+          image: busybox:1.36
+          {{- include "serviceradar.nonRootContainerSecurityContext" . | nindent 10 }}
+          command: ['sh', '-c', 'CHECKERS_DIR={{ default "/var/lib/serviceradar/checkers" $agentStorage.basePath }} && mkdir -p "${CHECKERS_DIR}" /runtime/endpoint-inventory && cp /config/snmp.json "${CHECKERS_DIR}/snmp.json" && cp /config/external.json "${CHECKERS_DIR}/external.json" && cp /config/rperf-checker.json "${CHECKERS_DIR}/rperf-checker.json" && cp /config/flowgger-checker.json "${CHECKERS_DIR}/flowgger-checker.json" && cp /config/trapd-checker.json "${CHECKERS_DIR}/trapd-checker.json"']
+          volumeMounts:
+            - name: serviceradar-config
+              mountPath: /config
+            - name: checkers-dir
+              mountPath: {{ default "/var/lib/serviceradar/checkers" $agentStorage.basePath | quote }}
+            - name: runtime-dir
+              mountPath: /runtime
+      containers:
+        - name: agent
+          image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-agent" "service" "agent") }}
+          imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+          command: ["/usr/local/lib/serviceradar/agent/serviceradar-agent-seed"]
+          args: ["-config", "/etc/serviceradar/agent.json"]
+          {{- if or $agentAllowNetRaw $agentEBPFEnabled }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsUser: 0
+            runAsNonRoot: false
+            {{- if $agentEBPFPrivileged }}
+            privileged: true
+            {{- end }}
+            capabilities:
+              add:
+              {{- if $agentAllowNetRaw }}
+                - NET_RAW
+              {{- end }}
+              {{- if $agentEBPFEnabled }}
+              {{- range (default (list "BPF" "PERFMON" "SYS_RESOURCE") $agentEBPF.capabilities) }}
+                - {{ . | quote }}
+              {{- end }}
+              {{- end }}
+          {{- else }}
+          {{- include "serviceradar.containerSecurityContext" . | nindent 10 }}
+          {{- end }}
+          volumeMounts:
+          - name: serviceradar-config
+            mountPath: /etc/serviceradar
+          - name: checkers-dir
+            mountPath: {{ default "/var/lib/serviceradar/checkers" $agentStorage.basePath | quote }}
+          - name: cache-dir
+            mountPath: /var/lib/serviceradar/cache
+          - name: runtime-dir
+            mountPath: {{ default "/var/lib/serviceradar/agent" $agentRuntimeStorage.basePath | quote }}
+          - name: runtime-dir
+            mountPath: {{ $endpointInventoryRuntimePath | quote }}
+            subPath: endpoint-inventory
+          - name: cert-data
+            mountPath: /etc/serviceradar/certs
+            readOnly: true
+          {{- if $agentEBPFEnabled }}
+          - name: bpffs
+            mountPath: {{ default "/sys/fs/bpf" $agentEBPF.bpffsPath | quote }}
+          - name: kernel-btf
+            mountPath: {{ default "/sys/kernel/btf" $agentEBPF.btfMountPath | quote }}
+            readOnly: true
+          - name: cgroup-fs
+            mountPath: {{ default "/sys/fs/cgroup" $agentEBPF.cgroupPath | quote }}
+            readOnly: {{ default false $agentEBPF.cgroupReadOnly }}
+          {{- end }}
+          {{- if .Values.spire.enabled }}
+          - name: spire-agent-socket
+            mountPath: /run/spire/sockets
+            readOnly: true
+          {{- end }}
+          env:
+{{ include "serviceradar.kvEnv" . | indent 12 }}
+{{ include "serviceradar.coreEnv" . | indent 12 }}
+            - name: CONFIG_PATH
+              value: "/etc/serviceradar/agent.json"
+            - name: LOG_LEVEL
+              value: "info"
+            - name: SERVICERADAR_AGENT_RUNTIME_ROOT
+              value: {{ printf "%s/releases" (default "/var/lib/serviceradar/agent" $agentRuntimeStorage.basePath) | quote }}
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: SERVICERADAR_AGENT_EBPF_ENABLED
+              value: {{ ternary "true" "false" $agentEBPFEnabled | quote }}
+            - name: SERVICERADAR_AGENT_EBPF_BPFFS_PATH
+              value: {{ default "/sys/fs/bpf" $agentEBPF.bpffsPath | quote }}
+            - name: SERVICERADAR_AGENT_EBPF_BTF_PATH
+              value: {{ default "/sys/kernel/btf/vmlinux" $agentEBPF.btfPath | quote }}
+            - name: SERVICERADAR_AGENT_EBPF_CGROUP_PATH
+              value: {{ default "/sys/fs/cgroup" $agentEBPF.cgroupPath | quote }}
+          resources:
+            limits:
+              cpu: {{ default "500m" $agentLimits.cpu | quote }}
+              memory: {{ default "512Mi" $agentLimits.memory | quote }}
+            requests:
+              cpu: {{ default "200m" $agentRequests.cpu | quote }}
+              memory: {{ default "256Mi" $agentRequests.memory | quote }}
+      volumes:
+      - name: serviceradar-config
+        configMap:
+          name: serviceradar-config
+      - name: checkers-dir
+        {{- if $agentStorage.enabled }}
+        persistentVolumeClaim:
+          claimName: {{ default "serviceradar-agent-checkers" $agentStorage.existingClaim | quote }}
+        {{- else }}
+        emptyDir: {}
+        {{- end }}
+      - name: cache-dir
+        {{- if $agentCacheStorage.enabled }}
+        persistentVolumeClaim:
+          claimName: {{ default "serviceradar-agent-cache" $agentCacheStorage.existingClaim | quote }}
+        {{- else }}
+        emptyDir: {}
+        {{- end }}
+      - name: runtime-dir
+        {{- if $agentRuntimeStorage.enabled }}
+        persistentVolumeClaim:
+          claimName: {{ default "serviceradar-agent-runtime" $agentRuntimeStorage.existingClaim | quote }}
+        {{- else }}
+        emptyDir: {}
+        {{- end }}
+      - name: cert-data
+        secret:
+          secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
+          items:
+{{ include "serviceradar.runtimeCertItems" (list "root.pem" "agent.pem" "agent-key.pem" $agentComponentCert $agentComponentKey) | indent 12 }}
+      {{- if $agentEBPFEnabled }}
+      # bpffs is required for pinned eBPF maps/programs shared across agent
+      # restarts. Keep this mount limited to the configured bpffs path.
+      - name: bpffs
+        hostPath:
+          path: {{ default "/sys/fs/bpf" $agentEBPF.bpffsPath | quote }}
+          type: Directory
+      # Kernel BTF is read-only input for CO-RE eBPF program loading.
+      - name: kernel-btf
+        hostPath:
+          path: {{ default "/sys/kernel/btf" $agentEBPF.btfMountPath | quote }}
+          type: Directory
+      # cgroupfs is used by cgroup-attached probes. Prefer read-only mode when
+      # a probe set does not require cgroup directory creation.
+      - name: cgroup-fs
+        hostPath:
+          path: {{ default "/sys/fs/cgroup" $agentEBPF.cgroupPath | quote }}
+          type: Directory
+      {{- end }}
+      {{- if .Values.spire.enabled }}
+      - name: spire-agent-socket
+        hostPath:
+          path: {{ include "serviceradar.spireSocketHostPath" . | quote }}
+          type: DirectoryOrCreate
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-agent
+spec:
+  selector:
+    app: serviceradar-agent
+  ports:
+  - name: grpc
+    port: 50051
+    targetPort: 50051
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $agentSA }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+{{- end }}
+{{- end }}

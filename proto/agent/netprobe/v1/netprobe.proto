@@ -1,0 +1,701 @@
+/*
+ * Copyright 2026 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+syntax = "proto3";
+
+package serviceradar.agent.netprobe.v1;
+
+option go_package = "github.com/carverauto/serviceradar/proto/agent/netprobe/v1;netprobepb";
+
+// NetprobeFrame is the outer envelope for the UDS IPC protocol.
+// Frames are encoded as protobuf messages with a 4-byte big-endian length
+// prefix. Implementations MUST reject frames larger than 4 MiB.
+message NetprobeFrame {
+  uint64 sequence = 1;
+
+  oneof payload {
+    ApplyConfig apply_config = 2;
+    ConfigAck config_ack = 3;
+    Ping ping = 4;
+    PingAck ping_ack = 5;
+    FingerprintEvent fingerprint_event = 6;
+    ErrorFrame error = 7;
+
+    // Reserved placeholders for later phases. They intentionally carry no
+    // fields in Phase 1 so future additions remain wire-compatible.
+    DpiEvent dpi_event = 20;
+    FlowAttributionEvent flow_attribution_event = 21;
+    ProcessSnapshot process_snapshot = 22;
+    ExternalFlowRecord external_flow_record = 23;
+    StartRemoteCapture start_remote_capture = 24;
+    PcapngBlock pcapng_block = 25;
+    BannerBatch banner_batch = 26;
+    BannerMatchBatch banner_match_batch = 27;
+    ExternalFlowAck external_flow_ack = 28;
+    FlowAttributionEventBatch flow_attribution_batch = 29;
+    DeviceCensusSnapshot device_census_snapshot = 30;
+    MdnsSnapshot mdns_snapshot = 31;
+  }
+
+  // Tag discipline for this oneof.
+  //
+  // There is no `reserved` statement because nothing has been removed yet.
+  // Removing an arm REQUIRES adding one here naming the freed tag and field
+  // name, per the convention at proto/monitoring.proto:218 and
+  // VisibilityAgentConfig below -- reservations go on the enclosing message,
+  // since proto3 forbids them inside a `oneof` block.
+  //
+  // This is enforced by `make proto-breaking` in CI, not by review: a
+  // released agent/netprobe pair may still encode a tag this repository has
+  // forgotten, and a future field silently reusing it would mis-decode
+  // against un-upgraded peers with no error on either side.
+}
+
+message ApplyConfig {
+  VisibilityAgentConfig config = 1;
+}
+
+message ConfigAck {
+  string config_hash = 1;
+}
+
+message Ping {
+  int64 sent_at_unix_nano = 1;
+}
+
+message PingAck {
+  int64 sent_at_unix_nano = 1;
+  int64 acked_at_unix_nano = 2;
+  // Deprecated: kept for one minor version while agents migrate to the
+  // license-clean corpus revision fields below.
+  string fingerprint_engine_version = 3;
+  bool running_as_root = 4;
+  string p0f_corpus_revision = 5;
+  string serviceradar_additions_revision = 6;
+  string ja4_spec_revision = 7;
+  string muonfp_corpus_revision = 8;
+  string recog_corpus_revision = 9;
+  string satori_corpus_revision = 10;
+  string serviceradar_recog_additions_revision = 11;
+  bool recog_corpus_loaded = 12;
+}
+
+message ErrorFrame {
+  string code = 1;
+  string message = 2;
+}
+
+message VisibilityAgentConfig {
+  bool enabled = 1;
+  repeated string capture_interfaces = 2;
+  repeated DeviceBinding device_bindings = 3;
+  uint32 default_sample_interval_ms = 4;
+  DpiConfig dpi = 20;
+  uint32 flow_table_max_entries = 40;
+  uint32 process_snapshot_interval_s = 41;
+  uint32 external_flow_match_window_ms = 42;
+  bool flow_attribution_ipc_batch = 43;
+  bool emit_raw_flow_attribution_events = 44;
+
+  // The address of the host netprobe is running on, stamped by the agent from
+  // its own configuration.
+  //
+  // netprobe cannot work this out for itself -- it has no notion of "the" host
+  // address, and picking one from a capture interface would be a guess that
+  // disagrees with the identity the agent already reports under. Two things need
+  // it, and both are wrong without it:
+  //
+  //   * DPI subject selection. A DPI event has two endpoints and the device is a
+  //     choice between them; the collector's own address wins when it is either
+  //     one. Core cannot make that choice (it has no attested collector address),
+  //     so netprobe must, before it sends.
+  //   * The process snapshot's subject, which IS this host.
+  //
+  // Empty means neither can be done and the affected payloads are not emitted,
+  // rather than emitted against a guessed subject.
+  string collector_ip = 48;
+
+  reserved 21 to 39;
+  reserved 45 to 47;
+  reserved "flow_attribution";
+  reserved "workload_identity_enabled", "cri_endpoint", "workload_identity_refresh_interval_s";
+}
+
+message DeviceBinding {
+  string ip = 1;
+  string profile_id = 2;
+  string profile_name = 3;
+  FingerprintConfig fingerprint = 4;
+  uint32 sample_interval_ms = 5;
+  DpiConfig dpi = 6;
+}
+
+message FingerprintConfig {
+  bool tcp = 1;
+  bool tls = 2;
+  bool http = 3;
+}
+
+message DpiConfig {
+  bool enabled = 1;
+  repeated string protocols = 2;
+}
+
+message FingerprintEvent {
+  string ip = 1;
+  string profile_id = 2;
+  string interface_name = 3;
+  int64 observed_at_unix_nano = 4;
+
+  oneof evidence {
+    // Deprecated: populated for one minor version while agents migrate to
+    // license_clean.
+    TcpFingerprint tcp = 10 [deprecated = true];
+    // Deprecated: populated for one minor version while agents migrate to
+    // license_clean.
+    TlsFingerprint tls = 11 [deprecated = true];
+    // Deprecated: populated for one minor version while agents migrate to
+    // license_clean.
+    HttpFingerprint http = 12 [deprecated = true];
+    LicenseCleanFingerprint license_clean = 13;
+  }
+}
+
+message LicenseCleanFingerprint {
+  // Version 2 extends the original p0f / JA4 / HASSH shape with
+  // multi-corpus evidence fields. Fields 1-9 remain the v1 carrier shape.
+  string p0f_signature = 1;
+  P0fFingerprintMatch p0f_match = 2;
+  string ja4 = 3;
+  FingerprintMatch ja4_match = 4;
+  string hassh = 5;
+  string hassh_server = 6;
+  FingerprintMatch hassh_match = 7;
+  OsMatch os_match = 8;
+  uint32 agreement_count = 9;
+  MuonFpFingerprintMatch muonfp = 10;
+  RecogFingerprintMatch recog_http = 11;
+  RecogFingerprintMatch recog_ssh = 12;
+  RecogFingerprintMatch recog_smb = 13;
+  RecogFingerprintMatch recog_ftp = 14;
+  RecogFingerprintMatch recog_telnet = 15;
+  RecogFingerprintMatch recog_snmp = 16;
+  RecogFingerprintMatch recog_sip = 17;
+  RecogFingerprintMatch recog_rdp = 18;
+  RecogFingerprintMatch recog_dns = 19;
+  repeated SatoriFingerprintMatch satori_matches = 20;
+  bool tcp_observed = 21;
+  bool ja4_observed = 22;
+  bool hassh_observed = 23;
+  bool dhcp_observed = 24;
+  bool dhcpv6_observed = 25;
+  bool http_observed = 26;
+  bool ssh_observed = 27;
+  bool smb_observed = 28;
+  bool dns_observed = 29;
+  bool icmp_observed = 30;
+  bool ntp_observed = 31;
+  bool sip_observed = 32;
+  RecogFingerprintMatch recog_smtp = 33;
+  RecogFingerprintMatch recog_ntp = 34;
+}
+
+message P0fFingerprintMatch {
+  string label = 1;
+  string name = 2;
+  string version_flavor = 3;
+  string os_family = 4;
+}
+
+message MuonFpFingerprintMatch {
+  string signature = 1;
+  string label = 2;
+}
+
+message RecogFingerprintMatch {
+  string product = 1;
+  string version = 2;
+  string os_family = 3;
+}
+
+message SatoriFingerprintMatch {
+  string axis = 1;
+  string signature = 2;
+  string label = 3;
+  string device_class = 4;
+  string os_family = 5;
+}
+
+message FingerprintMatch {
+  string name = 1;
+  string version_range = 2;
+  string os_family = 3;
+}
+
+message OsMatch {
+  string name = 1;
+  string version_range = 2;
+  string os_family = 3;
+  float confidence = 4;
+  repeated FingerprintDisagreement disagreements = 5;
+}
+
+message FingerprintDisagreement {
+  string signal = 1;
+  string signature = 2;
+  string observed_family = 3;
+  string observed_name = 4;
+  string version_range = 5;
+}
+
+message TcpFingerprint {
+  string signature = 1;
+  string os_family = 2;
+  string os_name = 3;
+  float confidence = 4;
+  uint32 ttl = 5;
+  string window_size = 6;
+  uint32 mss = 7;
+  repeated string options_layout = 8;
+  repeated string quirks = 9;
+  string ip_version = 10;
+  uint32 window_scale = 11;
+  string payload_class = 12;
+}
+
+message TlsFingerprint {
+  string ja4 = 1;
+  string ja4s = 2;
+  string sni_redacted = 3;
+}
+
+message HttpFingerprint {
+  string user_agent = 1;
+  string server = 2;
+  string accept_language = 3;
+}
+
+message DpiEvent {
+  string source_ip = 1;
+  string destination_ip = 2;
+  uint32 source_port = 3;
+  uint32 destination_port = 4;
+  string transport_protocol = 5;
+  string protocol = 6;
+  // Confidence is normalized to 0.0..1.0. Values below 0.6 are weak signals,
+  // 0.6..0.84 are medium signals, and 0.85+ are strong structural matches.
+  float confidence = 7;
+  int64 observed_at_unix_nano = 8;
+  string interface_name = 9;
+  string profile_id = 10;
+  // Dissector identifier naming the heuristic that produced this event.
+  string dissector_id = 11;
+}
+
+message WorkloadIdentity {
+  string pod_sandbox_id = 1;
+  string pod_name = 2;
+  string pod_namespace = 3;
+  string pod_uid = 4;
+  string container_id = 5;
+  string container_name = 6;
+  string image = 7;
+  string image_ref = 8;
+  uint32 runtime_pid = 9;
+  string cgroup_path = 10;
+  string runtime_source = 11;
+  string confidence = 12;
+  string degradation_reason = 13;
+  map<string, string> labels = 14;
+  map<string, string> annotations = 15;
+}
+
+message FlowAttributionEvent {
+  string local_ip = 1;
+  uint32 local_port = 2;
+  string remote_ip = 3;
+  uint32 remote_port = 4;
+  string transport_protocol = 5;
+  uint32 pid = 6;
+  uint32 tgid = 7;
+  uint32 uid = 8;
+  uint32 gid = 9;
+  string comm = 10;
+  repeated string redacted_cmdline = 11;
+  string container_id = 12;
+  int64 observed_at_unix_nano = 13;
+  uint64 socket_address = 14;
+  uint32 event_kind = 15;
+  int32 old_state = 16;
+  int32 new_state = 17;
+  string source = 18;
+  uint64 external_flow_id = 19;
+  WorkloadIdentity workload_identity = 20;
+}
+
+// FlowAttributionEventBatch is the wire payload the agent ships to the
+// agent-gateway inside GatewayServiceStatus.message when
+// GatewayServiceStatus.source == "flow-attribution". It carries a batch of
+// FlowAttributionEvent records the agent drained from the netprobe sidecar
+// (see DrainFlowAttributionEvents). The gateway forwards these to core-elx,
+// where the 5-tuple join with host-slice flow records happens.
+//
+// batch_start_unix_nano / batch_end_unix_nano bracket the wall-clock window
+// during which the included events were drained from the sidecar IPC queue.
+// They are informational only — the join cache keys off the per-event
+// observed_at_unix_nano + 5-tuple, not the batch envelope.
+//
+// dropped_since_last surfaces backpressure from
+// client.DroppedFlowAttributionEvents so the receive path can emit telemetry
+// when the sidecar IPC queue overflowed between drains.
+message FlowAttributionEventBatch {
+  repeated FlowAttributionEvent events = 1;
+  int64 batch_start_unix_nano = 2;
+  int64 batch_end_unix_nano = 3;
+  uint32 dropped_since_last = 4;
+}
+
+message ProcessSnapshot {
+  string fingerprint = 1;
+  int64 observed_at_unix_nano = 2;
+  repeated ProcessSnapshotEntry entries = 3;
+}
+
+message ProcessSnapshotEntry {
+  string local_ip = 1;
+  uint32 local_port = 2;
+  string transport_protocol = 3;
+  uint32 pid = 4;
+  uint32 tgid = 5;
+  uint32 uid = 6;
+  uint32 gid = 7;
+  string comm = 8;
+  repeated string redacted_cmdline = 9;
+  string container_id = 10;
+  WorkloadIdentity workload_identity = 11;
+}
+
+message ExternalFlowRecord {
+  uint64 external_flow_id = 1;
+  bytes source_ip = 2;
+  bytes destination_ip = 3;
+  uint32 source_port = 4;
+  uint32 destination_port = 5;
+  string transport_protocol = 6;
+  uint32 ip_protocol = 7;
+  uint64 time_flow_start_ns = 8;
+  uint64 time_flow_end_ns = 9;
+  uint64 bytes = 10;
+  uint64 packets = 11;
+  string partition = 12;
+}
+
+message ExternalFlowAck {
+  uint64 accepted = 1;
+  uint64 matched = 2;
+  uint64 unmatched = 3;
+  uint64 invalid = 4;
+}
+
+// Which directions a capture session observes. AF_PACKET delivers
+// transmitted frames with PACKET_OUTGOING, so both directions are available
+// on any interface; a session may still narrow to one.
+enum CaptureDirection {
+  CAPTURE_DIRECTION_UNSPECIFIED = 0;
+  CAPTURE_DIRECTION_BOTH = 1;
+  CAPTURE_DIRECTION_INGRESS = 2;
+  CAPTURE_DIRECTION_EGRESS = 3;
+}
+
+// One instruction of a classic BPF program, matching libpcap's
+// `struct bpf_insn` and RPCAP's `struct rpcap_filterbpf_insn` field for
+// field. Carried verbatim so a program compiled by a remote client's own
+// libpcap is attached unchanged via SO_ATTACH_FILTER.
+//
+// `code`, `jt` and `jf` are narrower than uint32 on the wire
+// (uint16/uint8/uint8) but proto3 has no smaller integer type; values
+// outside those ranges MUST be rejected.
+message BpfInstruction {
+  uint32 code = 1;
+  uint32 jt = 2;
+  uint32 jf = 3;
+  int64 k = 4;
+}
+
+// Request to start a remote packet capture session.
+//
+// Exactly one filter form MUST be set. `filter_expression` is the operator
+// string form, compiled by netprobe from a documented tcpdump subset;
+// `filter_bpf` is a pre-compiled classic BPF program, which is what RPCAP
+// clients such as Wireshark send. Both end at the same SO_ATTACH_FILTER
+// call, so there is no second filter semantics.
+//
+// `session_id` and `actor` are issued by serviceradar-core. netprobe refuses
+// a request that carries neither, so a capture cannot be started by anything
+// that bypassed the control plane.
+message StartRemoteCapture {
+  string session_id = 1;
+  repeated string interfaces = 2;
+
+  oneof filter {
+    string filter_expression = 3;
+    BpfProgram filter_bpf = 4;
+  }
+
+  uint32 snaplen = 5;
+  uint32 duration_s = 6;
+  uint64 byte_cap = 7;
+  CaptureDirection direction = 8;
+  bool promiscuous = 9;
+
+  // Opaque identifier of the operator this session is attributed to, for the
+  // host-local log record. Never used for authorization, which happens in
+  // serviceradar-core before the request reaches the agent.
+  string actor = 10;
+}
+
+// A compiled classic BPF program. Wrapped in a message rather than a bare
+// repeated field so the oneof above can distinguish "no BPF filter" from
+// "an empty BPF program", which are different requests.
+message BpfProgram {
+  repeated BpfInstruction instructions = 1;
+}
+
+// Why a capture session ended. Carried on the terminal PcapngBlock.
+enum CaptureTerminationReason {
+  CAPTURE_TERMINATION_REASON_UNSPECIFIED = 0;
+  CAPTURE_TERMINATION_REASON_DURATION_CAP = 1;
+  CAPTURE_TERMINATION_REASON_BYTE_CAP = 2;
+  CAPTURE_TERMINATION_REASON_CLIENT_CANCEL = 3;
+  CAPTURE_TERMINATION_REASON_AGENT_DISCONNECT = 4;
+  CAPTURE_TERMINATION_REASON_FILTER_ERROR = 5;
+  CAPTURE_TERMINATION_REASON_INTERFACE_DOWN = 6;
+}
+
+// A chunk of the session's pcapng stream.
+//
+// `bytes` carries raw pcapng -- a Section Header Block, then one Interface
+// Description Block per captured interface, then Enhanced Packet Blocks. No
+// hop between netprobe and the client re-encodes it; a block boundary may
+// fall anywhere, so a reader MUST treat the concatenation of `bytes` across
+// the stream as the pcapng file, not each message as a whole block.
+//
+// The counters are cumulative for the session, so a client that joins or
+// reconnects mid-stream still sees totals rather than deltas.
+// `packets_dropped` is the kernel ring's drop count: a session that dropped
+// packets is not a complete capture and MUST NOT be presented as one.
+message PcapngBlock {
+  string session_id = 1;
+  bytes bytes = 2;
+  bool final = 3;
+  CaptureTerminationReason termination_reason = 4;
+  uint64 packets_captured = 5;
+  uint64 packets_dropped = 6;
+  uint64 bytes_streamed = 7;
+}
+
+message BannerObservation {
+  uint64 observation_id = 1;
+  string host = 2;
+  uint32 port = 3;
+  string protocol = 4;
+  bytes banner_bytes = 5;
+  int64 observed_at = 6;
+  string source = 7;
+}
+
+message BannerBatch {
+  repeated BannerObservation observations = 1;
+}
+
+message BannerMatch {
+  uint64 observation_id = 1;
+  string corpus_label = 2;
+  string os_family = 3;
+  string product = 4;
+  string version = 5;
+  double confidence = 6;
+  string raw_pattern_id = 7;
+}
+
+message BannerMatchBatch {
+  repeated BannerMatch matches = 1;
+}
+
+// How a census binding was observed. Kept distinct from the transport because
+// the evidence quality differs: an ARP reply names its own address, while an
+// arbitrary frame merely carries a source address.
+enum DeviceCensusKind {
+  DEVICE_CENSUS_KIND_UNSPECIFIED = 0;
+  DEVICE_CENSUS_KIND_ARP_REQUEST = 1;
+  DEVICE_CENSUS_KIND_ARP_REPLY = 2;
+  DEVICE_CENSUS_KIND_IPV6_NDP = 3;
+}
+
+// One TXT attribute from an mDNS announcement.
+//
+// A pair rather than a map entry because RFC 6763 6.4 gives three distinct
+// meanings that a map<string,string> collapses into two: `key` means the
+// attribute is present with no value (boolean true), `key=` means present with
+// an empty value, and those are different claims about the device. `has_value`
+// preserves that.
+message MdnsTxtPair {
+  string key = 1;
+  string value = 2;
+  bool has_value = 3;
+}
+
+// What one device has advertised about itself over mDNS.
+//
+// This is EVIDENCE, not identity. Instance names are user-settable and services
+// are shared between products, so nothing here may create or merge a device --
+// it enriches one the passive census already bound to a MAC.
+message MdnsDevice {
+  string mac = 1;
+  string ip = 2;
+  uint32 interface_index = 3;
+  // Sorted and deduplicated, e.g. "_airplay._tcp", "_googlecast._tcp".
+  repeated string service_types = 4;
+  // Allowlisted keys only. Devices put serial numbers and auth tokens in TXT,
+  // so netprobe collects a closed set that names a product and nothing else.
+  repeated MdnsTxtPair txt = 5;
+  // Every distinct model string seen from this MAC, sorted.
+  //
+  // A set rather than one value because HomeKit relays announcements for paired
+  // accessories: one MAC on a live segment advertised both B620AP (HomePod
+  // mini) and J255AP (Apple TV).
+  repeated string models = 6;
+  // True when models holds more than one entry. Core must not assign a device
+  // type from an ambiguous device: the evidence says this MAC speaks for two
+  // products, not that the device is one of them.
+  bool ambiguous_model = 7;
+  int64 first_seen_unix_nano = 8;
+  int64 last_seen_unix_nano = 9;
+  // At least one announcement from this device exceeded netprobe's copy cap, so
+  // a model may exist in bytes that were never read. A receiver should wait for
+  // another announcement rather than concluding the device sent none.
+  bool truncated = 10;
+}
+
+// A COMPLETE current-state view of what one interface's segment has advertised.
+//
+// Complete for the same reason the census is: absence has to mean "this device
+// stopped announcing" rather than "it was quiet during one tick".
+message MdnsSnapshot {
+  repeated MdnsDevice devices = 1;
+  string snapshot_id = 2;
+  string interface_name = 3;
+  int64 generated_at_unix_nano = 4;
+  // False when the snapshot had to be split across frames; only the frame that
+  // sets this completes the set.
+  bool complete = 5;
+  uint32 chunk_index = 6;
+  uint32 chunk_count = 7;
+  // Announcements the kernel ring dropped since the previous snapshot.
+  uint32 dropped_since_last = 8;
+}
+
+// One device the passive census currently believes is present on a segment.
+message DeviceCensusObservation {
+  string mac = 1;
+  // Empty for an RFC 5227 ARP probe: the device announced itself before it
+  // owned an address, so there is a MAC to record but no binding yet.
+  string ip = 2;
+  uint32 interface_index = 3;
+  DeviceCensusKind kind = 4;
+  int64 first_seen_unix_nano = 5;
+  int64 last_seen_unix_nano = 6;
+  // The MAC is locally administered, i.e. very likely randomized. It must never
+  // anchor a canonical device; SourcePolicy enforces that on the core side.
+  bool randomized_mac = 7;
+  // The address is not on the observer's segment, so this MAC belongs to a
+  // forwarding router rather than to the address owner.
+  bool off_segment = 8;
+}
+
+// A COMPLETE current-state view of one interface's segment.
+//
+// Complete, not incremental, on purpose: the core ingestor writes nothing
+// unless a payload declares itself a full snapshot, and completeness is what
+// lets absence mean "this binding aged out" rather than "it was quiet during
+// one tick".
+message DeviceCensusSnapshot {
+  repeated DeviceCensusObservation observations = 1;
+  string snapshot_id = 2;
+  string interface_name = 3;
+  int64 generated_at_unix_nano = 4;
+  // False when the snapshot had to be split across frames; only the frame that
+  // sets this completes the set.
+  bool complete = 5;
+  uint32 chunk_index = 6;
+  uint32 chunk_count = 7;
+  // Bindings the kernel ring dropped since the previous snapshot.
+  uint32 dropped_since_last = 8;
+}
+
+// Payload of a `serviceradar.netprobe.fingerprint.v1` DiscoveryEnvelope.
+//
+// A batch of independent EVENTS, not a snapshot: a fingerprint is a sighting,
+// and there is no complete-view-of-a-segment to supersede. The envelope's
+// snapshot/part fields are therefore set for framing only -- nothing downstream
+// treats a fingerprint batch as replacing its predecessor.
+message FingerprintEventBatch {
+  repeated FingerprintEvent events = 1;
+  int64 batch_start_unix_nano = 2;
+  int64 batch_end_unix_nano = 3;
+  // Events the sidecar queue dropped since the previous batch.
+  uint32 dropped_since_last = 4;
+}
+
+// Payload of a `serviceradar.netprobe.dpi.v1` DiscoveryEnvelope. Event
+// semantics, for the same reason as FingerprintEventBatch.
+message DpiEventBatch {
+  repeated DpiEvent events = 1;
+  int64 batch_start_unix_nano = 2;
+  int64 batch_end_unix_nano = 3;
+  uint32 dropped_since_last = 4;
+  // The device each event describes, chosen by netprobe, positionally aligned
+  // with `events`.
+  //
+  // A DPI event has TWO endpoints and the device is a choice between them: the
+  // collector's own address wins when it is either one. Only netprobe can make
+  // that choice, because only netprobe knows its own address -- core has none
+  // attested. Carried alongside rather than by rewriting `source_ip`, so the
+  // packet's actual direction is not falsified to smuggle a decision through it.
+  //
+  // An empty entry means netprobe could not choose, and core falls back to
+  // source-then-destination.
+  repeated string subject_ips = 5;
+}
+
+// Payload of a `serviceradar.netprobe.process.v1` DiscoveryEnvelope.
+//
+// Unlike the two above this IS a snapshot -- the complete set of local listeners
+// at a moment -- which is what ProcessSnapshot always was without being able to
+// say so: it carries no snapshot_id, chunk_index, chunk_count or complete, so a
+// split across frames could not be reassembled and a partial set could not be
+// told from a shrinking one. Wrapping it in the envelope is what gives it those
+// semantics, since the envelope carries them for every payload.
+message ProcessSnapshotBatch {
+  ProcessSnapshot snapshot = 1;
+  // The address of the host these processes are listening on -- the collector's
+  // own. It travels IN the payload because a decoder is handed payload bytes and
+  // nothing else, and because core has no attested collector address to fall
+  // back on. Empty means the observation cannot be placed and is dropped:
+  // attaching a host's process listing to the wrong device is worse than not
+  // attaching it.
+  string subject_ip = 2;
+}

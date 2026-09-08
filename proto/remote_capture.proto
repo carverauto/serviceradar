@@ -1,0 +1,194 @@
+syntax = "proto3";
+
+package remotecapture;
+
+option go_package = "github.com/carverauto/serviceradar/proto";
+
+// RemotePacketCaptureService carries a live pcapng stream from an agent's
+// netprobe sidecar up to its agent-gateway.
+//
+// # Why this is bidirectional and not server-streaming
+//
+// The change proposal originally specified a server-streaming RPC,
+// `Stream(StartRemoteCaptureSession) returns (stream RemotePacketCaptureFrame)`.
+// That points the data the wrong way. The gateway is the gRPC SERVER and the
+// agent is the client -- "communication flows UP only (agent -> gateway); the
+// gateway never connects back to agents" is stated as invariant in the gateway
+// application docs, and it is what lets an agent sit behind a firewall with no
+// inbound rules. A server-streaming RPC has the SERVER produce the stream, so
+// it would have had the gateway streaming pcapng to the agent.
+//
+// Client-streaming would carry the bytes the right way and still be wrong: it
+// gives the server no channel to speak on until the client is finished, and the
+// proposal requires the gateway to cancel a running session and see the
+// terminal state within one second. A capture on a silent interface can run for
+// its full duration cap with no client message at all, so cancellation cannot
+// ride on the acknowledgement of data that may never come.
+//
+// Bidirectional gives both: pcapng flows client -> server, credit and
+// cancellation flow server -> client on their own channel. `DesktopMediaService`
+// (desktop_media.proto) already uses exactly this shape for the same reasons.
+//
+// # Why capture does not reuse the camera relay's shape
+//
+// The camera relay opens a fresh client-streaming `UploadMedia` RPC every eight
+// chunks and the gateway drains each one whole before forwarding. That is fine
+// for short video bursts and wrong here twice over: a capture is one ordered
+// byte stream for the life of the session, and a new HTTP/2 stream several
+// times a second invites a gap at every seam. More importantly, a lost or
+// reordered video frame is a visible glitch, while a lost pcapng block is
+// UNDETECTABLE -- the file still parses and nothing distinguishes a packet the
+// filter excluded from one that went missing in transit. So this contract
+// acknowledges bytes explicitly and has no lossy path.
+service RemotePacketCaptureService {
+  // StreamCapture carries pcapng blocks and session accounting up from the
+  // agent, and credit plus cancellation down from the gateway.
+  //
+  // The first client message MUST be `start`. A server that receives anything
+  // else first MUST close the stream.
+  rpc StreamCapture(stream RemotePacketCaptureClientMessage)
+      returns (stream RemotePacketCaptureServerMessage) {}
+}
+
+// What the agent sends up.
+message RemotePacketCaptureClientMessage {
+  oneof message {
+    StartRemoteCaptureSession start = 1;
+    CaptureBlock block = 2;
+    SessionStateChanged state = 3;
+  }
+}
+
+// What the gateway sends down.
+message RemotePacketCaptureServerMessage {
+  oneof message {
+    CaptureAck ack = 1;
+    CaptureCancel cancel = 2;
+  }
+}
+
+// Opens the stream. Sent once, before any block.
+//
+// The session is created in serviceradar-core, which is where authorization
+// happens; the fields here identify an already-authorized session so the
+// gateway can route it and the captured host can record it. Nothing on this
+// message grants permission to capture.
+message StartRemoteCaptureSession {
+  // ULID issued by serviceradar-core. netprobe refuses a capture that arrives
+  // without one, so this is also what makes the session attributable on the
+  // captured host.
+  string session_id = 1;
+  string agent_id = 2;
+  string gateway_id = 3;
+  // Opaque identifier of the operator the session is attributed to. Recorded,
+  // never used for authorization.
+  string actor = 4;
+
+  // The interface netprobe was asked to capture, echoed so the gateway can
+  // report it without a round trip to core.
+  string interface = 5;
+
+  // Reserved for wire compatibility. The gateway is the only authority that
+  // can grant send credit, so agents MUST ignore this field and wait for the
+  // first CaptureAck before sending any block.
+  uint32 initial_credit_bytes = 6;
+}
+
+// A chunk of the session's pcapng stream.
+//
+// `bytes` is raw pcapng, copied from netprobe's own frame without re-encoding.
+// A block boundary may fall anywhere, so a reader MUST treat the concatenation
+// of `bytes` across the stream as the file rather than each message as a whole
+// pcapng block.
+message CaptureBlock {
+  string session_id = 1;
+  bytes bytes = 2;
+  // Monotonic from 1, per session. Present so a gap is DETECTABLE: without it a
+  // lost block leaves a pcapng file that still parses and reports nothing
+  // wrong.
+  uint64 sequence = 3;
+}
+
+// Acknowledges bytes and extends credit.
+//
+// Credit-based rather than "send what you like": the agent cannot slow a
+// capture down at the source -- the kernel's ring fills at line rate whatever
+// userspace does -- so the only honest response to a slow consumer is to stop
+// reading, let the ring overflow, and have netprobe REPORT the drops. Buffering
+// without bound in the agent would turn a visible drop count into an invisible
+// one, plus an OOM.
+message CaptureAck {
+  string session_id = 1;
+  string gateway_id = 2;
+  // The highest `CaptureBlock.sequence` durably accepted downstream.
+  uint64 last_accepted_sequence = 3;
+  // Additional bytes the agent may send beyond what it has already sent.
+  uint32 credit_bytes = 4;
+}
+
+// Stops a running session.
+//
+// On its own channel, and not piggybacked on an ack, because a capture that is
+// matching nothing produces no blocks to acknowledge -- and that is exactly the
+// session an operator is most likely to want to stop.
+message CaptureCancel {
+  string session_id = 1;
+  // Free text for the audit record, e.g. "operator stopped", "core lost".
+  string reason = 2;
+}
+
+// Why a capture session ended, as carried on this hop.
+//
+// Deliberately a SEPARATE enum from netprobe's `CaptureTerminationReason`
+// rather than an import. netprobe ships independently of the agent -- its
+// add-on manifest declares a base-agent FLOOR, not a pin -- so the IPC contract
+// and this wire contract must be able to version apart. The agent maps between
+// them explicitly, and a test asserts the mapping is total so a new netprobe
+// reason cannot arrive here as `UNSPECIFIED` unnoticed.
+enum CaptureSessionState {
+  CAPTURE_SESSION_STATE_UNSPECIFIED = 0;
+  // Streaming; this is the 1 Hz accounting heartbeat.
+  CAPTURE_SESSION_STATE_ACTIVE = 1;
+  CAPTURE_SESSION_STATE_DURATION_CAP = 2;
+  CAPTURE_SESSION_STATE_BYTE_CAP = 3;
+  CAPTURE_SESSION_STATE_CLIENT_CANCEL = 4;
+  CAPTURE_SESSION_STATE_AGENT_DISCONNECT = 5;
+  CAPTURE_SESSION_STATE_FILTER_ERROR = 6;
+  CAPTURE_SESSION_STATE_INTERFACE_DOWN = 7;
+  // netprobe reported a reason this agent build does not know. Distinct from
+  // UNSPECIFIED so a version skew is visible rather than silently flattened
+  // into "no reason given".
+  CAPTURE_SESSION_STATE_UNKNOWN_REASON = 8;
+}
+
+// Periodic accounting, and the terminal frame.
+//
+// Emitted at 1 Hz while `state` is ACTIVE so upstream can track
+// `bytes_streamed` WITHOUT decoding pcapng -- no hop between netprobe and the
+// operator's reader should have to parse the capture in order to bill it or to
+// show a progress bar.
+//
+// Exactly one terminal message (any `state` other than ACTIVE) is sent per
+// session, and it is the last client message on the stream.
+message SessionStateChanged {
+  string session_id = 1;
+  CaptureSessionState state = 2;
+
+  // Cumulative for the session, so a consumer that joins or reconnects
+  // mid-stream still sees totals rather than deltas.
+  uint64 packets_captured = 3;
+  // The kernel ring's drop count. A session that dropped packets is NOT a
+  // complete capture and MUST NOT be presented as one.
+  uint64 packets_dropped = 4;
+  uint64 bytes_streamed = 5;
+
+  // True only when every frame the kernel counted reached the stream. Carried
+  // explicitly rather than derived from the counters above, because the counts
+  // agreeing is necessary and not sufficient -- netprobe also knows whether a
+  // cap truncated the capture on purpose.
+  bool complete = 6;
+
+  // Set on the terminal message when netprobe named a reason this build could
+  // not map, so an operator sees the raw value rather than "unknown".
+  string unmapped_reason = 7;
+}

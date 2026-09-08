@@ -1,0 +1,340 @@
+name: Publish OCI Images
+
+on:
+  # Auto-trigger on staging pushes removed (2026-06): release.yml builds + signs
+  # the semver images every environment deploys (global.imageTag is a semver tag),
+  # so this per-commit latest/sha publish was redundant. It also always failed at
+  # signing — the RBE build uses --remote_download_minimal, so the local image-index
+  # metadata cosign needs is never materialized. Runs on demand only now. Re-add the
+  # `push:` trigger (and fix signing first) if a dev/staging env ever needs
+  # per-commit images.
+  workflow_dispatch:
+    inputs:
+      publish_scope:
+        description: "Images to publish"
+        required: true
+        default: full
+        type: choice
+        options:
+          - full
+          - web-stack-commit-only
+      expected_commit:
+        description: "Required exact commit SHA for web-stack-commit-only"
+        required: false
+        type: string
+      release_tag:
+        description: "Optional extra tag to apply to all pushed images (e.g. v1.2.3)"
+        required: false
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: serviceradar-signing
+    environment: release
+    env:
+      BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY || secrets.BUILDBUDDY_API_KEY }}
+      OCI_REGISTRY: registry.carverauto.dev
+      OCI_PROJECT: serviceradar
+      OCI_USERNAME: ${{ secrets.HARBOR_ROBOT_USERNAME }}
+      OCI_TOKEN: ${{ secrets.HARBOR_ROBOT_SECRET }}
+      # Pull-side credential, distinct from the Harbor push target above. The base images were
+      # mirrored into Harbor: 11 of the oci pulls in //MODULE.bazel now resolve to
+      # registry.carverauto.dev and exactly one does not -- docker.io/pgduckdb/pgduckdb. There
+      # are ZERO ghcr.io pulls left, so GHCR_USERNAME/GHCR_TOKEN were removed; they
+      # authenticated a registry nothing fetches from.
+      #
+      # Anonymous Docker Hub pulls are rate limited, and a throttled fetch fails during Bazel's
+      # loading phase as "no such package" rather than anything resembling a 429.
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+      COSIGN_KEYLESS: ${{ secrets.COSIGN_KEYLESS }}
+      SIGSTORE_FULCIO_URL: ${{ secrets.SIGSTORE_FULCIO_URL }}
+      SIGSTORE_REKOR_URL: ${{ secrets.SIGSTORE_REKOR_URL }}
+      SIGSTORE_OIDC_ISSUER: ${{ secrets.SIGSTORE_OIDC_ISSUER }}
+      SIGSTORE_OIDC_CLIENT_ID: ${{ secrets.SIGSTORE_OIDC_CLIENT_ID }}
+      SIGSTORE_OIDC_AUDIENCE: ${{ secrets.SIGSTORE_OIDC_AUDIENCE }}
+      SIGSTORE_TRUSTED_ROOT: ${{ secrets.SIGSTORE_TRUSTED_ROOT }}
+      SIGSTORE_TRUSTED_ROOT_FILE: ${{ secrets.SIGSTORE_TRUSTED_ROOT_FILE }}
+      SIGSTORE_ROOT_PEM: ${{ secrets.SIGSTORE_ROOT_PEM }}
+      SIGSTORE_ROOT_FILE: ${{ secrets.SIGSTORE_ROOT_FILE }}
+      SIGSTORE_CT_LOG_PUBLIC_KEY: ${{ secrets.SIGSTORE_CT_LOG_PUBLIC_KEY }}
+      SIGSTORE_CT_LOG_PUBLIC_KEY_FILE: ${{ secrets.SIGSTORE_CT_LOG_PUBLIC_KEY_FILE }}
+      SIGSTORE_REKOR_PUBLIC_KEY_PEM: ${{ secrets.SIGSTORE_REKOR_PUBLIC_KEY_PEM }}
+      SIGSTORE_REKOR_PUBLIC_KEY_FILE: ${{ secrets.SIGSTORE_REKOR_PUBLIC_KEY_FILE }}
+      COSIGN_CERTIFICATE_IDENTITY: ${{ secrets.COSIGN_CERTIFICATE_IDENTITY }}
+      COSIGN_CERTIFICATE_IDENTITY_REGEXP: ${{ secrets.COSIGN_CERTIFICATE_IDENTITY_REGEXP }}
+      COSIGN_CERTIFICATE_OIDC_ISSUER: ${{ secrets.COSIGN_CERTIFICATE_OIDC_ISSUER }}
+      COSIGN_CERTIFICATE_OIDC_ISSUER_REGEXP: ${{ secrets.COSIGN_CERTIFICATE_OIDC_ISSUER_REGEXP }}
+      BAZELISK_HOME: ${{ github.workspace }}/.cache/bazelisk
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+
+      - name: Validate publish scope
+        env:
+          PUBLISH_SCOPE: ${{ github.event.inputs.publish_scope }}
+        run: |
+          set -euo pipefail
+          case "${PUBLISH_SCOPE}" in
+            full|web-stack-commit-only) ;;
+            *)
+              printf 'unsupported publish_scope: %s\n' "${PUBLISH_SCOPE}" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Validate selective publish commit
+        if: ${{ github.event.inputs.publish_scope == 'web-stack-commit-only' }}
+        env:
+          EXPECTED_COMMIT: ${{ github.event.inputs.expected_commit }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${EXPECTED_COMMIT}" ]]; then
+            echo "expected_commit is required for web-stack-commit-only" >&2
+            exit 1
+          fi
+          actual_commit="$(git rev-parse HEAD)"
+          if [[ "${EXPECTED_COMMIT}" != "${actual_commit}" ]]; then
+            printf 'expected_commit must exactly equal checkout HEAD\n' >&2
+            printf 'expected=%s checkout=%s event=%s\n' "${EXPECTED_COMMIT}" "${actual_commit}" "${GITHUB_SHA}" >&2
+            exit 1
+          fi
+          if [[ "${EXPECTED_COMMIT}" != "${GITHUB_SHA}" ]]; then
+            printf 'expected_commit must exactly equal GITHUB_SHA\n' >&2
+            printf 'expected=%s checkout=%s event=%s\n' "${EXPECTED_COMMIT}" "${actual_commit}" "${GITHUB_SHA}" >&2
+            exit 1
+          fi
+
+      - name: Cache Bazel artifacts
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            ${{ env.BAZELISK_HOME }}
+          key: ${{ runner.os }}-bazel-${{ hashFiles('.bazelversion', '.bazelrc', 'MODULE.bazel', 'MODULE.bazel.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bazel-
+
+      # No ensure-forgejo-tools.sh step. It is a Forgejo-era bootstrap that
+      # apt-installs a local toolchain (libpcap-dev, protobuf-compiler, cmake,
+      # flex, bison...) and fails on the GitHub ARC runners, which run non-root:
+      #
+      #   missing required CI tools for profile bazel-build: file pkg-config:libpcap
+      #   This job is running non-root; rebuild the Forgejo CI image ...
+      #
+      # It is also unnecessary. This job builds through RBE, so compilation runs
+      # on BuildBuddy executors and the runner needs Bazel plus credentials, not
+      # a C toolchain. native-addons.yml and wasm-plugins.yml build and publish
+      # on this same runner with no such step and pass; publish-oci.yml was the
+      # only workflow still calling it, which is why it alone broke -- its
+      # auto-trigger was removed in 2026-06 and nothing exercised it since.
+      #
+      # The script itself stays: .forgejo/workflows/* still reference it.
+
+      - name: Install Bazelisk
+        run: ./scripts/install-bazelisk.sh
+
+      - name: Setup Go
+        if: ${{ github.event.inputs.publish_scope == 'full' }}
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Install Cosign
+        if: ${{ github.event.inputs.publish_scope == 'full' }}
+        run: ./scripts/install-cosign.sh
+
+      - name: Install ORAS
+        run: ./scripts/install-oras.sh
+
+      - name: Verify Bazel version
+        run: |
+          set -euo pipefail
+          expected="$(tr -d '\r\n' < .bazelversion)"
+          actual="$(bazel --version | awk '{print $NF}')"
+          echo "Expected Bazel: ${expected}"
+          echo "Resolved Bazel: ${actual}"
+          test "${actual}" = "${expected}"
+
+      - name: Configure BuildBuddy remote cache
+        if: ${{ env.BUILDBUDDY_ORG_API_KEY != '' }}
+        run: |
+          umask 077
+          printf 'common --remote_header=x-buildbuddy-api-key=%s\n' "${BUILDBUDDY_ORG_API_KEY}" > .bazelrc.remote
+
+      - name: Resolve release tag
+        id: release
+        env:
+          WORKFLOW_INPUT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag || '' }}
+        run: |
+          tag="$WORKFLOW_INPUT"
+          if [[ -z "$tag" && "${GITHUB_REF}" == refs/tags/* ]]; then
+            tag="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Authenticate Docker for OCI registry
+        run: |
+          set -euo pipefail
+          login_registry() {
+            local user="${1:-}"
+            local token="${2:-}"
+            if [[ -z "${user}" || -z "${token}" ]]; then
+              return 1
+            fi
+            echo "${token}" | oras login "${OCI_REGISTRY}" -u "${user}" --password-stdin
+          }
+
+          if [[ -z "${OCI_USERNAME:-}" || -z "${OCI_TOKEN:-}" ]]; then
+            echo "Missing Harbor robot credentials. Set HARBOR_ROBOT_USERNAME and HARBOR_ROBOT_SECRET." >&2
+            exit 1
+          fi
+
+          login_registry "${OCI_USERNAME}" "${OCI_TOKEN}"
+
+          export OCI_DOCKER_AUTH=""
+          unset OCI_DOCKER_AUTH || true
+          {
+            echo "OCI_USERNAME=${OCI_USERNAME}"
+            echo "OCI_TOKEN=${OCI_TOKEN}"
+            echo "OCI_DOCKER_AUTH="
+          } >> "${GITHUB_ENV}"
+
+          chmod +x ./buildbuddy_setup_docker_auth.sh
+          ./buildbuddy_setup_docker_auth.sh
+
+      - name: Derive managed agent release public key
+        if: ${{ github.event.inputs.publish_scope == 'full' }}
+        env:
+          SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY: ${{ secrets.SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          public_key="$(go run ./tools/go/derive_agent_release_public_key)"
+          if [[ -z "${public_key}" ]]; then
+            echo "derived managed agent release public key is empty" >&2
+            exit 1
+          fi
+          printf '%s\n' "${public_key}" > .bazel-agent-release-public-key
+          echo "SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY=${public_key}" >> "$GITHUB_ENV"
+
+      # --config=remote, not --config=ci: :ci points the disk/repo caches at
+      # /bazel-cache, a node volume only the BuildBuddy executors mount, so on an
+      # ARC runner it dies with "/bazel-cache (Permission denied): could not
+      # acquire lock on repo contents cache". Both configs inherit remote_base, so
+      # RBE execution and the remote cache are identical; only the LOCAL cache path
+      # differs, and this job caches BAZELISK_HOME only anyway.
+      # Keep these comments in the YAML step, not inside the `run:` script:
+      # a bash `\` continuation into a `#` comment drops the rest of the command
+      # and leaves `--config=remote` as a new executable.
+      - name: Build (no publish)
+        if: ${{ github.event.inputs.publish_scope == 'full' }}
+        run: |
+          bazel build \
+            -c opt \
+            --config=remote \
+            //:images
+
+      - name: Verify managed agent release key stamp
+        if: ${{ github.event.inputs.publish_scope == 'full' }}
+        run: ./scripts/verify-agent-release-key-stamp.sh -c opt --config=remote
+
+      - name: Publish images
+        if: ${{ github.event.inputs.publish_scope == 'full' }}
+        env:
+          EXTRA_TAG: ${{ steps.release.outputs.tag }}
+          OPENBAO_ADDR: https://openbao-active.openbao-system.svc.cluster.local:8200
+          OPENBAO_K8S_ROLE: github-signing-runner
+          OPENBAO_SIGNING_ALLOWED_REFS_REGEX: '^refs/heads/staging$'
+          COSIGN_KEY_REF: hashivault://cosign-release
+        run: |
+          set -euo pipefail
+          # --remote_download_outputs=all overrides the --remote_download_minimal that
+          # --config=remote inherits: sign-oci-publish.sh below reads the image metadata back out
+          # of `bazel info bazel-bin`, which is empty when outputs stay in the CAS.
+          cmd=(bazel run -c opt --config=remote --remote_download_outputs=all --stamp //:push)
+          if [[ -n "${EXTRA_TAG}" ]]; then
+            cmd+=(-- --tag "${EXTRA_TAG}")
+          fi
+          "${cmd[@]}"
+
+          if ! command -v skopeo >/dev/null 2>&1; then
+            ./scripts/install-skopeo.sh
+          fi
+
+          verify_tags=(latest "sha-${GITHUB_SHA}")
+          if [[ -n "${EXTRA_TAG}" ]]; then
+            verify_tags+=("${EXTRA_TAG}")
+          fi
+          source ./scripts/ci/prepare-openbao-cosign-env.sh
+          ./scripts/sign-oci-publish.sh
+          ./scripts/verify-oci-publish.sh "${verify_tags[@]}"
+          unset VAULT_TOKEN VAULT_ADDR COSIGN_KEY_REF
+
+      - name: Publish web stack commit images
+        if: ${{ github.event.inputs.publish_scope == 'web-stack-commit-only' }}
+        run: |
+          set -euo pipefail
+          bazel run -c opt --config=remote --stamp //docker/images:core_elx_image_amd64_push_commit_only
+          bazel run -c opt --config=remote --stamp //docker/images:web_ng_image_amd64_push_commit_only
+
+      - name: Verify web stack commit images
+        if: ${{ github.event.inputs.publish_scope == 'web-stack-commit-only' }}
+        run: |
+          set -euo pipefail
+          tag="sha-${GITHUB_SHA}"
+          core_ref="${OCI_REGISTRY}/${OCI_PROJECT}/serviceradar-core-elx:${tag}"
+          web_ref="${OCI_REGISTRY}/${OCI_PROJECT}/serviceradar-web-ng:${tag}"
+
+          resolve_digest() {
+            local ref="$1"
+            local descriptor digest
+            if ! descriptor="$(oras manifest fetch --descriptor "${ref}")"; then
+              printf 'unable to resolve OCI descriptor for %s\n' "${ref}" >&2
+              return 1
+            fi
+            if ! digest="$(jq -er '.digest // empty' <<<"${descriptor}")"; then
+              printf 'invalid OCI descriptor JSON for %s\n' "${ref}" >&2
+              return 1
+            fi
+            if [[ ! "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              printf 'invalid OCI descriptor digest for %s\n' "${ref}" >&2
+              return 1
+            fi
+            printf '%s\n' "${digest}"
+          }
+
+          if ! core_digest="$(resolve_digest "${core_ref}")"; then
+            printf 'failed to verify %s\n' "${core_ref}" >&2
+            exit 1
+          fi
+          if ! web_digest="$(resolve_digest "${web_ref}")"; then
+            printf 'failed to verify %s\n' "${web_ref}" >&2
+            exit 1
+          fi
+          {
+            printf '### Web stack commit images\n\n'
+            printf -- '- %s -> %s\n' "${core_ref}" "${core_digest}"
+            printf -- '- %s -> %s\n' "${web_ref}" "${web_digest}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Summarize pushed tags
+        if: ${{ github.event.inputs.publish_scope == 'full' }}
+        env:
+          EXTRA_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          printf 'Published tags include:\n'
+          printf '  - latest\n'
+          sha_prefix="${GITHUB_SHA:0:12}"
+          printf '  - sha-%s\n' "${sha_prefix}"
+          if [[ -n "${EXTRA_TAG}" ]]; then
+            printf '  - %s\n' "${EXTRA_TAG}"
+          fi

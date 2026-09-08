@@ -1,0 +1,332 @@
+defmodule ServiceRadar.Observability.NetflowOuiDatasetRefreshWorker do
+  @moduledoc """
+  Refreshes IEEE OUI data used for MAC-vendor enrichment.
+
+  Source dataset:
+  - https://standards-oui.ieee.org/oui/oui.csv
+  """
+
+  use Oban.Worker,
+    queue: :maintenance,
+    max_attempts: 3,
+    unique: [period: :infinity, states: :incomplete]
+
+  import Ecto.Query, only: [from: 2]
+
+  alias ServiceRadar.Observability.OutboundFeedPolicy
+  alias ServiceRadar.Repo
+  alias ServiceRadar.SweepJobs.ObanSupport
+
+  require Logger
+
+  @default_source_url "https://standards-oui.ieee.org/oui/oui.csv"
+  @default_timeout_ms 45_000
+  @default_reschedule_seconds 7 * 24 * 3600
+  @default_failure_reschedule_seconds 12 * 3600
+  @successor_unique [period: :infinity, states: [:available, :scheduled, :retryable]]
+  @insert_chunk_size 250
+  @db_timeout_ms 120_000
+
+  @doc """
+  Schedules the refresh job if not already scheduled.
+  """
+  @spec ensure_scheduled() :: {:ok, Oban.Job.t()} | {:ok, :already_scheduled} | {:error, term()}
+  def ensure_scheduled do
+    if ObanSupport.available?() do
+      if check_existing_job() do
+        {:ok, :already_scheduled}
+      else
+        %{} |> new() |> ObanSupport.safe_insert()
+      end
+    else
+      {:error, :oban_unavailable}
+    end
+  end
+
+  defp check_existing_job do
+    query =
+      from(j in Oban.Job,
+        where: j.worker == ^to_string(__MODULE__),
+        where: j.state in ["available", "scheduled", "executing", "retryable"],
+        limit: 1
+      )
+
+    Repo.exists?(query, prefix: ObanSupport.prefix())
+  end
+
+  @impl Oban.Worker
+  def perform(_job) do
+    if scheduler_node?() do
+      do_perform()
+    else
+      Logger.debug("Skipping IEEE OUI dataset refresh on non-scheduler node", node: Node.self())
+      :ok
+    end
+  end
+
+  defp do_perform do
+    config = Application.get_env(:serviceradar_core, __MODULE__, [])
+    source_url = Keyword.get(config, :source_url, @default_source_url)
+    timeout_ms = Keyword.get(config, :timeout_ms, @default_timeout_ms)
+    validate_url = Keyword.get(config, :validate_url, &OutboundFeedPolicy.validate/1)
+    http_get = Keyword.get(config, :http_get, &default_http_get/2)
+    reschedule_seconds = Keyword.get(config, :reschedule_seconds, @default_reschedule_seconds)
+
+    failure_reschedule_seconds =
+      Keyword.get(config, :failure_reschedule_seconds, @default_failure_reschedule_seconds)
+
+    case fetch_oui_rows(source_url, timeout_ms, validate_url: validate_url, http_get: http_get) do
+      {:ok, payload, rows, etag} when rows != [] ->
+        case promote_snapshot(source_url, payload, rows, etag) do
+          :ok ->
+            Logger.info("IEEE OUI dataset refreshed", rows: length(rows), source_url: source_url)
+            schedule_next(reschedule_seconds)
+
+          :unchanged ->
+            Logger.info("IEEE OUI dataset unchanged", rows: length(rows), source_url: source_url)
+            schedule_next(reschedule_seconds)
+
+          {:error, reason} ->
+            Logger.warning("IEEE OUI dataset promotion failed", reason: inspect(reason))
+            schedule_next(failure_reschedule_seconds)
+        end
+
+      {:ok, _payload, [], _etag} ->
+        Logger.warning("IEEE OUI dataset parsed empty; keeping last-known-good snapshot")
+        schedule_next(failure_reschedule_seconds)
+
+      {:error, reason} ->
+        Logger.warning("IEEE OUI dataset fetch failed",
+          reason: OutboundFeedPolicy.format_reason(reason)
+        )
+
+        schedule_next(failure_reschedule_seconds)
+    end
+  end
+
+  defp scheduler_node? do
+    cluster_enabled = Application.get_env(:serviceradar_core, :cluster_enabled, false)
+
+    cluster_coordinator =
+      Application.get_env(:serviceradar_core, :cluster_coordinator, cluster_enabled)
+
+    if cluster_enabled, do: cluster_coordinator == true, else: true
+  end
+
+  defp fetch_oui_rows(source_url, timeout_ms, opts) do
+    validate_url = Keyword.get(opts, :validate_url, &OutboundFeedPolicy.validate/1)
+    http_get = Keyword.get(opts, :http_get, &default_http_get/2)
+
+    with :ok <- validate_url.(source_url),
+         {:ok, %Req.Response{status: 200, body: body, headers: headers}} <-
+           http_get.(source_url, OutboundFeedPolicy.req_opts(timeout_ms)),
+         true <- is_binary(body) do
+      rows = parse_oui_csv_rows(body)
+      {:ok, body, rows, header(headers, "etag")}
+    else
+      {:ok, %Req.Response{status: 200, body: body, headers: headers}} when is_binary(body) ->
+        rows = parse_oui_csv_rows(body)
+        {:ok, body, rows, header(headers, "etag")}
+
+      {:ok, %Req.Response{status: status}} ->
+        {:error, {:http_status, status}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  rescue
+    e ->
+      {:error, e}
+  end
+
+  defp default_http_get(url, opts), do: Req.get(url, opts)
+
+  defp parse_oui_csv_rows(body) when is_binary(body) do
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
+    body
+    |> String.split("\n", trim: true)
+    |> Enum.drop(1)
+    |> Enum.reduce(%{}, fn line, acc ->
+      fields = split_csv_line(line)
+      assignment = Enum.at(fields, 1)
+      org = Enum.at(fields, 2)
+
+      with true <- is_binary(assignment) and assignment != "",
+           true <- is_binary(org) and String.trim(org) != "",
+           hex =
+             assignment
+             |> String.split("/", parts: 2)
+             |> List.first()
+             |> String.trim()
+             |> String.upcase(),
+           {prefix, ""} <- Integer.parse(hex, 16),
+           true <- is_integer(prefix) and prefix >= 0 do
+        Map.put(acc, prefix, %{
+          oui_prefix_int: prefix,
+          oui_prefix_hex: hex,
+          organization: String.trim(org),
+          inserted_at: now
+        })
+      else
+        _ -> acc
+      end
+    end)
+    |> Map.values()
+  end
+
+  defp promote_snapshot(source_url, payload, rows, etag) do
+    snapshot_id = Ecto.UUID.dump!(Ecto.UUID.generate())
+    source_sha256 = sha256(payload)
+    record_count = length(rows)
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
+    if active_snapshot_current?(source_sha256, record_count) do
+      :unchanged
+    else
+      do_promote_snapshot(snapshot_id, source_url, source_sha256, payload, rows, etag, now)
+    end
+  end
+
+  defp active_snapshot_current?(source_sha256, record_count) do
+    %{rows: [[count]]} =
+      Repo.query!(
+        """
+        SELECT COUNT(*)
+        FROM platform.netflow_oui_dataset_snapshots
+        WHERE is_active = TRUE
+          AND source_sha256 = $1
+          AND record_count = $2
+        """,
+        [source_sha256, record_count],
+        timeout: @db_timeout_ms
+      )
+
+    count > 0
+  end
+
+  defp do_promote_snapshot(snapshot_id, source_url, source_sha256, _payload, rows, etag, now) do
+    fn ->
+      {1, _} =
+        Repo.insert_all(
+          "netflow_oui_dataset_snapshots",
+          [
+            %{
+              id: snapshot_id,
+              source_url: source_url,
+              source_etag: etag,
+              source_sha256: source_sha256,
+              fetched_at: now,
+              promoted_at: nil,
+              is_active: false,
+              record_count: length(rows),
+              metadata: %{format: "oui.csv"},
+              inserted_at: now,
+              updated_at: now
+            }
+          ],
+          prefix: "platform",
+          timeout: @db_timeout_ms
+        )
+
+      rows_to_insert = Enum.map(rows, &Map.put(&1, :snapshot_id, snapshot_id))
+      count = insert_oui_rows(rows_to_insert)
+
+      Repo.query!(
+        "UPDATE platform.netflow_oui_dataset_snapshots SET is_active = FALSE, updated_at = now() WHERE id <> $1 AND is_active = TRUE",
+        [snapshot_id],
+        timeout: @db_timeout_ms
+      )
+
+      Repo.query!(
+        "UPDATE platform.netflow_oui_dataset_snapshots SET is_active = TRUE, promoted_at = now(), updated_at = now() WHERE id = $1",
+        [snapshot_id],
+        timeout: @db_timeout_ms
+      )
+
+      if count == 0 do
+        Repo.rollback(:no_rows_inserted)
+      else
+        :ok
+      end
+    end
+    |> Repo.transaction(timeout: @db_timeout_ms)
+    |> case do
+      {:ok, :ok} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp schedule_next(seconds) when is_integer(seconds) do
+    _ =
+      %{}
+      |> successor_job(schedule_in: max(seconds, 3_600))
+      |> ObanSupport.safe_insert()
+
+    :ok
+  end
+
+  defp successor_job(args, opts) do
+    new(args, Keyword.put(opts, :unique, @successor_unique))
+  end
+
+  defp header(headers, name) do
+    headers
+    |> List.wrap()
+    |> Enum.find_value(fn
+      {k, value} -> if String.downcase(k) == name, do: value
+      _ -> nil
+    end)
+  end
+
+  defp sha256(payload) when is_binary(payload) do
+    :sha256
+    |> :crypto.hash(payload)
+    |> Base.encode16(case: :lower)
+  end
+
+  defp split_csv_line(line) when is_binary(line) do
+    chars = String.to_charlist(line)
+    do_split_csv(chars, [], [], false)
+  end
+
+  defp do_split_csv([], field, acc, _in_quotes) do
+    Enum.reverse([field_to_string(field) | acc])
+  end
+
+  defp do_split_csv([34, 34 | rest], field, acc, true),
+    do: do_split_csv(rest, [34 | field], acc, true)
+
+  defp do_split_csv([34 | rest], field, acc, in_quotes),
+    do: do_split_csv(rest, field, acc, !in_quotes)
+
+  defp do_split_csv([?, | rest], field, acc, false) do
+    do_split_csv(rest, [], [field_to_string(field) | acc], false)
+  end
+
+  defp do_split_csv([ch | rest], field, acc, in_quotes),
+    do: do_split_csv(rest, [ch | field], acc, in_quotes)
+
+  defp field_to_string(chars) do
+    chars
+    |> Enum.reverse()
+    |> to_string()
+    |> String.trim()
+    |> String.trim("\"")
+  end
+
+  defp insert_oui_rows(rows) when is_list(rows) do
+    rows
+    |> Enum.chunk_every(@insert_chunk_size)
+    |> Enum.reduce(0, fn chunk, acc ->
+      {count, _} =
+        Repo.insert_all("netflow_oui_prefixes", chunk,
+          prefix: "platform",
+          on_conflict: :nothing,
+          timeout: @db_timeout_ms
+        )
+
+      acc + count
+    end)
+  end
+end

@@ -1,0 +1,36 @@
+load("@rules_aya_ebpf//:ebpf_object.bzl", "ebpf_object")
+
+package(default_visibility = ["//visibility:public"])
+
+# Crate sources. The vendored dependency tree lives in
+# //third_party/netprobe_ebpf_vendor, with every other committed third-party
+# source tree, so it is a separate dep rather than a glob -- a glob never
+# crosses a package boundary.
+filegroup(
+    name = "netprobe_ebpf_srcs",
+    srcs = [
+        "Cargo.lock",
+        "include/vmlinux.h",
+    ] + glob(["src/**/*.rs"]),
+)
+
+# The netprobe eBPF object, loaded at runtime by the aya userspace loader
+# (--ebpf-object / SERVICERADAR_NETPROBE_EBPF_OBJECT) and shipped as a data
+# entry in the netprobe add-on bundle.
+#
+# rules_aya_ebpf supplies the pinned nightly toolchain and bpf-linker through
+# toolchain resolution; the crates come from the committed vendor tree. No host
+# toolchain and no network, which is what lets this build on remote execution.
+ebpf_object(
+    name = "netprobe_ebpf_object",
+    srcs = [":netprobe_ebpf_srcs"],
+    out = "netprobe_ebpf.o",
+    bin_name = "netprobe-ebpf",
+    manifest = "Cargo.toml",
+    # The object is a Linux kernel artifact, so it is skipped when targeting
+    # anything else. This says nothing about where it is *built*: that is the
+    # toolchain's execution-platform constraint, and compiling for bpfel is
+    # cross-compilation.
+    target_compatible_with = ["@platforms//os:linux"],
+    vendor = "//third_party/netprobe_ebpf_vendor:vendor_srcs",
+)

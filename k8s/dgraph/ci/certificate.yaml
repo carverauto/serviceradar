@@ -1,0 +1,71 @@
+# Self-signed CA and Alpha certificate for the CI fixture.
+#
+# Self-signed rather than ACME because the fixture is reached at
+# `*.dgraph-ci.svc.cluster.local`, and no public CA will issue for a name it cannot resolve.
+# That is no longer a downgrade: the Dgraph client (github.com/marvin-hansen/dgraph-rs)
+# verifies against a supplied CA instead of
+# the system roots, so CI callers get real authentication with `sslmode=verify-ca` plus the CA
+# from `dgraph.ca_cert` (or `sslrootcert=` pointing at a mount of it).
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: dgraph-ci-selfsigned
+  namespace: dgraph-ci
+spec:
+  selfSigned: {}
+---
+# A real CA rather than a self-signed leaf, so the chain has a root a caller can choose to
+# trust. A bare self-signed leaf cannot be trusted without pinning the leaf itself.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: dgraph-ci-ca
+  namespace: dgraph-ci
+spec:
+  isCA: true
+  commonName: dgraph-ci-ca
+  secretName: dgraph-ci-ca
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: dgraph-ci-selfsigned
+    kind: Issuer
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: dgraph-ci-ca-issuer
+  namespace: dgraph-ci
+spec:
+  ca:
+    secretName: dgraph-ci-ca
+---
+# secretName IS what the chart's StatefulSet mounts; `alpha.tls.files` stays `{}` in
+# values.yaml so cert-manager owns this secret. Same arrangement as demo.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: dgraph-alpha-tls
+  namespace: dgraph-ci
+spec:
+  secretName: dgraph-dgraph-alpha-tls-secret
+  # Equals `dgraph.host` in config/environments/ci.textproto: verification is against the name
+  # dialed, so the certificate and the config move together.
+  commonName: dgraph-dgraph-alpha.dgraph-ci.svc.cluster.local
+  dnsNames:
+    # Every name a caller might dial. The headless per-pod name matters as much as the service
+    # name, because a client that reaches a pod directly verifies against that name.
+    - dgraph-dgraph-alpha.dgraph-ci.svc.cluster.local
+    - dgraph-dgraph-alpha-headless.dgraph-ci.svc.cluster.local
+    - "*.dgraph-dgraph-alpha-headless.dgraph-ci.svc.cluster.local"
+    - localhost
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    encoding: PKCS8
+  issuerRef:
+    name: dgraph-ci-ca-issuer
+    kind: Issuer
+    group: cert-manager.io

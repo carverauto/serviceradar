@@ -1,0 +1,11 @@
+{
+  "devices": [],
+  "stats": {
+    "addressless": 0,
+    "devices": 0,
+    "observations": 1,
+    "randomized_mac": 0,
+    "skipped_no_mac": 1,
+    "skipped_off_segment": 0
+  }
+}

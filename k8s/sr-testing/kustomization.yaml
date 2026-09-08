@@ -1,0 +1,8 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: sr-testing
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - nats.yaml
+  - nats-ext-service.yaml

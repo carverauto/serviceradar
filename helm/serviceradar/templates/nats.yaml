@@ -1,0 +1,543 @@
+{{- /* Component gate (issue #3859). ABSENT MEANS ENABLED: hasKey is used rather than a
+     truthiness test so that a chart or values file which never mentions `enabled`
+     renders exactly as before, and only an explicit `nats.enabled: false` removes
+     this component. `default true` cannot be used here -- Helm treats false as empty,
+     so it would resurrect anything explicitly disabled. */ -}}
+{{- $gate9 := default (dict) .Values.nats -}}
+{{- if or (not (hasKey $gate9 "enabled")) $gate9.enabled }}
+{{- $nats := default (dict) .Values.nats -}}
+{{- $persistence := default (dict) $nats.persistence -}}
+{{- $jetstream := default (dict) $nats.jetstream -}}
+{{- $replicas := int (default 1 $nats.replicas) -}}
+{{- $clusterName := default "serviceradar" $nats.clusterName -}}
+{{- $kvBucket := default "serviceradar-datasvc" .Values.kv.bucket -}}
+{{- $flowCollector := default (dict) .Values.flowCollector -}}
+{{- $flowCollectorConfig := default (dict) $flowCollector.config -}}
+{{- $flowTemplateStore := default (dict) $flowCollectorConfig.template_store -}}
+{{- $flowTemplateBucket := default "flow_templates" $flowTemplateStore.kv_bucket -}}
+{{- $datasvc := default (dict) .Values.datasvc -}}
+{{- $objectBucket := default "serviceradar-objects" $datasvc.objectBucket -}}
+{{- $webNg := default (dict) .Values.webNg -}}
+{{- $webNgPluginStorage := default (dict) $webNg.pluginStorage -}}
+{{- $pluginBucket := default "serviceradar_plugins" $webNgPluginStorage.jetstreamBucket -}}
+{{- $fieldSurveyStore := default (dict) $webNg.fieldSurveyArtifactStore -}}
+{{- $fieldSurveyBucket := default "serviceradar_fieldsurvey" $fieldSurveyStore.jetstreamBucket -}}
+{{- /*
+B-5 sub-issue 2: partition_id is the per-deployment scoping anchor used
+to render the core/datasvc/agent NATS ACL blocks below. The chart's
+top-level `.Values.partitionId` is the source of truth; agent.partitionId
+is honored as a fallback for backwards compatibility with releases that
+only set it under .agent. This MUST match SERVICERADAR_OTX_PARTITION on
+the core-elx runtime config.
+*/}}
+{{- $partitionId := coalesce .Values.partitionId (default (dict) .Values.agent).partitionId "default" -}}
+{{- $globalStorage := default (dict) .Values.global.storage -}}
+{{- $encryptedStorageClass := default "encrypted" $globalStorage.encryptedStorageClassName -}}
+{{- $allowInsecureStorage := default false $globalStorage.allowInsecureStorage -}}
+{{- $natsStorageClass := default "" $persistence.storageClassName -}}
+{{- if and (eq $natsStorageClass "") (not $allowInsecureStorage) -}}
+  {{- $natsStorageClass = $encryptedStorageClass -}}
+{{- end -}}
+{{- if and (eq $natsStorageClass "") (not $allowInsecureStorage) -}}
+  {{- fail "nats.persistence.storageClassName or global.storage.encryptedStorageClassName is required unless global.storage.allowInsecureStorage=true" -}}
+{{- end -}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-nats
+spec:
+  selector:
+    app: serviceradar-nats
+  ports:
+  - name: client
+    port: 4222
+    targetPort: client
+  - name: monitoring
+    port: 8222
+    targetPort: monitoring
+  - name: cluster
+    port: 6222
+    targetPort: cluster
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-nats-headless
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app: serviceradar-nats
+  ports:
+  - name: client
+    port: 4222
+    targetPort: client
+  - name: monitoring
+    port: 8222
+    targetPort: monitoring
+  - name: cluster
+    port: 6222
+    targetPort: cluster
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: serviceradar-nats
+spec:
+  serviceName: serviceradar-nats-headless
+  replicas: {{ $replicas }}
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app: serviceradar-nats
+  template:
+    metadata:
+      labels:
+        app: serviceradar-nats
+        app.kubernetes.io/part-of: serviceradar
+      annotations:
+        {{- include "serviceradar.runtimeCertRollAnnotations" . | nindent 8 }}
+    spec:
+      {{- include "serviceradar.topologySpread" (dict "root" . "app" "serviceradar-nats") | nindent 6 }}
+      containers:
+      - name: nats
+        image: nats:{{ .Values.image.tags.nats | default "latest" }}
+        imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+        {{- include "serviceradar.containerSecurityContext" . | nindent 8 }}
+        command: ["/bin/sh", "-ec"]
+        args:
+        - |
+          {{- if gt $replicas 1 }}
+          ROUTES_BLOCK=""
+          for i in $(seq 0 $((NATS_REPLICAS - 1))); do
+            peer="serviceradar-nats-${i}.serviceradar-nats-headless.${POD_NAMESPACE}.svc.cluster.local"
+            if [ "${peer}" != "${POD_NAME}.serviceradar-nats-headless.${POD_NAMESPACE}.svc.cluster.local" ]; then
+              ROUTES_BLOCK="${ROUTES_BLOCK}        nats://${peer}:6222,\n"
+            fi
+          done
+          {{- end }}
+
+          cat >/tmp/nats-server.conf <<EOF
+          server_name: ${POD_NAME}
+          listen: 0.0.0.0:4222
+          http: 0.0.0.0:8222
+
+          jetstream {
+            store_dir: /data/jetstream
+            max_memory_store: {{ default "1G" $jetstream.maxMemoryStore }}
+            max_file_store: {{ default "10G" $jetstream.maxFileStore }}
+          }
+
+          tls {
+            cert_file: "/etc/serviceradar/certs/nats.pem"
+            key_file: "/etc/serviceradar/certs/nats-key.pem"
+            ca_file: "/etc/serviceradar/certs/root.pem"
+            verify: true
+            verify_and_map: true
+          }
+
+          {{- if gt $replicas 1 }}
+          cluster {
+            name: {{ $clusterName | quote }}
+            listen: 0.0.0.0:6222
+            advertise: ${POD_NAME}.serviceradar-nats-headless.${POD_NAMESPACE}.svc.cluster.local:6222
+            tls {
+              cert_file: "/etc/serviceradar/certs/nats.pem"
+              key_file: "/etc/serviceradar/certs/nats-key.pem"
+              ca_file: "/etc/serviceradar/certs/root.pem"
+              verify: true
+            }
+            routes: [
+          $(printf "%b" "${ROUTES_BLOCK}")      ]
+          }
+
+          {{- end }}
+          accounts {
+            SYS: {
+              users: []
+            }
+
+            SERVICERADAR: {
+              jetstream: enabled
+              users: [
+              {
+                user: "CN=serviceradar-tools,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+                permissions: {
+                  publish: {
+                    allow: [">"]
+                  }
+                  subscribe: {
+                    allow: [">"]
+                  }
+                }
+              },
+              # Web-NG owns browser/API-facing object-store workflows such as
+              # plugin WASM/dashboard package imports and FieldSurvey artifacts.
+              # Keep this identity scoped to object-store and JetStream control
+              # subjects instead of reusing the broader core identity.
+              {
+                user: "CN=serviceradar-web-ng,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+                permissions: {
+                  publish: {
+                    allow: [
+                      "\$O.{{ $pluginBucket }}.>",
+                      "\$JS.FC.OBJ_{{ $pluginBucket }}.>",
+                      "\$O.{{ $fieldSurveyBucket }}.>",
+                      "\$JS.FC.OBJ_{{ $fieldSurveyBucket }}.>",
+                      "\$JS.API.>",
+                      "\$JS.ACK.>",
+                      "_INBOX.>"
+                    ]
+                    deny: ["\$SYS.>"]
+                  }
+                  subscribe: {
+                    allow: [
+                      "\$O.{{ $pluginBucket }}.>",
+                      "\$O.{{ $fieldSurveyBucket }}.>",
+                      # Notification firehose (design D10): web-ng consumes it
+                      # with a durable cursor so a reconnecting subscriber
+                      # replays what it missed. Subscribe only - web-ng is not a
+                      # firehose publisher.
+                      "notifications.>",
+                      "\$JS.API.>",
+                      "\$JS.ACK.>",
+                      "_INBOX.>"
+                    ]
+                    deny: ["\$SYS.>"]
+                  }
+                }
+              },
+              # Core platform service: manages JetStream streams/consumers,
+              # publishes normalized platform subjects, and uses request/reply
+              # inboxes. Attributed-flow DB writes are in-process/in-cluster
+              # and no longer publish/read back through flow.attributed.*.
+              {
+                user: "CN=serviceradar-core,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+                permissions: {
+                  publish: {
+                    allow: [
+                      "flow.raw.>",
+                      "flows.raw.>",
+                      "flows.*.processed",
+                      "logs.>",
+                      # Live tail copies of logs.internal.* (health/audit/jobs).
+                      # web-ng is subscribe-only; core is the publisher.
+                      "live.logs.>",
+                      "pdns.ocsf",
+                      "pdns.ocsf.>",
+                      "signals.analytics.>",
+                      "events.>",
+                      "config.>",
+                      # Notification firehose (design D10). Core is the only
+                      # publisher; web-ng subscribes. New subject namespaces are
+                      # denied by default, so omitting this does not surface as
+                      # an error - every notification on the firehose is simply
+                      # dropped.
+                      "notifications.>",
+                      "\$JS.API.>",
+                      "\$JS.ACK.>",
+                      "_INBOX.>"
+                    ]
+                    deny: ["\$SYS.>"]
+                  }
+                  subscribe: {
+                    allow: [
+                      "flow.raw.>",
+                      "flows.raw.>",
+                      "flows.*.processed",
+                      "logs.>",
+                      "metrics.>",
+                      "pdns.ocsf",
+                      "pdns.ocsf.>",
+                      "signals.analytics.>",
+                      "events.>",
+                      "config.>",
+                      "inventory.k8s.>",
+                      "trivy.report.>",
+                      "falco.>",
+                      "\$JS.API.>",
+                      "\$JS.ACK.>",
+                      "_INBOX.>"
+                    ]
+                    deny: ["\$SYS.>"]
+                  }
+                }
+              },
+              # Agent gateway is the authenticated edge ingress for agent
+              # gRPC telemetry: sysmon/SNMP status metrics and relayed OTLP
+              # chunks. It is not a general NATS producer and cannot publish
+              # flow attribution, trap/syslog logs, or events.
+              {
+                user: "CN=serviceradar-agent-gateway,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+                permissions: {
+                  publish: {
+                    allow: ["metrics.sysmon.>", "metrics.snmp.>", "metrics.icmp.>", "metrics.mtr.>", "metrics.rperf.>", "metrics.sweep.>", "metrics.timeseries.>", "otel.traces.raw", "otel.metrics.raw", "otel.metrics.derived", "logs.otel", "\$JS.API.>"]
+                    deny: ["\$SYS.>", "flow.attributed.>", "events.>", "logs.syslog", "logs.syslog.>", "logs.snmp", "logs.snmp.>"]
+                  }
+                  subscribe: {
+                    allow: []
+                    deny: ["\$SYS.>", "flow.attributed.>", "flow.host-slice.>"]
+                  }
+                }
+              },
+              # Datasvc query-side service: reads catalog events/config and
+              # object/KV state. Attributed flows are queried from CNPG, not a
+              # flow.attributed.* NATS read-back stream.
+              {
+                user: "CN=serviceradar-datasvc,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+                permissions: {
+                  publish: {
+                    allow: [
+                      "events.>",
+                      "config.>",
+                      "\$KV.{{ $kvBucket }}.>",
+                      "\$O.{{ $objectBucket }}.>",
+                      "\$JS.FC.OBJ_{{ $objectBucket }}.>",
+                      "\$JS.API.>",
+                      "\$JS.ACK.>",
+                      "_INBOX.>"
+                    ]
+                    deny: ["\$SYS.>"]
+                  }
+                  subscribe: {
+                    allow: [
+                      "events.>",
+                      "config.>",
+                      "\$KV.{{ $kvBucket }}.>",
+                      "\$O.{{ $objectBucket }}.>",
+                      "\$JS.FC.OBJ_{{ $objectBucket }}.>",
+                      "\$JS.API.>",
+                      "\$JS.ACK.>",
+                      "_INBOX.>"
+                    ]
+                    deny: ["\$SYS.>"]
+                  }
+                }
+              },
+              # Agent (B-5 subject-scoping): emits sweep/discovery events
+              # and consumes config for its partition. Denied from
+              # flow.attributed.> (attribution is core's responsibility)
+              # and $SYS.>.
+              {
+                user: "CN=serviceradar-agent,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+                permissions: {
+                  publish: {
+                    allow: [
+                      "events.>",
+                      "logs.>",
+                      "\$JS.API.>",
+                      "\$JS.ACK.>",
+                      "_INBOX.>"
+                    ]
+                    deny: ["\$SYS.>", "flow.attributed.>"]
+                  }
+                  subscribe: {
+                    allow: [
+                      "config.agent.>",
+                      "config.{{ $partitionId }}.>",
+                      "\$JS.API.>",
+                      "\$JS.ACK.>",
+                      "_INBOX.>"
+                    ]
+                    deny: ["\$SYS.>", "flow.attributed.>", "flow.host-slice.>"]
+                  }
+                }
+              },
+              {
+                user: "CN=serviceradar-log-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+                permissions: {
+                  publish: {
+                    allow: ["logs.syslog", "otel.>", "logs.otel", "\$JS.API.STREAM.INFO.events", "\$JS.API.STREAM.CREATE.events", "\$JS.API.>"]
+                  }
+                  subscribe: {
+                    allow: ["\$JS.API.>", "_INBOX.>"]
+                  }
+                }
+              },
+              {
+                user: "CN=serviceradar-flowgger,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+                permissions: {
+                  publish: {
+                    allow: ["logs.syslog", "\$JS.API.STREAM.INFO.events", "\$JS.API.STREAM.CREATE.events", "\$JS.API.>"]
+                  }
+                  subscribe: {
+                    allow: ["\$JS.API.>", "_INBOX.>"]
+                  }
+                }
+              },
+              {
+                user: "CN=serviceradar-otel,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+                permissions: {
+                  publish: {
+                    allow: ["otel.>", "logs.otel", "\$JS.API.>"]
+                  }
+                  subscribe: {
+                    allow: ["\$JS.API.>", "_INBOX.>"]
+                  }
+                }
+              },
+              {
+                user: "CN=serviceradar-trapd,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+                permissions: {
+                  publish: {
+                    allow: ["logs.snmp", "\$JS.API.STREAM.INFO.events", "\$JS.API.STREAM.CREATE.events", "\$JS.API.>"]
+                  }
+                  subscribe: {
+                    allow: ["\$JS.API.>", "_INBOX.>"]
+                  }
+                }
+              },
+              {
+                user: "CN=serviceradar-flow-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+                permissions: {
+                  publish: {
+                    allow: ["flows.raw.>", "flow.host-slice.>", "\$KV.{{ $flowTemplateBucket }}.>", "\$JS.API.STREAM.INFO.events", "\$JS.API.STREAM.CREATE.events", "\$JS.API.>"]
+                  }
+                  subscribe: {
+                    allow: ["\$KV.{{ $flowTemplateBucket }}.>", "\$JS.API.>", "_INBOX.>"]
+                  }
+                }
+              },
+              {
+                user: "CN=serviceradar-netflow-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+                permissions: {
+                  publish: {
+                    allow: ["flows.raw.>", "\$KV.{{ $flowTemplateBucket }}.>", "\$JS.API.STREAM.INFO.events", "\$JS.API.STREAM.CREATE.events", "\$JS.API.>"]
+                  }
+                  subscribe: {
+                    allow: ["\$KV.{{ $flowTemplateBucket }}.>", "\$JS.API.>", "_INBOX.>"]
+                  }
+                }
+              },
+              {
+                user: "CN=serviceradar-bmp-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+                permissions: {
+                  publish: {
+                    allow: ["arancini.updates", "arancini.updates.>", "\$JS.API.STREAM.INFO.ARANCINI_CAUSAL", "\$JS.API.STREAM.CREATE.ARANCINI_CAUSAL", "\$JS.API.>"]
+                  }
+                  subscribe: {
+                    allow: ["\$JS.API.>", "_INBOX.>"]
+                  }
+                }
+              },
+              {
+                user: "CN=serviceradar-falcosidekick,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+                permissions: {
+                  publish: {
+                    allow: ["falco.>", "\$JS.API.STREAM.INFO.falco_events", "\$JS.API.STREAM.CREATE.falco_events", "\$JS.API.>"]
+                  }
+                  subscribe: {
+                    allow: ["\$JS.API.>", "_INBOX.>"]
+                  }
+                }
+              },
+              {
+                user: "CN=serviceradar-trivy-sidecar,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+                permissions: {
+                  publish: {
+                    allow: ["trivy.report.>", "\$JS.API.STREAM.INFO.trivy_reports", "\$JS.API.STREAM.CREATE.trivy_reports", "\$JS.API.>"]
+                  }
+                  subscribe: {
+                    allow: ["\$JS.API.>", "_INBOX.>"]
+                  }
+                }
+              },
+              {
+                user: "CN=serviceradar-k8s-inventory,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+                permissions: {
+                  publish: {
+                    allow: ["inventory.k8s.>", "\$JS.API.STREAM.INFO.k8s_inventory", "\$JS.API.STREAM.CREATE.k8s_inventory", "\$JS.API.>"]
+                  }
+                  subscribe: {
+                    allow: ["\$JS.API.>", "_INBOX.>"]
+                  }
+                }
+              },
+              {
+                user: "O=ServiceRadar"
+                permissions: {
+                  publish: {
+                    allow: [">"]
+                  }
+                  subscribe: {
+                    allow: [">"]
+                  }
+                }
+              }
+              ]
+            }
+          }
+
+          system_account: SYS
+          debug: true
+          trace: false
+          EOF
+
+          exec nats-server --config /tmp/nats-server.conf
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: NATS_REPLICAS
+          value: {{ $replicas | quote }}
+        ports:
+        - containerPort: 4222
+          name: client
+        - containerPort: 8222
+          name: monitoring
+        - containerPort: 6222
+          name: cluster
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        - name: nats-data
+          mountPath: /data
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+        resources:
+          limits:
+            cpu: "2"
+            memory: "4Gi"
+          requests:
+            cpu: "100m"
+            memory: "1Gi"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8222
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8222
+          initialDelaySeconds: 5
+          periodSeconds: 10
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      - name: cert-data
+        secret:
+          secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
+          items:
+{{ include "serviceradar.runtimeCertItems" (list "root.pem" "nats.pem" "nats-key.pem") | indent 12 }}
+  volumeClaimTemplates:
+  - metadata:
+      name: nats-data
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: {{ default "30Gi" $persistence.size }}
+      {{- if $natsStorageClass }}
+      storageClassName: {{ $natsStorageClass | quote }}
+      {{- end }}
+{{- end }}

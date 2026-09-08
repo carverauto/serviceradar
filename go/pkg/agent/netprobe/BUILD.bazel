@@ -1,0 +1,89 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "netprobe",
+    srcs = [
+        "addon_command.go",
+        "addon_pump.go",
+        "attach_manager.go",
+        "capture_forwarder.go",
+        "capture_session.go",
+        "capture_state.go",
+        "client.go",
+        "config.go",
+        "framing.go",
+        "sidecar.go",
+        "translator.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/agent/netprobe",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//go/pkg/agent/sidecar",
+        "//go/pkg/models",
+        "//proto",
+        "//proto/agent/netprobe/v1:netprobepb",
+        "//proto/discovery",
+        "//proto/agent/addon/v1:addonpb",
+        "@com_github_rs_zerolog//:zerolog",
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//credentials/insecure",
+        "@org_golang_google_protobuf//proto",
+    ],
+)
+
+go_test(
+    name = "netprobe_test",
+    srcs = [
+        "addon_command_test.go",
+        "addon_pump_test.go",
+        "attach_manager_test.go",
+        "capture_forwarder_test.go",
+        "capture_session_test.go",
+        "capture_state_test.go",
+        "enrichment_golden_test.go",
+        "client_test.go",
+        "config_test.go",
+        "framing_test.go",
+        "snapshot_size_budget_test.go",
+        "sidecar_test.go",
+        "translator_test.go",
+    ],
+    data = glob(["testdata/enrichment_golden/*.json"]),
+    embed = [":netprobe"],
+    deps = [
+        "//go/pkg/agent/sidecar",
+        "//go/pkg/devicealias",
+        "//go/pkg/models",
+        "//proto",
+        "//proto/agent/netprobe/v1:netprobepb",
+        "//proto/discovery",
+        "//proto/agent/addon/v1:addonpb",
+        "@com_github_rs_zerolog//:zerolog",
+        "@org_golang_google_grpc//:grpc",
+        "@com_github_stretchr_testify//assert",
+        "@com_github_stretchr_testify//require",
+        "@org_golang_google_protobuf//proto",
+    ],
+)
+
+# Fingerprint/DPI/process fixtures, captured from the translators BEFORE task 5.4
+# deletes them, for the same reason and with the same rule as the census/mDNS set
+# below: once the Go code is gone these files are the only record of the
+# behaviour the Elixir decoders have to reproduce.
+filegroup(
+    name = "enrichment_golden_fixtures",
+    srcs = glob(["testdata/enrichment_golden/*.json"]),
+    visibility = ["//visibility:public"],
+)
+
+# The golden fixtures are the captured output of the Go translators that used to
+# build device updates in the agent. Those translators are gone -- core builds
+# the updates now -- so these files are the ONLY remaining record of the
+# behaviour the Elixir decoders have to reproduce, and //elixir/serviceradar_core
+# golden_parity_test.exs is their only consumer. Do not delete them with the Go
+# code they came from. ex_unit_test stages only srcs and data.
+filegroup(
+    name = "discovery_golden_fixtures",
+    srcs = glob(["testdata/discovery_golden/*.json"]),
+    visibility = ["//visibility:public"],
+)

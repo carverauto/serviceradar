@@ -1,0 +1,72 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+load("//build:benchmarks.bzl", "go_benchmark")
+
+go_library(
+    name = "sweeper",
+    srcs = [
+        "base_processor.go",
+        "interfaces.go",
+        "memory_store.go",
+        "mock_sweeper.go",
+        "sweeper.go",
+        "sweeper_aggregators.go",
+        "sweeper_banner_grab.go",
+        "sweeper_batch_results.go",
+        "sweeper_batch_runner.go",
+        "sweeper_batched.go",
+        "sweeper_config.go",
+        "sweeper_lifecycle.go",
+        "sweeper_metadata_builders.go",
+        "sweeper_results.go",
+        "sweeper_run.go",
+        "sweeper_scan_stream.go",
+        "sweeper_scanner_modes.go",
+        "sweeper_status.go",
+        "sweeper_target_cidr.go",
+        "sweeper_target_generation.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/sweeper",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//go/pkg/logger",
+        "//go/pkg/models",
+        "//go/pkg/scan",
+        "//go/pkg/scan/banner_grab",
+        "@org_uber_go_mock//gomock",
+    ],
+)
+
+go_test(
+    name = "sweeper_test",
+    srcs = [
+        "aggregation_test.go",
+        "availability_logic_test.go",
+        "base_processor_test.go",
+        "composite_availability_test.go",
+        "memory_store_test.go",
+        "scanner_stats_test.go",
+        "sticky_availability_test.go",
+        "summary_snapshot_test.go",
+        "sweeper_banner_grab_test.go",
+        "sweeper_prune_test.go",
+        "sweeper_test.go",
+        "target_count_test.go",
+        "target_generation_completeness_test.go",
+        "tcp_optimization_test.go",
+    ],
+    embed = [":sweeper"],
+    deps = [
+        "//go/pkg/logger",
+        "//go/pkg/models",
+        "//go/pkg/scan",
+        "//go/pkg/scan/banner_grab",
+        "@com_github_stretchr_testify//assert",
+        "@com_github_stretchr_testify//require",
+        "@org_uber_go_mock//gomock",
+    ],
+)
+
+go_benchmark(
+    name = "sweeper_bench",
+    binary = ":sweeper_test",
+)

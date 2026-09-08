@@ -1,0 +1,191 @@
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+load("//build:integration_tests.bzl", "requires_shared_fixture")
+
+# Read by the repository-level integration lifecycle contract to keep the observer's
+# workflow-wide connection reservation tied to the selected target count and harness pool size.
+filegroup(
+    name = "integration_capacity_contract_inputs",
+    srcs = [
+        "BUILD.bazel",
+        "tests/support/harness.rs",
+    ],
+    visibility = ["//:__pkg__"],
+)
+
+# Complete checked-in workload inputs for the controlled IntegrationBenchmark CPU arms. The
+# diagnostic hash uses this set to reject carrying CPU evidence across any SRQL test/harness
+# change, while the narrower capacity contract above remains scoped to its static assertions.
+filegroup(
+    name = "integration_benchmark_input_files",
+    srcs = glob(["**"]),
+    visibility = ["//:__pkg__"],
+)
+
+# SRQL integration tests.
+#
+# These resolve the declared `ci` ConfigManager instance, create their own disposable
+# `sr_core_test_<run-id>_<suffix>` databases on `srql-fixtures`, and fail rather than skip when
+# fixture configuration is absent. CI keeps compilation remote/cacheable but deliberately places
+# each database-facing TestRunner on the workflow runner, which owns the fixture credentials and
+# network route.
+#
+# `integration_test` makes the guarded wildcard select them. `requires_shared_fixture()` is the
+# independent opt-in: without --//build:enable_integration_tests the targets are incompatible.
+#
+# WHAT WAS HERE BEFORE, and why it is gone:
+#
+#   //docker/images:cnpg_image_amd64_tar in `data` -- vestigial. Nothing in tests/ reads it;
+#   the only runfiles lookup in the harness resolves the two .sql fixtures. It dragged a
+#   full Postgres image build (AGE + TimescaleDB, compiled from an extracted Debian rootfs)
+#   into the graph of every build that touched this package, for nothing.
+#
+#   `no-remote-exec` -- followed from the image, and cost more than it looks. The tag
+#   propagates from a *_test rule to its COMPILE actions, so rustc ran wherever the client
+#   was. rustc bundles LLVM for codegen but no linker: on linux-gnu it shells out to the
+#   cc_toolchain's linker driver, which under --config=ci is @buildbuddy_toolchain's
+#   /usr/bin/gcc. That path exists in //docker/Dockerfile.rbe and not on the workflow
+#   runner, so the compile died with `linker /usr/bin/gcc not found` -- and on a macOS
+#   workstation with `cannot execute binary file` (Exit 126), because the process_wrapper
+#   is built for the Linux exec platform. Both symptoms, one cause. Remote execution has
+#   the toolchain the exec platform actually describes.
+#
+# So: do not reintroduce either. If a test here ever genuinely needs its own database,
+# that is a design change to discuss, not a `data` entry -- the shared fixture is the
+# contract, and //rust/integration-db owns its lifecycle.
+#
+# TLS posture, server name, and CA bundle URL come from the same declared `ci` instance as the
+# endpoint. The harness uses SRQL's shared TLS resolver, so it cannot silently select a runner-local
+# certificate path or disagree with the lifecycle about which server is being verified.
+#
+# `all_crate_deps(..., cargo_only = True)` resolves this crate's own dev-dependencies from
+# //integration_tests/srql/Cargo.toml. `cargo_only` keeps the result to third-party crates:
+# rules_rs also reports first-party workspace members, and //rust/srql is already named above.
+
+# The .sql fixtures the harness applies, plus what //rust/integration-db needs to resolve the
+# fixture at all: the run id it derives this target's disposable database from, and the compiled
+# instance ConfigManager loads. Without the latter two `Fixture::from_env()` failed and the
+# harness took its "no fixture, skip" path -- three targets green while asserting nothing.
+SRQL_IT_DATA = [
+    "tests/fixtures/schema.sql",
+    "tests/fixtures/seed.sql",
+    "//build:run_id_file",
+    "//config/environments:ci_binpb",
+]
+
+# tests/support/harness.rs resolves the fixture through //rust/integration-db -- `config::Fixture`
+# for the coordinates and `parse_pg_config` for the DSN -- rather than parsing SRQL_TEST_* itself.
+#
+# The dep has to be NAMED here. `all_crate_deps(cargo_only = True)` reports only third-party
+# crates, deliberately (see the note above), so a first-party edge it does not list is a compile
+# error rather than something Bazel infers. Missing it produced
+#
+#   error[E0432]: unresolved import `serviceradar_integration_db`
+#                 no external crate `serviceradar_integration_db`
+#
+# which reads like a missing Cargo dependency and is really a missing BUILD dep -- and it
+# appeared ONLY in the database sweep, twenty minutes into CI, because these targets are
+# `integration_test`-tagged plus requires_shared_fixture(): the earlier `bazel build //...`
+# runs without --//build:enable_integration_tests, so they are incompatible and get skipped
+# rather than compiled.
+SRQL_IT_DEPS = [
+    "//rust/integration-db:serviceradar_integration_db",
+    "//rust/srql:srql_lib",
+] + all_crate_deps(
+    cargo_only = True,
+    normal = True,
+    normal_dev = True,
+)
+
+rust_test(
+    name = "srql_api_test",
+    srcs = [
+        "tests/api.rs",
+        "tests/support/harness.rs",
+        "tests/support/mod.rs",
+    ],
+    crate_name = "srql_api_tests",
+    crate_root = "tests/api.rs",
+    data = SRQL_IT_DATA,
+    # This target's own disposable database, so three concurrent targets cannot reset
+    # each other's. env, not a config field: it varies by BUILD target, not by environment.
+    # RUST_TEST_THREADS=1: every test in the binary resets this one database, and libtest
+    # runs tests on parallel threads by default -- so they would wipe each other mid-run.
+    env = {
+        "SRQL_TEST_DB_SUFFIX": "srqlapi",
+        "RUST_TEST_THREADS": "1",
+    },
+    # integration_test, NOT manual. `manual` removed these from //... expansion BEFORE tag
+    # filters were considered, so no wildcard could ever reach them and every caller had to
+    # name them explicitly -- which is how srql_device_grouped_stats_test ended up running in
+    # buildbuddy.yaml but not in the Forgejo job. The tag is the real filter: the unit sweep
+    # excludes it with -integration_test, the database sweep selects it. requires_shared_fixture()
+    # remains the second guard -- without --//build:enable_integration_tests these are
+    # incompatible and a wildcard skips them.
+    tags = ["integration_test"],
+    target_compatible_with = requires_shared_fixture(),
+    deps = SRQL_IT_DEPS,
+)
+
+rust_test(
+    name = "srql_comprehensive_test",
+    srcs = [
+        "tests/comprehensive_queries.rs",
+        "tests/support/harness.rs",
+        "tests/support/mod.rs",
+    ],
+    crate_name = "srql_comprehensive_tests",
+    crate_root = "tests/comprehensive_queries.rs",
+    data = SRQL_IT_DATA,
+    # This target's own disposable database, so three concurrent targets cannot reset
+    # each other's. env, not a config field: it varies by BUILD target, not by environment.
+    # RUST_TEST_THREADS=1: every test in the binary resets this one database, and libtest
+    # runs tests on parallel threads by default -- so they would wipe each other mid-run.
+    env = {
+        "SRQL_TEST_DB_SUFFIX": "srqlcomp",
+        "RUST_TEST_THREADS": "1",
+    },
+    # integration_test, NOT manual. `manual` removed these from //... expansion BEFORE tag
+    # filters were considered, so no wildcard could ever reach them and every caller had to
+    # name them explicitly -- which is how srql_device_grouped_stats_test ended up running in
+    # buildbuddy.yaml but not in the Forgejo job. The tag is the real filter: the unit sweep
+    # excludes it with -integration_test, the database sweep selects it. requires_shared_fixture()
+    # remains the second guard -- without --//build:enable_integration_tests these are
+    # incompatible and a wildcard skips them.
+    tags = ["integration_test"],
+    target_compatible_with = requires_shared_fixture(),
+    deps = SRQL_IT_DEPS,
+)
+
+# Grouped device stats have to be exercised against a real Postgres: the
+# placeholder-rewriting bug they cover is invisible to translation-only tests,
+# which never hand the SQL to a server.
+rust_test(
+    name = "srql_device_grouped_stats_test",
+    srcs = [
+        "tests/device_grouped_stats.rs",
+        "tests/support/harness.rs",
+        "tests/support/mod.rs",
+    ],
+    crate_name = "srql_device_grouped_stats_tests",
+    crate_root = "tests/device_grouped_stats.rs",
+    data = SRQL_IT_DATA,
+    # This target's own disposable database, so three concurrent targets cannot reset
+    # each other's. env, not a config field: it varies by BUILD target, not by environment.
+    # RUST_TEST_THREADS=1: every test in the binary resets this one database, and libtest
+    # runs tests on parallel threads by default -- so they would wipe each other mid-run.
+    env = {
+        "SRQL_TEST_DB_SUFFIX": "srqlstats",
+        "RUST_TEST_THREADS": "1",
+    },
+    # integration_test, NOT manual. `manual` removed these from //... expansion BEFORE tag
+    # filters were considered, so no wildcard could ever reach them and every caller had to
+    # name them explicitly -- which is how srql_device_grouped_stats_test ended up running in
+    # buildbuddy.yaml but not in the Forgejo job. The tag is the real filter: the unit sweep
+    # excludes it with -integration_test, the database sweep selects it. requires_shared_fixture()
+    # remains the second guard -- without --//build:enable_integration_tests these are
+    # incompatible and a wildcard skips them.
+    tags = ["integration_test"],
+    target_compatible_with = requires_shared_fixture(),
+    deps = SRQL_IT_DEPS,
+)

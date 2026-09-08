@@ -1,0 +1,57 @@
+# OTEL collector native add-on manifest (edge OTLP relay, plan step 2 of
+# openspec/changes/refactor-otel-signal-correlation/edge-relay-plan.md).
+#
+# The add-on runs the ServiceRadar OTEL collector at the edge as an
+# agent-sidecar: local OTLP/gRPC (4317) + OTLP/HTTP (4318) listeners. The
+# required/default shape uses a durable on-disk relay spool and the acked
+# AddonService.RelayOtlp stream (capability otlp-relay:v1). Sites with a
+# local NATS leaf can explicitly set output.backend=jetstream to publish
+# directly to the leaf instead. Identity/partition are stamped upstream from
+# the agent/gateway trust path, never locally.
+#
+# id/capabilities/binary intentionally match the values the binary reports
+# from its own Info() RPC (rust/otel-addon/src/addon.rs) so the manifest and
+# the runtime agree.
+id: otel-collector
+name: OTEL Collector Add-on
+version: 0.1.6
+description: >-
+  Edge OpenTelemetry collector for ServiceRadar. Accepts OTLP traces, logs,
+  and metrics on local gRPC/HTTP listeners. The default required install
+  spools them durably on disk and relays them to the supervising agent over
+  the acked otlp-relay:v1 stream; sites with a local NATS leaf can explicitly
+  switch to direct JetStream leaf publishing.
+
+kind: native
+delivery: pushed-artifact     # compiled-in | pushed-artifact | os-package
+supervision: agent-sidecar    # config-toggle | agent-sidecar | systemd-service | systemd-timer | ephemeral-helper
+language: rust                # go | rust
+
+capabilities:
+  - otlp-relay:v1
+  # OCSF spool-usage events (threshold transitions + elevated-state
+  # heartbeat) over AddonService.StreamTelemetry, so operators can alert on
+  # edge buffering pressure through the existing event-to-alert pipeline.
+  - native-telemetry:v1
+
+requires:
+  base_agent: ">=1.2.0"
+  platforms: [linux]
+  os_capabilities: []
+  run_as: serviceradar
+
+plugin:
+  protocol: grpc
+  # Must match addon.ProtocolVersion (go/pkg/addon/addon.go) and
+  # APP_PROTOCOL_VERSION (rust/addon-sdk). Pinned so go-plugin protocol drift
+  # on upgrade is caught at the handshake rather than silently.
+  app_protocol_version: 1
+
+exec:
+  binary: serviceradar-otel-addon
+  install_path: /usr/local/lib/serviceradar/bin
+
+# artifacts[] (per-arch object_key/sha256/signature_ref) are populated by the
+# signed-bundle build (native-addon-builds); omitted in this reference source.
+
+config_schema: config.schema.json

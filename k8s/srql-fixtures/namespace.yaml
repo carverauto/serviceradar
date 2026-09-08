@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: srql-fixtures
+  labels:
+    name: srql-fixtures
+    # HTTPRoute srql-fixture-ca attaches to lan-edge/lan-shared-gateway.
+    carverauto.com/lan-gateway-access: "true"

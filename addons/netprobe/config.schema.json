@@ -1,0 +1,114 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Host Network Visibility (netprobe) Configuration",
+  "description": "Operator-facing netprobe config. Toggle Enabled to turn on eBPF process attribution — no other fields are required. The capture / DPI / device-binding fields are optional advanced settings, only needed for passive packet fingerprinting. Mirrors proto agent.netprobe.v1.VisibilityAgentConfig.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "enabled": {
+      "type": "boolean",
+      "title": "Enabled",
+      "description": "Master switch. When on, netprobe runs eBPF process attribution (the flow-to-process source behind attributed flows) on every interface with no further configuration; packet capture/DPI additionally engage only if capture interfaces or device bindings are set under Advanced settings.",
+      "default": false
+    },
+    "capture_interfaces": {
+      "type": "array",
+      "title": "Capture interfaces",
+      "description": "Optional. Allowlist of NIC names to passively capture/fingerprint on. Empty means no packet capture — attribution still runs.",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 },
+      "x-serviceradar-ui-advanced": true
+    },
+    "default_sample_interval_ms": {
+      "type": "integer",
+      "title": "Default sample interval (ms)",
+      "description": "Optional. Default per-device fingerprint sampling interval; overridable per device binding.",
+      "minimum": 0,
+      "default": 0,
+      "x-serviceradar-ui-advanced": true
+    },
+    "flow_table_max_entries": {
+      "type": "integer",
+      "title": "Flow table max entries",
+      "description": "Optional. Upper bound on the in-memory flow table. 0 means auto (interface count x 65536).",
+      "minimum": 0,
+      "default": 0,
+      "x-serviceradar-ui-advanced": true
+    },
+    "process_snapshot_interval_s": {
+      "type": "integer",
+      "title": "Process snapshot interval (s)",
+      "description": "Optional. Periodic process-attribution snapshot reconciliation interval. 0 means event-driven snapshots only.",
+      "minimum": 0,
+      "default": 0,
+      "x-serviceradar-ui-advanced": true
+    },
+    "external_flow_match_window_ms": {
+      "type": "integer",
+      "title": "External flow match window (ms)",
+      "description": "Optional. Temporal window for matching external (non-process) flows by 5-tuple.",
+      "minimum": 0,
+      "default": 0,
+      "x-serviceradar-ui-advanced": true
+    },
+    "flow_attribution_ipc_batch": {
+      "type": "boolean",
+      "title": "Batch attribution IPC",
+      "description": "Batch process attribution events over the local netprobe-agent IPC stream. Disable only for debugging older agents or framing issues.",
+      "default": true,
+      "x-serviceradar-ui-advanced": true
+    },
+    "emit_raw_flow_attribution_events": {
+      "type": "boolean",
+      "title": "Emit raw attribution events",
+      "description": "Emit every raw process attribution observation upstream for central correlation and forensic history. Disable to reduce agent CPU, IPC traffic, and CNPG writes on high-volume hosts; this degrades central attributed-flow joins until matched-only export is enabled.",
+      "default": true,
+      "x-serviceradar-ui-advanced": true
+    },
+    "dpi": { "$ref": "#/definitions/dpi", "x-serviceradar-ui-advanced": true },
+    "device_bindings": {
+      "type": "array",
+      "title": "Per-device bindings",
+      "description": "Optional. Per-IP capture overrides.",
+      "x-serviceradar-ui-advanced": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ip"],
+        "properties": {
+          "ip": { "type": "string", "minLength": 1 },
+          "profile_id": { "type": "string" },
+          "profile_name": { "type": "string" },
+          "sample_interval_ms": { "type": "integer", "minimum": 0 },
+          "fingerprint": {
+            "type": "object",
+            "additionalProperties": false,
+            "title": "Per-protocol fingerprint toggles",
+            "properties": {
+              "tcp": { "type": "boolean" },
+              "tls": { "type": "boolean" },
+              "http": { "type": "boolean" }
+            }
+          },
+          "dpi": { "$ref": "#/definitions/dpi" }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "dpi": {
+      "type": "object",
+      "title": "DPI configuration",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "protocols": {
+          "type": "array",
+          "description": "Protocol identifiers to inspect (e.g. \"tls\", \"http\", \"dns\").",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

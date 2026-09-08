@@ -1,0 +1,40 @@
+{
+  "id": "com.carverauto.anomaly.capacity_shed.display",
+  "version": "1.0.0",
+  "schema_id": "com.carverauto.anomaly.capacity_shed",
+  "schema_version": "1.0.0",
+  "widgets": [
+    {
+      "type": "summary",
+      "title": "status_code",
+      "message": "message",
+      "source": "log_provider",
+      "severity": "severity"
+    },
+    {
+      "type": "badges",
+      "fields": [
+        {"label": "Status", "path": "status", "tone": "status"},
+        {"label": "Severity", "path": "severity", "tone": "severity"},
+        {"label": "Event", "path": "unmapped.event_kind", "tone": "info"}
+      ]
+    },
+    {
+      "type": "facts",
+      "fields": [
+        {"label": "Agent", "path": "unmapped.agent_id"},
+        {"label": "Host", "path": "unmapped.host_id"},
+        {"label": "Dropped This Frame", "path": "unmapped.dropped_series_delta"},
+        {"label": "Dropped Total", "path": "unmapped.dropped_series_total"},
+        {"label": "Tracked Series", "path": "unmapped.tracked_series"},
+        {"label": "Tracked Counters", "path": "unmapped.tracked_counters"},
+        {"label": "Max Series", "path": "unmapped.max_series"}
+      ]
+    },
+    {
+      "type": "json_section",
+      "title": "Capacity Shed Details",
+      "paths": ["unmapped", "metadata.service_radar"]
+    }
+  ]
+}

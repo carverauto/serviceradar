@@ -1,0 +1,315 @@
+{{- $cnpg := default (dict) .Values.cnpg -}}
+{{- $coldTier := default (dict) .Values.coldTier -}}
+{{- $coldExportRole := default (dict) $coldTier.exportRole -}}
+{{- $coldExportRoleName := default "cold_reader" $coldExportRole.name -}}
+{{- $spire := default (dict) .Values.spire -}}
+{{- $spirePg := default (dict) $spire.postgres -}}
+{{- $spiffeCnpgManaged := and (default false $spire.enabled) (default false $spirePg.enabled) -}}
+{{- if and (default true $cnpg.enabled) (not $spiffeCnpgManaged) }}
+{{- $ns := .Release.Namespace -}}
+{{- $globalStorage := default (dict) .Values.global.storage -}}
+{{- $backup := default (dict) $cnpg.backup -}}
+{{- $barman := default (dict) $backup.barmanObjectStore -}}
+{{- $s3Credentials := default (dict) $barman.s3Credentials -}}
+{{- $barmanWal := deepCopy (default (dict) $barman.wal) -}}
+{{- if not $barmanWal.encryption -}}
+{{- $_ := unset $barmanWal "encryption" -}}
+{{- end -}}
+{{- $barmanData := deepCopy (default (dict) $barman.data) -}}
+{{- if not $barmanData.encryption -}}
+{{- $_ := unset $barmanData "encryption" -}}
+{{- end -}}
+{{- $scheduledBackup := default (dict) $backup.scheduledBackup -}}
+{{- $backupEnabled := false -}}
+{{- if hasKey $backup "enabled" -}}
+  {{- $backupEnabled = $backup.enabled -}}
+{{- end -}}
+{{- $scheduledBackupEnabled := true -}}
+{{- if hasKey $scheduledBackup "enabled" -}}
+  {{- $scheduledBackupEnabled = $scheduledBackup.enabled -}}
+{{- end -}}
+{{- $scheduledBackupImmediate := true -}}
+{{- if hasKey $scheduledBackup "immediate" -}}
+  {{- $scheduledBackupImmediate = $scheduledBackup.immediate -}}
+{{- end -}}
+{{- $scheduledBackupSuspend := false -}}
+{{- if hasKey $scheduledBackup "suspend" -}}
+  {{- $scheduledBackupSuspend = $scheduledBackup.suspend -}}
+{{- end -}}
+{{- $encryptedStorageClass := default "encrypted" $globalStorage.encryptedStorageClassName -}}
+{{- $allowInsecureStorage := default false $globalStorage.allowInsecureStorage -}}
+{{- $cnpgStorageClass := default "" $cnpg.storageClass -}}
+{{- if and (eq $cnpgStorageClass "") (not $allowInsecureStorage) -}}
+  {{- $cnpgStorageClass = $encryptedStorageClass -}}
+{{- end -}}
+{{- if and (eq $cnpgStorageClass "") (not $allowInsecureStorage) -}}
+  {{- fail "cnpg.storageClass or global.storage.encryptedStorageClassName is required unless global.storage.allowInsecureStorage=true" -}}
+{{- end -}}
+{{- $clusterName := include "serviceradar.cnpgClusterName" . -}}
+{{- /* WAL budget. pg_wal shares the data PVC (this chart declares no CNPG walStorage),
+       so all three of these are sized relative to the declared volume:
+
+       max_slot_wal_keep_size — never leave it unbounded (-1): a stuck or lagging
+         replication slot would retain WAL until the data volume fills and the primary
+         crashes (the 2026-06-17 demo CNPG outage). ~30% of storage, floored at 10GB but
+         never more than half the volume.
+       max_wal_size — PostgreSQL forces a checkpoint every
+         max_wal_size/(2 + checkpoint_completion_target). At the 1GB default that is
+         353MB, which on this product's ingest meant a checkpoint every ~14s and, under
+         load, every 10s with every backend parked on LWLock:WALWrite. 7% of storage,
+         clamped to [1GB, 8GB]; the 1GB floor keeps installs of ~28Gi or less on
+         PostgreSQL's own default so they spend no extra disk.
+       min_wal_size — recycle floor so returning bursty ingest reuses segments instead of
+         creating and fsyncing new ones. Permanently-resident disk, hence the 1GB ceiling.
+
+       Override any of them with cnpg.maxSlotWalKeepSize / cnpg.maxWalSize /
+       cnpg.minWalSize, or set the parameter directly in cnpg.postgresqlParameters.
+       PostgreSQL accepts GB/MB units here, not Kubernetes-style Gi/Mi resource units. */ -}}
+{{- $cnpgStorageSize := default "100Gi" $cnpg.storageSize -}}
+{{- $walBudget := fromJson (include "serviceradar.walBudget" $cnpgStorageSize) -}}
+{{- $walCap := default $walBudget.maxSlotWalKeepSize $cnpg.maxSlotWalKeepSize -}}
+{{- $maxWal := default $walBudget.maxWalSize $cnpg.maxWalSize -}}
+{{- $minWal := default $walBudget.minWalSize $cnpg.minWalSize -}}
+{{- $appSecretName := default "serviceradar-db-credentials" $cnpg.credentialsSecret -}}
+{{- $superSecretName := default "cnpg-superuser" $cnpg.superuserSecret -}}
+{{- $appUser := default "serviceradar" $cnpg.username -}}
+{{- $appPass := include "serviceradar.reuseSecretPassword" (dict "namespace" $ns "name" $appSecretName "fromValues" (default "" $cnpg.password)) -}}
+{{- $superUser := default "postgres" $cnpg.superuserUsername -}}
+{{- $superPass := include "serviceradar.reuseSecretPassword" (dict "namespace" $ns "name" $superSecretName "fromValues" (default "" $cnpg.superuserPassword)) -}}
+{{- $defaultExtensionsSQL := list
+      "CREATE EXTENSION IF NOT EXISTS timescaledb;"
+      "CREATE EXTENSION IF NOT EXISTS age;"
+      "CREATE EXTENSION IF NOT EXISTS postgis;"
+      "CREATE EXTENSION IF NOT EXISTS vector;"
+      (printf "GRANT USAGE ON SCHEMA ag_catalog TO \"%s\";" $appUser)
+      (printf "GRANT ALL ON ALL TABLES IN SCHEMA ag_catalog TO \"%s\";" $appUser)
+      (printf "GRANT ALL ON ALL SEQUENCES IN SCHEMA ag_catalog TO \"%s\";" $appUser)
+      (printf "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA ag_catalog TO \"%s\";" $appUser)
+  -}}
+{{- $extensionsSQL := default $defaultExtensionsSQL $cnpg.extensionsSQL -}}
+{{- $clientCASecret := default "" $cnpg.clientCASecret -}}
+{{- if and (not $clientCASecret) $cnpg.requireClientCert }}
+  {{- $clientCASecret = "serviceradar-cnpg-client-ca" }}
+{{- end }}
+{{- $cnpgAffinity := default (dict) $cnpg.affinity -}}
+{{- if $superPass }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $superSecretName }}
+  namespace: {{ $ns }}
+  annotations:
+    "helm.sh/resource-policy": "keep"
+    "argocd.argoproj.io/sync-options": "Prune=false"
+type: Opaque
+stringData:
+  username: {{ $superUser | quote }}
+  password: {{ $superPass | quote }}
+{{- end }}
+{{- if $appPass }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $appSecretName }}
+  namespace: {{ $ns }}
+  annotations:
+    "helm.sh/resource-policy": "keep"
+    "argocd.argoproj.io/sync-options": "Prune=false"
+type: Opaque
+stringData:
+  username: {{ $appUser | quote }}
+  password: {{ $appPass | quote }}
+{{- end }}
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ $clusterName }}
+  namespace: {{ $ns }}
+  annotations:
+    "helm.sh/resource-policy": "keep"
+spec:
+  imageName: {{ include "serviceradar.cnpgImageName" (dict "Values" .Values "Chart" .Chart "cnpg" $cnpg) }}
+  instances: {{ default 3 $cnpg.instances }}
+  {{- with $cnpg.env }}
+  env:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with $cnpg.envFrom }}
+  envFrom:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- if .Values.image.registryPullSecret }}
+  imagePullSecrets:
+    - name: {{ .Values.image.registryPullSecret | quote }}
+  {{- end }}
+  {{- if $cnpgAffinity }}
+  affinity:
+    {{- if hasKey $cnpgAffinity "enablePodAntiAffinity" }}
+    enablePodAntiAffinity: {{ $cnpgAffinity.enablePodAntiAffinity }}
+    {{- end }}
+    {{- with $cnpgAffinity.topologyKey }}
+    topologyKey: {{ . | quote }}
+    {{- end }}
+    {{- with $cnpgAffinity.podAntiAffinityType }}
+    podAntiAffinityType: {{ . | quote }}
+    {{- end }}
+    {{- with $cnpgAffinity.nodeSelector }}
+    nodeSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- with $cnpgAffinity.nodeAffinity }}
+    nodeAffinity:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- with $cnpgAffinity.tolerations }}
+    tolerations:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+  {{- end }}
+  storage:
+    size: {{ $cnpgStorageSize }}
+    {{- if $cnpgStorageClass }}
+    storageClass: {{ $cnpgStorageClass | quote }}
+    {{- end }}
+  bootstrap:
+    # NOTE: no locale/collation keys are set here on purpose — the CNPG
+    # operator default (encoding UTF8, lc_collate/lc_ctype C) is load-bearing
+    # for the tiered-telemetry cold path: DuckDB on the analytics head sorts
+    # in binary/codepoint order, which equals C collation exactly. Adding
+    # ICU/libc locale settings here would silently split hot-vs-cold text
+    # ordering (verified in add-tiered-telemetry-offload Phase-0 spike 0.6).
+    initdb:
+      database: {{ default "serviceradar" $cnpg.database }}
+      owner: {{ $appUser | quote }}
+      secret:
+        name: {{ $appSecretName | quote }}
+      {{- with $extensionsSQL }}
+      postInitApplicationSQL:
+        {{- range $stmt := . }}
+        - {{ $stmt | quote }}
+        {{- end }}
+      {{- end }}
+  postgresql:
+    parameters:
+      {{- range $k, $v := (default dict $cnpg.postgresqlParameters) }}
+      {{ $k | quote }}: {{ $v | quote }}
+      {{- end }}
+      {{- if not (hasKey (default dict $cnpg.postgresqlParameters) "max_slot_wal_keep_size") }}
+      "max_slot_wal_keep_size": {{ $walCap | quote }}
+      {{- end }}
+      {{- if not (hasKey (default dict $cnpg.postgresqlParameters) "max_wal_size") }}
+      "max_wal_size": {{ $maxWal | quote }}
+      {{- end }}
+      {{- if not (hasKey (default dict $cnpg.postgresqlParameters) "min_wal_size") }}
+      "min_wal_size": {{ $minWal | quote }}
+      {{- end }}
+    {{- with $cnpg.sharedPreloadLibraries }}
+    shared_preload_libraries:
+      {{- range $lib := . }}
+      - {{ $lib | quote }}
+      {{- end }}
+    {{- end }}
+    {{- if $cnpg.requireClientCert }}
+    pg_hba:
+      - "hostnossl all all all reject"
+      - "hostssl all all all scram-sha-256 clientcert=verify-ca"
+    {{- else }}
+    pg_hba:
+      - "hostnossl all all all reject"
+      - "hostssl all all all scram-sha-256"
+    {{- end }}
+  {{- if $clientCASecret }}
+  certificates:
+    clientCASecret: {{ $clientCASecret | quote }}
+  {{- end }}
+  {{- if $backupEnabled }}
+  backup:
+    {{- with $backup.retentionPolicy }}
+    retentionPolicy: {{ . | quote }}
+    {{- end }}
+    {{- with $backup.target }}
+    target: {{ . | quote }}
+    {{- end }}
+    barmanObjectStore:
+      destinationPath: {{ required "cnpg.backup.barmanObjectStore.destinationPath is required when cnpg.backup.enabled=true" $barman.destinationPath | quote }}
+      {{- with $barman.endpointURL }}
+      endpointURL: {{ . | quote }}
+      {{- end }}
+      {{- with $barman.serverName }}
+      serverName: {{ . | quote }}
+      {{- end }}
+      {{- if and $barman.endpointCA $barman.endpointCA.name }}
+      endpointCA:
+        name: {{ $barman.endpointCA.name | quote }}
+        key: {{ default "ca.crt" $barman.endpointCA.key | quote }}
+      {{- end }}
+      s3Credentials:
+        accessKeyId:
+          name: {{ required "cnpg.backup.barmanObjectStore.s3Credentials.secretName is required when cnpg.backup.enabled=true" $s3Credentials.secretName | quote }}
+          key: {{ default "ACCESS_KEY_ID" $s3Credentials.accessKeyIdKey | quote }}
+        secretAccessKey:
+          name: {{ required "cnpg.backup.barmanObjectStore.s3Credentials.secretName is required when cnpg.backup.enabled=true" $s3Credentials.secretName | quote }}
+          key: {{ default "ACCESS_SECRET_KEY" $s3Credentials.secretAccessKeyKey | quote }}
+        {{- with $s3Credentials.sessionTokenKey }}
+        sessionToken:
+          name: {{ required "cnpg.backup.barmanObjectStore.s3Credentials.secretName is required when cnpg.backup.enabled=true" $s3Credentials.secretName | quote }}
+          key: {{ . | quote }}
+        {{- end }}
+      {{- with $barmanWal }}
+      wal:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $barmanData }}
+      data:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- end }}
+  managed:
+    roles:
+      - name: {{ $appUser | quote }}
+        ensure: present
+        login: true
+        passwordSecret:
+          name: {{ $appSecretName | quote }}
+      {{- if $coldExportRole.enabled }}
+      {{- /* Cold-tier FDW reader. The analytics head reads hot rows through
+             postgres_fdw as this role and nothing else does, so it exists as
+             a connectable identity ONLY while the cold tier is switched on.
+             Migration 20260716220000 creates it NOLOGIN with its SELECT-only
+             grants and role-level timeouts; CNPG owns login + password from
+             here, reconciled continuously so it survives migration ordering
+             and failover. Leaving this block out (the default) leaves the
+             role NOLOGIN -- CNPG only manages roles it is told about. */}}
+      - name: {{ $coldExportRoleName | quote }}
+        ensure: present
+        login: true
+        connectionLimit: {{ default 10 $coldExportRole.connectionLimit }}
+        passwordSecret:
+          name: {{ required "coldTier.exportRole.passwordSecret is required when coldTier.exportRole.enabled is true" $coldExportRole.passwordSecret | quote }}
+      {{- end }}
+  monitoring:
+    enablePodMonitor: true
+  enableSuperuserAccess: true
+  failoverDelay: 0
+{{- if and $backupEnabled $scheduledBackupEnabled }}
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: {{ default (printf "%s-base-backup" $clusterName) $scheduledBackup.name }}
+  namespace: {{ $ns }}
+spec:
+  schedule: {{ required "cnpg.backup.scheduledBackup.schedule is required when scheduled backup is enabled" $scheduledBackup.schedule | quote }}
+  immediate: {{ $scheduledBackupImmediate }}
+  suspend: {{ $scheduledBackupSuspend }}
+  backupOwnerReference: {{ default "cluster" $scheduledBackup.backupOwnerReference | quote }}
+  {{- with $scheduledBackup.method }}
+  method: {{ . | quote }}
+  {{- end }}
+  cluster:
+    name: {{ $clusterName | quote }}
+{{- end }}
+{{- end }}

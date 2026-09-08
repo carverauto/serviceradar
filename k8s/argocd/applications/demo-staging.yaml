@@ -1,0 +1,51 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: serviceradar-demo-staging
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  sources:
+    - repoURL: registry.carverauto.dev/serviceradar/charts
+      chart: serviceradar
+      targetRevision: "1.2.11"
+      helm:
+        releaseName: serviceradar
+        # IMPORTANT: values-demo-staging.yaml contains environment-specific
+        # overrides including the CNPG cluster name. Never change clusterName
+        # without migrating data first!
+        valueFiles:
+          - $values/helm/serviceradar/values-demo-staging.yaml
+    - repoURL: https://git.carverauto.dev/carverauto/serviceradar.git
+      targetRevision: staging
+      ref: values
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: demo-staging
+  ignoreDifferences:
+    - group: ""
+      kind: PersistentVolumeClaim
+      jsonPointers:
+        - /status
+    # Ignore CNPG cluster spec changes to prevent accidental data loss
+    - group: postgresql.cnpg.io
+      kind: Cluster
+      jsonPointers:
+        - /spec/instances
+        - /spec/storage/size
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - SkipDryRunOnMissingResource=true
+      - RespectIgnoreDifferences=true
+      # Prevent deletion of CNPG clusters during sync
+      - PrunePropagationPolicy=foreground
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

@@ -1,0 +1,197 @@
+{{- if and .Values.spire.enabled .Values.spire.postgres.enabled }}
+{{- $ns := default .Release.Namespace .Values.spire.namespace }}
+{{- $pg := .Values.spire.postgres }}
+{{- $spireSecretName := $pg.secretName | default "spire-db-credentials" }}
+{{- $spireUser := default "spire" $pg.username }}
+{{- $spirePass := include "serviceradar.reuseSecretPassword" (dict "namespace" $ns "name" $spireSecretName "fromValues" (default "" $pg.password)) }}
+{{- $cnpg := default (dict) .Values.cnpg }}
+{{- $superSecretName := default "cnpg-superuser" $cnpg.superuserSecret }}
+{{- $superPass := include "serviceradar.reuseSecretPassword" (dict "namespace" $ns "name" $superSecretName "fromValues" (default "" $cnpg.superuserPassword)) }}
+{{- $clientCASecret := default "" $cnpg.clientCASecret }}
+{{- if and (not $clientCASecret) $cnpg.requireClientCert }}
+  {{- $clientCASecret = "serviceradar-cnpg-client-ca" }}
+{{- end }}
+{{- $appSecretName := default "serviceradar-db-credentials" $cnpg.credentialsSecret }}
+{{- $appUser := default "serviceradar" $cnpg.username }}
+{{- $appPass := include "serviceradar.reuseSecretPassword" (dict "namespace" $ns "name" $appSecretName "fromValues" (default "" $cnpg.password)) }}
+{{- $defaultExtensionsSQL := list
+      "CREATE EXTENSION IF NOT EXISTS timescaledb;"
+      "CREATE EXTENSION IF NOT EXISTS age;"
+      "CREATE EXTENSION IF NOT EXISTS postgis;"
+      "CREATE EXTENSION IF NOT EXISTS vector;"
+      (printf "GRANT USAGE ON SCHEMA ag_catalog TO \"%s\";" $appUser)
+      (printf "GRANT ALL ON ALL TABLES IN SCHEMA ag_catalog TO \"%s\";" $appUser)
+      (printf "GRANT ALL ON ALL SEQUENCES IN SCHEMA ag_catalog TO \"%s\";" $appUser)
+      (printf "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA ag_catalog TO \"%s\";" $appUser)
+  -}}
+{{- $imageName := $pg.imageName }}
+{{- if not $imageName }}
+  {{- $imageRepo := default (include "serviceradar.imageRepository" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-cnpg")) $pg.image }}
+  {{- /* Shared with cnpg-cluster.yaml. These two templates each used to hardcode their
+         own copy of this pin and drifted apart, leaving this cluster on 18.3.0-sr5
+         while the main one moved on. Keep the single definition in _helpers.tpl. */ -}}
+  {{- $imageTag := default (include "serviceradar.cnpgDefaultImageTag" .) $pg.imageTag }}
+  {{- $imageName = printf "%s:%s" $imageRepo $imageTag }}
+{{- end }}
+{{- $sharedPreload := $pg.sharedPreloadLibraries }}
+{{- if not $sharedPreload }}
+  {{- $sharedPreload = list "timescaledb" "age" }}
+{{- else if kindIs "string" $sharedPreload }}
+  {{- $trimmed := list }}
+  {{- range $item := splitList "," $sharedPreload }}
+    {{- if $item }}
+      {{- $trimmed = append $trimmed (trim $item) }}
+    {{- end }}
+  {{- end }}
+  {{- $sharedPreload = $trimmed }}
+{{- end }}
+{{- $extensionsSQL := $pg.extensionsSQL }}
+{{- if not $extensionsSQL }}
+  {{- $extensionsSQL = $defaultExtensionsSQL }}
+{{- end }}
+{{- $postgresqlParameters := $pg.postgresqlParameters }}
+{{- /* This template REPLACES cnpg-cluster.yaml when spire.postgres.enabled is true, and it
+       hosts the application database (it creates serviceradar-db-credentials and the
+       serviceradar role below). It therefore needs the same WAL budget; see the block in
+       cnpg-cluster.yaml for why each bound exists. */ -}}
+{{- $pgStorageSize := default "100Gi" $pg.storageSize }}
+{{- $walBudget := fromJson (include "serviceradar.walBudget" $pgStorageSize) }}
+{{- $walCap := default $walBudget.maxSlotWalKeepSize $pg.maxSlotWalKeepSize }}
+{{- $maxWal := default $walBudget.maxWalSize $pg.maxWalSize }}
+{{- $minWal := default $walBudget.minWalSize $pg.minWalSize }}
+{{- if $spirePass }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $spireSecretName }}
+  namespace: {{ $ns }}
+  annotations:
+    "helm.sh/resource-policy": "keep"
+    "argocd.argoproj.io/sync-options": "Prune=false"
+type: Opaque
+stringData:
+  username: {{ $spireUser | quote }}
+  password: {{ $spirePass | quote }}
+{{- end }}
+{{- if $superPass }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $superSecretName }}
+  namespace: {{ $ns }}
+  annotations:
+    "helm.sh/resource-policy": "keep"
+    "argocd.argoproj.io/sync-options": "Prune=false"
+type: Opaque
+stringData:
+  password: {{ $superPass | quote }}
+  username: postgres
+{{- end }}
+{{- if $appPass }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $appSecretName }}
+  namespace: {{ $ns }}
+  annotations:
+    "helm.sh/resource-policy": "keep"
+    "argocd.argoproj.io/sync-options": "Prune=false"
+type: Opaque
+stringData:
+  username: {{ $appUser | quote }}
+  password: {{ $appPass | quote }}
+{{- end }}
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ default "cnpg" $pg.clusterName }}
+  namespace: {{ $ns }}
+  annotations:
+    # CRITICAL: Prevent Helm/ArgoCD from deleting this cluster during upgrades.
+    # Changing clusterName without this would cause data loss!
+    "helm.sh/resource-policy": "keep"
+spec:
+  imageName: {{ $imageName }}
+  instances: {{ default 3 $pg.instances }}
+  {{- if $pg.imagePullSecrets }}
+  imagePullSecrets:
+    {{- range $secret := $pg.imagePullSecrets }}
+    {{- if kindIs "string" $secret }}
+    - name: {{ $secret }}
+    {{- else }}
+    - name: {{ $secret.name }}
+    {{- end }}
+    {{- end }}
+  {{- end }}
+  storage:
+    size: {{ $pgStorageSize }}
+    {{- if $pg.storageClass }}
+    storageClass: {{ $pg.storageClass }}
+    {{- end }}
+  bootstrap:
+    initdb:
+      database: {{ default "spire" $pg.database }}
+      owner: {{ default "spire" $pg.username }}
+      secret:
+        name: {{ $spireSecretName }}
+      {{- if $extensionsSQL }}
+      postInitApplicationSQL:
+        {{- range $stmt := $extensionsSQL }}
+        - {{ $stmt | quote }}
+        {{- end }}
+      {{- end }}
+  postgresql:
+    parameters:
+      {{- range $k, $v := (default dict $postgresqlParameters) }}
+      {{ $k | quote }}: {{ $v | quote }}
+      {{- end }}
+      {{- if not (hasKey (default dict $postgresqlParameters) "max_slot_wal_keep_size") }}
+      "max_slot_wal_keep_size": {{ $walCap | quote }}
+      {{- end }}
+      {{- if not (hasKey (default dict $postgresqlParameters) "max_wal_size") }}
+      "max_wal_size": {{ $maxWal | quote }}
+      {{- end }}
+      {{- if not (hasKey (default dict $postgresqlParameters) "min_wal_size") }}
+      "min_wal_size": {{ $minWal | quote }}
+      {{- end }}
+    {{- if $sharedPreload }}
+    shared_preload_libraries:
+      {{- range $lib := $sharedPreload }}
+      - {{ $lib | quote }}
+      {{- end }}
+    {{- end }}
+    {{- if $cnpg.requireClientCert }}
+    pg_hba:
+      - "hostnossl all all all reject"
+      - "hostssl all all all scram-sha-256 clientcert=verify-ca"
+    {{- else }}
+    # Allow SSL connections with password auth (no client cert required)
+    pg_hba:
+      - "hostnossl all all all reject"
+      - "hostssl all all all scram-sha-256"
+    {{- end }}
+  {{- if $clientCASecret }}
+  certificates:
+    clientCASecret: {{ $clientCASecret | quote }}
+  {{- end }}
+  managed:
+    roles:
+      - name: {{ default "spire" $pg.username }}
+        ensure: present
+        login: true
+        passwordSecret:
+          name: {{ $spireSecretName }}
+      - name: serviceradar
+        ensure: present
+        login: true
+        passwordSecret:
+          name: serviceradar-db-credentials
+  monitoring:
+    enablePodMonitor: true
+  enableSuperuserAccess: true
+  failoverDelay: 0
+{{- end }}

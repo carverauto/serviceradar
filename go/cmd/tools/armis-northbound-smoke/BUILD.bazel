@@ -1,0 +1,14 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library")
+
+go_library(
+    name = "armis-northbound-smoke_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/carverauto/serviceradar/go/cmd/tools/armis-northbound-smoke",
+    visibility = ["//visibility:private"],
+)
+
+go_binary(
+    name = "armis-northbound-smoke",
+    embed = [":armis-northbound-smoke_lib"],
+    visibility = ["//visibility:public"],
+)

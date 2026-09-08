@@ -1,0 +1,1863 @@
+# Conformance fixtures for the ServiceRadar configuration rule set.
+#
+# Each case serves two roles at once (SEMANTICS.md sections 8 and 10):
+#
+#   NEGATIVE FIXTURE  -- deleting the rule it targets makes this case pass, turning the
+#                        fixture test red. That is what stops a rule being silently weakened.
+#   CONFORMANCE VECTOR -- all three implementations must reproduce these exact violations,
+#                        compared by (code, field_path), not merely accept/reject.
+#
+# Cases below are hand-authored to cover each PREDICATE KIND and the composition rules that
+# three implementations are most likely to disagree on. The per-rule set covering all 37
+# rules is generated from the rule set in phase 5, using this same format.
+
+# --- baseline: a valid instance must produce no violations -------------------
+
+fixtures {
+  name: "valid_ci"
+  description: "The committed ci instance shape. Guards against a rule that rejects good config."
+  phase: PHASE_CONFIG
+  instance {
+    dgraph { host: "dgraph" port: 9080 tls_mode: DGRAPH_TLS_MODE_VERIFY_CA }
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "srql-fixture-rw.srql-fixtures.svc.cluster.local"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "srql-fixture-rw.srql-fixtures.svc.cluster.local"
+      search_path: "platform, ag_catalog"
+      pool_size: 10
+    }
+    nats { url: "nats://nats:4222" server_name: "nats" }
+    core {
+      address: "serviceradar-core:50052"
+      api_url: "http://serviceradar-core:8090"
+      security_mode: SECURITY_MODE_MTLS
+      server_name: "serviceradar-core"
+    }
+  }
+}
+
+# --- cascading: an absent required field yields EXACTLY ONE violation --------
+
+fixtures {
+  name: "absent_port_cascades_to_one_violation"
+  description: "database.port carries both Required and IntRange. Absence must report only DATABASE_PORT_REQUIRED; IntRange returns NotApplicable (SEMANTICS.md section 4)."
+  phase: PHASE_CONFIG
+  instance {
+    dgraph { host: "dgraph" port: 9080 tls_mode: DGRAPH_TLS_MODE_VERIFY_CA }
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+    }
+    nats { url: "nats://nats:4222" }
+    core { address: "core:50052" security_mode: SECURITY_MODE_MTLS }
+  }
+  expected_violations { code: "DATABASE_PORT_REQUIRED" field_path: "database.port" }
+}
+
+# --- IntRange: both bounds are inclusive ------------------------------------
+
+fixtures {
+  name: "port_below_range"
+  description: "Port 0 is below the inclusive minimum of 1."
+  phase: PHASE_CONFIG
+  instance {
+    dgraph { host: "dgraph" port: 9080 tls_mode: DGRAPH_TLS_MODE_VERIFY_CA }
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      port: 0
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+    }
+    nats { url: "nats://nats:4222" }
+    core { address: "core:50052" security_mode: SECURITY_MODE_MTLS }
+  }
+  expected_violations { code: "DATABASE_PORT_RANGE" field_path: "database.port" }
+}
+
+# --- ForbiddenValue: the enum sentinel is not a usable value -----------------
+
+fixtures {
+  name: "tls_mode_unspecified_rejected"
+  description: "An unset TLS mode must be an error, never accidentally the first defined value. This is the class of bug that let sslmode go missing."
+  phase: PHASE_CONFIG
+  instance {
+    dgraph { host: "dgraph" port: 9080 tls_mode: DGRAPH_TLS_MODE_VERIFY_CA }
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_UNSPECIFIED
+      tls_server_name: "db"
+    }
+    nats { url: "nats://nats:4222" }
+    core { address: "core:50052" security_mode: SECURITY_MODE_MTLS }
+  }
+  expected_violations {
+    code: "DATABASE_TLS_MODE_NOT_UNSPECIFIED"
+    field_path: "database.tls_mode"
+  }
+  expected_violations {
+    code: "DATABASE_TLS_MODE_VERIFIED_OUTSIDE_LOCALHOST"
+    field_path: "database.tls_mode"
+  }
+}
+
+# --- RequiredIf: conditional requirement fires only on the trigger value -----
+
+fixtures {
+  name: "verify_full_without_server_name"
+  description: "VERIFY_FULL requires a TLS server name: the fixture certificate has DNS SANs and no IP SANs."
+  phase: PHASE_CONFIG
+  instance {
+    dgraph { host: "dgraph" port: 9080 tls_mode: DGRAPH_TLS_MODE_VERIFY_CA }
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "10.0.2.11"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+    }
+    nats { url: "nats://nats:4222" }
+    core { address: "core:50052" security_mode: SECURITY_MODE_MTLS }
+  }
+  expected_violations {
+    code: "DATABASE_TLS_SERVER_NAME_REQUIRED_FOR_VERIFY_FULL"
+    field_path: "database.tls_server_name"
+  }
+}
+
+# --- Scope: the same value is admissible in one kind and not another --------
+
+fixtures {
+  name: "plaintext_tls_allowed_on_localhost"
+  description: "TLS_MODE_DISABLE is admissible on a dev machine. The scoped rule exempts localhost, so this must produce NO violation -- the positive half of the scope semantics."
+  phase: PHASE_CONFIG
+  instance {
+    dgraph { host: "dgraph" port: 9080 tls_mode: DGRAPH_TLS_MODE_VERIFY_CA }
+    kind: ENVIRONMENT_KIND_LOCALHOST
+    database {
+      host: "localhost"
+      port: 5432
+      database: "serviceradar_dev"
+      connecting_role: "serviceradar"
+      owning_role: "serviceradar"
+      tls_mode: TLS_MODE_DISABLE
+    }
+    nats { url: "nats://localhost:4222" }
+    core { address: "localhost:50052" security_mode: SECURITY_MODE_NONE }
+  }
+}
+
+fixtures {
+  name: "plaintext_tls_rejected_on_saas"
+  description: "The same value in a deployed environment is a violation. Paired with the case above, this pins the scope semantics from both sides."
+  phase: PHASE_CONFIG
+  instance {
+    dgraph { host: "dgraph" port: 9080 tls_mode: DGRAPH_TLS_MODE_VERIFY_CA }
+    kind: ENVIRONMENT_KIND_SAAS
+    database {
+      host: "db"
+      port: 5432
+      database: "serviceradar"
+      connecting_role: "serviceradar"
+      owning_role: "serviceradar"
+      tls_mode: TLS_MODE_DISABLE
+    }
+    nats { url: "nats://nats:4222" }
+    core { address: "core:50052" security_mode: SECURITY_MODE_NONE }
+  }
+  expected_violations {
+    code: "CORE_SECURITY_MODE_SECURE_OUTSIDE_LOCALHOST"
+    field_path: "core.security_mode"
+  }
+  expected_violations {
+    code: "DATABASE_TLS_MODE_VERIFIED_OUTSIDE_LOCALHOST"
+    field_path: "database.tls_mode"
+  }
+}
+
+# --- Matches, and instance identity for on-prem -----------------------------
+
+fixtures {
+  name: "onprem_without_instance"
+  description: "On-prem is multi-instance; the deployment must be named."
+  phase: PHASE_CONFIG
+  instance {
+    dgraph { host: "dgraph" port: 9080 tls_mode: DGRAPH_TLS_MODE_VERIFY_CA }
+    kind: ENVIRONMENT_KIND_ONPREM
+    database {
+      host: "db"
+      port: 5432
+      database: "serviceradar"
+      connecting_role: "serviceradar"
+      owning_role: "serviceradar"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+    }
+    nats { url: "nats://nats:4222" }
+    core { address: "core:50052" security_mode: SECURITY_MODE_MTLS }
+  }
+  expected_violations {
+    code: "INSTANCE_REQUIRED_FOR_ONPREM"
+    field_path: "instance"
+  }
+}
+
+fixtures {
+  name: "nats_url_wrong_scheme"
+  description: "A scheme other than nats:// or tls:// is a misconfiguration, not a preference."
+  phase: PHASE_CONFIG
+  instance {
+    dgraph { host: "dgraph" port: 9080 tls_mode: DGRAPH_TLS_MODE_VERIFY_CA }
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+    }
+    nats { url: "http://nats:4222" }
+    core { address: "core:50052" security_mode: SECURITY_MODE_MTLS }
+  }
+  expected_violations { code: "NATS_URL_SCHEME" field_path: "nats.url" }
+}
+
+# --- Ordering: violations sort by (field_path, code) ------------------------
+
+fixtures {
+  name: "multiple_violations_are_ordered"
+  description: "Three violations across two fields. Order must be (field_path, code) ascending, or cross-language vectors cannot compare (SEMANTICS.md section 5)."
+  phase: PHASE_CONFIG
+  instance {
+    dgraph { host: "dgraph" port: 9080 tls_mode: DGRAPH_TLS_MODE_VERIFY_CA }
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: ""
+      port: 99999
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+    }
+    nats { url: "nats://nats:4222" }
+    core { address: "core:50052" security_mode: SECURITY_MODE_MTLS }
+  }
+  expected_violations { code: "DATABASE_HOST_NON_EMPTY" field_path: "database.host" }
+  expected_violations { code: "DATABASE_PORT_RANGE" field_path: "database.port" }
+}
+
+# --- ForbiddenIf: the other half of a conditional pair -----------------------
+
+fixtures {
+  name: "instance_named_outside_onprem"
+  description: "instance is required when the kind is ONPREM and forbidden otherwise. This is the forbidding half; without INSTANCE_FORBIDDEN_OUTSIDE_ONPREM the case passes, which is what the fixture detects."
+  phase: PHASE_CONFIG
+  instance {
+    dgraph { host: "dgraph" port: 9080 tls_mode: DGRAPH_TLS_MODE_VERIFY_CA }
+    kind: ENVIRONMENT_KIND_CI
+    instance: "wrong"
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+    }
+    nats { url: "nats://nats:4222" }
+    core { address: "core:50052" security_mode: SECURITY_MODE_MTLS }
+  }
+  expected_violations { code: "INSTANCE_FORBIDDEN_OUTSIDE_ONPREM" field_path: "instance" }
+}
+
+fixtures {
+  name: "instance_named_on_onprem_is_permitted"
+  description: "The permitting side of the same pair. A ForbiddenIf whose trigger set accidentally included ONPREM would reject every on-prem instance, and only a positive case catches that."
+  phase: PHASE_CONFIG
+  instance {
+    dgraph { host: "dgraph" port: 9080 tls_mode: DGRAPH_TLS_MODE_VERIFY_CA }
+    kind: ENVIRONMENT_KIND_ONPREM
+    instance: "untd"
+    database {
+      host: "db"
+      port: 5432
+      database: "serviceradar"
+      connecting_role: "serviceradar"
+      owning_role: "serviceradar"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+    }
+    nats { url: "nats://nats:4222" }
+    core { address: "core:50052" security_mode: SECURITY_MODE_MTLS }
+  }
+}
+
+# --- per-rule cases: one violating case for every rule in the set ------------
+#
+# GENERATED SHAPE, AUTHORED INTENT. Each case is one mutation of a valid baseline, and its
+# expected violations are written by hand from what the rule is FOR -- never read back from
+# the engine, which would make the comparison circular and prove nothing.
+#
+# Cases naming two violations are deliberate: a field can carry more than one rule, and
+# pinning the full ordered sequence is what stops an implementation agreeing on rejection
+# while disagreeing on why.
+
+fixtures {
+  name: "kind_absent"
+  description: "Every instance states its kind. Absence is the one thing Required treats as a violation."
+  phase: PHASE_CONFIG
+  instance {
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+      search_path: "platform, ag_catalog"
+      pool_size: 10
+      queue_target_ms: 500
+      queue_interval_ms: 1000
+      ownership_timeout_ms: 60000
+    }
+    nats {
+      url: "nats://nats:4222"
+      server_name: "nats"
+    }
+    core {
+      address: "core:50052"
+      api_url: "http://core:8090"
+      security_mode: SECURITY_MODE_MTLS
+      server_name: "core"
+    }
+    dgraph {
+      host: "dgraph"
+      port: 9080
+      tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+    }
+  }
+  expected_violations { code: "KIND_REQUIRED" field_path: "kind" }
+}
+
+fixtures {
+  name: "kind_unspecified"
+  description: "The zero value is a sentinel. Accepting it would silently mean the first defined kind."
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_UNSPECIFIED
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+      search_path: "platform, ag_catalog"
+      pool_size: 10
+      queue_target_ms: 500
+      queue_interval_ms: 1000
+      ownership_timeout_ms: 60000
+    }
+    nats {
+      url: "nats://nats:4222"
+      server_name: "nats"
+    }
+    core {
+      address: "core:50052"
+      api_url: "http://core:8090"
+      security_mode: SECURITY_MODE_MTLS
+      server_name: "core"
+    }
+    dgraph {
+      host: "dgraph"
+      port: 9080
+      tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+    }
+  }
+  expected_violations { code: "KIND_NOT_UNSPECIFIED" field_path: "kind" }
+}
+
+fixtures {
+  name: "instance_bad_format"
+  description: "Instance identifiers appear in file paths, so the character set is constrained."
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_ONPREM
+    instance: "BAD_Name"
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+      search_path: "platform, ag_catalog"
+      pool_size: 10
+      queue_target_ms: 500
+      queue_interval_ms: 1000
+      ownership_timeout_ms: 60000
+    }
+    nats {
+      url: "nats://nats:4222"
+      server_name: "nats"
+    }
+    core {
+      address: "core:50052"
+      api_url: "http://core:8090"
+      security_mode: SECURITY_MODE_MTLS
+      server_name: "core"
+    }
+    dgraph {
+      host: "dgraph"
+      port: 9080
+      tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+    }
+  }
+  expected_violations { code: "INSTANCE_FORMAT" field_path: "instance" }
+}
+
+fixtures {
+  name: "database_host_absent"
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+      search_path: "platform, ag_catalog"
+      pool_size: 10
+      queue_target_ms: 500
+      queue_interval_ms: 1000
+      ownership_timeout_ms: 60000
+    }
+    nats {
+      url: "nats://nats:4222"
+      server_name: "nats"
+    }
+    core {
+      address: "core:50052"
+      api_url: "http://core:8090"
+      security_mode: SECURITY_MODE_MTLS
+      server_name: "core"
+    }
+    dgraph {
+      host: "dgraph"
+      port: 9080
+      tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+    }
+  }
+  expected_violations { code: "DATABASE_HOST_REQUIRED" field_path: "database.host" }
+}
+
+fixtures {
+  name: "database_name_absent"
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      port: 5432
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+      search_path: "platform, ag_catalog"
+      pool_size: 10
+      queue_target_ms: 500
+      queue_interval_ms: 1000
+      ownership_timeout_ms: 60000
+    }
+    nats {
+      url: "nats://nats:4222"
+      server_name: "nats"
+    }
+    core {
+      address: "core:50052"
+      api_url: "http://core:8090"
+      security_mode: SECURITY_MODE_MTLS
+      server_name: "core"
+    }
+    dgraph {
+      host: "dgraph"
+      port: 9080
+      tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+    }
+  }
+  expected_violations { code: "DATABASE_NAME_REQUIRED" field_path: "database.database" }
+}
+
+fixtures {
+  name: "database_name_empty"
+  description: "Present but empty is a distinct failure from absent, and only NonEmpty catches it."
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      port: 5432
+      database: ""
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+      search_path: "platform, ag_catalog"
+      pool_size: 10
+      queue_target_ms: 500
+      queue_interval_ms: 1000
+      ownership_timeout_ms: 60000
+    }
+    nats {
+      url: "nats://nats:4222"
+      server_name: "nats"
+    }
+    core {
+      address: "core:50052"
+      api_url: "http://core:8090"
+      security_mode: SECURITY_MODE_MTLS
+      server_name: "core"
+    }
+    dgraph {
+      host: "dgraph"
+      port: 9080
+      tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+    }
+  }
+  expected_violations { code: "DATABASE_NAME_NON_EMPTY" field_path: "database.database" }
+}
+
+fixtures {
+  name: "database_connecting_role_absent"
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+      search_path: "platform, ag_catalog"
+      pool_size: 10
+      queue_target_ms: 500
+      queue_interval_ms: 1000
+      ownership_timeout_ms: 60000
+    }
+    nats {
+      url: "nats://nats:4222"
+      server_name: "nats"
+    }
+    core {
+      address: "core:50052"
+      api_url: "http://core:8090"
+      security_mode: SECURITY_MODE_MTLS
+      server_name: "core"
+    }
+    dgraph {
+      host: "dgraph"
+      port: 9080
+      tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+    }
+  }
+  expected_violations { code: "DATABASE_CONNECTING_ROLE_REQUIRED" field_path: "database.connecting_role" }
+}
+
+fixtures {
+  name: "database_connecting_role_empty"
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: ""
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+      search_path: "platform, ag_catalog"
+      pool_size: 10
+      queue_target_ms: 500
+      queue_interval_ms: 1000
+      ownership_timeout_ms: 60000
+    }
+    nats {
+      url: "nats://nats:4222"
+      server_name: "nats"
+    }
+    core {
+      address: "core:50052"
+      api_url: "http://core:8090"
+      security_mode: SECURITY_MODE_MTLS
+      server_name: "core"
+    }
+    dgraph {
+      host: "dgraph"
+      port: 9080
+      tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+    }
+  }
+  expected_violations { code: "DATABASE_CONNECTING_ROLE_NON_EMPTY" field_path: "database.connecting_role" }
+}
+
+fixtures {
+  name: "database_owning_role_absent"
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+      search_path: "platform, ag_catalog"
+      pool_size: 10
+      queue_target_ms: 500
+      queue_interval_ms: 1000
+      ownership_timeout_ms: 60000
+    }
+    nats {
+      url: "nats://nats:4222"
+      server_name: "nats"
+    }
+    core {
+      address: "core:50052"
+      api_url: "http://core:8090"
+      security_mode: SECURITY_MODE_MTLS
+      server_name: "core"
+    }
+    dgraph {
+      host: "dgraph"
+      port: 9080
+      tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+    }
+  }
+  expected_violations { code: "DATABASE_OWNING_ROLE_REQUIRED" field_path: "database.owning_role" }
+}
+
+fixtures {
+  name: "database_owning_role_empty"
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: ""
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+      search_path: "platform, ag_catalog"
+      pool_size: 10
+      queue_target_ms: 500
+      queue_interval_ms: 1000
+      ownership_timeout_ms: 60000
+    }
+    nats {
+      url: "nats://nats:4222"
+      server_name: "nats"
+    }
+    core {
+      address: "core:50052"
+      api_url: "http://core:8090"
+      security_mode: SECURITY_MODE_MTLS
+      server_name: "core"
+    }
+    dgraph {
+      host: "dgraph"
+      port: 9080
+      tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+    }
+  }
+  expected_violations { code: "DATABASE_OWNING_ROLE_NON_EMPTY" field_path: "database.owning_role" }
+}
+
+fixtures {
+  name: "database_tls_mode_absent"
+  description: "Absence reports once. The verify-full server-name rule keys on this field and must go NotApplicable, not fire."
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_server_name: "db"
+      search_path: "platform, ag_catalog"
+      pool_size: 10
+      queue_target_ms: 500
+      queue_interval_ms: 1000
+      ownership_timeout_ms: 60000
+    }
+    nats {
+      url: "nats://nats:4222"
+      server_name: "nats"
+    }
+    core {
+      address: "core:50052"
+      api_url: "http://core:8090"
+      security_mode: SECURITY_MODE_MTLS
+      server_name: "core"
+    }
+    dgraph {
+      host: "dgraph"
+      port: 9080
+      tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+    }
+  }
+  expected_violations { code: "DATABASE_TLS_MODE_REQUIRED" field_path: "database.tls_mode" }
+}
+
+fixtures {
+  name: "database_tls_server_name_empty"
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: ""
+      search_path: "platform, ag_catalog"
+      pool_size: 10
+      queue_target_ms: 500
+      queue_interval_ms: 1000
+      ownership_timeout_ms: 60000
+    }
+    nats {
+      url: "nats://nats:4222"
+      server_name: "nats"
+    }
+    core {
+      address: "core:50052"
+      api_url: "http://core:8090"
+      security_mode: SECURITY_MODE_MTLS
+      server_name: "core"
+    }
+    dgraph {
+      host: "dgraph"
+      port: 9080
+      tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+    }
+  }
+  expected_violations { code: "DATABASE_TLS_SERVER_NAME_NON_EMPTY" field_path: "database.tls_server_name" }
+}
+
+fixtures {
+  name: "database_search_path_empty"
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+      search_path: ""
+      pool_size: 10
+      queue_target_ms: 500
+      queue_interval_ms: 1000
+      ownership_timeout_ms: 60000
+    }
+    nats {
+      url: "nats://nats:4222"
+      server_name: "nats"
+    }
+    core {
+      address: "core:50052"
+      api_url: "http://core:8090"
+      security_mode: SECURITY_MODE_MTLS
+      server_name: "core"
+    }
+    dgraph {
+      host: "dgraph"
+      port: 9080
+      tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+    }
+  }
+  expected_violations { code: "DATABASE_SEARCH_PATH_NON_EMPTY" field_path: "database.search_path" }
+}
+
+fixtures {
+  name: "database_pool_size_zero"
+  description: "Zero is inside the type and outside the range. IntRange pins the lower edge."
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+      search_path: "platform, ag_catalog"
+      pool_size: 0
+      queue_target_ms: 500
+      queue_interval_ms: 1000
+      ownership_timeout_ms: 60000
+    }
+    nats {
+      url: "nats://nats:4222"
+      server_name: "nats"
+    }
+    core {
+      address: "core:50052"
+      api_url: "http://core:8090"
+      security_mode: SECURITY_MODE_MTLS
+      server_name: "core"
+    }
+    dgraph {
+      host: "dgraph"
+      port: 9080
+      tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+    }
+  }
+  expected_violations { code: "DATABASE_POOL_SIZE_RANGE" field_path: "database.pool_size" }
+}
+
+fixtures {
+  name: "database_queue_target_ms_zero"
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+      search_path: "platform, ag_catalog"
+      pool_size: 10
+      queue_target_ms: 0
+      queue_interval_ms: 1000
+      ownership_timeout_ms: 60000
+    }
+    nats {
+      url: "nats://nats:4222"
+      server_name: "nats"
+    }
+    core {
+      address: "core:50052"
+      api_url: "http://core:8090"
+      security_mode: SECURITY_MODE_MTLS
+      server_name: "core"
+    }
+    dgraph {
+      host: "dgraph"
+      port: 9080
+      tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+    }
+  }
+  expected_violations { code: "DATABASE_QUEUE_TARGET_MS_RANGE" field_path: "database.queue_target_ms" }
+}
+
+fixtures {
+  name: "database_queue_interval_ms_zero"
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+      search_path: "platform, ag_catalog"
+      pool_size: 10
+      queue_target_ms: 500
+      queue_interval_ms: 0
+      ownership_timeout_ms: 60000
+    }
+    nats {
+      url: "nats://nats:4222"
+      server_name: "nats"
+    }
+    core {
+      address: "core:50052"
+      api_url: "http://core:8090"
+      security_mode: SECURITY_MODE_MTLS
+      server_name: "core"
+    }
+    dgraph {
+      host: "dgraph"
+      port: 9080
+      tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+    }
+  }
+  expected_violations { code: "DATABASE_QUEUE_INTERVAL_MS_RANGE" field_path: "database.queue_interval_ms" }
+}
+
+fixtures {
+  name: "database_ownership_timeout_ms_zero"
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+      search_path: "platform, ag_catalog"
+      pool_size: 10
+      queue_target_ms: 500
+      queue_interval_ms: 1000
+      ownership_timeout_ms: 0
+    }
+    nats {
+      url: "nats://nats:4222"
+      server_name: "nats"
+    }
+    core {
+      address: "core:50052"
+      api_url: "http://core:8090"
+      security_mode: SECURITY_MODE_MTLS
+      server_name: "core"
+    }
+    dgraph {
+      host: "dgraph"
+      port: 9080
+      tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+    }
+  }
+  expected_violations { code: "DATABASE_OWNERSHIP_TIMEOUT_MS_RANGE" field_path: "database.ownership_timeout_ms" }
+}
+
+fixtures {
+  name: "nats_url_absent"
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+      search_path: "platform, ag_catalog"
+      pool_size: 10
+      queue_target_ms: 500
+      queue_interval_ms: 1000
+      ownership_timeout_ms: 60000
+    }
+    nats {
+      server_name: "nats"
+    }
+    core {
+      address: "core:50052"
+      api_url: "http://core:8090"
+      security_mode: SECURITY_MODE_MTLS
+      server_name: "core"
+    }
+    dgraph {
+      host: "dgraph"
+      port: 9080
+      tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+    }
+  }
+  expected_violations { code: "NATS_URL_REQUIRED" field_path: "nats.url" }
+}
+
+fixtures {
+  name: "nats_server_name_empty"
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+      search_path: "platform, ag_catalog"
+      pool_size: 10
+      queue_target_ms: 500
+      queue_interval_ms: 1000
+      ownership_timeout_ms: 60000
+    }
+    nats {
+      url: "nats://nats:4222"
+      server_name: ""
+    }
+    core {
+      address: "core:50052"
+      api_url: "http://core:8090"
+      security_mode: SECURITY_MODE_MTLS
+      server_name: "core"
+    }
+    dgraph {
+      host: "dgraph"
+      port: 9080
+      tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+    }
+  }
+  expected_violations { code: "NATS_SERVER_NAME_NON_EMPTY" field_path: "nats.server_name" }
+}
+
+fixtures {
+  name: "core_address_absent"
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+      search_path: "platform, ag_catalog"
+      pool_size: 10
+      queue_target_ms: 500
+      queue_interval_ms: 1000
+      ownership_timeout_ms: 60000
+    }
+    nats {
+      url: "nats://nats:4222"
+      server_name: "nats"
+    }
+    core {
+      api_url: "http://core:8090"
+      security_mode: SECURITY_MODE_MTLS
+      server_name: "core"
+    }
+    dgraph {
+      host: "dgraph"
+      port: 9080
+      tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+    }
+  }
+  expected_violations { code: "CORE_ADDRESS_REQUIRED" field_path: "core.address" }
+}
+
+fixtures {
+  name: "core_address_empty"
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+      search_path: "platform, ag_catalog"
+      pool_size: 10
+      queue_target_ms: 500
+      queue_interval_ms: 1000
+      ownership_timeout_ms: 60000
+    }
+    nats {
+      url: "nats://nats:4222"
+      server_name: "nats"
+    }
+    core {
+      address: ""
+      api_url: "http://core:8090"
+      security_mode: SECURITY_MODE_MTLS
+      server_name: "core"
+    }
+    dgraph {
+      host: "dgraph"
+      port: 9080
+      tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+    }
+  }
+  expected_violations { code: "CORE_ADDRESS_NON_EMPTY" field_path: "core.address" }
+}
+
+fixtures {
+  name: "core_api_url_wrong_scheme"
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+      search_path: "platform, ag_catalog"
+      pool_size: 10
+      queue_target_ms: 500
+      queue_interval_ms: 1000
+      ownership_timeout_ms: 60000
+    }
+    nats {
+      url: "nats://nats:4222"
+      server_name: "nats"
+    }
+    core {
+      address: "core:50052"
+      api_url: "ftp://core:8090"
+      security_mode: SECURITY_MODE_MTLS
+      server_name: "core"
+    }
+    dgraph {
+      host: "dgraph"
+      port: 9080
+      tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+    }
+  }
+  expected_violations { code: "CORE_API_URL_SCHEME" field_path: "core.api_url" }
+}
+
+fixtures {
+  name: "core_security_mode_absent"
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+      search_path: "platform, ag_catalog"
+      pool_size: 10
+      queue_target_ms: 500
+      queue_interval_ms: 1000
+      ownership_timeout_ms: 60000
+    }
+    nats {
+      url: "nats://nats:4222"
+      server_name: "nats"
+    }
+    core {
+      address: "core:50052"
+      api_url: "http://core:8090"
+      server_name: "core"
+    }
+    dgraph {
+      host: "dgraph"
+      port: 9080
+      tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+    }
+  }
+  expected_violations { code: "CORE_SECURITY_MODE_REQUIRED" field_path: "core.security_mode" }
+}
+
+fixtures {
+  name: "core_security_mode_unspecified"
+  description: "The sentinel is both forbidden outright and outside the deployed-environment set, so two rules fire on one field."
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+      search_path: "platform, ag_catalog"
+      pool_size: 10
+      queue_target_ms: 500
+      queue_interval_ms: 1000
+      ownership_timeout_ms: 60000
+    }
+    nats {
+      url: "nats://nats:4222"
+      server_name: "nats"
+    }
+    core {
+      address: "core:50052"
+      api_url: "http://core:8090"
+      security_mode: SECURITY_MODE_UNSPECIFIED
+      server_name: "core"
+    }
+    dgraph {
+      host: "dgraph"
+      port: 9080
+      tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+    }
+  }
+  expected_violations { code: "CORE_SECURITY_MODE_NOT_UNSPECIFIED" field_path: "core.security_mode" }
+  expected_violations { code: "CORE_SECURITY_MODE_SECURE_OUTSIDE_LOCALHOST" field_path: "core.security_mode" }
+}
+
+fixtures {
+  name: "core_server_name_empty"
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+      search_path: "platform, ag_catalog"
+      pool_size: 10
+      queue_target_ms: 500
+      queue_interval_ms: 1000
+      ownership_timeout_ms: 60000
+    }
+    nats {
+      url: "nats://nats:4222"
+      server_name: "nats"
+    }
+    core {
+      address: "core:50052"
+      api_url: "http://core:8090"
+      security_mode: SECURITY_MODE_MTLS
+      server_name: ""
+    }
+    dgraph {
+      host: "dgraph"
+      port: 9080
+      tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+    }
+  }
+  expected_violations { code: "CORE_SERVER_NAME_NON_EMPTY" field_path: "core.server_name" }
+}
+
+fixtures {
+  name: "core_spiffe_without_trust_domain"
+  description: "SPIFFE needs a trust domain. Isolated from the socket rule by supplying the socket."
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+      search_path: "platform, ag_catalog"
+      pool_size: 10
+      queue_target_ms: 500
+      queue_interval_ms: 1000
+      ownership_timeout_ms: 60000
+    }
+    nats {
+      url: "nats://nats:4222"
+      server_name: "nats"
+    }
+    core {
+      address: "core:50052"
+      api_url: "http://core:8090"
+      security_mode: SECURITY_MODE_SPIFFE
+      server_name: "core"
+      workload_socket: "unix:///run/spire/agent.sock"
+    }
+    dgraph {
+      host: "dgraph"
+      port: 9080
+      tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+    }
+  }
+  expected_violations { code: "CORE_TRUST_DOMAIN_REQUIRED_FOR_SPIFFE" field_path: "core.trust_domain" }
+}
+
+fixtures {
+  name: "core_spiffe_id_bad_format"
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+      search_path: "platform, ag_catalog"
+      pool_size: 10
+      queue_target_ms: 500
+      queue_interval_ms: 1000
+      ownership_timeout_ms: 60000
+    }
+    nats {
+      url: "nats://nats:4222"
+      server_name: "nats"
+    }
+    core {
+      address: "core:50052"
+      api_url: "http://core:8090"
+      security_mode: SECURITY_MODE_MTLS
+      server_name: "core"
+      server_spiffe_id: "not-a-spiffe-id"
+    }
+    dgraph {
+      host: "dgraph"
+      port: 9080
+      tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+    }
+  }
+  expected_violations { code: "CORE_SERVER_SPIFFE_ID_FORMAT" field_path: "core.server_spiffe_id" }
+}
+
+fixtures {
+  name: "core_spiffe_without_workload_socket"
+  description: "SPIFFE needs the workload API socket. Isolated from the trust-domain rule by supplying the domain."
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+      search_path: "platform, ag_catalog"
+      pool_size: 10
+      queue_target_ms: 500
+      queue_interval_ms: 1000
+      ownership_timeout_ms: 60000
+    }
+    nats {
+      url: "nats://nats:4222"
+      server_name: "nats"
+    }
+    core {
+      address: "core:50052"
+      api_url: "http://core:8090"
+      security_mode: SECURITY_MODE_SPIFFE
+      server_name: "core"
+      trust_domain: "serviceradar.cloud"
+    }
+    dgraph {
+      host: "dgraph"
+      port: 9080
+      tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+    }
+  }
+  expected_violations { code: "CORE_WORKLOAD_SOCKET_REQUIRED_FOR_SPIFFE" field_path: "core.workload_socket" }
+}
+
+fixtures {
+  name: "dgraph_host_absent"
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+      search_path: "platform, ag_catalog"
+      pool_size: 10
+      queue_target_ms: 500
+      queue_interval_ms: 1000
+      ownership_timeout_ms: 60000
+    }
+    nats {
+      url: "nats://nats:4222"
+      server_name: "nats"
+    }
+    core {
+      address: "core:50052"
+      api_url: "http://core:8090"
+      security_mode: SECURITY_MODE_MTLS
+      server_name: "core"
+    }
+    dgraph {
+      port: 9080
+      tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+    }
+  }
+  expected_violations { code: "DGRAPH_HOST_REQUIRED" field_path: "dgraph.host" }
+}
+
+fixtures {
+  name: "dgraph_host_empty"
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+      search_path: "platform, ag_catalog"
+      pool_size: 10
+      queue_target_ms: 500
+      queue_interval_ms: 1000
+      ownership_timeout_ms: 60000
+    }
+    nats {
+      url: "nats://nats:4222"
+      server_name: "nats"
+    }
+    core {
+      address: "core:50052"
+      api_url: "http://core:8090"
+      security_mode: SECURITY_MODE_MTLS
+      server_name: "core"
+    }
+    dgraph {
+      host: ""
+      port: 9080
+      tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+    }
+  }
+  expected_violations { code: "DGRAPH_HOST_NON_EMPTY" field_path: "dgraph.host" }
+}
+
+fixtures {
+  name: "dgraph_port_absent"
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+      search_path: "platform, ag_catalog"
+      pool_size: 10
+      queue_target_ms: 500
+      queue_interval_ms: 1000
+      ownership_timeout_ms: 60000
+    }
+    nats {
+      url: "nats://nats:4222"
+      server_name: "nats"
+    }
+    core {
+      address: "core:50052"
+      api_url: "http://core:8090"
+      security_mode: SECURITY_MODE_MTLS
+      server_name: "core"
+    }
+    dgraph {
+      host: "dgraph"
+      tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+    }
+  }
+  expected_violations { code: "DGRAPH_PORT_REQUIRED" field_path: "dgraph.port" }
+}
+
+fixtures {
+  name: "dgraph_port_zero"
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+      search_path: "platform, ag_catalog"
+      pool_size: 10
+      queue_target_ms: 500
+      queue_interval_ms: 1000
+      ownership_timeout_ms: 60000
+    }
+    nats {
+      url: "nats://nats:4222"
+      server_name: "nats"
+    }
+    core {
+      address: "core:50052"
+      api_url: "http://core:8090"
+      security_mode: SECURITY_MODE_MTLS
+      server_name: "core"
+    }
+    dgraph {
+      host: "dgraph"
+      port: 0
+      tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+    }
+  }
+  expected_violations { code: "DGRAPH_PORT_RANGE" field_path: "dgraph.port" }
+}
+
+fixtures {
+  name: "dgraph_tls_mode_absent"
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+      search_path: "platform, ag_catalog"
+      pool_size: 10
+      queue_target_ms: 500
+      queue_interval_ms: 1000
+      ownership_timeout_ms: 60000
+    }
+    nats {
+      url: "nats://nats:4222"
+      server_name: "nats"
+    }
+    core {
+      address: "core:50052"
+      api_url: "http://core:8090"
+      security_mode: SECURITY_MODE_MTLS
+      server_name: "core"
+    }
+    dgraph {
+      host: "dgraph"
+      port: 9080
+    }
+  }
+  expected_violations { code: "DGRAPH_TLS_MODE_REQUIRED" field_path: "dgraph.tls_mode" }
+}
+
+fixtures {
+  name: "dgraph_tls_mode_unspecified"
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+      search_path: "platform, ag_catalog"
+      pool_size: 10
+      queue_target_ms: 500
+      queue_interval_ms: 1000
+      ownership_timeout_ms: 60000
+    }
+    nats {
+      url: "nats://nats:4222"
+      server_name: "nats"
+    }
+    core {
+      address: "core:50052"
+      api_url: "http://core:8090"
+      security_mode: SECURITY_MODE_MTLS
+      server_name: "core"
+    }
+    dgraph {
+      host: "dgraph"
+      port: 9080
+      tls_mode: DGRAPH_TLS_MODE_UNSPECIFIED
+    }
+  }
+  expected_violations { code: "DGRAPH_TLS_MODE_NOT_UNSPECIFIED" field_path: "dgraph.tls_mode" }
+  expected_violations { code: "DGRAPH_TLS_MODE_VERIFIED_OUTSIDE_LOCALHOST" field_path: "dgraph.tls_mode" }
+}
+
+fixtures {
+  name: "dgraph_tls_require_no_verify_outside_localhost"
+  description: "REQUIRE_NO_VERIFY encrypts without authenticating the server, so it is not a deployment posture."
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+      search_path: "platform, ag_catalog"
+      pool_size: 10
+      queue_target_ms: 500
+      queue_interval_ms: 1000
+      ownership_timeout_ms: 60000
+    }
+    nats {
+      url: "nats://nats:4222"
+      server_name: "nats"
+    }
+    core {
+      address: "core:50052"
+      api_url: "http://core:8090"
+      security_mode: SECURITY_MODE_MTLS
+      server_name: "core"
+    }
+    dgraph {
+      host: "dgraph"
+      port: 9080
+      tls_mode: DGRAPH_TLS_MODE_REQUIRE_NO_VERIFY
+    }
+  }
+  expected_violations { code: "DGRAPH_TLS_MODE_VERIFIED_OUTSIDE_LOCALHOST" field_path: "dgraph.tls_mode" }
+}
+
+fixtures {
+  name: "database_admin_role_blank"
+  description: "Absent is legal -- a service never creates databases -- but present-and-blank would build an admin DSN with no user and fail at the server."
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      admin_role: ""
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+      search_path: "platform, ag_catalog"
+      pool_size: 10
+      queue_target_ms: 500
+      queue_interval_ms: 1000
+      ownership_timeout_ms: 60000
+    }
+    nats {
+      url: "nats://nats:4222"
+      server_name: "nats"
+    }
+    core {
+      address: "core:50052"
+      api_url: "http://core:8090"
+      security_mode: SECURITY_MODE_MTLS
+      server_name: "core"
+    }
+    dgraph {
+      host: "dgraph"
+      port: 9080
+      tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+    }
+  }
+  expected_violations { code: "DATABASE_ADMIN_ROLE_NON_EMPTY" field_path: "database.admin_role" }
+}
+
+fixtures {
+  name: "database_ca_bundle_url_blank"
+  description: "Absent means the CA comes from SecretManager. Blank would send the client to fetch an empty URL and report a parse error instead of a missing setting."
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      ca_bundle_url: ""
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+      search_path: "platform, ag_catalog"
+      pool_size: 10
+      queue_target_ms: 500
+      queue_interval_ms: 1000
+      ownership_timeout_ms: 60000
+    }
+    nats {
+      url: "nats://nats:4222"
+      server_name: "nats"
+    }
+    core {
+      address: "core:50052"
+      api_url: "http://core:8090"
+      security_mode: SECURITY_MODE_MTLS
+      server_name: "core"
+    }
+    dgraph {
+      host: "dgraph"
+      port: 9080
+      tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+    }
+  }
+  expected_violations { code: "DATABASE_CA_BUNDLE_URL_HTTPS" field_path: "database.ca_bundle_url" }
+  expected_violations { code: "DATABASE_CA_BUNDLE_URL_NON_EMPTY" field_path: "database.ca_bundle_url" }
+}
+
+fixtures {
+  name: "dgraph_ca_bundle_url_blank"
+  description: "Absent means the Dgraph CA comes from SecretManager. Blank would send the client to fetch an empty URL and report a parse error instead of a missing setting."
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+      search_path: "platform, ag_catalog"
+      pool_size: 10
+      queue_target_ms: 500
+      queue_interval_ms: 1000
+      ownership_timeout_ms: 60000
+    }
+    nats {
+      url: "nats://nats:4222"
+      server_name: "nats"
+    }
+    core {
+      address: "core:50052"
+      api_url: "http://core:8090"
+      security_mode: SECURITY_MODE_MTLS
+      server_name: "core"
+    }
+    dgraph {
+      host: "dgraph"
+      port: 9080
+      tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+      ca_bundle_url: ""
+    }
+  }
+  expected_violations { code: "DGRAPH_CA_BUNDLE_URL_HTTPS" field_path: "dgraph.ca_bundle_url" }
+  expected_violations { code: "DGRAPH_CA_BUNDLE_URL_NON_EMPTY" field_path: "dgraph.ca_bundle_url" }
+}
+
+fixtures {
+  name: "database_ca_bundle_url_http"
+  description: "Plain HTTP is the TOFU hole. A CA bundle URL must be https:// so the fetch verifies against public roots already in the image."
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      ca_bundle_url: "http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+      search_path: "platform, ag_catalog"
+      pool_size: 10
+      queue_target_ms: 500
+      queue_interval_ms: 1000
+      ownership_timeout_ms: 60000
+    }
+    nats {
+      url: "nats://nats:4222"
+      server_name: "nats"
+    }
+    core {
+      address: "core:50052"
+      api_url: "http://core:8090"
+      security_mode: SECURITY_MODE_MTLS
+      server_name: "core"
+    }
+    dgraph {
+      host: "dgraph"
+      port: 9080
+      tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+    }
+  }
+  expected_violations { code: "DATABASE_CA_BUNDLE_URL_HTTPS" field_path: "database.ca_bundle_url" }
+}
+
+fixtures {
+  name: "dgraph_ca_bundle_url_http"
+  description: "Same constraint as the database CA URL: the Dgraph CA fetch must be https://."
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+      search_path: "platform, ag_catalog"
+      pool_size: 10
+      queue_target_ms: 500
+      queue_interval_ms: 1000
+      ownership_timeout_ms: 60000
+    }
+    nats {
+      url: "nats://nats:4222"
+      server_name: "nats"
+    }
+    core {
+      address: "core:50052"
+      api_url: "http://core:8090"
+      security_mode: SECURITY_MODE_MTLS
+      server_name: "core"
+    }
+    dgraph {
+      host: "dgraph"
+      port: 9080
+      tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+      ca_bundle_url: "http://dgraph-ca-incluster.dgraph-ci.svc.cluster.local/ca.crt"
+    }
+  }
+  expected_violations { code: "DGRAPH_CA_BUNDLE_URL_HTTPS" field_path: "dgraph.ca_bundle_url" }
+}

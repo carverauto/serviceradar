@@ -1,0 +1,14 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "metricpoint",
+    srcs = ["metricpoint.go"],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/metricpoint",
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "metricpoint_test",
+    srcs = ["metricpoint_test.go"],
+    deps = [":metricpoint"],
+)

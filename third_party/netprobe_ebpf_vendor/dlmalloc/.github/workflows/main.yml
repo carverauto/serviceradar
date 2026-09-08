@@ -1,0 +1,132 @@
+name: CI
+on: [push, pull_request]
+
+jobs:
+  test:
+    name: Test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            rust: stable
+          - os: ubuntu-latest
+            rust: beta
+          - os: ubuntu-latest
+            rust: nightly
+          - os: macos-latest
+            rust: stable
+          - os: windows-latest
+            rust: stable
+          - os: ubuntu-latest
+            rust: stable
+            target: wasm32-wasip1
+          - os: ubuntu-latest
+            rust: stable
+            target: i686-unknown-linux-gnu
+            gcc_target: i686-linux-gnu
+    steps:
+    - uses: actions/checkout@v4
+    - run: rustup update ${{ matrix.rust }} --no-self-update && rustup default ${{ matrix.rust }}
+      shell: bash
+
+    # Configure cross-builds by adding the rustup target and configuring future
+    # cargo invocations.
+    - run: |
+        rustup target add ${{ matrix.target }}
+        echo CARGO_BUILD_TARGET=${{ matrix.target }} >> $GITHUB_ENV
+      if: matrix.target != ''
+
+    # For wasm install wasmtime as a test runner and configure it with Cargo.
+    - name: Setup `wasmtime`
+      uses: bytecodealliance/actions/wasmtime/setup@v1
+      if: matrix.target == 'wasm32-wasip1'
+    - run: echo CARGO_TARGET_WASM32_WASIP1_RUNNER=wasmtime >> $GITHUB_ENV
+      if: matrix.target == 'wasm32-wasip1'
+
+    - name: Install cross-compilation tools
+      run: |
+        set -ex
+
+        sudo apt-get update
+        sudo apt-get install -y gcc-${{ matrix.gcc_target }}
+
+        upcase=$(echo ${{ matrix.target }} | awk '{ print toupper($0) }' | sed 's/-/_/g')
+        echo CARGO_TARGET_${upcase}_LINKER=${{ matrix.gcc_target }}-gcc >> $GITHUB_ENV
+      if: matrix.gcc_target != ''
+
+    - run: cargo test
+    - run: cargo test --features debug
+    - run: cargo test --features global
+    - run: cargo test --release
+      env:
+        CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS: true
+    - run: cargo test --release
+      env:
+        CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS: false
+    - run: cargo test --features debug --release
+      env:
+        CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS: true
+    - run: RUSTFLAGS='--cfg test_lots' cargo test --release
+      shell: bash
+      env:
+        CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS: true
+    - run: RUSTFLAGS='--cfg test_lots' cargo test --release --features debug
+      shell: bash
+      env:
+        CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS: true
+
+  rustfmt:
+    name: Rustfmt
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install Rust
+      run: rustup update stable && rustup default stable && rustup component add rustfmt
+    - run: cargo fmt -- --check
+
+  wasm:
+    name: WebAssembly
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install Rust
+      run: rustup update stable && rustup default stable && rustup target add wasm32-unknown-unknown
+    - run: cargo build --target wasm32-unknown-unknown
+    - run: cargo build --target wasm32-unknown-unknown --release
+
+  external-platform:
+    name: external-platform
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install Rust
+      run: rustup update stable && rustup default stable && rustup target add x86_64-fortanix-unknown-sgx
+    - run: cargo build --target x86_64-fortanix-unknown-sgx
+
+  fuzz:
+    name: Build Fuzzers
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install Rust
+      run: rustup update nightly && rustup default nightly
+    - run: cargo install cargo-fuzz
+    - run: cargo fuzz build --dev
+
+  miri:
+    name: Miri
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install Miri
+      run: |
+        rustup toolchain install nightly --component miri
+        rustup override set nightly
+        cargo miri setup
+    - name: Test with Miri Stack Borrows
+      run: cargo miri test
+    - name: Test with Miri Tree Borrows
+      run: cargo miri test
+      env:
+        MIRIFLAGS: -Zmiri-tree-borrows

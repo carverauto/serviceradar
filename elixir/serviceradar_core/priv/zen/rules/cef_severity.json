@@ -1,0 +1,25 @@
+{
+  "nodes": [
+    { "id": "inputNode", "type": "inputNode", "name": "Request", "position": {"x": 80, "y": 150} },
+    {
+      "id": "setCefSeverity",
+      "type": "expressionNode",
+      "name": "Set CEF Severity",
+      "position": {"x": 300, "y": 150},
+      "content": {
+        "expressions": [
+          {
+            "id": "expr1",
+            "key": "severity",
+            "value": "contains((short_message ?? body ?? ''), '|9|') or contains((short_message ?? body ?? ''), '|10|') ? 'Very High' : contains((short_message ?? body ?? ''), '|7|') or contains((short_message ?? body ?? ''), '|8|') ? 'High' : contains((short_message ?? body ?? ''), '|4|') or contains((short_message ?? body ?? ''), '|5|') or contains((short_message ?? body ?? ''), '|6|') ? 'Medium' : contains((short_message ?? body ?? ''), '|0|') or contains((short_message ?? body ?? ''), '|1|') or contains((short_message ?? body ?? ''), '|2|') or contains((short_message ?? body ?? ''), '|3|') ? 'Low' : severity"
+          }
+        ]
+      }
+    },
+    { "id": "outputNode", "type": "outputNode", "name": "Response", "position": {"x": 560, "y": 150} }
+  ],
+  "edges": [
+    {"id": "e1", "sourceId": "inputNode", "targetId": "setCefSeverity", "type": "edge"},
+    {"id": "e2", "sourceId": "setCefSeverity", "targetId": "outputNode", "type": "edge"}
+  ]
+}

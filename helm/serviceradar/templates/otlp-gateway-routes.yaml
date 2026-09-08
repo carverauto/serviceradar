@@ -1,0 +1,126 @@
+{{- /*
+Gateway API routes that expose OTLP ingest through an existing shared
+gateway instead of a dedicated LoadBalancer IP (the preferred exposure mode;
+see logCollector.otlp in values.yaml).
+
+TLS story for external senders:
+  - OTLP/HTTP (HTTPRoute below): TLS terminates at the shared gateway's HTTPS
+    listener with the gateway's public certificate, so any standard OTLP/HTTP
+    exporter works with system trust roots. Envoy then forwards plain HTTP to
+    the serviceradar-otlp Service. Run the collector's 4318 listener in
+    plaintext behind the gateway (logCollector.otlp.http.tlsEnabled=false);
+    if you keep tlsEnabled=true the route will NOT work without a
+    cluster-side BackendTLSPolicy that trusts the ServiceRadar private CA —
+    prefer the chart knob.
+  - OTLP/gRPC (TLSRoute below): the shared gateway's TLS listener uses
+    Passthrough mode (mirrors the existing tenant agent-gateway TLSRoute
+    pattern on the tls-grpc listener), so envoy does NOT terminate TLS. The
+    collector's own [grpc_tls] certificate — issued by the ServiceRadar
+    private CA — is presented end-to-end. External gRPC senders therefore
+    must trust the ServiceRadar root CA bundle (or use insecure
+    skip-verify), and mTLS enforcement follows the collector's
+    grpc_tls.client_auth setting.
+
+Hostname constraint: listener wildcards such as *.serviceradar.cloud and
+*.grpc.serviceradar.cloud match exactly ONE label. Use
+otlp-demo.serviceradar.cloud / otlp-demo.grpc.serviceradar.cloud, never
+otlp.demo.serviceradar.cloud.
+*/ -}}
+{{- $logCollectorOtlp := (default (dict) .Values.logCollector).otlp | default dict -}}
+{{- $otlpService := default (dict) $logCollectorOtlp.service -}}
+{{- $otlpGateway := default (dict) $logCollectorOtlp.gateway -}}
+{{- $otlpGatewayDns := default (dict) $otlpGateway.dns -}}
+{{- $otlpGatewayDnsEnabled := true -}}
+{{- if hasKey $otlpGatewayDns "enabled" -}}
+{{- $otlpGatewayDnsEnabled = $otlpGatewayDns.enabled -}}
+{{- end -}}
+{{- if and $otlpService.enabled $otlpGateway.enabled }}
+{{- $gatewayName := default "serviceradar-shared-gateway" $otlpGateway.gatewayName -}}
+{{- $gatewayNamespace := default "serviceradar-system" $otlpGateway.gatewayNamespace -}}
+{{- $otlpHttp := default (dict) $otlpService.http -}}
+{{- if $otlpGateway.httpHostname }}
+{{- if not $otlpHttp.enabled }}
+{{- fail "logCollector.otlp.gateway.httpHostname requires logCollector.otlp.service.http.enabled=true (the HTTPRoute backend is the serviceradar-otlp Service OTLP/HTTP port)" }}
+{{- end }}
+# OTLP/HTTP ingest via the shared gateway. TLS terminates at the gateway;
+# when logCollector.otlp.gateway.dns.enabled=true, external-dns
+# (gateway-httproute source) publishes the hostname against the gateway
+# address. Hosted deployments should keep DNS managed by the control plane.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: serviceradar-otlp-http
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/name: serviceradar-otlp
+    app.kubernetes.io/component: otlp-ingest
+  {{- if $otlpGatewayDnsEnabled }}
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: {{ $otlpGateway.httpHostname | quote }}
+  {{- end }}
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: {{ $gatewayName | quote }}
+      namespace: {{ $gatewayNamespace | quote }}
+      sectionName: {{ default "https-web" $otlpGateway.httpSectionName | quote }}
+  hostnames:
+    - {{ $otlpGateway.httpHostname | quote }}
+  rules:
+    # Only OTLP HTTP API paths (/v1/traces|logs|metrics). Do not match `/`:
+    # crawlers GET / and the collector returns 405, which shows up in Search
+    # Console as "Blocked due to other 4xx" on otlp-*.serviceradar.cloud.
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /v1
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: serviceradar-otlp
+          port: {{ default 4318 $otlpHttp.port }}
+          weight: 1
+{{- end }}
+{{- if $otlpGateway.grpcHostname }}
+---
+# OTLP/gRPC ingest via the shared gateway's TLS *passthrough* listener
+# (same pattern as the tenant agent-gateway TLSRoute on tls-grpc). Envoy
+# routes on SNI without terminating TLS, so the collector's private-CA
+# certificate reaches the sender unmodified. NOTE: no current external-dns
+# deployment watches gateway-tlsroute sources, so the DNS record for this
+# hostname must be created out-of-band/control-plane-side when
+# logCollector.otlp.gateway.dns.enabled=false. When the toggle is true, the
+# annotations below follow the existing TLSRoute convention so it lights up
+# if/when that source is on.
+apiVersion: gateway.networking.k8s.io/v1alpha3
+kind: TLSRoute
+metadata:
+  name: serviceradar-otlp-grpc
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/name: serviceradar-otlp
+    app.kubernetes.io/component: otlp-ingest
+  {{- if $otlpGatewayDnsEnabled }}
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: {{ $otlpGateway.grpcHostname | quote }}
+    external-dns.alpha.kubernetes.io/cloudflare-proxied: "false"
+  {{- end }}
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: {{ $gatewayName | quote }}
+      namespace: {{ $gatewayNamespace | quote }}
+      sectionName: {{ default "tls-grpc" $otlpGateway.grpcSectionName | quote }}
+  hostnames:
+    - {{ $otlpGateway.grpcHostname | quote }}
+  rules:
+    - backendRefs:
+        - group: ""
+          kind: Service
+          name: serviceradar-otlp
+          port: {{ default 4317 $otlpService.port }}
+          weight: 1
+{{- end }}
+{{- end }}

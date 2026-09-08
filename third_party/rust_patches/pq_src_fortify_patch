@@ -1,0 +1,21 @@
+--- a/build.rs
++++ b/build.rs
+@@ -222,6 +222,18 @@
+     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
+     let target_env = env::var("CARGO_CFG_TARGET_ENV").unwrap();
+     let use_openssl = env::var("CARGO_FEATURE_WITH_OPENSSL").is_ok();
++
++    // The hermetic toolchain's `opt` feature appends `-D_FORTIFY_SOURCE=1` to $CFLAGS, and
++    // cc-rs applies $CFLAGS LAST -- after this crate's own `-D_FORTIFY_SOURCE=0`, which it
++    // sets for macOS only because libpq bundles strlcat.c/strlcpy.c. Fortify therefore ends
++    // up ON and Darwin's `__builtin___strlcat_chk` collides with those bundled copies.
++    // Re-assert `-D_FORTIFY_SOURCE=0` at the very end of $CFLAGS so it has the final say.
++    if target_os == "macos" {
++        let cflags = env::var("CFLAGS").unwrap_or_default();
++        if !cflags.contains("-D_FORTIFY_SOURCE=0") {
++            env::set_var("CFLAGS", format!("{cflags} -D_FORTIFY_SOURCE=0"));
++        }
++    }
+ 
+     println!("cargo:rerun-if-changed=additional_include");
+ 

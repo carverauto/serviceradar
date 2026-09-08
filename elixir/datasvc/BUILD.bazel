@@ -1,0 +1,48 @@
+load("@rules_elixir//:mix_app.bzl", "mix_app")
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "_build/**",
+            "deps/**",
+        ],
+    ),
+)
+
+# Bootstrap files only -- what `mix deps.get` needs to resolve this project as a path
+# dependency, with none of its lib/ sources. Keeping this separate from :srcs is what lets
+# //elixir/web-ng:deps_cache stay keyed on lockfiles, so it stays a remote cache hit across
+# any change that does not touch dependencies.
+filegroup(
+    name = "deps_srcs",
+    srcs = ["mix.exs"] + glob(
+        [
+            "mix.lock",
+            "config/**",
+        ],
+        allow_empty = True,
+    ),
+)
+
+# Compiled by Mix inside a single hermetic Bazel action. See //build:mix_app.bzl.
+# NOTE: this target has no mix_env, so it compiles under the rule default of "prod", and the
+# package has no tests. It previously declared credo, dialyxir, ex_dna, ex_slop, mix_audit and
+# styler -- all `only: [:dev, :test]` in mix.exs, so Mix excludes them here -- and because
+# //elixir/web-ng depends on this app, they were dragged into web-ng's PROD release closure
+# too. Removed; nothing in this package or its consumers resolves them.
+mix_app(
+    name = "erlang_app",
+    srcs = [":srcs"],
+    app_name = "datasvc",
+    deps = [
+        "@hexpm//:boundary",
+        "@hexpm//:grpc",
+        "@hexpm//:gun",
+        "@hexpm//:protobuf",
+        "@rules_elixir//elixir",
+    ],
+)

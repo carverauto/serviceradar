@@ -1,0 +1,176 @@
+id: axis-camera
+name: AXIS Camera
+version: 0.1.3
+description: Collects AXIS VAPIX camera health, inventory and stream metadata
+entrypoint: run_check
+runtime: wasi-preview1
+outputs: serviceradar.plugin_result.v1
+capabilities:
+  - get_config
+  - log
+  - submit_result
+  - emit_telemetry
+  - http_request
+  - websocket_connect
+  - websocket_send
+  - websocket_recv
+  - websocket_close
+permissions:
+  allowed_domains:
+    - "*"
+  # Domain wildcards never match literal-IP destinations; these ranges cover
+  # cameras addressed by private or carrier-grade NAT IP. Link-local
+  # (169.254.0.0/16) is excluded: a camera that fell back to an APIPA address
+  # is not a deliberate destination.
+  allowed_networks:
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
+    - "192.168.0.0/16"
+    - "100.64.0.0/10"
+  allowed_ports:
+    - 80
+    - 443
+    - 554
+resources:
+  requested_memory_mb: 64
+  requested_cpu_ms: 2000
+  max_open_connections: 2
+signal_schemas:
+  - id: com.carverauto.axis_camera.event_log
+    version: 1.0.0
+    signal_type: event
+    payload_kind: ocsf_event
+    payload_schema: schemas/ocsf_event_log_activity.schema.json
+    display_contract: display/event_log_activity.display.json
+    display_contract_id: com.carverauto.axis_camera.event_log.display
+    display_contract_version: 1.1.0
+    ocsf_schema_version: 1.5.0
+    class_uid: 1008
+    type_uid: 100801
+integrations:
+  credential_profiles:
+    - provider: axis
+      label: Axis (VAPIX)
+      description: Camera inventory and streams from Axis VAPIX devices.
+      supports_rules: true
+      auth_methods:
+        - id: username_password
+          label: Username and password
+          credential_kind: username_password
+          fields:
+            - id: username
+              label: Username
+              control: text
+              required: true
+              secret: false
+              public: true
+            - id: password
+              label: Password
+              control: password
+              required: true
+              secret: true
+              public: false
+          payload:
+            format: scalar
+            field: password
+            username_field: username
+      purposes:
+        - camera_inventory
+        - camera_stream
+      scope_types:
+        - agent
+        - gateway
+        - partition
+      rule_defaults:
+        auth_method: username_password
+        purposes:
+          - camera_inventory
+          - camera_stream
+        target_query: 'in:devices vendor:"Axis"'
+        scope_type: agent
+        allowed_ports: "443, 554"
+        tls_policy: verify
+        ssh_host_key_policy: known_hosts
+      rule_controls:
+        allowed_ports: true
+        target_query: true
+        transport: true
+      provisioning:
+        mode: target_policy
+        consumers:
+          - purpose: camera_inventory
+            plugin_id: axis-camera
+            auth_methods:
+              - username_password
+            constraints: {}
+            grant:
+              grant_type: axis_vapix
+              resolution_location: control_plane
+              ttl_seconds: 300
+            params:
+              credential_broker:
+                $source: grant
+              scheme:
+                $source: metadata
+                key: scheme
+                type: string
+                default: https
+              timeout_ms:
+                $source: metadata
+                key: timeout_ms
+                type: integer
+                default: 30000
+              insecure_skip_verify:
+                $source: rule
+                field: tls_policy
+                equals: skip_verify
+              rtsp_port:
+                $source: metadata
+                key: rtsp_port
+                type: integer
+                default: 554
+              credential_rule_id:
+                $source: rule
+                field: id
+              password_secret_ref:
+                $source: secret_ref
+              username:
+                $source: public_username
+          - purpose: camera_stream
+            plugin_id: axis-camera-stream
+            auth_methods:
+              - username_password
+            constraints: {}
+            grant:
+              grant_type: axis_vapix
+              resolution_location: control_plane
+              ttl_seconds: 300
+            params:
+              credential_broker:
+                $source: grant
+              scheme:
+                $source: metadata
+                key: scheme
+                type: string
+                default: https
+              timeout_ms:
+                $source: metadata
+                key: timeout_ms
+                type: integer
+                default: 30000
+              insecure_skip_verify:
+                $source: rule
+                field: tls_policy
+                equals: skip_verify
+              rtsp_port:
+                $source: metadata
+                key: rtsp_port
+                type: integer
+                default: 554
+              credential_rule_id:
+                $source: rule
+                field: id
+              password_secret_ref:
+                $source: secret_ref
+              username:
+                $source: public_username

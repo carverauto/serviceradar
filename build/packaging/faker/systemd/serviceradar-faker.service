@@ -1,0 +1,33 @@
+[Unit]
+Description=ServiceRadar Fake Armis API Service
+Documentation=https://serviceradar.io/docs
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=serviceradar
+Group=serviceradar
+ExecStart=/usr/local/bin/serviceradar-faker --config /etc/serviceradar/faker.json
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=serviceradar-faker
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/serviceradar/faker /var/log/serviceradar
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+
+# Environment
+Environment="GOMAXPROCS=4"
+
+[Install]
+WantedBy=multi-user.target

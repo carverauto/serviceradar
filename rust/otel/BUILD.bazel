@@ -1,0 +1,100 @@
+load("@aspect_bazel_lib//lib:copy_file.bzl", "copy_file")
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:cargo_build_script.bzl", "cargo_build_script")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+
+package(default_visibility = ["//visibility:public"])
+
+# //proto:kv.proto, staged INTO this package, and that is the whole point.
+#
+# symlink-exec-root below symlinks each execroot entry into the build script's synthetic
+# CARGO_MANIFEST_DIR, but only where the name is free -- and this package already contributes
+# a `proto/` directory (the vendored OpenTelemetry protos), so the execroot's `proto` is
+# shadowed and //proto:kv.proto is unreachable by any relative path. Every other build script
+# here escapes that because its package has no `proto/` of its own.
+#
+# Copying it in gives it the runfiles path _main/rust/otel/proto/kv.proto, which lands beside
+# the OpenTelemetry protos under the manifest dir, so build.rs finds it at `proto/kv.proto` --
+# the Bazel branch it already probes for first.
+copy_file(
+    name = "kv_proto_staged",
+    src = "//proto:kv_proto_src",
+    out = "proto/kv.proto",
+)
+
+cargo_build_script(
+    name = "build_script",
+    srcs = ["build.rs"],
+    build_script_env = {
+        "PROTOC": "$(execpath @bazel_tools//tools/proto:protoc)",
+    },
+    crate_root = "build.rs",
+    data = [
+        ":kv_proto_staged",
+        "//rust/otel:otel_proto_srcs",
+    ],
+    # Restores the execroot as this script's working directory.
+    #
+    # rules_rs's rules_rust synthesizes CARGO_MANIFEST_DIR as a runfiles directory holding
+    # only files from THIS package, and runs the script there. Every proto consumed here
+    # comes from another package, so it lands outside that directory and build.rs's
+    # execroot-relative path resolves to nothing -- protoc reports "Could not make proto path
+    # relative: ... No such file or directory". The feature symlinks the execroot into the
+    # manifest dir, which is what build.rs's Bazel branch was written against.
+    #
+    # Still hermetic: the sandbox holds only declared inputs, so this changes which paths
+    # resolve, not which files exist. A build script whose data lives in its own package
+    # (//rust/addon-sdk, //rust/powerdns) does not need it.
+    features = ["symlink-exec-root"],
+    tools = ["@bazel_tools//tools/proto:protoc"],
+    deps = ["@crates//:tonic-prost-build"],
+)
+
+rust_library(
+    name = "otel_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_name = "otel",
+    crate_root = "src/lib.rs",
+    visibility = ["//visibility:public"],
+    # addon-sdk is a path dep (the agent_forward spool stores the shared
+    # OtlpRelayFrame/TelemetryBatch wire types), so it is a bazel label
+    # rather than a crate_universe dep.
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+        normal_dev = True,
+    ) + [
+        ":build_script",
+        "//rust/addon-sdk:addon_sdk",
+        "//rust/kvutil",
+        "//rust/metric-proto:serviceradar_metric_proto",
+    ],
+)
+
+rust_test(
+    name = "otel_lib_test",
+    crate = ":otel_lib",
+)
+
+rust_test(
+    name = "otel_nats_chunking_test",
+    srcs = ["tests/nats_chunking.rs"],
+    crate_root = "tests/nats_chunking.rs",
+    deps = [":otel_lib"] + ["@crates//:prost"],
+)
+
+filegroup(
+    name = "otel_proto_srcs",
+    srcs = [
+        "//rust/otel/proto/opentelemetry/proto/collector/logs/v1:proto_src",
+        "//rust/otel/proto/opentelemetry/proto/collector/metrics/v1:proto_src",
+        "//rust/otel/proto/opentelemetry/proto/collector/trace/v1:proto_src",
+        "//rust/otel/proto/opentelemetry/proto/common/v1:proto_src",
+        "//rust/otel/proto/opentelemetry/proto/logs/v1:proto_src",
+        "//rust/otel/proto/opentelemetry/proto/metrics/v1:proto_src",
+        "//rust/otel/proto/opentelemetry/proto/resource/v1:proto_src",
+        "//rust/otel/proto/opentelemetry/proto/trace/v1:proto_src",
+    ],
+    visibility = ["//visibility:public"],
+)

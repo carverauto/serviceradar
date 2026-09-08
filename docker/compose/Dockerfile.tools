@@ -1,0 +1,246 @@
+# Multi-stage build for ServiceRadar debugging tools
+# Stage 1: Build the CLI tool
+FROM golang:1.25.0 AS builder
+
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy only necessary source files for CLI
+COPY pkg ./pkg
+COPY proto ./proto
+COPY go/cmd/cli ./go/cmd/cli
+
+# Build srctl (serviceradar-cli remains as a deprecated compatibility symlink)
+ARG VERSION=dev
+ARG BUILD_ID=docker
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags "-X github.com/carverauto/serviceradar/go/pkg/version.version=${VERSION} -X github.com/carverauto/serviceradar/go/pkg/version.buildID=${BUILD_ID}" \
+    -o /usr/local/bin/srctl \
+    ./go/cmd/cli
+
+# Stage 2: Final tools image
+FROM ubuntu:22.04
+
+# Avoid interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install system packages and debugging utilities
+RUN apt-get update && apt-get install -y \
+    curl \
+    wget \
+    jq \
+    netcat \
+    telnet \
+    dnsutils \
+    iputils-ping \
+    traceroute \
+    tcpdump \
+    strace \
+    htop \
+    vim \
+    nano \
+    less \
+    tree \
+    git \
+    openssl \
+    ca-certificates \
+    bash-completion \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Go 1.23 (latest stable)
+RUN wget -q https://go.dev/dl/go1.23.4.linux-amd64.tar.gz && \
+    tar -C /usr/local -xzf go1.23.4.linux-amd64.tar.gz && \
+    rm go1.23.4.linux-amd64.tar.gz
+
+# Set Go environment variables
+ENV PATH="/usr/local/go/bin:${PATH}"
+ENV GOPATH="/go"
+ENV GOBIN="/go/bin"
+ENV PATH="${GOBIN}:${PATH}"
+
+# Create go directories
+RUN mkdir -p /go/bin /go/src /go/pkg
+
+# Install Go-based debugging tools
+RUN go install github.com/fullstorydev/grpcurl/cmd/grpcurl@latest && \
+    go install github.com/nats-io/natscli/nats@v0.3.0
+
+# Copy srctl from builder stage (plus deprecated serviceradar-cli symlink)
+COPY --from=builder /usr/local/bin/srctl /usr/local/bin/srctl
+RUN chmod +x /usr/local/bin/srctl \
+    && ln -s srctl /usr/local/bin/serviceradar-cli
+
+# Bundle a default NATS context setup script for local debugging
+RUN mkdir -p /etc/serviceradar/nats
+COPY docker/compose/setup-nats-context.sh /etc/serviceradar/nats/setup-nats-context.sh
+RUN chmod +x /etc/serviceradar/nats/setup-nats-context.sh
+
+# Create helpful aliases and functions
+RUN cat > /root/.bashrc << 'EOF'
+# Default bashrc content
+[ -z "$PS1" ] && return
+export PS1='\[\033[01;32m\]\u@serviceradar-tools\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
+export TERM=xterm-256color
+
+# Load bash completion
+if [ -f /etc/bash_completion ]; then
+    . /etc/bash_completion
+fi
+
+export NATS_URL=${NATS_URL:-tls://nats:4222}
+export NATS_HOST=${NATS_HOST:-nats}
+export NATS_CA=${NATS_CA:-/etc/serviceradar/certs/root.pem}
+export NATS_CERT=${NATS_CERT:-/etc/serviceradar/certs/datasvc.pem}
+export NATS_KEY=${NATS_KEY:-/etc/serviceradar/certs/datasvc-key.pem}
+export NATS_CONTEXT=${NATS_CONTEXT:-serviceradar}
+
+# Useful aliases for ServiceRadar debugging
+alias ll='ls -alF'
+alias la='ls -A'
+alias l='ls -CF'
+
+# NATS debugging aliases (will use default context)
+alias nats-info='nats server info'
+alias nats-streams='nats stream ls'
+alias nats-consumers='nats consumer ls'
+alias nats-events='nats stream info events'
+alias nats-kv='nats stream info KV_serviceradar-datasvc'
+alias nats-datasvc='nats stream info KV_serviceradar-datasvc'
+alias nats-cert-check='echo "=== NATS Certificate Check ==="; echo "1. Client certificate:"; openssl x509 -in ${NATS_CERT} -subject -issuer -noout; echo ""; echo "2. Root CA:"; openssl x509 -in ${NATS_CA} -subject -issuer -noout; echo ""; echo "3. Testing NATS without client cert:"; timeout 5 openssl s_client -connect ${NATS_HOST}:4222 -CAfile ${NATS_CA} -verify_return_error </dev/null 2>/dev/null || echo "  ✗ Server cert verification failed"; echo ""; echo "4. Testing NATS with client cert:"; timeout 5 openssl s_client -connect ${NATS_HOST}:4222 -CAfile ${NATS_CA} -cert ${NATS_CERT} -key ${NATS_KEY} -verify_return_error </dev/null 2>/dev/null || echo "  ✗ mTLS verification failed"'
+
+# gRPC debugging aliases
+alias grpc-core='grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-core:50052'
+alias grpc-agent='grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-agent:50051'
+alias grpc-datasvc='grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-datasvc:50057'
+alias grpc-trapd='grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-trapd:50043'
+
+# ServiceRadar CLI aliases
+alias sr='serviceradar-cli'
+alias sr-devices='serviceradar-cli devices list'
+alias sr-events='serviceradar-cli events list'
+
+# Quick connectivity tests
+alias ping-nats='ping -c 3 ${NATS_HOST}'
+alias ping-core='ping -c 3 serviceradar-core'
+alias telnet-nats='telnet ${NATS_HOST} 4222'
+alias nc-nats='nc -zv ${NATS_HOST} 4222'
+
+# Function to test all service connectivity
+test-connectivity() {
+    echo "=== ServiceRadar Service Connectivity Test ==="
+    echo "Testing NATS..."
+    nc -zv "${NATS_HOST}" 4222 || echo "  NATS connection failed"
+    echo "Testing Core API..."
+    nc -zv serviceradar-core 8090 || echo "  Core API connection failed"
+    echo "Testing Core gRPC..."
+    nc -zv serviceradar-core 50052 || echo "  Core gRPC connection failed"
+    echo "Legacy streaming DB removed; skipping legacy connectivity checks."
+}
+
+# Function to show NATS JetStream status
+nats-js-status() {
+    echo "=== NATS JetStream Status ==="
+    nats server info --json | jq '.jetstream // "JetStream not available"'
+    echo ""
+    echo "=== Streams ==="
+    nats stream ls
+    echo ""
+    echo "=== Events Stream Info ==="
+    nats stream info events 2>/dev/null || echo "Events stream not found"
+}
+
+# Function to test gRPC services
+test-grpc() {
+    echo "=== gRPC Service Health Checks ==="
+    for service in core:50052 agent:50051 kv:50057 trapd:50043; do
+        host=$(echo $service | cut -d: -f1)
+        port=$(echo $service | cut -d: -f2)
+        echo "Testing serviceradar-$service..."
+        grpcurl -cacert /etc/serviceradar/certs/root.pem \
+                -cert /etc/serviceradar/certs/client.pem \
+                -key /etc/serviceradar/certs/client-key.pem \
+                "serviceradar-$service" grpc.health.v1.Health/Check 2>/dev/null && echo "  ✓ Healthy" || echo "  ✗ Unhealthy"
+    done
+}
+
+EOF
+
+# Create MOTD with helpful information
+RUN cat > /etc/motd << 'EOF'
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                          ServiceRadar Debug Tools                           ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║                                                                              ║
+║  🔧 DEBUGGING COMMANDS:                                                      ║
+║    test-connectivity    - Test all service connectivity                     ║
+║    nats-js-status      - Show NATS JetStream status                        ║
+║    test-grpc           - Health check all gRPC services                    ║
+║                                                                              ║
+║  📡 NATS ALIASES:                                                            ║
+║    nats-info           - Show NATS server information                       ║
+║    nats-streams        - List all JetStream streams                         ║
+║    nats-events         - Show events stream details                         ║
+║    nats-kv             - Show KV store stream details                       ║
+║    nats --context <ctx> <cmd>  - Use preloaded TLS context                  ║
+║                                                                              ║
+║  🔌 gRPC ALIASES:                                                            ║
+║    grpc-core           - Connect to core gRPC (add method after)            ║
+║    grpc-agent          - Connect to agent gRPC                              ║
+║    grpc-trapd          - Connect to trapd gRPC                              ║
+║                                                                              ║
+║  🏃 QUICK TESTS:                                                             ║
+║    nc-nats             - Test NATS TCP connectivity                         ║
+║    ping-nats           - Ping NATS server                                   ║
+║    sr-devices          - List devices via ServiceRadar CLI                  ║
+║                                                                              ║
+║  📁 CERT LOCATIONS:                                                          ║
+║    /etc/serviceradar/certs/root.pem       - Root CA                         ║
+║    /etc/serviceradar/certs/datasvc.pem    - Default client certificate      ║
+║    /etc/serviceradar/certs/datasvc-key.pem - Default client private key     ║
+║                                                                              ║
+║  🎯 NATS CONTEXT: Auto-configured for tls://nats:4222 with mTLS             ║
+║                                                                              ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+EOF
+
+# Create directory for NATS context
+RUN mkdir -p /root/.config/nats/context
+
+# Create entrypoint script that sets up NATS context automatically
+RUN cat > /entrypoint.sh << 'EOF'
+#!/bin/bash
+
+# Display MOTD if it exists
+if [ -f /etc/motd ]; then
+    cat /etc/motd
+fi
+
+# Auto-setup NATS context if available
+if [ -f /etc/serviceradar/nats/setup-nats-context.sh ]; then
+    echo "Setting up NATS debugging context..."
+    bash /etc/serviceradar/nats/setup-nats-context.sh
+fi
+
+# If arguments provided, execute them
+if [ $# -gt 0 ]; then
+    exec "$@"
+else
+    # Default to interactive bash
+    exec /bin/bash
+fi
+EOF
+
+# Make entrypoint executable
+RUN chmod +x /entrypoint.sh
+
+# Set working directory
+WORKDIR /root
+
+# Use custom entrypoint
+ENTRYPOINT ["/entrypoint.sh"]
+
+# Default command
+CMD ["/bin/bash"]

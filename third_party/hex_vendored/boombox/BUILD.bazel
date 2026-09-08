@@ -1,0 +1,63 @@
+load("@rules_elixir//:mix_app.bzl", "mix_app")
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "bazel-*",
+            "_build/**",
+            "deps/**",
+            "tmp/**",
+        ],
+    ),
+)
+
+# The vendored boombox, compiled by Mix inside a hermetic Bazel action.
+#
+# This is NOT the Hex package. @hexpm//:boombox is deliberately unbuildable here: it reaches
+# for Membrane.Hackney.Source, and hackney was dropped because it pulls h2, which collides
+# with grpcbox's chatterbox (same h2_* modules) during `mix release`. This copy has that
+# source removed -- see the comment in mix.exs and internal_bin/storage_endpoints.ex.
+#
+# serviceradar_core_elx declares it as
+# {:boombox, path: "../../third_party/hex_vendored/boombox"}, resolved against its own
+# directory -- so Mix reads this same tree that Bazel compiles. There used to be a second,
+# byte-identical copy at elixir/serviceradar_core_elx/vendor/boombox purely to satisfy the
+# Mix path dep; it was removed when this moved here. Do not reintroduce one: it was a
+# patched Hex package maintained by hand in two places, with nothing enforcing that the
+# copy Mix read and the copy Bazel compiled stayed in sync.
+mix_app(
+    name = "erlang_app",
+    srcs = [":srcs"],
+    app_name = "boombox",
+    mix_env = "prod",
+    deps = [
+        "@hexpm//:image",
+        "@hexpm//:membrane_core",
+        "@hexpm//:membrane_ffmpeg_swresample_plugin",
+        "@hexpm//:membrane_ffmpeg_swscale_plugin",
+        "@hexpm//:membrane_http_adaptive_stream_plugin",
+        "@hexpm//:membrane_ivf_plugin",
+        "@hexpm//:membrane_mp4_plugin",
+        "@hexpm//:membrane_ogg_plugin",
+        "@hexpm//:membrane_realtimer_plugin",
+        "@hexpm//:membrane_rtmp_plugin",
+        "@hexpm//:membrane_rtp_aac_plugin",
+        "@hexpm//:membrane_rtp_format",
+        "@hexpm//:membrane_rtp_h264_plugin",
+        "@hexpm//:membrane_rtp_h265_plugin",
+        "@hexpm//:membrane_rtp_opus_plugin",
+        "@hexpm//:membrane_rtp_plugin",
+        "@hexpm//:membrane_rtsp_plugin",
+        "@hexpm//:membrane_srt_plugin",
+        "@hexpm//:membrane_stream_plugin",
+        "@hexpm//:membrane_transcoder_plugin",
+        "@hexpm//:membrane_vpx_plugin",
+        "@hexpm//:membrane_wav_plugin",
+        "@hexpm//:membrane_webrtc_plugin",
+        "@rules_elixir//elixir",
+    ],
+)

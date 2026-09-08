@@ -1,0 +1,174 @@
+suite: collector Gateway API routes
+templates:
+  - templates/gateway-api.yaml
+# Pinned explicitly so the parentRefs assertion below proves the route carries
+# .Release.Namespace rather than a hardcoded value. helm-unittest's default
+# release namespace is the literal "NAMESPACE", which is indistinguishable from
+# a template bug when the expected value is also a plausible default.
+release:
+  namespace: serviceradar-test
+tests:
+  - it: renders managed UDP and TCP listeners and routes for collectors
+    set:
+      gatewayApi.enabled: true
+      gatewayApi.host: acme.serviceradar.cloud
+      gatewayApi.flowCollector.enabled: true
+      gatewayApi.trapd.enabled: true
+      gatewayApi.bmpCollector.enabled: true
+    asserts:
+      - contains:
+          path: spec.listeners
+          content:
+            name: netflow
+            port: 2055
+            protocol: UDP
+            allowedRoutes:
+              namespaces:
+                from: Same
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-edge-gateway
+      - contains:
+          path: spec.listeners
+          content:
+            name: sflow
+            port: 6343
+            protocol: UDP
+            allowedRoutes:
+              namespaces:
+                from: Same
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-edge-gateway
+      - contains:
+          path: spec.listeners
+          content:
+            name: snmp-traps
+            port: 162
+            protocol: UDP
+            allowedRoutes:
+              namespaces:
+                from: Same
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-edge-gateway
+      - contains:
+          path: spec.listeners
+          content:
+            name: bmp
+            port: 11019
+            protocol: TCP
+            allowedRoutes:
+              namespaces:
+                from: Same
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-edge-gateway
+      - isKind:
+          of: UDPRoute
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-netflow
+      - contains:
+          path: spec.parentRefs
+          content:
+            name: serviceradar-edge-gateway
+            namespace: serviceradar-test
+            sectionName: netflow
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-netflow
+      - equal:
+          path: spec.rules[0].backendRefs[0].name
+          value: serviceradar-flow-collector
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-netflow
+      - equal:
+          path: spec.rules[0].backendRefs[0].port
+          value: 2055
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-netflow
+      - isKind:
+          of: UDPRoute
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-sflow
+      - equal:
+          path: spec.rules[0].backendRefs[0].port
+          value: 6343
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-sflow
+      - isKind:
+          of: UDPRoute
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-snmp-traps
+      - equal:
+          path: spec.rules[0].backendRefs[0].name
+          value: serviceradar-trapd
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-snmp-traps
+      - equal:
+          path: spec.rules[0].backendRefs[0].port
+          value: 162
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-snmp-traps
+      - isKind:
+          of: TCPRoute
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-bmp
+      - equal:
+          path: spec.rules[0].backendRefs[0].name
+          value: serviceradar-bmp-collector
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-bmp
+      - equal:
+          path: spec.rules[0].backendRefs[0].port
+          value: 11019
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-bmp
+
+  - it: can omit individual flow collector routes
+    set:
+      gatewayApi.enabled: true
+      gatewayApi.host: acme.serviceradar.cloud
+      gatewayApi.flowCollector.enabled: true
+      gatewayApi.flowCollector.sflow.enabled: false
+      gatewayApi.flowCollector.ipfix.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 7
+      - isKind:
+          of: UDPRoute
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-netflow
+      - isKind:
+          of: UDPRoute
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-ipfix
+
+  - it: requires attach-mode parent refs for enabled collector routes
+    set:
+      gatewayApi.enabled: true
+      gatewayApi.mode: attach
+      gatewayApi.host: acme.serviceradar.cloud
+      gatewayApi.parentRefs:
+        - group: gateway.networking.k8s.io
+          kind: Gateway
+          name: shared-gateway
+          namespace: shared
+          sectionName: https
+      gatewayApi.flowCollector.enabled: true
+    asserts:
+      - failedTemplate:
+          errorMessage: "gatewayApi.flowCollector.netflow.parentRefs is required when gatewayApi.flowCollector.enabled=true and gatewayApi.mode=attach"

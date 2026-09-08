@@ -1,0 +1,28 @@
+[package]
+name = "serviceradar-integration-db"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Database lifecycle for the serviceradar_core integration suite: provision, sweep, teardown. Replaces scripts/{reset,drop,sweep-stale-core}-test-db.sh so the CI job invokes only Bazel targets."
+
+[dependencies]
+prost = { workspace = true }
+serviceradar-config-manager = { path = "../../config/manager_config/rust" }
+serviceradar-config-schema = { path = "../../config/proto_bindings/rust" }
+serviceradar-secret-manager = { path = "../../config/manager_secret/rust" }
+anyhow = { workspace = true }
+# The Bazel ecosystem's reference runfiles lookup, published from rules_rust. Replaces a
+# hand-rolled TEST_SRCDIR reader that could not find runfiles under `bazel run` and could not
+# work in manifest mode at all.
+runfiles = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+rustls = { workspace = true, features = ["ring"] }
+rustls-pemfile = { workspace = true }
+srql = { path = "../srql" }
+# "time" is for the clone retry backoff. It is reachable transitively through
+# tokio-postgres, but per rust/README_RUST.md a feature another crate happens to enable is an
+# accident rather than a dependency -- the retry breaks the day that changes.
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+tokio-postgres = { workspace = true }

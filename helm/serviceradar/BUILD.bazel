@@ -1,0 +1,165 @@
+load("@rules_python//python:py_test.bzl", "py_test")
+
+package(default_visibility = ["//visibility:public"])
+
+# Read by //:agent_release_key_consistency_test, which asserts the agentReleasePublicKey in both
+# files matches the key embedded in the agent binary.
+#
+# BOTH are listed even though values.yaml already resolves today -- it does so only incidentally,
+# because it appears in the `values` filegroup's srcs below, which makes it a target as a side
+# effect. Relying on that would make this test break the moment someone reorganises a filegroup
+# that has nothing to do with it. values-demo.yaml appears in no rule and does not resolve at all
+# without this.
+exports_files([
+    "values.yaml",
+    "values-demo.yaml",
+])
+
+# The chart files an Elixir test reads directly.
+#
+# elixir/serviceradar_core/test/serviceradar/observability/anomaly_config_seeder_test.exs
+# resolves both at MODULE level via Path.expand("../../../../../helm/serviceradar/...",
+# __DIR__). It is a drift guard: ServiceRadar.Observability.AnomalyConfigSeeder takes its
+# first-boot defaults from SERVICERADAR_ANOMALY_* / SERVICERADAR_CAPACITY_FORECAST_* env
+# vars, so values.yaml has to declare the blocks and templates/core.yaml has to wire the
+# variables through. Adding a knob to the seeder and forgetting the chart would otherwise
+# ship silent defaults.
+#
+# Module-level reads, so no ExUnit tag can skip them -- unstaged, the test file fails to load
+# at all rather than failing an assertion.
+filegroup(
+    name = "values",
+    srcs = [
+        "templates/core.yaml",
+        "values.yaml",
+    ],
+)
+
+# Keeps core.migrations.expectedVersion in step with the migrations the repo
+# actually ships. The value is what the `wait-migrations` init container compares
+# the database's high-water mark against, so a stale value silently restores the
+# existence-only behaviour it replaced.
+py_test(
+    name = "migrations_expected_version_test",
+    srcs = ["migrations_expected_version_test.py"],
+    data = [
+        "templates/web.yaml",
+        "values.yaml",
+        "//elixir/serviceradar_core:migrations",
+    ],
+)
+
+# CNPG WAL/checkpoint defaults. PostgreSQL's stock max_wal_size=1GB forced a
+# checkpoint every ~14s at this product's ingest rate and parked every backend on
+# LWLock:WALWrite, failing probes across a whole namespace. These assertions pin the
+# properties that regress silently: both cluster templates covered, WAL sizes left
+# derived from storageSize rather than pinned flat, every injected key keeping its
+# escape hatch, and the unit-stripping regex never coming back.
+py_test(
+    name = "cnpg_wal_defaults_test",
+    srcs = ["cnpg_wal_defaults_test.py"],
+    data = [
+        "templates/_helpers.tpl",
+        "templates/cnpg-cluster.yaml",
+        "templates/spire-postgres.yaml",
+        "values.yaml",
+    ],
+)
+
+# Argo repo-server cannot lookup Secrets. randAlphaNum in that path rotated
+# CNPG passwords and rolled core/web-ng on every sync. These assertions pin
+# the reuse-or-omit behaviour and the create-if-missing (HTTP 409) job.
+py_test(
+    name = "cnpg_credentials_lookup_test",
+    srcs = ["cnpg_credentials_lookup_test.py"],
+    data = [
+        "templates/_helpers.tpl",
+        "templates/cnpg-cluster.yaml",
+        "templates/secret-generator-job.yaml",
+        "templates/spire-postgres.yaml",
+        "values.yaml",
+    ],
+)
+
+py_test(
+    name = "component_gates_test",
+    srcs = ["component_gates_test.py"],
+    # EVERY template, not a named subset. The test DERIVES which components render a workload,
+    # so a new ungated component must fail it -- and it cannot see a template it was not given.
+    data = glob([
+        "templates/*.yaml",
+    ]) + ["values.yaml"],
+)
+
+py_test(
+    name = "web_ng_public_url_test",
+    srcs = ["web_ng_public_url_test.py"],
+    data = [
+        "templates/_helpers.tpl",
+        "templates/agent-gateway.yaml",
+        "templates/core.yaml",
+        "templates/web.yaml",
+        "values.yaml",
+    ],
+)
+
+# --- helm-unittest suite ----------------------------------------------------
+# The chart's helm-unittest suite (tests/*_test.yaml) had NO CI gate: the Helm Lint
+# workflow runs `helm lint`, which never executes an assertion. 26 assertions across
+# 10 suites were committed having never once run, every one written against
+# `helm template` output rather than the plugin's. This target closes that hole by
+# making the suite part of `bazel test //...` (and therefore of `make test`).
+#
+# The runner is the plugin's own `untt` binary, pinned in //MODULE.bazel and selected
+# per platform here. `helm unittest` does nothing but exec it, so this is the same code
+# path without needing a helm binary -- which also keeps the gate off get.helm.sh, a
+# host the BuildBuddy runners cannot reach.
+[
+    config_setting(
+        name = os_name + "_" + cpu_suffix,
+        constraint_values = [
+            "@platforms//os:" + os_name,
+            "@platforms//cpu:" + cpu,
+        ],
+    )
+    for os_name, cpu, cpu_suffix in [
+        ("linux", "x86_64", "amd64"),
+        ("linux", "aarch64", "arm64"),
+        ("macos", "x86_64", "amd64"),
+        ("macos", "aarch64", "arm64"),
+    ]
+]
+
+alias(
+    name = "helm_unittest_binary",
+    actual = select({
+        ":linux_amd64": "@helm_unittest_linux_amd64//:untt",
+        ":linux_arm64": "@helm_unittest_linux_arm64//:untt",
+        ":macos_amd64": "@helm_unittest_macos_amd64//:untt",
+        ":macos_arm64": "@helm_unittest_macos_arm64//:untt",
+    }),
+)
+
+py_test(
+    name = "helm_unittest_suite_test",
+    srcs = ["helm_unittest_suite_test.py"],
+    # EVERY chart file the renderer can reach, not a named subset. The suite renders
+    # whole templates, and a file missing from runfiles surfaces as a template error
+    # rather than as the missing input it is.
+    data = [
+        "Chart.yaml",
+        "values.yaml",
+        "values-demo.yaml",
+        ":helm_unittest_binary",
+    ] + glob([
+        "crds/**",
+        "dashboards/**",
+        "files/**",
+        "templates/**",
+        "tests/**",
+    ]),
+    env = {
+        "SERVICERADAR_CHART_YAML": "$(rootpath Chart.yaml)",
+        "SERVICERADAR_HELM_UNITTEST_BINARY": "$(rootpath :helm_unittest_binary)",
+    },
+)

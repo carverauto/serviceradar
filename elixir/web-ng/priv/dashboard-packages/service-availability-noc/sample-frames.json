@@ -1,0 +1,146 @@
+[
+  {
+    "id": "availability_rollup",
+    "query": "in:service_availability time:last_1h rollup_stats:availability",
+    "encoding": "json_rows",
+    "status": "ok",
+    "results": [
+      {
+        "total": 400,
+        "ok": 386,
+        "warning": 4,
+        "critical": 8,
+        "unknown": 2,
+        "available": 386,
+        "unavailable": 10,
+        "availability_pct": 96.5
+      }
+    ]
+  },
+  {
+    "id": "attention_services",
+    "query": "in:service_availability status:(critical,unknown,warning) time:last_1h sort:last_observed_at:desc limit:50",
+    "encoding": "json_rows",
+    "status": "ok",
+    "results": [
+      {
+        "uid": "svc-demo-url-037",
+        "service_name": "Demo URL 037",
+        "service_key": "demo-gateway:demo-agent:Demo URL 037",
+        "service_kind": "http",
+        "descriptor_id": "http",
+        "status": "critical",
+        "available": false,
+        "response_time_ms": 821,
+        "summary": "http 500 in 821ms",
+        "last_observed_at": "2026-05-21T22:42:00Z"
+      },
+      {
+        "uid": "svc-demo-url-074",
+        "service_name": "Demo URL 074",
+        "service_key": "demo-gateway:demo-agent:Demo URL 074",
+        "service_kind": "http",
+        "descriptor_id": "http",
+        "status": "warning",
+        "available": true,
+        "response_time_ms": 794,
+        "summary": "http 200 in 794ms",
+        "last_observed_at": "2026-05-21T22:41:00Z"
+      },
+      {
+        "uid": "svc-demo-db-019",
+        "service_name": "Demo Database 019",
+        "service_key": "demo-gateway:demo-agent:Demo Database 019",
+        "service_kind": "postgres",
+        "descriptor_id": "postgres",
+        "status": "critical",
+        "available": false,
+        "response_time_ms": 1042,
+        "summary": "connection timeout after 1042ms",
+        "last_observed_at": "2026-05-21T22:40:00Z"
+      }
+    ]
+  },
+  {
+    "id": "service_inventory",
+    "query": "in:monitored_services time:last_1h sort:display_name:asc limit:200",
+    "encoding": "json_rows",
+    "status": "ok",
+    "results": [
+      {
+        "uid": "svc-demo-url-001",
+        "display_name": "Demo URL 001",
+        "service_key": "demo-gateway:demo-agent:Demo URL 001",
+        "service_kind": "http",
+        "protocol": "https",
+        "host": "demo-001.example.net",
+        "port": 443,
+        "status": "ok",
+        "available": true,
+        "last_observed_at": "2026-05-21T22:45:00Z"
+      },
+      {
+        "uid": "svc-demo-db-001",
+        "display_name": "Demo Database 001",
+        "service_key": "demo-gateway:demo-agent:Demo Database 001",
+        "service_kind": "postgres",
+        "protocol": "tcp",
+        "host": "db-001.example.net",
+        "port": 5432,
+        "status": "ok",
+        "available": true,
+        "last_observed_at": "2026-05-21T22:45:00Z"
+      }
+    ]
+  },
+  {
+    "id": "slo_evaluations",
+    "query": "in:slo_evaluations severity:(warning,critical) time:last_24h sort:evaluated_at:desc limit:25",
+    "encoding": "json_rows",
+    "status": "ok",
+    "results": [
+      {
+        "uid": "slo-demo-url-037",
+        "slo_key": "demo-gateway:demo-agent:Demo URL 037:availability_99",
+        "slo_name": "Demo URL 037 availability",
+        "owner": "operations",
+        "compliance_state": "noncompliant",
+        "severity": "critical",
+        "budget_remaining_basis_points": -175,
+        "burn_rate_short": 2.75,
+        "projected_exhaustion_at": null,
+        "evaluated_at": "2026-05-21T22:42:00Z"
+      },
+      {
+        "uid": "slo-demo-url-074",
+        "slo_key": "demo-gateway:demo-agent:Demo URL 074:availability_99",
+        "slo_name": "Demo URL 074 availability",
+        "owner": "operations",
+        "compliance_state": "at_risk",
+        "severity": "warning",
+        "budget_remaining_basis_points": 12,
+        "burn_rate_short": 0.88,
+        "projected_exhaustion_at": null,
+        "evaluated_at": "2026-05-21T22:41:00Z"
+      }
+    ]
+  },
+  {
+    "id": "slo_budget_rollup",
+    "query": "in:slo_evaluations time:last_24h rollup_stats:slo_error_budget",
+    "encoding": "json_rows",
+    "status": "ok",
+    "results": [
+      {
+        "total": 400,
+        "critical": 8,
+        "warning": 4,
+        "ok": 388,
+        "error_budget_remaining": -175,
+        "avg_budget_remaining_basis_points": 81,
+        "max_burn_rate_short": 2.75,
+        "next_projected_exhaustion_at": null
+      }
+    ]
+  }
+]

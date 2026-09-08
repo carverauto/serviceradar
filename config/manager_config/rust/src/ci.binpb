@@ -1,0 +1,7 @@
+Þ
+/srql-fixture-rw.srql-fixtures.svc.cluster.local¸*srql_fixture"srql*srql0:/srql-fixture-rw.srql-fixtures.svc.cluster.localBplatform, ag_catalogH
+PôXè`àÔj
+srql_hydrar-https://srql-fixture-ca.carverauto.dev/ca.crt"7
+/nats://nats.serviceradar.svc.cluster.local:4222nats*M
+serviceradar-core:50052http://serviceradar-core:8090"serviceradar-core2b
+/dgraph-dgraph-alpha.dgraph-ci.svc.cluster.localøF"*https://dgraph-ci-ca.carverauto.dev/ca.crt

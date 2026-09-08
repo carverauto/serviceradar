@@ -1,0 +1,5 @@
+# Vendored Cargo archives are checksum-verified byte-for-byte. They are gzip, so
+# any text normalization would corrupt them outright.
+third_party/crate_mirror/** -text
+third_party/netprobe_ebpf_vendor/** -text
+third_party/netprobe_corpora/** -text

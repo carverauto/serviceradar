@@ -1,0 +1,62 @@
+suite: partition coalesce precedence
+templates:
+  - templates/cert-generator-job.yaml
+# Assertions are scoped with `template:` and select documents by a path that is unique
+# within that template. Selecting on metadata.name matches several documents here and
+# fails with `multiple indexes found`. See README.md in this directory.
+tests:
+  - it: uses default when top-level and agent partition IDs are unset
+    set:
+      partitionId: ""
+      agent.partitionId: ""
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEFAULT_PARTITION_ID
+            value: default
+        documentSelector:
+          path: kind
+          value: Job
+
+  - it: uses top-level partition ID when only top-level is set
+    set:
+      partitionId: top-partition
+      agent.partitionId: ""
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEFAULT_PARTITION_ID
+            value: top-partition
+        documentSelector:
+          path: kind
+          value: Job
+
+  - it: uses agent partition ID when only agent is set
+    set:
+      partitionId: ""
+      agent.partitionId: agent-partition
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEFAULT_PARTITION_ID
+            value: agent-partition
+        documentSelector:
+          path: kind
+          value: Job
+
+  - it: prefers top-level partition ID when both are set
+    set:
+      partitionId: top-partition
+      agent.partitionId: agent-partition
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEFAULT_PARTITION_ID
+            value: top-partition
+        documentSelector:
+          path: kind
+          value: Job

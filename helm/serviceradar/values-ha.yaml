@@ -1,0 +1,99 @@
+# High-availability overlay for production-like ServiceRadar installs.
+#
+# Usage:
+#   helm upgrade --install serviceradar ./helm/serviceradar \
+#     -n <namespace> \
+#     -f helm/serviceradar/values.yaml \
+#     -f helm/serviceradar/values-ha.yaml
+#
+# This mirrors the demo namespace control-plane shape without carrying
+# demo-specific hostnames, MetalLB addresses, or sample-data services.
+
+topologySpread:
+  enabled: true
+  maxSkew: 1
+  topologyKey: kubernetes.io/hostname
+  whenUnsatisfiable: ScheduleAnyway
+
+nats:
+  replicas: 3
+
+# Avoid scaling workloads with shared ReadWriteOnce volumes by default. Enable
+# this in an environment-specific values file only when existingClaim or
+# storageClassName points at RWX-capable storage, and set accessModes to
+# ReadWriteMany for newly created claims.
+geoipMmdb:
+  enabled: false
+
+cnpg:
+  pooler:
+    enabled: true
+    instances: 3
+    monitoring:
+      podMonitor:
+        enabled: true
+    route:
+      core: true
+      webNg: true
+    parameters:
+      ignore_startup_parameters: "search_path"
+      max_client_conn: "2000"
+      default_pool_size: "40"
+      reserve_pool_size: "10"
+      reserve_pool_timeout: "5"
+
+webNg:
+  replicas: 3
+  database:
+    poolSize: 8
+  pluginStorage:
+    enabled: true
+    backend: "jetstream"
+    jetstreamReplicas: 3
+
+core:
+  replicas: 3
+  database:
+    poolSize: 10
+  controlDatabase:
+    enabled: true
+    poolSize: 3
+  obanQueues:
+    default: 2
+    maintenance: 1
+
+agentGateway:
+  replicas: 3
+
+datasvc:
+  replicaCount: 3
+  jetstreamReplicas: 3
+  data:
+    enabled: false
+
+logCollector:
+  replicaCount: 3
+  streamReplicas: 3
+  data:
+    enabled: false
+  tcpCollector:
+    enabled: true
+    replicaCount: 3
+    streamReplicas: 3
+
+trapd:
+  replicaCount: 3
+  streamReplicas: 3
+
+# Flow/IPFIX template state is process-local, so keep this single-replica even
+# in the HA overlay until exporter sharding or shared template state lands.
+flowCollector:
+  replicaCount: 1
+  # HA is config.stream_replicas only (serialized into flow-collector.json).
+  config:
+    stream_replicas: 3
+    rehome_state_path: "/var/lib/serviceradar/flow-collector-rehome.json"
+  # Rehome marker + ready file must survive pod replacement during cutover.
+  data:
+    enabled: true
+    size: 1Gi

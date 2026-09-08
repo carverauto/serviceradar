@@ -1,0 +1,46 @@
+"""Vendored crate sources, as the archives Cargo and Bazel both already understand.
+
+Every registry crate in //:Cargo.lock is checked in here as `<name>-<version>.crate`.
+//.bazelrc points `--distdir` at this directory, and rules_rs asks for exactly that
+basename, so a crate resolves from the checked-in copy instead of crates.io.
+
+Why archives rather than an extracted `cargo vendor` tree: the extracted form of this
+dependency set is 38,949 files across 745 directories, and any version bump rewrites
+whole directories. The archive form is 746 files, one per crate, and a bump changes
+exactly one of them.
+
+The trade-off, stated plainly: you cannot `grep` a dependency's source in-tree any
+more. Extract an archive when you need to read one.
+
+Refresh with:
+
+    bazel run //third_party/crate_mirror:sync
+
+`--distdir` is a fallback rather than an enforcement -- Bazel silently downloads
+anything missing here rather than failing -- so a stale mirror degrades to the old
+behaviour instead of breaking the build.
+"""
+
+load("@rules_python//python:defs.bzl", "py_binary")
+
+package(default_visibility = ["//visibility:public"])
+
+py_binary(
+    name = "sync",
+    srcs = ["sync.py"],
+    main = "sync.py",
+    # Deliberately NOT a build action. It writes into the source tree via
+    # BUILD_WORKSPACE_DIRECTORY, which only `bazel run` provides.
+    tags = ["manual"],
+)
+
+# The archives themselves are not build inputs -- Bazel reaches them through
+# --distdir, not through the dependency graph -- so nothing here globs them into a
+# target. This filegroup exists only so the directory is addressable.
+filegroup(
+    name = "archives",
+    srcs = glob(
+        ["*.crate"],
+        allow_empty = True,
+    ),
+)

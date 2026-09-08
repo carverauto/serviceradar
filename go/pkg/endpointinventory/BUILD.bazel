@@ -1,0 +1,44 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "endpointinventory",
+    srcs = [
+        "cache.go",
+        "cache_commit.go",
+        "cache_lock_other.go",
+        "cache_lock_unix.go",
+        "cache_policy.go",
+        "collect.go",
+        "commands.go",
+        "config.go",
+        "cyclonedx.go",
+        "delta.go",
+        "hashes.go",
+        "packages.go",
+        "profile.go",
+        "spool.go",
+        "types.go",
+        "upload.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/endpointinventory",
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "endpointinventory_test",
+    srcs = [
+        "cache_concurrency_test.go",
+        "cache_migration_test.go",
+        "cache_test.go",
+        "collect_test.go",
+        "commands_test.go",
+        "config_test.go",
+        "delta_test.go",
+        "hashes_test.go",
+        "packages_test.go",
+        "spool_test.go",
+        "stabilize_test.go",
+        "upload_test.go",
+    ],
+    embed = [":endpointinventory"],
+)

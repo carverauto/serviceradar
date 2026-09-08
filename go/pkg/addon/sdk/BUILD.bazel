@@ -1,0 +1,29 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "sdk",
+    srcs = [
+        "metrics.go",
+        "sdk.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/addon/sdk",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//go/pkg/addon",
+        "//proto/agent/addon/v1:addonpb",
+        "//proto/metric/v1:metricpb",
+        "@com_github_hashicorp_go_plugin//:go-plugin",
+        "@org_golang_google_protobuf//proto",
+    ],
+)
+
+go_test(
+    name = "sdk_test",
+    srcs = ["metrics_test.go"],
+    deps = [
+        ":sdk",
+        "//proto/agent/addon/v1:addonpb",
+        "//proto/metric/v1:metricpb",
+        "@org_golang_google_protobuf//proto",
+    ],
+)

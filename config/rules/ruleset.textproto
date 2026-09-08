@@ -1,0 +1,442 @@
+# ServiceRadar configuration rule set.
+#
+# GROUND TRUTH for validation. Three implementations read this file; a constraint added here
+# is enforced everywhere without any implementation changing.
+#
+# Semantics are normative in config/SEMANTICS.md. In particular: only `required` treats
+# absence as a violation (every other predicate returns NotApplicable), evaluation is
+# exhaustive, violations sort by (field_path, code), and every rule below must have a
+# committed fixture under config/rules/fixtures/ that violates it.
+#
+# CODEOWNERS-gated: this file is the security boundary of the configuration system.
+
+# ---------------------------------------------------------------------------
+# Environment identity
+# ---------------------------------------------------------------------------
+
+rules {
+  field_path: "kind"
+  code: "KIND_REQUIRED"
+  phase: PHASE_CONFIG
+  description: "Every instance states which environment kind it describes."
+  required {}
+}
+
+rules {
+  field_path: "kind"
+  code: "KIND_NOT_UNSPECIFIED"
+  phase: PHASE_CONFIG
+  description: "The zero value is a sentinel, not a usable kind."
+  forbidden_value { enum_value: "ENVIRONMENT_KIND_UNSPECIFIED" }
+}
+
+rules {
+  field_path: "instance"
+  code: "INSTANCE_REQUIRED_FOR_ONPREM"
+  phase: PHASE_CONFIG
+  description: "On-prem is multi-instance; the deployment must be named."
+  required_if {
+    other_field_path: "kind"
+    other_enum_value: "ENVIRONMENT_KIND_ONPREM"
+  }
+}
+
+rules {
+  field_path: "instance"
+  code: "INSTANCE_FORMAT"
+  phase: PHASE_CONFIG
+  description: "Instance identifiers are lowercase, and appear in file paths."
+  matches { pattern: "^[a-z][a-z0-9-]*$" }
+}
+
+# ---------------------------------------------------------------------------
+# Database
+# ---------------------------------------------------------------------------
+
+rules {
+  field_path: "database.host"
+  code: "DATABASE_HOST_REQUIRED"
+  phase: PHASE_CONFIG
+  required {}
+}
+
+rules {
+  field_path: "database.host"
+  code: "DATABASE_HOST_NON_EMPTY"
+  phase: PHASE_CONFIG
+  non_empty {}
+}
+
+rules {
+  field_path: "database.port"
+  code: "DATABASE_PORT_REQUIRED"
+  phase: PHASE_CONFIG
+  required {}
+}
+
+rules {
+  field_path: "database.port"
+  code: "DATABASE_PORT_RANGE"
+  phase: PHASE_CONFIG
+  description: "A TCP port. Bounds are inclusive at both ends."
+  int_range { min: 1 max: 65535 }
+}
+
+rules {
+  field_path: "database.database"
+  code: "DATABASE_NAME_REQUIRED"
+  phase: PHASE_CONFIG
+  required {}
+}
+
+rules {
+  field_path: "database.database"
+  code: "DATABASE_NAME_NON_EMPTY"
+  phase: PHASE_CONFIG
+  non_empty {}
+}
+
+rules {
+  field_path: "database.connecting_role"
+  code: "DATABASE_CONNECTING_ROLE_REQUIRED"
+  phase: PHASE_CONFIG
+  description: "An identity, not a credential. Only the password is secret."
+  required {}
+}
+
+rules {
+  field_path: "database.connecting_role"
+  code: "DATABASE_CONNECTING_ROLE_NON_EMPTY"
+  phase: PHASE_CONFIG
+  non_empty {}
+}
+
+rules {
+  field_path: "database.owning_role"
+  code: "DATABASE_OWNING_ROLE_REQUIRED"
+  phase: PHASE_CONFIG
+  description: "Owns per-run databases. Stated, never recovered by parsing a DSN."
+  required {}
+}
+
+rules {
+  field_path: "database.owning_role"
+  code: "DATABASE_OWNING_ROLE_NON_EMPTY"
+  phase: PHASE_CONFIG
+  non_empty {}
+}
+
+rules {
+  field_path: "database.tls_mode"
+  code: "DATABASE_TLS_MODE_REQUIRED"
+  phase: PHASE_CONFIG
+  required {}
+}
+
+rules {
+  field_path: "database.tls_mode"
+  code: "DATABASE_TLS_MODE_NOT_UNSPECIFIED"
+  phase: PHASE_CONFIG
+  description: "An unset TLS mode must be an error, never the first defined value."
+  forbidden_value { enum_value: "TLS_MODE_UNSPECIFIED" }
+}
+
+rules {
+  field_path: "database.tls_mode"
+  code: "DATABASE_TLS_MODE_VERIFIED_OUTSIDE_LOCALHOST"
+  phase: PHASE_CONFIG
+  scope { except_kinds: ENVIRONMENT_KIND_LOCALHOST }
+  description: "Every deployed environment verifies TLS. Only a dev machine may not."
+  one_of { enum_values: "TLS_MODE_VERIFY_CA" enum_values: "TLS_MODE_VERIFY_FULL" }
+}
+
+rules {
+  field_path: "database.tls_server_name"
+  code: "DATABASE_TLS_SERVER_NAME_REQUIRED_FOR_VERIFY_FULL"
+  phase: PHASE_CONFIG
+  description: "The fixture certificate carries DNS SANs and no IP SANs, so an address-based caller must state the certificate name."
+  required_if {
+    other_field_path: "database.tls_mode"
+    other_enum_value: "TLS_MODE_VERIFY_FULL"
+  }
+}
+
+rules {
+  field_path: "database.tls_server_name"
+  code: "DATABASE_TLS_SERVER_NAME_NON_EMPTY"
+  phase: PHASE_CONFIG
+  non_empty {}
+}
+
+rules {
+  field_path: "database.search_path"
+  code: "DATABASE_SEARCH_PATH_NON_EMPTY"
+  phase: PHASE_CONFIG
+  non_empty {}
+}
+
+# admin_role is optional -- a service never creates databases, so requiring it would put a
+# privileged identity in every instance file. Present-but-blank is still an error: it would
+# build an admin DSN with no user and fail at the server with an unrelated message.
+rules {
+  field_path: "database.admin_role"
+  code: "DATABASE_ADMIN_ROLE_NON_EMPTY"
+  phase: PHASE_CONFIG
+  non_empty {}
+}
+
+# Likewise optional: absent means the CA comes from SecretManager instead. Blank would send
+# the client to fetch "" and report a URL parse error rather than a missing setting.
+rules {
+  field_path: "database.ca_bundle_url"
+  code: "DATABASE_CA_BUNDLE_URL_NON_EMPTY"
+  phase: PHASE_CONFIG
+  non_empty {}
+}
+
+# The CA being fetched is a private issuer. The hop that fetches it must not be. HTTPS so
+# scratch images verify against the public roots they already carry; http:// is the TOFU
+# hole the audits keep reducing every other hardening to.
+rules {
+  field_path: "database.ca_bundle_url"
+  code: "DATABASE_CA_BUNDLE_URL_HTTPS"
+  phase: PHASE_CONFIG
+  description: "https:// only. The custom CA is the document being fetched, not the trust anchor for this hop."
+  matches { pattern: "^https://" }
+}
+
+# Same shape as the database's, and optional for the same reason: absent means the CA comes
+# from SecretManager. Blank would send the client to fetch "" and report a URL parse error
+# rather than a missing setting.
+rules {
+  field_path: "dgraph.ca_bundle_url"
+  code: "DGRAPH_CA_BUNDLE_URL_NON_EMPTY"
+  phase: PHASE_CONFIG
+  non_empty {}
+}
+
+rules {
+  field_path: "dgraph.ca_bundle_url"
+  code: "DGRAPH_CA_BUNDLE_URL_HTTPS"
+  phase: PHASE_CONFIG
+  description: "https:// only. The custom CA is the document being fetched, not the trust anchor for this hop."
+  matches { pattern: "^https://" }
+}
+
+rules {
+  field_path: "database.pool_size"
+  code: "DATABASE_POOL_SIZE_RANGE"
+  phase: PHASE_CONFIG
+  int_range { min: 1 max: 1000 }
+}
+
+rules {
+  field_path: "database.queue_target_ms"
+  code: "DATABASE_QUEUE_TARGET_MS_RANGE"
+  phase: PHASE_CONFIG
+  int_range { min: 1 max: 600000 }
+}
+
+rules {
+  field_path: "database.queue_interval_ms"
+  code: "DATABASE_QUEUE_INTERVAL_MS_RANGE"
+  phase: PHASE_CONFIG
+  int_range { min: 1 max: 600000 }
+}
+
+rules {
+  field_path: "database.ownership_timeout_ms"
+  code: "DATABASE_OWNERSHIP_TIMEOUT_MS_RANGE"
+  phase: PHASE_CONFIG
+  int_range { min: 1 max: 3600000 }
+}
+
+# ---------------------------------------------------------------------------
+# NATS
+# ---------------------------------------------------------------------------
+
+rules {
+  field_path: "nats.url"
+  code: "NATS_URL_REQUIRED"
+  phase: PHASE_CONFIG
+  required {}
+}
+
+rules {
+  field_path: "nats.url"
+  code: "NATS_URL_SCHEME"
+  phase: PHASE_CONFIG
+  description: "nats:// or tls://; anything else is a misconfiguration, not a preference."
+  matches { pattern: "^(nats|tls)://" }
+}
+
+rules {
+  field_path: "nats.server_name"
+  code: "NATS_SERVER_NAME_NON_EMPTY"
+  phase: PHASE_CONFIG
+  non_empty {}
+}
+
+# ---------------------------------------------------------------------------
+# Core
+# ---------------------------------------------------------------------------
+
+rules {
+  field_path: "core.address"
+  code: "CORE_ADDRESS_REQUIRED"
+  phase: PHASE_CONFIG
+  required {}
+}
+
+rules {
+  field_path: "core.address"
+  code: "CORE_ADDRESS_NON_EMPTY"
+  phase: PHASE_CONFIG
+  non_empty {}
+}
+
+rules {
+  field_path: "core.api_url"
+  code: "CORE_API_URL_SCHEME"
+  phase: PHASE_CONFIG
+  matches { pattern: "^https?://" }
+}
+
+rules {
+  field_path: "core.security_mode"
+  code: "CORE_SECURITY_MODE_REQUIRED"
+  phase: PHASE_CONFIG
+  required {}
+}
+
+rules {
+  field_path: "core.security_mode"
+  code: "CORE_SECURITY_MODE_NOT_UNSPECIFIED"
+  phase: PHASE_CONFIG
+  forbidden_value { enum_value: "SECURITY_MODE_UNSPECIFIED" }
+}
+
+rules {
+  field_path: "core.security_mode"
+  code: "CORE_SECURITY_MODE_SECURE_OUTSIDE_LOCALHOST"
+  phase: PHASE_CONFIG
+  scope { except_kinds: ENVIRONMENT_KIND_LOCALHOST }
+  description: "SECURITY_MODE_NONE is not admissible in a deployed environment."
+  one_of { enum_values: "SECURITY_MODE_MTLS" enum_values: "SECURITY_MODE_SPIFFE" }
+}
+
+rules {
+  field_path: "core.server_name"
+  code: "CORE_SERVER_NAME_NON_EMPTY"
+  phase: PHASE_CONFIG
+  non_empty {}
+}
+
+rules {
+  field_path: "core.trust_domain"
+  code: "CORE_TRUST_DOMAIN_REQUIRED_FOR_SPIFFE"
+  phase: PHASE_CONFIG
+  required_if {
+    other_field_path: "core.security_mode"
+    other_enum_value: "SECURITY_MODE_SPIFFE"
+  }
+}
+
+rules {
+  field_path: "core.server_spiffe_id"
+  code: "CORE_SERVER_SPIFFE_ID_FORMAT"
+  phase: PHASE_CONFIG
+  matches { pattern: "^spiffe://" }
+}
+
+rules {
+  field_path: "core.workload_socket"
+  code: "CORE_WORKLOAD_SOCKET_REQUIRED_FOR_SPIFFE"
+  phase: PHASE_CONFIG
+  required_if {
+    other_field_path: "core.security_mode"
+    other_enum_value: "SECURITY_MODE_SPIFFE"
+  }
+}
+
+# ---------------------------------------------------------------------------
+# Dgraph
+#
+# Mirrors the database section's TLS posture rather than inventing a second one: required,
+# never the UNSPECIFIED sentinel, and verified everywhere but localhost. DGRAPH_TLS_MODE has
+# no verify-full, so the outside-localhost rule admits VERIFY_CA alone -- which is also why
+# it is a separate enum. See //config/proto/config.proto.
+# ---------------------------------------------------------------------------
+
+rules {
+  field_path: "dgraph.host"
+  code: "DGRAPH_HOST_REQUIRED"
+  phase: PHASE_CONFIG
+  required {}
+}
+
+rules {
+  field_path: "dgraph.host"
+  code: "DGRAPH_HOST_NON_EMPTY"
+  phase: PHASE_CONFIG
+  non_empty {}
+}
+
+rules {
+  field_path: "dgraph.port"
+  code: "DGRAPH_PORT_REQUIRED"
+  phase: PHASE_CONFIG
+  required {}
+}
+
+rules {
+  field_path: "dgraph.port"
+  code: "DGRAPH_PORT_RANGE"
+  phase: PHASE_CONFIG
+  description: "A TCP port. Zero is not a port; the alpha gRPC default is 9080."
+  int_range { min: 1 max: 65535 }
+}
+
+rules {
+  field_path: "dgraph.tls_mode"
+  code: "DGRAPH_TLS_MODE_REQUIRED"
+  phase: PHASE_CONFIG
+  required {}
+}
+
+rules {
+  field_path: "dgraph.tls_mode"
+  code: "DGRAPH_TLS_MODE_NOT_UNSPECIFIED"
+  phase: PHASE_CONFIG
+  description: "An unset TLS mode must be an error, never the first defined value."
+  forbidden_value { enum_value: "DGRAPH_TLS_MODE_UNSPECIFIED" }
+}
+
+rules {
+  field_path: "dgraph.tls_mode"
+  code: "DGRAPH_TLS_MODE_VERIFIED_OUTSIDE_LOCALHOST"
+  phase: PHASE_CONFIG
+  scope { except_kinds: ENVIRONMENT_KIND_LOCALHOST }
+  description: "REQUIRE_NO_VERIFY encrypts without authenticating the server, so it is not a deployment posture."
+  one_of { enum_values: "DGRAPH_TLS_MODE_VERIFY_CA" }
+}
+
+# The other half of INSTANCE_REQUIRED_FOR_ONPREM. Without it the schema comment "required if
+# and only if the kind is ONPREM" was half-enforced: nothing stopped ci.textproto naming an
+# instance, and a file that names one describes something it is not.
+#
+# The trigger enumerates every kind that is NOT onprem. The meta-rule checks that enumeration
+# stays exhaustive, so adding a sixth kind cannot silently re-permit an instance identifier.
+rules {
+  field_path: "instance"
+  code: "INSTANCE_FORBIDDEN_OUTSIDE_ONPREM"
+  phase: PHASE_CONFIG
+  description: "Only on-prem is multi-instance."
+  forbidden_if {
+    other_field_path: "kind"
+    other_enum_values: "ENVIRONMENT_KIND_LOCALHOST"
+    other_enum_values: "ENVIRONMENT_KIND_CI"
+    other_enum_values: "ENVIRONMENT_KIND_SAAS"
+    other_enum_values: "ENVIRONMENT_KIND_DEMO"
+  }
+}

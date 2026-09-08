@@ -1,0 +1,13 @@
+# ServiceRadar Unified Log Collector
+# This config enables/disables each input and points to their native config files.
+
+[flowgger]
+enabled = true
+config_file = "flowgger.toml"
+
+[otel]
+enabled = true
+config_file = "otel.toml"
+
+[health]
+listen_addr = "0.0.0.0:50044"

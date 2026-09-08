@@ -1,0 +1,27 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+
+go_library(
+    name = "armis-e2e-fixture_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/carverauto/serviceradar/go/cmd/armis-e2e-fixture",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//go/pkg/agent/syncsources",
+        "//go/pkg/agent/syncsources/armis",
+        "//go/pkg/logger",
+        "//go/pkg/models",
+    ],
+)
+
+go_binary(
+    name = "armis-e2e-fixture",
+    embed = [":armis-e2e-fixture_lib"],
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "armis-e2e-fixture_test",
+    srcs = ["main_test.go"],
+    embed = [":armis-e2e-fixture_lib"],
+    deps = ["@com_github_stretchr_testify//require"],
+)

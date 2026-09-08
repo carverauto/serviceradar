@@ -1,0 +1,5 @@
+{
+  "enabled": false,
+  "timeout": "30s",
+  "targets": []
+}

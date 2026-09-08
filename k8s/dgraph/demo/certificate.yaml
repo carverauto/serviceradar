@@ -1,0 +1,117 @@
+# In-cluster CA and Alpha certificate for demo.
+#
+# Private, not ACME. The config contract puts Dgraph at
+# `dgraph-dgraph-alpha.dgraph.svc.cluster.local:9080` -- a name no public authority will sign
+# -- and the Dgraph client (github.com/marvin-hansen/dgraph-rs) now verifies against a supplied CA
+# instead of the system roots
+# (`sslrootcert`, or ClientConfigBuilder::ca_certificate). So the trust anchor is ours, the
+# endpoint stays inside the cluster, and there is no ingress or public DNS to maintain.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: dgraph-selfsigned
+  namespace: dgraph
+spec:
+  selfSigned: {}
+---
+# A CA rather than a self-signed leaf, so clients have a root to trust. A bare leaf could only
+# be pinned, and pinning breaks on every renewal.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: dgraph-ca
+  namespace: dgraph
+spec:
+  isCA: true
+  commonName: dgraph-ca
+  secretName: dgraph-ca
+  duration: 87600h
+  renewBefore: 720h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: dgraph-selfsigned
+    kind: Issuer
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: dgraph-ca-issuer
+  namespace: dgraph
+spec:
+  ca:
+    secretName: dgraph-ca
+---
+# secretName IS what the chart's StatefulSet mounts. `alpha.tls.files` stays `{}` in
+# values.yaml so cert-manager owns this secret and renewal reaches the pod with no copy step.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: dgraph-alpha-tls
+  namespace: dgraph
+spec:
+  secretName: dgraph-dgraph-alpha-tls-secret
+  # BOTH ROLES ON ONE CERTIFICATE. With internal-port=true every node is also a TLS *client*
+  # to its peers, and Dgraph verifies that client certificate -- so `client auth` is required,
+  # not decorative. cert-manager's defaults do not include it once `usages` is stated at all,
+  # so server auth is listed explicitly alongside it.
+  usages:
+    - digital signature
+    - key encipherment
+    - server auth
+    - client auth
+  # Must equal the `dgraph.host` in config/environments/{demo,saas}.textproto: verification is
+  # against the name dialed. These two move together or the handshake fails.
+  commonName: dgraph-dgraph-alpha.dgraph.svc.cluster.local
+  dnsNames:
+    - dgraph-dgraph-alpha.dgraph.svc.cluster.local
+    - dgraph-dgraph-alpha-headless.dgraph.svc.cluster.local
+    - "*.dgraph-dgraph-alpha-headless.dgraph.svc.cluster.local"
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    encoding: PKCS8
+  issuerRef:
+    name: dgraph-ca-issuer
+    kind: Issuer
+    group: cert-manager.io
+---
+# Zero's certificate. Required because Alpha runs with internal-port=true and therefore dials
+# Zero over TLS; a plaintext Zero fails every one of those handshakes.
+#
+# secretName IS what the chart's Zero StatefulSet mounts
+# (`{{ template "dgraph.zero.fullname" . }}-tls-secret`), so `zero.tls.files` stays `{}` in
+# values.yaml and cert-manager owns the secret.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: dgraph-zero-tls
+  namespace: dgraph
+spec:
+  secretName: dgraph-dgraph-zero-tls-secret
+  commonName: dgraph-dgraph-zero.dgraph.svc.cluster.local
+  dnsNames:
+    # The headless per-pod name carries the load here: Zeros address each other individually
+    # for Raft, so the wildcard is what each peer actually verifies.
+    - dgraph-dgraph-zero.dgraph.svc.cluster.local
+    - dgraph-dgraph-zero-headless.dgraph.svc.cluster.local
+    - "*.dgraph-dgraph-zero-headless.dgraph.svc.cluster.local"
+  # BOTH ROLES ON ONE CERTIFICATE. With internal-port=true every node is also a TLS *client*
+  # to its peers, and Dgraph verifies that client certificate -- so `client auth` is required,
+  # not decorative. cert-manager's defaults do not include it once `usages` is stated at all,
+  # so server auth is listed explicitly alongside it.
+  usages:
+    - digital signature
+    - key encipherment
+    - server auth
+    - client auth
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    encoding: PKCS8
+  issuerRef:
+    name: dgraph-ca-issuer
+    kind: Issuer
+    group: cert-manager.io

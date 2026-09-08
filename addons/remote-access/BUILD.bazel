@@ -1,0 +1,13 @@
+exports_files([
+    "addon.yaml",
+    "config.schema.json",
+])
+
+filegroup(
+    name = "remote_access_addon_manifest",
+    srcs = [
+        "addon.yaml",
+        "config.schema.json",
+    ],
+    visibility = ["//visibility:public"],
+)

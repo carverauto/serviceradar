@@ -1,0 +1,99 @@
+{
+  "id": "cloud.serviceradar.endpoint-inventory",
+  "name": "Endpoint Inventory",
+  "version": "0.1.0",
+  "vendor": "ServiceRadar",
+  "description": "Endpoint inventory dashboard for scan freshness, package coverage, CPE exposure, and vulnerable package context.",
+  "capabilities": [
+    "srql.execute",
+    "navigation.open"
+  ],
+  "data_frames": [
+    {
+      "id": "scan_status",
+      "query": "in:endpoint_inventory_status current:true sort:last_scan_at:desc limit:200",
+      "encoding": "json_rows",
+      "limit": 200,
+      "required": true,
+      "fields": [
+        "scan_id",
+        "device_uid",
+        "agent_id",
+        "state",
+        "coverage_state",
+        "freshness",
+        "package_count",
+        "last_scan_at",
+        "last_successful_scan_at",
+        "metadata"
+      ]
+    },
+    {
+      "id": "package_rollup",
+      "query": "in:endpoint_packages rollup_stats:current_counts limit:60",
+      "encoding": "json_rows",
+      "limit": 60,
+      "required": true,
+      "fields": [
+        "package_manager",
+        "ecosystem",
+        "name",
+        "version",
+        "host_count",
+        "canonical_purl",
+        "cpes",
+        "last_seen_at"
+      ]
+    },
+    {
+      "id": "cpe_rollup",
+      "query": "in:endpoint_packages rollup_stats:current_cpe_counts limit:60",
+      "encoding": "json_rows",
+      "limit": 60,
+      "required": true,
+      "fields": [
+        "cpe",
+        "host_count",
+        "first_seen_at",
+        "last_seen_at"
+      ]
+    },
+    {
+      "id": "recent_packages",
+      "query": "in:endpoint_packages current:true sort:updated_at:desc limit:120",
+      "encoding": "json_rows",
+      "limit": 120,
+      "required": true,
+      "fields": [
+        "device_uid",
+        "agent_id",
+        "package_manager",
+        "name",
+        "version",
+        "architecture",
+        "canonical_purl",
+        "cpes",
+        "updated_at"
+      ]
+    }
+  ],
+  "settings_schema": {
+    "type": "object",
+    "properties": {
+      "staleThreshold": {
+        "type": "string",
+        "title": "Stale threshold",
+        "default": "26h"
+      }
+    }
+  },
+  "renderer": {
+    "kind": "built_in",
+    "interface_version": "dashboard-built-in-v1",
+    "artifact": "endpoint-inventory",
+    "trust": "first_party",
+    "entrypoint": "endpoint_inventory",
+    "sha256": "4d6d5cf2151a6a60b046788cf5f51f090f7e8d8518b1f13da6e9652754629a39"
+  },
+  "schema_version": 1
+}

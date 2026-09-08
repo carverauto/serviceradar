@@ -1,0 +1,32 @@
+# Add anomaly finding disposition (edge↔central correlation + resolution model)
+
+> **⚠️ SUPERSEDED (2026-06-28) by `refactor-anomaly-engine-rigor`.** This change's central decision — the **matched-resolution disposition** ("Option B": judge an edge spike's *peak* against the hour-of-week *peak* profile, not the diluting hourly mean) — is implemented there as `ServiceRadar.Observability.AnomalyDisposition` (`dispose/3` suppress/escalate/downgrade/pass_through + `actionable?/2` report-only kill switch), with the series_key-alignment test (`series_key_test.exs`) and the on-demand peak-profile query (no emit-every-series flood). Do not implement this change independently; the remaining loop-closure (alert-engine wiring) is tracked under `refactor-anomaly-engine-rigor` tasks 1.10–1.14.
+
+## Why
+
+`fix-anomaly-engine-semantics-and-delivery` fixes how anomaly findings are *produced and delivered* (edge transition gating, canonical re-keying F4/F14, seasonal data feed F15). It does **not** decide how a finding is *judged real vs seasonal*, and a deep review of the live system + current tree surfaced three gaps that survive that change:
+
+1. **The disposition loop is never closed.** The seasonal worker `INSERT`s its own parallel `class_uid=2004` verdict tagged `verdict_source="central-seasonal"` (`verdict_emitter.ex`) and **never reads, annotates, or suppresses the edge finding**. Nothing in the alert engine or web-ng joins the two. So the architecture as wired is "two independent detectors," not "edge detects → core disposes." The question *"is this specific finding real or just seasonal?"* is never answered for any specific row — verified: `stateful_alert_engine.ex` has zero references to `seasonal`/`verdict_source`. (`fix-anomaly` F14 establishes the *key* can align; it does not build the join or the disposition.)
+
+2. **The two tiers measure different physical quantities (the central, undecided design question).** The edge fires on **sub-minute spikes**; the seasonal tier scores the **hourly continuous-aggregate mean** (`timeseries_metrics.rs:978`, `DISTINCT ON series ORDER BY bucket DESC`). A 30s 99%-CPU spike averaged into a 1h bucket sitting at 12% is *seasonally normal* while the edge screams. Using the hourly-mean seasonal verdict to keep/drop a short edge spike is therefore **statistically unsound**, and no existing proposal resolves which resolution disposition operates at.
+
+3. **Soundness + scope defects in the seasonal tier itself.** The three default seasonal sources ship `robust_statistic: :mean_stddev` (`source.ex:82,103,116`), but the design mandates `median+MAD` so a past incident hour does not poison the profile (`add-causal-anomaly-detection/design.md:151,242`). And the seasonal sources cover `cpu/mem/disk usage_percent` only — **not** the SNMP interface/sysmon series that dominate the flood — so "seasonal disposes the flood" is a category overreach.
+
+(Two other `class_uid=2004` flood drivers — capacity_forecasting `event_id` duplicate-per-run ~425k/week, and uncalibrated ~77%-Critical severity — are **already owned by `fix-anomaly-engine-semantics-and-delivery`** (F12 / tasks 10.1, 12.4, 23.2, 23.4) and ship with that deploy. They are explicitly **out of scope here** so the two proposals don't double-fix the same flood.)
+
+This proposal decides the resolution model and builds the disposition layer correctly on top of it.
+
+## What Changes
+
+- **Resolution model — DECIDED: Option B, matched-resolution peak disposition** (the central design question; see `design.md`). The edge forwards the spike's **peak magnitude + window**, and the core builds a **peak profile** from the existing `timeseries_metrics_hourly.max_value` (no schema change) to judge the spike against the series' normal hour-of-week peak — so "is this spike seasonal?" is answered at *matched resolution*, not against the diluting hourly mean. A recurring spike (peak within profile) → suppress/downgrade; a novel spike (peak above) → escalate. Rolled out per metric class behind a peak-profile stability gate.
+- **Close the disposition loop at the alert/query layer** (not write-time): a correlation step that joins an edge-spike finding to the overlapping central-seasonal verdict by canonical `series_key` + time window and emits a **disposition** (suppress / downgrade / escalate / pass-through) consumed by the alert engine and the device-detail panel. Raw edge findings are retained for audit.
+- **Make seasonal disposition emit for every evaluated series** (not only on breach/suppress) so there is a verdict to join, and **gate it on the live `dispose_batch` NIF** so a retired/missing NIF fails loud, not silently-empty.
+- **Correct the seasonal statistic + scope**: default to `median+MAD` for the seasonal **mean** profile, and a robust median center + `(p95−p05)·0.30398` scale for the **peak** profile (both robust; the peak scale is IQR-based, not MAD); route `disk usage_percent` to the capacity forecaster; raw non-normalized counters stay edge-only. Under Option B the peak profile **does** cover the SNMP/interface utilization series that dominate the flood, once their peak profile is stable — the payoff over the simpler alternative.
+- **Disposition-driven severity**: the disposition sets a finding's effective severity (suppress → off the alert path, downgrade → lower, escalate → higher). The raw detector→finding severity calibration is `fix-anomaly`'s (task 23.4), not duplicated here.
+
+## Impact
+
+- Affected specs: `observability-signals` (ADDED disposition-correlation, resolution-model, robust-statistic, severity-calibration, capacity idempotency requirements).
+- Affected code: `rust/anomaly-addon`/`rust/anomaly-core` (forward peak + window), `rust/srql` (peak variant of `profile_hour_of_week` over `max_value`), `seasonal_disposition/{worker,source,verdict_emitter}.ex`, `event_writer/processors/causal_signals.ex`, `stateful_alert_engine.ex`, `web-ng` device-detail anomaly panel, the capacity-forecast event_id builder.
+- Depends on: `fix-anomaly-engine-semantics-and-delivery` (edge transition gate deployed; F4/F14 canonical re-key; F15 `profile_hour_of_week`). This change is sequenced **after** that one deploys.
+- Non-goal: re-architecting the edge detector or the metrics pipeline. Option B adds only the peak + window to the edge finding payload (the detector already computes both); the baseline data the core needs (hourly `max_value`) already exists.

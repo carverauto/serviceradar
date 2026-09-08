@@ -1,0 +1,26 @@
+load("@rules_python//python:py_test.bzl", "py_test")
+
+# Asserts the three files that have to agree about the Dgraph endpoint actually do: the host
+# every client resolves through ConfigManager, the SANs cert-manager issues, and the namespace
+# deploy-dgraph.sh installs into.
+#
+# Every input is DECLARED, so editing any one of them re-runs this. Reading them by path
+# instead would let a certificate change and the test stay cached and green -- which is the
+# failure mode it exists to prevent, one layer up.
+py_test(
+    name = "dgraph_endpoint_contract_test",
+    size = "small",
+    srcs = ["dgraph_endpoint_contract_test.py"],
+    data = [
+        "//config/environments:ci.textproto",
+        "//config/environments:demo.textproto",
+        "//config/environments:saas.textproto",
+        "//k8s/dgraph:ci/certificate.yaml",
+        "//k8s/dgraph:ci/httproute-ca.yaml",
+        "//k8s/dgraph:ci/namespace.yaml",
+        "//k8s/dgraph:demo/certificate.yaml",
+        "//k8s/dgraph:deploy-dgraph.sh",
+        "//k8s/buildbuddy:values.yaml",
+        "//k8s/buildbuddy:values-workflows.yaml",
+    ],
+)

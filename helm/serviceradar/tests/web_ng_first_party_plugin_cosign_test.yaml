@@ -1,0 +1,39 @@
+suite: web-ng first-party plugin cosign verification contract
+templates:
+  - templates/web.yaml
+tests:
+  - it: ships the ServiceRadar release cosign public key by default
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_FIRST_PARTY_PLUGIN_COSIGN_PUBLIC_KEY
+            value: |
+              -----BEGIN PUBLIC KEY-----
+              MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEhJcdPbybyipSl8sNHSKStAYiqhP7
+              cp6jIdZ3L4AkL/WI9oFn5xqJSnwTC29cz+JN/bXzWE807+iPS/DOl3C9EQ==
+              -----END PUBLIC KEY-----
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: lets an operator override the verification key for a private plugin registry
+    set:
+      webNg.firstPartyPluginImport.cosignPublicKey: |
+        -----BEGIN PUBLIC KEY-----
+        operator-supplied-key
+        -----END PUBLIC KEY-----
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_FIRST_PARTY_PLUGIN_COSIGN_PUBLIC_KEY
+            value: |
+              -----BEGIN PUBLIC KEY-----
+              operator-supplied-key
+              -----END PUBLIC KEY-----
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment

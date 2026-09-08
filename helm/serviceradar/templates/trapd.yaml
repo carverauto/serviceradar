@@ -1,0 +1,167 @@
+{{- /* Component gate (issue #3859). ABSENT MEANS ENABLED: hasKey is used rather than a
+     truthiness test so that a chart or values file which never mentions `enabled`
+     renders exactly as before, and only an explicit `trapd.enabled: false` removes
+     this component. `default true` cannot be used here -- Helm treats false as empty,
+     so it would resurrect anything explicitly disabled. */ -}}
+{{- $gate8 := default (dict) .Values.trapd -}}
+{{- if or (not (hasKey $gate8 "enabled")) $gate8.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-trapd
+spec:
+  replicas: {{ .Values.trapd.replicaCount | default 1 }}
+  selector:
+    matchLabels:
+      app: serviceradar-trapd
+  template:
+    metadata:
+      labels:
+        app: serviceradar-trapd
+        app.kubernetes.io/part-of: serviceradar
+      annotations:
+        {{- include "serviceradar.runtimeCertRollAnnotations" . | nindent 8 }}
+      {{- if .Values.global.forceRolloutOnUpgrade }}
+        serviceradar.io/release-revision: {{ .Release.Revision | quote }}
+      {{- end }}
+    spec:
+      {{- include "serviceradar.topologySpread" (dict "root" . "app" "serviceradar-trapd") | nindent 6 }}
+      {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
+      serviceAccountName: {{ .Values.spire.trapdServiceAccount | default "serviceradar-trapd" }}
+      {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      containers:
+      - name: trapd
+        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-trapd" "service" "trapd") }}
+        imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+        {{- include "serviceradar.bindServiceContainerSecurityContext" . | nindent 8 }}
+        ports:
+        - containerPort: 162
+          name: snmp
+          protocol: UDP
+        - containerPort: 50043
+          name: grpc
+        volumeMounts:
+        - name: serviceradar-config
+          mountPath: /etc/serviceradar
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+        {{- if or .Values.natsCreds.platform .Values.natsCreds.system }}
+        - name: nats-creds
+          mountPath: /etc/serviceradar/creds
+          readOnly: true
+        {{- end }}
+        {{- if .Values.spire.enabled }}
+        - name: spire-agent-socket
+          mountPath: /run/spire/sockets
+          readOnly: true
+        {{- end }}
+        env:
+{{ include "serviceradar.kvEnv" . | indent 8 }}
+        - name: CONFIG_PATH
+          value: "/etc/serviceradar/trapd.json"
+        - name: WAIT_FOR_NATS
+          value: "true"
+        - name: NATS_HOST
+          value: "serviceradar-nats"
+        - name: NATS_PORT
+          value: "4222"
+        {{- include "serviceradar.configSyncEnv" (dict "cfg" (default (dict) .Values.configSync.trapd)) | nindent 8 }}
+        resources:
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+        livenessProbe:
+          tcpSocket:
+            port: 50043
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          tcpSocket:
+            port: 50043
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+      volumes:
+      - name: serviceradar-config
+        configMap:
+          name: serviceradar-config
+      - name: cert-data
+        secret:
+          secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
+          items:
+{{ include "serviceradar.runtimeCertItems" (list "root.pem" "trapd.pem" "trapd-key.pem") | indent 12 }}
+      {{- if or .Values.natsCreds.platform .Values.natsCreds.system }}
+      - name: nats-creds
+        secret:
+          name: serviceradar-nats-creds
+      {{- end }}
+      {{- if .Values.spire.enabled }}
+      - name: spire-agent-socket
+        hostPath:
+          path: {{ include "serviceradar.spireSocketHostPath" . | quote }}
+          type: DirectoryOrCreate
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-trapd
+spec:
+  selector:
+    app: serviceradar-trapd
+  ports:
+  - name: snmp
+    port: 162
+    targetPort: snmp
+    protocol: UDP
+  - name: grpc
+    port: 50043
+    targetPort: grpc
+    protocol: TCP
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.spire.trapdServiceAccount | default "serviceradar-trapd" }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+{{- if .Values.trapd.externalService.enabled }}
+---
+# External LoadBalancer service for SNMP trap ingestion from outside the cluster
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-trapd-external
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+  {{- with .Values.trapd.externalService.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.trapd.externalService.type | default "LoadBalancer" }}
+  {{- with .Values.trapd.externalService.externalTrafficPolicy }}
+  externalTrafficPolicy: {{ . }}
+  {{- end }}
+  {{- if .Values.trapd.externalService.loadBalancerIP }}
+  loadBalancerIP: {{ .Values.trapd.externalService.loadBalancerIP }}
+  {{- end }}
+  selector:
+    app: serviceradar-trapd
+    app.kubernetes.io/part-of: serviceradar
+  ports:
+  {{- if .Values.trapd.externalService.ports.snmp.enabled }}
+  - name: snmp
+    port: {{ .Values.trapd.externalService.ports.snmp.port | default 162 }}
+    targetPort: {{ .Values.trapd.externalService.ports.snmp.targetPort | default 162 }}
+    protocol: {{ .Values.trapd.externalService.ports.snmp.protocol | default "UDP" }}
+  {{- end }}
+{{- end }}
+{{- end }}

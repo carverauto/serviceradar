@@ -1,0 +1,75 @@
+[package]
+name = "serviceradar-netprobe"
+version = "0.2.27"
+description = "Host network visibility sidecar for ServiceRadar agents"
+authors = ["ServiceRadar Team"]
+edition = "2024"
+license = "Apache-2.0"
+
+[lib]
+name = "serviceradar_netprobe"
+path = "src/lib.rs"
+
+[[bin]]
+name = "serviceradar-netprobe"
+path = "src/main.rs"
+
+[[bench]]
+name = "af_xdp_cpu"
+harness = false
+
+[[bench]]
+name = "census_decode_cpu"
+harness = false
+
+[dependencies]
+addon-sdk = { path = "../addon-sdk" }
+anyhow = { workspace = true }
+serviceradar-afpacket = { path = "../afpacket" }
+async-trait = { workspace = true }
+clap = { workspace = true, features = ["derive", "env"] }
+crossbeam-channel = { workspace = true }
+env_logger = { workspace = true }
+etherparse = { workspace = true }
+log = { workspace = true }
+nix = { workspace = true, features = ["signal", "process", "user"] }
+phf = { workspace = true }
+prometheus = { workspace = true }
+prost = { workspace = true }
+quick-xml = { workspace = true }
+regex-automata = { workspace = true, features = ["meta", "unicode"] }
+base64 = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+tonic = { workspace = true }
+tokio-stream = { workspace = true, features = ["sync"] }
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+
+[dev-dependencies]
+# The af_xdp_cpu bench calls getrusage unconditionally, but the only libc declaration is
+# under [target.'cfg(target_os = "linux")'.dependencies], so `cargo clippy --all-targets`
+# failed to resolve it anywhere else. AF_XDP itself is Linux-only, but af_xdp and
+# af_xdp_classifier are not cfg-gated, so the bench otherwise compiles on any host -- and a
+# workspace lint pass that cannot run off Linux is a lint pass most developers never run.
+libc = { workspace = true }
+tempfile = { workspace = true }
+
+[build-dependencies]
+aya-build = { workspace = true }
+phf_codegen = { workspace = true }
+prost-build = { workspace = true }
+quick-xml = { workspace = true }
+
+[features]
+default = []
+
+[target.'cfg(target_os = "linux")'.dependencies]
+aya = { version = "0.13.1", features = ["tokio"] }
+aya-log = "0.3"
+libc = "0.2"
+procfs = "0.18"
+
+[target.'cfg(target_arch = "bpf")'.dependencies]
+aya-ebpf = "0.1.1"

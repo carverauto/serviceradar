@@ -1,0 +1,12 @@
+mfreeman:
+  name: Michael Freeman
+  title: Open Source Software Engineer
+  url: https://carverauto.dev
+  image_url: https://avatars.githubusercontent.com/u/1821930?v=4
+  page:
+    # customize the url of the author page at /blog/authors/<permalink>
+    permalink: '/all-michael-freeman-articles'
+  socials:
+    x: mfreeman451
+    github: mfreeman451
+    linkedin: mfreeman451

@@ -1,0 +1,25 @@
+id: __PLUGIN_ID__
+name: __PLUGIN_NAME__
+version: 0.1.0
+description: >
+  A ServiceRadar Wasm check plugin scaffolded by `serviceradar-cli plugin init`.
+entrypoint: run_check
+outputs: serviceradar.plugin_result.v1
+
+# Every capability listed here is reviewed by an administrator in the staged
+# import before the plugin runs, and the approved set can be narrower than what
+# you request. Ask for the least you need.
+capabilities:
+  - get_config
+  - log
+  - submit_result
+
+# Network reach. Both lists start empty because this template makes no outbound
+# calls; add `http_request` or the tcp_* capabilities above before filling them.
+permissions:
+  allowed_domains: []
+  allowed_ports: []
+
+resources:
+  requested_memory_mb: 64
+  requested_cpu_ms: 2000

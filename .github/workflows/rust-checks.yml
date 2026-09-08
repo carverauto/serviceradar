@@ -1,0 +1,314 @@
+name: rust-check
+
+# Cargo-side Rust gates: clippy over the workspace, and RustSec advisories for the
+# review-only IronRDP probe. Both live here because they share a runner shape (rustup +
+# Socket Firewall) and neither has a Bazel equivalent. Clippy also caches the crates.io
+# registry; the audit job installs a pinned cargo-audit binary and does not compile
+# from crates.io.
+#
+# They stay SEPARATE JOBS on purpose. A lint failure and a published CVE are different
+# problems with different owners, and a single job would produce one red X that says
+# neither. Two jobs also run them in parallel and keep the advisory database -- which
+# moves on its own and can go red on a commit that changed nothing -- from ever looking
+# like a broken lint.
+#
+# Migration notes (Forgejo -> GitHub), the parts that are not cosmetic:
+#   * GitHub Actions does not support YAML anchors/aliases. The `&audit_paths` /
+#     `*clippy_paths` pairs from the Forgejo files are expanded literally below; do not
+#     "clean them up" back into anchors, the workflow will fail to parse.
+#   * Path filters are workflow-level on GitHub, not per-job, so the list here is the
+#     UNION of the two originals. The audit job consequently runs on any `rust/**`
+#     change rather than only on `rust/rdp-connector-probe/**`. That is a superset of
+#     the old triggers -- more runs, never fewer -- and is cheaper than gating a job on
+#     a third-party paths-filter action.
+#   * `runs-on` moves from the Forgejo `ubuntu24` label to GitHub's `ubuntu-24.04`.
+#   * The actions below are on majors that run the Node 24 runtime, which requires Actions
+#     Runner >= v2.327.1. GitHub-hosted runners are current, so this is free. It stops
+#     being free if the self-hosted host behind the old `ubuntu24` label is re-registered
+#     against GitHub rather than replaced -- an under-version runner fails every step
+#     before it executes, so check the runner version before pointing this at one.
+on:
+  push:
+    branches: [staging, main]
+    paths:
+      - 'rust/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/rust-checks.yml'
+      - 'scripts/ci/install-sfw.sh'
+  pull_request:
+    branches: [staging, main]
+    paths:
+      - 'rust/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/rust-checks.yml'
+      - 'scripts/ci/install-sfw.sh'
+  schedule:
+    # Mondays 05:17 UTC. Off the hour so it does not pile onto every other cron.
+    #
+    # This exists for the audit job only: a code-triggered audit only tells you about
+    # advisories published before your last commit, and the weekly run is what catches a
+    # disclosure against a dependency nobody has touched in months. Clippy opts out of it
+    # below -- a cron clippy run gates nothing and would go red the week stable ships a
+    # new lint.
+    - cron: '17 5 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  clippy:
+    name: Clippy
+    # See the schedule comment above.
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-24.04
+    # Clippy stays on cargo because this repo wires up no clippy aspect for Bazel: there is
+    # no rust_clippy target and no --aspects entry in .bazelrc, so `bazel build` has nothing
+    # to run.
+    #
+    # Note this compiles from the crates.io registry rather than //third_party/crate_mirror,
+    # so it lints the source tree rather than the artifact that ships (see
+    # rust/README_RUST.md). For lints that is the right trade; for tests it is not, which is
+    # why tests are Bazel-only.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Install Socket Firewall
+        run: bash scripts/ci/install-sfw.sh
+
+      - name: Setup Rust
+        run: |
+          set -euo pipefail
+
+          export PATH="${HOME}/.cargo/bin:${PATH}"
+          echo "${HOME}/.cargo/bin" >> "${GITHUB_PATH}"
+
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+              | sh -s -- -y --profile minimal --default-toolchain stable
+          fi
+
+          rustup toolchain install stable --profile minimal --component clippy
+          rustup default stable
+          rustc --version
+          cargo --version
+
+      # install protoc.
+      - name: Install protoc
+        env:
+          PROTOC_VERSION: '35.1'
+          PROTOC_SHA256: '6930ebf62bd4ea607b98fff052596c6ee564b9835b4ce172c75a3f53ae9d91b7'
+        run: |
+          set -euo pipefail
+
+          # The checksum above is per-asset, so an unexpected arch must fail rather than
+          # silently download something the pin does not cover.
+          case "$(uname -m)" in
+            x86_64|amd64) asset="protoc-${PROTOC_VERSION}-linux-x86_64.zip" ;;
+            *) echo "unsupported protoc runner architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
+
+          install_dir="${RUNNER_TEMP:-/tmp}/protoc"
+          rm -rf "${install_dir}"
+          mkdir -p "${install_dir}"
+
+          curl -fsSL --retry 3 \
+            "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/${asset}" \
+            -o "${install_dir}/${asset}"
+          printf '%s  %s\n' "${PROTOC_SHA256}" "${install_dir}/${asset}" | sha256sum -c -
+
+          unzip -q "${install_dir}/${asset}" -d "${install_dir}"
+          chmod +x "${install_dir}/bin/protoc"
+
+          # PROTOC as well as PATH: rust/rperf-client/build.rs prefers an injected PROTOC and
+          # otherwise guesses at system paths. PROTOC_INCLUDE keeps the well-known types
+          # (proto/discovery imports google/protobuf/wrappers.proto) resolving to this
+          # release's include/ rather than to a system copy of a different vintage.
+          echo "${install_dir}/bin" >> "${GITHUB_PATH}"
+          {
+            echo "PROTOC=${install_dir}/bin/protoc"
+            echo "PROTOC_INCLUDE=${install_dir}/include"
+          } >> "${GITHUB_ENV}"
+
+          "${install_dir}/bin/protoc" --version
+
+      # Cache keys are job-scoped. Clippy is the only job here that compiles from
+      # crates.io (the audit job installs a pinned cargo-audit binary), so a shared
+      # key is not a live race; keep this key clippy-specific anyway so a later
+      # cargo job cannot collide with this save.
+      - name: Cache Cargo registry
+        uses: actions/cache@v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-registry-clippy-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-clippy-
+
+      - name: Cache Cargo build
+        uses: actions/cache@v6.1.0
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-clippy-${{ hashFiles('**/Cargo.lock') }}
+
+      # One workspace-wide pass rather than one per crate: the crates share a target
+      # directory, so per-crate invocations rebuild the same dependencies over and over.
+      #
+      # third_party/rust_patches/* are workspace members, so --workspace reaches them, but
+      # they are vendored upstream sources carrying our build patches -- not code this repo
+      # authors, and not code a lint gate should have an opinion about. They also fail
+      # --all-targets on a clean tree because their dev-dependencies are undeclared, so
+      # linting them would gate every PR on a pre-existing upstream defect.
+      #
+      # The exclusions are derived from the manifest path rather than listed by name, so a
+      # fourth fork landing under third_party/rust_patches/ is excluded without anyone
+      # remembering to edit this file. cargo --exclude takes package names, not paths, which
+      # is why this has to go through the manifest at all.
+      - name: Clippy (workspace)
+        run: |
+          set -euo pipefail
+
+          excludes=()
+          for manifest in third_party/rust_patches/*/Cargo.toml; do
+            # An unmatched glob stays literal, so check before reading it.
+            [ -f "${manifest}" ] || continue
+
+            name="$(sed -n 's/^name[[:space:]]*=[[:space:]]*"\(.*\)".*/\1/p' "${manifest}" | head -n 1)"
+            if [ -z "${name}" ]; then
+              echo "could not read a package name from ${manifest}" >&2
+              exit 1
+            fi
+
+            echo "excluding ${name} (${manifest})"
+            excludes+=(--exclude "${name}")
+          done
+
+          # ${excludes[@]+...} keeps `set -u` happy if the directory is ever empty.
+          sfw cargo clippy --workspace --all-targets \
+            ${excludes[@]+"${excludes[@]}"} \
+            -- -D warnings
+
+      # rdp-connector-probe is deliberately detached from the workspace -- its own
+      # [workspace] table and lockfile, see rust/README_RUST.md section 1 -- so a workspace
+      # pass does not reach it.
+      - name: Clippy (rdp-connector-probe)
+        working-directory: rust/rdp-connector-probe
+        run: sfw cargo clippy --all-targets -- -D warnings
+
+  audit:
+    name: RustSec audit
+    runs-on: ubuntu-24.04
+    # RustSec advisories for rust/rdp-connector-probe, the review-only IronRDP probe.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Install Socket Firewall
+        run: bash scripts/ci/install-sfw.sh
+
+      - name: Setup Rust
+        run: |
+          set -euo pipefail
+
+          export PATH="${HOME}/.cargo/bin:${PATH}"
+          echo "${HOME}/.cargo/bin" >> "${GITHUB_PATH}"
+
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+              | sh -s -- -y --profile minimal --default-toolchain stable
+          fi
+
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          cargo --version
+
+      # cargo-audit is a CI tool, not a workspace crate. Compiling it with
+      # `sfw cargo install` talks to crates.io for a few hundred build-deps
+      # through Socket Firewall; that proxy has been observed to log
+      # `AggregateError [ETIMEDOUT]` and still exit 0, so the next step ran
+      # `cargo audit` against a missing plugin (`error: no such command: audit`).
+      # The official GitHub release tarball is one checksummed artifact, same
+      # pattern as protoc in this file and scripts/ci/install-sfw.sh.
+      - name: Install Cargo Audit
+        env:
+          CARGO_AUDIT_VERSION: '0.22.2'
+          CARGO_AUDIT_SHA256: 'ab28a1bdb54db4d5d8ad5981cf1f959410370b3d28250dbd35f6a44248620e39'
+        run: |
+          set -euo pipefail
+
+          export PATH="${HOME}/.cargo/bin:${PATH}"
+
+          case "$(uname -m)" in
+            x86_64|amd64) triple="x86_64-unknown-linux-gnu" ;;
+            *) echo "unsupported cargo-audit runner architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
+
+          asset="cargo-audit-${triple}-v${CARGO_AUDIT_VERSION}.tgz"
+          install_dir="${RUNNER_TEMP:-/tmp}/cargo-audit"
+          rm -rf "${install_dir}"
+          mkdir -p "${install_dir}"
+
+          curl -fsSL --retry 3 \
+            "https://github.com/rustsec/rustsec/releases/download/cargo-audit/v${CARGO_AUDIT_VERSION}/${asset}" \
+            -o "${install_dir}/${asset}"
+          printf '%s  %s\n' "${CARGO_AUDIT_SHA256}" "${install_dir}/${asset}" | sha256sum -c -
+
+          tar -xzf "${install_dir}/${asset}" -C "${install_dir}"
+          bin="${install_dir}/cargo-audit-${triple}-v${CARGO_AUDIT_VERSION}/cargo-audit"
+          if [ ! -f "${bin}" ]; then
+            echo "cargo-audit binary missing from ${asset}" >&2
+            tar -tzf "${install_dir}/${asset}" >&2
+            exit 1
+          fi
+          chmod +x "${bin}"
+
+          mkdir -p "${HOME}/.cargo/bin"
+          install -m 0755 "${bin}" "${HOME}/.cargo/bin/cargo-audit"
+
+          # Fail closed: a wrapper that logs an error and exits 0 must not
+          # proceed to `cargo audit` with an empty ~/.cargo/bin.
+          cargo audit --version
+          cargo audit --version | grep -F "${CARGO_AUDIT_VERSION}" >/dev/null
+
+      # --no-fetch against a freshly cloned database, rather than letting cargo-audit fetch:
+      # the clone is visible in the log, so a run can be reproduced against exactly the
+      # advisory set it saw.
+      - name: Audit RDP connector probe dependencies
+        run: |
+          set -euo pipefail
+
+          if ! command -v cargo-audit >/dev/null 2>&1; then
+            echo "cargo-audit is not on PATH; refusing to run cargo audit" >&2
+            cargo --list || true
+            ls -la "${HOME}/.cargo/bin" || true
+            exit 1
+          fi
+
+          advisory_db="${RUNNER_TEMP:-/tmp}/rustsec-advisory-db"
+          rm -rf "${advisory_db}"
+          git clone --depth 1 https://github.com/RustSec/advisory-db.git "${advisory_db}"
+
+          cd rust/rdp-connector-probe
+          sfw cargo audit --db "${advisory_db}" --no-fetch --deny warnings \
+            --ignore RUSTSEC-2023-0071 \
+            --ignore RUSTSEC-2023-0089
+
+          {
+            echo "## RDP Connector Probe RustSec Audit"
+            echo
+            echo "Known accepted advisories for the review-only IronRDP connector probe:"
+            echo "- RUSTSEC-2023-0071: rsa Marvin timing issue via connector 0.10.0 -> sspi 0.21.1 -> picky 7.0.0-rc.25; no fixed upgrade is available in this IronRDP family."
+            echo "- RUSTSEC-2023-0089: atomic-polyfill is unmaintained in connector 0.10.0's forced sspi/scard build subtree; ServiceRadar rejects smart-card redirection at runtime."
+            echo "- Reviewed exact family: blocking/connector 0.10.0, core 0.2.1, graphics/pdu 0.9.0, session 0.11.0."
+            echo "- Yanked spin 0.9.8 is absent. Non-yanked spin 0.9.9 remains unreachable smart-card build baggage until IronRDP feature-gates sspi/scard."
+            echo
+            echo "Any additional RustSec vulnerability or warning fails this job."
+          } >> "${GITHUB_STEP_SUMMARY}"

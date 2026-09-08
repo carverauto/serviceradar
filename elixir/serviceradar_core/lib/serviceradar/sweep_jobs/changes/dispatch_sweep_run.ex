@@ -1,0 +1,18 @@
+defmodule ServiceRadar.SweepJobs.Changes.DispatchSweepRun do
+  @moduledoc """
+  Dispatches an on-demand sweep run over the agent command bus.
+  """
+
+  use Ash.Resource.Change
+
+  alias ServiceRadar.Changes.DispatchAgentCommand
+  alias ServiceRadar.Edge.AgentCommandBus
+
+  @impl true
+  def change(changeset, _opts, _context) do
+    DispatchAgentCommand.after_action(changeset, &AgentCommandBus.run_sweep_group/2)
+  end
+
+  @impl true
+  def atomic(changeset, opts, context), do: {:ok, change(changeset, opts, context)}
+end

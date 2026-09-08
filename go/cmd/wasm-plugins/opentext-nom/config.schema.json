@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "title": "OpenText NOM inventory",
+  "x-serviceradar-docs-url": "https://docs.serviceradar.cloud/docs/opentext-nom",
+  "additionalProperties": false,
+  "required": ["instance_id", "api_url"],
+  "properties": {
+    "instance_id": {
+      "type": "string",
+      "title": "OpenText NOM instance ID",
+      "description": "Stable identifier for this NOM installation (for example nom-prod). It becomes part of source object IDs; do not rename it later.",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "nnm_url": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://",
+      "title": "NNMi origin URL",
+      "description": "NNMi HTTPS origin only (no path) when Network Automation is integrated with NNMi. Example: https://nnm.example.com:443. The plugin requests the token from {nnm_url}/idp/oauth2/token. Leave blank for standalone Network Automation."
+    },
+    "token_url": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://",
+      "title": "OAuth token URL",
+      "description": "Leave blank unless you must override the derived token endpoint. NNMi-integrated example: https://nnm.example.com:443/idp/oauth2/token. Standalone NA example: https://na.example.com/nom-na/idp/oauth2/token. When both nnm_url and token_url are set they must match.",
+      "x-serviceradar-ui-advanced": true
+    },
+    "l2_endpoints": {
+      "type": "array",
+      "maxItems": 5000,
+      "title": "NNMi L2 endpoints",
+      "description": "Leave empty on the first import. Optional ServiceRadar endpoint MAC/IP values for NNMi attached-switch-port lookup (GET {nnm_url}/nnmi/api/disco/v1/attachedSwitchPort). Ignored when nnm_url is omitted. Never populated from Network Automation switch inventory.",
+      "x-serviceradar-ui-advanced": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "mac": {"type": "string"},
+          "ip": {"type": "string"}
+        }
+      }
+    },
+    "api_url": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://",
+      "title": "Automation wrapper URL",
+      "description": "Network Automation REST automation wrapper, not the NA web UI and not an NNMi URL. Default path is /nom/api/automation/v1/wrapper. Example: https://na.example.com/nom/api/automation/v1/wrapper. Must be https, include that path, and must not end with a slash."
+    },
+    "queries": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "x-serviceradar-ui-advanced": true,
+      "default": [
+        {
+          "name": "switches",
+          "parameters": {"type": "Switch"}
+        }
+      ],
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "parameters"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$"
+          },
+          "parameters": {
+            "$ref": "#/$defs/queryParameters"
+          }
+        }
+      }
+    },
+    "page_size": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5000,
+      "default": 1000,
+      "x-serviceradar-ui-advanced": true
+    },
+    "max_rows": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100000,
+      "default": 25000,
+      "x-serviceradar-ui-advanced": true
+    },
+    "max_result_bytes": {
+      "type": "integer",
+      "minimum": 65536,
+      "maximum": 12582912,
+      "default": 10485760,
+      "x-serviceradar-ui-advanced": true
+    },
+    "request_timeout_seconds": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 300,
+      "default": 30,
+      "x-serviceradar-ui-advanced": true
+    },
+    "max_retries": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 5,
+      "default": 2,
+      "x-serviceradar-ui-advanced": true
+    },
+    "insecure_skip_verify": {
+      "type": "boolean",
+      "default": false,
+      "title": "Skip TLS verification",
+      "description": "Disable TLS certificate verification for Network Automation and NNMi. Use only when those hosts present untrusted certificates on a network path you already trust. Off by default."
+    }
+  },
+  "$defs": {
+    "queryParameters": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 16,
+      "additionalProperties": false,
+      "properties": {
+        "software": {"type": "string", "minLength": 1, "maxLength": 512},
+        "vendor": {"type": "string", "minLength": 1, "maxLength": 512},
+        "type": {"type": "string", "minLength": 1, "maxLength": 512},
+        "model": {"type": "string", "minLength": 1, "maxLength": 512},
+        "family": {"type": "string", "minLength": 1, "maxLength": 512},
+        "group": {"type": "string", "minLength": 1, "maxLength": 512},
+        "hierarchy": {"type": "string", "minLength": 1, "maxLength": 512},
+        "host": {"type": "string", "minLength": 1, "maxLength": 512},
+        "ip": {"type": "string", "minLength": 1, "maxLength": 512},
+        "realm": {"type": "string", "minLength": 1, "maxLength": 512},
+        "vtpdomain": {"type": "string", "minLength": 1, "maxLength": 512},
+        "disabled": {"type": "boolean"},
+        "pollexcluded": {"type": "boolean"},
+        "ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1000,
+          "uniqueItems": true,
+          "items": {"type": "integer", "minimum": 1}
+        },
+        "context": {"type": "string", "minLength": 1, "maxLength": 512}
+      },
+      "dependentRequired": {
+        "context": ["ip"]
+      }
+    }
+  }
+}

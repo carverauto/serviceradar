@@ -1,0 +1,208 @@
+{{- /* Component gate (issue #3859). ABSENT MEANS ENABLED: hasKey is used rather than a
+     truthiness test so that a chart or values file which never mentions `enabled`
+     renders exactly as before, and only an explicit `k8sInventory.enabled: false` removes
+     this component. `default true` cannot be used here -- Helm treats false as empty,
+     so it would resurrect anything explicitly disabled. */ -}}
+{{- $gate10 := default (dict) .Values.k8sInventory -}}
+{{- if or (not (hasKey $gate10 "enabled")) $gate10.enabled }}
+{{- $inv := default (dict) .Values.k8sInventory -}}
+{{- if $inv.enabled }}
+{{- $metrics := default (dict) $inv.metrics -}}
+{{- $nats := default (dict) $inv.nats -}}
+{{- $publish := default (dict) $inv.publish -}}
+{{- $resync := default (dict) $inv.resync -}}
+{{- $gateway := default (dict) $inv.gatewayAPI -}}
+{{- $envoyProxy := default (dict) $inv.envoyProxyCRD -}}
+{{- $nodes := default (dict) $inv.nodes -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: serviceradar-k8s-inventory
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: k8s-inventory
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: serviceradar-k8s-inventory
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: k8s-inventory
+rules:
+  # Public endpoint ownership and Node Ready inventory — read-only, no secrets/pods/exec.
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "watch"]
+  {{- if or (not (hasKey $nodes "enabled")) $nodes.enabled }}
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+  {{- end }}
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["get", "list", "watch"]
+  {{- if default true $gateway.enabled }}
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources:
+      - gateways
+      - httproutes
+      - grpcroutes
+      - tcproutes
+      - udproutes
+      - tlsroutes
+    verbs: ["get", "list", "watch"]
+  {{- end }}
+  {{- if default false $envoyProxy.enabled }}
+  - apiGroups: ["gateway.envoyproxy.io"]
+    resources: ["envoyproxies"]
+    verbs: ["get", "list", "watch"]
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: serviceradar-k8s-inventory
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: k8s-inventory
+subjects:
+  - kind: ServiceAccount
+    name: serviceradar-k8s-inventory
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: serviceradar-k8s-inventory
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-k8s-inventory
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: serviceradar-k8s-inventory
+    app.kubernetes.io/name: serviceradar-k8s-inventory
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: k8s-inventory
+spec:
+  replicas: {{ default 1 $inv.replicaCount }}
+  selector:
+    matchLabels:
+      app: serviceradar-k8s-inventory
+      app.kubernetes.io/part-of: serviceradar
+  template:
+    metadata:
+      labels:
+        app: serviceradar-k8s-inventory
+        app.kubernetes.io/name: serviceradar-k8s-inventory
+        app.kubernetes.io/part-of: serviceradar
+        app.kubernetes.io/component: k8s-inventory
+      annotations:
+        {{- include "serviceradar.runtimeCertRollAnnotations" . | nindent 8 }}
+        {{- if .Values.global.forceRolloutOnUpgrade }}
+        serviceradar.io/release-revision: {{ .Release.Revision | quote }}
+        {{- end }}
+    spec:
+      {{- include "serviceradar.topologySpread" (dict "root" . "app" "serviceradar-k8s-inventory") | nindent 6 }}
+      serviceAccountName: serviceradar-k8s-inventory
+      {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
+      containers:
+        - name: k8s-inventory
+          image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-k8s-inventory" "service" "k8sInventory") }}
+          imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+          {{- include "serviceradar.containerSecurityContext" . | nindent 10 }}
+          args: ["run"]
+          env:
+            - name: CLUSTER_ID
+              value: {{ default .Release.Namespace $inv.clusterId | quote }}
+            - name: PUBLISH_MODE
+              value: {{ default "nats" $inv.publishMode | quote }}
+            - name: K8S_INVENTORY_SUBJECT
+              value: {{ default "inventory.k8s.public_endpoints" $nats.subject | quote }}
+            - name: NATS_HOSTPORT
+              value: {{ default "tls://serviceradar-nats:4222" $nats.hostPort | quote }}
+            - name: NATS_STREAM
+              value: {{ default "k8s_inventory" $nats.stream | quote }}
+            - name: NATS_CACERTFILE
+              value: {{ default "/etc/serviceradar/certs/ca.crt" $nats.caCertFile | quote }}
+            - name: NATS_CERTFILE
+              value: {{ default "/etc/serviceradar/certs/k8s-inventory.pem" $nats.certFile | quote }}
+            - name: NATS_KEYFILE
+              value: {{ default "/etc/serviceradar/certs/k8s-inventory-key.pem" $nats.keyFile | quote }}
+            - name: NATS_SERVER_NAME
+              value: {{ default "serviceradar-nats" $nats.serverName | quote }}
+            - name: K8S_INVENTORY_METRICS_ADDR
+              value: {{ default ":9109" $metrics.addr | quote }}
+            - name: K8S_INVENTORY_RESYNC
+              value: {{ default "5m" $resync.period | quote }}
+            - name: K8S_INVENTORY_DEBOUNCE
+              value: {{ default "2s" $resync.debounce | quote }}
+            - name: K8S_INVENTORY_GATEWAY_API
+              value: {{ default true $gateway.enabled | quote }}
+            - name: K8S_INVENTORY_NODES
+              value: {{ (or (not (hasKey $nodes "enabled")) $nodes.enabled) | quote }}
+            - name: K8S_INVENTORY_PUBLISH_MAX_RETRIES
+              value: {{ default 5 $publish.maxRetries | quote }}
+            - name: K8S_INVENTORY_PUBLISH_TIMEOUT
+              value: {{ default "5s" $publish.timeout | quote }}
+            - name: K8S_INVENTORY_PUBLISH_RETRY_DELAY
+              value: {{ default "500ms" $publish.retryDelay | quote }}
+            {{- if $inv.namespaces }}
+            - name: K8S_INVENTORY_NAMESPACES
+              value: {{ join "," $inv.namespaces | quote }}
+            {{- end }}
+          ports:
+            - name: metrics
+              containerPort: {{ default 9109 $metrics.port }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+{{ toYaml (default (dict "requests" (dict "cpu" "50m" "memory" "128Mi") "limits" (dict "cpu" "500m" "memory" "512Mi")) $inv.resources) | indent 12 }}
+          volumeMounts:
+            - name: cert-data
+              mountPath: /etc/serviceradar/certs
+              readOnly: true
+      volumes:
+        - name: cert-data
+          secret:
+            secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
+            items:
+{{ include "serviceradar.runtimeCertItems" (list "root.pem" "ca.crt" "k8s-inventory.pem" "k8s-inventory-key.pem") | indent 14 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-k8s-inventory
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: serviceradar-k8s-inventory
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: k8s-inventory
+spec:
+  selector:
+    app: serviceradar-k8s-inventory
+  ports:
+    - name: metrics
+      port: {{ default 9109 $metrics.port }}
+      targetPort: metrics
+      protocol: TCP
+{{- end }}
+{{- end }}

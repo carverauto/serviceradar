@@ -1,0 +1,233 @@
+{
+  "id": "cloud.serviceradar.security-findings",
+  "name": "Security Findings",
+  "version": "0.1.0",
+  "vendor": "ServiceRadar",
+  "description": "Security operations dashboard for OCSF findings, scan activity, and DNS security events tied to inventory devices.",
+  "capabilities": [
+    "srql.execute",
+    "navigation.open"
+  ],
+  "data_frames": [
+    {
+      "id": "findings_recent",
+      "query": "in:security_findings sort:time:desc limit:100",
+      "encoding": "json_rows",
+      "limit": 100,
+      "required": true,
+      "fields": [
+        "id",
+        "time",
+        "class_uid",
+        "class_name",
+        "finding_uid",
+        "finding_title",
+        "severity",
+        "message",
+        "source",
+        "source_device_uid",
+        "metadata",
+        "device"
+      ]
+    },
+    {
+      "id": "scan_activity_recent",
+      "query": "in:scan_activity sort:time:desc limit:80",
+      "encoding": "json_rows",
+      "limit": 80,
+      "required": true,
+      "fields": [
+        "id",
+        "time",
+        "activity_name",
+        "status",
+        "message",
+        "source",
+        "source_device_uid",
+        "metadata",
+        "device"
+      ]
+    },
+    {
+      "id": "dns_activity_recent",
+      "query": "in:dns_activity sort:time:desc limit:80",
+      "encoding": "json_rows",
+      "limit": 80,
+      "required": true,
+      "fields": [
+        "id",
+        "time",
+        "severity",
+        "message",
+        "status",
+        "source",
+        "source_device_uid",
+        "metadata",
+        "device"
+      ]
+    },
+    {
+      "id": "vulnerability_findings",
+      "query": "in:security_findings class_uid:2002 sort:time:desc limit:80",
+      "encoding": "json_rows",
+      "limit": 80,
+      "required": false,
+      "fields": [
+        "id",
+        "time",
+        "severity",
+        "finding_uid",
+        "finding_title",
+        "message",
+        "source_device_uid",
+        "metadata"
+      ]
+    },
+    {
+      "id": "trivy_findings_latest",
+      "query": "in:security_findings source:trivy sort:time:desc limit:1",
+      "encoding": "json_rows",
+      "limit": 1,
+      "required": false,
+      "fields": [
+        "id",
+        "time",
+        "class_uid",
+        "finding_uid",
+        "finding_title",
+        "severity",
+        "message",
+        "source_device_uid",
+        "metadata",
+        "device"
+      ]
+    },
+    {
+      "id": "trivy_scan_latest",
+      "query": "in:scan_activity source:trivy sort:time:desc limit:1",
+      "encoding": "json_rows",
+      "limit": 1,
+      "required": false,
+      "fields": [
+        "id",
+        "time",
+        "activity_name",
+        "status",
+        "message",
+        "source_device_uid",
+        "metadata",
+        "device"
+      ]
+    },
+    {
+      "id": "bumblebee_findings_latest",
+      "query": "in:security_findings source:bumblebee sort:time:desc limit:1",
+      "encoding": "json_rows",
+      "limit": 1,
+      "required": false,
+      "fields": [
+        "id",
+        "time",
+        "class_uid",
+        "finding_uid",
+        "finding_title",
+        "severity",
+        "message",
+        "source_device_uid",
+        "metadata",
+        "device"
+      ]
+    },
+    {
+      "id": "bumblebee_scan_latest",
+      "query": "in:scan_activity source:bumblebee sort:time:desc limit:1",
+      "encoding": "json_rows",
+      "limit": 1,
+      "required": false,
+      "fields": [
+        "id",
+        "time",
+        "activity_name",
+        "status",
+        "message",
+        "source_device_uid",
+        "metadata",
+        "device"
+      ]
+    },
+    {
+      "id": "falco_findings_latest",
+      "query": "in:security_findings source:falco sort:time:desc limit:1",
+      "encoding": "json_rows",
+      "limit": 1,
+      "required": false,
+      "fields": [
+        "id",
+        "time",
+        "class_uid",
+        "finding_uid",
+        "finding_title",
+        "severity",
+        "message",
+        "source_device_uid",
+        "metadata",
+        "device"
+      ]
+    },
+    {
+      "id": "endpoint_inventory_findings_latest",
+      "query": "in:security_findings source:endpoint_inventory sort:time:desc limit:1",
+      "encoding": "json_rows",
+      "limit": 1,
+      "required": false,
+      "fields": [
+        "id",
+        "time",
+        "class_uid",
+        "finding_uid",
+        "finding_title",
+        "severity",
+        "message",
+        "source_device_uid",
+        "metadata",
+        "device"
+      ]
+    },
+    {
+      "id": "powerdns_dns_latest",
+      "query": "in:dns_activity source:powerdns sort:time:desc limit:1",
+      "encoding": "json_rows",
+      "limit": 1,
+      "required": false,
+      "fields": [
+        "id",
+        "time",
+        "severity",
+        "message",
+        "status",
+        "source_device_uid",
+        "metadata",
+        "device"
+      ]
+    }
+  ],
+  "settings_schema": {
+    "type": "object",
+    "properties": {
+      "defaultWindow": {
+        "type": "string",
+        "title": "Default time window",
+        "default": "latest"
+      }
+    }
+  },
+  "renderer": {
+    "kind": "built_in",
+    "interface_version": "dashboard-built-in-v1",
+    "artifact": "security-findings",
+    "trust": "first_party",
+    "entrypoint": "security_findings",
+    "sha256": "64f88bd31a6ba3c6a9fd3f70b2a9e11b9f8d90732d7f1b9f24b81a15fcb7a4f2"
+  },
+  "schema_version": 1
+}

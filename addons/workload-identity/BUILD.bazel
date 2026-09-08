@@ -1,0 +1,36 @@
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+exports_files([
+    "addon.yaml",
+    "config.schema.json",
+    "serviceradar-workload-identity.service",
+    "workload-identity.json",
+])
+
+filegroup(
+    name = "workload_identity_manifest",
+    srcs = [
+        "addon.yaml",
+        "config.schema.json",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "workload_identity_systemd_unit",
+    srcs = ["serviceradar-workload-identity.service"],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "workload_identity_runtime_config",
+    srcs = ["workload-identity.json"],
+    visibility = ["//visibility:public"],
+)
+
+sh_test(
+    name = "workload_identity_systemd_state_test",
+    srcs = ["workload_identity_systemd_state_test.sh"],
+    args = ["$(rootpath :serviceradar-workload-identity.service)"],
+    data = [":serviceradar-workload-identity.service"],
+)

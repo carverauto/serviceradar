@@ -1,0 +1,846 @@
+"""Bazel-native OCI images."""
+
+load("@io_bazel_rules_go//go:def.bzl", "go_test")
+load("@rules_python//python:py_test.bzl", "py_test")
+load("//docker/images:analytics_image.bzl", "declare_cnpg_analytics_image_amd64")
+load("//docker/images:apk.bzl", "apk_rootfs_amd64", "declare_alpine_netutils_rootfs", "declare_apk_rootfs_targets")
+load("//docker/images:cnpg_image.bzl", "declare_cnpg_image_amd64")
+load("//docker/images:image_inventory.bzl", "publishable_image_labels")
+load("//docker/images:push_targets.bzl", "declare_oci_push_targets")
+load(
+    "//docker/images:release_images.bzl",
+    "declare_elixir_release_container_amd64",
+    "declare_elixir_release_container_with_debs_amd64",
+    "declare_web_ng_release_container_amd64",
+    "file_layer_amd64",
+)
+load(
+    "//docker/images:service_images.bzl",
+    "declare_common_tools_layer",
+    "declare_custom_base_service_container_amd64",
+    "declare_loaded_oci_image_amd64",
+    "declare_multiarch_image_index",
+    "declare_postgresql_client_symlink_layer",
+    "declare_service_container_amd64",
+    "declare_serviceradar_user_layer",
+)
+
+exports_files([
+    "check_extension_abi.py",
+    "export_rootfs_from_layout.py",
+    "extract_rootfs.py",
+    "image_inventory.bzl",
+    "overlay_deb_packages.py",
+    "pg_config_rewrite.py",
+    "pg_config_wrapper.sh",
+])
+
+package(default_visibility = ["//visibility:public"])
+
+# ARC runner image -----------------------------------------------------------
+
+declare_loaded_oci_image_amd64(
+    name = "arc_runner_image_amd64",
+    base = "@arc_runner_linux_amd64//:arc_runner_linux_amd64",
+    image_title = "arc-runner",
+    repo_tags = ["registry.carverauto.dev/serviceradar/arc-runner:local"],
+)
+
+declare_common_tools_layer()
+
+declare_serviceradar_user_layer()
+
+declare_apk_rootfs_targets([
+    ("iputils_ping", "@alpine_iputils_ping_apk//file"),
+    ("nmap", "@alpine_nmap_apk//file"),
+    ("netcat", "@alpine_netcat_openbsd_apk//file"),
+    ("inetutils_telnet", "@alpine_inetutils_telnet_apk//file"),
+    ("libcap2", "@alpine_libcap2_apk//file"),
+    ("libpcap", "@alpine_libpcap_apk//file"),
+    ("libbsd", "@alpine_libbsd_apk//file"),
+    ("libmd", "@alpine_libmd_apk//file"),
+    ("bash", "@alpine_bash_apk//file"),
+    ("readline", "@alpine_readline_apk//file"),
+])
+
+apk_rootfs_amd64(
+    name = "glibc",
+    apk_target = "@alpine_glibc_apk//file",
+    post_extract_cmd = """
+# Ensure ld-linux is reachable from /lib64 for glibc binaries.
+mkdir -p "$${TMP}/rootfs/lib64"
+if [ -f "$${TMP}/rootfs/lib/ld-linux-x86-64.so.2" ] && [ ! -e "$${TMP}/rootfs/lib64/ld-linux-x86-64.so.2" ]; then
+  ln -s ../lib/ld-linux-x86-64.so.2 "$${TMP}/rootfs/lib64/ld-linux-x86-64.so.2"
+fi
+""",
+)
+
+declare_apk_rootfs_targets([
+    ("libncursesw", "@alpine_libncursesw_apk//file"),
+    ("ncurses_terminfo_base", "@alpine_ncurses_terminfo_base_apk//file"),
+    ("tools_bash", "@alpine_3_24_bash_apk//file"),
+    ("tools_openssl", "@alpine_3_24_openssl_apk//file"),
+    ("tools_libssl3", "@alpine_3_24_libssl3_apk//file"),
+    ("tools_libcrypto3", "@alpine_3_24_libcrypto3_apk//file"),
+    ("tools_readline", "@alpine_3_24_readline_apk//file"),
+    ("tools_postgresql_common", "@alpine_3_24_postgresql_common_apk//file"),
+    ("tools_postgresql18_client", "@alpine_3_24_postgresql18_client_apk//file"),
+    ("tools_libpq", "@alpine_3_24_libpq_apk//file"),
+    ("tools_lz4_libs", "@alpine_3_24_lz4_libs_apk//file"),
+    ("tools_zstd_libs", "@alpine_3_24_zstd_libs_apk//file"),
+    ("tools_libncursesw", "@alpine_3_24_libncursesw_apk//file"),
+    ("tools_ncurses_terminfo_base", "@alpine_3_24_ncurses_terminfo_base_apk//file"),
+])
+
+declare_alpine_netutils_rootfs()
+
+# web-ng (Phoenix) -----------------------------------------------------------
+
+file_layer_amd64(
+    name = "sshca_signer_layer_amd64",
+    src = "//go/cmd/tools/sshca-signer",
+    target_compatible_with = [],
+    target_path = "usr/local/bin/serviceradar-sshca-signer",
+)
+
+file_layer_amd64(
+    name = "ubuntu_feed_merge_layer_amd64",
+    src = "//go/cmd/tools/ubuntu-feed-merge",
+    target_compatible_with = [],
+    target_path = "usr/local/bin/serviceradar-ubuntu-feed-merge",
+)
+
+# bun (React SSR) and cosign are third-party binaries baked into the web-ng image, so each
+# needs its own arm64 pin. Aliases rather than a select() passed to the macro: both reach
+# file_layer_amd64, which uses `src` as a dict KEY, and a select is unhashable at loading
+# time. Same device as :agent_gateway_openssl_deb and :agent_netprobe.
+alias(
+    name = "web_ng_bun",
+    actual = select({
+        "//build/platforms:target_linux_arm64": "@bun_linux_aarch64//:bun",
+        "//conditions:default": "@bun_linux_amd64//:bun",
+    }),
+)
+
+alias(
+    name = "web_ng_cosign",
+    actual = select({
+        "//build/platforms:target_linux_arm64": "@cosign_linux_arm64//file",
+        "//conditions:default": "@cosign_linux_amd64//file",
+    }),
+)
+
+declare_web_ng_release_container_amd64(
+    name = "web_ng_image_amd64",
+    base = select({
+        "//build/platforms:target_linux_arm64": "@ubuntu_noble_linux_arm64_v8//:ubuntu_noble_linux_arm64_v8",
+        "//conditions:default": "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
+    }),
+    base_image_name = "web_ng_image_base_amd64",
+    bun_src = ":web_ng_bun",
+    cmd = ["start"],
+    cosign_src = ":web_ng_cosign",
+    env = {
+        "HOME": "/app",
+        "PATH": "/app/bin:/usr/local/bin:/usr/bin:/bin",
+        "PHX_SERVER": "true",
+        "MIX_ENV": "prod",
+        "SSL_CERT_FILE": "/etc/ssl/certs/ca-certificates.crt",
+    },
+    exposed_ports = ["4000/tcp"],
+    extra_tars = [
+        ":sshca_signer_layer_amd64",
+    ],
+    image_title = "serviceradar-web-ng",
+    local_repo_tag = "registry.carverauto.dev/serviceradar/serviceradar-web-ng:local",
+    release_tar = "//elixir/web-ng:release_tar",
+    target_compatible_with = [],
+    workdir = "/app",
+)
+
+# The first Elixir image in the index, and the one that forced //build:mix_app.bzl to learn
+# the target triple. Every architecture-keyed artefact in this release used to be resolved
+# from the BUILD HOST: adbc and lazy_html downloaded a prebuilt keyed on
+# `:erlang.system_info(:system_architecture)`, and mdex_native did the same through
+# rustler_precompiled -- so an arm64 image shipped x86-64 .so files that failed to dlopen at
+# runtime with a misleading ENOENT. mix_app now exports TARGET_ARCH/VENDOR/OS/ABI, stages
+# //third_party/precompiled_nifs as a declared input, and asserts every emitted .so matches
+# the target's ELF e_machine before the action can succeed.
+declare_multiarch_image_index(
+    name = "web_ng_image_multiarch",
+    image = ":web_ng_image_amd64",
+)
+
+# elixir core-elx ------------------------------------------------------------
+
+declare_elixir_release_container_amd64(
+    name = "core_elx_image_amd64",
+    base = select({
+        "//build/platforms:target_linux_arm64": "@ubuntu_noble_linux_arm64_v8//:ubuntu_noble_linux_arm64_v8",
+        "//conditions:default": "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
+    }),
+    cmd = ["start"],
+    entrypoint = ["/app/bin/serviceradar_core_elx"],
+    env = {
+        "HOME": "/app",
+        "PATH": "/app/bin:/usr/local/bin:/usr/bin:/bin",
+        "MIX_ENV": "prod",
+    },
+    extra_tars = [
+        ":sshca_signer_layer_amd64",
+        ":ubuntu_feed_merge_layer_amd64",
+    ],
+    image_title = "serviceradar-core-elx",
+    local_repo_tag = "registry.carverauto.dev/serviceradar/serviceradar-core-elx:local",
+    release_tar = "//elixir/serviceradar_core_elx:release_tar",
+    target_compatible_with = [],
+    workdir = "/app",
+)
+
+# The last image to go multi-arch, and the one that needed real work rather than a base
+# image. Three packages in its closure resolved an architecture from the build host:
+# ex_dtls and ex_libsrt were pinned to the executor's gcc because pkg-config gave them no
+# OpenSSL directories (//third_party/openssl is the sysroot that replaced that), and vix
+# loads its own NIF during `mix compile`, so it needs the executor's artefact to build and
+# the target's to ship (_HOST_NIF_APPS in //build:mix_app.bzl). The ten precompiled Membrane
+# OS deps were the fourth, fixed in Bundlex itself.
+declare_multiarch_image_index(
+    name = "core_elx_image_multiarch",
+    image = ":core_elx_image_amd64",
+)
+
+# elixir agent-gateway -------------------------------------------------------
+
+# The two OpenSSL debs the gateway overlays, selected per target architecture.
+#
+# Aliases rather than a select on `deb_packages` directly: that macro builds its genrule command
+# by string-formatting $(location) for each package at LOADING time, where a select is not
+# iterable. Wrapping each label keeps the list static and defers the choice to analysis, which
+# is the same device :agent_netprobe uses for the netprobe binary.
+alias(
+    name = "agent_gateway_openssl_deb",
+    actual = select({
+        "//build/platforms:target_linux_arm64": "@debian_openssl_arm64_deb//file",
+        "//conditions:default": "@debian_openssl_amd64_deb//file",
+    }),
+)
+
+alias(
+    name = "agent_gateway_libssl3_deb",
+    actual = select({
+        "//build/platforms:target_linux_arm64": "@debian_libssl3_arm64_deb//file",
+        "//conditions:default": "@debian_libssl3_amd64_deb//file",
+    }),
+)
+
+# First Elixir image to go multi-arch. The release itself was the hard part and is solved
+# upstream of here: //elixir/serviceradar_agent_gateway:release_tar embeds an arm64 ERTS and
+# arm64 OTP applications via include_erts, so this file only has to stop pinning the two
+# amd64-only layers wrapped around it -- the base and the OpenSSL debs.
+declare_elixir_release_container_with_debs_amd64(
+    name = "agent_gateway_image_amd64",
+    base = select({
+        "//build/platforms:target_linux_arm64": "@ubuntu_noble_linux_arm64_v8//:ubuntu_noble_linux_arm64_v8",
+        "//conditions:default": "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
+    }),
+    cmd = ["start"],
+    deb_packages = [
+        ":agent_gateway_openssl_deb",
+        ":agent_gateway_libssl3_deb",
+    ],
+    entrypoint = ["/app/bin/serviceradar_agent_gateway"],
+    env = {
+        "HOME": "/app",
+        "PATH": "/app/bin:/usr/local/bin:/usr/bin:/bin",
+        "MIX_ENV": "prod",
+    },
+    image_title = "serviceradar-agent-gateway",
+    local_repo_tag = "registry.carverauto.dev/serviceradar/serviceradar-agent-gateway:local",
+    release_tar = "//elixir/serviceradar_agent_gateway:release_tar",
+    workdir = "/app",
+)
+
+declare_multiarch_image_index(
+    name = "agent_gateway_image_multiarch",
+    image = ":agent_gateway_image_amd64",
+)
+
+# The netprobe the agent image ships, selected per target architecture.
+#
+# //rust/netprobe:netprobe under the release platform is a glibc build, which is why this
+# image used to carry the sgerrand alpine-pkg-glibc APK and a hand-made /lib64/ld-linux
+# symlink. That APK is x86_64-only by design and has no aarch64 build in any release, so a
+# glibc netprobe makes an arm64 agent image impossible. The musl filegroups below are static
+# (asserted by //rust/netprobe:static_linkage_test for both architectures), which drops the
+# glibc dependency entirely.
+#
+# An alias rather than a select() inside `files`, because there the label is the dict KEY.
+alias(
+    name = "agent_netprobe",
+    actual = select({
+        "//build/platforms:target_linux_arm64": "//rust/netprobe:netprobe_linux_aarch64_musl",
+        "//conditions:default": "//rust/netprobe:netprobe_linux_x86_64_musl",
+    }),
+)
+
+declare_service_container_amd64(
+    name = "agent_image_amd64",
+    cmd = [
+        "/usr/local/lib/serviceradar/agent/serviceradar-agent-seed",
+        "-config",
+        "/etc/serviceradar/agent.json",
+    ],
+    empty_dirs = [
+        "usr/local/lib/serviceradar/agent",
+        "usr/local/lib/serviceradar/bin",
+        "var/lib/serviceradar/agent",
+        "var/lib/serviceradar/agent/versions",
+        "var/lib/serviceradar/agent/tmp",
+        "var/lib/serviceradar",
+        "var/log/serviceradar",
+    ],
+    exposed_ports = ["50051/tcp"],
+    files = {
+        "//build/packaging/agent:bin/serviceradar-agent": "usr/local/bin/serviceradar-agent",
+        "//go/cmd/agent:agent": "usr/local/lib/serviceradar/agent/serviceradar-agent-seed",
+        "//go/cmd/agent-updater:agent_updater": "usr/local/bin/serviceradar-agent-updater",
+        ":agent_netprobe": "usr/local/lib/serviceradar/bin/serviceradar-netprobe",
+        "//docker/compose:agent.docker.json": "etc/serviceradar/agent.json",
+        "//docker/compose:sweep.docker.json": "etc/serviceradar/checkers/sweep/sweep.json",
+    },
+    image_title = "serviceradar-agent",
+    modes = {
+        "usr/local/bin/serviceradar-agent": "0755",
+        "usr/local/bin/serviceradar-agent-updater": "0755",
+        "usr/local/lib/serviceradar/agent/serviceradar-agent-seed": "0755",
+        "usr/local/lib/serviceradar/bin/serviceradar-netprobe": "0755",
+        "etc/serviceradar/agent.json": "0644",
+        "etc/serviceradar/checkers/sweep/sweep.json": "0644",
+    },
+    repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-agent:local"],
+    runtime = "alpine",
+    workdir = "/var/lib/serviceradar",
+)
+
+declare_multiarch_image_index(
+    name = "agent_image_multiarch",
+    image = ":agent_image_amd64",
+)
+
+declare_service_container_amd64(
+    name = "trivy_sidecar_image_amd64",
+    empty_dirs = [
+        "etc/serviceradar/certs",
+        "var/lib/serviceradar",
+        "var/log/serviceradar",
+    ],
+    entrypoint = ["/usr/local/bin/serviceradar-trivy-sidecar"],
+    exposed_ports = ["9108/tcp"],
+    files = {
+        "//go/cmd/tools/trivy-sidecar:trivy-sidecar": "usr/local/bin/serviceradar-trivy-sidecar",
+    },
+    image_title = "serviceradar-trivy-sidecar",
+    modes = {
+        "usr/local/bin/serviceradar-trivy-sidecar": "0755",
+    },
+    repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-trivy-sidecar:local"],
+    runtime = "scratch",
+    workdir = "/var/lib/serviceradar",
+)
+
+declare_multiarch_image_index(
+    name = "trivy_sidecar_image_multiarch",
+    image = ":trivy_sidecar_image_amd64",
+)
+
+declare_service_container_amd64(
+    name = "k8s_inventory_image_amd64",
+    # Container entrypoint convention: binary + subcommand for long-running mode.
+    cmd = ["run"],
+    empty_dirs = [
+        "etc/serviceradar/certs",
+        "var/lib/serviceradar",
+        "var/log/serviceradar",
+    ],
+    entrypoint = ["/usr/local/bin/serviceradar-k8s-inventory"],
+    exposed_ports = ["9109/tcp"],
+    files = {
+        "//go/cmd/k8s-inventory:k8s-inventory": "usr/local/bin/serviceradar-k8s-inventory",
+    },
+    image_title = "serviceradar-k8s-inventory",
+    modes = {
+        "usr/local/bin/serviceradar-k8s-inventory": "0755",
+    },
+    repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-k8s-inventory:local"],
+    runtime = "scratch",
+    workdir = "/var/lib/serviceradar",
+)
+
+declare_multiarch_image_index(
+    name = "k8s_inventory_image_multiarch",
+    image = ":k8s_inventory_image_amd64",
+)
+
+declare_service_container_amd64(
+    name = "datasvc_image_amd64",
+    cmd = ["/usr/local/bin/serviceradar-datasvc"],
+    empty_dirs = [
+        "var/lib/serviceradar",
+        "var/log/serviceradar",
+    ],
+    entrypoint = ["/usr/local/bin/entrypoint.sh"],
+    exposed_ports = ["50057/tcp"],
+    files = {
+        "//go/cmd/data-services:data_services": "usr/local/bin/serviceradar-datasvc",
+        "//docker/compose:entrypoint-datasvc.sh": "usr/local/bin/entrypoint.sh",
+        "//build/packaging/datasvc:config/datasvc.json": "etc/serviceradar/datasvc.json",
+    },
+    image_title = "serviceradar-datasvc",
+    modes = {
+        "usr/local/bin/serviceradar-datasvc": "0755",
+        "usr/local/bin/entrypoint.sh": "0755",
+        "etc/serviceradar/datasvc.json": "0644",
+    },
+    repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-datasvc:local"],
+    runtime = "alpine",
+    workdir = "/var/lib/serviceradar",
+)
+
+declare_multiarch_image_index(
+    name = "datasvc_image_multiarch",
+    image = ":datasvc_image_amd64",
+)
+
+declare_service_container_amd64(
+    name = "log_collector_image_amd64",
+    cmd = ["serviceradar-log-collector"],
+    empty_dirs = [
+        "etc/serviceradar/checkers",
+        "etc/serviceradar/certs",
+        "var/log/serviceradar",
+        "var/lib/serviceradar",
+    ],
+    entrypoint = ["/usr/local/bin/entrypoint.sh"],
+    exposed_ports = [
+        "514/udp",
+        "4317/tcp",
+        "50044/tcp",
+    ],
+    files = {
+        "//rust/log-collector:log-collector": "usr/local/bin/serviceradar-log-collector",
+        "//docker/compose:entrypoint-log-collector.sh": "usr/local/bin/entrypoint.sh",
+        "//build/packaging/log-collector:config/log-collector.toml": "etc/serviceradar/log-collector.toml",
+        "//build/packaging/log-collector:config/flowgger.toml": "etc/serviceradar/flowgger.toml",
+        "//build/packaging/log-collector:config/otel.toml": "etc/serviceradar/otel.toml",
+    },
+    image_title = "serviceradar-log-collector",
+    modes = {
+        "usr/local/bin/serviceradar-log-collector": "0755",
+        "usr/local/bin/entrypoint.sh": "0755",
+        "etc/serviceradar/log-collector.toml": "0644",
+        "etc/serviceradar/flowgger.toml": "0644",
+        "etc/serviceradar/otel.toml": "0644",
+    },
+    repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-log-collector:local"],
+    runtime = "ubuntu",
+    workdir = "/var/lib/serviceradar",
+)
+
+declare_multiarch_image_index(
+    name = "log_collector_image_multiarch",
+    image = ":log_collector_image_amd64",
+)
+
+declare_service_container_amd64(
+    name = "trapd_image_amd64",
+    cmd = ["serviceradar-trapd"],
+    empty_dirs = [
+        "etc/serviceradar/certs",
+        "var/log/serviceradar",
+        "var/lib/serviceradar",
+    ],
+    entrypoint = ["/usr/local/bin/entrypoint.sh"],
+    exposed_ports = [
+        "162/udp",
+        "50043/tcp",
+    ],
+    files = {
+        "//rust/trapd:trapd": "usr/local/bin/serviceradar-trapd",
+        "//docker/compose:entrypoint-trapd.sh": "usr/local/bin/entrypoint.sh",
+        "//docker/compose:trapd.docker.json": "etc/serviceradar/trapd.json",
+    },
+    image_title = "serviceradar-trapd",
+    modes = {
+        "usr/local/bin/serviceradar-trapd": "0755",
+        "usr/local/bin/entrypoint.sh": "0755",
+        "etc/serviceradar/trapd.json": "0644",
+    },
+    repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-trapd:local"],
+    runtime = "ubuntu",
+    workdir = "/var/lib/serviceradar",
+)
+
+declare_multiarch_image_index(
+    name = "trapd_image_multiarch",
+    image = ":trapd_image_amd64",
+)
+
+declare_service_container_amd64(
+    name = "flow_collector_image_amd64",
+    cmd = [
+        "--config",
+        "/etc/serviceradar/flow-collector.json",
+    ],
+    empty_dirs = [
+        "etc/serviceradar/certs",
+        "var/log/serviceradar",
+        "var/lib/serviceradar",
+    ],
+    entrypoint = ["/usr/local/bin/serviceradar-flow-collector"],
+    exposed_ports = [
+        "2055/udp",
+        "6343/udp",
+    ],
+    files = {
+        "//rust/flow-collector:flow-collector": "usr/local/bin/serviceradar-flow-collector",
+        "//rust/flow-collector:flow-collector.json": "etc/serviceradar/flow-collector.json",
+    },
+    image_title = "serviceradar-flow-collector",
+    modes = {
+        "usr/local/bin/serviceradar-flow-collector": "0755",
+        "etc/serviceradar/flow-collector.json": "0644",
+    },
+    repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-flow-collector:local"],
+    runtime = "ubuntu",
+    workdir = "/var/lib/serviceradar",
+)
+
+declare_multiarch_image_index(
+    name = "flow_collector_image_multiarch",
+    image = ":flow_collector_image_amd64",
+)
+
+declare_service_container_amd64(
+    name = "bmp_collector_image_amd64",
+    empty_dirs = [
+        "etc/serviceradar/certs",
+        "etc/serviceradar/creds",
+        "var/log/serviceradar",
+        "var/lib/serviceradar",
+    ],
+    entrypoint = ["/usr/local/bin/serviceradar-bmp-collector"],
+    exposed_ports = [
+        "11019/tcp",
+        "8080/tcp",
+    ],
+    files = {
+        "//rust/bmp-collector:bmp-collector": "usr/local/bin/serviceradar-bmp-collector",
+    },
+    image_title = "arancini",
+    modes = {
+        "usr/local/bin/serviceradar-bmp-collector": "0755",
+    },
+    repo_tags = ["registry.carverauto.dev/serviceradar/arancini:local"],
+    runtime = "ubuntu",
+    workdir = "/var/lib/serviceradar",
+)
+
+declare_multiarch_image_index(
+    name = "bmp_collector_image_multiarch",
+    image = ":bmp_collector_image_amd64",
+)
+
+declare_service_container_amd64(
+    name = "rperf_client_image_amd64",
+    cmd = [
+        "/usr/local/bin/serviceradar-rperf-checker",
+        "--config",
+        "/etc/serviceradar/checkers/rperf.json",
+    ],
+    empty_dirs = [
+        "etc/serviceradar/checkers",
+        "etc/serviceradar/certs",
+        "var/log/serviceradar",
+        "var/lib/serviceradar",
+    ],
+    entrypoint = ["/usr/local/bin/entrypoint.sh"],
+    exposed_ports = ["50059/tcp"],
+    files = {
+        "//rust/rperf-server:rperf": "usr/local/bin/serviceradar-rperf",
+        "//rust/rperf-client:rperf_checker": "usr/local/bin/serviceradar-rperf-checker",
+        "//docker/compose:entrypoint-rperf-client.sh": "usr/local/bin/entrypoint.sh",
+        "//docker/compose:rperf-client.docker.json": "tmp/rperf-client.docker.json",
+    },
+    image_title = "serviceradar-rperf-client",
+    modes = {
+        "usr/local/bin/serviceradar-rperf": "0755",
+        "usr/local/bin/serviceradar-rperf-checker": "0755",
+        "usr/local/bin/entrypoint.sh": "0755",
+        "tmp/rperf-client.docker.json": "0644",
+    },
+    repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-rperf-client:local"],
+    runtime = "ubuntu",
+    workdir = "/var/lib/serviceradar",
+)
+
+declare_multiarch_image_index(
+    name = "rperf_client_image_multiarch",
+    image = ":rperf_client_image_amd64",
+)
+
+declare_service_container_amd64(
+    name = "faker_image_amd64",
+    cmd = [
+        "/usr/local/bin/serviceradar-faker",
+        "-config",
+        "/etc/serviceradar/faker.json",
+    ],
+    empty_dirs = [
+        "etc/serviceradar",
+        "var/log/serviceradar",
+        "var/lib/serviceradar/faker",
+    ],
+    exposed_ports = ["8080/tcp"],
+    files = {
+        "//go/cmd/faker:faker": "usr/local/bin/serviceradar-faker",
+    },
+    image_title = "serviceradar-faker",
+    modes = {
+        "usr/local/bin/serviceradar-faker": "0755",
+    },
+    repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-faker:local"],
+    runtime = "alpine",
+    workdir = "/var/lib/serviceradar",
+)
+
+declare_multiarch_image_index(
+    name = "faker_image_multiarch",
+    image = ":faker_image_amd64",
+)
+
+declare_service_container_amd64(
+    name = "config_updater_image_amd64",
+    cmd = ["/usr/local/bin/update-config.sh"],
+    empty_dirs = [
+        "etc/serviceradar/certs",
+        "etc/serviceradar/config",
+    ],
+    files = {
+        "//go/cmd/cli:srctl": "usr/local/bin/srctl",
+        "//docker/compose:update-config.sh": "usr/local/bin/update-config.sh",
+    },
+    image_title = "serviceradar-config-updater",
+    modes = {
+        "usr/local/bin/srctl": "0755",
+        "usr/local/bin/update-config.sh": "0755",
+    },
+    repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-config-updater:local"],
+    runtime = "alpine",
+    symlinks = {
+        # Deprecated alias for the pre-rename binary (see #4260).
+        "usr/local/bin/serviceradar-cli": "/usr/local/bin/srctl",
+    },
+    workdir = "/",
+)
+
+declare_multiarch_image_index(
+    name = "config_updater_image_multiarch",
+    image = ":config_updater_image_amd64",
+)
+
+declare_custom_base_service_container_amd64(
+    name = "cert_generator_image_amd64",
+    base = select({
+        "//build/platforms:target_linux_arm64": "@alpine_3_24_linux_arm64_v8//:alpine_3_24_linux_arm64_v8",
+        "//conditions:default": "@alpine_3_24_linux_amd64//:alpine_3_24_linux_amd64",
+    }),
+    empty_dirs = ["certs"],
+    entrypoint = [
+        "/bin/sh",
+        "/entrypoint-certs.sh",
+    ],
+    # The openssl CLI and its two libraries are the whole payload; the entrypoint is a POSIX
+    # shell script and the base supplies the shell. declare_apk_rootfs_targets emits both
+    # architectures for every apk, so the arm64 rootfs targets already exist.
+    extra_tars = select({
+        "//build/platforms:target_linux_arm64": [
+            ":apk_tools_openssl_rootfs_arm64.tar",
+            ":apk_tools_libssl3_rootfs_arm64.tar",
+            ":apk_tools_libcrypto3_rootfs_arm64.tar",
+        ],
+        "//conditions:default": [
+            ":apk_tools_openssl_rootfs_amd64.tar",
+            ":apk_tools_libssl3_rootfs_amd64.tar",
+            ":apk_tools_libcrypto3_rootfs_amd64.tar",
+        ],
+    }),
+    files = {
+        "//docker/compose:entrypoint-certs.sh": "entrypoint-certs.sh",
+    },
+    image_title = "serviceradar-cert-generator",
+    modes = {
+        "entrypoint-certs.sh": "0755",
+    },
+    repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-cert-generator:local"],
+)
+
+declare_multiarch_image_index(
+    name = "cert_generator_image_multiarch",
+    image = ":cert_generator_image_amd64",
+)
+
+declare_postgresql_client_symlink_layer(
+    name = "postgresql18_client_symlinks",
+    libexec_dir = "postgresql18",
+)
+
+alias(
+    name = "tools_nats",
+    actual = select({
+        "//build/platforms:target_linux_arm64": "@natscli_linux_arm64//:nats",
+        "//conditions:default": "@natscli_linux_amd64//:nats",
+    }),
+)
+
+declare_custom_base_service_container_amd64(
+    name = "tools_image_amd64",
+    base = select({
+        "//build/platforms:target_linux_arm64": "@alpine_3_24_linux_arm64_v8//:alpine_3_24_linux_arm64_v8",
+        "//conditions:default": "@alpine_3_24_linux_amd64//:alpine_3_24_linux_amd64",
+    }),
+    cmd = ["/bin/sh"],
+    empty_dirs = [
+        "etc/serviceradar/certs",
+        "etc/serviceradar/cnpg",
+        "etc/serviceradar/nats",
+        "root/.config/nats/context",
+    ],
+    entrypoint = ["/usr/local/bin/entrypoint.sh"],
+    env = {
+        "PATH": "/usr/libexec/postgresql18:/usr/local/bin:/usr/bin:/bin",
+    },
+    # :postgresql18_client_symlinks is symlinks only, so it is arch-neutral and appears in
+    # both lists unchanged. The amd64 list keeps :apk_glibc_rootfs_amd64; the arm64 one
+    # cannot, because the sgerrand alpine-pkg-glibc APK is x86_64-only. Every executable
+    # this image ships is either a musl APK or a static Go binary, so glibc is a
+    # compatibility shim here rather than a dependency -- see tools-profile.sh, which only
+    # prepends /usr/glibc-compat to LD_LIBRARY_PATH defensively.
+    extra_tars = select({
+        "//build/platforms:target_linux_arm64": [
+            ":alpine_netutils_rootfs_arm64",
+            ":apk_tools_bash_rootfs_arm64.tar",
+            ":apk_tools_readline_rootfs_arm64.tar",
+            ":apk_tools_postgresql_common_rootfs_arm64.tar",
+            ":apk_tools_postgresql18_client_rootfs_arm64.tar",
+            ":apk_tools_libpq_rootfs_arm64.tar",
+            ":postgresql18_client_symlinks",
+            ":apk_tools_lz4_libs_rootfs_arm64.tar",
+            ":apk_tools_zstd_libs_rootfs_arm64.tar",
+            ":apk_tools_libncursesw_rootfs_arm64.tar",
+            ":apk_tools_ncurses_terminfo_base_rootfs_arm64.tar",
+            ":common_tools_arm64",
+        ],
+        "//conditions:default": [
+            ":alpine_netutils_rootfs_amd64",
+            ":apk_tools_bash_rootfs_amd64.tar",
+            ":apk_tools_readline_rootfs_amd64.tar",
+            ":apk_tools_postgresql_common_rootfs_amd64.tar",
+            ":apk_tools_postgresql18_client_rootfs_amd64.tar",
+            ":apk_tools_libpq_rootfs_amd64.tar",
+            ":postgresql18_client_symlinks",
+            ":apk_tools_lz4_libs_rootfs_amd64.tar",
+            ":apk_tools_zstd_libs_rootfs_amd64.tar",
+            ":apk_tools_libncursesw_rootfs_amd64.tar",
+            ":apk_tools_ncurses_terminfo_base_rootfs_amd64.tar",
+            ":apk_glibc_rootfs_amd64",
+            ":common_tools_amd64",
+        ],
+    }),
+    files = {
+        "//go/cmd/cli:srctl": "usr/local/bin/srctl",
+        "//go/cmd/tools/srql-fixture-reaper:srql-fixture-reaper": "usr/local/bin/srql-fixture-reaper",
+        "//docker/compose:tools-entrypoint.sh": "usr/local/bin/entrypoint.sh",
+        "//docker/compose:tools-profile.sh": "etc/profile.d/serviceradar-tools.sh",
+        "//docker/compose:tools-motd.txt": "etc/motd",
+        ":tools_nats": "usr/local/bin/nats",
+    },
+    image_title = "serviceradar-tools",
+    modes = {
+        "usr/local/bin/srctl": "0755",
+        "usr/local/bin/srql-fixture-reaper": "0755",
+        "usr/local/bin/entrypoint.sh": "0755",
+        "etc/profile.d/serviceradar-tools.sh": "0644",
+        "etc/motd": "0644",
+        "usr/local/bin/nats": "0755",
+    },
+    repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-tools:local"],
+    symlinks = {
+        # Deprecated alias for the pre-rename binary (see #4260).
+        "usr/local/bin/serviceradar-cli": "/usr/local/bin/srctl",
+    },
+)
+
+declare_multiarch_image_index(
+    name = "tools_image_multiarch",
+    image = ":tools_image_amd64",
+)
+
+declare_cnpg_image_amd64()
+
+declare_cnpg_analytics_image_amd64()
+
+filegroup(
+    name = "images",
+    srcs = publishable_image_labels(),
+    visibility = ["//visibility:public"],
+)
+
+# --- OCI publishing ----------------------------------------------------------
+declare_oci_push_targets()
+
+py_test(
+    name = "push_targets_test",
+    size = "small",
+    srcs = ["push_targets_test.py"],
+    data = ["push_targets.bzl"],
+)
+
+# --- Multi-arch verification -------------------------------------------------
+#
+# Asserts that each index below carries a genuinely native binary per advertised platform.
+# Declaring the index targets is not sufficient on its own: an image whose base or rootfs is
+# pinned to one architecture still produces an index with two entries, and the arm64 half is
+# then our aarch64 binaries on an x86-64 userland, labelled amd64. That state built cleanly
+# and nothing in the graph objected, which is why this is a test rather than a review note.
+_MULTIARCH_INDEXES = [
+    "agent_gateway_image_multiarch",
+    "agent_image_multiarch",
+    "bmp_collector_image_multiarch",
+    "cert_generator_image_multiarch",
+    "config_updater_image_multiarch",
+    "core_elx_image_multiarch",
+    "datasvc_image_multiarch",
+    "faker_image_multiarch",
+    "flow_collector_image_multiarch",
+    "k8s_inventory_image_multiarch",
+    "log_collector_image_multiarch",
+    "rperf_client_image_multiarch",
+    "tools_image_multiarch",
+    "trapd_image_multiarch",
+    "trivy_sidecar_image_multiarch",
+    "web_ng_image_multiarch",
+]
+
+go_test(
+    name = "multiarch_index_test",
+    size = "enormous",
+    srcs = ["multiarch_index_test.go"],
+    data = [":{}".format(idx) for idx in _MULTIARCH_INDEXES],
+    env = {
+        "MULTIARCH_INDEXES": ",".join(_MULTIARCH_INDEXES),
+    } | {
+        idx: "$(rootpath :{})".format(idx)
+        for idx in _MULTIARCH_INDEXES
+    },
+    target_compatible_with = ["@platforms//os:linux"],
+)

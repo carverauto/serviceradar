@@ -1,0 +1,63 @@
+[package]
+name = "serviceradar-flowgger"
+description = "Flowgger is a fast, simple and lightweight data collector."
+authors = ["Frank Denis <github@pureftpd.org>", "Matteo Bigoi <bigo@crisidev.org>", "Vivien Chene <viv.chene@gmail.com>", "Francesco Berni <kurojishi@kurojishi.me>"]
+edition = "2024"
+license = "ISC"
+documentation ="https://github.com/awslabs/flowgger/wiki"
+repository = "https://github.com/awslabs/flowgger"
+build = "build.rs"
+
+[lib]
+name = "flowgger"
+path = "src/lib.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+async-nats = { workspace = true, optional = true }
+clap = { workspace = true }
+flate2 = { workspace = true }
+glob = { workspace = true, optional = true }
+kafka = { workspace = true, features = ["snappy", "gzip", "security"], optional = true }
+log = { workspace = true }
+may = { workspace = true, optional = true }
+notify = { workspace = true, features = ["macos_fsevent"], optional = true }
+pem = { workspace = true }
+rand = { workspace = true }
+redis = { workspace = true, optional = true }
+rustls = { workspace = true, features = ["ring", "std", "tls12", "logging"], optional = true }
+rustls-pemfile = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+spiffe = { workspace = true, features = ["x509-source"] }
+tempfile = { workspace = true }
+time = { workspace = true, features = ["parsing", "formatting"] }
+time-tz = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time"] }
+toml = { workspace = true }
+tonic = { workspace = true, features = ["tls-ring"] }
+tonic-health = { workspace = true }
+tonic-prost = { workspace = true }
+
+[dev-dependencies]
+quickcheck = { workspace = true }
+rcgen = { workspace = true }
+
+[build-dependencies]
+tonic-prost-build = { workspace = true }
+
+[features]
+capnp-recompile = []
+coroutines = ["may", "tls"]
+default = ["syslog", "tls", "gelf" ]
+redis-input = ["redis"]
+kafka-output = ["kafka"]
+nats-output = ["async-nats"]
+tls = ["dep:rustls", "dep:rustls-pemfile"]
+gelf = ["serde", "serde_json"]
+ltsv = []
+syslog = ["rfc5424", "rfc3164", "passthrough"]
+rfc3164=[]
+rfc5424=[]
+passthrough=[]
+file = ["notify", "glob"]

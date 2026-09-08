@@ -1,0 +1,49 @@
+[package]
+name = "addon-sdk"
+version = "0.1.0"
+description = "Rust helper for ServiceRadar native agent add-ons: HashiCorp go-plugin handshake + AutoMTLS + the agent/addon gRPC contract served over a Unix-domain socket."
+edition = "2024"
+license = "Apache-2.0"
+
+[lib]
+name = "addon_sdk"
+path = "src/lib.rs"
+doctest = false
+
+[[bin]]
+name = "serviceradar-rust-sample-addon"
+path = "src/bin/rust_sample_addon.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait ={ workspace = true }
+base64 = { workspace = true }
+hex = { workspace = true }
+p521 = { workspace = true }
+prost = { workspace = true }
+rcgen = { workspace = true }
+rustls = {workspace = true}
+rustls-pemfile = { workspace = true }
+serviceradar-metric-proto = { path = "../metric-proto" }
+sha2 ={ workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "signal", "sync", "io-util"] }
+tokio-rustls = { workspace = true, features = ["ring"] }
+tokio-stream = { workspace = true, features = ["net", "sync"] }
+tonic = { workspace = true, features = ["tls-ring", "gzip", "zstd"] }
+tonic-health = { workspace = true }
+tonic-prost = { workspace = true }
+
+[dev-dependencies]
+hyper-util = { workspace = true, features = ["tokio"] }
+# Signing is test-only: the library never signs, it only verifies. Declared here
+# rather than widening the main dependency, so `cargo build` keeps the smaller
+# feature set. Bazel is a different story -- crates_vendor resolves the workspace
+# as ONE feature universe, so the vendored p521 carries these features too. The
+# split is a cargo-side nicety, not a guarantee about the shipped binary.
+p521 = { workspace = true, features = ["arithmetic", "ecdsa", "getrandom"] }
+tempfile = { workspace = true }
+tower = { workspace = true }
+
+[build-dependencies]
+tonic-prost-build = { workspace = true }

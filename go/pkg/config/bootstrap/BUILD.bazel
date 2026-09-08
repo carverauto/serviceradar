@@ -1,0 +1,30 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "bootstrap",
+    srcs = [
+        "core_client.go",
+        "service.go",
+        "template.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/config/bootstrap",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//go/pkg/config",
+        "//go/pkg/grpc",
+        "//go/pkg/logger",
+        "//go/pkg/models",
+        "//proto",
+        "@org_golang_google_grpc//:grpc",
+    ],
+)
+
+go_test(
+    name = "bootstrap_test",
+    srcs = ["core_client_test.go"],
+    embed = [":bootstrap"],
+    deps = [
+        "//go/pkg/logger",
+        "//go/pkg/models",
+    ],
+)

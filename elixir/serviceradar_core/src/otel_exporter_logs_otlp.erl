@@ -1,0 +1,757 @@
+%%%------------------------------------------------------------------------
+%% Copyright 2026, ServiceRadar Authors
+%%
+%% Minimal OTLP logs exporter to satisfy :opentelemetry_experimental's
+%% `otel_log_handler` when using `opentelemetry_exporter`.
+%%
+%% Why this exists:
+%% - `opentelemetry_exporter` calls `otel_exporter_logs_otlp:export/3`
+%%   but the `opentelemetry_exporter` hex package we vendor does not ship
+%%   that module, causing runtime `undef` warnings and dropped log exports.
+%% - `opentelemetry_experimental` *does* ship `otel_otlp_logs` which can
+%%   convert logger events into the OTLP LogsService request map.
+%% - `opentelemetry_exporter` already ships the gRPC client module
+%%   `opentelemetry_logs_service` + protobuf module
+%%   `opentelemetry_exporter_logs_service_pb`.
+%%------------------------------------------------------------------------
+-module(otel_exporter_logs_otlp).
+
+-export([init/1,
+         export/3,
+         export/4,
+         shutdown/1,
+         merge_with_environment/1,
+         sanitize_logs_for_export/1]).
+
+-include_lib("kernel/include/logger.hrl").
+
+-define(DEFAULT_LOGS_PATH, "v1/logs").
+-define(DEFAULT_RPC_TIMEOUT_MS, 30000).
+-define(DEFAULT_RETRY_MAX_ATTEMPTS, 3).
+-define(DEFAULT_RETRY_BASE_DELAY_MS, 500).
+-define(DEFAULT_RETRY_MAX_DELAY_MS, 10000).
+-define(RESTART_COOLDOWN_MS, 120000).
+-define(ENSURE_COOLDOWN_MS, 10000).
+-define(MAX_METADATA_BYTES, 2048).
+-define(MAX_REPORT_BYTES, 8192).
+-define(INSPECT_DEPTH, 6).
+
+-record(state, {channel :: term(),
+                httpc_profile :: atom() | undefined,
+                protocol :: otel_exporter_otlp:protocol(),
+                channel_pid :: pid() | undefined,
+                headers :: otel_exporter_otlp:headers(),
+                compression :: otel_exporter_otlp:compression() | undefined,
+                grpc_metadata :: map() | undefined,
+                endpoints :: [otel_exporter_otlp:endpoint_map()],
+                rpc_timeout_ms :: pos_integer(),
+                retry_max_attempts :: pos_integer(),
+                retry_base_delay_ms :: pos_integer(),
+                retry_max_delay_ms :: pos_integer()}).
+
+%% @doc Initialize the exporter based on the provided configuration.
+init(Opts) ->
+    Opts1 = merge_with_environment(Opts),
+    TimeoutMs = maps:get(rpc_timeout_ms, Opts, ?DEFAULT_RPC_TIMEOUT_MS),
+    MaxAttempts = maps:get(retry_max_attempts, Opts, ?DEFAULT_RETRY_MAX_ATTEMPTS),
+    BaseDelay = maps:get(retry_base_delay_ms, Opts, ?DEFAULT_RETRY_BASE_DELAY_MS),
+    MaxDelay = maps:get(retry_max_delay_ms, Opts, ?DEFAULT_RETRY_MAX_DELAY_MS),
+    case otel_exporter_otlp:init(Opts1) of
+        {ok, #{channel := Channel,
+               channel_pid := ChannelPid,
+               endpoints := Endpoints,
+               headers := Headers,
+               compression := Compression,
+               grpc_metadata := Metadata,
+               protocol := grpc}} ->
+            {ok, #state{channel=Channel,
+                        channel_pid=ChannelPid,
+                        endpoints=Endpoints,
+                        headers=Headers,
+                        compression=Compression,
+                        grpc_metadata=Metadata,
+                        protocol=grpc,
+                        rpc_timeout_ms=TimeoutMs,
+                        retry_max_attempts=MaxAttempts,
+                        retry_base_delay_ms=BaseDelay,
+                        retry_max_delay_ms=MaxDelay}};
+        {ok, #{httpc_profile := HttpcProfile,
+               endpoints := Endpoints,
+               headers := Headers,
+               compression := Compression,
+               protocol := http_protobuf}} ->
+            {ok, #state{httpc_profile=HttpcProfile,
+                        endpoints=Endpoints,
+                        headers=Headers,
+                        compression=Compression,
+                        protocol=http_protobuf,
+                        rpc_timeout_ms=TimeoutMs,
+                        retry_max_attempts=MaxAttempts,
+                        retry_base_delay_ms=BaseDelay,
+                        retry_max_delay_ms=MaxDelay}};
+        {ok, #{httpc_profile := HttpcProfile,
+               endpoints := Endpoints,
+               headers := Headers,
+               compression := Compression,
+               protocol := http_json}} ->
+            {ok, #state{httpc_profile=HttpcProfile,
+                        endpoints=Endpoints,
+                        headers=Headers,
+                        compression=Compression,
+                        protocol=http_json,
+                        rpc_timeout_ms=TimeoutMs,
+                        retry_max_attempts=MaxAttempts,
+                        retry_base_delay_ms=BaseDelay,
+                        retry_max_delay_ms=MaxDelay}}
+    end.
+
+%% @doc Export OTLP log data to the configured endpoints.
+%%
+%% `Logs` is passed through `opentelemetry_exporter:export(logs, Logs, ...)`
+%% and originates from `otel_log_handler`, which calls
+%% `otel_exporter:export_logs(opentelemetry_exporter, {Batch, HandlerConfig}, ...)`.
+export(_Logs, _Resource, #state{protocol=http_json}) ->
+    {error, unimplemented};
+export(Logs, Resource, #state{protocol=http_protobuf,
+                              httpc_profile=HttpcProfile,
+                              headers=Headers,
+                              compression=Compression,
+                              endpoints=[#{scheme := Scheme,
+                                           host := Host,
+                                           path := Path,
+                                           port := Port,
+                                           ssl_options := SSLOptions} | _]}) ->
+    case uri_string:normalize(#{scheme => Scheme,
+                                host => Host,
+                                port => Port,
+                                path => Path}) of
+        {error, Type, Error} ->
+            ?LOG_INFO("error normalizing OTLP logs export URI: ~p ~p",
+                      [Type, Error]),
+            error;
+        Address ->
+            {Batch0, HandlerConfig} = normalize_logs_arg(Logs),
+            Batch = sanitize_logs_for_export(normalize_log_batch(Batch0)),
+            RequestMap0 = otel_otlp_logs:to_proto(Batch, Resource, HandlerConfig),
+            RequestMap = normalize_request_map(RequestMap0),
+            Body = opentelemetry_exporter_logs_service_pb:encode_msg(RequestMap, export_logs_service_request),
+            otel_exporter_otlp:export_http(Address, Headers, Body, Compression, SSLOptions, HttpcProfile)
+    end;
+export(Logs, Resource, #state{protocol=grpc,
+                              grpc_metadata=Metadata,
+                              channel=Channel,
+                              endpoints=Endpoints,
+                              compression=Compression,
+                              rpc_timeout_ms=TimeoutMs,
+                              retry_max_attempts=MaxAttempts,
+                              retry_base_delay_ms=BaseDelay,
+                              retry_max_delay_ms=MaxDelay}) ->
+    {Batch0, HandlerConfig} = normalize_logs_arg(Logs),
+    Batch = sanitize_logs_for_export(normalize_log_batch(Batch0)),
+    RequestMap0 = otel_otlp_logs:to_proto(Batch, Resource, HandlerConfig),
+    RequestMap = normalize_request_map(RequestMap0),
+    export_grpc_with_retry(opentelemetry_logs_service,
+                           Metadata,
+                           RequestMap,
+                           Channel,
+                           Endpoints,
+                           Compression,
+                           MaxAttempts,
+                           BaseDelay,
+                           MaxDelay,
+                           TimeoutMs);
+export(_Logs, _Resource, _State) ->
+    {error, unimplemented}.
+
+export(logs, Logs, Resource, State) ->
+    export(Logs, Resource, State);
+export(_Kind, _Logs, _Resource, _State) ->
+    {error, unimplemented}.
+
+%% Keep OTLP log export tolerant of Logger reports and metadata that contain
+%% nested structs, protobuf messages, pids, stacktraces, or improper lists.
+%% `otel_otlp_common:to_any_value/1` recursively encodes maps/lists/tuples and
+%% can raise on values Logger accepts. Local logs should remain rich, but the
+%% exported attribute surface must be bounded and OTLP-safe.
+sanitize_logs_for_export(Batch) when is_map(Batch) ->
+    maps:map(fun(_Scope, Logs) -> sanitize_log_list(Logs) end, Batch);
+sanitize_logs_for_export(_Other) ->
+    #{}.
+
+sanitize_log_list(Logs) when is_list(Logs) ->
+    [sanitize_log_event(Log) || Log <- Logs];
+sanitize_log_list(_Other) ->
+    [].
+
+sanitize_log_event(Log=#{meta := Meta, msg := Msg}) when is_map(Meta) ->
+    Log#{meta := sanitize_metadata(Meta),
+         msg := sanitize_message(Msg)};
+sanitize_log_event(Log=#{meta := Meta}) when is_map(Meta) ->
+    Log#{meta := sanitize_metadata(Meta)};
+sanitize_log_event(Log=#{msg := Msg}) ->
+    Log#{msg := sanitize_message(Msg)};
+sanitize_log_event(Log) ->
+    Log.
+
+sanitize_metadata(Meta) ->
+    maps:map(fun(time, Value) -> Value;
+                (report_cb, Value) -> Value;
+                (_Key, Value) -> sanitize_metadata_value(Value)
+             end, Meta).
+
+sanitize_metadata_value(Value) when is_boolean(Value) ->
+    Value;
+sanitize_metadata_value(Value) when is_binary(Value) ->
+    truncate_binary(Value, ?MAX_METADATA_BYTES);
+sanitize_metadata_value(Value) when is_atom(Value); is_integer(Value); is_float(Value) ->
+    Value;
+sanitize_metadata_value(Value) when is_list(Value) ->
+    case charlist_to_binary(Value) of
+        {ok, Binary} ->
+            truncate_binary(Binary, ?MAX_METADATA_BYTES);
+        error ->
+            inspect_term(Value, ?MAX_METADATA_BYTES)
+    end;
+sanitize_metadata_value(Value) ->
+    inspect_term(Value, ?MAX_METADATA_BYTES).
+
+sanitize_message({report, Report}) ->
+    {report, sanitize_report(Report)};
+sanitize_message(Message) ->
+    Message.
+
+sanitize_report(Report) when is_map(Report) ->
+    maps:fold(fun(Key, Value, Acc) ->
+                      case safe_report_key(Key) of
+                          true ->
+                              Acc#{Key => sanitize_report_value(Value)};
+                          false ->
+                              Acc
+                      end
+              end, #{}, Report);
+sanitize_report(Report) when is_list(Report) ->
+    case proper_list(Report) andalso proplist(Report) of
+        true ->
+            [sanitize_report_pair(Pair) || Pair <- Report];
+        false ->
+            inspect_term(Report, ?MAX_REPORT_BYTES)
+    end;
+sanitize_report(Report) ->
+    sanitize_report_value(Report).
+
+sanitize_report_pair({Key, Value}) when is_atom(Key); is_binary(Key) ->
+    {Key, sanitize_report_value(Value)};
+sanitize_report_pair(Other) ->
+    inspect_term(Other, ?MAX_REPORT_BYTES).
+
+sanitize_report_value(Value) when is_boolean(Value) ->
+    Value;
+sanitize_report_value(Value) when is_binary(Value) ->
+    truncate_binary(Value, ?MAX_REPORT_BYTES);
+sanitize_report_value(Value) when is_atom(Value); is_integer(Value); is_float(Value) ->
+    Value;
+sanitize_report_value(Value) when is_list(Value) ->
+    case charlist_to_binary(Value) of
+        {ok, Binary} ->
+            truncate_binary(Binary, ?MAX_REPORT_BYTES);
+        error ->
+            inspect_term(Value, ?MAX_REPORT_BYTES)
+    end;
+sanitize_report_value(Value) when is_map(Value); is_tuple(Value) ->
+    inspect_term(Value, ?MAX_REPORT_BYTES);
+sanitize_report_value(Value) ->
+    inspect_term(Value, ?MAX_REPORT_BYTES).
+
+safe_report_key(Key) when is_atom(Key); is_binary(Key) ->
+    true;
+safe_report_key(_Key) ->
+    false.
+
+proplist([]) ->
+    true;
+proplist([{Key, _Value} | Rest]) when is_atom(Key); is_binary(Key) ->
+    proplist(Rest);
+proplist(_Other) ->
+    false.
+
+proper_list(Value) ->
+    try
+        _ = length(Value),
+        true
+    catch
+        _:_ ->
+            false
+    end.
+
+charlist_to_binary(Value) ->
+    case proper_list(Value) of
+        true ->
+            try unicode:characters_to_binary(Value) of
+                Binary when is_binary(Binary) ->
+                    {ok, Binary};
+                _Other ->
+                    error
+            catch
+                _:_ ->
+                    error
+            end;
+        false ->
+            error
+    end.
+
+inspect_term(Value, MaxBytes) ->
+    try
+        truncate_binary(iolist_to_binary(io_lib:format("~0P", [Value, ?INSPECT_DEPTH])), MaxBytes)
+    catch
+        _:_ ->
+            <<"<uninspectable>">>
+    end.
+
+truncate_binary(Binary, MaxBytes) when is_binary(Binary), byte_size(Binary) =< MaxBytes ->
+    Binary;
+truncate_binary(Binary, MaxBytes) when is_binary(Binary) ->
+    <<Prefix:MaxBytes/binary, _Rest/binary>> = Binary,
+    <<Prefix/binary, "...[truncated]">>.
+
+normalize_logs_arg({Batch, HandlerConfig}) when is_map(Batch), is_map(HandlerConfig) ->
+    {Batch, HandlerConfig};
+normalize_logs_arg({Batch, _HandlerConfig}) when is_map(Batch) ->
+    %% Be tolerant if HandlerConfig isn't a map.
+    {Batch, #{}};
+normalize_logs_arg(Batch) when is_map(Batch) ->
+    {Batch, #{}};
+normalize_logs_arg(_Other) ->
+    {#{}, #{}}.
+
+%% `otel_otlp_logs:format_msg/3` treats every Erlang list as a string. That is
+%% unsafe for structured logger reports, because OTP and libraries such as Oban
+%% commonly emit `{report, KeywordList}` messages. Passing those through
+%% unchanged makes `otel_otlp_logs` call `re:replace/4` on a keyword list and the
+%% exporter logs another structured report, creating noisy recursive failures.
+normalize_log_batch(Batch) when is_map(Batch) ->
+    maps:map(fun
+                 (_Scope, Logs) when is_list(Logs) ->
+                     [normalize_log_event(Log) || Log <- Logs];
+                 (_Scope, Other) ->
+                     Other
+             end, Batch);
+normalize_log_batch(Batch) ->
+    Batch.
+
+normalize_log_event(#{msg := {report, Report}, meta := Meta0}=Log) ->
+    {ReportBody, Meta} = normalize_report(Report, Meta0),
+    Log#{msg := {string, ReportBody}, meta := Meta};
+normalize_log_event(Log) ->
+    Log.
+
+normalize_report(Report, Meta) ->
+    case report_to_metadata(Report) of
+        [] ->
+            {format_report(Report), Meta};
+        Attributes ->
+            {format_report(Report), maps:merge(maps:from_list(Attributes), Meta)}
+    end.
+
+report_to_metadata(Report) when is_map(Report) ->
+    maps:to_list(Report);
+report_to_metadata(Report) when is_list(Report) ->
+    case lists:all(fun
+                       ({Key, _Value}) when is_atom(Key); is_binary(Key); is_list(Key) -> true;
+                       (_) -> false
+                   end, Report) of
+        true -> Report;
+        false -> []
+    end;
+report_to_metadata(_Report) ->
+    [].
+
+format_report(Report) ->
+    unicode:characters_to_binary(io_lib:format("~0tp", [Report])).
+
+%% `otel_otlp_common:to_any_value/1` encodes Erlang lists as arrays, which is
+%% usually correct but breaks log bodies because formatted logger messages are
+%% commonly charlists (e.g. "Hello" as [72,101,108,108,111]).
+%%
+%% Downstream core-elx log processors expect `body` to be a string, so convert
+%% charlist-like any_value arrays back into OTLP `string_value`.
+normalize_request_map(#{resource_logs := ResourceLogs}=Req) when is_list(ResourceLogs) ->
+    Req#{resource_logs := [normalize_resource_log(RL) || RL <- ResourceLogs]};
+normalize_request_map(Req) ->
+    Req.
+
+normalize_resource_log(#{scope_logs := ScopeLogs}=RL) when is_list(ScopeLogs) ->
+    RL#{scope_logs := [normalize_scope_logs(SL) || SL <- ScopeLogs]};
+normalize_resource_log(RL) ->
+    RL.
+
+normalize_scope_logs(#{log_records := LogRecords}=SL) when is_list(LogRecords) ->
+    SL#{log_records := [normalize_log_record(LR) || LR <- LogRecords]};
+normalize_scope_logs(SL) ->
+    SL.
+
+normalize_log_record(#{body := AnyValue}=LR) when is_map(AnyValue) ->
+    LR#{body := normalize_any_value(AnyValue)};
+normalize_log_record(LR) ->
+    LR.
+
+normalize_any_value(#{value := {array_value, #{values := Values}}}=AnyValue) when is_list(Values) ->
+    case charlist_from_any_values(Values) of
+        {ok, Chars} ->
+            %% Use unicode conversion so non-ASCII survives.
+            Bin = unicode:characters_to_binary(Chars),
+            #{value => {string_value, Bin}};
+        error ->
+            AnyValue
+    end;
+normalize_any_value(AnyValue) ->
+    AnyValue.
+
+charlist_from_any_values(Values) ->
+    try
+        Chars = [I || #{value := {int_value, I}} <- Values],
+        case length(Chars) =:= length(Values) of
+            true ->
+                {ok, Chars};
+            false ->
+                error
+        end
+    catch
+        _:_ ->
+            error
+    end.
+
+%% @doc Shutdown the exporter.
+shutdown(#state{channel=undefined}) ->
+    ok;
+shutdown(#state{channel=Channel}) ->
+    maybe_stop_channel(Channel),
+    ok.
+
+export_grpc_with_retry(_GrpcServiceModule, _Metadata, _RequestMap, _Channel, _Endpoints, _Compression,
+                       Attempts, _BaseDelay, _MaxDelay, _TimeoutMs)
+  when Attempts =< 0 ->
+    error;
+export_grpc_with_retry(GrpcServiceModule, Metadata, RequestMap, Channel, Endpoints, Compression,
+                       Attempts, BaseDelay, MaxDelay, TimeoutMs) ->
+    maybe_ensure_channel_for_export(Channel, Endpoints, Compression),
+    GrpcCtx = ctx:with_deadline_after(TimeoutMs, millisecond),
+    GrpcCtx1 = grpcbox_metadata:append_to_outgoing_ctx(GrpcCtx, Metadata),
+    Res = GrpcServiceModule:export(GrpcCtx1, RequestMap, #{channel => Channel}),
+    case Res of
+        {ok, _Response, _ResponseMetadata} ->
+            ok;
+        {error, {Status, _Message}, _TrailerMetadata} ->
+            maybe_retry_grpc({grpc_status, Status},
+                             fun() ->
+                                     export_grpc_with_retry(GrpcServiceModule,
+                                                            Metadata,
+                                                            RequestMap,
+                                                            Channel,
+                                                            Endpoints,
+                                                            Compression,
+                                                            Attempts - 1,
+                                                            next_delay(BaseDelay, MaxDelay),
+                                                            MaxDelay,
+                                                            TimeoutMs)
+                             end,
+                             Attempts,
+                             BaseDelay,
+                             Channel,
+                             Endpoints,
+                             Compression);
+        {http_error, {Status, _}, _} ->
+            maybe_retry_grpc({http_error, Status},
+                             fun() ->
+                                     export_grpc_with_retry(GrpcServiceModule,
+                                                            Metadata,
+                                                            RequestMap,
+                                                            Channel,
+                                                            Endpoints,
+                                                            Compression,
+                                                            Attempts - 1,
+                                                            next_delay(BaseDelay, MaxDelay),
+                                                            MaxDelay,
+                                                            TimeoutMs)
+                             end,
+                             Attempts,
+                             BaseDelay,
+                             Channel,
+                             Endpoints,
+                             Compression);
+        {error, Reason} ->
+            maybe_retry_grpc({export_error, Reason, Channel},
+                             fun() ->
+                                     export_grpc_with_retry(GrpcServiceModule,
+                                                            Metadata,
+                                                            RequestMap,
+                                                            Channel,
+                                                            Endpoints,
+                                                            Compression,
+                                                            Attempts - 1,
+                                                            next_delay(BaseDelay, MaxDelay),
+                                                            MaxDelay,
+                                                            TimeoutMs)
+                             end,
+                             Attempts,
+                             BaseDelay,
+                             Channel,
+                             Endpoints,
+                             Compression);
+        _ ->
+            error
+    end.
+
+maybe_retry_grpc(Reason, RetryFun, Attempts, DelayMs, Channel, Endpoints, Compression) ->
+    case retryable_reason(Reason) of
+        true when Attempts > 1 ->
+            _ = maybe_restart_channel(Reason, Channel, Endpoints, Compression),
+            %% add a tiny deterministic jitter to avoid stampedes during rollouts
+            Jitter = (erlang:phash2({self(), erlang:monotonic_time()}) rem 100),
+            timer:sleep(DelayMs + Jitter),
+            RetryFun();
+        _ ->
+            ?LOG_INFO("OTLP grpc export failed with error: ~p", [Reason]),
+            error
+    end.
+
+retryable_reason(timeout) -> true;
+retryable_reason({stream_down, _}) -> true;
+retryable_reason({error, {stream_down, _}}) -> true;
+retryable_reason({grpc_status, <<"UNAVAILABLE">>}) -> true;
+retryable_reason({grpc_status, <<"DEADLINE_EXCEEDED">>}) -> true;
+retryable_reason({grpc_status, <<"RESOURCE_EXHAUSTED">>}) -> true;
+retryable_reason({http_error, _}) -> true;
+retryable_reason(no_endpoints) -> true;
+retryable_reason(undefined_channel) -> true;
+retryable_reason({export_error, no_endpoints, _Channel}) -> true;
+retryable_reason({export_error, undefined_channel, _Channel}) -> true;
+retryable_reason({export_error, {error, no_endpoints}, _Channel}) -> true;
+retryable_reason({export_error, {error, undefined_channel}, _Channel}) -> true;
+retryable_reason(_) -> false.
+
+next_delay(Cur, Max) when Cur >= Max -> Max;
+next_delay(Cur, Max) ->
+    Next = Cur * 2,
+    case Next > Max of
+        true -> Max;
+        false -> Next
+    end.
+
+maybe_restart_channel({export_error, no_endpoints, _Channel}, Channel, Endpoints, Compression) ->
+    restart_channel(Channel, Endpoints, Compression);
+maybe_restart_channel({export_error, undefined_channel, _Channel}, Channel, Endpoints, Compression) ->
+    restart_channel(Channel, Endpoints, Compression);
+maybe_restart_channel({export_error, {error, no_endpoints}, _Channel}, Channel, Endpoints, Compression) ->
+    restart_channel(Channel, Endpoints, Compression);
+maybe_restart_channel({export_error, {error, undefined_channel}, _Channel}, Channel, Endpoints, Compression) ->
+    restart_channel(Channel, Endpoints, Compression);
+maybe_restart_channel({export_error, {stream_down, _}, _Channel}, Channel, Endpoints, Compression) ->
+    restart_channel(Channel, Endpoints, Compression);
+maybe_restart_channel({export_error, {error, {stream_down, _}}, _Channel}, Channel, Endpoints, Compression) ->
+    restart_channel(Channel, Endpoints, Compression);
+maybe_restart_channel(no_endpoints, Channel, Endpoints, Compression) ->
+    restart_channel(Channel, Endpoints, Compression);
+maybe_restart_channel(undefined_channel, Channel, Endpoints, Compression) ->
+    restart_channel(Channel, Endpoints, Compression);
+maybe_restart_channel({stream_down, _}, Channel, Endpoints, Compression) ->
+    restart_channel(Channel, Endpoints, Compression);
+maybe_restart_channel({error, {stream_down, _}}, Channel, Endpoints, Compression) ->
+    restart_channel(Channel, Endpoints, Compression);
+maybe_restart_channel({error, no_endpoints}, Channel, Endpoints, Compression) ->
+    restart_channel(Channel, Endpoints, Compression);
+maybe_restart_channel({error, undefined_channel}, Channel, Endpoints, Compression) ->
+    restart_channel(Channel, Endpoints, Compression);
+maybe_restart_channel(_, _Channel, _Endpoints, _Compression) ->
+    ok.
+
+restart_channel(Channel, Endpoints, Compression) ->
+    %% grpcbox doesn't automatically repopulate its subchannel pool if the
+    %% underlying connections fail during startup. When that happens we get
+    %% `no_endpoints` and log export silently stops. Best-effort restart.
+    %% Rate-limit restarts to avoid a tight loop when the collector is down.
+    Now = erlang:monotonic_time(millisecond),
+    case allow_channel_restart(Endpoints, Now) of
+        true ->
+            do_restart_channel(Channel, Endpoints, Compression);
+        false ->
+            ok
+    end.
+
+do_restart_channel(Channel, Endpoints, Compression) ->
+    EndpointTuples = grpcbox_endpoints(Endpoints),
+    case EndpointTuples of
+        [] ->
+            ?LOG_WARNING("OTLP grpc channel restart skipped: no valid endpoints configured channel=~p",
+                         [Channel]),
+            ok
+    ;
+        _ ->
+            ?LOG_INFO("OTLP grpc channel has no endpoints; restarting channel=~p endpoints=~p",
+                      [Channel, length(EndpointTuples)]),
+            maybe_stop_channel(Channel),
+            timer:sleep(100),
+            try serviceradar_otel_grpcbox_channel:start(Channel, EndpointTuples, Compression) of
+                {ok, _Pid} ->
+                    ok;
+                {error, {already_started, _Pid}} ->
+                    ok;
+                Error ->
+                    ?LOG_WARNING("OTLP grpc channel restart failed: ~p", [Error]),
+                    ok
+            catch
+                _:Reason ->
+                    ?LOG_WARNING("OTLP grpc channel restart threw exception: ~p", [Reason]),
+                    ok
+            end
+    end.
+
+ensure_channel_started(Channel, Endpoints, Compression) ->
+    Now = erlang:monotonic_time(millisecond),
+    case allow_channel_ensure(Endpoints, Now) of
+        true ->
+            do_ensure_channel_started(Channel, Endpoints, Compression);
+        false ->
+            ok
+    end.
+
+do_ensure_channel_started(Channel, Endpoints, Compression) ->
+    EndpointTuples = grpcbox_endpoints(Endpoints),
+    case EndpointTuples of
+        [] ->
+            ?LOG_WARNING("OTLP grpc channel ensure skipped: no valid endpoints configured channel=~p",
+                         [Channel]),
+            ok;
+        _ ->
+            ?LOG_INFO("OTLP grpc channel undefined; starting channel=~p endpoints=~p",
+                      [Channel, length(EndpointTuples)]),
+            try serviceradar_otel_grpcbox_channel:start(Channel, EndpointTuples, Compression) of
+                {ok, _Pid} ->
+                    ok;
+                {error, {already_started, _Pid}} ->
+                    ok;
+                Error ->
+                    ?LOG_WARNING("OTLP grpc channel ensure failed: ~p", [Error]),
+                    ok
+            catch
+                _:Reason ->
+                    ?LOG_WARNING("OTLP grpc channel ensure threw exception: ~p", [Reason]),
+                    ok
+            end
+    end.
+
+allow_channel_restart(Endpoints, Now) ->
+    Key = {?MODULE, otlp_channel_restart_ts, endpoint_key(Endpoints)},
+    Last = persistent_term_get(Key),
+    case Last of
+        undefined ->
+            persistent_term:put(Key, Now),
+            true;
+        Ts when is_integer(Ts), (Now - Ts) >= ?RESTART_COOLDOWN_MS ->
+            persistent_term:put(Key, Now),
+            true;
+        _ ->
+            false
+    end.
+
+allow_channel_ensure(Endpoints, Now) ->
+    Key = {?MODULE, otlp_channel_ensure_ts, endpoint_key(Endpoints)},
+    Last = persistent_term_get(Key),
+    case Last of
+        undefined ->
+            persistent_term:put(Key, Now),
+            true;
+        Ts when is_integer(Ts), (Now - Ts) >= ?ENSURE_COOLDOWN_MS ->
+            persistent_term:put(Key, Now),
+            true;
+        _ ->
+            false
+    end.
+
+persistent_term_get(Key) ->
+    try persistent_term:get(Key) of
+        Value -> Value
+    catch
+        error:badarg -> undefined
+    end.
+
+endpoint_key(Endpoints) when is_list(Endpoints) ->
+    lists:sort(
+      [{maps:get(scheme, Endpoint, undefined),
+        maps:get(host, Endpoint, undefined),
+        maps:get(port, Endpoint, undefined)} || Endpoint <- Endpoints]);
+endpoint_key(_) ->
+    [].
+
+grpcbox_endpoints(Endpoints) ->
+    [{scheme(Scheme), Host, Port, maps:get(ssl_options, Endpoint, [])} ||
+        #{scheme := Scheme, host := Host, port := Port} = Endpoint <- Endpoints].
+
+scheme(<<"https">>) -> https;
+scheme(<<"http">>) -> http;
+scheme("https") -> https;
+scheme("http") -> http;
+scheme(_) -> http.
+
+maybe_stop_channel(Channel) ->
+    case gproc_ready() of
+        true ->
+            %% stop by channel name, not pid
+            try grpcbox_channel:stop(Channel, shutdown)
+            catch _:_ ->
+                try grpcbox_channel:stop(Channel) catch _:_ -> ok end
+            end;
+        false ->
+            ok
+    end.
+
+maybe_ensure_channel_for_export(Channel, Endpoints, Compression) ->
+    case channel_ready(Channel) of
+        true -> ok;
+        false -> ensure_channel_started(Channel, Endpoints, Compression)
+    end.
+
+channel_ready(Channel) ->
+    try grpcbox_channel:is_ready(Channel) of
+        true -> true;
+        _ -> false
+    catch
+        _:_ -> false
+    end.
+
+gproc_ready() ->
+    try ets:info(gproc, size) of
+        undefined -> false;
+        _ -> true
+    catch
+        _:_ -> false
+    end.
+
+merge_with_environment(Opts) ->
+    %% See `otel_exporter_traces_otlp:merge_with_environment/1` for rationale.
+    application:load(opentelemetry_exporter),
+    AppEnv = application:get_all_env(opentelemetry_exporter),
+    otel_exporter_otlp:merge_with_environment(config_mapping(),
+                                              AppEnv,
+                                              Opts,
+                                              otlp_logs_endpoint,
+                                              otlp_logs_headers,
+                                              otlp_logs_protocol,
+                                              otlp_logs_compression,
+                                              ?DEFAULT_LOGS_PATH).
+
+config_mapping() ->
+    [
+     {"OTEL_EXPORTER_OTLP_ENDPOINT", otlp_endpoint, url},
+     {"OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", otlp_logs_endpoint, url},
+
+     {"OTEL_EXPORTER_OTLP_HEADERS", otlp_headers, key_value_list},
+     {"OTEL_EXPORTER_OTLP_LOGS_HEADERS", otlp_logs_headers, key_value_list},
+
+     {"OTEL_EXPORTER_OTLP_PROTOCOL", otlp_protocol, otlp_protocol},
+     {"OTEL_EXPORTER_OTLP_LOGS_PROTOCOL", otlp_logs_protocol, otlp_protocol},
+
+     {"OTEL_EXPORTER_OTLP_COMPRESSION", otlp_compression, existing_atom},
+     {"OTEL_EXPORTER_OTLP_LOGS_COMPRESSION", otlp_logs_compression, existing_atom},
+
+     {"OTEL_EXPORTER_SSL_OPTIONS", ssl_options, key_value_list}
+    ].

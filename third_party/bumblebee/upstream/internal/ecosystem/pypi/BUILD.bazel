@@ -1,0 +1,12 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "pypi",
+    srcs = ["pypi.go"],
+    importpath = "github.com/carverauto/serviceradar/third_party/bumblebee/upstream/internal/ecosystem/pypi",
+    visibility = ["//third_party/bumblebee/upstream:__subpackages__"],
+    deps = [
+        "//third_party/bumblebee/upstream/internal/model",
+        "//third_party/bumblebee/upstream/internal/normalize",
+    ],
+)

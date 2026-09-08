@@ -1,0 +1,211 @@
+// ServiceRadar environment configuration schema.
+//
+// This file is the sole definition of which environment settings exist. The committed
+// instances under //config/environments are the sole source of their values, and a build
+// action compiles each to a binary message that every language loads. See
+// openspec/changes/add-unified-config-and-secret-managers/design.md.
+//
+// TWO RULES GOVERN EVERY FIELD HERE, AND BOTH EXIST TO PREVENT SILENT DEFAULTING:
+//
+// 1. Every field uses `optional` (proto3 explicit presence). Without it a missing port
+//    decodes to 0, a missing string to "", and a missing enum to whatever is = 0 --
+//    which is the same silent-default disease this schema replaces, relocated into the
+//    decoder. Validation asserts PRESENCE, never merely that decoding succeeded.
+// 2. Every enum reserves 0 as *_UNSPECIFIED, which validation rejects. An unset TLS mode
+//    must be an error, never accidentally the first real value.
+//
+// NO SECRETS. Passwords, private keys and certificate material are resolved by
+// SecretManager, never stored here. A build-time check rejects credential-shaped values.
+// Note the consequence for TLS: the MODE and the SERVER NAME are configuration, but the
+// CA / client certificate / client key are not, so no *_cert_file field appears below.
+syntax = "proto3";
+
+package serviceradar.config.v1;
+
+option go_package = "github.com/carverauto/serviceradar/config/proto;configpb";
+
+// Which deployment this configuration describes.
+//
+// On-prem is multi-instance: each customer deployment is a separate single-tenant
+// installation selecting one instance at boot. `instance` is required when the kind is
+// ONPREM and must be absent otherwise.
+//
+// DEMO is a kind rather than a SaaS instance because it is a distinct deployment with its
+// own topology and its own admission policy, and every rule scoped `except_kinds:
+// LOCALHOST` must apply to it. Folding it into SAAS would make one committed file describe
+// two clusters, which is the ambiguity this schema exists to remove.
+enum EnvironmentKind {
+  ENVIRONMENT_KIND_UNSPECIFIED = 0;
+  ENVIRONMENT_KIND_LOCALHOST = 1;
+  ENVIRONMENT_KIND_CI = 2;
+  ENVIRONMENT_KIND_SAAS = 3;
+  ENVIRONMENT_KIND_ONPREM = 4;
+  ENVIRONMENT_KIND_DEMO = 5;
+}
+
+// PostgreSQL TLS posture.
+//
+// A typed field rather than a string appended to a DSN. The string form is what allowed
+// `sslmode` to go missing and tokio-postgres to fall back to Prefer -- permitting a
+// plaintext connection while every test still passed.
+enum TlsMode {
+  TLS_MODE_UNSPECIFIED = 0;
+  TLS_MODE_DISABLE = 1;
+  TLS_MODE_REQUIRE = 2;
+  TLS_MODE_VERIFY_CA = 3;
+  TLS_MODE_VERIFY_FULL = 4;
+}
+
+// Dgraph transport security.
+//
+// A SEPARATE enum from TlsMode, not a reuse of it. Dgraph's client has three modes and no
+// equivalent of verify-full: rust/dgraph-client's TlsMode is Disable | RequireNoVerify |
+// VerifyCa. Sharing TlsMode would let an instance state VERIFY_FULL for Dgraph, which no
+// client can honour -- a setting that reads as the strongest option and silently is not.
+enum DgraphTlsMode {
+  DGRAPH_TLS_MODE_UNSPECIFIED = 0;
+  DGRAPH_TLS_MODE_DISABLE = 1;
+  // Encrypted, server NOT authenticated (wire value `require`). Offers no protection
+  // against an active attacker; the client warns when it is selected.
+  DGRAPH_TLS_MODE_REQUIRE_NO_VERIFY = 2;
+  DGRAPH_TLS_MODE_VERIFY_CA = 3;
+}
+
+// Transport security for service-to-service calls (replaces CORE_SEC_MODE).
+enum SecurityMode {
+  SECURITY_MODE_UNSPECIFIED = 0;
+  SECURITY_MODE_NONE = 1;
+  SECURITY_MODE_MTLS = 2;
+  SECURITY_MODE_SPIFFE = 3;
+}
+
+// PostgreSQL / CNPG coordinates.
+//
+// The DSN is NOT a field. It embeds a password, so it is assembled at runtime from these
+// fields plus the resolved secret. Replaces SRQL_TEST_DATABASE_URL, its thirteen
+// SERVICERADAR_TEST_DATABASE_* aliases, and the CNPG_* family.
+message DatabaseConfig {
+  optional string host = 1;
+  optional uint32 port = 2;
+  optional string database = 3;
+
+  // The role used to connect. An IDENTITY, not a credential -- only the password is
+  // secret. Replaces recovering the user by parsing a credential-bearing DSN.
+  optional string connecting_role = 4;
+
+  // The role that owns per-run databases. Separate from `connecting_role` because a
+  // fixture may deliberately distinguish them; that was the entire purpose of
+  // SERVICERADAR_TEST_DATABASE_OWNER, which this field retires.
+  optional string owning_role = 5;
+
+  optional TlsMode tls_mode = 6;
+
+  // The name TLS verification is performed against. Required under VERIFY_FULL because
+  // the fixture certificate carries DNS SANs and no IP SANs, so an address-based caller
+  // must state the certificate's DNS name explicitly.
+  optional string tls_server_name = 7;
+
+  optional string search_path = 8;
+  optional uint32 pool_size = 9;
+  optional uint32 queue_target_ms = 10;
+  optional uint32 queue_interval_ms = 11;
+  optional uint32 ownership_timeout_ms = 12;
+
+  // The role that may CREATE and DROP databases, for a fixture that provisions one per run.
+  //
+  // A THIRD identity, because `connecting_role` cannot serve: the suite connects as the
+  // application role, and that role deliberately lacks CREATEDB. Deriving the admin identity
+  // from `connecting_role` is what made the lifecycle build an admin DSN naming a role with no
+  // rights -- reported by PostgreSQL as a permission error, which reads like a missing GRANT
+  // rather than the wrong user.
+  //
+  // Absent for every deployment: a service never creates databases, and requiring this would
+  // put a privileged identity in instance files that have no use for one. Its password is
+  // `database.admin_password`, resolved by SecretManager.
+  optional string admin_role = 13;
+
+  // Where the CA this server's certificate chains to is published.
+  //
+  // Configuration, not a secret: a CA bundle is public by construction -- it is what a client
+  // needs BEFORE it can authenticate anything, so it cannot itself be authenticated material.
+  // It sits here beside `tls_server_name` for the same reason that field does: both describe
+  // the SHAPE of trust, while the private key material SecretManager holds does not appear.
+  //
+  // A URL rather than the PEM, because a cert-manager issuer rotates. A copy pasted into a CI
+  // secret store or an instance file is correct until the next rotation and then silently is
+  // not -- which is what a stored SRQL_TEST_DATABASE_CA_CERT did, expiring on a date nobody
+  // was watching. Naming the endpoint means every client reads the CURRENT bundle and no
+  // human rotates anything.
+  //
+  // https:// only. The custom CA is the document being fetched. The hop that fetches it is
+  // terminated by a publicly trusted cert (Let's Encrypt on lan-shared-gateway) so scratch
+  // images verify it with the public roots they already carry. Serving this URL over plain
+  // HTTP is the TOFU hole the audits keep reducing every other hardening to.
+  //
+  // Absent means the CA comes from SecretManager (`database.ca_cert`) instead, for a
+  // deployment that mounts one.
+  optional string ca_bundle_url = 14;
+}
+
+// NATS coordinates. Credential material is resolved by SecretManager.
+//
+// Reconciles three spellings of the same concept that could never meet: .bazelrc forwarded
+// NATS_CA_FILE, Go read NATS_CACERTFILE, and the Elixir e2e test used NATS_TEST_CERT_DIR.
+message NatsConfig {
+  optional string url = 1;
+  optional string server_name = 2;
+}
+
+// Dgraph cluster coordinates, consumed by rust/dgraph-client.
+//
+// One host rather than a repeated endpoint list: in Kubernetes the alpha Service already
+// load-balances across alphas, so the round-robin the client supports is the Service's job.
+// A list here would be a second, hand-maintained copy of the membership the cluster owns.
+//
+// ACL username, password, API key, bearer token and namespace are absent. The last four are
+// credentials that SecretManager resolves; username and namespace are omitted until Dgraph is
+// actually wired in, so the schema does not carry fields no instance sets.
+message DgraphConfig {
+  optional string host = 1;
+  optional uint32 port = 2;
+  optional DgraphTlsMode tls_mode = 3;
+
+  // Where to fetch the CA bundle that verifies this cluster, for the same reason
+  // `database.ca_bundle_url` exists: the certificate is issued by an in-cluster CA that
+  // rotates, so a copy pinned in a secret store is correct until the next rotation and then
+  // silently is not. Naming the endpoint means every client reads the CURRENT bundle.
+  //
+  // https:// only. The custom CA is the document being fetched, not the trust anchor for
+  // this hop. TLS on the publisher is a publicly trusted cert (Let's Encrypt), which scratch
+  // images already have in their CA bundle. Wrapping this fetch in a cert issued by the
+  // custom CA is the circular case; wrapping it in a public CA is not.
+  //
+  // Absent means the CA comes from SecretManager (`dgraph.ca_cert`) instead, for a deployment
+  // that mounts one.
+  optional string ca_bundle_url = 4;
+}
+
+// Core service endpoint and transport security (replaces the CORE_* family).
+//
+// CORE_CERT_FILE, CORE_KEY_FILE, CORE_CA_FILE and CORE_CERT_DIR are deliberately absent:
+// they locate certificate material, which SecretManager resolves.
+message CoreConfig {
+  optional string address = 1;
+  optional string api_url = 2;
+  optional SecurityMode security_mode = 3;
+  optional string server_name = 4;
+  optional string trust_domain = 5;
+  optional string server_spiffe_id = 6;
+  optional string workload_socket = 7;
+}
+
+// One environment. Exactly one committed instance per environment identity.
+message EnvironmentConfig {
+  optional EnvironmentKind kind = 1;
+  // Required if and only if `kind` is ENVIRONMENT_KIND_ONPREM.
+  optional string instance = 2;
+  optional DatabaseConfig database = 3;
+  optional NatsConfig nats = 4;
+  optional CoreConfig core = 5;
+  optional DgraphConfig dgraph = 6;
+}

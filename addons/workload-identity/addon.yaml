@@ -1,0 +1,42 @@
+# Workload identity native add-on.
+#
+# Delivers a standalone node-local workload metadata collector as a signed
+# pushed-artifact add-on. The collector owns CRI/runtime metadata discovery and
+# writes bounded identity snapshots for agent ingest; netprobe is only a later
+# consumer of the resulting upstream current-state data.
+id: workload-identity
+name: Workload Identity
+version: 0.1.9
+description: >-
+  Node-local CRI/container workload metadata collector for Kubernetes pod,
+  namespace, container, image, and runtime identity enrichment.
+
+kind: native
+delivery: pushed-artifact
+supervision: systemd-service
+language: rust
+
+capabilities:
+  - workload-identity
+  - container-inventory
+
+requires:
+  base_agent: ">=1.2.0"
+  platforms: [linux]
+  os_capabilities: []
+  # Kubernetes CRI sockets are commonly root:root 0660. Keep this
+  # privilege on the standalone collector instead of routing runtime socket
+  # access through serviceradar-agent or netprobe.
+  run_as: root
+
+exec:
+  binary: serviceradar-workload-identity
+  install_path: /usr/local/lib/serviceradar/bin
+
+state_dirs:
+  - /var/lib/serviceradar/workload-identity
+  - /var/lib/serviceradar/workload-identity/spool
+
+# artifacts[] are populated by build/native_addons signing/publish/import.
+
+config_schema: config.schema.json

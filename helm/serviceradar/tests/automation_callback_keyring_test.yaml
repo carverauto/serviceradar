@@ -1,0 +1,47 @@
+suite: automation callback keyring
+templates:
+  - templates/secret-generator-job.yaml
+# Assertions are scoped with `template:` and select documents by a path that is unique
+# within that template. Selecting on metadata.name matches several documents here and
+# fails with `multiple indexes found`. See README.md in this directory.
+tests:
+  - it: validates existing callback keyrings and never silently replaces them
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: 'is_valid_callback_keyring_raw'
+        documentSelector:
+          path: kind
+          value: Job
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: 'Refusing to replace it automatically'
+        documentSelector:
+          path: kind
+          value: Job
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: 'automation-callback-envelope-key'
+        documentSelector:
+          path: kind
+          value: Job
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: 'invalid automation callback envelope key'
+        documentSelector:
+          path: kind
+          value: Job
+  - it: suppresses Kubernetes Secret response bodies on create and patch
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: '(?s)--output /dev/null\s+\\\s+-X POST .*?/secrets'
+        documentSelector:
+          path: kind
+          value: Job
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: '(?s)--output /dev/null\s+\\\s+-X PATCH .*?/secrets/\$\{SECRET_NAME\}'
+        documentSelector:
+          path: kind
+          value: Job

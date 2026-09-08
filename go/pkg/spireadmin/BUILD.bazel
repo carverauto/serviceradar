@@ -1,0 +1,24 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "spireadmin",
+    srcs = [
+        "client.go",
+        "errors.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/spireadmin",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@com_github_spiffe_go_spiffe_v2//spiffeid",
+        "@com_github_spiffe_go_spiffe_v2//spiffetls/tlsconfig",
+        "@com_github_spiffe_go_spiffe_v2//workloadapi",
+        "@com_github_spiffe_spire_api_sdk//proto/spire/api/server/agent/v1:agent",
+        "@com_github_spiffe_spire_api_sdk//proto/spire/api/server/bundle/v1:bundle",
+        "@com_github_spiffe_spire_api_sdk//proto/spire/api/server/entry/v1:entry",
+        "@com_github_spiffe_spire_api_sdk//proto/spire/api/types",
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//credentials",
+        "@org_golang_google_grpc//status",
+    ],
+)

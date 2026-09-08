@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Format staged Elixir files from their Mix project, then fail the commit if
+# that project (or any other first-party Mix project with deps) is still
+# unformatted.
+#
+# CI runs `mix format --check-formatted` per project in scripts/elixir_quality.sh.
+# The previous hook always exited 0 (`|| true`) and skipped any project without
+# deps/styler, so an unformatted line in a project you did not `mix deps.get`
+# went straight to a red PR.
+#
+# POSIX/bash-3 friendly: macOS /bin/bash is 3.2 and has no associative arrays.
+
+root="$(git rev-parse --show-toplevel)"
+cd "$root"
+
+fail=0
+staged_projects=""
+
+contains_project() {
+  case " $1 " in
+    *" $2 "*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+add_project() {
+  if contains_project "$staged_projects" "$1"; then
+    return 0
+  fi
+  staged_projects="${staged_projects} $1"
+}
+
+mix_project_for() {
+  local f=$1 d
+  d=${f%/*}
+  while [ -n "$d" ] && [ "$d" != "." ] && [ ! -f "$d/mix.exs" ]; do
+    case "$d" in
+      */*) d=${d%/*} ;;
+      *) d="" ;;
+    esac
+  done
+  if [ -n "$d" ] && [ -f "$d/mix.exs" ]; then
+    printf '%s\n' "$d"
+  fi
+}
+
+relpath() {
+  local f=$1
+  case "$f" in
+    /*) printf '%s\n' "${f#"$root"/}" ;;
+    *) printf '%s\n' "$f" ;;
+  esac
+}
+
+for raw in "$@"; do
+  f=$(relpath "$raw")
+  d=$(mix_project_for "$f")
+  if [ -z "$d" ]; then
+    continue
+  fi
+
+  if [ ! -d "$d/deps/styler" ]; then
+    echo "mix format: cannot format $f" >&2
+    echo "  $d/deps/styler is missing. Run: (cd $d && mix deps.get)" >&2
+    echo "  Skipping lets CI fail later on mix format --check-formatted." >&2
+    fail=1
+    continue
+  fi
+
+  rel=${f#"$d"/}
+  if ! (cd "$d" && mix format "$rel"); then
+    echo "mix format failed for $f (project $d)" >&2
+    fail=1
+    continue
+  fi
+  add_project "$d"
+done
+
+check_project() {
+  local d=$1
+  if [ ! -d "$d/deps/styler" ]; then
+    return 0
+  fi
+  if ! (cd "$d" && mix format --check-formatted); then
+    echo "mix format --check-formatted failed in $d" >&2
+    echo "  CI will fail this project. Run: (cd $d && mix format)" >&2
+    return 1
+  fi
+}
+
+for d in $staged_projects; do
+  check_project "$d" || fail=1
+done
+
+# CI format-checks every Mix project, not only the one you staged. Catch dirt
+# in sibling projects when their deps are present; warn when they are not.
+for mix in elixir/*/mix.exs; do
+  [ -f "$mix" ] || continue
+  d=${mix%/mix.exs}
+  if contains_project "$staged_projects" "$d"; then
+    continue
+  fi
+  if [ ! -d "$d/deps/styler" ]; then
+    echo "mix format: not checking $d (no deps/styler; CI still will)" >&2
+    continue
+  fi
+  check_project "$d" || fail=1
+done
+
+exit "$fail"

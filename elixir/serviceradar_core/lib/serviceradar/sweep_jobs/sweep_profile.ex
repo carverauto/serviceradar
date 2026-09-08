@@ -1,0 +1,202 @@
+defmodule ServiceRadar.SweepJobs.SweepProfile do
+  @moduledoc """
+  Admin-managed scanner profiles for network sweeps.
+
+  SweepProfile defines reusable scan configurations that can be inherited by
+  SweepGroups. Profiles are typically managed by administrators and define
+  the technical parameters of how scans are performed.
+
+  ## Attributes
+
+  - `name`: Human-readable profile name
+  - `description`: Optional description of the profile's purpose
+  - `ports`: List of TCP ports to scan (e.g., [22, 80, 443, 8080])
+  - `sweep_modes`: Scan modes to use ("icmp", "tcp")
+  - `concurrency`: Max concurrent host scans
+  - `timeout`: Per-host timeout (e.g., "3s", "5s")
+  - `icmp_settings`: ICMP-specific settings (count, interval)
+  - `tcp_settings`: TCP-specific settings (syn_only, connect_timeout)
+  - `banner_grab`: Optional active banner-grab phase controls
+  - `admin_only`: If true, only admins can use this profile
+
+  ## Usage
+
+      # Create a profile for web servers
+      SweepProfile
+      |> Ash.Changeset.for_create(:create, %{
+        name: "Web Server Scan",
+        ports: [80, 443, 8080, 8443],
+        sweep_modes: ["tcp", "icmp"]
+      })
+      |> Ash.create!()
+  """
+
+  use Ash.Resource,
+    domain: ServiceRadar.SweepJobs,
+    data_layer: AshPostgres.DataLayer,
+    notifiers: [ServiceRadar.AgentConfig.DependencyNotifier],
+    authorizers: [Ash.Policy.Authorizer]
+
+  alias ServiceRadar.SweepJobs.Checks.EnablingBannerGrabWithoutPermission
+  alias ServiceRadar.SweepJobs.SweepProfile.BannerGrab
+
+  @banner_grab_permission "networks.sweeps.banner_grab"
+
+  @profile_fields [
+    :name,
+    :description,
+    :ports,
+    :sweep_modes,
+    :concurrency,
+    :timeout,
+    :icmp_settings,
+    :tcp_settings,
+    :banner_grab,
+    :admin_only,
+    :enabled
+  ]
+
+  postgres do
+    table "sweep_profiles"
+    repo ServiceRadar.Repo
+    schema "platform"
+  end
+
+  actions do
+    defaults [:read, :destroy]
+
+    create :create do
+      accept @profile_fields
+    end
+
+    update :update do
+      accept @profile_fields
+    end
+
+    read :list_available do
+      description "List profiles available for use"
+      filter expr(enabled == true)
+    end
+
+    read :by_name do
+      argument :name, :string, allow_nil?: false
+      get? true
+      filter expr(name == ^arg(:name))
+    end
+  end
+
+  policies do
+    import ServiceRadar.Policies
+
+    system_bypass()
+
+    policy action_type([:create, :update]) do
+      forbid_if {EnablingBannerGrabWithoutPermission, permission: @banner_grab_permission}
+      authorize_if is_admin()
+    end
+
+    admin_action_type(:destroy)
+
+    # Non-admin users can read non-admin-only profiles
+    policy action_type(:read) do
+      authorize_if expr(admin_only == false)
+      authorize_if is_admin()
+    end
+  end
+
+  attributes do
+    uuid_primary_key :id
+
+    attribute :name, :string do
+      allow_nil? false
+      public? true
+      description "Human-readable profile name"
+    end
+
+    attribute :description, :string do
+      allow_nil? true
+      public? true
+      description "Description of the profile's purpose"
+    end
+
+    attribute :ports, {:array, :integer} do
+      allow_nil? false
+      public? true
+      default []
+      description "List of TCP ports to scan"
+    end
+
+    attribute :sweep_modes, {:array, :string} do
+      allow_nil? false
+      public? true
+      default ["icmp", "tcp"]
+      description "Scan modes the agent sweeper implements: icmp, tcp"
+    end
+
+    attribute :concurrency, :integer do
+      allow_nil? false
+      public? true
+      default 50
+      description "Maximum concurrent host scans"
+    end
+
+    attribute :timeout, :string do
+      allow_nil? false
+      public? true
+      default "3s"
+      description "Per-host scan timeout"
+    end
+
+    attribute :icmp_settings, :map do
+      allow_nil? false
+      public? true
+      default %{}
+      description "ICMP-specific settings (count, interval)"
+    end
+
+    attribute :tcp_settings, :map do
+      allow_nil? false
+      public? true
+      default %{}
+      description "TCP-specific settings (syn_only, connect_timeout)"
+    end
+
+    attribute :banner_grab, BannerGrab do
+      allow_nil? false
+      public? true
+      default BannerGrab.default_input()
+      description "Optional active banner-grab phase controls"
+    end
+
+    attribute :admin_only, :boolean do
+      allow_nil? false
+      public? true
+      default false
+      description "If true, only admins can use this profile"
+    end
+
+    attribute :enabled, :boolean do
+      allow_nil? false
+      public? true
+      default true
+      description "Whether this profile is available for use"
+    end
+
+    create_timestamp :inserted_at
+    update_timestamp :updated_at
+  end
+
+  relationships do
+    has_many :sweep_groups, ServiceRadar.SweepJobs.SweepGroup do
+      destination_attribute :profile_id
+    end
+  end
+
+  calculations do
+    calculate :usage_count, :integer, expr(count(sweep_groups))
+  end
+
+  identities do
+    identity :unique_name, [:name]
+  end
+end

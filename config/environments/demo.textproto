@@ -1,0 +1,61 @@
+# ServiceRadar environment configuration: demo
+#
+# GROUND TRUTH. This file is authored and reviewed here; a build action compiles it to a
+# binary message that every implementation loads. Do not edit the generated .binpb.
+#
+# NO SECRETS. Passwords, private keys and certificate material are resolved by
+# SecretManager. A build-time check rejects credential-shaped values in this file.
+#
+# The public demo deployment (namespace `demo`, ArgoCD-managed, Kyverno-enforced signed
+# images). It carries saas's POSTURE deliberately -- same TLS modes, same pool sizing, same
+# security mode -- because it is a real deployment that people reach over the internet, not a
+# scratch environment. It is a separate kind rather than a saas instance because its topology
+# is its own; see the EnvironmentKind comment in //config/proto/config.proto.
+
+kind: ENVIRONMENT_KIND_DEMO
+
+database {
+  # CNPG names its read-write Service <clusterName>-rw, and the chart sets clusterName to
+  # `cnpg` (helm/serviceradar/values.yaml). In-cluster resolution only.
+  host: "cnpg-rw.demo.svc.cluster.local"
+  port: 5432
+  database: "serviceradar"
+
+  # Identities, not credentials. The password lives in the demo/serviceradar-db-credentials
+  # secret and is never written here.
+  connecting_role: "serviceradar"
+  owning_role: "serviceradar"
+
+  tls_mode: TLS_MODE_VERIFY_FULL
+  tls_server_name: "cnpg-rw.demo.svc.cluster.local"
+
+  search_path: "platform, ag_catalog"
+
+  pool_size: 25
+  queue_target_ms: 500
+  queue_interval_ms: 1000
+  ownership_timeout_ms: 60000
+}
+
+nats {
+  url: "tls://serviceradar-nats.demo.svc.cluster.local:4222"
+  server_name: "serviceradar-nats"
+}
+
+core {
+  address: "serviceradar-core:50052"
+  api_url: "http://serviceradar-core:8090"
+  security_mode: SECURITY_MODE_MTLS
+  server_name: "serviceradar-core"
+}
+
+dgraph {
+  # The alpha Service the chart renders, not a guess: release `dgraph` yields
+  # <release>-dgraph-alpha. Deployed by //k8s/dgraph/demo.
+  host: "dgraph-dgraph-alpha.dgraph.svc.cluster.local"
+  port: 9080
+
+  # Verified against an in-cluster CA supplied as `dgraph.ca_cert`, not the system
+  # roots: no public authority signs a *.svc.cluster.local name.
+  tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+}

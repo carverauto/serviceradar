@@ -1,0 +1,72 @@
+suite: gateway api envoy high availability
+templates:
+  - templates/gateway-api.yaml
+tests:
+  - it: renders hosted replica spread anti-affinity and disruption budget
+    set:
+      gatewayApi.enabled: true
+      gatewayApi.host: acme.serviceradar.cloud
+      gatewayApi.envoyProxy.deployment:
+        replicas: 3
+        pod:
+          labels:
+            serviceradar.io/edge-proxy: "true"
+          affinity:
+            podAntiAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                - labelSelector:
+                    matchLabels:
+                      serviceradar.io/edge-proxy: "true"
+                  topologyKey: kubernetes.io/hostname
+          topologySpreadConstraints:
+            - maxSkew: 1
+              topologyKey: kubernetes.io/hostname
+              whenUnsatisfiable: DoNotSchedule
+              labelSelector:
+                matchLabels:
+                  serviceradar.io/edge-proxy: "true"
+      gatewayApi.envoyProxy.pdb:
+        minAvailable: 2
+    asserts:
+      - equal:
+          path: spec.provider.kubernetes.envoyDeployment.replicas
+          value: 3
+        documentIndex: 0
+      - equal:
+          path: spec.provider.kubernetes.envoyDeployment.pod.labels["serviceradar.io/edge-proxy"]
+          value: "true"
+        documentIndex: 0
+      - equal:
+          path: spec.provider.kubernetes.envoyDeployment.pod.affinity.podAntiAffinity.requiredDuringSchedulingIgnoredDuringExecution[0]
+          value:
+            labelSelector:
+              matchLabels:
+                serviceradar.io/edge-proxy: "true"
+            topologyKey: kubernetes.io/hostname
+        documentIndex: 0
+      - equal:
+          path: spec.provider.kubernetes.envoyDeployment.pod.topologySpreadConstraints[0]
+          value:
+            maxSkew: 1
+            topologyKey: kubernetes.io/hostname
+            whenUnsatisfiable: DoNotSchedule
+            labelSelector:
+              matchLabels:
+                serviceradar.io/edge-proxy: "true"
+        documentIndex: 0
+      - equal:
+          path: spec.provider.kubernetes.envoyPDB.minAvailable
+          value: 2
+        documentIndex: 0
+
+  - it: omits deployment and disruption overrides for the chart default
+    set:
+      gatewayApi.enabled: true
+      gatewayApi.host: acme.serviceradar.cloud
+    asserts:
+      - notExists:
+          path: spec.provider.kubernetes.envoyDeployment
+        documentIndex: 0
+      - notExists:
+          path: spec.provider.kubernetes.envoyPDB
+        documentIndex: 0

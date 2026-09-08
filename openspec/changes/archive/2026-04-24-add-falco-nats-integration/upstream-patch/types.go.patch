@@ -1,0 +1,11 @@
+--- a/types/types.go
++++ b/types/types.go
+@@ -XXX,6 +XXX,8 @@
+ type natsOutputConfig struct {
+ 	HostPort          string
+ 	Subject           string
++	CredsFile         string // path to .creds file (JWT + NKey seed)
++	CaCertFile        string // path to PEM CA certificate
+ 	MinimumPriority   string
+ 	MutualTLS         bool
+ 	CheckCert         bool

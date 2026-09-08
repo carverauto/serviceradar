@@ -1,0 +1,159 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package snmp
+
+import (
+	"testing"
+
+	"github.com/gosnmp/gosnmp"
+	"github.com/stretchr/testify/require"
+)
+
+func TestConvertVariable_OctetStringBytes(t *testing.T) {
+	client := &SNMPClientImpl{}
+
+	variable := gosnmp.SnmpPDU{
+		Name:  ".1.3.6.1.2.1.1.1.0",
+		Type:  gosnmp.OctetString,
+		Value: []byte("Test SNMP String"),
+	}
+
+	value, err := client.convertVariable(variable)
+	require.NoError(t, err)
+	require.Equal(t, "Test SNMP String", value)
+}
+
+func TestConvertVariable_ObjectDescriptionBytes(t *testing.T) {
+	client := &SNMPClientImpl{}
+
+	variable := gosnmp.SnmpPDU{
+		Name:  ".1.3.6.1.2.1.1.1.0",
+		Type:  gosnmp.ObjectDescription,
+		Value: []byte("Device OS v1.2.3"),
+	}
+
+	value, err := client.convertVariable(variable)
+	require.NoError(t, err)
+	require.Equal(t, "Device OS v1.2.3", value)
+}
+
+func TestConvertVariable_StringTypesUnexpectedValueDoNotPanic(t *testing.T) {
+	client := &SNMPClientImpl{}
+
+	testCases := []struct {
+		name     string
+		variable gosnmp.SnmpPDU
+	}{
+		{
+			name: "OctetString byte",
+			variable: gosnmp.SnmpPDU{
+				Name:  ".1.3.6.1.2.1.1.1.0",
+				Type:  gosnmp.OctetString,
+				Value: byte('x'),
+			},
+		},
+		{
+			name: "ObjectDescription string",
+			variable: gosnmp.SnmpPDU{
+				Name:  ".1.3.6.1.2.1.1.1.0",
+				Type:  gosnmp.ObjectDescription,
+				Value: "not-bytes",
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var (
+				value interface{}
+				err   error
+			)
+
+			require.NotPanics(t, func() {
+				value, err = client.convertVariable(tc.variable)
+			})
+
+			require.Nil(t, value)
+			require.Error(t, err)
+			require.ErrorIs(t, err, ErrSNMPConvert)
+		})
+	}
+}
+
+func TestCollectChunkResults_SkipsUnsupportedInstanceButKeepsValidResults(t *testing.T) {
+	client := &SNMPClientImpl{}
+
+	results, err := client.collectChunkResults([]gosnmp.SnmpPDU{
+		{
+			Name:  ".1.3.6.1.2.1.2.2.1.10.3",
+			Type:  gosnmp.Counter32,
+			Value: uint(1234),
+		},
+		{
+			Name:  ".1.3.6.1.2.1.2.2.1.11.3",
+			Type:  gosnmp.NoSuchInstance,
+			Value: nil,
+		},
+		{
+			Name:  ".1.3.6.1.2.1.2.2.1.16.3",
+			Type:  gosnmp.Counter32,
+			Value: uint(5678),
+		},
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, map[string]interface{}{
+		".1.3.6.1.2.1.2.2.1.10.3": CounterValue{Value: 1234, Width: 32},
+		".1.3.6.1.2.1.2.2.1.16.3": CounterValue{Value: 5678, Width: 32},
+	}, results)
+}
+
+func TestConvertVariable_PreservesCounterWidth(t *testing.T) {
+	client := &SNMPClientImpl{}
+
+	counter32, err := client.convertVariable(gosnmp.SnmpPDU{
+		Name:  ".1.3.6.1.2.1.2.2.1.10.3",
+		Type:  gosnmp.Counter32,
+		Value: uint(1234),
+	})
+	require.NoError(t, err)
+	require.Equal(t, CounterValue{Value: 1234, Width: 32}, counter32)
+
+	counter64, err := client.convertVariable(gosnmp.SnmpPDU{
+		Name:  ".1.3.6.1.2.1.31.1.1.1.6.3",
+		Type:  gosnmp.Counter64,
+		Value: uint64(9_007_199_254_740_993),
+	})
+	require.NoError(t, err)
+	require.Equal(t, CounterValue{Value: 9_007_199_254_740_993, Width: 64}, counter64)
+}
+
+func TestCollectChunkResults_ReturnsFatalConversionErrors(t *testing.T) {
+	client := &SNMPClientImpl{}
+
+	results, err := client.collectChunkResults([]gosnmp.SnmpPDU{
+		{
+			Name:  ".1.3.6.1.2.1.1.1.0",
+			Type:  gosnmp.OctetString,
+			Value: byte('x'),
+		},
+	})
+
+	require.Nil(t, results)
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrSNMPConvert)
+}

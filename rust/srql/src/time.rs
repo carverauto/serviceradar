@@ -1,0 +1,395 @@
+//! Time utilities for translating SRQL presets to chrono ranges.
+
+use crate::error::{Result, ServiceError};
+use chrono::{DateTime, Duration, NaiveDateTime, Utc};
+use serde::Serialize;
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TimeRange {
+    pub start: DateTime<Utc>,
+    pub end: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type", content = "value", rename_all = "snake_case")]
+pub enum TimeFilterSpec {
+    RelativeMinutes(i64),
+    RelativeHours(i64),
+    RelativeDays(i64),
+    Today,
+    Yesterday,
+    Absolute {
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    },
+    AbsoluteOpenEnd {
+        start: DateTime<Utc>,
+    },
+    AbsoluteOpenStart {
+        end: DateTime<Utc>,
+    },
+}
+
+impl TimeFilterSpec {
+    pub fn resolve(&self, now: DateTime<Utc>) -> Result<TimeRange> {
+        self.resolve_with_max_days(now, MAX_TIME_RANGE_DAYS)
+    }
+
+    pub fn resolve_with_max_days(&self, now: DateTime<Utc>, max_days: i64) -> Result<TimeRange> {
+        let max_duration = Duration::try_days(max_days).ok_or_else(invalid_time_range)?;
+        let range = match self {
+            TimeFilterSpec::RelativeMinutes(minutes) => relative_range(
+                now,
+                Duration::try_minutes(*minutes).ok_or_else(invalid_time_range)?,
+            )?,
+            TimeFilterSpec::RelativeHours(hours) => relative_range(
+                now,
+                Duration::try_hours(*hours).ok_or_else(invalid_time_range)?,
+            )?,
+            TimeFilterSpec::RelativeDays(days) => relative_range(
+                now,
+                Duration::try_days(*days).ok_or_else(invalid_time_range)?,
+            )?,
+            TimeFilterSpec::Today => {
+                let start = now.date_naive().and_hms_opt(0, 0, 0).unwrap();
+                TimeRange {
+                    start: DateTime::<Utc>::from_naive_utc_and_offset(start, Utc),
+                    end: now,
+                }
+            }
+            TimeFilterSpec::Yesterday => {
+                let today = now.date_naive();
+                let start = today
+                    .pred_opt()
+                    .unwrap_or(today)
+                    .and_hms_opt(0, 0, 0)
+                    .unwrap();
+                let end = today.and_hms_opt(0, 0, 0).unwrap();
+                TimeRange {
+                    start: DateTime::<Utc>::from_naive_utc_and_offset(start, Utc),
+                    end: DateTime::<Utc>::from_naive_utc_and_offset(end, Utc),
+                }
+            }
+            TimeFilterSpec::Absolute { start, end } => TimeRange {
+                start: *start,
+                end: *end,
+            },
+            TimeFilterSpec::AbsoluteOpenEnd { start } => {
+                if *start > now {
+                    return Err(ServiceError::InvalidRequest(
+                        "time range start must be before end".to_string(),
+                    ));
+                }
+                TimeRange {
+                    start: *start,
+                    end: now,
+                }
+            }
+            TimeFilterSpec::AbsoluteOpenStart { end } => {
+                let start = end
+                    .checked_sub_signed(max_duration)
+                    .unwrap_or(DateTime::<Utc>::MIN_UTC);
+                TimeRange { start, end: *end }
+            }
+        };
+
+        if range.start > range.end {
+            return Err(ServiceError::InvalidRequest(
+                "time range start must be before end".to_string(),
+            ));
+        }
+        let span = range.end.signed_duration_since(range.start);
+        if span > max_duration {
+            return Err(ServiceError::InvalidRequest(format!(
+                "time range cannot exceed {max_days} days"
+            )));
+        }
+        Ok(range)
+    }
+}
+
+const MAX_TIME_RANGE_DAYS: i64 = 90;
+
+fn relative_range(now: DateTime<Utc>, duration: Duration) -> Result<TimeRange> {
+    let start = now
+        .checked_sub_signed(duration)
+        .ok_or_else(invalid_time_range)?;
+    Ok(TimeRange { start, end: now })
+}
+
+fn invalid_time_range() -> ServiceError {
+    ServiceError::InvalidRequest("time range is out of bounds".to_string())
+}
+
+pub fn parse_time_value(raw: &str) -> Result<TimeFilterSpec> {
+    let value = raw
+        .trim()
+        .trim_matches('"')
+        .trim_matches('\'')
+        .to_lowercase();
+
+    if value.starts_with('[') && value.ends_with(']') {
+        return parse_absolute_range(&value);
+    }
+
+    if let Some(spec) = parse_relative_keyword(&value) {
+        return Ok(spec);
+    }
+
+    if (value.contains("day") || value.contains("hour") || value.contains("min"))
+        && let Some(spec) = parse_spelled_duration(&value)
+    {
+        return Ok(spec);
+    }
+
+    Err(ServiceError::InvalidRequest(format!(
+        "unsupported time token '{raw}'"
+    )))
+}
+
+fn parse_relative_keyword(value: &str) -> Option<TimeFilterSpec> {
+    if value == "today" {
+        return Some(TimeFilterSpec::Today);
+    }
+    if value == "yesterday" {
+        return Some(TimeFilterSpec::Yesterday);
+    }
+
+    let normalized = value.replace(['_', '-'], "");
+    if let Some(stripped) = normalized.strip_prefix("last")
+        && let Some(spec) = parse_numeric_suffix(stripped)
+    {
+        return Some(spec);
+    }
+    if let Some(spec) = parse_numeric_suffix(&normalized) {
+        return Some(spec);
+    }
+
+    None
+}
+
+fn parse_spelled_duration(value: &str) -> Option<TimeFilterSpec> {
+    let cleaned = value
+        .chars()
+        .filter(|ch| !ch.is_whitespace() && *ch != '"')
+        .collect::<String>();
+    parse_numeric_suffix(&cleaned)
+}
+
+fn parse_numeric_suffix(value: &str) -> Option<TimeFilterSpec> {
+    let mut digits = String::new();
+    let mut suffix = String::new();
+
+    for ch in value.chars() {
+        if ch.is_ascii_digit() {
+            digits.push(ch);
+        } else {
+            suffix.push(ch);
+        }
+    }
+
+    let amount: i64 = digits.parse().ok()?;
+    let suffix = suffix.trim();
+
+    match suffix {
+        "m" | "min" | "mins" | "minute" | "minutes" => {
+            Some(TimeFilterSpec::RelativeMinutes(amount))
+        }
+        "h" | "hour" | "hours" => Some(TimeFilterSpec::RelativeHours(amount)),
+        "d" | "day" | "days" => Some(TimeFilterSpec::RelativeDays(amount)),
+        "y" | "year" | "years" => amount.checked_mul(365).map(TimeFilterSpec::RelativeDays),
+        _ => None,
+    }
+}
+
+fn parse_absolute_range(value: &str) -> Result<TimeFilterSpec> {
+    let inner = value.trim_matches(['[', ']']);
+    let (start_raw, end_raw) = inner
+        .split_once(',')
+        .ok_or_else(|| ServiceError::InvalidRequest("invalid time range".into()))?;
+    let start_raw = start_raw.trim();
+    let end_raw = end_raw.trim();
+
+    match (start_raw.is_empty(), end_raw.is_empty()) {
+        (false, false) => {
+            let start = parse_datetime(start_raw)?;
+            let end = parse_datetime(end_raw)?;
+            Ok(TimeFilterSpec::Absolute { start, end })
+        }
+        (false, true) => {
+            let start = parse_datetime(start_raw)?;
+            Ok(TimeFilterSpec::AbsoluteOpenEnd { start })
+        }
+        (true, false) => {
+            let end = parse_datetime(end_raw)?;
+            Ok(TimeFilterSpec::AbsoluteOpenStart { end })
+        }
+        (true, true) => Err(ServiceError::InvalidRequest(
+            "time range requires at least one bound".into(),
+        )),
+    }
+}
+
+fn parse_datetime(value: &str) -> Result<DateTime<Utc>> {
+    if let Ok(dt) = DateTime::parse_from_rfc3339(value) {
+        return Ok(dt.with_timezone(&Utc));
+    }
+    if let Ok(dt) = NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S") {
+        return Ok(DateTime::<Utc>::from_naive_utc_and_offset(dt, Utc));
+    }
+    Err(ServiceError::InvalidRequest(format!(
+        "invalid time literal '{value}'"
+    )))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_relative_days() {
+        let spec = parse_time_value("last_7d").unwrap();
+        let now = Utc::now();
+        let range = spec.resolve(now).unwrap();
+        assert!(range.start < range.end);
+    }
+
+    #[test]
+    fn parses_relative_minutes() {
+        let spec = parse_time_value("last_15m").unwrap();
+        let now = Utc::now();
+        let range = spec.resolve(now).unwrap();
+        assert!(range.start < range.end);
+    }
+
+    #[test]
+    fn rejects_huge_relative_time_without_panic() {
+        let spec = parse_time_value("last5000000000d").unwrap();
+        let now = DateTime::parse_from_rfc3339("2026-06-20T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let err = spec.resolve(now).unwrap_err();
+        assert!(matches!(err, ServiceError::InvalidRequest(_)));
+    }
+
+    #[test]
+    fn rejects_huge_relative_years_without_overflow() {
+        let err = parse_time_value("last50000000000000000y").unwrap_err();
+        assert!(matches!(err, ServiceError::InvalidRequest(_)));
+    }
+
+    #[test]
+    fn parses_absolute_range() {
+        let spec = parse_time_value("[2025-01-01 00:00:00,2025-01-02 00:00:00]").unwrap();
+        let range = spec.resolve(Utc::now()).unwrap();
+        assert_eq!(
+            range.start,
+            DateTime::parse_from_rfc3339("2025-01-01T00:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc)
+        );
+        assert_eq!(
+            range.end,
+            DateTime::parse_from_rfc3339("2025-01-02T00:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc)
+        );
+    }
+
+    #[test]
+    fn parses_open_end_absolute_range() {
+        let spec = parse_time_value("[2025-11-16T09:06:34.543Z,]").unwrap();
+        let now = DateTime::parse_from_rfc3339("2025-11-17T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let range = spec.resolve(now).unwrap();
+        assert_eq!(
+            range.start,
+            DateTime::parse_from_rfc3339("2025-11-16T09:06:34.543Z")
+                .unwrap()
+                .with_timezone(&Utc)
+        );
+        assert_eq!(range.end, now);
+    }
+
+    #[test]
+    fn parses_open_start_absolute_range() {
+        let spec = parse_time_value("[,2025-11-16T09:06:34.543Z]").unwrap();
+        let now = DateTime::parse_from_rfc3339("2025-11-17T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let range = spec.resolve(now).unwrap();
+        assert_eq!(
+            range.end,
+            DateTime::parse_from_rfc3339("2025-11-16T09:06:34.543Z")
+                .unwrap()
+                .with_timezone(&Utc)
+        );
+        let expected_start = range.end - Duration::days(MAX_TIME_RANGE_DAYS);
+        assert_eq!(range.start, expected_start);
+    }
+
+    #[test]
+    fn rejects_absolute_range_exceeding_limit() {
+        let spec = parse_time_value("[2024-01-01T00:00:00Z,2025-11-16T09:06:34.543Z]").unwrap();
+        let now = DateTime::parse_from_rfc3339("2025-11-17T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let err = spec.resolve(now).unwrap_err();
+        assert!(matches!(err, ServiceError::InvalidRequest(_)));
+    }
+
+    #[test]
+    fn rejects_open_end_range_exceeding_limit() {
+        let spec = parse_time_value("[2024-01-01T00:00:00Z,]").unwrap();
+        let now = DateTime::parse_from_rfc3339("2025-11-17T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let err = spec.resolve(now).unwrap_err();
+        assert!(matches!(err, ServiceError::InvalidRequest(_)));
+    }
+
+    #[test]
+    fn serializes_relative_hours() {
+        let spec = TimeFilterSpec::RelativeHours(1);
+        let json = serde_json::to_string(&spec).unwrap();
+        assert_eq!(json, r#"{"type":"relative_hours","value":1}"#);
+    }
+
+    #[test]
+    fn serializes_relative_minutes() {
+        let spec = TimeFilterSpec::RelativeMinutes(15);
+        let json = serde_json::to_string(&spec).unwrap();
+        assert_eq!(json, r#"{"type":"relative_minutes","value":15}"#);
+    }
+
+    #[test]
+    fn serializes_relative_days() {
+        let spec = TimeFilterSpec::RelativeDays(7);
+        let json = serde_json::to_string(&spec).unwrap();
+        assert_eq!(json, r#"{"type":"relative_days","value":7}"#);
+    }
+
+    #[test]
+    fn serializes_today() {
+        let spec = TimeFilterSpec::Today;
+        let json = serde_json::to_string(&spec).unwrap();
+        assert_eq!(json, r#"{"type":"today"}"#);
+    }
+
+    #[test]
+    fn serializes_absolute_range() {
+        let spec = TimeFilterSpec::Absolute {
+            start: DateTime::parse_from_rfc3339("2025-01-01T00:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+            end: DateTime::parse_from_rfc3339("2025-01-02T00:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+        };
+        let json = serde_json::to_string(&spec).unwrap();
+        assert!(json.contains(r#""type":"absolute""#));
+        assert!(json.contains(r#""start":"#));
+        assert!(json.contains(r#""end":"#));
+    }
+}

@@ -1,0 +1,42 @@
+# gazelle:ignore
+
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+# The Go implementation of //config/SEMANTICS.md.
+#
+# It depends on the CHECKED-IN bindings rather than the generated go_proto_library because a
+# Go source file can only name one import path, and `go test` outside Bazel has to resolve it
+# too. //config/proto:binding_drift_go_{config,rules}_test is what makes that safe: the
+# checked-in bindings cannot drift from the schema without failing the build.
+go_library(
+    name = "validator",
+    srcs = ["validate.go"],
+    importpath = "github.com/carverauto/serviceradar/config/manager_validator/go",
+    visibility = ["//visibility:public"],
+    deps = ["//config/proto_bindings/go:configpb"],
+)
+
+# The conformance vectors, run against the Go engine. This target is the reason the vector file
+# exists: it is what turns "three implementations agree" from an intention into a test.
+go_test(
+    name = "validator_test",
+    srcs = [
+        "property_test.go",
+        "vector_test.go",
+    ],
+    data = [
+        "//config/environments:ci_binpb",
+        "//config/environments:demo_binpb",
+        "//config/environments:localhost_binpb",
+        "//config/environments:saas_binpb",
+        "//config/environments/onprem:untd_binpb",
+        "//config/rules:ruleset_binpb",
+        "//config/rules/fixtures:fixtures_binpb",
+    ],
+    deps = [
+        ":validator",
+        "//config/proto_bindings/go:configpb",
+        "@net_pgregory_rapid//:rapid",
+        "@org_golang_google_protobuf//proto",
+    ],
+)

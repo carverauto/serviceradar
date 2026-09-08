@@ -1,0 +1,145 @@
+# Non-secret demo plugin configuration.
+#
+# Apply with:
+#   serviceradar-cli auth login --instance https://demo.serviceradar.cloud --scope plugins.manage
+#   serviceradar-cli plugin apply --instance https://demo.serviceradar.cloud --file playbooks/demo-plugins.yaml
+#
+# Secret field values are read from the environment names below. Do not put
+# tokens, passwords, or live host addresses in this file.
+
+secrets:
+  - name: demo-proxmox-readonly
+    provider: proxmox
+    auth_method: proxmox_api_token
+    values_from:
+      user: SERVICERADAR_DEMO_PROXMOX_USER
+      realm: SERVICERADAR_DEMO_PROXMOX_REALM
+      token_id: SERVICERADAR_DEMO_PROXMOX_TOKEN_ID
+      token_secret: SERVICERADAR_DEMO_PROXMOX_TOKEN_SECRET
+
+  - name: demo-netbox
+    provider: netbox
+    auth_method: api_token
+    values_from:
+      api_token: SERVICERADAR_DEMO_NETBOX_TOKEN
+
+  - name: demo-unifi-protect
+    provider: unifi-protect
+    auth_method: api_key
+    values_from:
+      api_key: SERVICERADAR_DEMO_UNIFI_PROTECT_API_KEY
+
+  - name: demo-axis
+    provider: axis
+    auth_method: username_password
+    values_from:
+      username: SERVICERADAR_DEMO_AXIS_USERNAME
+      password: SERVICERADAR_DEMO_AXIS_PASSWORD
+
+  - name: demo-awx-sync
+    provider: awx
+    auth_method: bearer_token
+    values_from:
+      api_token: SERVICERADAR_DEMO_AWX_TOKEN
+
+  - name: demo-vulncheck
+    provider: vulncheck
+    auth_method: api_token
+    values_from:
+      api_token: SERVICERADAR_DEMO_VULNCHECK_TOKEN
+
+  - name: demo-snmp
+    provider: snmp
+    auth_method: community
+    values_from:
+      community: SERVICERADAR_DEMO_SNMP_COMMUNITY
+
+rules:
+  - name: demo-proxmox-inventory
+    provider: proxmox
+    auth_method: proxmox_api_token
+    purpose: inventory_enrichment
+    secret: demo-proxmox-readonly
+    scope_type: agent
+    scope_value_from: SERVICERADAR_DEMO_AGENT_UID
+    target_query: "in:devices metadata.proxmox_candidate:true"
+    tls_policy: verify
+    allowed_ports: [8006]
+    ca_bundle_from: SERVICERADAR_DEMO_PROXMOX_CA_BUNDLE
+    enabled: true
+
+  - name: demo-netbox-inventory
+    provider: netbox
+    auth_method: api_token
+    purpose: inventory_sync
+    secret: demo-netbox
+    scope_type: agent
+    scope_value_from: SERVICERADAR_DEMO_AGENT_UID
+    target_query: "in:devices sort:uid:asc limit:1"
+    tls_policy: verify
+    allowed_ports: [443, 8443]
+    controller_host_from: SERVICERADAR_DEMO_NETBOX_HOST
+    enabled: true
+
+  - name: demo-unifi-protect
+    provider: unifi-protect
+    auth_method: api_key
+    purpose: camera_inventory
+    secret: demo-unifi-protect
+    scope_type: agent
+    scope_value_from: SERVICERADAR_DEMO_AGENT_UID
+    target_query: 'in:devices vendor:"Ubiquiti"'
+    tls_policy: verify
+    allowed_ports: [443, 7447]
+    controller_host_from: SERVICERADAR_DEMO_UNIFI_PROTECT_HOST
+    enabled: true
+
+  - name: demo-axis
+    provider: axis
+    auth_method: username_password
+    purpose: camera_inventory
+    secret: demo-axis
+    scope_type: agent
+    scope_value_from: SERVICERADAR_DEMO_AGENT_UID
+    target_query: 'in:devices vendor:"Axis"'
+    tls_policy: verify
+    allowed_ports: [80, 443]
+    controller_host_from: SERVICERADAR_DEMO_AXIS_HOST
+    enabled: true
+
+  - name: demo-unifi-protect-stream
+    provider: unifi-protect
+    auth_method: api_key
+    purpose: camera_stream
+    secret: demo-unifi-protect
+    scope_type: agent
+    scope_value_from: SERVICERADAR_DEMO_AGENT_UID
+    target_query: 'in:devices vendor:"Ubiquiti"'
+    tls_policy: verify
+    allowed_ports: [443, 7447]
+    controller_host_from: SERVICERADAR_DEMO_UNIFI_PROTECT_HOST
+    enabled: true
+
+  - name: demo-snmp-monitoring
+    provider: snmp
+    auth_method: community
+    purpose: snmp_monitoring
+    secret: demo-snmp
+    scope_type: agent
+    scope_value_from: SERVICERADAR_DEMO_AGENT_UID
+    target_query: "in:devices metadata.snmp_candidate:true"
+    allowed_ports: [161]
+    enabled: true
+
+ansible_controllers:
+  - name: demo-awx
+    base_url_from: SERVICERADAR_DEMO_AWX_BASE_URL
+    agent_id_from: SERVICERADAR_DEMO_AGENT_UID
+    sync_credential: demo-awx-sync
+    execution_credential: demo-awx-sync
+    enabled: true
+
+assignments:
+  - plugin_id: awx
+    agent_uid_from: SERVICERADAR_DEMO_AGENT_UID
+    enabled: true

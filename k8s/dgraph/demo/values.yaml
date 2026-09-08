@@ -1,0 +1,209 @@
+# Dgraph for the demo deployment -- the "HA Cluster" pattern from
+# https://docs.dgraph.io/installation/deployment-patterns : 3 Zeros, 3 Alphas, replication 3,
+# ONE group. Deliberately not the multi-group "Distributed HA" pattern; see README, "Scaling".
+#
+# Deploy: ./deploy-dgraph.sh demo
+
+image:
+  # Harbor mirror, not Docker Hub: the cluster pulls locally, which removes the Hub rate limit
+  # from the critical path and keeps image pulls working when egress does not.
+  # Re-mirror with ./deploy-dgraph.sh mirror after bumping the tag.
+  registry: registry.carverauto.dev
+  repository: mirror/dgraph/dgraph
+  tag: v25.4.0
+  pullPolicy: IfNotPresent
+
+serviceAccount:
+  create: true
+  name: dgraph
+
+zero:
+  # 3 for quorum: an odd count that tolerates one loss. 2 would tolerate none -- it needs both
+  # to reach majority -- and 4 tolerates the same one failure as 3 while adding a round trip.
+  replicaCount: 3
+  # Replication factor: each group is served by 3 Alphas, tolerating 1 failure. Odd on purpose,
+  # same quorum arithmetic as above. Chart default is 5, which would demand 5 Alphas per group.
+  shardReplicaCount: 3
+
+  antiAffinity: soft
+
+  persistence:
+    enabled: true
+    size: 32Gi
+
+  # The chart emits only fsGroup and runAsUser, at pod level. Enough to keep Dgraph off root
+  # and let it own its PVC, but it cannot express allowPrivilegeEscalation, capabilities.drop
+  # or seccompProfile -- which is why namespace.yaml pins this namespace to `baseline` rather
+  # than the cluster-default `restricted`.
+  securityContext:
+    enabled: true
+    fsGroup: 1001
+    runAsUser: 1001
+
+  # ZERO TERMINATES TLS TOO, because Alpha runs with internal-port=true and therefore dials
+  # Zero over TLS. A Zero left plaintext turns every Alpha->Zero connection into a handshake
+  # failure, which surfaces as an Alpha that starts and then cannot join its group.
+  tls:
+    enabled: true
+    # Empty for the same reason as Alpha: the chart only templates the secret when this is
+    # non-empty while the StatefulSet mounts it regardless, so cert-manager owns it.
+    files: {}
+
+  # client-cert/client-key are NOT optional alongside internal-port=true: Dgraph refuses to
+  # start without them -- "Inter-node TLS is always client authenticated"
+  # (x.LoadClientTLSConfigForInternalPort). The same certificate serves both roles because
+  # ./certificate.yaml requests `client auth` as well as `server auth`.
+  extraFlags: >-
+    --tls "ca-cert=/dgraph/tls/ca.crt; server-cert=/dgraph/tls/tls.crt;
+    server-key=/dgraph/tls/tls.key; client-cert=/dgraph/tls/tls.crt;
+    client-key=/dgraph/tls/tls.key; internal-port=true"
+
+  # HTTPS PROBES: TLS moves the whole of port 6080 to HTTPS, and Dgraph then answers a plain
+  # HTTP probe with "client sent an HTTP request to an HTTPS server" -- the pod runs but never
+  # goes Ready. The chart's own probe blocks cannot express `scheme`, so they are switched off
+  # and the custom* escape hatches (rendered verbatim by toYaml) carry the same timings.
+  # The kubelet does not verify a probe's certificate, so no CA is needed here.
+  livenessProbe:
+    enabled: false
+  readinessProbe:
+    enabled: false
+
+  customLivenessProbe:
+    httpGet:
+      path: /health
+      port: 6080
+      scheme: HTTPS
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 6
+    successThreshold: 1
+
+  customReadinessProbe:
+    httpGet:
+      path: /state
+      port: 6080
+      scheme: HTTPS
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 6
+    successThreshold: 1
+
+  # Zero holds membership and tablet metadata, not graph data, so it stays small.
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+
+alpha:
+  # 3 Alphas = exactly one group at replication 3. Adding a 4th or 5th does NOT add capacity:
+  # a group's size is fixed by shardReplicaCount, so growth comes in whole groups of 3.
+  replicaCount: 3
+
+  antiAffinity: soft
+
+  persistence:
+    enabled: true
+    size: 250Gi
+
+  securityContext:
+    enabled: true
+    fsGroup: 1001
+    runAsUser: 1001
+
+  # Sized against "Small Production" in the deployment-patterns guide (8 cores / 16GB / 250GB
+  # SSD), and biased toward cores on purpose: write throughput scales with cores per node and
+  # degrades with nodes per group (README, "Scaling").
+  resources:
+    requests:
+      cpu: "4"
+      memory: 8Gi
+    limits:
+      cpu: "8"
+      memory: 16Gi
+
+  # SERVER TLS WITH REAL VERIFICATION, against an in-cluster CA.
+  #
+  # the Dgraph client (github.com/marvin-hansen/dgraph-rs) verifies a supplied CA instead of the
+  # system roots, so the certificate
+  # can be privately issued for the `*.svc.cluster.local` name the config contract names. The
+  # CA reaches callers as the `dgraph.ca_cert` secret.
+  tls:
+    enabled: true
+    # EMPTY ON PURPOSE. templates/alpha/secret-tls.yaml only creates the secret when this is
+    # non-empty, while the StatefulSet mounts it either way -- so leaving it empty hands
+    # ownership to cert-manager (./certificate.yaml) and renewal reaches the pod with no copy
+    # step and no operator. Filling it in would put the private key in this file and freeze it.
+    files: {}
+
+  # A BLOCK STRING, not a nested map. The chart renders `toYaml .Values.alpha.configFile`
+  # directly under a ConfigMap's `data:`, where every value must be a string; a map here fails
+  # the install with ".data.config.yaml: expected string, got map".
+  configFile:
+    config.yaml: |
+      security:
+        # The demo namespace is the trust boundary; the gRPC endpoint is what is exposed.
+        whitelist: 10.42.0.0/16,10.43.0.0/16
+
+  # Dgraph looks for ca.crt/node.crt/node.key; cert-manager writes ca.crt/tls.crt/tls.key and
+  # its key names are not configurable. Pointing Dgraph at the paths it actually has is what
+  # removes the rename -- and with it a copy job that would have to re-run on every renewal.
+  # ACL ON, matching ci. It is what makes namespaces isolate -- without it Dgraph accepts a
+  # namespace parameter and silently ignores it. Verified on dgraph-ci in both directions.
+  # The HMAC secret is created by deploy-dgraph.sh, never written into this file.
+  acl:
+    enabled: true
+    file: {}
+
+  # client-cert/client-key accompany internal-port=true; see the note on zero.extraFlags.
+  extraFlags: >-
+    --tls "ca-cert=/dgraph/tls/ca.crt; server-cert=/dgraph/tls/tls.crt;
+    server-key=/dgraph/tls/tls.key; client-cert=/dgraph/tls/tls.crt;
+    client-key=/dgraph/tls/tls.key; internal-port=true"
+    --acl "secret-file=/dgraph/acl/hmac_secret_file"
+
+  # HTTPS probes, for the same reason as Zero: TLS moves all of port 8080 to HTTPS.
+  # /health?live=1 answers as soon as the process is alive; plain /health only once the Alpha
+  # can serve -- that split is the point, so the two paths differ. Readiness also moves off the
+  # chart's /probe/graphql: this chart targets v24 and we run v25.4.0, and /health is what the
+  # v25 docs document.
+  livenessProbe:
+    enabled: false
+  readinessProbe:
+    enabled: false
+
+  customLivenessProbe:
+    httpGet:
+      path: /health?live=1
+      port: 8080
+      scheme: HTTPS
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 6
+    successThreshold: 1
+
+  customReadinessProbe:
+    httpGet:
+      path: /health
+      port: 8080
+      scheme: HTTPS
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 6
+    successThreshold: 1
+
+
+ratel:
+  enabled: false
+
+backups:
+  full:
+    enabled: false
+  incremental:
+    enabled: false

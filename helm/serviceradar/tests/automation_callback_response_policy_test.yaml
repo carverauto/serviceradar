@@ -1,0 +1,62 @@
+suite: automation callback response policy
+templates:
+  - templates/core.yaml
+  - templates/web.yaml
+# Assertions are scoped with `template:` and select documents by a path that is unique
+# within that template. Selecting on metadata.name matches several documents here and
+# fails with `multiple indexes found`. See README.md in this directory.
+tests:
+  - it: fails rendering when callbacks are enabled with placeholder credential IDs
+    set:
+      automationCallbacks.enabled: true
+      automationCallbacks.awxCredentialTypeId: 0
+      automationCallbacks.awxOrganizationId: 2
+      automationCallbacks.awxInjectorDigest: cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+      automationCallbacks.responsePolicy.existingSecretName: callback-policy
+    asserts:
+      - failedTemplate:
+          errorMessage: automationCallbacks.awxCredentialTypeId must be a positive AWX credential type ID when automationCallbacks.enabled=true
+        template: templates/web.yaml
+
+  - it: mounts the reviewed policy secret only for a complete enabled deployment
+    set:
+      automationCallbacks.enabled: true
+      automationCallbacks.awxCredentialTypeId: 91
+      automationCallbacks.awxOrganizationId: 2
+      automationCallbacks.awxInjectorDigest: cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+      automationCallbacks.responsePolicy.existingSecretName: callback-policy
+      automationCallbacks.responsePolicy.secretKey: reviewed.json
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_AUTOMATION_CALLBACKS_ENABLED
+            value: "true"
+        template: templates/core.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: automation-callback-response-policy
+            secret:
+              secretName: callback-policy
+              defaultMode: 288
+              items:
+                - key: reviewed.json
+                  path: response-policy.json
+        template: templates/core.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: automation-callback-response-policy
+            mountPath: /etc/serviceradar/automation-callback-policy
+            readOnly: true
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment

@@ -1,0 +1,80 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package datasvc
+
+import (
+	"github.com/carverauto/serviceradar/go/pkg/logger"
+	"github.com/carverauto/serviceradar/go/pkg/models"
+	"github.com/carverauto/serviceradar/go/pkg/nats/accounts"
+)
+
+// Role defines a role in the RBAC system.
+type Role string
+
+const (
+	RoleReader Role = "reader"
+	RoleWriter Role = "writer"
+)
+
+// RBACRule maps a client identity to a role.
+type RBACRule struct {
+	Identity string `json:"identity"`
+	Role     Role   `json:"role"`
+}
+
+// CoreRegistration contains settings for registering this datasvc with Core.
+type CoreRegistration struct {
+	Enabled           bool            `json:"enabled"`                      // Enable registration with Core
+	CoreEndpoint      string          `json:"core_endpoint"`                // Core gRPC endpoint
+	InstanceID        string          `json:"instance_id"`                  // Unique instance ID
+	HeartbeatInterval models.Duration `json:"heartbeat_interval,omitempty"` // Heartbeat interval (default: 30s)
+}
+
+// Config holds the configuration for the KV service.
+type Config struct {
+	ListenAddr    string                 `json:"listen_addr"`
+	NATSURL       string                 `json:"nats_url"`
+	NATSCredsFile string                 `json:"nats_creds_file,omitempty"`
+	Security      *models.SecurityConfig `json:"security"`
+	NATSSecurity  *models.SecurityConfig `json:"nats_security"`
+	RBAC          struct {
+		Roles []RBACRule `json:"roles"`
+	} `json:"rbac"`
+	Bucket            string            `json:"bucket,omitempty"`             // KV bucket name
+	Domain            string            `json:"domain,omitempty"`             // Optional JetStream domain
+	ObjectBucket      string            `json:"object_bucket,omitempty"`      // JetStream object store bucket name
+	JetStreamReplicas int               `json:"jetstream_replicas,omitempty"` // Desired JetStream replica count for KV/object stores
+	BucketMaxBytes    int64             `json:"bucket_max_bytes,omitempty"`   // Hard cap for bucket size (bytes)
+	ObjectMaxBytes    int64             `json:"object_max_bytes,omitempty"`   // Hard cap for a single uploaded object (bytes)
+	ObjectStoreBytes  int64             `json:"object_store_bytes,omitempty"` // Hard cap for the JetStream object store bucket (bytes)
+	BucketTTL         models.Duration   `json:"bucket_ttl,omitempty"`         // TTL for entries (0 = no expiry)
+	BucketHistory     uint32            `json:"bucket_history,omitempty"`     // History depth per key
+	CoreRegistration  *CoreRegistration `json:"core_registration,omitempty"`  // Core service registration settings
+
+	// NATSOperator configures the NATS account management service for namespace isolation.
+	// When configured, datasvc will expose the NATSAccountService gRPC endpoint.
+	NATSOperator *accounts.OperatorConfig `json:"nats_operator,omitempty"`
+
+	// Logging configures the logger, including OTel log/trace export. When
+	// logging.otel.enabled is set with an endpoint, the process-wide
+	// TracerProvider is initialized via logger.EnsureTracing so the
+	// otelgrpc-instrumented gRPC server emits spans and joins inbound traces
+	// propagated from callers (e.g. core-elx -> datasvc). Without this, the
+	// otelgrpc StatsHandler runs against the global no-op tracer and no spans
+	// are exported.
+	Logging *logger.Config `json:"logging,omitempty"`
+}

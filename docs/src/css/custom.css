@@ -1,0 +1,972 @@
+/**
+ * ServiceRadar documentation theme
+ *
+ * Tailwind v4 utilities + @theme tokens (aligned with marketing/control plane)
+ * sit alongside Infima. Global Tailwind Preflight is intentionally omitted so
+ * Docusaurus layout chrome stays intact — use utilities on custom components.
+ */
+
+/*
+ * Tailwind v4: theme + utilities only (no Preflight).
+ * source(none) prevents auto-scanning the monorepo/docs markdown (SRQL
+ * fragments like [limit:<n>] generate invalid CSS utility selectors).
+ * Explicitly scan only React UI sources under src/.
+ */
+@import "tailwindcss/theme.css" layer(theme) source(none);
+@import "tailwindcss/utilities.css" layer(utilities) source(none);
+
+@source "../pages/**/*.{js,jsx,ts,tsx}";
+@source "../theme/**/*.{js,jsx,ts,tsx}";
+@source "../components/**/*.{js,jsx,ts,tsx}";
+
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+
+@theme inline {
+  --font-sans: var(--sr-font-sans);
+  --font-mono: var(--sr-font-mono);
+
+  --color-sr-canvas: var(--sr-color-canvas);
+  --color-sr-surface: var(--sr-color-surface);
+  --color-sr-raised: var(--sr-color-raised);
+  --color-sr-subtle: var(--sr-color-subtle);
+  --color-sr-control: var(--sr-color-control);
+  --color-sr-ink: var(--sr-color-ink);
+  --color-sr-muted: var(--sr-color-muted);
+  --color-sr-line: var(--sr-color-line);
+  --color-sr-line-strong: var(--sr-color-line-strong);
+  --color-sr-brand: var(--sr-color-brand);
+  --color-sr-brand-strong: var(--sr-color-brand-strong);
+  --color-sr-on-brand: var(--sr-color-on-brand);
+  --color-sr-info: var(--sr-color-info);
+  --color-sr-success: var(--sr-color-success);
+  --color-sr-warning: var(--sr-color-warning);
+  --color-sr-danger: var(--sr-color-danger);
+
+  --radius-sr-small: var(--sr-radius-small);
+  --radius-sr-control: var(--sr-radius-control);
+  --radius-sr-surface: var(--sr-radius-surface);
+
+  --ease-sr-out: var(--sr-ease-out);
+}
+
+/* ===== Shared token roots ===== */
+:root {
+  /* Typography (match marketing / control plane) */
+  --sr-font-sans: "Avenir Next", Avenir, "Segoe UI Variable", "Segoe UI", ui-sans-serif,
+    system-ui, sans-serif;
+  --sr-font-mono: "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+
+  --sr-radius-small: 0.375rem;
+  --sr-radius-control: 0.625rem;
+  --sr-radius-surface: 0.875rem;
+
+  --sr-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* Light palette (kept for completeness; site forces dark) */
+  --sr-color-canvas: #f7f9f8;
+  --sr-color-surface: #fcfdfd;
+  --sr-color-raised: #ffffff;
+  --sr-color-subtle: #eff4f1;
+  --sr-color-control: #ffffff;
+  --sr-color-ink: #0b1720;
+  --sr-color-muted: #5d6977;
+  --sr-color-line: #dde4e1;
+  --sr-color-line-strong: #c8d3ce;
+  --sr-color-brand: #0b824d;
+  --sr-color-brand-strong: #076b3e;
+  --sr-color-on-brand: #f8fffb;
+  --sr-color-info: #245c77;
+  --sr-color-success: #0a7043;
+  --sr-color-warning: #754700;
+  --sr-color-danger: #a13338;
+
+  /* Infima map — light */
+  --ifm-color-primary: #0b824d;
+  --ifm-color-primary-dark: #0a7646;
+  --ifm-color-primary-darker: #096f42;
+  --ifm-color-primary-darkest: #075b36;
+  --ifm-color-primary-light: #0c8e54;
+  --ifm-color-primary-lighter: #0d9558;
+  --ifm-color-primary-lightest: #10a965;
+
+  --ifm-color-info: var(--sr-color-info);
+  --ifm-color-success: var(--sr-color-success);
+  --ifm-color-warning: var(--sr-color-warning);
+  --ifm-color-danger: var(--sr-color-danger);
+
+  --ifm-background-color: var(--sr-color-canvas);
+  --ifm-background-surface-color: var(--sr-color-surface);
+  --ifm-font-color-base: var(--sr-color-ink);
+  --ifm-heading-color: var(--sr-color-ink);
+  --ifm-color-content: var(--sr-color-ink);
+  --ifm-color-content-secondary: var(--sr-color-muted);
+
+  --ifm-font-family-base: var(--sr-font-sans);
+  --ifm-font-family-monospace: var(--sr-font-mono);
+  --ifm-code-font-size: 95%;
+  --ifm-global-radius: var(--sr-radius-control);
+  --ifm-button-border-radius: var(--sr-radius-control);
+  --ifm-code-border-radius: var(--sr-radius-small);
+
+  --ifm-navbar-background-color: color-mix(in oklab, var(--sr-color-surface) 90%, transparent);
+  --ifm-navbar-link-color: var(--sr-color-muted);
+  --ifm-navbar-link-hover-color: var(--sr-color-ink);
+  /* Tall enough for logo tile + vertical air above the bottom border (marketing py-3 feel) */
+  /* Match marketing min-h-16 + py-3 */
+  --ifm-navbar-height: 4rem;
+  --ifm-navbar-shadow: none;
+  --ifm-navbar-padding-vertical: 0.75rem;
+  --ifm-navbar-padding-horizontal: 1rem;
+
+  --ifm-footer-background-color: var(--sr-color-subtle);
+  --ifm-footer-color: var(--sr-color-muted);
+  --ifm-footer-link-color: var(--sr-color-muted);
+  --ifm-footer-title-color: var(--sr-color-ink);
+
+  --ifm-menu-color: var(--sr-color-muted);
+  --ifm-menu-color-active: var(--sr-color-brand);
+  --ifm-menu-color-background-active: color-mix(in oklab, var(--sr-color-brand) 12%, transparent);
+  --ifm-menu-color-background-hover: var(--sr-color-subtle);
+
+  --ifm-toc-border-color: var(--sr-color-line);
+  --ifm-hr-border-color: var(--sr-color-line);
+  --ifm-table-border-color: var(--sr-color-line);
+  --ifm-color-emphasis-200: var(--sr-color-line);
+  --ifm-color-emphasis-300: var(--sr-color-line-strong);
+  --ifm-color-emphasis-600: var(--sr-color-muted);
+  --ifm-color-emphasis-700: var(--sr-color-muted);
+  --ifm-color-emphasis-800: var(--sr-color-ink);
+
+  --docusaurus-highlighted-code-line-bg: color-mix(in oklab, var(--sr-color-brand) 12%, transparent);
+
+  --ifm-link-color: var(--sr-color-brand);
+  --ifm-link-hover-color: var(--sr-color-brand-strong);
+
+  color-scheme: light;
+}
+
+/* ===== Dark theme (forced site default) ===== */
+html[data-theme='dark'],
+[data-theme='dark'] {
+  --sr-color-canvas: #0a1114;
+  --sr-color-surface: #10191d;
+  --sr-color-raised: #152126;
+  --sr-color-subtle: #17252a;
+  --sr-color-control: #111c20;
+  --sr-color-ink: #edf5f1;
+  --sr-color-muted: #aab8b2;
+  --sr-color-line: #26363a;
+  --sr-color-line-strong: #3b4c50;
+  --sr-color-brand: #3ecf87;
+  --sr-color-brand-strong: #5bde9b;
+  --sr-color-on-brand: #062b1a;
+  --sr-color-info: #8bc8e0;
+  --sr-color-success: #74dfa6;
+  --sr-color-warning: #f1ca78;
+  --sr-color-danger: #f0a2a7;
+
+  --ifm-color-primary: #3ecf87;
+  --ifm-color-primary-dark: #2fc47a;
+  --ifm-color-primary-darker: #2aba73;
+  --ifm-color-primary-darkest: #22995e;
+  --ifm-color-primary-light: #55d594;
+  --ifm-color-primary-lighter: #62d99c;
+  --ifm-color-primary-lightest: #86e3b3;
+
+  --ifm-color-info: var(--sr-color-info);
+  --ifm-color-success: var(--sr-color-success);
+  --ifm-color-warning: var(--sr-color-warning);
+  --ifm-color-danger: var(--sr-color-danger);
+
+  --ifm-background-color: var(--sr-color-canvas);
+  --ifm-background-surface-color: var(--sr-color-surface);
+  --ifm-font-color-base: var(--sr-color-ink);
+  --ifm-heading-color: var(--sr-color-ink);
+  --ifm-color-content: var(--sr-color-ink);
+  --ifm-color-content-secondary: var(--sr-color-muted);
+
+  --ifm-navbar-background-color: color-mix(in oklab, var(--sr-color-surface) 92%, transparent);
+  --ifm-navbar-link-color: var(--sr-color-muted);
+  --ifm-navbar-link-hover-color: var(--sr-color-ink);
+
+  --ifm-footer-background-color: #081012;
+  --ifm-footer-color: var(--sr-color-muted);
+  --ifm-footer-link-color: var(--sr-color-muted);
+  --ifm-footer-title-color: var(--sr-color-ink);
+
+  --ifm-menu-color: var(--sr-color-muted);
+  --ifm-menu-color-active: var(--sr-color-brand);
+  --ifm-menu-color-background-active: color-mix(in oklab, var(--sr-color-brand) 14%, transparent);
+  --ifm-menu-color-background-hover: var(--sr-color-subtle);
+
+  --ifm-toc-border-color: var(--sr-color-line);
+  --ifm-hr-border-color: var(--sr-color-line);
+  --ifm-table-border-color: var(--sr-color-line);
+  --ifm-color-emphasis-200: var(--sr-color-line);
+  --ifm-color-emphasis-300: var(--sr-color-line-strong);
+  --ifm-color-emphasis-600: var(--sr-color-muted);
+  --ifm-color-emphasis-700: var(--sr-color-muted);
+  --ifm-color-emphasis-800: var(--sr-color-ink);
+
+  --docusaurus-highlighted-code-line-bg: color-mix(in oklab, var(--sr-color-brand) 18%, transparent);
+
+  --ifm-link-color: var(--sr-color-brand);
+  --ifm-link-hover-color: var(--sr-color-brand-strong);
+
+  color-scheme: dark;
+}
+
+/* ===== Base ===== */
+html {
+  scroll-behavior: smooth;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: var(--sr-font-sans);
+  font-synthesis: none;
+  background: var(--sr-color-canvas);
+  color: var(--sr-color-ink);
+}
+
+h1,
+h2,
+h3 {
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+
+p,
+li {
+  text-wrap: pretty;
+}
+
+code,
+pre,
+kbd,
+samp {
+  font-family: var(--sr-font-mono);
+}
+
+::selection {
+  background: color-mix(in oklab, var(--sr-color-brand) 35%, transparent);
+  color: var(--sr-color-ink);
+}
+
+/* ===== Navbar — match marketing shell (min-h-16, py-3, max-w 1280) ===== */
+.navbar {
+  /* Marketing: min-h-16 + py-3 ≈ logo tile with air above the bottom rule */
+  min-height: 4rem !important;
+  height: auto !important;
+  padding-top: 0.75rem !important;
+  padding-bottom: 0.75rem !important;
+  border-bottom: 1px solid var(--sr-color-line);
+  background: color-mix(in oklab, var(--sr-color-surface) 90%, transparent) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: none;
+  font-family: var(--sr-font-sans);
+}
+
+.navbar__inner {
+  max-width: 1280px;
+  width: 100%;
+  margin: 0 auto;
+  min-height: 2.75rem;
+  padding-left: 1rem !important;
+  padding-right: 1rem !important;
+  align-items: center;
+  gap: 1rem;
+}
+
+@media (min-width: 640px) {
+  .navbar__inner {
+    padding-left: 1.5rem !important;
+    padding-right: 1.5rem !important;
+  }
+}
+
+@media (min-width: 1024px) {
+  .navbar__inner {
+    padding-left: 2rem !important;
+    padding-right: 2rem !important;
+  }
+}
+
+.navbar__brand {
+  margin-right: 0.5rem;
+  gap: 0.75rem;
+  align-items: center;
+  min-height: 2.75rem;
+}
+
+/* Logo tile: marketing size-10 box with size-7 mark */
+.navbar__logo {
+  height: 2.5rem !important;
+  width: 2.5rem !important;
+  margin: 0 !important;
+  padding: 0.375rem;
+  border: 1px solid var(--sr-color-line);
+  border-radius: var(--sr-radius-control);
+  background: var(--sr-color-control);
+  box-shadow: 0 1px 2px color-mix(in oklab, #000 18%, transparent);
+  object-fit: contain;
+}
+
+.navbar__title {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0.125rem;
+  font-family: var(--sr-font-sans);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  color: var(--sr-color-ink) !important;
+}
+
+@media (min-width: 640px) {
+  .navbar__title {
+    font-size: 1.05rem;
+  }
+}
+
+.navbar__title::after {
+  content: 'Network Management, Security, and Observability';
+  display: none;
+  font-family: var(--sr-font-sans);
+  font-size: 0.75rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1.25;
+  color: var(--sr-color-muted);
+}
+
+@media (min-width: 640px) {
+  .navbar__title::after {
+    display: block;
+  }
+}
+
+.navbar__items {
+  gap: 0.25rem;
+  align-items: center;
+}
+
+.navbar__items--right {
+  gap: 0.375rem;
+}
+
+/* Hide external-link icons on right nav for marketing parity */
+.navbar__items--right .navbar__link svg,
+.navbar__items--right .iconExternalLink_nPIU,
+.navbar__items--right [class*='iconExternalLink'] {
+  display: none !important;
+}
+
+.navbar__link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem; /* marketing min-h-11 */
+  font-family: var(--sr-font-sans);
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--sr-color-muted) !important;
+  border-radius: var(--sr-radius-control);
+  padding: 0.5rem 0.875rem; /* marketing px-3.5 */
+  transition:
+    color 200ms var(--sr-ease-out),
+    background-color 200ms var(--sr-ease-out);
+}
+
+.navbar__link:hover,
+.navbar__link:focus-visible {
+  color: var(--sr-color-ink) !important;
+  background: var(--sr-color-subtle);
+  text-decoration: none;
+}
+
+.navbar__link--active {
+  color: var(--sr-color-ink) !important;
+  background: var(--sr-color-subtle);
+}
+
+.navbar__link--active:hover {
+  color: var(--sr-color-ink) !important;
+}
+
+/* Primary CTA in navbar (Demo) — match marketing Live demo */
+.navbar__items--right > .navbar__link[href*='demo.serviceradar'] {
+  min-height: 2.75rem;
+  padding: 0.5rem 1.25rem;
+  border: 1px solid var(--sr-color-brand);
+  background: var(--sr-color-brand) !important;
+  color: var(--sr-color-on-brand) !important;
+  font-weight: 600;
+  box-shadow: 0 5px 14px color-mix(in oklab, var(--sr-color-brand) 22%, transparent);
+}
+
+.navbar__items--right > .navbar__link[href*='demo.serviceradar']:hover {
+  background: var(--sr-color-brand-strong) !important;
+  border-color: var(--sr-color-brand-strong);
+  color: var(--sr-color-on-brand) !important;
+}
+
+/*
+ * Cloud nav item — match marketing coming_soon / cloud control:
+ * quiet bordered pill + hero-cloud style mark.
+ */
+.navbar__link--cloud,
+.navbar__items--right > .navbar__link[href='https://serviceradar.cloud'],
+.navbar__items--right > .navbar__link[href='https://serviceradar.cloud/'] {
+  gap: 0.5rem;
+  min-height: 2.25rem;
+  padding: 0.5rem 0.875rem;
+  border: 1px solid var(--sr-color-line);
+  background: var(--sr-color-subtle);
+  color: var(--sr-color-muted) !important;
+  font-weight: 600;
+}
+
+.navbar__link--cloud::before,
+.navbar__items--right > .navbar__link[href='https://serviceradar.cloud']::before,
+.navbar__items--right > .navbar__link[href='https://serviceradar.cloud/']::before {
+  content: '';
+  display: inline-block;
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+  background-color: var(--sr-color-brand);
+  /* Heroicons outline "cloud" (24x24) */
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='black' stroke-width='1.75'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M2.25 15a4.5 4.5 0 004.06 4.472 3.75 3.75 0 007.44-1.222 3 3 0 003.75-2.91 3.75 3.75 0 00-1.72-7.15A6 6 0 006.375 9.75c0 .18.01.36.027.537A4.5 4.5 0 002.25 15z'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='black' stroke-width='1.75'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M2.25 15a4.5 4.5 0 004.06 4.472 3.75 3.75 0 007.44-1.222 3 3 0 003.75-2.91 3.75 3.75 0 00-1.72-7.15A6 6 0 006.375 9.75c0 .18.01.36.027.537A4.5 4.5 0 002.25 15z'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+}
+
+.navbar__link--cloud:hover,
+.navbar__items--right > .navbar__link[href='https://serviceradar.cloud']:hover,
+.navbar__items--right > .navbar__link[href='https://serviceradar.cloud/']:hover {
+  border-color: var(--sr-color-line-strong);
+  color: var(--sr-color-ink) !important;
+  background: var(--sr-color-control);
+}
+
+/* ===== Homepage layout (explicit CSS — do not rely on Tailwind spacing alone) ===== */
+.sr-docs-hero {
+  position: relative;
+  overflow: hidden;
+  border-bottom: 1px solid var(--sr-color-line);
+  background: var(--sr-color-canvas);
+  font-family: var(--sr-font-sans);
+}
+
+.sr-docs-hero__glow {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(
+      ellipse 80% 50% at 15% 0%,
+      color-mix(in oklab, var(--sr-color-brand) 14%, transparent),
+      transparent 55%
+    ),
+    radial-gradient(
+      ellipse 60% 40% at 90% 10%,
+      color-mix(in oklab, var(--sr-color-info) 10%, transparent),
+      transparent 50%
+    );
+}
+
+.sr-docs-hero__inner {
+  position: relative;
+  max-width: 1280px;
+  margin: 0 auto;
+  /* Clear sticky navbar + keep CTAs off the bottom rule */
+  padding: 5.5rem 1rem 4.5rem;
+}
+
+@media (min-width: 640px) {
+  .sr-docs-hero__inner {
+    padding: 6.5rem 1.5rem 5rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .sr-docs-hero__inner {
+    padding: 7rem 2rem 5.5rem;
+  }
+}
+
+.sr-docs-hero__copy {
+  max-width: 48rem;
+}
+
+.sr-docs-hero__eyebrow {
+  margin: 0 0 1.25rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--sr-color-brand);
+}
+
+.sr-docs-hero__title {
+  margin: 0 0 1.25rem;
+  font-family: var(--sr-font-sans);
+  font-size: clamp(2.25rem, 4vw, 3rem);
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  line-height: 1.1;
+  color: var(--sr-color-ink);
+}
+
+.sr-docs-hero__lede {
+  margin: 0;
+  max-width: 40rem;
+  font-size: 1.0625rem;
+  line-height: 1.75;
+  color: var(--sr-color-muted);
+}
+
+.sr-docs-hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 2.5rem;
+}
+
+.sr-docs-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.75rem;
+  padding: 0.625rem 1.5rem;
+  border-radius: var(--sr-radius-control);
+  border: 1px solid transparent;
+  font-family: var(--sr-font-sans);
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.25;
+  text-decoration: none !important;
+  transition:
+    background-color 160ms var(--sr-ease-out),
+    border-color 160ms var(--sr-ease-out),
+    color 160ms var(--sr-ease-out),
+    transform 160ms var(--sr-ease-out);
+}
+
+.sr-docs-btn:active {
+  transform: translateY(1px);
+}
+
+.sr-docs-btn--primary {
+  border-color: var(--sr-color-brand);
+  background: var(--sr-color-brand);
+  color: var(--sr-color-on-brand) !important;
+  box-shadow: 0 5px 14px color-mix(in oklab, var(--sr-color-brand) 22%, transparent);
+}
+
+.sr-docs-btn--primary:hover {
+  border-color: var(--sr-color-brand-strong);
+  background: var(--sr-color-brand-strong);
+  color: var(--sr-color-on-brand) !important;
+}
+
+.sr-docs-btn--secondary {
+  border-color: var(--sr-color-line-strong);
+  background: var(--sr-color-control);
+  color: var(--sr-color-ink) !important;
+  box-shadow: 0 1px 2px color-mix(in oklab, #000 16%, transparent);
+}
+
+.sr-docs-btn--secondary:hover {
+  border-color: var(--sr-color-brand);
+  color: var(--sr-color-brand-strong) !important;
+}
+
+.sr-docs-section {
+  background: var(--sr-color-canvas);
+  font-family: var(--sr-font-sans);
+  padding: 4rem 1rem 4.5rem;
+}
+
+@media (min-width: 640px) {
+  .sr-docs-section {
+    padding: 5rem 1.5rem 5rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .sr-docs-section {
+    padding: 5.5rem 2rem 5.5rem;
+  }
+}
+
+.sr-docs-section__inner {
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+.sr-docs-section__intro {
+  max-width: 40rem;
+  margin-bottom: 2.5rem;
+}
+
+.sr-docs-section__eyebrow {
+  margin: 0 0 1rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--sr-color-brand);
+}
+
+.sr-docs-section__title {
+  margin: 0 0 1rem;
+  font-size: clamp(1.5rem, 2.5vw, 1.875rem);
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  color: var(--sr-color-ink);
+}
+
+.sr-docs-section__lede {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.7;
+  color: var(--sr-color-muted);
+}
+
+.sr-docs-panel {
+  overflow: hidden;
+  border: 1px solid var(--sr-color-line);
+  border-radius: var(--sr-radius-surface);
+  background: var(--sr-color-surface);
+  box-shadow: 0 10px 30px color-mix(in oklab, #000 14%, transparent);
+}
+
+.sr-docs-panel__head {
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid var(--sr-color-line);
+}
+
+.sr-docs-panel__head-title {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--sr-color-ink);
+}
+
+.sr-docs-panel__head-meta {
+  margin: 0.375rem 0 0;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--sr-color-muted);
+}
+
+.sr-docs-panel__grid {
+  display: grid;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 640px) {
+  .sr-docs-panel__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
+  .sr-docs-panel__grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.sr-docs-panel__cell {
+  padding: 1.5rem;
+  border-bottom: 1px solid var(--sr-color-line);
+}
+
+@media (min-width: 640px) {
+  .sr-docs-panel__cell:nth-child(odd) {
+    border-right: 1px solid var(--sr-color-line);
+  }
+
+  .sr-docs-panel__cell:nth-last-child(-n + 2) {
+    border-bottom: 0;
+  }
+}
+
+@media (min-width: 1024px) {
+  .sr-docs-panel__cell {
+    border-right: 1px solid var(--sr-color-line);
+    border-bottom: 0;
+  }
+
+  .sr-docs-panel__cell:nth-child(4n) {
+    border-right: 0;
+  }
+
+  .sr-docs-panel__cell:nth-child(odd) {
+    border-right: 1px solid var(--sr-color-line);
+  }
+}
+
+.sr-docs-panel__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  margin-bottom: 1rem;
+  border: 1px solid color-mix(in oklab, var(--sr-color-brand) 25%, transparent);
+  border-radius: var(--sr-radius-control);
+  background: color-mix(in oklab, var(--sr-color-brand) 12%, transparent);
+  color: var(--sr-color-brand);
+}
+
+.sr-docs-panel__cell-title {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  color: var(--sr-color-ink);
+}
+
+.sr-docs-panel__cell-body {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--sr-color-muted);
+}
+
+/* Hide default color mode toggle when we force dark (belt + suspenders) */
+.navbar [class*='toggle_'],
+.navbar .colorModeToggle,
+.navbar button[class*='toggleButton'],
+.navbar .clean-btn.colorModeToggle {
+  display: none !important;
+}
+
+/* Tailwind brand CTAs: beat Infima link color (green-on-green fix) */
+a.bg-sr-brand,
+a.bg-sr-brand:hover,
+a.bg-sr-brand:focus,
+a.bg-sr-brand:visited {
+  color: var(--sr-color-on-brand) !important;
+  text-decoration: none !important;
+}
+
+a.bg-sr-control,
+a.bg-sr-control:hover,
+a.bg-sr-control:focus,
+a.bg-sr-control:visited {
+  text-decoration: none !important;
+}
+
+/* ===== Sidebar / menu ===== */
+.menu__link {
+  border-radius: var(--sr-radius-control);
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition:
+    color 160ms var(--sr-ease-out),
+    background-color 160ms var(--sr-ease-out);
+}
+
+.menu__list-item-collapsible:hover {
+  background: transparent;
+}
+
+.theme-doc-sidebar-container {
+  border-right: 1px solid var(--sr-color-line) !important;
+}
+
+/* ===== Content ===== */
+.markdown h1:first-child {
+  letter-spacing: -0.03em;
+}
+
+.markdown a {
+  font-weight: 500;
+  text-underline-offset: 2px;
+}
+
+.theme-doc-markdown {
+  max-width: 52rem;
+}
+
+/* ===== Buttons (Infima) ===== */
+.button {
+  border-radius: var(--sr-radius-control);
+  font-weight: 600;
+  transition:
+    transform 160ms var(--sr-ease-out),
+    background-color 160ms var(--sr-ease-out),
+    border-color 160ms var(--sr-ease-out),
+    color 160ms var(--sr-ease-out),
+    box-shadow 160ms var(--sr-ease-out);
+}
+
+.button:active {
+  transform: translateY(1px);
+}
+
+.button--primary,
+.button--secondary {
+  background: var(--sr-color-brand);
+  border-color: var(--sr-color-brand);
+  color: var(--sr-color-on-brand);
+  box-shadow: 0 5px 14px color-mix(in oklab, var(--sr-color-brand) 22%, transparent);
+}
+
+.button--primary:hover,
+.button--secondary:hover {
+  background: var(--sr-color-brand-strong);
+  border-color: var(--sr-color-brand-strong);
+  color: var(--sr-color-on-brand);
+}
+
+.button--outline {
+  background: var(--sr-color-control);
+  border-color: var(--sr-color-line-strong);
+  color: var(--sr-color-ink);
+  box-shadow: 0 1px 2px color-mix(in oklab, #000 18%, transparent);
+}
+
+.button--outline:hover {
+  border-color: var(--sr-color-brand);
+  color: var(--sr-color-brand-strong);
+  background: var(--sr-color-control);
+}
+
+/* ===== Hero ===== */
+.hero--primary {
+  --ifm-hero-background-color: transparent;
+  --ifm-hero-text-color: var(--sr-color-ink);
+  background:
+    radial-gradient(
+      ellipse 80% 50% at 15% 0%,
+      color-mix(in oklab, var(--sr-color-brand) 14%, transparent),
+      transparent 55%
+    ),
+    radial-gradient(
+      ellipse 60% 40% at 90% 10%,
+      color-mix(in oklab, var(--sr-color-info) 10%, transparent),
+      transparent 50%
+    ),
+    var(--sr-color-canvas);
+  padding: 4.5rem 0 3.5rem;
+  border-bottom: 1px solid var(--sr-color-line);
+}
+
+.hero__title {
+  font-size: clamp(2.25rem, 4vw, 3.25rem);
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  line-height: 1.1;
+}
+
+.hero__subtitle {
+  font-size: 1.15rem;
+  line-height: 1.7;
+  color: var(--sr-color-muted);
+  max-width: 40rem;
+  margin-inline: auto;
+}
+
+/* ===== Footer ===== */
+.footer {
+  border-top: 1px solid var(--sr-color-line);
+}
+
+.footer__title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--sr-color-ink);
+}
+
+.footer__link-item {
+  font-size: 0.9rem;
+  transition: color 160ms var(--sr-ease-out);
+}
+
+.footer__link-item:hover {
+  color: var(--sr-color-ink);
+  text-decoration: none;
+}
+
+.footer__copyright {
+  font-size: 0.8rem;
+  color: var(--sr-color-muted);
+  line-height: 1.6;
+}
+
+/* ===== Cards / admonitions ===== */
+.alert {
+  border-radius: var(--sr-radius-surface);
+  border-width: 1px;
+}
+
+.card {
+  border-radius: var(--sr-radius-surface);
+  border: 1px solid var(--sr-color-line);
+  background: var(--sr-color-surface);
+  box-shadow: 0 10px 30px color-mix(in oklab, #000 12%, transparent);
+}
+
+/* ===== Code blocks ===== */
+.prism-code,
+div[class*='codeBlockContainer'] {
+  border-radius: var(--sr-radius-surface) !important;
+  border: 1px solid var(--sr-color-line);
+}
+
+/* ===== Features section ===== */
+.features {
+  padding: 3rem 0;
+  width: 100%;
+}
+
+/* ===== Pagination / breadcrumbs ===== */
+.pagination-nav__link {
+  border-radius: var(--sr-radius-surface);
+  border-color: var(--sr-color-line);
+  background: var(--sr-color-surface);
+  transition:
+    border-color 160ms var(--sr-ease-out),
+    background-color 160ms var(--sr-ease-out);
+}
+
+.pagination-nav__link:hover {
+  border-color: var(--sr-color-brand);
+  background: var(--sr-color-subtle);
+}
+
+.breadcrumbs__link {
+  border-radius: var(--sr-radius-small);
+}
+
+/* ===== Redoc tweaks (when present) ===== */
+.redocusaurus {
+  --ifm-color-primary: var(--sr-color-brand);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

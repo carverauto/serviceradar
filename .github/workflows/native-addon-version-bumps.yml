@@ -1,0 +1,85 @@
+# The diff-based half of .forgejo/workflows/main.yml. The other half -- the repo-wide
+# `bazel test` sweep -- is NOT here, and deliberately so.
+#
+# main.yml did not come across with the other 19 workflows at the host migration, which left
+# the Elixir unit shards ungated on pull requests: they exist ONLY as Bazel targets
+# (//elixir/serviceradar_core:unit_tests_*, //elixir/web-ng:unit_tests_*), so `go test`,
+# `cargo test` and `mix test` cannot see them, and two broken suites once reached a release tag
+# that way. //buildbuddy.yaml now closes that gap and closes it better: as of the trigger fix on
+# staging it runs on every pull_request against staging and covers the full `//...` build, the
+# `make test` unit sweep, the integration suite with its database lifecycle, and the Go race
+# tests, cross-compiled to both platforms. A second sweep here would duplicate all of it on a
+# runner that is worse for the job -- arc-runner-set has neither the /bazel-cache volume nor a
+# Harbor login, so //docker/images:multiarch_index_test alone would need a push-capable robot
+# secret handed to every PR branch.
+#
+# What BazelCI cannot cover is this gate, because it is not expressible as a Bazel target: it
+# diffs a base ref against HEAD to decide whether a touched add-on had its version bumped, and
+# an action has no refs. //scripts:native_addon_version_bumps_test is in the BuildBuddy sweep,
+# but it only exercises the script's logic against synthetic fixtures -- it never looks at the
+# commits under review. native-addons.yml, which runs the real check, is push- and
+# dispatch-triggered only. So on pull requests this gate runs nowhere, and a changed add-on
+# payload can reach staging under an unchanged version.
+name: Native add-on version bumps
+
+on:
+  push:
+    branches:
+      - staging
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  native-addon-version-bumps:
+    name: Native add-on version bumps
+    runs-on: arc-runner-set
+    env:
+      PUSH_BEFORE: ${{ github.event.before }}
+    steps:
+      # Full history: the gate diffs a base against HEAD, and a shallow clone cannot name one.
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout@v5.0.1
+        with:
+          fetch-depth: 0
+
+      # THE BASE DIFFERS BY EVENT, and getting it wrong makes this step vacuous rather than
+      # wrong-looking. On a pull request the target branch is the right comparison. On
+      # `push: branches: [staging]` there is no GITHUB_BASE_REF, and falling back to `staging`
+      # names the commit just pushed -- the gate then diffs staging against itself and returns 0
+      # whatever the tree holds. d03bebf377 reached staging that way, carrying a changed netprobe
+      # payload under an unchanged version.
+      - name: Check native add-on version bumps
+        run: |
+          set -euo pipefail
+
+          if [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ]; then
+            base_ref="${GITHUB_BASE_REF:-staging}"
+            git fetch --no-tags origin "${base_ref}"
+            base="$(git rev-parse FETCH_HEAD)"
+          else
+            base=""
+            if [ -n "${PUSH_BEFORE:-}" ] &&
+               [ "${PUSH_BEFORE}" != "0000000000000000000000000000000000000000" ] &&
+               git cat-file -e "${PUSH_BEFORE}^{commit}" 2>/dev/null; then
+              base="${PUSH_BEFORE}"
+            else
+              # The previous tip for both a merge and a direct push. It under-covers only a
+              # multi-commit direct push, which is not how staging is meant to receive changes.
+              base="$(git rev-parse "${GITHUB_SHA}^" 2>/dev/null || true)"
+            fi
+          fi
+
+          # No silent skip. The script refuses base == head for the same reason: a check that
+          # cannot fail reads exactly like a check that passed.
+          if [ -z "${base}" ]; then
+            echo "::error::could not determine a base commit for the add-on version gate" >&2
+            exit 1
+          fi
+
+          scripts/check-native-addon-version-bumps.sh "${base}" HEAD

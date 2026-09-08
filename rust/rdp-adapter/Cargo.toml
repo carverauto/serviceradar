@@ -1,0 +1,26 @@
+[package]
+name = "serviceradar-rdp-adapter"
+version = "0.1.3"
+description = "ServiceRadar RDP helper adapter"
+authors = ["ServiceRadar Team"]
+edition = "2024"
+license = "Apache-2.0"
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+zeroize = { workspace = true, features = ["alloc"] }
+
+[dev-dependencies]
+base64 = { workspace = true }
+
+[features]
+default = []
+# Compatibility marker for the Bazel-only production helper target. The
+# connector/CredSSP/PKI graph is supplied by the isolated
+# @rdp_connector_crates universe rooted at rust/rdp-connector-probe/Cargo.lock;
+# it must not enter the shared ServiceRadar Cargo.lock.
+ironrdp-backend = []
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(serviceradar_rdp_connector_link_probe)'] }

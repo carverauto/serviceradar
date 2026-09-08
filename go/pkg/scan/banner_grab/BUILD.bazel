@@ -1,0 +1,81 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "banner_grab",
+    srcs = [
+        "batcher.go",
+        "candidate_planner.go",
+        "dns.go",
+        "engine.go",
+        "ftp.go",
+        "http.go",
+        "ntp.go",
+        "observation.go",
+        "probe.go",
+        "rate_limit.go",
+        "rdp.go",
+        "smb.go",
+        "smtp.go",
+        "ssh.go",
+        "telnet.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/scan/banner_grab",
+    visibility = ["//visibility:public"],
+    deps = ["//go/pkg/models"],
+)
+
+go_test(
+    name = "banner_grab_test",
+    size = "medium",
+    srcs = [
+        "engine_test.go",
+        "integration_test.go",
+    ],
+    embed = [":banner_grab"],
+    # Arms TestEngineKeepsMillionHostSyntheticStreamBounded, the 1M-host back-pressure
+    # validation, so it runs in the ordinary unit sweep. It used to run ONLY from a nightly
+    # cron on the theory that it was "too slow to
+    # gate every PR" -- it takes 2.45s on RBE, so that was a property of the old runner, not
+    # of the test. It needs no network or fixture: the engine's DialContext is injected with
+    # a scripted conn, so nothing here dials anything.
+    #
+    # The test skips itself under -test.short, which is what keeps the race sweep in
+    # buildbuddy.yaml (-test.count=5 with -race) from paying for five instrumented runs.
+    env = {"SERVICERADAR_LARGE_BANNER_GRAB_TEST": "1"},
+    deps = [
+        "//go/pkg/agent/netprobe",
+        "//go/pkg/models",
+        "//proto/agent/netprobe/v1:netprobepb",
+    ],
+)
+
+go_test(
+    name = "banner_grab_integration_test",
+    size = "medium",
+    srcs = ["integration_test.go"],
+    data = ["//rust/netprobe"],
+    embed = [":banner_grab"],
+    # `manual` is GONE, and the diagnosis it carried was wrong.
+    #
+    # It claimed no ntp recog corpus existed. third_party/netprobe_corpora/recog/xml/ntp_banners.xml
+    # has been there all along -- 75 fingerprints, 44 emitting service.product="NTP" -- and was
+    # added by the very commit (80c1c0fa45) that rewrote this comment to the new //third_party
+    # path without rechecking the premise.
+    #
+    # The real defect was in netprobe, in two silent places: recog_service_for_file() in
+    # rust/netprobe/build.rs never mapped ntp_banners.xml to a RecogService, so the whole file
+    # compiled to zero fingerprints, and recog_service() in src/ipc/match_banner.rs had no "ntp"
+    # arm, so an ntp observation could not have reached the corpus even if it had been compiled.
+    # Both were `_ => None` fallthroughs: the file shipped, passed SHA256SUMS, and matched
+    # nothing. Fixed, with a unit test in rust/netprobe/src/recog.rs pinning the wiring.
+    #
+    # integration_test alone is the right classification: the tag keeps it out of the unit sweep
+    # and selects it in the database sweep, and it needs no fixture -- only the netprobe binary,
+    # which is a declared data dep above.
+    tags = ["integration_test"],
+    deps = [
+        "//go/pkg/agent/netprobe",
+        "//go/pkg/models",
+        "//proto/agent/netprobe/v1:netprobepb",
+    ],
+)

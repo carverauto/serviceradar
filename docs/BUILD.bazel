@@ -1,0 +1,11 @@
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+# Read by //:first_party_plugin_cosign_key_consistency_test as the canonical copy of the
+# Cosign release key. docs/ is its own package, so the file does not resolve as a label
+# from the root package without this.
+exports_files(["cosign.pub"])
+
+sh_test(
+    name = "lint",
+    srcs = ["lint_placeholder.sh"],
+)

@@ -1,0 +1,76 @@
+{
+  "nodes": [
+    { "id": "inputNode", "type": "inputNode", "name": "Request", "position": { "x": 80, "y": 150 } },
+    {
+      "id": "setSeverity",
+      "type": "expressionNode",
+      "name": "Set SNMP Severity",
+      "position": { "x": 300, "y": 150 },
+      "content": {
+        "expressions": [
+          {
+            "id": "expr1",
+            "key": "severity",
+            "value": "severity"
+          },
+          {
+            "id": "exprSourceIp",
+            "key": "source_ip",
+            "value": "source_ip ?? extract(source ?? '', '^\\[([^]]+)\\]')[1] ?? extract(source ?? '', '([0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3})')[1]"
+          },
+          {
+            "id": "exprSnmpSource",
+            "key": "attributes.snmp.source",
+            "value": "source"
+          },
+          {
+            "id": "exprSnmpVersion",
+            "key": "attributes.snmp.version",
+            "value": "version"
+          },
+          {
+            "id": "exprSnmpCommunity",
+            "key": "attributes.snmp.community",
+            "value": "community"
+          },
+          {
+            "id": "exprSnmpVarbinds",
+            "key": "attributes.snmp.varbinds",
+            "value": "varbinds"
+          },
+          {
+            "id": "exprTrapOid",
+            "key": "attributes.snmp.trap_oid",
+            "value": "raw = (filter(varbinds ?? [], #.oid == '1.3.6.1.6.3.1.1.4.1.0' or #.oid == '.1.3.6.1.6.3.1.1.4.1.0')[0] ?? {}).value ?? ''; extract(raw, '^[^:]+:\\s*(.+)$')[1] ?? raw"
+          },
+          {
+            "id": "exprDetail",
+            "key": "attributes.snmp.detail",
+            "value": "raw = (filter(varbinds ?? [], #.oid != '1.3.6.1.2.1.1.3.0' and #.oid != '.1.3.6.1.2.1.1.3.0' and #.oid != '1.3.6.1.6.3.1.1.4.1.0' and #.oid != '.1.3.6.1.6.3.1.1.4.1.0' and not matches(#.value ?? '', '^(TIMETICKS|COUNTER32|COUNTER64|INTEGER|UNSIGNED32|BOOLEAN|NULL)\\b') and not matches(trim(#.value ?? ''), '^\\d+$'))[0] ?? {}).value ?? ''; extract(raw, '^[^:]+:\\s*(.+)$')[1] ?? raw"
+          },
+          {
+            "id": "exprBody",
+            "key": "body",
+            "value": "trapOidRaw = (filter(varbinds ?? [], #.oid == '1.3.6.1.6.3.1.1.4.1.0' or #.oid == '.1.3.6.1.6.3.1.1.4.1.0')[0] ?? {}).value ?? ''; trapOid = extract(trapOidRaw, '^[^:]+:\\s*(.+)$')[1] ?? trapOidRaw; detailRaw = (filter(varbinds ?? [], #.oid != '1.3.6.1.2.1.1.3.0' and #.oid != '.1.3.6.1.2.1.1.3.0' and #.oid != '1.3.6.1.6.3.1.1.4.1.0' and #.oid != '.1.3.6.1.6.3.1.1.4.1.0' and not matches(#.value ?? '', '^(TIMETICKS|COUNTER32|COUNTER64|INTEGER|UNSIGNED32|BOOLEAN|NULL)\\b') and not matches(trim(#.value ?? ''), '^\\d+$'))[0] ?? {}).value ?? ''; detail = extract(detailRaw, '^[^:]+:\\s*(.+)$')[1] ?? detailRaw; ip = source_ip ?? extract(source ?? '', '^\\[([^]]+)\\]')[1] ?? extract(source ?? '', '([0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3})')[1] ?? ''; (len(varbinds ?? []) == 0) ? (body ?? '') : ((len(trapOid) > 0 and len(detail) > 0 and len(ip) > 0) ? `SNMP trap ${trapOid} from ${ip}: ${detail}` : ((len(trapOid) > 0 and len(detail) > 0) ? `SNMP trap ${trapOid}: ${detail}` : ((len(detail) > 0 and len(ip) > 0) ? `SNMP trap from ${ip}: ${detail}` : ((len(detail) > 0) ? detail : ((len(trapOid) > 0 and len(ip) > 0) ? `SNMP trap ${trapOid} from ${ip}` : ((len(trapOid) > 0) ? `SNMP trap ${trapOid}` : ((len(ip) > 0) ? `SNMP trap from ${ip}` : (body ?? ''))))))))"
+          },
+          {
+            "id": "expr2",
+            "key": "source",
+            "value": "'snmp'"
+          },
+          {
+            "id": "expr3",
+            "key": "service_name",
+            "value": "'snmp'"
+          }
+        ]
+      }
+    },
+    { "id": "outputNode", "type": "outputNode", "name": "Response", "position": { "x": 560, "y": 150 } }
+  ],
+  "edges": [
+    { "id": "e1", "sourceId": "inputNode", "targetId": "setSeverity", "type": "edge" },
+    { "id": "e2", "sourceId": "setSeverity", "targetId": "outputNode", "type": "edge" },
+    { "id": "e3", "sourceId": "inputNode", "targetId": "outputNode", "type": "edge" }
+  ]
+}

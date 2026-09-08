@@ -1,0 +1,284 @@
+id: proxmox-inventory
+name: Proxmox Inventory
+version: 0.1.8
+description: Enriches Proxmox PVE hosts and guests using the Proxmox VE REST API
+entrypoint: run_check
+runtime: wasi-preview1
+outputs: serviceradar.plugin_result.v1
+capabilities:
+  - get_config
+  - log
+  - submit_result
+  - emit_telemetry
+  - http_request
+permissions:
+  # Destinations are supplied only by the agent's exact host-authority
+  # binding. The untrusted module receives no static domain authority.
+  allowed_domains: []
+  allowed_ports:
+    - 8006
+resources:
+  requested_memory_mb: 256
+  requested_cpu_ms: 10000
+  max_open_connections: 2
+signal_schemas:
+  - id: com.carverauto.proxmox.resource_event
+    version: 1.0.0
+    signal_type: event
+    payload_kind: ocsf_event
+    payload_schema: schemas/ocsf_event_log_activity.schema.json
+    display_contract: display/resource_event.display.json
+    display_contract_id: com.carverauto.proxmox.resource_event.display
+    display_contract_version: 1.1.0
+    ocsf_schema_version: 1.5.0
+    class_uid: 1008
+    type_uid: 100801
+integrations:
+  credential_profiles:
+    - provider: proxmox
+      label: Proxmox VE
+      description: Inventory enrichment and explicitly authorized remote console access for Proxmox VE.
+      default: true
+      supports_rules: true
+      auth_methods:
+        - id: proxmox_api_token
+          label: API token
+          credential_kind: api_token
+          tls_policies:
+            - verify
+          fields:
+            - id: user
+              label: User
+              control: text
+              required: true
+              secret: false
+              public: true
+              default: root
+            - id: realm
+              label: Realm
+              control: text
+              required: true
+              secret: false
+              public: false
+              default: pam
+            - id: token_id
+              label: Token ID
+              control: text
+              required: true
+              secret: false
+              public: false
+            - id: token_secret
+              label: Token secret
+              control: password
+              required: true
+              secret: true
+              public: false
+          payload:
+            format: template
+            template: "{{user}}@{{realm}}!{{token_id}}={{token_secret}}"
+            username_field: user
+        - id: ssh_private_key
+          label: SSH private key
+          credential_kind: ssh_private_key
+          ssh_host_key_policies:
+            - known_hosts
+            - trust_on_first_use
+          fields:
+            - id: username
+              label: Username
+              control: text
+              required: true
+              secret: false
+              public: true
+              default: root
+            - id: private_key
+              label: Private key
+              control: textarea
+              required: true
+              secret: true
+              public: false
+            - id: passphrase
+              label: Passphrase
+              control: password
+              required: false
+              secret: true
+              public: false
+          payload:
+            format: json
+            username_field: username
+      purposes:
+        - inventory_enrichment
+        - console_access
+      scope_types:
+        - agent
+        - gateway
+        - partition
+      rule_defaults:
+        auth_method: proxmox_api_token
+        purposes:
+          - inventory_enrichment
+          - console_access
+        target_query: in:devices metadata.proxmox_candidate:true
+        scope_type: agent
+        allowed_ports: "8006"
+        tls_policy: verify
+        ssh_host_key_policy: known_hosts
+        credential_use_roles: admin
+        auto_discovery_enabled: false
+      rule_controls:
+        allowed_ports: true
+        auto_discovery_enabled: true
+        target_query: true
+        transport: true
+      provisioning:
+        mode: target_policy
+        consumers:
+          - purpose: inventory_enrichment
+            plugin_id: proxmox-inventory
+            auth_methods:
+              - proxmox_api_token
+            failure_mode: skip
+            constraints:
+              tls_policies:
+                - verify
+            grant:
+              grant_type: proxmox_api_token
+              resolution_location: agent
+              ttl_seconds: 300
+              inject:
+                type: http_header
+                name: Authorization
+                scheme: PVEAPIToken
+              allow:
+                methods:
+                  - GET
+                paths:
+                  - /api2/json/version
+                  - /api2/json/cluster/status
+                  - /api2/json/nodes
+                  - /api2/json/nodes/*
+                  - /api2/json/cluster/resources
+            params:
+              credential_broker:
+                $source: grant
+              api_token_secret_ref:
+                $source: secret_ref
+              include_guests:
+                $source: metadata
+                key: include_guests
+                type: boolean
+                default: true
+              timeout_ms:
+                $source: metadata
+                key: timeout_ms
+                type: integer
+                default: 30000
+              auto_discovery_enabled:
+                $source: metadata
+                key: auto_discovery_enabled
+                type: boolean
+                default: false
+              credential_rule_id:
+                $source: rule
+                field: id
+              # Operator-supplied trust anchor. Proxmox inventory mandates
+              # tls_policy verify against an IP-literal origin, which a PVE
+              # node's cluster-CA certificate satisfies only once that CA is
+              # pinned. Host-side only: stripped before the guest sees params.
+              ca_bundle_pem:
+                $source: rule
+                field: ca_bundle_pem
+                omit_if_blank: true
+              server_cert_fingerprint:
+                $source: rule
+                field: server_cert_fingerprint
+                omit_if_blank: true
+          - purpose: console_access
+            plugin_id: proxmox-console
+            auth_methods:
+              - proxmox_api_token
+            failure_mode: skip
+            constraints:
+              tls_policies:
+                - verify
+            grant:
+              grant_type: proxmox_console
+              resolution_location: agent
+              ttl_seconds: 300
+              payload:
+                auth_method:
+                  $source: rule
+                  field: auth_method
+            params:
+              credential_broker:
+                $source: grant
+              timeout_ms:
+                $source: metadata
+                key: timeout_ms
+                type: integer
+                default: 30000
+              ssh_host_key_policy:
+                $source: rule
+                field: ssh_host_key_policy
+              credential_rule_id:
+                $source: rule
+                field: id
+              # Operator-supplied trust anchor. Proxmox inventory mandates
+              # tls_policy verify against an IP-literal origin, which a PVE
+              # node's cluster-CA certificate satisfies only once that CA is
+              # pinned. Host-side only: stripped before the guest sees params.
+              ca_bundle_pem:
+                $source: rule
+                field: ca_bundle_pem
+                omit_if_blank: true
+              server_cert_fingerprint:
+                $source: rule
+                field: server_cert_fingerprint
+                omit_if_blank: true
+              api_token_secret_ref:
+                $source: secret_ref
+          - purpose: console_access
+            plugin_id: proxmox-console
+            auth_methods:
+              - ssh_private_key
+            failure_mode: skip
+            constraints:
+              ssh_host_key_policies:
+                - known_hosts
+                - trust_on_first_use
+            grant:
+              grant_type: proxmox_console
+              resolution_location: agent
+              ttl_seconds: 300
+              payload:
+                auth_method:
+                  $source: rule
+                  field: auth_method
+            params:
+              credential_broker:
+                $source: grant
+              timeout_ms:
+                $source: metadata
+                key: timeout_ms
+                type: integer
+                default: 30000
+              ssh_host_key_policy:
+                $source: rule
+                field: ssh_host_key_policy
+              credential_rule_id:
+                $source: rule
+                field: id
+              # Operator-supplied trust anchor. Proxmox inventory mandates
+              # tls_policy verify against an IP-literal origin, which a PVE
+              # node's cluster-CA certificate satisfies only once that CA is
+              # pinned. Host-side only: stripped before the guest sees params.
+              ca_bundle_pem:
+                $source: rule
+                field: ca_bundle_pem
+                omit_if_blank: true
+              server_cert_fingerprint:
+                $source: rule
+                field: server_cert_fingerprint
+                omit_if_blank: true
+              credential_secret:
+                $source: secret_ref

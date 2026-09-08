@@ -1,0 +1,64 @@
+/*
+ * Copyright 2026 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+syntax = "proto3";
+
+package monitoring;
+
+option go_package = "github.com/carverauto/serviceradar/proto";
+
+// AutomationLaunchEnvelopeResolveRequest carries only the opaque envelope
+// reference and command correlation. Core derives all other authenticated
+// launch coordinates from the sealed record; caller-supplied target or AWX
+// coordinates are deliberately absent.
+message AutomationLaunchEnvelopeResolveRequest {
+  string agent_id = 1;
+  string envelope_ref = 2;
+  string command_id = 3;
+  // Gateway overwrites this field from the mTLS certificate before core sees
+  // the request. Agent-supplied values are never authoritative.
+  string partition_id = 4;
+}
+
+// AutomationLaunchEnvelopeResolveResponse returns the callback bearer and its
+// server-minted idempotency key in memory to the trusted agent process. Neither
+// value may be logged, persisted in a command result, or forwarded to a
+// managed host.
+message AutomationLaunchEnvelopeResolveResponse {
+  bool success = 1;
+  string message = 2;
+  bytes bearer = 3;
+  string callback_grant_id = 4;
+  int64 expires_at_unix = 5;
+  bytes idempotency_key = 6;
+  bytes callback_url = 7;
+  bytes callback_allowed_origin = 8;
+  bytes manifest_sha256 = 9;
+  bytes scm_revision = 10;
+  bytes content_sha256 = 11;
+  bytes callback_phase = 12;
+  bytes callback_operation = 13;
+  bytes callback_state = 14;
+  string controller_id = 15;
+  int64 inventory_id = 16;
+  int64 job_template_id = 17;
+  int64 callback_credential_type_id = 18;
+  int64 callback_credential_organization_id = 19;
+  bytes callback_credential_injector_sha256 = 20;
+  string dispatch_agent_id = 21;
+  string child_execution_id = 22;
+  string command_id = 23;
+}

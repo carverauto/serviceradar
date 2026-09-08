@@ -1,0 +1,30 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "timeout_ms": {
+      "type": "integer",
+      "default": 30000,
+      "minimum": 1000,
+      "maximum": 300000
+    },
+    "max_response_bytes": {
+      "type": "integer",
+      "default": 1048576,
+      "minimum": 65536,
+      "maximum": 4194304,
+      "description": "Maximum bytes returned by one proxied Proxmox API call. Guest inventory is fetched per node to avoid cluster-wide heap spikes."
+    },
+    "max_guests": {
+      "type": "integer",
+      "default": 1000,
+      "minimum": 1,
+      "maximum": 5000,
+      "description": "Maximum guests to enrich per target run. Larger clusters return a partial inventory with a warning instead of exhausting the WASM heap."
+    },
+    "include_guests": {
+      "type": "boolean",
+      "default": true
+    }
+  }
+}

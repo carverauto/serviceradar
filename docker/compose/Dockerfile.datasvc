@@ -1,0 +1,97 @@
+# Copyright 2025 Carver Automation Corporation.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Multi-stage build for ServiceRadar data services (KV + object store)
+FROM golang:1.25.0 AS builder
+
+WORKDIR /src
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    libc6-dev
+
+# Copy go mod files first for better caching
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy the rest of the source
+COPY . .
+
+# Build arguments for version info
+ARG VERSION=dev
+ARG BUILD_ID=docker
+
+# Build the data service (detect architecture automatically)
+RUN CGO_ENABLED=0 GOOS=linux \
+    go build \
+    -ldflags "-X github.com/carverauto/serviceradar/go/pkg/version.version=${VERSION} \
+              -X github.com/carverauto/serviceradar/go/pkg/version.buildID=${BUILD_ID}" \
+    -o serviceradar-datasvc ./go/cmd/data-services
+RUN CGO_ENABLED=0 GOOS=linux \
+    go build \
+    -o wait-for-port ./go/cmd/tools/waitforport
+
+# Runtime stage - using Ubuntu for better compatibility
+FROM ubuntu:22.04
+
+# Install runtime dependencies including grpcurl for health checks
+RUN apt-get update && \
+    apt-get install -y \
+        ca-certificates \
+        curl \
+        jq \
+        netcat-openbsd \
+        wget \
+    && rm -rf /var/lib/apt/lists/* \
+    && GRPCURL_ARCH=$(dpkg --print-architecture | sed 's/amd64/x86_64/' | sed 's/arm64/arm64/') \
+    && wget -qO- "https://github.com/fullstorydev/grpcurl/releases/download/v1.8.9/grpcurl_1.8.9_linux_${GRPCURL_ARCH}.tar.gz" \
+        | tar -xz -C /usr/local/bin grpcurl \
+    && chmod +x /usr/local/bin/grpcurl
+
+# Create non-root user
+RUN useradd -m -u 1000 serviceradar
+
+# Create necessary directories with proper permissions
+RUN mkdir -p /etc/serviceradar /var/log/serviceradar /var/lib/serviceradar && \
+    chown -R serviceradar:serviceradar /etc/serviceradar /var/log/serviceradar /var/lib/serviceradar
+
+# Copy binary from builder
+COPY --from=builder /src/serviceradar-datasvc /usr/local/bin/serviceradar-datasvc
+RUN chmod +x /usr/local/bin/serviceradar-datasvc
+
+COPY --from=builder /src/wait-for-port /usr/local/bin/wait-for-port
+RUN chmod +x /usr/local/bin/wait-for-port
+
+# Copy entrypoint script
+COPY docker/compose/entrypoint-datasvc.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# Switch to non-root user
+USER serviceradar
+
+# Set working directory
+WORKDIR /var/lib/serviceradar
+
+# Expose gRPC port
+EXPOSE 50057
+
+# Health check only needs to confirm the gRPC socket is listening; the compose
+# stack layers a runtime-specific healthcheck on top.
+HEALTHCHECK --interval=10s --timeout=5s --start-period=60s --retries=12 \
+    CMD nc -z 127.0.0.1 50057 || exit 1
+
+# Set entrypoint
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["serviceradar-datasvc"]

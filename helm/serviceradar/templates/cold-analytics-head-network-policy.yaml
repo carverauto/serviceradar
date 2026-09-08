@@ -1,0 +1,86 @@
+{{- /* Component gate (issue #3859). ABSENT MEANS ENABLED: hasKey is used rather than a
+     truthiness test so that a chart or values file which never mentions `enabled`
+     renders exactly as before, and only an explicit `coldTier.enabled: false` removes
+     this component. `default true` cannot be used here -- Helm treats false as empty,
+     so it would resurrect anything explicitly disabled. */ -}}
+{{- $gate16 := default (dict) .Values.coldTier -}}
+{{- if or (not (hasKey $gate16 "enabled")) $gate16.enabled }}
+{{- /*
+Least-privilege network posture for the cold-tier analytics head
+(OpenSpec add-tiered-telemetry-offload, kubernetes-network-policy delta):
+ingress only from workloads in this namespace on 5432 (core/web-ng
+ColdRepo + exporter), egress only to the primary CNPG cluster on 5432
+(postgres_fdw hot branch + exports), DNS, and the configured object-store
+endpoints. Renders nothing unless the analytics head is enabled.
+*/ -}}
+{{- $cold := default (dict) .Values.coldTier -}}
+{{- $head := default (dict) $cold.analyticsHead -}}
+{{- if default false $head.enabled }}
+{{- $clusterName := default "cnpg-analytics" $head.clusterName -}}
+{{- $primaryCluster := include "serviceradar.cnpgClusterName" . -}}
+{{- $networkPolicy := default (dict) .Values.networkPolicy -}}
+{{- $ingress := default (dict) $networkPolicy.ingress -}}
+{{- $cnpgOperator := default (dict) $ingress.cnpgOperator -}}
+{{- $cnpgOperatorNamespace := default "cnpg-system" $cnpgOperator.namespace -}}
+{{- $cnpgOperatorPort := default 8000 $cnpgOperator.port -}}
+{{- $objectStore := default (dict) $cold.objectStore -}}
+{{- $egressCidrs := default (list) $objectStore.egressCidrs -}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ printf "%s-cold-analytics-head" (include "serviceradar.fullname" .) }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: cold-analytics-head
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: {{ $clusterName | quote }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 5432
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $cnpgOperatorNamespace | quote }}
+      ports:
+        - protocol: TCP
+          port: {{ $cnpgOperatorPort }}
+  egress:
+    # postgres_fdw / export reads against the primary
+    - to:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: {{ $primaryCluster | quote }}
+      ports:
+        - protocol: TCP
+          port: 5432
+    # DNS
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    {{- if $egressCidrs }}
+    # Object store (deployment-supplied CIDRs; blocks the silent
+    # fall-back-to-public-AWS failure mode observed in spike 0.5)
+    - to:
+        {{- range $cidr := $egressCidrs }}
+        - ipBlock:
+            cidr: {{ $cidr | quote }}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: {{ default 443 $objectStore.port }}
+    {{- end }}
+{{- end }}
+{{- end }}

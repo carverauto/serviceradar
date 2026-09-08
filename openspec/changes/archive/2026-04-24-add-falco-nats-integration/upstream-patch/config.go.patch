@@ -1,0 +1,10 @@
+--- a/config.go
++++ b/config.go
+@@ -XXX,6 +XXX,8 @@
+ 	v.SetDefault("NATS.HostPort", "")
+ 	v.SetDefault("NATS.Subject", "")
++	v.SetDefault("NATS.CredsFile", "")
++	v.SetDefault("NATS.CaCertFile", "")
+ 	v.SetDefault("NATS.MinimumPriority", "")
+ 	v.SetDefault("NATS.MutualTLS", false)
+ 	v.SetDefault("NATS.CheckCert", true)

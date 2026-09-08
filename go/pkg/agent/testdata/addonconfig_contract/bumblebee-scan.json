@@ -1,0 +1,1 @@
+{"agent_id":"agent-demo-01","catalog_snapshot_ref":"snapshot-42","ecosystems":["npm","pypi"],"enabled":true,"exclude_roots":["/proc","/sys"],"explicit_roots":["/opt/apps","/srv/data"],"include_home_roots":true,"include_root":false,"max_findings":500,"max_output_bytes":33554432,"scan_timeout":"10m"}

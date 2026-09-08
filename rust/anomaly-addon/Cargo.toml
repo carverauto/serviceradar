@@ -1,0 +1,29 @@
+[package]
+name = "serviceradar-anomaly-addon"
+version = "0.3.2"
+description = "ServiceRadar edge anomaly add-on: consumes the agent's local metric feed (metric-feed:v1), runs the shared serviceradar-anomaly-core detector per series, and emits anomaly verdicts upstream (native-telemetry:v1). OpenSpec: move-anomaly-detection-to-edge."
+edition = "2024"
+license = "Apache-2.0"
+
+[lib]
+name = "serviceradar_anomaly_addon"
+path = "src/lib.rs"
+
+[[bin]]
+name = "serviceradar-anomaly-addon"
+path = "src/main.rs"
+
+[dependencies]
+addon-sdk = { path = "../addon-sdk" }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+env_logger = { workspace = true }
+hex = { workspace = true }
+prost = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+serviceradar-anomaly-core = { path = "../anomaly-core" }
+sha2 = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync"] }
+tokio-stream = { workspace = true, features = ["sync"] }
+tonic = { workspace = true }

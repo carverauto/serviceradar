@@ -1,0 +1,29 @@
+{
+  "lldp_table": [
+    {
+      "local_port_idx": 26,
+      "local_port_name": "Port 26",
+      "chassis_id": "78:45:58:6d:1e:4b",
+      "port_id": "eth4",
+      "port_description": "SFP+ 4",
+      "system_name": "tonka01",
+      "management_address": "192.168.10.1"
+    }
+  ],
+  "port_table": [
+    {
+      "port_idx": 24,
+      "name": "Port 24",
+      "connected_device": {
+        "mac": "d0:21:f9:b4:32:79",
+        "name": "Nano HD",
+        "ip": "192.168.1.233"
+      }
+    }
+  ],
+  "uplink": {
+    "device_id": "upstream-1",
+    "parent_port_idx": 26,
+    "parent_port_name": "Port 26"
+  }
+}

@@ -1,0 +1,498 @@
+defmodule ServiceRadar.Core.ResultProcessor do
+  @moduledoc """
+  Processes sweep results and converts them to device updates.
+
+  Port of Go core's result_processor.go. Handles:
+  - Processing host results from network sweeps
+  - Building metadata (response time, ICMP status, port results)
+  - Resolving canonical identities via DeviceLookup
+  - Converting to DeviceUpdate format for persistence
+
+  ## Usage
+
+      # Process sweep host results
+      device_updates = ResultProcessor.process_host_results(
+        hosts,
+        gateway_id: "gateway-1",
+        partition: "default",
+        agent_id: "agent-1"
+      )
+  """
+
+  alias ServiceRadar.Identity.DeviceLookup
+
+  require Logger
+
+  # Limits for metadata encoding
+  @max_port_results_detailed 512
+  @max_open_ports_detailed 256
+
+  @type host_result :: %{
+          optional(:host) => String.t(),
+          optional(:available) => boolean(),
+          optional(:response_time_ns) => non_neg_integer(),
+          optional(:icmp_status) => icmp_status(),
+          optional(:port_results) => [port_result()]
+        }
+
+  @type icmp_status :: %{
+          optional(:available) => boolean(),
+          optional(:round_trip_ns) => non_neg_integer(),
+          optional(:packet_loss) => float()
+        }
+
+  @type port_result :: %{
+          optional(:port) => non_neg_integer(),
+          optional(:available) => boolean(),
+          optional(:response_time_ns) => non_neg_integer()
+        }
+
+  @type device_update :: %{
+          agent_id: String.t(),
+          gateway_id: String.t(),
+          partition: String.t(),
+          device_id: String.t() | nil,
+          source: atom(),
+          ip: String.t(),
+          mac: String.t() | nil,
+          hostname: String.t() | nil,
+          timestamp: DateTime.t(),
+          is_available: boolean(),
+          metadata: map()
+        }
+
+  @doc """
+  Process host results from a sweep and convert to device updates.
+
+  ## Options
+
+  - `:gateway_id` - ID of the gateway that ran the sweep (required)
+  - `:partition` - Partition context (required)
+  - `:agent_id` - ID of the agent managing the gateway (required)
+  - `:timestamp` - Timestamp for the results (default: now)
+  - `:resolve_identities` - Whether to lookup canonical identities (default: true)
+  - `:actor` - Actor for authorization context
+
+  ## Examples
+
+      hosts = [
+        %{host: "192.168.1.100", available: true, response_time_ns: 5_000_000},
+        %{host: "192.168.1.101", available: false}
+      ]
+
+      updates = ResultProcessor.process_host_results(hosts,
+        gateway_id: "gateway-1",
+        partition: "default",
+        agent_id: "agent-1"
+      )
+  """
+  @spec process_host_results([host_result()], keyword()) :: [device_update()]
+  def process_host_results(hosts, opts \\ []) do
+    gateway_id = Keyword.fetch!(opts, :gateway_id)
+    partition = Keyword.fetch!(opts, :partition)
+    agent_id = Keyword.fetch!(opts, :agent_id)
+    timestamp = Keyword.get(opts, :timestamp, DateTime.utc_now())
+    resolve_identities = Keyword.get(opts, :resolve_identities, true)
+    actor = Keyword.get(opts, :actor)
+
+    # Extract unique IPs for batch identity resolution
+    canonical_by_ip =
+      if resolve_identities do
+        hosts
+        |> Enum.map(&get_host_ip/1)
+        |> Enum.reject(&(&1 == ""))
+        |> lookup_canonical_sweep_identities(actor: actor)
+      else
+        %{}
+      end
+
+    hosts
+    |> Enum.filter(&valid_host?/1)
+    |> Enum.map(fn host ->
+      build_device_update(host, %{
+        gateway_id: gateway_id,
+        partition: partition,
+        agent_id: agent_id,
+        timestamp: timestamp,
+        canonical_by_ip: canonical_by_ip
+      })
+    end)
+  end
+
+  @doc """
+  Build host metadata from a host result.
+
+  Extracts response time, ICMP status, and port results into
+  a flat metadata map suitable for storage.
+  """
+  @spec build_host_metadata(host_result()) :: map()
+  def build_host_metadata(host) do
+    %{}
+    |> add_response_time_metadata(host)
+    |> add_icmp_metadata(host)
+    |> add_port_metadata(host)
+  end
+
+  # Private functions
+
+  defp valid_host?(host) do
+    ip = get_host_ip(host)
+    ip != ""
+  end
+
+  defp get_host_ip(host) do
+    host[:host] || host["host"] || ""
+  end
+
+  defp build_device_update(host, context) do
+    ip = get_host_ip(host)
+    available = host_available?(host)
+    metadata = build_host_metadata(host)
+
+    update = %{
+      agent_id: context.agent_id,
+      gateway_id: context.gateway_id,
+      partition: context.partition,
+      device_id: nil,
+      source: :sweep,
+      ip: ip,
+      mac: nil,
+      hostname: nil,
+      timestamp: context.timestamp,
+      is_available: available,
+      metadata: metadata
+    }
+
+    # Apply canonical identity if found
+    case Map.get(context.canonical_by_ip, ip) do
+      nil -> update
+      snapshot -> apply_canonical_snapshot(update, snapshot)
+    end
+  end
+
+  defp add_response_time_metadata(metadata, host) do
+    response_time = host[:response_time_ns] || host["response_time_ns"]
+
+    if is_integer(response_time) and response_time > 0 do
+      Map.put(metadata, "response_time_ns", Integer.to_string(response_time))
+    else
+      metadata
+    end
+  end
+
+  defp add_icmp_metadata(metadata, host) do
+    icmp_status = host[:icmp_status] || host["icmp_status"]
+
+    if is_map(icmp_status) do
+      metadata
+      |> put_if_present(
+        "icmp_available",
+        icmp_status[:available] || icmp_status["available"],
+        &to_string/1
+      )
+      |> put_if_present(
+        "icmp_round_trip_ns",
+        icmp_status[:round_trip_ns] || icmp_status["round_trip_ns"],
+        &Integer.to_string/1
+      )
+      |> put_if_present(
+        "icmp_packet_loss",
+        icmp_status[:packet_loss] || icmp_status["packet_loss"],
+        &Float.to_string/1
+      )
+    else
+      metadata
+    end
+  end
+
+  defp add_port_metadata(metadata, host) do
+    port_results = port_results(host)
+
+    if is_list(port_results) and not Enum.empty?(port_results) do
+      encode_port_results(metadata, port_results)
+    else
+      metadata
+    end
+  end
+
+  defp host_available?(host) do
+    host[:available] == true ||
+      host["available"] == true ||
+      icmp_available?(host) ||
+      Enum.any?(port_results(host), &port_available?/1)
+  end
+
+  defp icmp_available?(host) do
+    case host[:icmp_status] || host["icmp_status"] do
+      status when is_map(status) ->
+        status[:available] == true || status["available"] == true
+
+      _ ->
+        host[:icmp_available] == true ||
+          host["icmp_available"] == true ||
+          host["icmpAvailable"] == true
+    end
+  end
+
+  defp port_results(host) do
+    detailed_results =
+      host[:port_results] ||
+        host["port_results"] ||
+        host["port_scan_results"] ||
+        host["portScanResults"] ||
+        []
+
+    merge_tcp_open_ports(List.wrap(detailed_results), tcp_open_ports(host))
+  end
+
+  defp tcp_open_ports(host) do
+    host[:tcp_ports_open] ||
+      host["tcp_ports_open"] ||
+      host["tcpPortsOpen"] ||
+      []
+  end
+
+  defp merge_tcp_open_ports(port_results, open_ports) do
+    open_ports =
+      open_ports
+      |> List.wrap()
+      |> Enum.map(&parse_integer/1)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.filter(&valid_port?/1)
+
+    if open_ports == [] do
+      port_results
+    else
+      port_results
+      |> Map.new(fn result ->
+        port = parse_integer(result[:port] || result["port"])
+        {port, result}
+      end)
+      |> Map.delete(nil)
+      |> then(fn by_port ->
+        Enum.reduce(open_ports, by_port, fn port, acc ->
+          result =
+            acc
+            |> Map.get(port, %{port: port})
+            |> put_port_available()
+
+          Map.put(acc, port, result)
+        end)
+      end)
+      |> Map.values()
+      |> Enum.sort_by(&(parse_integer(&1[:port] || &1["port"]) || 0))
+    end
+  end
+
+  defp put_port_available(port_result) when is_map(port_result) do
+    if Map.has_key?(port_result, :available) do
+      Map.put(port_result, :available, true)
+    else
+      Map.put(port_result, "available", true)
+    end
+  end
+
+  defp parse_integer(value) when is_integer(value), do: value
+
+  defp parse_integer(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {parsed, ""} -> parsed
+      _ -> nil
+    end
+  end
+
+  defp parse_integer(_), do: nil
+
+  defp valid_port?(port), do: port >= 1 and port <= 65_535
+
+  defp port_available?(port_result) when is_map(port_result) do
+    port_result[:available] == true || port_result["available"] == true
+  end
+
+  defp port_available?(_port_result), do: false
+
+  defp encode_port_results(metadata, port_results) do
+    total_ports = length(port_results)
+    trim_limit = @max_port_results_detailed
+
+    {encoded_ports, truncated} =
+      if total_ports > trim_limit do
+        {Enum.take(port_results, trim_limit), true}
+      else
+        {port_results, false}
+      end
+
+    metadata =
+      metadata
+      |> Map.put("port_result_count", Integer.to_string(total_ports))
+      |> Map.put("port_results_truncated", to_string(truncated))
+      |> Map.put("port_results_retained", Integer.to_string(length(encoded_ports)))
+
+    # Encode port results as JSON
+    metadata =
+      case Jason.encode(encoded_ports) do
+        {:ok, json} -> Map.put(metadata, "port_results", json)
+        {:error, error} -> Map.put(metadata, "port_results_error", inspect(error))
+      end
+
+    # Extract open ports
+    open_ports =
+      port_results
+      |> Enum.filter(fn pr ->
+        (pr[:available] || pr["available"]) == true
+      end)
+      |> Enum.map(fn pr ->
+        pr[:port] || pr["port"]
+      end)
+      |> Enum.filter(&is_integer/1)
+
+    if Enum.empty?(open_ports) do
+      metadata
+    else
+      encode_open_ports(metadata, open_ports)
+    end
+  end
+
+  defp encode_open_ports(metadata, open_ports) do
+    open_limit = @max_open_ports_detailed
+
+    {encoded_ports, truncated} =
+      if length(open_ports) > open_limit do
+        {Enum.take(open_ports, open_limit), true}
+      else
+        {open_ports, false}
+      end
+
+    metadata =
+      metadata
+      |> Map.put("open_port_count", Integer.to_string(length(open_ports)))
+      |> Map.put("open_ports_truncated", to_string(truncated))
+
+    case Jason.encode(encoded_ports) do
+      {:ok, json} -> Map.put(metadata, "open_ports", json)
+      {:error, error} -> Map.put(metadata, "open_ports_error", inspect(error))
+    end
+  end
+
+  defp put_if_present(metadata, _key, nil, _formatter), do: metadata
+
+  defp put_if_present(metadata, key, value, formatter) do
+    Map.put(metadata, key, formatter.(value))
+  end
+
+  @doc false
+  @spec lookup_canonical_sweep_identities([String.t()], keyword()) :: %{String.t() => map()}
+  def lookup_canonical_sweep_identities(ips, opts \\ []) do
+    unique_ips =
+      ips
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.uniq()
+
+    if Enum.empty?(unique_ips) do
+      %{}
+    else
+      opts =
+        opts
+        |> Keyword.put(:include_deleted, true)
+        |> Keyword.put(:use_cache, false)
+
+      DeviceLookup.batch_lookup_by_ip(unique_ips, opts)
+    end
+  end
+
+  defp apply_canonical_snapshot(update, snapshot) do
+    update
+    |> apply_canonical_device_id(snapshot)
+    |> apply_snapshot_mac(snapshot)
+    |> apply_snapshot_hostname(snapshot)
+    |> apply_snapshot_attributes(snapshot)
+  end
+
+  defp apply_canonical_device_id(update, snapshot) do
+    if is_binary(snapshot.canonical_device_id) and snapshot.canonical_device_id != "" do
+      metadata = Map.put(update.metadata, "canonical_device_id", snapshot.canonical_device_id)
+
+      %{update | device_id: snapshot.canonical_device_id, metadata: metadata}
+    else
+      update
+    end
+  end
+
+  defp apply_snapshot_mac(update, snapshot) do
+    case get_in(snapshot, [:attributes, "mac"]) do
+      mac when is_binary(mac) and mac != "" ->
+        mac = String.upcase(mac)
+        metadata = Map.put(update.metadata, "mac", mac)
+        %{update | mac: mac, metadata: metadata}
+
+      _ ->
+        update
+    end
+  end
+
+  defp apply_snapshot_hostname(update, snapshot) do
+    case get_in(snapshot, [:attributes, "hostname"]) do
+      hostname when is_binary(hostname) and hostname != "" ->
+        %{update | hostname: hostname}
+
+      _ ->
+        update
+    end
+  end
+
+  defp apply_snapshot_attributes(update, snapshot) do
+    update
+    |> copy_attribute_if_empty(snapshot, "armis_device_id")
+    |> copy_attribute_if_empty(snapshot, "integration_id")
+    |> copy_attribute_if_empty(snapshot, "integration_type")
+    |> copy_attribute_if_empty(snapshot, "netbox_device_id")
+    |> copy_attribute_if_empty(snapshot, "canonical_partition")
+    |> copy_attribute_if_empty(snapshot, "canonical_hostname")
+  end
+
+  defp copy_attribute_if_empty(update, snapshot, key) do
+    case get_in(snapshot, [:attributes, key]) do
+      value when is_binary(value) and value != "" ->
+        if Map.get(update.metadata, key, "") == "" do
+          %{update | metadata: Map.put(update.metadata, key, value)}
+        else
+          update
+        end
+
+      _ ->
+        update
+    end
+  end
+
+  @doc """
+  Check if a snapshot has strong identity markers.
+
+  A "strong" identity means the device can be reliably identified
+  by something other than just IP address.
+  """
+  @spec has_strong_identity?(map()) :: boolean()
+  def has_strong_identity?(snapshot) when is_map(snapshot) do
+    device_id =
+      Map.get(snapshot, :canonical_device_id) || Map.get(snapshot, "canonical_device_id")
+
+    attributes = Map.get(snapshot, :attributes) || Map.get(snapshot, "attributes") || %{}
+
+    has_value?(device_id) or
+      has_attribute?(attributes, "mac") or
+      has_attribute?(attributes, "armis_device_id") or
+      has_attribute?(attributes, "integration_id") or
+      has_attribute?(attributes, "netbox_device_id")
+  end
+
+  def has_strong_identity?(_), do: false
+
+  defp has_attribute?(attributes, key) do
+    attributes
+    |> Map.get(key)
+    |> has_value?()
+  end
+
+  defp has_value?(value) when is_binary(value), do: String.trim(value) != ""
+  defp has_value?(_value), do: false
+end

@@ -1,0 +1,51 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+load("//build/packaging:release_targets.bzl", "declare_release_artifacts")
+
+# gazelle:ignore
+#
+# Hand-maintained, and Gazelle cannot express it. Two independent reasons:
+#
+#   * Names come from the SOURCE FILE (publish_packages_lib/_test), Gazelle derives them from
+#     the DIRECTORY (release_lib/_test). It therefore does not recognise the existing rules
+#     and appends `go_test(name = "release_test", embed = [":release_lib"])` against a target
+#     that does not exist, which fails analysis. Renaming to suit Gazelle is not an option
+#     here: //build/release:publish_packages is the binary release.yml invokes.
+#   * The binary and its test both carry `data` deps on :package_artifacts, :package_manifest
+#     and //build/packaging/agent:agent_release_runtime_archive. Gazelle drops them, and the
+#     test reads those artifacts at runtime, so its generated rule would be silently wrong
+#     even with the names fixed.
+package(default_visibility = ["//visibility:public"])
+
+declare_release_artifacts()
+
+go_library(
+    name = "publish_packages_lib",
+    srcs = ["publish_packages.go"],
+    importpath = "github.com/carverauto/serviceradar/build/release",
+    visibility = ["//visibility:private"],
+    deps = [
+        "@io_bazel_rules_go//go/tools/bazel",
+    ],
+)
+
+go_binary(
+    name = "publish_packages",
+    data = [
+        ":package_artifacts",
+        ":package_manifest",
+        "//build/packaging/agent:agent_release_runtime_archive",
+    ],
+    embed = [":publish_packages_lib"],
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "publish_packages_test",
+    srcs = ["publish_packages_test.go"],
+    data = [
+        ":package_artifacts",
+        ":package_manifest",
+        "//build/packaging/agent:agent_release_runtime_archive",
+    ],
+    embed = [":publish_packages_lib"],
+)

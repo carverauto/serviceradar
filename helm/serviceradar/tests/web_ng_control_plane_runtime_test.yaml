@@ -1,0 +1,101 @@
+suite: web-ng cluster-only control-plane runtime listener
+templates:
+  - templates/web.yaml
+tests:
+  - it: renders the private listener and exact Secret reference only in the Deployment
+    set:
+      webNg.controlPlaneRuntime.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            containerPort: 4001
+            name: control-runtime
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_CONTROL_PLANE_RUNTIME_PORT
+            value: "4001"
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_CONTROL_PLANE_RUNTIME_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: serviceradar-control-plane-runtime-access
+                key: token
+        documentSelector:
+          path: kind
+          value: Deployment
+      - notContains:
+          path: spec.ports
+          content:
+            port: 4001
+        documentSelector:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: web-ng
+      - notContains:
+          path: spec.ports
+          content:
+            port: 4001
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-web-ng-headless
+
+  - it: supports an explicit port and Secret contract without exposing a Service port
+    set:
+      webNg.controlPlaneRuntime.enabled: true
+      webNg.controlPlaneRuntime.port: 4401
+      webNg.controlPlaneRuntime.existingSecretName: tenant-runtime-access
+      webNg.controlPlaneRuntime.tokenSecretKey: bearer-token
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            containerPort: 4401
+            name: control-runtime
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_CONTROL_PLANE_RUNTIME_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: tenant-runtime-access
+                key: bearer-token
+        documentSelector:
+          path: kind
+          value: Deployment
+      - notContains:
+          path: spec.ports
+          content:
+            port: 4401
+        documentSelector:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: web-ng
+
+  - it: does not render the listener or credential when disabled
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            containerPort: 4001
+            name: control-runtime
+        documentSelector:
+          path: kind
+          value: Deployment
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_CONTROL_PLANE_RUNTIME_TOKEN
+        documentSelector:
+          path: kind
+          value: Deployment

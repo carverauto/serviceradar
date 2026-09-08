@@ -1,0 +1,171 @@
+/**
+ * @typedef {object} GodViewState
+ * @property {Element} [el]
+ * @property {(name: string, payload: unknown) => void} [pushEvent]
+ * @property {(name: string, handler: Function) => void} [handleEvent]
+ * @property {string} [csrfToken]
+ */
+
+/**
+ * @typedef {object} GodViewLayoutApi
+ * @property {(...args: any[]) => any} resolveZoomTier
+ * @property {(...args: any[]) => any} setZoomTier
+ * @property {(...args: any[]) => any} reshapeGraph
+ * @property {(...args: any[]) => any} geoGridData
+ * @property {(...args: any[]) => any} prepareGraphLayout
+ * @property {(...args: any[]) => any} graphTopologyStamp
+ * @property {(...args: any[]) => any} sameTopology
+ * @property {(...args: any[]) => any} animateTransition
+ */
+
+/**
+ * @typedef {object} GodViewRenderingApi
+ * @property {(...args: any[]) => any} renderGraph
+ * @property {(...args: any[]) => any} refreshGraphLayersForViewState
+ * @property {(...args: any[]) => any} stateDisplayName
+ * @property {(...args: any[]) => any} edgeTopologyClass
+ * @property {(...args: any[]) => any} focusNodeByIndex
+ * @property {(...args: any[]) => any} ensureBitmapMetadata
+ * @property {(...args: any[]) => any} normalizePipelineStats
+ * @property {(...args: any[]) => any} normalizeDisplayLabel
+ * @property {(...args: any[]) => any} getNodeTooltip
+ * @property {(...args: any[]) => any} handleHover
+ * @property {(...args: any[]) => any} handlePick
+ * @property {(...args: any[]) => any} autoFitViewState
+ * @property {(...args: any[]) => any} focusClusterNeighborhood
+ * @property {(...args: any[]) => any} managedVisualDensityForViewScale
+ * @property {(...args: any[]) => any} managedViewStateForCamera
+ */
+
+/**
+ * @typedef {object} GodViewLifecycleApi
+ * @property {(...args: any[]) => any} ensureDeck
+ * @property {(...args: any[]) => any} decodeArrowGraph
+ * @property {(...args: any[]) => any} setClusterExpanded
+ */
+
+/**
+ * @typedef {object} GodViewRuntimeContext
+ * @property {GodViewState} state
+ * @property {Partial<GodViewLayoutApi>} layout
+ * @property {Partial<GodViewRenderingApi>} rendering
+ * @property {Partial<GodViewLifecycleApi>} lifecycle
+ */
+
+/**
+ * @typedef {object} GodViewLayoutDeps
+ * @property {(...args: any[]) => any} renderGraph
+ * @property {(...args: any[]) => any} stateDisplayName
+ * @property {(...args: any[]) => any} edgeTopologyClass
+ */
+export const LAYOUT_DEP_KEYS = ["renderGraph", "stateDisplayName", "edgeTopologyClass"]
+
+/**
+ * @typedef {object} GodViewRenderingDeps
+ * @property {(...args: any[]) => any} resolveZoomTier
+ * @property {(...args: any[]) => any} setZoomTier
+ * @property {(...args: any[]) => any} reshapeGraph
+ * @property {(...args: any[]) => any} geoGridData
+ * @property {(...args: any[]) => any} ensureDeck
+ * @property {(...args: any[]) => any} setClusterExpanded
+ */
+export const RENDERING_DEP_KEYS = ["resolveZoomTier", "setZoomTier", "reshapeGraph", "geoGridData", "ensureDeck", "setClusterExpanded"]
+
+/**
+ * @typedef {object} GodViewLifecycleDeps
+ * @property {(...args: any[]) => any} renderGraph
+ * @property {(...args: any[]) => any} refreshGraphLayersForViewState
+ * @property {(...args: any[]) => any} focusNodeByIndex
+ * @property {(...args: any[]) => any} ensureBitmapMetadata
+ * @property {(...args: any[]) => any} normalizePipelineStats
+ * @property {(...args: any[]) => any} decodeArrowGraph
+ * @property {(...args: any[]) => any} normalizeDisplayLabel
+ * @property {(...args: any[]) => any} getNodeTooltip
+ * @property {(...args: any[]) => any} handleHover
+ * @property {(...args: any[]) => any} handlePick
+ * @property {(...args: any[]) => any} setZoomTier
+ * @property {(...args: any[]) => any} resolveZoomTier
+ * @property {(...args: any[]) => any} prepareGraphLayout
+ * @property {(...args: any[]) => any} graphTopologyStamp
+ * @property {(...args: any[]) => any} sameTopology
+ * @property {(...args: any[]) => any} animateTransition
+ * @property {(...args: any[]) => any} autoFitViewState
+ * @property {(...args: any[]) => any} focusClusterNeighborhood
+ * @property {(...args: any[]) => any} managedViewStateForCamera
+ */
+export const LIFECYCLE_DEP_KEYS = [
+  "renderGraph",
+  "refreshGraphLayersForViewState",
+  "focusNodeByIndex",
+  "ensureBitmapMetadata",
+  "normalizePipelineStats",
+  "decodeArrowGraph",
+  "normalizeDisplayLabel",
+  "getNodeTooltip",
+  "handleHover",
+  "handlePick",
+  "setZoomTier",
+  "resolveZoomTier",
+  "prepareGraphLayout",
+  "graphTopologyStamp",
+  "sameTopology",
+  "animateTransition",
+  "autoFitViewState",
+  "focusClusterNeighborhood",
+  "managedViewStateForCamera",
+]
+
+/**
+ * @param {GodViewRuntimeContext} context
+ * @returns {GodViewLayoutDeps}
+ */
+export function buildLayoutDeps(context) {
+  return {
+    renderGraph: (...args) => context.rendering.renderGraph(...args),
+    stateDisplayName: (...args) => context.rendering.stateDisplayName(...args),
+    edgeTopologyClass: (...args) => context.rendering.edgeTopologyClass(...args),
+  }
+}
+
+/**
+ * @param {GodViewRuntimeContext} context
+ * @returns {GodViewRenderingDeps}
+ */
+export function buildRenderingDeps(context) {
+  return {
+    resolveZoomTier: (...args) => context.layout.resolveZoomTier(...args),
+    setZoomTier: (...args) => context.layout.setZoomTier(...args),
+    reshapeGraph: (...args) => context.layout.reshapeGraph(...args),
+    geoGridData: (...args) => context.layout.geoGridData(...args),
+    ensureDeck: (...args) => context.lifecycle.ensureDeck(...args),
+    setClusterExpanded: (...args) => context.lifecycle.setClusterExpanded(...args),
+  }
+}
+
+/**
+ * @param {GodViewRuntimeContext} context
+ * @returns {GodViewLifecycleDeps}
+ */
+export function buildLifecycleDeps(context) {
+  return {
+    renderGraph: (...args) => context.rendering.renderGraph(...args),
+    refreshGraphLayersForViewState: (...args) => context.rendering.refreshGraphLayersForViewState(...args),
+    focusNodeByIndex: (...args) => context.rendering.focusNodeByIndex(...args),
+    ensureBitmapMetadata: (...args) => context.rendering.ensureBitmapMetadata(...args),
+    normalizePipelineStats: (...args) => context.rendering.normalizePipelineStats(...args),
+    decodeArrowGraph: (...args) => context.lifecycle.decodeArrowGraph(...args),
+    normalizeDisplayLabel: (...args) => context.rendering.normalizeDisplayLabel(...args),
+    getNodeTooltip: (...args) => context.rendering.getNodeTooltip(...args),
+    handleHover: (...args) => context.rendering.handleHover(...args),
+    handlePick: (...args) => context.rendering.handlePick(...args),
+    setZoomTier: (...args) => context.layout.setZoomTier(...args),
+    resolveZoomTier: (...args) => context.layout.resolveZoomTier(...args),
+    prepareGraphLayout: (...args) => context.layout.prepareGraphLayout(...args),
+    graphTopologyStamp: (...args) => context.layout.graphTopologyStamp(...args),
+    sameTopology: (...args) => context.layout.sameTopology(...args),
+    animateTransition: (...args) => context.layout.animateTransition(...args),
+    autoFitViewState: (...args) => context.rendering.autoFitViewState(...args),
+    focusClusterNeighborhood: (...args) => context.rendering.focusClusterNeighborhood(...args),
+    managedViewStateForCamera: (...args) => context.rendering.managedViewStateForCamera(...args),
+  }
+}

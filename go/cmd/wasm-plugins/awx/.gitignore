@@ -1,0 +1,3 @@
+# Local go build artifact (the plugin runs via tinygo to .wasm; this
+# darwin/linux binary only exists if someone runs `go build .`).
+/awx

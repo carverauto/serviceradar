@@ -1,0 +1,39 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "accounts",
+    srcs = [
+        "account_manager.go",
+        "errors.go",
+        "operator.go",
+        "user_manager.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/nats/accounts",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@com_github_nats_io_jwt_v2//:jwt",
+        "@com_github_nats_io_nkeys//:nkeys",
+    ],
+)
+
+go_test(
+    name = "accounts_test",
+    srcs = [
+        "account_manager_test.go",
+        "operator_test.go",
+        "test_keys_test.go",
+        "user_manager_test.go",
+    ],
+    data = [
+        "//docker/compose:bmp-collector.docker.json",
+        "//docker/compose:datasvc.mtls.json",
+        "//docker/compose:flow-collector.docker.json",
+        "//docker/compose:nats.docker.conf",
+        "//docker/compose:otel.docker.toml",
+    ],
+    embed = [":accounts"],
+    deps = [
+        "@com_github_nats_io_jwt_v2//:jwt",
+        "@com_github_nats_io_nkeys//:nkeys",
+    ],
+)

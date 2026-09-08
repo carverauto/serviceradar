@@ -1,0 +1,36 @@
+id: awx-inventory-sync
+name: AWX Inventory Sync
+version: 0.1.11
+description: >
+  Scheduled assignment that walks one or more AWX/AAP controllers' inventories
+  and hosts and emits DeviceDiscovery aggregates (discovery_source=awx) into
+  the existing agent -> gateway -> DIRE pipeline. One assignment per reachable
+  agent carries that agent's controller list and resolved API tokens.
+entrypoint: inventory_sync
+runtime: wasi-preview1
+outputs: serviceradar.plugin_result.v1
+capabilities:
+  - get_config
+  - log
+  - submit_result
+  - http_request
+permissions:
+  allowed_domains:
+    - "*"
+  # Domain wildcards never match literal-IP destinations; these ranges cover
+  # AWX/AAP controllers hosted inside the customer's network. Link-local
+  # (169.254.0.0/16) is excluded: no controller is deliberately addressed there.
+  allowed_networks:
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
+    - "192.168.0.0/16"
+    - "100.64.0.0/10"
+  allowed_ports:
+    - 80
+    - 443
+    - 8080
+    - 8443
+resources:
+  requested_memory_mb: 96
+  requested_cpu_ms: 30000
+  max_open_connections: 4

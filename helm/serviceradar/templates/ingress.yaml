@@ -1,0 +1,60 @@
+{{- if and .Values.ingress.enabled (not .Values.gatewayApi.enabled) }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "serviceradar.fullname" . }}
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: {{ .Values.ingress.host | quote }}
+    {{- if and .Values.ingress.tls.enabled .Values.ingress.tls.clusterIssuer }}
+    cert-manager.io/cluster-issuer: {{ .Values.ingress.tls.clusterIssuer | quote }}
+    {{- end }}
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className | quote }}
+  {{- end }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host | quote }}
+      {{- if .Values.ingress.tls.secretName }}
+      secretName: {{ .Values.ingress.tls.secretName | quote }}
+      {{- end }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          {{- range .Values.ingress.websocketPaths }}
+          - path: {{ . | quote }}
+            pathType: Prefix
+            backend:
+              service:
+                name: serviceradar-web-ng
+                port:
+                  name: http
+          {{- end }}
+          - path: /api/query
+            pathType: Prefix
+            backend:
+              service:
+                name: serviceradar-web-ng
+                port:
+                  name: http
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: serviceradar-web-ng
+                port:
+                  name: http
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: serviceradar-web-ng
+                port:
+                  name: http
+{{- end }}

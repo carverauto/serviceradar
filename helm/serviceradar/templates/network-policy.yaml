@@ -1,0 +1,725 @@
+{{- $np := default (dict) .Values.networkPolicy -}}
+{{- if $np.enabled -}}
+{{- $ingress := default (dict) $np.ingress -}}
+{{- $allowIngressSameNs := default true $ingress.allowSameNamespace -}}
+{{- $ingressAllowedNamespaces := default (list) $ingress.allowedNamespaces -}}
+{{- $ingressAllowedCIDRs := default (list) $ingress.allowedCIDRs -}}
+{{- $ingressAllowedPorts := default (list) $ingress.allowedPorts -}}
+{{- $ingressErlangDist := default (dict) $ingress.erts -}}
+{{- $ingressErlangDistEnabled := default true $ingressErlangDist.enabled -}}
+{{- $ingressErlangDistSelector := default (dict "matchLabels" (dict "app.kubernetes.io/part-of" "serviceradar")) $ingressErlangDist.podSelector -}}
+{{- $ingressErlangDistPorts := default (list (dict "protocol" "TCP" "port" 4369) (dict "protocol" "TCP" "port" 9100 "endPort" 9155)) $ingressErlangDist.ports -}}
+{{- $agentGatewayExternal := default (dict) $ingress.agentGatewayExternal -}}
+{{- $agentGatewayExternalEnabled := true -}}
+{{- if hasKey $agentGatewayExternal "enabled" -}}
+  {{- $agentGatewayExternalEnabled = $agentGatewayExternal.enabled -}}
+{{- end -}}
+{{- $agentGatewayExternalCIDRs := default (list "0.0.0.0/0") $agentGatewayExternal.allowedCIDRs -}}
+{{- $flowCollectorExternal := default (dict) $ingress.flowCollectorExternal -}}
+{{- $flowCollectorExternalEnabled := default true $flowCollectorExternal.enabled -}}
+{{- $flowCollectorExternalCIDRs := default (list "0.0.0.0/0") $flowCollectorExternal.allowedCIDRs -}}
+{{- $logCollectorExternal := default (dict) $ingress.logCollectorExternal -}}
+{{- $logCollectorExternalEnabled := default true $logCollectorExternal.enabled -}}
+{{- $logCollectorExternalCIDRs := default (list "0.0.0.0/0") $logCollectorExternal.allowedCIDRs -}}
+{{- $otlpExternal := default (dict) $ingress.otlpExternal -}}
+{{- $otlpExternalEnabled := default true $otlpExternal.enabled -}}
+{{- $otlpExternalCIDRs := default (list "0.0.0.0/0") $otlpExternal.allowedCIDRs -}}
+{{- $trapdExternal := default (dict) $ingress.trapdExternal -}}
+{{- $trapdExternalEnabled := default true $trapdExternal.enabled -}}
+{{- $trapdExternalCIDRs := default (list "0.0.0.0/0") $trapdExternal.allowedCIDRs -}}
+{{- $bmpCollectorExternal := default (dict) $ingress.bmpCollectorExternal -}}
+{{- $bmpCollectorExternalEnabled := default true $bmpCollectorExternal.enabled -}}
+{{- $bmpCollectorExternalCIDRs := default (list "0.0.0.0/0") $bmpCollectorExternal.allowedCIDRs -}}
+{{- $gobgpExternal := default (dict) $ingress.gobgpExternal -}}
+{{- $gobgpExternalEnabled := default true $gobgpExternal.enabled -}}
+{{- $gobgpExternalCIDRs := default (list "0.0.0.0/0") $gobgpExternal.allowedCIDRs -}}
+{{- $cnpgOperator := default (dict) $ingress.cnpgOperator -}}
+{{- $cnpgOperatorEnabled := default false $cnpgOperator.enabled -}}
+{{- $cnpgOperatorNamespace := default "cnpg-system" $cnpgOperator.namespace -}}
+{{- $cnpgOperatorPort := default 8000 $cnpgOperator.port -}}
+{{- $cnpgInstanceManager := default (dict) $ingress.cnpgInstanceManager -}}
+{{- $cnpgInstanceManagerEnabled := default true $cnpgInstanceManager.enabled -}}
+{{- $cnpgInstanceManagerPort := default 8000 $cnpgInstanceManager.port -}}
+{{- $hasIngressNamespaces := gt (len $ingressAllowedNamespaces) 0 -}}
+{{- $hasIngressCIDRs := gt (len $ingressAllowedCIDRs) 0 -}}
+{{- $hasIngressPorts := gt (len $ingressAllowedPorts) 0 -}}
+{{- $hasIngressErlangDistPorts := gt (len $ingressErlangDistPorts) 0 -}}
+{{- $hasAgentGatewayExternalCIDRs := gt (len $agentGatewayExternalCIDRs) 0 -}}
+{{- $hasFlowCollectorExternalCIDRs := gt (len $flowCollectorExternalCIDRs) 0 -}}
+{{- $hasLogCollectorExternalCIDRs := gt (len $logCollectorExternalCIDRs) 0 -}}
+{{- $hasOtlpExternalCIDRs := gt (len $otlpExternalCIDRs) 0 -}}
+{{- $hasTrapdExternalCIDRs := gt (len $trapdExternalCIDRs) 0 -}}
+{{- $hasBmpCollectorExternalCIDRs := gt (len $bmpCollectorExternalCIDRs) 0 -}}
+{{- $agentGateway := default (dict) .Values.agentGateway -}}
+{{- $agentGatewayEnabled := true -}}
+{{- if hasKey $agentGateway "enabled" -}}
+  {{- $agentGatewayEnabled = $agentGateway.enabled -}}
+{{- end -}}
+{{- $agentGatewayService := default (dict) $agentGateway.service -}}
+{{- $agentGatewayGrpcPort := default 50052 $agentGatewayService.port -}}
+{{- $agentGatewayArtifactPort := default 50053 $agentGatewayService.artifactPort -}}
+{{- $gatewayApi := default (dict) .Values.gatewayApi -}}
+{{- $gatewayApiAgentGateway := default (dict) $gatewayApi.agentGateway -}}
+{{- $gatewayApiAgentGatewayEnabled := false -}}
+{{- if hasKey $gatewayApiAgentGateway "enabled" -}}
+  {{- $gatewayApiAgentGatewayEnabled = $gatewayApiAgentGateway.enabled -}}
+{{- end -}}
+{{- $gatewayApiEnvoyNamespace := default "envoy-gateway-system" $gatewayApi.envoyGatewayNamespace -}}
+{{- $gatewayApiAgentGatewayEnvoyNamespace := default $gatewayApiEnvoyNamespace $gatewayApiAgentGateway.envoyGatewayNamespace -}}
+{{- $gatewayApiAgentGatewayPorts := list (dict "protocol" "TCP" "port" $agentGatewayGrpcPort) (dict "protocol" "TCP" "port" $agentGatewayArtifactPort) -}}
+{{- $gatewayApiFlowCollector := default (dict) $gatewayApi.flowCollector -}}
+{{- $gatewayApiFlowCollectorEnabled := default false $gatewayApiFlowCollector.enabled -}}
+{{- $gatewayApiFlowCollectorEnvoyNamespace := default $gatewayApiEnvoyNamespace $gatewayApiFlowCollector.envoyGatewayNamespace -}}
+{{- $gatewayApiTrapd := default (dict) $gatewayApi.trapd -}}
+{{- $gatewayApiTrapdEnabled := default false $gatewayApiTrapd.enabled -}}
+{{- $gatewayApiTrapdEnvoyNamespace := default $gatewayApiEnvoyNamespace $gatewayApiTrapd.envoyGatewayNamespace -}}
+{{- $gatewayApiBmpCollector := default (dict) $gatewayApi.bmpCollector -}}
+{{- $gatewayApiBmpCollectorEnabled := default false $gatewayApiBmpCollector.enabled -}}
+{{- $gatewayApiBmpCollectorEnvoyNamespace := default $gatewayApiEnvoyNamespace $gatewayApiBmpCollector.envoyGatewayNamespace -}}
+{{- $flowCollector := default (dict) .Values.flowCollector -}}
+{{- $flowCollectorEnabled := default false $flowCollector.enabled -}}
+{{- $flowCollectorService := default (dict) $flowCollector.service -}}
+{{- $flowCollectorServiceType := default "ClusterIP" $flowCollectorService.type -}}
+{{- $flowCollectorServicePorts := default (dict) $flowCollectorService.ports -}}
+{{- $flowCollectorNetflowPort := default (dict) $flowCollectorServicePorts.netflow -}}
+{{- $flowCollectorSflowPort := default (dict) $flowCollectorServicePorts.sflow -}}
+{{- $flowCollectorIpfixPort := default (dict) $flowCollectorServicePorts.ipfix -}}
+{{- $flowCollectorExternalPorts := list -}}
+{{- if default true $flowCollectorNetflowPort.enabled -}}
+  {{- $flowCollectorExternalPorts = append $flowCollectorExternalPorts (dict "protocol" (default "UDP" $flowCollectorNetflowPort.protocol) "port" (default 2055 $flowCollectorNetflowPort.port)) -}}
+{{- end -}}
+{{- if default true $flowCollectorSflowPort.enabled -}}
+  {{- $flowCollectorExternalPorts = append $flowCollectorExternalPorts (dict "protocol" (default "UDP" $flowCollectorSflowPort.protocol) "port" (default 6343 $flowCollectorSflowPort.port)) -}}
+{{- end -}}
+{{- if default false $flowCollectorIpfixPort.enabled -}}
+  {{- $flowCollectorExternalPorts = append $flowCollectorExternalPorts (dict "protocol" (default "UDP" $flowCollectorIpfixPort.protocol) "port" (default 4739 $flowCollectorIpfixPort.port)) -}}
+{{- end -}}
+{{- $hasFlowCollectorExternalPorts := gt (len $flowCollectorExternalPorts) 0 -}}
+{{- $logCollector := default (dict) .Values.logCollector -}}
+{{- $logCollectorExternalService := default (dict) $logCollector.externalService -}}
+{{- $logCollectorExternalServiceEnabled := default false $logCollectorExternalService.enabled -}}
+{{- $logCollectorExternalServiceType := default "LoadBalancer" $logCollectorExternalService.type -}}
+{{- $logCollectorExternalServicePorts := default (dict) $logCollectorExternalService.ports -}}
+{{- $logCollectorExternalSyslogPort := default (dict) $logCollectorExternalServicePorts.syslog -}}
+{{- $logCollectorExternalPorts := list -}}
+{{- if default true $logCollectorExternalSyslogPort.enabled -}}
+  {{- $logCollectorExternalPorts = append $logCollectorExternalPorts (dict "protocol" (default "UDP" $logCollectorExternalSyslogPort.protocol) "port" (default 514 $logCollectorExternalSyslogPort.port)) -}}
+{{- end -}}
+{{- $logCollectorTcp := default (dict) $logCollector.tcpCollector -}}
+{{- $logCollectorTcpExternalService := default (dict) $logCollectorTcp.externalService -}}
+{{- $logCollectorTcpExternalServiceEnabled := default false $logCollectorTcpExternalService.enabled -}}
+{{- $logCollectorTcpExternalServiceType := default "LoadBalancer" $logCollectorTcpExternalService.type -}}
+{{- $logCollectorTcpExternalServicePorts := default (dict) $logCollectorTcpExternalService.ports -}}
+{{- $logCollectorTcpExternalSyslogPort := default (dict) $logCollectorTcpExternalServicePorts.syslog -}}
+{{- $logCollectorTcpExternalPorts := list -}}
+{{- if default true $logCollectorTcpExternalSyslogPort.enabled -}}
+  {{- $logCollectorTcpExternalPorts = append $logCollectorTcpExternalPorts (dict "protocol" (default "TCP" $logCollectorTcpExternalSyslogPort.protocol) "port" (default 514 $logCollectorTcpExternalSyslogPort.port)) -}}
+{{- end -}}
+{{- $hasLogCollectorExternalPorts := gt (len $logCollectorExternalPorts) 0 -}}
+{{- $hasLogCollectorTcpExternalPorts := gt (len $logCollectorTcpExternalPorts) 0 -}}
+{{- $logCollectorOtlp := default (dict) $logCollector.otlp -}}
+{{- $logCollectorOtlpService := default (dict) $logCollectorOtlp.service -}}
+{{- $logCollectorOtlpServiceEnabled := default false $logCollectorOtlpService.enabled -}}
+{{- $logCollectorOtlpServiceType := default "ClusterIP" $logCollectorOtlpService.type -}}
+{{- $logCollectorOtlpGateway := default (dict) $logCollectorOtlp.gateway -}}
+{{- $logCollectorOtlpGatewayEnabled := default false $logCollectorOtlpGateway.enabled -}}
+{{- $logCollectorOtlpEnvoyNamespace := default "envoy-gateway-system" $logCollectorOtlpGateway.envoyGatewayNamespace -}}
+{{- $logCollectorOtlpHttp := default (dict) $logCollectorOtlpService.http -}}
+{{- $logCollectorOtlpPorts := list (dict "protocol" "TCP" "port" (default 4317 $logCollectorOtlpService.port)) -}}
+{{- if default false $logCollectorOtlpHttp.enabled -}}
+  {{- $logCollectorOtlpPorts = append $logCollectorOtlpPorts (dict "protocol" "TCP" "port" (default 4318 $logCollectorOtlpHttp.port)) -}}
+{{- end -}}
+{{- $hasLogCollectorOtlpPorts := gt (len $logCollectorOtlpPorts) 0 -}}
+{{- $gobgp := default (dict) .Values.gobgp -}}
+{{- $gobgpEnabled := default false $gobgp.enabled -}}
+{{- $gobgpBgp := default (dict) $gobgp.bgp -}}
+{{- $gobgpBgpListenPort := default 179 $gobgpBgp.listenPort -}}
+{{- $trapd := default (dict) .Values.trapd -}}
+{{- $trapdExternalService := default (dict) $trapd.externalService -}}
+{{- $trapdExternalServiceEnabled := default false $trapdExternalService.enabled -}}
+{{- $trapdExternalServiceType := default "LoadBalancer" $trapdExternalService.type -}}
+{{- $trapdExternalServicePorts := default (dict) $trapdExternalService.ports -}}
+{{- $trapdExternalSnmpPort := default (dict) $trapdExternalServicePorts.snmp -}}
+{{- $trapdExternalPorts := list -}}
+{{- if default true $trapdExternalSnmpPort.enabled -}}
+  {{- $trapdExternalPorts = append $trapdExternalPorts (dict "protocol" (default "UDP" $trapdExternalSnmpPort.protocol) "port" (default 162 $trapdExternalSnmpPort.port)) -}}
+{{- end -}}
+{{- $hasTrapdExternalPorts := gt (len $trapdExternalPorts) 0 -}}
+{{- $bmpCollector := default (dict) .Values.bmpCollector -}}
+{{- $bmpCollectorEnabled := default false $bmpCollector.enabled -}}
+{{- $bmpCollectorService := default (dict) $bmpCollector.service -}}
+{{- $bmpCollectorServiceType := default "ClusterIP" $bmpCollectorService.type -}}
+{{- $bmpCollectorServicePorts := default (dict) $bmpCollectorService.ports -}}
+{{- $bmpCollectorBmpPort := default (dict) $bmpCollectorServicePorts.bmp -}}
+{{- $bmpCollectorExternalPorts := list -}}
+{{- if default true $bmpCollectorBmpPort.enabled -}}
+  {{- $bmpCollectorExternalPorts = append $bmpCollectorExternalPorts (dict "protocol" (default "TCP" $bmpCollectorBmpPort.protocol) "port" (default 11019 $bmpCollectorBmpPort.port)) -}}
+{{- end -}}
+{{- $hasBmpCollectorExternalPorts := gt (len $bmpCollectorExternalPorts) 0 -}}
+{{- $hasGobgpExternalCIDRs := gt (len $gobgpExternalCIDRs) 0 -}}
+{{- $cnpg := default (dict) .Values.cnpg -}}
+{{- $cnpgEnabled := true -}}
+{{- if hasKey $cnpg "enabled" -}}
+  {{- $cnpgEnabled = $cnpg.enabled -}}
+{{- end -}}
+{{- $cnpgClusterName := include "serviceradar.cnpgClusterName" . -}}
+{{- $cnpgPooler := default (dict) $cnpg.pooler -}}
+{{- $cnpgPoolerEnabled := default false $cnpgPooler.enabled -}}
+{{- $cnpgPoolerCreate := true -}}
+{{- if hasKey $cnpgPooler "create" -}}
+  {{- $cnpgPoolerCreate = $cnpgPooler.create -}}
+{{- end -}}
+{{- $cnpgPoolerName := include "serviceradar.cnpgPoolerName" . -}}
+{{- $monitoringIngress := default (dict) $ingress.monitoring -}}
+{{- $monitoringIngressEnabled := default false $monitoringIngress.enabled -}}
+{{- $monitoringIngressNamespace := default "monitoring" $monitoringIngress.namespace -}}
+{{- $cnpgMetricsPort := default 9187 $monitoringIngress.cnpgMetricsPort -}}
+{{- $pgbouncerMetricsPort := default 9127 $monitoringIngress.pgbouncerMetricsPort -}}
+{{- $egress := default (dict) $np.egress -}}
+{{- $allowDNS := default false $egress.allowDNS -}}
+{{- $allowKubeAPI := default false $egress.allowKubeAPIServer -}}
+{{- $allowDefaultNs := default false $egress.allowDefaultNamespace -}}
+{{- $allowSameNs := default false $egress.allowSameNamespace -}}
+{{- $egressAllowedNamespaces := default (list) $egress.allowedNamespaces -}}
+{{- $allowedCIDRs := default (list) $egress.allowedCIDRs -}}
+{{- $hasEgressNamespaces := gt (len $egressAllowedNamespaces) 0 -}}
+{{- $hasCIDRs := gt (len $allowedCIDRs) 0 -}}
+{{- $kubeAPICIDRs := list -}}
+{{- if $allowKubeAPI -}}
+  {{- $kubeSvc := (lookup "v1" "Service" "default" "kubernetes") -}}
+  {{- if and $kubeSvc $kubeSvc.spec.clusterIP -}}
+    {{- if contains ":" $kubeSvc.spec.clusterIP -}}
+      {{- $kubeAPICIDRs = append $kubeAPICIDRs (printf "%s/128" $kubeSvc.spec.clusterIP) -}}
+    {{- else -}}
+      {{- $kubeAPICIDRs = append $kubeAPICIDRs (printf "%s/32" $kubeSvc.spec.clusterIP) -}}
+    {{- end -}}
+  {{- end -}}
+  {{- $kubeEps := (lookup "v1" "Endpoints" "default" "kubernetes") -}}
+  {{- if $kubeEps -}}
+    {{- range $subset := $kubeEps.subsets -}}
+      {{- range $addr := $subset.addresses -}}
+        {{- if contains ":" $addr.ip -}}
+          {{- $kubeAPICIDRs = append $kubeAPICIDRs (printf "%s/128" $addr.ip) -}}
+        {{- else -}}
+          {{- $kubeAPICIDRs = append $kubeAPICIDRs (printf "%s/32" $addr.ip) -}}
+        {{- end -}}
+      {{- end -}}
+    {{- end -}}
+  {{- end -}}
+{{- end -}}
+{{- $hasKubeAPICIDRs := gt (len $kubeAPICIDRs) 0 -}}
+{{- $podSelector := dict "matchLabels" (dict "app.kubernetes.io/part-of" "serviceradar") -}}
+{{- if $np.podSelectorMatchAll -}}
+  {{- $podSelector = dict -}}
+{{- else if hasKey $np "podSelector" -}}
+  {{- $podSelector = $np.podSelector -}}
+{{- end -}}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-egress
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  podSelector:
+{{- toYaml $podSelector | nindent 4 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+{{- if or $allowIngressSameNs $hasIngressNamespaces $hasIngressCIDRs (and $ingressErlangDistEnabled $hasIngressErlangDistPorts) }}
+{{- if $allowIngressSameNs }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace | quote }}
+      {{- if $hasIngressPorts }}
+      ports:
+{{- include "serviceradar.networkPolicyPorts" $ingressAllowedPorts | trim | nindent 8 }}
+      {{- end }}
+{{- end }}
+{{- range $namespace := $ingressAllowedNamespaces }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $namespace | quote }}
+      {{- if $hasIngressPorts }}
+      ports:
+{{- include "serviceradar.networkPolicyPorts" $ingressAllowedPorts | trim | nindent 8 }}
+      {{- end }}
+{{- end }}
+{{- range $cidr := $ingressAllowedCIDRs }}
+    - from:
+        - ipBlock:
+            cidr: {{ $cidr | quote }}
+      {{- if $hasIngressPorts }}
+      ports:
+{{- include "serviceradar.networkPolicyPorts" $ingressAllowedPorts | trim | nindent 8 }}
+      {{- end }}
+{{- end }}
+{{- if and $ingressErlangDistEnabled $hasIngressErlangDistPorts }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace | quote }}
+          podSelector:
+{{- toYaml $ingressErlangDistSelector | nindent 12 }}
+      ports:
+{{- include "serviceradar.networkPolicyPorts" $ingressErlangDistPorts | trim | nindent 8 }}
+{{- end }}
+{{- else }}
+    []
+{{- end }}
+  egress:
+{{- if or $allowDNS $allowKubeAPI $allowDefaultNs $allowSameNs $hasEgressNamespaces $hasCIDRs $hasKubeAPICIDRs }}
+{{- if $allowDNS }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+{{- end }}
+{{- if $allowDefaultNs }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: "default"
+{{- end }}
+{{- if and $allowKubeAPI $hasKubeAPICIDRs }}
+{{- range $cidr := $kubeAPICIDRs }}
+    - to:
+        - ipBlock:
+            cidr: {{ $cidr | quote }}
+{{- end }}
+{{- end }}
+{{- if $allowSameNs }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace | quote }}
+{{- end }}
+{{- range $namespace := $egressAllowedNamespaces }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $namespace | quote }}
+{{- end }}
+{{- range $cidr := $allowedCIDRs }}
+    - to:
+        - ipBlock:
+            cidr: {{ $cidr | quote }}
+{{- end }}
+{{- else }}
+    []
+{{- end }}
+{{- if and $agentGatewayEnabled $agentGatewayExternalEnabled $hasAgentGatewayExternalCIDRs }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-agent-gateway-external
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  podSelector:
+    matchLabels:
+      app: serviceradar-agent-gateway
+  policyTypes:
+    - Ingress
+  ingress:
+{{- range $cidr := $agentGatewayExternalCIDRs }}
+    - from:
+        - ipBlock:
+            cidr: {{ $cidr | quote }}
+      ports:
+        - protocol: TCP
+          port: {{ $agentGatewayGrpcPort }}
+        - protocol: TCP
+          port: {{ $agentGatewayArtifactPort }}
+{{- end }}
+{{- end }}
+{{- if and $agentGatewayEnabled $gatewayApiAgentGatewayEnabled }}
+---
+# Gateway-mode edge-agent ingress: external agents reach the Gateway API data
+# plane first, whose envoy proxy pods forward to agent-gateway. Admit that
+# namespace instead of relying on the direct LoadBalancer CIDR policy.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-agent-gateway-gateway
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  podSelector:
+    matchLabels:
+      app: serviceradar-agent-gateway
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $gatewayApiAgentGatewayEnvoyNamespace | quote }}
+      ports:
+{{- include "serviceradar.networkPolicyPorts" $gatewayApiAgentGatewayPorts | trim | nindent 8 }}
+{{- end }}
+{{- if and $flowCollectorEnabled $flowCollectorExternalEnabled $hasFlowCollectorExternalCIDRs $hasFlowCollectorExternalPorts (ne $flowCollectorServiceType "ClusterIP") }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-flow-collector-external
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  podSelector:
+    matchLabels:
+      app: serviceradar-flow-collector
+  policyTypes:
+    - Ingress
+  ingress:
+{{- range $cidr := $flowCollectorExternalCIDRs }}
+    - from:
+        - ipBlock:
+            cidr: {{ $cidr | quote }}
+      ports:
+{{- include "serviceradar.networkPolicyPorts" $flowCollectorExternalPorts | trim | nindent 8 }}
+{{- end }}
+{{- end }}
+{{- if and $flowCollectorEnabled $gatewayApiFlowCollectorEnabled $hasFlowCollectorExternalPorts }}
+---
+# Gateway-mode flow ingest: NetFlow/sFlow/IPFIX enter through Gateway API and
+# are forwarded by envoy proxy pods to the internal flow-collector Service.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-flow-collector-gateway
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  podSelector:
+    matchLabels:
+      app: serviceradar-flow-collector
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $gatewayApiFlowCollectorEnvoyNamespace | quote }}
+      ports:
+{{- include "serviceradar.networkPolicyPorts" $flowCollectorExternalPorts | trim | nindent 8 }}
+{{- end }}
+{{- if and $logCollectorExternalServiceEnabled $logCollectorExternalEnabled $hasLogCollectorExternalCIDRs $hasLogCollectorExternalPorts (ne $logCollectorExternalServiceType "ClusterIP") }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-log-collector-external
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  podSelector:
+    matchLabels:
+      app: serviceradar-log-collector
+  policyTypes:
+    - Ingress
+  ingress:
+{{- range $cidr := $logCollectorExternalCIDRs }}
+    - from:
+        - ipBlock:
+            cidr: {{ $cidr | quote }}
+      ports:
+{{- include "serviceradar.networkPolicyPorts" $logCollectorExternalPorts | trim | nindent 8 }}
+{{- end }}
+{{- end }}
+{{- if and $logCollectorTcpExternalServiceEnabled $logCollectorExternalEnabled $hasLogCollectorExternalCIDRs $hasLogCollectorTcpExternalPorts (ne $logCollectorTcpExternalServiceType "ClusterIP") }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-log-collector-tcp-external
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  podSelector:
+    matchLabels:
+      app: serviceradar-log-collector-tcp
+  policyTypes:
+    - Ingress
+  ingress:
+{{- range $cidr := $logCollectorExternalCIDRs }}
+    - from:
+        - ipBlock:
+            cidr: {{ $cidr | quote }}
+      ports:
+{{- include "serviceradar.networkPolicyPorts" $logCollectorTcpExternalPorts | trim | nindent 8 }}
+{{- end }}
+{{- end }}
+{{- if and $logCollectorOtlpServiceEnabled $otlpExternalEnabled $hasOtlpExternalCIDRs $hasLogCollectorOtlpPorts (ne $logCollectorOtlpServiceType "ClusterIP") }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-otlp-external
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  podSelector:
+    matchLabels:
+      app: serviceradar-log-collector
+  policyTypes:
+    - Ingress
+  ingress:
+{{- range $cidr := $otlpExternalCIDRs }}
+    - from:
+        - ipBlock:
+            cidr: {{ $cidr | quote }}
+      ports:
+{{- include "serviceradar.networkPolicyPorts" $logCollectorOtlpPorts | trim | nindent 8 }}
+{{- end }}
+{{- end }}
+{{- if and $logCollectorOtlpServiceEnabled $logCollectorOtlpGatewayEnabled $hasLogCollectorOtlpPorts }}
+---
+# Gateway-mode OTLP ingest: external senders reach the shared Gateway API
+# gateway, whose envoy proxy pods forward to the log-collector. Admit only
+# the envoy proxy namespace instead of 0.0.0.0/0 (the CIDR-based
+# otlp-external policy above is reserved for the opt-in LoadBalancer mode).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-otlp-gateway
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  podSelector:
+    matchLabels:
+      app: serviceradar-log-collector
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $logCollectorOtlpEnvoyNamespace | quote }}
+      ports:
+{{- include "serviceradar.networkPolicyPorts" $logCollectorOtlpPorts | trim | nindent 8 }}
+{{- end }}
+{{- if and $trapdExternalServiceEnabled $trapdExternalEnabled $hasTrapdExternalCIDRs $hasTrapdExternalPorts (ne $trapdExternalServiceType "ClusterIP") }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-trapd-external
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  podSelector:
+    matchLabels:
+      app: serviceradar-trapd
+  policyTypes:
+    - Ingress
+  ingress:
+{{- range $cidr := $trapdExternalCIDRs }}
+    - from:
+        - ipBlock:
+            cidr: {{ $cidr | quote }}
+      ports:
+{{- include "serviceradar.networkPolicyPorts" $trapdExternalPorts | trim | nindent 8 }}
+{{- end }}
+{{- end }}
+{{- if and $gatewayApiTrapdEnabled $hasTrapdExternalPorts }}
+---
+# Gateway-mode SNMP trap ingest: traps enter through Gateway API and are
+# forwarded by envoy proxy pods to the internal trapd Service.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-trapd-gateway
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  podSelector:
+    matchLabels:
+      app: serviceradar-trapd
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $gatewayApiTrapdEnvoyNamespace | quote }}
+      ports:
+{{- include "serviceradar.networkPolicyPorts" $trapdExternalPorts | trim | nindent 8 }}
+{{- end }}
+{{- if and $bmpCollectorEnabled $bmpCollectorExternalEnabled $hasBmpCollectorExternalCIDRs $hasBmpCollectorExternalPorts (ne $bmpCollectorServiceType "ClusterIP") }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-bmp-collector-external
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  podSelector:
+    matchLabels:
+      app: serviceradar-bmp-collector
+  policyTypes:
+    - Ingress
+  ingress:
+{{- range $cidr := $bmpCollectorExternalCIDRs }}
+    - from:
+        - ipBlock:
+            cidr: {{ $cidr | quote }}
+      ports:
+{{- include "serviceradar.networkPolicyPorts" $bmpCollectorExternalPorts | trim | nindent 8 }}
+{{- end }}
+{{- end }}
+{{- if and $bmpCollectorEnabled $gatewayApiBmpCollectorEnabled $hasBmpCollectorExternalPorts }}
+---
+# Gateway-mode BMP ingest: BMP sessions enter through Gateway API and are
+# forwarded by envoy proxy pods to the internal BMP collector Service.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-bmp-collector-gateway
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  podSelector:
+    matchLabels:
+      app: serviceradar-bmp-collector
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $gatewayApiBmpCollectorEnvoyNamespace | quote }}
+      ports:
+{{- include "serviceradar.networkPolicyPorts" $bmpCollectorExternalPorts | trim | nindent 8 }}
+{{- end }}
+{{- if and $gobgpEnabled $gobgpExternalEnabled $hasGobgpExternalCIDRs }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-gobgp-external
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  podSelector:
+    matchLabels:
+      app: serviceradar-gobgp
+  policyTypes:
+    - Ingress
+  ingress:
+{{- range $cidr := $gobgpExternalCIDRs }}
+    - from:
+        - ipBlock:
+            cidr: {{ $cidr | quote }}
+      ports:
+        - protocol: TCP
+          port: {{ $gobgpBgpListenPort }}
+{{- end }}
+{{- end }}
+{{- if and $cnpgEnabled $cnpgOperatorEnabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-cnpg-operator
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: {{ $cnpgClusterName | quote }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $cnpgOperatorNamespace | quote }}
+      ports:
+        - protocol: TCP
+          port: {{ $cnpgOperatorPort }}
+{{- end }}
+{{- if and $cnpgEnabled $cnpgInstanceManagerEnabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-cnpg-instance-manager-peer
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: {{ $cnpgClusterName | quote }}
+      cnpg.io/podRole: instance
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: {{ $cnpgClusterName | quote }}
+              cnpg.io/podRole: instance
+      ports:
+        - protocol: TCP
+          port: {{ $cnpgInstanceManagerPort }}
+{{- end }}
+{{- if and $cnpgEnabled $monitoringIngressEnabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-cnpg-metrics
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: {{ $cnpgClusterName | quote }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $monitoringIngressNamespace | quote }}
+      ports:
+        - protocol: TCP
+          port: {{ $cnpgMetricsPort }}
+{{- end }}
+{{- if and $cnpgEnabled $cnpgPoolerEnabled $cnpgPoolerCreate $monitoringIngressEnabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-cnpg-pooler-metrics
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/poolerName: {{ $cnpgPoolerName | quote }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $monitoringIngressNamespace | quote }}
+      ports:
+        - protocol: TCP
+          port: {{ $pgbouncerMetricsPort }}
+{{- end }}
+{{- end }}

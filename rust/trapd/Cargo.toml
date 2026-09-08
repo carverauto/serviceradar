@@ -1,0 +1,34 @@
+[package]
+name = "serviceradar-trapd"
+version = "0.1.0"
+description = "SNMP Trap receiver for ServiceRadar"
+authors = ["ServiceRadar Team"]
+edition = "2024"
+license = "Apache-2.0"
+
+[dependencies]
+anyhow = { workspace = true }
+async-nats = { workspace = true }
+clap = { workspace = true, features = ["derive", "env"] }
+config-bootstrap = { path = "../../rust/config-bootstrap" }
+env_logger = { workspace = true }
+futures = { workspace = true }
+log = { workspace = true }
+pem = { workspace = true }
+prost = { workspace = true }
+rustls = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+snmp2 = { workspace = true, features = ["tokio"] }
+spiffe = { workspace = true, features = ["x509-source"] }
+tokio = { workspace = true }
+tonic = { workspace = true, features = ["tls-ring"] }
+tonic-health = { workspace = true }
+tonic-prost = { workspace = true }
+tonic-reflection = { workspace = true }
+
+[dev-dependencies]
+rcgen = { workspace = true }
+
+[build-dependencies]
+tonic-prost-build = { workspace = true }

@@ -1,0 +1,13 @@
+[package]
+name = "serviceradar-secret-manager"
+version = "0.1.0"
+edition = "2024"
+autotests = false
+
+[lib]
+name = "serviceradar_secret_manager"
+path = "src/lib.rs"
+
+[[test]]
+name = "lib_tests"
+path = "tests/lib_tests.rs"

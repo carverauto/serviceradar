@@ -1,0 +1,2330 @@
+module(
+    name = "serviceradar",
+    version = "0.0.0",
+    repo_name = "serviceradar",
+)
+
+# --- Bazel dependencies  ----------------------------------
+bazel_dep(name = "rules_go", version = "0.62.0", repo_name = "io_bazel_rules_go")
+bazel_dep(name = "gazelle", version = "0.51.3", repo_name = "bazel_gazelle")
+bazel_dep(name = "rules_rs", version = "0.0.99")
+
+# Fork carrying the vendoring work.
+#
+# The patch repoints the Linux zlib runtime that rules_rs unpacks for the rustc
+# toolchain. It pinned two Ubuntu pool URLs, and Ubuntu deletes a pool entry as
+# soon as a security update supersedes it -- both are now 404, so any cold
+# fetch of the Linux Rust toolchain fails outright. A warm cache hid this until
+# the first expunge. Launchpad's +files endpoint keeps every published version
+# permanently and serves byte-identical archives (both sha256 values below are
+# unchanged), so it goes first and the pool URLs stay as fallbacks in case they
+# come back.
+git_override(
+    module_name = "rules_rs",
+    commit = "64dcc3fce2286b7fccbbe1703e4d1f87fbf1cbbd",
+    patch_strip = 1,
+    patches = ["//third_party/patches/rules_rs:zlib_durable_mirror.patch"],
+    remote = "https://github.com/marvin-hansen/rules_rs.git",
+)
+
+# System libraries for the crates that would otherwise build them from source. rules_rs
+# calls these its "well-known annotations": zstd-sys and libz-sys each ship a bundled C
+# library and a build script to compile it, and pointing them at the BCR module instead
+# removes a from-source C build from every Rust action that touches compression.
+#
+# Contrast //MODULE.bazel's openssl handling below, which deliberately does NOT take the
+# equivalent suggestion: pq-src links the OpenSSL that openssl-sys builds, so swapping in
+# @openssl would break that pairing. zstd and zlib have no such coupling.
+bazel_dep(name = "zstd", version = "1.5.7.bcr.1")
+bazel_dep(name = "zlib", version = "1.3.2")
+bazel_dep(name = "rules_python", version = "2.3.2")
+bazel_dep(name = "rules_nodejs", version = "6.7.5")
+bazel_dep(name = "rules_proto", version = "7.1.0")
+bazel_dep(name = "protobuf", version = "35.1", repo_name = "com_google_protobuf")
+bazel_dep(name = "rules_oci", version = "2.3.0")
+bazel_dep(name = "rules_pkg", version = "1.2.0")
+bazel_dep(name = "rules_erlang", version = "3.19.0")
+bazel_dep(name = "rules_elixir", version = "1.2.0")
+bazel_dep(name = "platforms", version = "1.1.0")
+bazel_dep(name = "bazel_features", version = "1.51.0", repo_name = "bazel_features")
+bazel_dep(name = "rules_multirun", version = "0.14.0")
+bazel_dep(name = "swiftlint", version = "0.65.0", repo_name = "SwiftLint")
+
+# NOTE: rules_multirun uses Python, which causes issues with `bazel run` when
+# using remote execution from a different host platform (e.g., macOS -> Linux RBE).
+# See: https://github.com/keith/rules_multirun/issues/43
+# A Go port exists (PR #57) but isn't ready for use yet.
+# Workaround: Push images from CI (Linux) or use scripts/push_all_images.sh,
+# which runs the per-image push targets sequentially without rules_multirun.
+bazel_dep(name = "rules_license", version = "1.0.0", repo_name = "rules_license")
+bazel_dep(name = "rules_shell", version = "0.8.0", repo_name = "rules_shell")
+bazel_dep(name = "bazel_skylib", version = "1.9.2", repo_name = "bazel_skylib")
+bazel_dep(name = "rules_foreign_cc", version = "0.15.1")
+bazel_dep(name = "aspect_rules_js", version = "2.6.0")
+bazel_dep(name = "aspect_rules_ts", version = "3.7.0")
+bazel_dep(name = "rules_cc", version = "0.2.22")
+
+# OpenSSL as cc_library; The one consumer is openssl-sys (annotation below), which in turn feeds pq-src.
+bazel_dep(name = "openssl", version = "3.5.5.bcr.4")
+bazel_dep(name = "buildifier_prebuilt", version = "8.5.1.3")
+bazel_dep(name = "aspect_bazel_lib", version = "2.22.5")
+bazel_dep(name = "llvm", version = "0.8.18")
+bazel_dep(name = "toolchains_buildbuddy", version = "0.0.4", repo_name = "io_buildbuddy_buildbuddy_toolchain")
+
+# rules_go/gazelle pull package_metadata transitively. Prefer the Bazel mirror
+# first so CI does not fail analysis when GitHub releases transiently returns 502.
+archive_override(
+    module_name = "package_metadata",
+    integrity = "sha256-Se0R5da3UsVfpTnLsQsnNpdPNHsIHXvVAKgNrLfb7AY=",
+    strip_prefix = "supply-chain-0.0.5/metadata",
+    urls = [
+        "https://mirror.bazel.build/github.com/bazel-contrib/supply-chain/releases/download/v0.0.5/supply-chain-v0.0.5.tar.gz",
+        "https://github.com/bazel-contrib/supply-chain/releases/download/v0.0.5/supply-chain-v0.0.5.tar.gz",
+    ],
+)
+
+# rules_rust pulls rules_kotlin transitively through Bazel Central Registry.
+# Prefer the Bazel mirror first so CI can analyze targets during GitHub release
+# outages instead of failing before any ServiceRadar code is built or tested.
+archive_override(
+    module_name = "rules_kotlin",
+    integrity = "sha256-O3cpdv7Hvc2h2EudObF2WJQkwEfrIXW+0JqsYw5Qr0M=",
+    patch_strip = 1,
+    patches = ["//third_party/patches/rules_kotlin:module_dot_bazel_version.patch"],
+    urls = [
+        "https://mirror.bazel.build/github.com/bazelbuild/rules_kotlin/releases/download/v1.9.6/rules_kotlin-v1.9.6.tar.gz",
+        "https://github.com/bazelbuild/rules_kotlin/releases/download/v1.9.6/rules_kotlin-v1.9.6.tar.gz",
+    ],
+)
+
+# zlib's BCR source points at GitHub releases. Prefer the Bazel mirror first so
+# release CI can complete analysis during transient GitHub 5xx responses.
+archive_override(
+    module_name = "zlib",
+    integrity = "sha256-mpOyt9/ax3zrpaVYpYDnRmfdb+3kWFuR7vtg8Dty3yM=",
+    patch_strip = 0,
+    patches = [
+        "//third_party/patches/zlib:add_build_file.patch",
+        "//third_party/patches/zlib:module_dot_bazel.patch",
+    ],
+    strip_prefix = "zlib-1.3.1",
+    urls = [
+        "https://mirror.bazel.build/github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz",
+        "https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz",
+    ],
+)
+
+# Pinned by commit so the pin is immutable. Not yet on the Bazel Central
+# Registry -- drop this override once it is published and the bazel_dep above resolves on its own.
+git_override(
+    module_name = "rules_erlang",
+    commit = "effba3214d0e5637c66430cad67d59810ce8f1c3",
+    remote = "https://github.com/bazelverse/rules_erlang.git",
+)
+
+# Pinned by commit so the pin is immutable. Not yet on the Bazel Central
+# Registry -- drop this override once it is published and the bazel_dep above resolves on its own.
+git_override(
+    module_name = "rules_elixir",
+    commit = "31e99980a43598211d2a6c5fbb893a21a9c0644b",
+    remote = "https://github.com/bazelverse/rules_elixir.git",
+)
+
+# --- Hex packages ------------------------------------------------------------
+# The Elixir/Erlang dependency closure compiled by the Bazel Elixir toolchain.
+#
+#   bazel run  //third_party/hex:gen       regenerate after any mix.lock change
+#   bazel test //third_party/hex:gen_test  fails when that has not been done
+#
+# Depend on a package as @hexpm//:<app> -- for example @hexpm//:ecto. (Not to be confused
+# with @hex, further down: that is the Hex package manager itself.)
+hexpm_ext = use_extension("//third_party/hex:extensions.bzl", "hex")
+use_repo(hexpm_ext, "hexpm")
+
+host_platform_ext = use_extension("@platforms//host:extension.bzl", "host_platform")
+use_repo(host_platform_ext, "host_platform")
+
+# --- Version Extension (reads VERSION file at load time) ----------------------------------
+version_ext = use_extension("//build:version.bzl", "version_ext")
+use_repo(version_ext, "serviceradar_version")
+
+# --- Erlang/Elixir toolchains (hermetic for web-ng builds) -------------------
+erlang_config_ext = use_extension("@rules_erlang//bzlmod:extensions.bzl", "erlang_config")
+
+# Prebuilt OTP binary release rather than an otp_src build. Same version as before; the
+# sha256 is the one builds.hex.pm publishes for this archive in its builds.txt, and the
+# ubuntu-24.04 build matches both the RBE executor and the ubuntu_noble image bases.
+# exec_compatible_with is what keeps this from matching on a Mac. It is a Linux ELF; without
+# the constraint it also wins resolution on darwin, and `bazel run` of any Elixir target dies
+# with "Exit 126: cannot execute" -- which reads as a broken target, not a wrong toolchain.
+erlang_config_ext.prebuilt_erlang_from_hex_builds(
+    name = "otp_28_1",
+    arch = "amd64",
+    exec_compatible_with = ["@platforms//os:linux"],
+    os = "ubuntu-24.04",
+    sha256 = "6f7a95250a83f999909cf64dc375fd08809eb057f61b24eecdf2b3b44fe621ab",
+    version = "28.1",
+)
+
+# macOS builds OTP from source because there is nothing to download: builds.hex.pm publishes
+# OTP for Linux distributions only (ubuntu-22.04 and ubuntu-24.04 answer; every macOS spelling
+# 404s), and Homebrew/asdf/kerl offer no pinnable URL with a checksum. Same version as the
+# Linux pin, so the two toolchains stay interchangeable.
+#
+# This is the slow path -- a from-source OTP build, several minutes, once per developer -- but
+# it is confined to darwin exec. CI and RBE resolve the prebuilt above and keep the ~12s fetch.
+# Only local `bazel run`/`bazel test` of an Elixir target needs an OTP that runs on the host;
+# every sanctioned workflow goes through --config=ci and executes on Linux executors.
+erlang_config_ext.internal_erlang_from_github_release(
+    name = "otp_28_1_darwin",
+    exec_compatible_with = ["@platforms//os:macos"],
+    sha256 = "c7c6fe06a3bf0031187d4cb10d30e11de119b38bdba7cd277898f75d53bdb218",
+    version = "28.1",
+)
+use_repo(erlang_config_ext, "erlang_config")
+
+elixir_config_ext = use_extension("@rules_elixir//bzlmod:extensions.bzl", "elixir_config")
+
+# Precompiled Elixir rather than a source build. Elixir is architecture-independent BEAM
+# bytecode, so one archive serves every platform; the sha256 is the one builds.hex.pm
+# publishes for it in builds.txt.
+elixir_config_ext.prebuilt_elixir_from_hex_builds(
+    name = "elixir_1_19_4",
+    otp_major = "28",
+    sha256 = "8fd7b5705b756c0e1ec71f9e8281b4b75801b9564f0205b5035319e8505ad2b4",
+    version = "1.19.4",
+)
+use_repo(elixir_config_ext, "elixir_config")
+
+# The arm64 counterpart is @otp_28_1_linux_arm64, declared with the other http_archives below.
+# It is a shipped payload, not a toolchain, so it is deliberately not registered here.
+
+# Linux first: it is the one every action resolves. The darwin pair is only reachable on a
+# Mac, where the Linux toolchains no longer match at all, so order between them is not load
+# bearing -- but keeping the hot one first means resolution stops at the first candidate for
+# every build that matters.
+#
+# One Elixir toolchain serves both. Elixir is BEAM bytecode, which is why
+# prebuilt_elixir_from_hex_builds takes no arch; it runs on whichever OTP resolves.
+# The Hex archive, C++ runtime and NIF payloads every mix_app compile stages. Registered
+# rather than flagged: this is build graph, and a .bazelrc a given invocation might not read
+# would leave NIFs linking no C++ runtime -- which builds clean and fails at dlopen.
+register_toolchains("//build:mix_payloads")
+
+# protoc plus protoc-gen-elixir, built from the protobuf Hex package.
+register_toolchains("//build/elixir_proto:elixir_proto")
+
+register_toolchains(
+    "@erlang_config//otp_28_1:toolchain_major",
+    "@erlang_config//otp_28_1:toolchain_major_minor",
+    "@erlang_config//otp_28_1_darwin:toolchain_major",
+    "@erlang_config//otp_28_1_darwin:toolchain_major_minor",
+    "@elixir_config//elixir_1_19_4:toolchain",
+)
+
+# Force toolchain resolution to use the hermetic Erlang toolchains (avoid the
+# upstream rules_erlang \"external\" toolchains that rely on host OTP).
+toolchain_resolution_overrides = {
+    "@rules_erlang//tools:toolchain_type": [
+        "@erlang_config//otp_28_1:toolchain_major",
+        "@erlang_config//otp_28_1:toolchain_major_minor",
+    ],
+}
+
+# --- Hermetic netprobe eBPF toolchain ----------------------------------------
+# Building an aya eBPF program needs a nightly rustc, the std sources for
+# `-Z build-std=core`, and bpf-linker -- none of which should perturb the stable
+# rules_rust toolchain every other Rust target uses, and all of which have to be
+# selected for whichever machine runs the action. That is toolchain resolution,
+# so it lives behind @rules_aya_ebpf//:toolchain_type.
+bazel_dep(name = "rules_aya_ebpf", version = "0.1.0")
+
+# Pinned by commit
+git_override(
+    module_name = "rules_aya_ebpf",
+    commit = "201ade2cba47809a2409d19acf72d7bc791aa89e",
+    remote = "https://github.com/bazelverse/rules_aya_ebpf.git",
+)
+
+# `-Z build-std` compiles core from source, so it resolves the std workspace's own
+# crates.io dependencies alongside netprobe's -- and those are what
+# //third_party/netprobe_ebpf_vendor holds. The vendor tree is therefore a function
+# of this exact nightly.
+# Bumping: see the rules_aya_ebpf README. rustc's LLVM must not exceed
+# bpf-linker's, and the vendor tree must be regenerated in the same commit.
+aya_ebpf_ext = use_extension("@rules_aya_ebpf//bzlmod:extensions.bzl", "aya_ebpf")
+aya_ebpf_ext.nightly(
+    cargo_sha256 = "fe5f7e032778e3ecb543c23a254f2862a5ce2682daff281fdaeb6fd0f2c02d5c",
+    date = "2026-08-05",
+    rust_src_sha256 = "b03bfe0cc73b77d00e57cdfe895fa1bbcb0b6cfad236eaae4294ebe55aca6526",
+    rust_std_sha256 = "d1fa3abf0ba340bd055a6de89786a3b9510bb5ab43efe433836b21d729a52c44",
+    rustc_sha256 = "a20c82439bff4a21873e88b6a14d836285ba79a4e9196d602af2b4ff1ddf2c8b",
+)
+aya_ebpf_ext.bpf_linker(
+    archive_extension = "tar.zst",
+    sha256 = "4dda77daab6c5f120a468e6d3ede2498f5bd47ece712172cfb7290176d93d015",
+    version = "0.10.4",
+)
+
+# --- Python toolchain (hermetic for all platforms) -------------------
+# Configure hermetic Python toolchains for consistent behavior across
+# local builds and remote cache. This prevents architecture mismatches
+# when rules_multirun pulls cached artifacts.
+#
+# Declare that this module uses explicit packages. The matching root Bazel
+# option also applies the future rules_python default to transitive tools so
+# their implicit-package deprecation warnings do not leak into our builds.
+rules_python_config = use_extension("@rules_python//python/extensions:config.bzl", "config")
+rules_python_config.explicit_init_py(default = True)
+
+#
+# IMPORTANT: Register host toolchains FIRST so they take precedence for
+# host-transitioned targets like rules_multirun (which use cfg="host").
+# See: https://github.com/bazelbuild/bazel/issues/5309
+python = use_extension("@rules_python//python/extensions:python.bzl", "python")
+python.toolchain(
+    is_default = True,
+    python_version = "3.11",
+)
+use_repo(python, "python_3_11", "python_versions")
+
+register_toolchains(
+    # Host toolchains first - ensures local Python is used for `bazel run`
+    # targets that use cfg="host" transitions (like rules_multirun)
+    "//build/python_toolchain:py3_toolchain",  # macOS ARM64
+    "//build/python_toolchain:py3_toolchain_x86_64",  # macOS x86_64
+    # Hermetic toolchains for cross-platform builds and remote execution
+    "@python_versions//3.11:all",
+)
+
+# --- RPM & package Toolchain  ----------------------------------
+
+# Prefer a fixed Linux rpmbuild so remote/RBE builds stay hermetic. We skip the
+# host autodetect toolchain (would point at Homebrew on macOS).
+register_toolchains("//build/rpm_toolchain:rpmbuild_linux_toolchain")
+
+# --- CC Toolchain  ----------------------------------
+
+cc_configure_ext = use_extension("@rules_cc//cc:extensions.bzl", "cc_configure_extension")
+use_repo(cc_configure_ext, "local_config_cc", "local_config_cc_toolchains")
+
+cc_compat_ext = use_extension("@rules_cc//cc:extensions.bzl", "compatibility_proxy")
+use_repo(cc_compat_ext, "cc_compatibility_proxy")
+
+# --- BuildBuddy Toolchain  ----------------------------------
+buildbuddy_toolchain_ext = use_extension(
+    "@io_buildbuddy_buildbuddy_toolchain//:extensions.bzl",
+    "buildbuddy",
+)
+
+# Only the execution platform.
+buildbuddy_toolchain_ext.platform(
+    container_image = "docker://registry.carverauto.dev/serviceradar/rbe-executor:v1.0.25.1",
+)
+use_repo(buildbuddy_toolchain_ext, "buildbuddy_toolchain")
+
+# --- Hermetic-llvm: the cc toolchain ----------------------------------------
+# github.com/hermeticbuild/hermetic-llvm, BCR module name literally "llvm".
+llvm = use_extension("@llvm//extensions:llvm.bzl", "llvm")
+
+# Matches the LLVM that rustc 1.97.1 is built on, which is RUST_DEFAULT_VERSION below.
+# Confirmed with `rustc --version --verbose`, which reports "LLVM version: 22.1.6".
+# Keep the two in step. Rust and C/C++ objects are linked into the same binaries here, and
+# for the musl targets they are linked statically, so a mismatched LLVM shows up as bitcode
+# and runtime-library incompatibility rather than as a clean error.
+# The tag is mandatory: with no llvm.version the extension fails with "Missing llvm.version(...)".
+llvm.version(llvm_version = "22.1.6")
+use_repo(llvm, "llvm-project")
+
+# The macOS sysroot.
+# This pin is the one hermetic-llvm itself consumes (their MODULE.bazel at v0.8.18), so the
+# archive and the include list are known to agree. The Wayback entry is their fallback: the
+# preceding SDK's Apple URL started returning 503, which is what motivated the switch.
+osx = use_extension("@llvm//extensions:osx.bzl", "osx")
+osx.from_archive(
+    sha256 = "5f044578cd78a3a9b9c965a42d56bad609ee5d252e1d4e6aa7c42fc3f35fee7b",
+    strip_prefix = "Payload/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk",
+    type = "pkg",
+    urls = [
+        "https://swcdn.apple.com/content/downloads/09/08/047-91568-A_Y1CFZWQCD4/4xekpyz43i26dbp4enxfro8eb1q7wiujh5/CLTools_macOSNMOS_SDK.pkg",
+        "https://web.archive.org/web/20260512015547id_/https://swcdn.apple.com/content/downloads/09/08/047-91568-A_Y1CFZWQCD4/4xekpyz43i26dbp4enxfro8eb1q7wiujh5/CLTools_macOSNMOS_SDK.pkg",
+    ],
+)
+
+# `System` is not in the extension's default framework set, and every macOS EXECUTABLE needs it:
+# the driver emits `-framework System`, so libraries compile and binaries fail to link with
+# `ld: framework 'System' not found`. Libraries were fine, which is why this surfaces only when
+# something actually links.
+#
+# The six after it are the extension's own defaults, repeated because this tag REPLACES that
+# list rather than extending it (`if not frameworks: frameworks = _DEFAULT_FRAMEWORKS`).
+# Naming only `System` drops the rest and the link fails on `Foundation` instead.
+osx.frameworks(names = [
+    "System",
+    "CoreFoundation",
+    "Foundation",
+    "Kernel",
+    "OSLog",
+    "Security",
+    "SystemConfiguration",
+])
+
+register_toolchains("@llvm//toolchain:all")
+
+# --- RBE Toolchain and platforms  ----------------------------------
+register_execution_platforms(
+    "//build/platforms:linux_x86_64",
+    "//build/platforms:linux_aarch64",
+    "//build/platforms:darwin_x86_64",
+    "//build/platforms:darwin_aarch64",
+)
+
+# --- Rust toolchain bootstrap -----------------------------------------------
+rules_rs_rules_rust = use_extension("@rules_rs//rs:rules_rust.bzl", "rules_rust")
+use_repo(rules_rs_rules_rust, "rules_rust")
+
+rules_rust_prost = use_extension("@rules_rs//rs:rules_rust_prost.bzl", "rules_rust_prost")
+use_repo(rules_rust_prost, "rules_rust_prost")
+
+RUST_DEFAULT_VERSION = "1.97.1"
+
+RUST_EDITION = "2024"
+
+toolchains = use_extension("@rules_rs//rs/toolchains:module_extension.bzl", "toolchains")
+toolchains.toolchain(
+    edition = RUST_EDITION,
+    version = RUST_DEFAULT_VERSION,
+)
+use_repo(toolchains, "default_rust_toolchains")
+
+register_toolchains("@default_rust_toolchains//...")
+
+# Custom Prost toolchain
+register_toolchains(
+    "//build/rust/prost_toolchain",
+    "//build/rust/proto_toolchain",
+)
+
+# Every exec and target triple that can take part in a build.
+RUST_PLATFORMS = [
+    "aarch64-apple-darwin",
+    "aarch64-unknown-linux-gnu",
+    "aarch64-unknown-linux-musl",
+    "x86_64-unknown-linux-gnu",
+    "x86_64-unknown-linux-musl",
+]
+
+# Crate sources are vendored as .crate archives in //third_party/crate_mirror, reached through
+# --distdir rather than through the dependency graph: rules_rs generates its own BUILD file per
+# crate, so the mirror carries sources only, and anything missing falls back to the registry.
+crate = use_extension("@rules_rs//rs:extensions.bzl", "crate")
+
+# External repositories that Cargo.toml annotations refer to by name.
+crate.repo_alias(
+    name = "zstd",
+    repo = "@zstd",
+)
+crate.repo_alias(
+    name = "zlib",
+    repo = "@zlib",
+)
+
+# pq-src compiles libpq's TLS sources in its own build-script action. openssl-sys hands it
+# the include path through DEP_OPENSSL_INCLUDE, but a path is not an input: without the tree
+# artifact staged in that action's sandbox too, the compile fails on `openssl/ssl.h` not
+# found while pointing straight at the directory that holds it.
+crate.repo_alias(
+    name = "openssl_gen_dir",
+    repo = "@openssl//:gen_dir",
+)
+crate.from_cargo(
+    name = "crates",
+    cargo_lock = "//:Cargo.lock",
+    cargo_toml = "//:Cargo.toml",
+    platform_triples = RUST_PLATFORMS,
+)
+
+# openssl-sys: link the OpenSSL that @openssl builds, instead of building one.
+#
+# OPENSSL_NO_VENDOR turns off the openssl-src path and OPENSSL_STATIC picks the archives over
+# the shared libraries collated beside them. @openssl//:gen_dir is a directory laid out the
+# way openssl-sys expects: include/openssl/*.h and lib/lib{ssl,crypto}.a.
+#
+# LIB_DIR and INCLUDE_DIR rather than the one OPENSSL_DIR that would imply both. openssl-sys'
+# find_normal.rs reads that pair FIRST and returns before it ever looks at OPENSSL_DIR, so
+# whoever sets the pair decides which OpenSSL gets linked. //.bazelrc used to set it to /usr
+# and no longer does; naming both here means this annotation decides, rather than depending on
+# an env var's continued absence. (The `vendored` feature short-circuited all of this, which is
+# why the old setting was harmless and invisible at the same time.)
+#
+# pq-src reads DEP_OPENSSL_INCLUDE, which openssl-sys emits from this same directory, so
+# libpq's TLS code compiles against the headers the Rust bindings were generated from and
+# links the archives they were checked against. That pairing is why openssl-sys used to have
+# to build OpenSSL itself; it holds here because both sides resolve through one build script.
+crate.annotation(
+    build_script_data = ["@openssl//:gen_dir"],
+    build_script_env = {
+        "OPENSSL_INCLUDE_DIR": "$(execpath @openssl//:gen_dir)/include",
+        "OPENSSL_LIB_DIR": "$(execpath @openssl//:gen_dir)/lib",
+        "OPENSSL_NO_VENDOR": "1",
+        "OPENSSL_STATIC": "1",
+    },
+    crate = "openssl-sys",
+    data = ["@openssl//:gen_dir"],
+    gen_build_script = "on",
+    repositories = ["crates"],
+)
+
+# @openssl is a bazel_dep of the root module, not of the generated hub, so the label above
+# is not resolvable from @crates without this.
+inject_repo(crate, "openssl")
+
+use_repo(crate, "crates")
+
+# rdp-connector-probe is deliberately detached from the workspace (its own Cargo.lock), so it
+# resolves into its own hub.
+rdp_connector_crates = use_extension("@rules_rs//rs:extensions.bzl", "crate")
+rdp_connector_crates.from_cargo(
+    name = "rdp_connector_crates",
+    cargo_lock = "//rust/rdp-connector-probe:Cargo.lock",
+    cargo_toml = "//rust/rdp-connector-probe:Cargo.toml",
+    platform_triples = RUST_PLATFORMS,
+)
+
+# libz-sys for the RDP hub, on @zlib like the main hub -- winscard asks flate2 for `zlib` on
+# every non-wasm32 target, so it is genuinely compiled. Here rather than the probe's
+# Cargo.toml because @zlib is an external-repo label; see the zstd-sys note above.
+rdp_connector_crates.annotation(
+    crate = "libz-sys",
+    gen_build_script = "off",
+    repositories = ["rdp_connector_crates"],
+    deps = ["@zlib"],
+)
+
+# aws-lc-sys silence lives in Cargo.toml metadata (root hub and rdp-connector-probe).
+# Do not adopt the well-known @aws-lc + bindgen snippet: that crate is never compiled.
+use_repo(
+    rdp_connector_crates,
+    "rdp_connector_crates",
+)
+
+# --- OCI Toolchain  ----------------------------------
+oci_ext = use_extension("@rules_oci//oci:extensions.bzl", "oci")
+oci_ext.pull(
+    name = "ubuntu_jammy",
+    digest = "sha256:a1af69f6c9bc3657289d23abff8ee360d2417d6cf69719e287822443dca3dc57",
+    image = "registry.carverauto.dev/mirror/library/ubuntu:22.04",
+    platforms = [
+        "linux/amd64",
+    ],
+)
+oci_ext.pull(
+    name = "actions_runner",
+    digest = "sha256:97b86689bb0571ca04b858e460190c8359c346c2fb4d093f0f88e40906e0b3c4",
+    # Mirrored to registry.carverauto.dev/mirror/ via `skopeo copy --all --preserve-digests`
+    # (digest preserved, verified byte-identical to the ghcr.io source). The direct ghcr.io
+    # pull was dropped because actions-runner has a 301.7 MB layer and Harbor expires an upload
+    # session at ~10 min: from outside the datacenter the push restarted from zero every time
+    # (8 expired sessions, 0 blobs pushed, in one hour). arc-runner is layered on it and shares
+    # that blob. The mirror was populated from a host that could complete the transfer.
+    image = "registry.carverauto.dev/mirror/actions/actions-runner",
+    platforms = [
+        "linux/amd64",
+    ],
+)
+oci_ext.pull(
+    name = "arc_runner",
+    digest = "sha256:cd933c5c1e917d0e3ad96b81eb02f8dc9ce8ba9043eab7611c457dacf370f26f",
+    # Mirrored to registry.carverauto.dev/mirror/ via `skopeo copy --all --preserve-digests`
+    # (digest preserved, verified byte-identical to the ghcr.io source). See actions_runner
+    # above for why the ghcr.io source was mirrored rather than pulled directly into Harbor.
+    image = "registry.carverauto.dev/mirror/carverauto/arc-runner",
+    platforms = [
+        "linux/amd64",
+    ],
+)
+oci_ext.pull(
+    name = "alpine_3_20",
+    digest = "sha256:a4f4213abb84c497377b8544c81b3564f313746700372ec4fe84653e4fb03805",
+    image = "registry.carverauto.dev/mirror/library/alpine:3.20",
+    platforms = [
+        "linux/amd64",
+        "linux/arm64/v8",
+    ],
+)
+oci_ext.pull(
+    name = "alpine_3_24",
+    digest = "sha256:a2d49ea686c2adfe3c992e47dc3b5e7fa6e6b5055609400dc2acaeb241c829f4",
+    image = "registry.carverauto.dev/mirror/library/alpine:3.24",
+    platforms = [
+        "linux/amd64",
+        "linux/arm64/v8",
+    ],
+)
+oci_ext.pull(
+    name = "ubuntu_noble",
+    digest = "sha256:d1e2e92c075e5ca139d51a140fff46f84315c0fdce203eab2807c7e495eff4f9",
+    image = "registry.carverauto.dev/mirror/library/ubuntu:24.04",
+    platforms = [
+        "linux/amd64",
+        "linux/arm64/v8",
+    ],
+)
+oci_ext.pull(
+    name = "debian_bookworm_slim",
+    digest = "sha256:74d56e3931e0d5a1dd51f8c8a2466d21de84a271cd3b5a733b803aa91abf4421",
+    image = "registry.carverauto.dev/mirror/library/debian:bookworm-slim",
+    platforms = [
+        "linux/amd64",
+        "linux/arm64/v8",
+    ],
+)
+oci_ext.pull(
+    name = "debian_testing_slim",
+    digest = "sha256:80381085775a6e69f0f8d09dd9a39495063e348382eb8d4881ba6f142d24b8ab",
+    image = "registry.carverauto.dev/mirror/library/debian:testing-slim",
+    platforms = [
+        "linux/amd64",
+    ],
+)
+oci_ext.pull(
+    name = "node_20_alpine",
+    digest = "sha256:6a91081a440be0b57336fbc4ee87f3dab1a2fd6f80cdb355dcf960e13bda3b59",
+    image = "registry.carverauto.dev/mirror/library/node:20-alpine",
+    platforms = [
+        "linux/amd64",
+    ],
+)
+oci_ext.pull(
+    name = "serviceradar_tools",
+    # v1.4.29. The previous pin (c9b4e23e...) no longer exists in Harbor -- the artifact was
+    # gone while the tags v1.4.3..v1.4.29 remained, so a fresh checkout failed the loading
+    # phase with NOT_FOUND while cached workspaces kept working.
+    digest = "sha256:dbd070a74d1e3ea67f3d560018080d35adf06415233504d52111bcbbd8d0cd32",
+    image = "registry.carverauto.dev/serviceradar/serviceradar-tools",
+    platforms = [
+        "linux/amd64",
+    ],
+)
+
+# Pinned by digest: a tag pull re-resolves against ghcr.io on every refetch, and anonymous
+# token requests are rate limited -- a throttled one fails Bazel's loading phase.
+#
+# Re-resolve deliberately:
+#   crane digest ghcr.io/cloudnative-pg/postgresql:18.4-system-bookworm
+#
+# The tag MUST be 18.<minor>-system-bookworm. `18-bookworm` is abandoned at 18~rc1; `18.4` is
+# a BULLSEYE build whose PostGIS will not load (wants libldap-2.5, bullseye ships 2.4).
+# `system` matches the extension layers, `bookworm` every overlaid deb.
+
+oci_ext.pull(
+    name = "cloudnativepg_postgresql_18",
+    digest = "sha256:63ba2470bb07cd0f4492c1f088689a6a01bbf20b5c5fc6c6472507353d14002c",
+    image = "registry.carverauto.dev/mirror/cloudnative-pg/postgresql",
+    platforms = [
+        "linux/amd64",
+    ],
+)
+
+# Official pg_duckdb image (MIT, duckdb org) — base of the analytics head
+# (serviceradar-cnpg-analytics). Digest pins docker.io/pgduckdb/pgduckdb:18-v1.1.1;
+# every bump must pass scripts/ci/cold-analytics-image-smoke.sh.
+oci_ext.pull(
+    name = "pgduckdb_18",
+    digest = "sha256:44c88eb9207971af1d7f9804a37429b1bb36f413cd8d7118c81e1288ddde85d1",
+    image = "docker.io/pgduckdb/pgduckdb",
+    platforms = [
+        "linux/amd64",
+    ],
+)
+use_repo(
+    oci_ext,
+    "actions_runner",
+    "actions_runner_linux_amd64",
+    "alpine_3_20",
+    "alpine_3_20_linux_amd64",
+    "alpine_3_20_linux_arm64_v8",
+    "alpine_3_24",
+    "alpine_3_24_linux_amd64",
+    "alpine_3_24_linux_arm64_v8",
+    "arc_runner",
+    "arc_runner_linux_amd64",
+    "cloudnativepg_postgresql_18",
+    "cloudnativepg_postgresql_18_linux_amd64",
+    "debian_bookworm_slim",
+    "debian_bookworm_slim_linux_amd64",
+    "debian_bookworm_slim_linux_arm64_v8",
+    "debian_testing_slim",
+    "debian_testing_slim_linux_amd64",
+    "node_20_alpine",
+    "node_20_alpine_linux_amd64",
+    "pgduckdb_18",
+    "pgduckdb_18_linux_amd64",
+    "serviceradar_tools",
+    "serviceradar_tools_linux_amd64",
+    "ubuntu_jammy",
+    "ubuntu_jammy_linux_amd64",
+    "ubuntu_noble",
+    "ubuntu_noble_linux_amd64",
+    "ubuntu_noble_linux_arm64_v8",
+)
+
+repo_alias = use_repo_rule("//build:repo_alias.bzl", "repo_alias")
+
+repo_alias(
+    name = "oci_regctl_linux_amd64",
+    actual = "@rules_oci++oci+oci_regctl_linux_amd64",
+)
+
+repo_alias(
+    name = "oci_regctl_toolchains",
+    actual = "@rules_oci++oci+oci_regctl_toolchains",
+)
+
+# --- Xcode Toolchain  ----------------------------------
+xcode_configure_ext = use_extension(
+    "@bazel_tools//tools/osx:xcode_configure.bzl",
+    "xcode_configure_extension",
+)
+use_repo(xcode_configure_ext, "local_config_xcode")
+
+# --- Go toolchain & dependency management ----------------------------------
+go_sdk = use_extension(
+    "@io_bazel_rules_go//go:extensions.bzl",
+    "go_sdk",
+)
+go_sdk.from_file(
+    name = "go_sdk",
+    go_mod = "//:go.mod",
+)
+go_sdk.download(
+    name = "tinygo_compatible_go_sdk",
+    version = "1.25.5",
+)
+use_repo(
+    go_sdk,
+    "go_sdk",
+    "tinygo_compatible_go_sdk",
+)
+
+go_deps = use_extension(
+    "@bazel_gazelle//:extensions.bzl",
+    "go_deps",
+)
+go_deps.gazelle_override(
+    build_file_generation = "on",
+    directives = [
+        "gazelle:proto disable",
+    ],
+    path = "google.golang.org/protobuf",
+)
+go_deps.gazelle_override(
+    build_file_generation = "on",
+    path = "github.com/pmezard/go-difflib",
+)
+go_deps.gazelle_override(
+    build_file_generation = "on",
+    path = "github.com/nats-io/nats.go",
+)
+go_deps.gazelle_override(
+    build_file_generation = "on",
+    directives = [
+        "gazelle:resolve go github.com/google/osv-scalibr/binary/proto/scan_result_go_proto //binary/proto/scan_result_go_proto",
+    ],
+    path = "github.com/google/osv-scalibr",
+)
+go_deps.gazelle_override(
+    build_file_generation = "on",
+    directives = [
+        "gazelle:proto disable",
+    ],
+    path = "github.com/spiffe/spire-api-sdk",
+)
+go_deps.from_file(go_mod = "//:go.mod")
+
+# NOTE: `bazel mod tidy` populates the list of repositories below based on the
+# contents of go.mod. Keep the list sorted for readability.
+use_repo(
+    go_deps,
+    "com_github_atotto_clipboard",
+    "com_github_bluenviron_gortsplib_v5",
+    "com_github_bluenviron_mediacommon_v2",
+    "com_github_charmbracelet_bubbles",
+    "com_github_charmbracelet_bubbletea",
+    "com_github_charmbracelet_lipgloss",
+    "com_github_cilium_ebpf",
+    "com_github_google_osv_scalibr",
+    "com_github_google_uuid",
+    "com_github_gorilla_websocket",
+    "com_github_gosnmp_gosnmp",
+    "com_github_hashicorp_go_hclog",
+    "com_github_hashicorp_go_plugin",
+    "com_github_jackc_pgx_v5",
+    "com_github_klauspost_compress",
+    "com_github_nats_io_jwt_v2",
+    "com_github_nats_io_nats_go",
+    "com_github_nats_io_nats_server_v2",
+    "com_github_nats_io_nkeys",
+    "com_github_pion_rtp",
+    "com_github_pkg_sftp",
+    "com_github_rs_zerolog",
+    "com_github_shirou_gopsutil_v3",
+    "com_github_spiffe_go_spiffe_v2",
+    "com_github_spiffe_spire_api_sdk",
+    "com_github_stretchr_testify",
+    "com_github_swaggo_swag",
+    "com_github_tetratelabs_wazero",
+    "com_github_ulikunitz_xz",
+    "in_gopkg_yaml_v3",
+    "io_k8s_api",
+    "io_k8s_apimachinery",
+    "io_k8s_client_go",
+    "io_opentelemetry_go_contrib_instrumentation_google_golang_org_grpc_otelgrpc",
+    "io_opentelemetry_go_otel",
+    "io_opentelemetry_go_otel_exporters_otlp_otlplog_otlploggrpc",
+    "io_opentelemetry_go_otel_exporters_otlp_otlpmetric_otlpmetricgrpc",
+    "io_opentelemetry_go_otel_exporters_otlp_otlptrace_otlptracegrpc",
+    "io_opentelemetry_go_otel_log",
+    "io_opentelemetry_go_otel_sdk",
+    "io_opentelemetry_go_otel_sdk_log",
+    "io_opentelemetry_go_otel_sdk_metric",
+    "io_opentelemetry_go_otel_trace",
+    "net_pgregory_rapid",
+    "org_golang_google_grpc",
+    "org_golang_google_protobuf",
+    "org_golang_x_crypto",
+    "org_golang_x_net",
+    "org_golang_x_sys",
+    "org_uber_go_mock",
+)
+
+# --- Node.js toolchain -------------------------------------------------------
+NODE_VERSION = "20.18.1"
+
+node = use_extension("@rules_nodejs//nodejs:extensions.bzl", "node")
+node.toolchain(
+    node_repositories = {
+        "20.18.1-darwin_arm64": (
+            "node-v20.18.1-darwin-arm64.tar.gz",
+            "node-v20.18.1-darwin-arm64",
+            "9e92ce1032455a9cc419fe71e908b27ae477799371b45a0844eedb02279922a4",
+        ),
+        "20.18.1-darwin_amd64": (
+            "node-v20.18.1-darwin-x64.tar.gz",
+            "node-v20.18.1-darwin-x64",
+            "c5497dd17c8875b53712edaf99052f961013cedc203964583fc0cfc0aaf93581",
+        ),
+        "20.18.1-linux_arm64": (
+            "node-v20.18.1-linux-arm64.tar.xz",
+            "node-v20.18.1-linux-arm64",
+            "44d1ffc5905c005ace4515ca6f8c090c4c7cfce3a9a67df0dba35c727590b8f6",
+        ),
+        "20.18.1-linux_amd64": (
+            "node-v20.18.1-linux-x64.tar.xz",
+            "node-v20.18.1-linux-x64",
+            "c6fa75c841cbffac851678a472f2a5bd612fff8308ef39236190e1f8dbb0e567",
+        ),
+        "20.18.1-windows_amd64": (
+            "node-v20.18.1-win-x64.zip",
+            "node-v20.18.1-win-x64",
+            "56e5aacdeee7168871721b75819ccacf2367de8761b78eaceacdecd41e04ca03",
+        ),
+    },
+    node_urls = [
+        "https://nodejs.org/dist/v{version}/{filename}",
+        "https://unofficial-builds.nodejs.org/download/release/v{version}/{filename}",
+    ],
+    node_version = NODE_VERSION,
+)
+use_repo(node, "nodejs_toolchains")
+
+# rules_nodejs 6.6.0 renamed the exec-platform half of each pair: `<plat>_toolchain_target`
+# became `<plat>_runtime_toolchain`. The 6.5.0 names do not exist any more and registering
+# them fails analysis, not just the node targets.
+#
+# 6.5.0 itself cannot be used on Bazel 9: nodejs/toolchain.bzl references the top-level
+# CcInfo symbol, which Bazel 9 removed, so every load of it fails with
+# "The CcInfo symbol has been removed".
+register_toolchains(
+    "@nodejs_toolchains//:darwin_amd64_runtime_toolchain",
+    "@nodejs_toolchains//:darwin_amd64_toolchain",
+    "@nodejs_toolchains//:darwin_arm64_runtime_toolchain",
+    "@nodejs_toolchains//:darwin_arm64_toolchain",
+    "@nodejs_toolchains//:linux_amd64_runtime_toolchain",
+    "@nodejs_toolchains//:linux_amd64_toolchain",
+    "@nodejs_toolchains//:linux_arm64_runtime_toolchain",
+    "@nodejs_toolchains//:linux_arm64_toolchain",
+)
+
+# --- npm dependency ingestion ------------------------------------------------
+
+# web-ng's browser assets. This is the "Bazel-managed JS app with a lockfile"
+npm = use_extension("@aspect_rules_js//npm:extensions.bzl", "npm")
+
+#
+# pnpm_lock, not npm_package_lock: rules_js can read package-lock.json, but it converts it
+# to pnpm form on every repository-rule evaluation -- 141s here, on a cold fetch, before a
+# single asset is built. The converted file is checked in instead, so the conversion happens
+# once when a dependency actually changes. Regenerate by pointing this at
+# npm_package_lock = "//elixir/web-ng/assets:package-lock.json", building once, and
+# switching back; rules_js writes the file and tells you to commit it.
+npm.npm_translate_lock(
+    name = "web_ng_npm",
+    pnpm_lock = "//elixir/web-ng/assets:pnpm-lock.yaml",
+    verify_node_modules_ignored = "//:.bazelignore",
+)
+use_repo(npm, "web_ng_npm")
+
+# --- External binary artifacts ----------------------------------------------
+
+http_file = use_repo_rule(
+    "@bazel_tools//tools/build_defs/repo:http.bzl",
+    "http_file",
+)
+
+http_archive = use_repo_rule(
+    "@bazel_tools//tools/build_defs/repo:http.bzl",
+    "http_archive",
+)
+
+# The arm64 OTP an arm64 Elixir image SHIPS; the amd64 pin above still RUNS the build.
+# `mix release` collapses both roles into one OTP, which is what blocks arm64 Elixir.
+# Not a second prebuilt_erlang_from_hex_builds: no CPU constraint on those toolchains, so a
+# second registration would be ambiguous rather than selective.
+
+http_archive(
+    name = "otp_28_1_linux_arm64",
+    build_file_content = """
+# `Install` is the archive's only top-level FILE, so its $(location) parent is the OTP root --
+# which a filegroup of 30k files in unspecified order cannot give you.
+filegroup(
+    name = "root_marker",
+    srcs = ["Install"],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "otp_root",
+    # Excluded paths hold spaces and cannot be passed to the action shell; all are test data.
+    srcs = glob(
+        allow_empty = False,
+        include = ["**"],
+        exclude = ["**/* *"],
+    ),
+    visibility = ["//visibility:public"],
+)
+""",
+    sha256 = "4585a32725c8eebcd9154cd8884366c93077895d1044974f1b728df5eae2cee9",
+    strip_prefix = "OTP-28.1",
+    urls = ["https://builds.hex.pm/builds/otp/arm64/ubuntu-24.04/OTP-28.1.tar.gz"],
+)
+
+# Hex, the package manager itself, built from source as a Mix archive by rules_elixir.
+#
+# NOT used to fetch anything -- every dependency is already a Bazel repository (see the Hex
+# packages extension above) and mix runs with --no-deps-check. Mix simply refuses to resolve
+# a project without Hex installed as an archive: `{:dep, "~> x.y"}` in a mix.exs aborts with
+# "Could not find an SCM for dependency", even for a dev-only dep nothing would compile.
+#
+# Pinned here rather than taking the ruleset default, for the same reason the OTP and Elixir
+# versions are pinned above: the version this repo builds against should be visible in one
+# place. Consumed as @hex//:archive.
+hex_ext = use_extension("@rules_elixir//bzlmod:extensions.bzl", "hex")
+hex_ext.from_github_release(
+    sha256 = "dabd99ea48ba8064c32bc2e97d59ab1b1055a38a1dd178c5389d95c35e985d2d",
+    version = "2.5.1",
+)
+use_repo(hex_ext, "hex")
+
+tinygo_platform_repository = use_repo_rule(
+    "//build/wasm_plugins:tinygo_repo.bzl",
+    "tinygo_platform_repository",
+)
+
+http_file(
+    name = "jq_linux_amd64",
+    executable = True,
+    sha256 = "5942c9b0934e510ee61eb3e30273f1b3fe2590df93933a93d7c58b81d19c8ff5",
+    urls = [
+        "https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64",
+    ],
+)
+
+http_file(
+    name = "jq_linux_arm64",
+    executable = True,
+    sha256 = "4dd2d8a0661df0b22f1bb9a1f9830f06b6f3b8f7d91211a1ef5d7c4f06a8b4a5",
+    urls = [
+        "https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-arm64",
+    ],
+)
+
+http_file(
+    name = "curl_linux_amd64",
+    executable = True,
+    sha256 = "d18aa1f4e03b50b649491ca2c401cd8c5e89e72be91ff758952ad2ab5a83135d",
+    urls = [
+        "https://github.com/moparisthebest/static-curl/releases/download/v8.11.0/curl-amd64",
+    ],
+)
+
+http_file(
+    name = "cosign_linux_amd64",
+    executable = True,
+    sha256 = "052363a0e23e2e7ed53641351b8b420918e7e08f9c1d8a42a3dd3877a78a2e10",
+    urls = [
+        "https://github.com/sigstore/cosign/releases/download/v3.0.3/cosign-linux-amd64",
+    ],
+)
+
+# Same release as the amd64 pin above. Bump the two together: the web-ng image selects
+# between them by target platform, so a version skew would ship a different cosign
+# depending on which entry of the index you pulled.
+http_file(
+    name = "cosign_linux_arm64",
+    executable = True,
+    sha256 = "81398231362031e3c7afd6a7508c57049460cd7e02736f1ebe89a452102253e5",
+    urls = [
+        "https://github.com/sigstore/cosign/releases/download/v3.0.3/cosign-linux-arm64",
+    ],
+)
+
+# curl.se's undated cacert.pem is intentionally mutable; pin a dated bundle.
+http_file(
+    name = "mozilla_ca_bundle",
+    downloaded_file_path = "ca-certificates.crt",
+    sha256 = "3ff344e30b9b1ed2971044eabb438a08f2e2245ddb5f8ab1a3ad8b63ab4eaf91",
+    urls = [
+        "https://curl.se/ca/cacert-2026-07-16.pem",
+    ],
+)
+
+http_file(
+    name = "curl_linux_arm64",
+    executable = True,
+    sha256 = "1b050abd1669f9a2ac29b34eb022cdeafb271dce5a4fb57d8ef8fadff6d7be1f",
+    urls = [
+        "https://github.com/moparisthebest/static-curl/releases/download/v8.11.0/curl-aarch64",
+    ],
+)
+
+http_archive(
+    name = "cmake_linux_amd64_prebuilt",
+    build_file_content = """
+package(default_visibility = ["//visibility:public"])
+filegroup(
+    name = "cmake_share",
+    srcs = glob(["share/**"]),
+)
+filegroup(
+    name = "cmake_bin",
+    srcs = ["bin/cmake"],
+)
+""",
+    sha256 = "c959e6d15714f798424960cd296632634f3ef57c2712559a7945170f0bcad205",
+    strip_prefix = "cmake-3.30.4-linux-x86_64",
+    urls = [
+        "https://github.com/Kitware/CMake/releases/download/v3.30.4/cmake-3.30.4-linux-x86_64.tar.gz",
+    ],
+)
+
+# One repo per platform so bzlmod fetches only the one //build/wasm_plugins selects for the
+# exec platform. The previous single repo unpacked all four TinyGo toolchains and Go SDKs on
+# every fetch -- 5 GB, half the entire external tree, of which one platform was ever used.
+[
+    tinygo_platform_repository(
+        name = "tinygo_" + tinygo_platform,
+        platform = tinygo_platform,
+        version = "0.40.1",
+    )
+    for tinygo_platform in [
+        "darwin_amd64",
+        "darwin_arm64",
+        "linux_amd64",
+        "linux_arm64",
+    ]
+]
+
+http_file(
+    name = "postgresql_server_dev_18_deb",
+    sha256 = "bb45f27f6072e8109b9a67e390ff0139ab493f681ec05d1cfed139b101187c00",
+    urls = [
+        "https://apt.postgresql.org/pub/repos/apt/pool/main/p/postgresql-18/postgresql-server-dev-18_18.4-1.pgdg12%2B1_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_bison_amd64_deb",
+    sha256 = "a414afd7519c53bfa33415ba5b951bc8b4906877004c49723ffda50a6033c3e8",
+    urls = [
+        "https://snapshot.debian.org/archive/debian/20220919T181143Z/pool/main/b/bison/bison_3.8.2+dfsg-1+b1_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_flex_amd64_deb",
+    sha256 = "75f963765232c356d0a2fb70e780dfa9de2425aca036ec60eefb7fc98a2c905b",
+    urls = [
+        "https://snapshot.debian.org/archive/debian/20250105T040337Z/pool/main/f/flex/flex_2.6.4-8.2+b4_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_libpq_dev_amd64_deb",
+    sha256 = "59d348c5a42d2ea3aa62ef4fbbea9bda8f643ac28a752ce1917606643761d38a",
+    urls = [
+        "https://snapshot.debian.org/archive/debian/20260517T024156Z/pool/main/p/postgresql-15/libpq-dev_15.18-0+deb12u1_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_gcc_15_base_amd64_deb",
+    # Keep the injected runtime libs aligned with Debian 12 / bookworm.
+    sha256 = "1896a2aacf4ad681ff5eacc24a5b0ca4d5d9c9b9c9e4b6de5197bc1e116ea619",
+    urls = [
+        "https://snapshot.debian.org/archive/debian/20250415T084322Z/pool/main/g/gcc-12/gcc-12-base_12.2.0-14+deb12u1_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_libgcc_s1_amd64_deb",
+    sha256 = "3016e62cb4b7cd8038822870601f5ed131befe942774d0f745622cc77d8a88f7",
+    urls = [
+        "https://snapshot.debian.org/archive/debian/20250415T084322Z/pool/main/g/gcc-12/libgcc-s1_12.2.0-14+deb12u1_amd64.deb",
+    ],
+)
+
+# --- helm-unittest ----------------------------------------------------------
+# The chart unit suite for //helm/serviceradar:helm_unittest_suite_test.
+#
+# Pinned and fetched here rather than installed by a workflow step, so the suite runs
+# under a plain `bazel test //...`. That distinction is the whole point of the target:
+# `helm unittest` was invoked by NO CI job, and 26 assertions across 10 suites were
+# committed having never once been executed -- they asserted `helm template`'s
+# kind-sorted document order and its `default` release namespace, neither of which is
+# what the plugin produces.
+#
+# Only the plugin is fetched, not helm itself. `untt` is a self-contained binary that
+# links the Helm libraries and renders the chart on its own -- `helm unittest` does no
+# more than exec it (plugin.yaml: `command: "$HELM_PLUGIN_DIR/untt"`, ignoreFlags
+# false), so running it directly is the same code path with no HELM_PLUGINS layout to
+# stage. It also keeps the result independent of whichever helm a developer happens to
+# have installed. The deciding constraint is that get.helm.sh is not reachable from the
+# BuildBuddy runners (read timeout) while github.com is, so depending on a helm tarball
+# would break the gate in exactly the CI it exists to run in.
+[
+    http_archive(
+        name = "helm_unittest_" + suffix,
+        build_file_content = """
+exports_files(["untt"])
+""",
+        sha256 = sha256,
+        urls = [
+            "https://github.com/helm-unittest/helm-unittest/releases/download/v0.7.2/helm-unittest-" + platform + "-0.7.2.tgz",
+        ],
+    )
+    for suffix, platform, sha256 in [
+        ("linux_amd64", "linux-amd64", "25a9a7867eff63e567511cc488b370f22ea06ae8d2bdb0a418de7ab83a143b9e"),
+        ("linux_arm64", "linux-arm64", "f846181c854d6330b255acb22c8864cd5f1feb79190e3dca5e425428112926e8"),
+        ("macos_amd64", "macos-amd64", "ca51e4bc4377ecbf1589930049af34dbe9ead4e31d0bff0b4c676913d07a0d27"),
+        ("macos_arm64", "macos-arm64", "9a1d903e7fb1d2cd151c23fdae65ff14079686eab390bfe37c225c6bc50a5681"),
+    ]
+]
+
+# --- Membrane precompiled OS-deps ------------------------------------------
+# core-elx pulls ~13 Membrane plugins (via vendored boombox) whose Bundlex downloads one
+# precompiled OS-dep tarball each from github.com at `mix deps.compile`. The Forgejo runner
+# has no github.com egress, so they are pinned here instead (repo fetch does).
+
+http_file(
+    name = "membrane_precompiled_fdk_aac",
+    downloaded_file_path = "fdk-aac_linux_x86.tar.gz",
+    sha256 = "f5c68b1dfdb5a04ac2f9e0a53336c4cd6a8244008ee51a711473e28fa004ecac",
+    urls = [
+        "https://github.com/membraneframework-precompiled/precompiled_fdk-aac/releases/download/v2.0.3/fdk-aac_linux_x86.tar.gz",
+    ],
+)
+
+http_file(
+    name = "membrane_precompiled_lame",
+    downloaded_file_path = "lame_linux_x86.tar.gz",
+    sha256 = "a2d6f3293f6bb304a159ec1192d7d984ecbc805e9bb5ef978d488766bdb0095d",
+    urls = [
+        "https://github.com/membraneframework-precompiled/precompiled_lame/releases/download/v3.100/lame_linux_x86.tar.gz",
+    ],
+)
+
+http_file(
+    name = "membrane_precompiled_mad",
+    downloaded_file_path = "mad_linux_x86.tar.gz",
+    sha256 = "6012e5f72a8e4e624e588d8a3a03e58fc757316a97fd16781f0c9d5d12cf2313",
+    urls = [
+        "https://github.com/membraneframework-precompiled/precompiled_mad/releases/download/v0.15.1b/mad_linux_x86.tar.gz",
+    ],
+)
+
+http_file(
+    name = "membrane_precompiled_opus",
+    downloaded_file_path = "opus_linux_x86.tar.gz",
+    sha256 = "90c115850cb99b653cd3e0237e084926652f4e2bcb9d5e1e36acc4bcc5d2ddaf",
+    urls = [
+        "https://github.com/membraneframework-precompiled/precompiled_opus/releases/download/v1.5.2/opus_linux_x86.tar.gz",
+    ],
+)
+
+http_file(
+    name = "membrane_precompiled_portaudio",
+    downloaded_file_path = "portaudio_linux_x86.tar.gz",
+    sha256 = "813fa51109fc637af13535d032dd11bf952347a494081df305d46a517e449b05",
+    urls = [
+        "https://github.com/membraneframework-precompiled/precompiled_portaudio/releases/download/v19.7.0/portaudio_linux_x86.tar.gz",
+    ],
+)
+
+http_file(
+    name = "membrane_precompiled_sdl2",
+    downloaded_file_path = "sdl2_linux_x86.tar.gz",
+    sha256 = "0c26f1082d8a3a55fda6c95b25eef30a2b6bdddfd66ead35ee19fa3c84e2ef47",
+    urls = [
+        "https://github.com/membraneframework-precompiled/precompiled_sdl2/releases/download/v2.32.10/sdl2_linux_x86.tar.gz",
+    ],
+)
+
+http_file(
+    name = "membrane_precompiled_libvpx",
+    downloaded_file_path = "libvpx_linux_x86.tar.gz",
+    sha256 = "845be3392218f02425d9fa93dfacfb101f9ab9d4169bce8e35a7cebadd207e1f",
+    urls = [
+        "https://github.com/membraneframework-precompiled/precompiled_libvpx/releases/download/v1.15.2/libvpx_linux_x86.tar.gz",
+    ],
+)
+
+http_file(
+    name = "membrane_precompiled_srt",
+    downloaded_file_path = "srt_linux_x86.tar.gz",
+    sha256 = "78f13b6d2a623140ec150c630c4c8e279fcd2dd79b63825f37fc4428cc86d328",
+    urls = [
+        "https://github.com/membraneframework-precompiled/precompiled_srt/releases/download/v1.5.4/srt_linux_x86.tar.gz",
+    ],
+)
+
+http_file(
+    name = "membrane_precompiled_srtp",
+    downloaded_file_path = "srtp_linux_x86.tar.gz",
+    sha256 = "53470adc38e70df6648cfef37538889c1eebf7d414541a7d6cec4500aa29b347",
+    urls = [
+        "https://github.com/membraneframework-precompiled/precompiled_srtp/releases/download/v2.7.0/srtp_linux_x86.tar.gz",
+    ],
+)
+
+http_file(
+    name = "membrane_precompiled_ffmpeg",
+    downloaded_file_path = "ffmpeg_linux64.tar.xz",
+    sha256 = "128f1b77ebb0f9520048629d430b41825520457d7b02ba8fd1fda5966c988661",
+    urls = [
+        "https://github.com/membraneframework-precompiled/precompiled_ffmpeg/releases/download/v6.0.1/ffmpeg_linux64.tar.xz",
+    ],
+)
+
+http_file(
+    name = "debian_libc6_amd64_deb",
+    sha256 = "ba4f88f73dbc3ae9055f3c20f4523bfdbaf1ad13ff95e258924f77d20b4fbedf",
+    urls = [
+        "https://snapshot.debian.org/archive/debian/20260504T025922Z/pool/main/g/glibc/libc6_2.36-9+deb12u14_amd64.deb",
+    ],
+)
+
+# Sysroot for the CNPG from-source extension layers, so TimescaleDB and AGE compile
+# against the runtime's glibc instead of the RBE executor's. Keep libc6-dev's version
+# EXACTLY equal to debian_libc6_amd64_deb above -- headers and shared object have to
+# describe the same glibc, or the floor this is meant to pin moves again.
+# See docker/images/cnpg_image.bzl for what breaks without it.
+http_file(
+    name = "debian_libc6_dev_amd64_deb",
+    sha256 = "0218fc2befcd784c1b0c6292c0a137ce89fad054efaa579ad083bee0f2c01aae",
+    urls = [
+        "https://snapshot.debian.org/archive/debian/20260504T025922Z/pool/main/g/glibc/libc6-dev_2.36-9+deb12u14_amd64.deb",
+    ],
+)
+
+# libc6-dev depends on this; glibc's headers include <asm/*.h> and <linux/*.h>, and a
+# --sysroot search path finds nothing outside the sysroot.
+http_file(
+    name = "debian_linux_libc_dev_amd64_deb",
+    sha256 = "8bb258735b9dffbb111da778ebdd024750878e435ffd9dfcadcb6762ede6b4cf",
+    urls = [
+        "https://snapshot.debian.org/archive/debian/20260704T211317Z/pool/main/l/linux/linux-libc-dev_6.1.176-1_amd64.deb",
+    ],
+)
+
+# Also part of the sysroot: --sysroot hides the executor's /usr/include entirely, and
+# TimescaleDB's src/net/conn_ssl.c includes <openssl/err.h>. Matches the libssl3 that
+# bookworm -- and therefore the CNPG base -- ships at runtime.
+http_file(
+    name = "debian_libssl_dev_amd64_deb",
+    sha256 = "43ef5c109056b1507a0972631ee8292e727029aeda1516b4672cb041730ae3af",
+    urls = [
+        "https://snapshot.debian.org/archive/debian/20260612T023739Z/pool/main/o/openssl/libssl-dev_3.0.20-1~deb12u2_amd64.deb",
+    ],
+)
+
+# The arm64 sibling, same version-revision. //third_party/openssl pairs each of these with
+# the matching libssl3 (which owns the libssl.so.3 the -dev symlink points at) to build the
+# per-architecture sysroot that ex_dtls and ex_libsrt resolve `openssl` from via pkg-config.
+# Keep the version in lockstep with the amd64 pin above and with debian_libssl3_{amd64,arm64}.
+http_file(
+    name = "debian_libssl_dev_arm64_deb",
+    sha256 = "c6941a83bebd83d2a1cd2db56418062d8f48b3200786aacafa194b75a93a3702",
+    urls = [
+        "https://snapshot.debian.org/archive/debian/20260612T023739Z/pool/main/o/openssl/libssl-dev_3.0.20-1~deb12u2_arm64.deb",
+    ],
+)
+
+http_file(
+    name = "postgresql_18_postgis_3_amd64_deb",
+    sha256 = "5c06e2bb5ac73cd3d81f07a9cf44e4240a0c6e0ae8d4e8627187b6cab83d6606",
+    urls = [
+        "https://apt.postgresql.org/pub/repos/apt/pool/main/p/postgis/postgresql-18-postgis-3_3.6.2%2Bdfsg-1.pgdg12%2B1_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "postgresql_18_postgis_3_scripts_all_deb",
+    sha256 = "3b311ec39868d0cc18edf6721226bc323aa33edafc53c2968f38910a4e270ef5",
+    urls = [
+        "https://apt.postgresql.org/pub/repos/apt/pool/main/p/postgis/postgresql-18-postgis-3-scripts_3.6.2%2Bdfsg-1.pgdg12%2B1_all.deb",
+    ],
+)
+
+http_file(
+    name = "postgresql_18_pgvector_amd64_deb",
+    sha256 = "2960d16635b1ea45e9ecddfbbb5d5d669af63db0df7dca56a9fd176f19bc285c",
+    urls = [
+        "https://apt.postgresql.org/pub/repos/apt/pool/main/p/pgvector/postgresql-18-pgvector_0.8.5-1.pgdg12%2B1_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_libgeos_c1v5_amd64_deb",
+    sha256 = "93651aef73ee0f154213010e48fad6a6fc5c3b4e1f916b748aa7ac0dd59b64ff",
+    urls = [
+        "https://snapshot.debian.org/archive/debian/20221116T215112Z/pool/main/g/geos/libgeos-c1v5_3.11.1-1_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_libgeos3_11_1_amd64_deb",
+    sha256 = "c7d9b3ec22fe9a5d6f8fa3572bfbe504224c8b2a8a0fc3ebb000581114c47660",
+    urls = [
+        "https://snapshot.debian.org/archive/debian/20221116T215112Z/pool/main/g/geos/libgeos3.11.1_3.11.1-1_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_libproj25_amd64_deb",
+    sha256 = "94ebf20612db95dd5994d83f15ced2469dd8ce4c7f54dba598248caf685fdc9c",
+    urls = [
+        "https://snapshot.debian.org/archive/debian/20230112T090754Z/pool/main/p/proj/libproj25_9.1.1-1+b1_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_proj_data_all_deb",
+    sha256 = "efa6a74fba305e664ba27b81c2a5708aa59554ba41659af0e8c325e477f3d955",
+    urls = [
+        "https://snapshot.debian.org/archive/debian/20221201T154914Z/pool/main/p/proj/proj-data_9.1.1-1_all.deb",
+    ],
+)
+
+http_file(
+    name = "debian_libjson_c5_amd64_deb",
+    sha256 = "d0e1ed8637d1c26b9720f6057d6355f18378bba5cc2553e459d1632783c00d70",
+    urls = [
+        "https://snapshot.debian.org/archive/debian/20221003T031714Z/pool/main/j/json-c/libjson-c5_0.16-2_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_libprotobuf_c1_amd64_deb",
+    sha256 = "e99b3091938bfbd55b24e95587b868ba735e38e4adbcb9942c6993f2de3ba1bf",
+    urls = [
+        "https://snapshot.debian.org/archive/debian/20221123T031441Z/pool/main/p/protobuf-c/libprotobuf-c1_1.4.1-1+b1_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_libtiff6_amd64_deb",
+    sha256 = "255cd1d9f204355c366638ee21756234a8d43c03a3de18a5af6cdd94765b5053",
+    urls = [
+        "https://snapshot.debian.org/archive/debian/20260418T203406Z/pool/main/t/tiff/libtiff6_4.5.0-6+deb12u4_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_libcurl3_gnutls_amd64_deb",
+    sha256 = "bf430ecf80f7808704e0187cddc582fd57fc98789ea356d4797651edad387ef3",
+    urls = [
+        "https://snapshot.debian.org/archive/debian/20260630T210956Z/pool/main/c/curl/libcurl3-gnutls_7.88.1-10+deb12u15_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_libwebp7_amd64_deb",
+    sha256 = "7259b7ce46444694ce536360ad53acb68eb3b47a7ff81d7b1b8a3939b2ac9918",
+    urls = [
+        "https://snapshot.debian.org/archive/debian/20230916T210334Z/pool/main/libw/libwebp/libwebp7_1.2.4-0.2+deb12u1_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_liblerc4_amd64_deb",
+    sha256 = "771f5c47ca69f24ca61e4be0c98c5912b182ce442f921697d17a472f3ded5c9c",
+    urls = [
+        "https://snapshot.debian.org/archive/debian/20221015T150249Z/pool/main/l/lerc/liblerc4_4.0.0+ds-2_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_libjbig0_amd64_deb",
+    sha256 = "6b07c77b700a615642888a82ba92a7e7c429d04b9c8669c62b2263f15c4c4059",
+    urls = [
+        "https://snapshot.debian.org/archive/debian/20221210T034654Z/pool/main/j/jbigkit/libjbig0_2.1-6.1_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_libjpeg62_turbo_amd64_deb",
+    sha256 = "95ec30140789a342add8f8371ed018924de51b539056522b66f207b25cba9cad",
+    urls = [
+        "https://snapshot.debian.org/archive/debian/20230204T031401Z/pool/main/libj/libjpeg-turbo/libjpeg62-turbo_2.1.5-2_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_libdeflate0_amd64_deb",
+    sha256 = "3d4b39f94317b64a860db8a7a8b581b555124cd461fe07ec0d347edbdb9f6683",
+    urls = [
+        "https://snapshot.debian.org/archive/debian/20221003T212100Z/pool/main/libd/libdeflate/libdeflate0_1.14-1_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_libnghttp2_14_amd64_deb",
+    sha256 = "5a5736cee57e51c1baed869979e6ecdbc6495e939e33203d6cfe3b6e5a149e3f",
+    urls = [
+        "https://snapshot.debian.org/archive/debian/20260517T024156Z/pool/main/n/nghttp2/libnghttp2-14_1.52.0-1+deb12u3_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_librtmp1_amd64_deb",
+    sha256 = "e1f69020dc2c466e421ec6a58406b643be8b5c382abf0f8989011c1d3df91c87",
+    urls = [
+        "https://snapshot.debian.org/archive/debian/20200716T025032Z/pool/main/r/rtmpdump/librtmp1_2.4+20151223.gitfa8646d.1-2+b2_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_libssh2_1_amd64_deb",
+    sha256 = "d20a3ee34fa84ad8bd381e8be6e9c2c2ea32347cff5e1169c10e978d43f54f24",
+    urls = [
+        "https://snapshot.debian.org/archive/debian/20220515T152741Z/pool/main/libs/libssh2/libssh2-1_1.10.0-3+b1_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_libpsl5_amd64_deb",
+    sha256 = "4f0d35610204e4e754b057748719744114621f2f6f4202d846c314860a981afb",
+    urls = [
+        "https://snapshot.debian.org/archive/debian/20230214T212225Z/pool/main/libp/libpsl/libpsl5_0.21.2-1_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_libbrotli1_amd64_deb",
+    sha256 = "563b4caec1aa5e876bd3355b36e7a38e1484baf5a293b48d1e8bd22db786e4d7",
+    urls = [
+        "https://snapshot.debian.org/archive/debian/20230201T153118Z/pool/main/b/brotli/libbrotli1_1.0.9-2+b6_amd64.deb",
+    ],
+)
+
+# Debian's live security pool is pruned; retain the release input in Snapshot.
+http_file(
+    name = "debian_openssl_amd64_deb",
+    sha256 = "4d218561dc838de081de97f54584c4a29e77e26c7ed9fe3440d776d8e6071bf9",
+    urls = [
+        "https://snapshot.debian.org/archive/debian-security/20260609T214505Z/pool/updates/main/o/openssl/openssl_3.0.20-1~deb12u2_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_libssl3_amd64_deb",
+    sha256 = "89be24b41bff568ee6e7caf5680a3d808e80315ed92e407056ce0fa7a5bda025",
+    urls = [
+        "https://snapshot.debian.org/archive/debian-security/20260609T214505Z/pool/updates/main/o/openssl/libssl3_3.0.20-1~deb12u2_amd64.deb",
+    ],
+)
+
+# arm64 siblings of the two above, same snapshot and same version-revision string, for the
+# multi-arch agent_gateway image. Debian publishes both architectures from one source upload,
+# so these track the amd64 pins exactly -- bump the four together or the image ships mismatched
+# OpenSSL across its two entries.
+http_file(
+    name = "debian_openssl_arm64_deb",
+    sha256 = "e7ba824de1e659c12e81f885bc0757a50c4d7a9f71de02687ad63d5a9e936e00",
+    urls = [
+        "https://snapshot.debian.org/archive/debian-security/20260609T214505Z/pool/updates/main/o/openssl/openssl_3.0.20-1~deb12u2_arm64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_libssl3_arm64_deb",
+    sha256 = "a256e03cc3abd7243ac5c6ee91a9deb56478221ef0d3c2b0748551e13140c0bf",
+    urls = [
+        "https://snapshot.debian.org/archive/debian-security/20260609T214505Z/pool/updates/main/o/openssl/libssl3_3.0.20-1~deb12u2_arm64.deb",
+    ],
+)
+
+http_archive(
+    name = "crane_linux_amd64",
+    build_file_content = """
+exports_files(["crane"])
+""",
+    integrity = "sha256-zfTUJtll2ai6YT1+vzrd+TEBqi6FOj8I+/2u0oI5GPM=",
+    urls = [
+        "https://github.com/google/go-containerregistry/releases/download/v0.18.0/go-containerregistry_Linux_x86_64.tar.gz",
+    ],
+)
+
+# Ubuntu .deb dependencies for //third_party/libpcap: six amd64, six arm64.
+#
+# Two URLs each, on purpose. archive.ubuntu.com times out from any machine (round-robin DNS,
+# no HTTPS at all) and took the loading phase down with it; mirrors.edge.kernel.org serves the
+# same pool over HTTPS. Every rule pins a sha256, so a mirror costs no trust. A warm
+# repository cache hides this, which is why it first looked CI-specific.
+
+http_file(
+    name = "ubuntu_noble_libpcap0_8_dev_amd64_deb",
+    downloaded_file_path = "libpcap0.8-dev_1.10.4-4.1ubuntu3_amd64.deb",
+    sha256 = "9007bd2c29216bcee3282f10fb63856899b833a37a77c053be0c1b8bb45c65e9",
+    urls = [
+        "https://mirrors.edge.kernel.org/ubuntu/pool/main/libp/libpcap/libpcap0.8-dev_1.10.4-4.1ubuntu3_amd64.deb",
+        "http://archive.ubuntu.com/ubuntu/pool/main/libp/libpcap/libpcap0.8-dev_1.10.4-4.1ubuntu3_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "ubuntu_noble_libpcap0_8t64_amd64_deb",
+    downloaded_file_path = "libpcap0.8t64_1.10.4-4.1ubuntu3_amd64.deb",
+    sha256 = "62e3379edd4b8cf748f2a1260c96f54dd2074ae4f956bd2b444440d62c0b5d2a",
+    urls = [
+        "https://mirrors.edge.kernel.org/ubuntu/pool/main/libp/libpcap/libpcap0.8t64_1.10.4-4.1ubuntu3_amd64.deb",
+        "http://archive.ubuntu.com/ubuntu/pool/main/libp/libpcap/libpcap0.8t64_1.10.4-4.1ubuntu3_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "ubuntu_noble_libpcap0_8_dev_arm64_deb",
+    downloaded_file_path = "libpcap0.8-dev_1.10.4-4.1ubuntu3_arm64.deb",
+    sha256 = "36af9fe819a2600babd87fb4dd47186bce8c2d856c4938beebece68922242b93",
+    urls = [
+        "https://ports.ubuntu.com/ubuntu-ports/pool/main/libp/libpcap/libpcap0.8-dev_1.10.4-4.1ubuntu3_arm64.deb",
+        "http://ports.ubuntu.com/ubuntu-ports/pool/main/libp/libpcap/libpcap0.8-dev_1.10.4-4.1ubuntu3_arm64.deb",
+    ],
+)
+
+http_file(
+    name = "ubuntu_noble_libpcap0_8t64_arm64_deb",
+    downloaded_file_path = "libpcap0.8t64_1.10.4-4.1ubuntu3_arm64.deb",
+    sha256 = "d1dd3eab09ae527cda36ddb06976ac5ea3d210c4ae03ac6a86cd344d46c2d3c7",
+    urls = [
+        "https://ports.ubuntu.com/ubuntu-ports/pool/main/libp/libpcap/libpcap0.8t64_1.10.4-4.1ubuntu3_arm64.deb",
+        "http://ports.ubuntu.com/ubuntu-ports/pool/main/libp/libpcap/libpcap0.8t64_1.10.4-4.1ubuntu3_arm64.deb",
+    ],
+)
+
+http_file(
+    name = "ubuntu_noble_libdbus_1_3_amd64_deb",
+    downloaded_file_path = "libdbus-1-3_1.14.10-4ubuntu4_amd64.deb",
+    sha256 = "bbb55111182a44d0fe97a84120407e17bb6e23d41e2670d73aa78f619e29efa2",
+    urls = [
+        "https://mirrors.edge.kernel.org/ubuntu/pool/main/d/dbus/libdbus-1-3_1.14.10-4ubuntu4_amd64.deb",
+        "http://archive.ubuntu.com/ubuntu/pool/main/d/dbus/libdbus-1-3_1.14.10-4ubuntu4_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "ubuntu_noble_libdbus_1_3_arm64_deb",
+    downloaded_file_path = "libdbus-1-3_1.14.10-4ubuntu4_arm64.deb",
+    sha256 = "c269be28a2ed45d08f85ca2e7eb8a333f7ef5b01a052f4ad561e6834fe4c8964",
+    urls = [
+        "https://ports.ubuntu.com/ubuntu-ports/pool/main/d/dbus/libdbus-1-3_1.14.10-4ubuntu4_arm64.deb",
+        "http://ports.ubuntu.com/ubuntu-ports/pool/main/d/dbus/libdbus-1-3_1.14.10-4ubuntu4_arm64.deb",
+    ],
+)
+
+http_file(
+    name = "ubuntu_noble_libibverbs1_amd64_deb",
+    downloaded_file_path = "libibverbs1_50.0-2build2_amd64.deb",
+    sha256 = "731e9d88e498b1a8b03a4eaf6e3ed6227f1c4646b9931256f7e234b42ae618dd",
+    urls = [
+        "https://mirrors.edge.kernel.org/ubuntu/pool/main/r/rdma-core/libibverbs1_50.0-2build2_amd64.deb",
+        "http://archive.ubuntu.com/ubuntu/pool/main/r/rdma-core/libibverbs1_50.0-2build2_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "ubuntu_noble_libibverbs1_arm64_deb",
+    downloaded_file_path = "libibverbs1_50.0-2build2_arm64.deb",
+    sha256 = "d5cf6b37c02ccc9609f96ac46b3a823ba087088e98a5f17ff823156c9a765eb0",
+    urls = [
+        "https://ports.ubuntu.com/ubuntu-ports/pool/main/r/rdma-core/libibverbs1_50.0-2build2_arm64.deb",
+        "http://ports.ubuntu.com/ubuntu-ports/pool/main/r/rdma-core/libibverbs1_50.0-2build2_arm64.deb",
+    ],
+)
+
+http_file(
+    name = "ubuntu_noble_libnl_3_200_amd64_deb",
+    downloaded_file_path = "libnl-3-200_3.7.0-0.3build1_amd64.deb",
+    sha256 = "0afff6a14f55122757db02ff7e11ad58f128465fd796e2e33a0b0fe5b45a09ed",
+    urls = [
+        "https://mirrors.edge.kernel.org/ubuntu/pool/main/libn/libnl3/libnl-3-200_3.7.0-0.3build1_amd64.deb",
+        "http://archive.ubuntu.com/ubuntu/pool/main/libn/libnl3/libnl-3-200_3.7.0-0.3build1_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "ubuntu_noble_libnl_3_200_arm64_deb",
+    downloaded_file_path = "libnl-3-200_3.7.0-0.3build1_arm64.deb",
+    sha256 = "dac93582da210a157bc4d9e34c1a55214823ed94adceb43d641912b56e8e5094",
+    urls = [
+        "https://ports.ubuntu.com/ubuntu-ports/pool/main/libn/libnl3/libnl-3-200_3.7.0-0.3build1_arm64.deb",
+        "http://ports.ubuntu.com/ubuntu-ports/pool/main/libn/libnl3/libnl-3-200_3.7.0-0.3build1_arm64.deb",
+    ],
+)
+
+http_file(
+    name = "ubuntu_noble_libnl_route_3_200_amd64_deb",
+    downloaded_file_path = "libnl-route-3-200_3.7.0-0.3build1_amd64.deb",
+    sha256 = "8abfa9a87f78dbba7edc19ef4cfcb16b70dde562bccc3ff7550bdd3a0487e358",
+    urls = [
+        "https://mirrors.edge.kernel.org/ubuntu/pool/main/libn/libnl3/libnl-route-3-200_3.7.0-0.3build1_amd64.deb",
+        "http://archive.ubuntu.com/ubuntu/pool/main/libn/libnl3/libnl-route-3-200_3.7.0-0.3build1_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "ubuntu_noble_libnl_route_3_200_arm64_deb",
+    downloaded_file_path = "libnl-route-3-200_3.7.0-0.3build1_arm64.deb",
+    sha256 = "978dc9ba1f36b2813138563776c7640bd6bd86fbe0a3a7da47cb8c93bfcd3807",
+    urls = [
+        "https://ports.ubuntu.com/ubuntu-ports/pool/main/libn/libnl3/libnl-route-3-200_3.7.0-0.3build1_arm64.deb",
+        "http://ports.ubuntu.com/ubuntu-ports/pool/main/libn/libnl3/libnl-route-3-200_3.7.0-0.3build1_arm64.deb",
+    ],
+)
+
+http_file(
+    name = "alpine_iputils_ping_apk",
+    sha256 = "a31f461f77b81b1c2291b38f0e4a887f83b39de5eaba2f88946d33c249e09082",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/iputils-ping-20240117-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_iputils_ping_apk_arm64",
+    sha256 = "ea1a562e247b8656ce3acd39378f2e8747b867175b01ad6189504daf4a3937c5",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/aarch64/iputils-ping-20240117-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_nmap_apk",
+    sha256 = "4259d97c8f0d59c74e090950d1b33d303da3d1122ea3a636308786292996d131",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/nmap-7.95-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_nmap_apk_arm64",
+    sha256 = "c3f029f9d57cea11918aced42eeafda13dd522619868a196f0b36d03d9bd2043",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/aarch64/nmap-7.95-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_netcat_openbsd_apk",
+    sha256 = "a1d83ec145cf1e2c56e6a032066770575d0fee477e443dc25dc23a1bdff920ce",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/netcat-openbsd-1.226-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_netcat_openbsd_apk_arm64",
+    sha256 = "d7a07cf53de0584b12ae3233df7640e7815db2fc5c6ba69a76510668b0c70733",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/aarch64/netcat-openbsd-1.226-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_inetutils_telnet_apk",
+    sha256 = "75e4ddbbd4f2f59558ca2603f38ef22cc48bb8f0b20f2f232a7e8ed1a40e07f6",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/community/x86_64/inetutils-telnet-2.5-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_inetutils_telnet_apk_arm64",
+    sha256 = "d115b06dde9d1163fa1ce9e96a99492c7a5b559bc87b854f80bd4fcdffbc7974",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/community/aarch64/inetutils-telnet-2.5-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_libcap2_apk",
+    sha256 = "8ec50cd7887f19c6936dd25a48796c5aa60dec019809b7813f9173aecabd1b43",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/libcap2-2.78-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_libcap2_apk_arm64",
+    sha256 = "80cfbaffa9b278a4a4cbb0ebe0290232925dcaa9d6b45673b2b1cd6c6d92b200",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/aarch64/libcap2-2.78-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_libpcap_apk",
+    sha256 = "79b8536d0854612169de44eea053423daa07fde6ab836edaee9444143090d8f3",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/libpcap-1.10.4-r1.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_libpcap_apk_arm64",
+    sha256 = "ad4265e548c457143d2b43f0b972c17670150bc2dfe6ad65da8ed6fdb0b7b920",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/aarch64/libpcap-1.10.4-r1.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_libbsd_apk",
+    sha256 = "8936afde94982d1152fab86d45e8ced56004ef9c21c78719b86c056a8b25769d",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/libbsd-0.12.2-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_libbsd_apk_arm64",
+    sha256 = "5685d7302b4bbb5665e6ad3e59c61e4cfa69bd2c78911f4fae5d2439b0088eba",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/aarch64/libbsd-0.12.2-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_libmd_apk",
+    sha256 = "831be0b851d8dbf0cb9e9412cba2e799d24cebea966660bb863426c6d18e88eb",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/libmd-1.1.0-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_libmd_apk_arm64",
+    sha256 = "48ef621c994f1ed7a56b6ecac6534a0dff889e067384e5863a742adf73b3b2c2",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/aarch64/libmd-1.1.0-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_bash_apk",
+    sha256 = "132bb6f77fcad208b44b54d1fd73cb5e02cfea18f884b399f8de0e38b5134a93",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/bash-5.2.26-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_bash_apk_arm64",
+    sha256 = "081b0a361203d37732fdc65412c9bb2d5944e7dc198c76d23b4cb30743d8c461",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/aarch64/bash-5.2.26-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_glibc_apk",
+    sha256 = "276f43ce9b2d5878422bca94ca94e882a7eb263abe171d233ac037201ffcaf06",
+    urls = [
+        "https://github.com/sgerrand/alpine-pkg-glibc/releases/download/2.35-r1/glibc-2.35-r1.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_libncursesw_apk",
+    sha256 = "db40dff96b7bb668257e45a5d14cab346bdfc7992598d5c51ee64dfc4ad014d5",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/libncursesw-6.4_p20240420-r2.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_libncursesw_apk_arm64",
+    sha256 = "0def98cbfab5e85e4ddfacd85840d79039f60a7e9a7717294ffa68a9c63370d8",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/aarch64/libncursesw-6.4_p20240420-r2.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_ncurses_terminfo_base_apk",
+    sha256 = "555948e6b67d4bddc213673843a63bbd3d30548133bdff8aff9e66988285ae7e",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/ncurses-terminfo-base-6.4_p20240420-r2.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_ncurses_terminfo_base_apk_arm64",
+    sha256 = "82141d0035a58317791e139a0b68c0837c98c0836bc0bafb10bb16adf0bcc7bd",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/aarch64/ncurses-terminfo-base-6.4_p20240420-r2.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_readline_apk",
+    sha256 = "177b9c76718d0a12cd1c27f2a3e422341ad93259ad56d77f55da712563049aed",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/readline-8.2.10-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_readline_apk_arm64",
+    sha256 = "9e69da5ea8ff8c0bdde1ffa272ec4287684eebda8fdfe0f4a45d842d0ff787e6",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/aarch64/readline-8.2.10-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_3_24_bash_apk",
+    sha256 = "4ad962f26fb3c68365171233fe61e3c51bbee1cab35e8dc661198233daeab0dd",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/bash-5.3.9-r1.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_3_24_bash_apk_arm64",
+    sha256 = "95f4f976bdf2f4ca18ff41c32916eb6d7b12a0dae12504d55d04427460d6542f",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/bash-5.3.9-r1.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_3_24_openssl_apk",
+    sha256 = "e18c561e6a8fb744b42fe000f4a8cdfcc38e7956e62a6ab44b0a0580db948450",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/openssl-3.5.8-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_3_24_openssl_apk_arm64",
+    sha256 = "0d12f4f145ec045dd19e8465bd3cb07b08197f96a3776641511dc2bec53cc0b7",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/openssl-3.5.8-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_3_24_libssl3_apk",
+    sha256 = "aca521e5ae4a321322a9d47ed64a1775f5ab1ffd215d1e9fc0433c58f7bfd037",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/libssl3-3.5.8-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_3_24_libssl3_apk_arm64",
+    sha256 = "d6ec970cc10e01539e41626f720c4e0ac69016eaa2079a10ef776ffd3243db5b",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/libssl3-3.5.8-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_3_24_libcrypto3_apk",
+    sha256 = "161223a16f042b8e469e9441291e071464fd91d4f4bbe6f496ee8d0abd4e0701",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/libcrypto3-3.5.8-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_3_24_libcrypto3_apk_arm64",
+    sha256 = "35b892813c23664a3592e4fc8c12a03538a22c579057655361c7043305272a9a",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/libcrypto3-3.5.8-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_3_24_readline_apk",
+    sha256 = "766911ecb986a6c5cf0841a6b556cd1e9dbbf22b3559726de32416486cd15c81",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/readline-8.3.3-r1.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_3_24_readline_apk_arm64",
+    sha256 = "9f0ae0923c02b0d6aba62e9173542b65396ba3f0efefcbf087ea32f1120e7b34",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/readline-8.3.3-r1.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_3_24_libncursesw_apk",
+    sha256 = "cf8caa8a88bc4ce9d9e395567fefaf9ef7fbd55c50ae6155b35c1b58f3755023",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/libncursesw-6.6_p20260516-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_3_24_libncursesw_apk_arm64",
+    sha256 = "51a7aa4b3ec40b144d0801c0544e0a9f62e2a41d04b6067bb5e95786040741c6",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/libncursesw-6.6_p20260516-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_3_24_ncurses_terminfo_base_apk",
+    sha256 = "ce83be6d0bd10584a53c3a5868cc1595ce5f0f8e0b621f8f7f70b6144e521fc9",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/ncurses-terminfo-base-6.6_p20260516-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_3_24_ncurses_terminfo_base_apk_arm64",
+    sha256 = "e0c546b9461bdce206a90bc720cb69aa4628b5a5b8d908c3e5084e00f28f6a9d",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/ncurses-terminfo-base-6.6_p20260516-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_3_24_postgresql_common_apk",
+    sha256 = "749d8a88b56c84b415372655435600c749345113e21ce8fe9964f7e22345cbff",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/postgresql-common-1.3-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_3_24_postgresql_common_apk_arm64",
+    sha256 = "ecddbd6272f5034f30d78ff59634c07f862a13a2ad3d29078c0e7985b827fc73",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/postgresql-common-1.3-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_3_24_postgresql18_client_apk",
+    sha256 = "7c1926e910c680312135e0ffe37f624ae9f00ba95c1c1a34bfadce0d9bea3e2d",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/postgresql18-client-18.6-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_3_24_postgresql18_client_apk_arm64",
+    sha256 = "8a2b694ac3615150725c98adffa3b539641eda33a11cefd015cb595dfa7481aa",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/postgresql18-client-18.6-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_3_24_libpq_apk",
+    sha256 = "a48a15bc7f09bb7a6eeea86f326eec007ea02e626fefdd098034096b6e70489b",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/libpq-18.6-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_3_24_libpq_apk_arm64",
+    sha256 = "b70f46c6095d498ad4b1eb8dc7c439a287f6e9bc2954ac1d925acc11bb34a13f",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/libpq-18.6-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_3_24_lz4_libs_apk",
+    sha256 = "3ad4912ab8ecf5f6236fdb751f88243006b3a8f152684e455b781e16284dd298",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/lz4-libs-1.10.0-r1.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_3_24_lz4_libs_apk_arm64",
+    sha256 = "af6cbe553adda941e04ac40cf0123455b714d65392472389113e7d6dcebbd8d8",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/lz4-libs-1.10.0-r1.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_3_24_zstd_libs_apk",
+    sha256 = "23c6065b0049b2406441564bcf0032515a43f78e80d76fcb85535a3803ef5d4e",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/zstd-libs-1.5.7-r2.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_3_24_zstd_libs_apk_arm64",
+    sha256 = "2bb5136c89f5b0bbe1554c8915a3b520d5aa63ae2a51d4d821eb81698db5a818",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/zstd-libs-1.5.7-r2.apk",
+    ],
+)
+
+http_archive(
+    name = "grpcurl_linux_amd64",
+    build_file_content = """
+exports_files(["grpcurl"])
+""",
+    sha256 = "a422d1e8ad854a305c0dd53f2f2053da242211d3d1810e7addb40a041e309516",
+    strip_prefix = "",
+    urls = [
+        "https://github.com/fullstorydev/grpcurl/releases/download/v1.8.9/grpcurl_1.8.9_linux_x86_64.tar.gz",
+    ],
+)
+
+http_archive(
+    name = "grpcurl_linux_arm64",
+    build_file_content = """
+exports_files(["grpcurl"])
+""",
+    sha256 = "1303f4c1c6667f31b80efbe483875c749c94c8cb0d8b631bd64179f0b140714d",
+    strip_prefix = "",
+    urls = [
+        "https://github.com/fullstorydev/grpcurl/releases/download/v1.8.9/grpcurl_1.8.9_linux_arm64.tar.gz",
+    ],
+)
+
+http_archive(
+    name = "natscli_linux_amd64",
+    build_file_content = """
+exports_files(["nats"])
+""",
+    sha256 = "965a1a68a67a20cf9513f6e3fec612bbef81d25d519177c460afddbcf72e1d4b",
+    strip_prefix = "nats-0.3.0-linux-amd64",
+    urls = [
+        "https://github.com/nats-io/natscli/releases/download/v0.3.0/nats-0.3.0-linux-amd64.zip",
+    ],
+)
+
+http_archive(
+    name = "natscli_linux_arm64",
+    build_file_content = """
+exports_files(["nats"])
+""",
+    sha256 = "88020e82d4b65037d22b6d0313e61f1ceae5a24c68cad0dd405e54c4a4d7fe1c",
+    strip_prefix = "nats-0.3.0-linux-arm64",
+    urls = [
+        "https://github.com/nats-io/natscli/releases/download/v0.3.0/nats-0.3.0-linux-arm64.zip",
+    ],
+)
+
+http_file(
+    name = "kubectl_linux_amd64",
+    downloaded_file_path = "kubectl",
+    executable = True,
+    sha256 = "aaa7e6ff3bd28c262f2d95c8c967597e097b092e9b79bcb37de699e7488e3e7b",
+    urls = [
+        "https://dl.k8s.io/release/v1.32.5/bin/linux/amd64/kubectl",
+    ],
+)
+
+http_file(
+    name = "sfw_free_linux_amd64",
+    downloaded_file_path = "sfw",
+    executable = True,
+    sha256 = "1ea16f15f1217bde66ac9c7d0262c7126b7bb1b2d60e14e8fa0982456139ae6e",
+    urls = [
+        "https://github.com/SocketDev/sfw-free/releases/download/v1.10.0/sfw-free-linux-x86_64",
+    ],
+)
+
+http_archive(
+    name = "remote_coverage_tools",
+    sha256 = "aab349130118497d86bc79e3f735f026d3c36e7d38529063e91da1c29cc2ea47",
+    urls = [
+        "https://mirror.bazel.build/bazel_coverage_output_generator/releases/coverage_output_generator-v2.9.zip",
+    ],
+)
+
+http_archive(
+    name = "nats_server_linux_amd64",
+    build_file_content = """
+filegroup(
+    name = "nats_server",
+    srcs = ["nats-server"],
+    visibility = ["//visibility:public"],
+)
+""",
+    sha256 = "3d8b74dfad39af184c765a6dd120441ed1c648d6672eddf6b304f222661251b8",
+    strip_prefix = "nats-server-v2.14.0-linux-amd64",
+    urls = [
+        "https://github.com/nats-io/nats-server/releases/download/v2.14.0/nats-server-v2.14.0-linux-amd64.tar.gz",
+    ],
+)
+
+# --- CNPG extension sources ----------------------------------
+
+http_archive(
+    name = "timescaledb_src",
+    build_file_content = """
+filegroup(
+    name = "all_srcs",
+    srcs = glob(["**"], exclude = ["BUILD", "BUILD.bazel"]),
+    visibility = ["//visibility:public"],
+)
+""",
+    sha256 = "06a5d38c52bebb364104541002ccfb9ea739f93183c339895f0d1ed90b005e17",
+    strip_prefix = "timescaledb-2.24.0",
+    urls = [
+        "https://github.com/timescale/timescaledb/archive/refs/tags/2.24.0.tar.gz",
+    ],
+)
+
+http_archive(
+    name = "age_src",
+    build_file_content = """
+filegroup(
+    name = "all_srcs",
+    srcs = glob(["**"], exclude = ["BUILD", "BUILD.bazel"]),
+    visibility = ["//visibility:public"],
+)
+""",
+    sha256 = "2e503283704eb7b9d9a251cbf4bd1d186a33016e31f4617bbf37a4d60e38ae02",
+    strip_prefix = "apache-age-1.7.0",
+    # archive.apache.org FIRST: downloads.apache.org carries only the CURRENT release, so a
+    # pinned URL 404s the moment the project ships a new one (AGE 1.8.0 did exactly that,
+    # failing the loading phase). Kept second: faster while current, harmless once it 404s.
+    urls = [
+        "https://archive.apache.org/dist/age/PG18/1.7.0/apache-age-1.7.0-src.tar.gz",
+        "https://downloads.apache.org/age/PG18/1.7.0/apache-age-1.7.0-src.tar.gz",
+    ],
+)
+
+# Precompiled Rustler NIFs, pinned so no Mix action has to reach the network for one.
+#
+# rustler_precompiled downloads these itself from GitHub during `mix compile`, keyed on the
+# target triple. Even with the triple now correct (see _target_triple_env in
+# //build:mix_app.bzl) that is still a network fetch from inside a supposedly hermetic
+# action. Pinning them here makes the artefact a declared input with a verified checksum;
+# //third_party/precompiled_nifs stages the right one per target platform, and
+# RUSTLER_PRECOMPILED_GLOBAL_CACHE_PATH points the library at it.
+#
+# The sha256s are upstream's own, published in mdex_native's
+# checksum-Elixir.MDExNative.Native.exs. Bump both together with the mdex version.
+[
+    http_file(
+        name = "mdex_native_nif_" + arch,
+        downloaded_file_path = "libmdex_native_nif-v0.2.5-nif-2.15-" + arch + "-unknown-linux-gnu.so.tar.gz",
+        sha256 = sha,
+        urls = ["https://github.com/leandrocp/mdex_native/releases/download/v0.2.5/libmdex_native_nif-v0.2.5-nif-2.15-" + arch + "-unknown-linux-gnu.so.tar.gz"],
+    )
+    for arch, sha in [
+        ("x86_64", "d3ec8cd4237c25791dba415ae08acb90f57eee927275de644b2a96dbbe9c6c71"),
+        ("aarch64", "4a842f2427e8fffa19d781d6083ebbfba53ce4b822064276779d4c05d85fbd11"),
+    ]
+]
+
+# The arm64 half of the Membrane precompiled set above.
+#
+# These were long believed not to exist -- //openspec called core_elx unfixable because of
+# "ten x86_64-only archives with no arm64 upstream". That was never checked: every one of
+# the ten publishes a Linux ARM build under the SAME release tag as the amd64 archive, so
+# these pins carry identical versions to their siblings. Bump each pair together.
+#
+# Bundlex matches by URL BASENAME, so downloaded_file_path has to be exactly the name it
+# would have fetched, or it downloads the archive again and the pin does nothing.
+
+http_file(
+    name = "membrane_precompiled_fdk_aac_arm64",
+    downloaded_file_path = "fdk-aac_linux_arm.tar.gz",
+    sha256 = "4623d50a83a55f8fb5aa2176d9ce1b5e5be808c99ef82285ef92cc610823bf15",
+    urls = [
+        "https://github.com/membraneframework-precompiled/precompiled_fdk-aac/releases/download/v2.0.3/fdk-aac_linux_arm.tar.gz",
+    ],
+)
+
+http_file(
+    name = "membrane_precompiled_lame_arm64",
+    downloaded_file_path = "lame_linux_arm.tar.gz",
+    sha256 = "c7366da5b295194130eb2965619bb84585e03b5ed6e5389f9b6fb2d0e2ec6990",
+    urls = [
+        "https://github.com/membraneframework-precompiled/precompiled_lame/releases/download/v3.100/lame_linux_arm.tar.gz",
+    ],
+)
+
+http_file(
+    name = "membrane_precompiled_mad_arm64",
+    downloaded_file_path = "mad_linux_arm.tar.gz",
+    sha256 = "28c8b62f5610ec5ea2cc65bf2ba4667598bc2600d7ee0043dbf8b08e556242b4",
+    urls = [
+        "https://github.com/membraneframework-precompiled/precompiled_mad/releases/download/v0.15.1b/mad_linux_arm.tar.gz",
+    ],
+)
+
+http_file(
+    name = "membrane_precompiled_opus_arm64",
+    downloaded_file_path = "opus_linux_arm.tar.gz",
+    sha256 = "d7930fe58aad9f8e12c766be5446763a3f6586954e61c9dfec9ef6ff7ef434f5",
+    urls = [
+        "https://github.com/membraneframework-precompiled/precompiled_opus/releases/download/v1.5.2/opus_linux_arm.tar.gz",
+    ],
+)
+
+http_file(
+    name = "membrane_precompiled_portaudio_arm64",
+    downloaded_file_path = "portaudio_linux_arm.tar.gz",
+    sha256 = "2dc8f96b801d37961b7b38fa513e7a8a86dcd98f474a9bba239abff1b0059516",
+    urls = [
+        "https://github.com/membraneframework-precompiled/precompiled_portaudio/releases/download/v19.7.0/portaudio_linux_arm.tar.gz",
+    ],
+)
+
+http_file(
+    name = "membrane_precompiled_sdl2_arm64",
+    downloaded_file_path = "sdl2_linux_arm.tar.gz",
+    sha256 = "7249e8fb5627b2ad7f12e8ab060edc872083bb1ac5c7c98708584d91714ae435",
+    urls = [
+        "https://github.com/membraneframework-precompiled/precompiled_sdl2/releases/download/v2.32.10/sdl2_linux_arm.tar.gz",
+    ],
+)
+
+http_file(
+    name = "membrane_precompiled_libvpx_arm64",
+    downloaded_file_path = "libvpx_linux_arm.tar.gz",
+    sha256 = "a4f45a0ff09f288ada8d1867287bad648265df9bb28855c82fcbd6ca266d7f87",
+    urls = [
+        "https://github.com/membraneframework-precompiled/precompiled_libvpx/releases/download/v1.15.2/libvpx_linux_arm.tar.gz",
+    ],
+)
+
+http_file(
+    name = "membrane_precompiled_srt_arm64",
+    downloaded_file_path = "srt_linux_arm.tar.gz",
+    sha256 = "a1909e60ec1b51f44a7a088234d0a5ba3246c4c28438618fe61129b6fc4ac8a5",
+    urls = [
+        "https://github.com/membraneframework-precompiled/precompiled_srt/releases/download/v1.5.4/srt_linux_arm.tar.gz",
+    ],
+)
+
+http_file(
+    name = "membrane_precompiled_srtp_arm64",
+    downloaded_file_path = "srtp_linux_arm.tar.gz",
+    sha256 = "31f49db5113df43f6755ddc44731dad6a35061c1776167c20e75e7eba4bbb2c7",
+    urls = [
+        "https://github.com/membraneframework-precompiled/precompiled_srtp/releases/download/v2.7.0/srtp_linux_arm.tar.gz",
+    ],
+)
+
+http_file(
+    name = "membrane_precompiled_ffmpeg_arm64",
+    downloaded_file_path = "ffmpeg_linuxarm64.tar.xz",
+    sha256 = "944b91342268c0c4d7c924e838b68ef3d6cffee0ea259f598b6f4e4574973a2b",
+    urls = [
+        "https://github.com/membraneframework-precompiled/precompiled_ffmpeg/releases/download/v6.0.1/ffmpeg_linuxarm64.tar.xz",
+    ],
+)
+
+# vix's precompiled NIF, both architectures, staged by //build:mix_app.bzl into
+# ELIXIR_MAKE_CACHE_DIR. Checksums are vix's own, copied from the `checksum.exs` it ships;
+# elixir_make re-verifies against that same file before extracting, so a wrong pin here
+# fails loudly rather than shipping a mismatched artefact.
+#
+# BOTH are staged for every build, which is deliberate -- see _HOST_NIF_APPS in
+# //build:mix_app.bzl. vix executes its own NIF during `mix compile` to enumerate libvips
+# enums, so the compile needs the EXECUTOR's architecture while the packaged priv needs the
+# TARGET's. The nif-2.17 in the name is OTP 28's NIF version; bump these together with OTP.
+http_file(
+    name = "vix_nif_x86_64",
+    downloaded_file_path = "vix-nif-2.17-x86_64-linux-gnu-0.40.0.tar.gz",
+    sha256 = "26bc9f50d6f1590e5884c8ca9b16579c10a1abc291e358972bac8c56a962470e",
+    urls = [
+        "https://github.com/akash-akya/vix/releases/download/v0.40.0/vix-nif-2.17-x86_64-linux-gnu-0.40.0.tar.gz",
+    ],
+)
+
+http_file(
+    name = "vix_nif_aarch64",
+    downloaded_file_path = "vix-nif-2.17-aarch64-linux-gnu-0.40.0.tar.gz",
+    sha256 = "4af83bfeb0d70a016c16f3f9acfd033f33818cd11bc57223d1fef62e228f831c",
+    urls = [
+        "https://github.com/akash-akya/vix/releases/download/v0.40.0/vix-nif-2.17-aarch64-linux-gnu-0.40.0.tar.gz",
+    ],
+)
+
+# Bun runtime for Phoenix React Server SSR
+# Used by web-ng for client-side React components (GoRules JDM editor)
+http_archive(
+    name = "bun_linux_amd64",
+    build_file_content = """
+package(default_visibility = ["//visibility:public"])
+exports_files(["bun"])
+""",
+    sha256 = "9ba98d2134550d6690875b23a4f5c48e74b7cb267e8cc1b8f52605921c6c11ef",
+    strip_prefix = "bun-linux-x64",
+    urls = [
+        "https://github.com/oven-sh/bun/releases/download/bun-v1.3.6/bun-linux-x64.zip",
+    ],
+)
+
+# The arm64 half of the pair above; bump both to the same bun version at once. Note the
+# archive's own directory is named for the arch, hence the differing strip_prefix.
+http_archive(
+    name = "bun_linux_aarch64",
+    build_file_content = """
+package(default_visibility = ["//visibility:public"])
+exports_files(["bun"])
+""",
+    sha256 = "5afd12b366ba2d8297245cc29c039416334dd872152c1db02e5c8aa8c66e96b1",
+    strip_prefix = "bun-linux-aarch64",
+    urls = [
+        "https://github.com/oven-sh/bun/releases/download/bun-v1.3.6/bun-linux-aarch64.zip",
+    ],
+)
+
+# Additional module extensions will be layered in as language owners migrate to
+# Bazel (e.g., http_file for binary deps).

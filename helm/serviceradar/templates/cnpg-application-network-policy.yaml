@@ -1,0 +1,52 @@
+{{- $cnpg := default (dict) .Values.cnpg -}}
+{{- $applicationAccess := default (dict) $cnpg.applicationAccess -}}
+{{- $networkPolicy := default (dict) .Values.networkPolicy -}}
+{{- $networkPolicyIngress := default (dict) $networkPolicy.ingress -}}
+{{- $cnpgOperator := default (dict) $networkPolicyIngress.cnpgOperator -}}
+{{- $cnpgInstanceManager := default (dict) $networkPolicyIngress.cnpgInstanceManager -}}
+{{- $cnpgOperatorNamespace := default "cnpg-system" $cnpgOperator.namespace -}}
+{{- $cnpgOperatorPort := default 8000 $cnpgOperator.port -}}
+{{- $cnpgInstanceManagerPort := default 8000 $cnpgInstanceManager.port -}}
+{{- $applicationAccessEnabled := true -}}
+{{- if hasKey $applicationAccess "enabled" -}}
+  {{- $applicationAccessEnabled = $applicationAccess.enabled -}}
+{{- end -}}
+{{- if and (default true $cnpg.enabled) $applicationAccessEnabled }}
+{{- $clusterName := include "serviceradar.cnpgClusterName" . -}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ default (printf "%s-cnpg-app-postgres" (include "serviceradar.fullname" .)) $applicationAccess.policyName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: cnpg
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: {{ $clusterName | quote }}
+      cnpg.io/instanceRole: primary
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 5432
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $cnpgOperatorNamespace | quote }}
+      ports:
+        - protocol: TCP
+          port: {{ $cnpgOperatorPort }}
+    - from:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: {{ $clusterName | quote }}
+              cnpg.io/podRole: instance
+      ports:
+        - protocol: TCP
+          port: {{ $cnpgInstanceManagerPort }}
+{{- end }}

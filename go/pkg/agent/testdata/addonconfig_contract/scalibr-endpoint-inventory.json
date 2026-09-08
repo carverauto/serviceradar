@@ -1,0 +1,1 @@
+{"agent_id":"agent-demo-01","cadence":"12h","collect_file_hashes":false,"collect_paths":true,"enabled":true,"max_packages":100000,"network_online":false,"scalibr_plugins":["os/dpkg","os/rpm","os/apk"],"scan_roots":["/"]}

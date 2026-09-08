@@ -1,0 +1,22 @@
+{{- $advisoryFeeds := default (dict) (get (default (dict) .Values.core) "advisoryFeeds") -}}
+{{- if and ($advisoryFeeds.enabled) (not $advisoryFeeds.existingClaim) (not $advisoryFeeds.emptyDir) }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: serviceradar-advisory-feeds
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: core
+spec:
+  accessModes:
+{{ toYaml (default (list "ReadWriteOnce") $advisoryFeeds.accessModes) | indent 4 }}
+  resources:
+    requests:
+      # nist-nvd2 zip ~355 MB + extracted ~360 MB; 5Gi leaves headroom for two
+      # concurrent runs plus growth (design D2).
+      storage: {{ default "5Gi" $advisoryFeeds.size | quote }}
+  {{- if $advisoryFeeds.storageClassName }}
+  storageClassName: {{ $advisoryFeeds.storageClassName | quote }}
+  {{- end }}
+{{- end }}

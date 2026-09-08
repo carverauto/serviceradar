@@ -1,0 +1,599 @@
+defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
+  use ServiceRadarWebNG.DataCase, async: true
+
+  import ServiceRadarWebNG.AshTestHelpers, only: [system_actor: 0]
+
+  alias ServiceRadarWebNG.Edge.BundleGenerator
+  alias ServiceRadarWebNG.Edge.OnboardingPackages
+
+  @onboarding_token_private_key "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+
+  setup do
+    # Create a test package
+    {:ok, result} =
+      OnboardingPackages.create(
+        %{
+          label: "test-bundle-pkg",
+          component_type: :gateway,
+          component_id: "gateway-test-bundle"
+        },
+        actor: system_actor()
+      )
+
+    %{
+      package: result.package,
+      join_token: result.join_token,
+      download_token: result.download_token
+    }
+  end
+
+  setup %{package: _package} do
+    {:ok, result} =
+      OnboardingPackages.create(
+        %{
+          label: "test-agent-bundle-pkg",
+          component_type: :agent,
+          component_id: "agent-test-bundle"
+        },
+        actor: system_actor()
+      )
+
+    %{
+      agent_package: result.package,
+      agent_join_token: result.join_token,
+      agent_download_token: result.download_token
+    }
+  end
+
+  describe "create_tarball/4" do
+    test "creates a valid gzipped tarball", %{package: package, join_token: join_token} do
+      bundle_pem = sample_bundle_pem()
+
+      assert {:ok, tarball} = BundleGenerator.create_tarball(package, bundle_pem, join_token)
+
+      # Verify it's valid gzip data
+      assert is_binary(tarball)
+      assert byte_size(tarball) > 0
+
+      # Decompress and verify contents
+      {:ok, files} = :erl_tar.extract({:binary, tarball}, [:compressed, :memory])
+
+      file_names = Enum.map(files, fn {name, _content} -> to_string(name) end)
+
+      # Verify expected files are present
+      assert Enum.any?(file_names, &String.contains?(&1, "component.pem"))
+      assert Enum.any?(file_names, &String.contains?(&1, "component-key.pem"))
+      assert Enum.any?(file_names, &String.contains?(&1, "ca-chain.pem"))
+      assert Enum.any?(file_names, &String.contains?(&1, "config.yaml"))
+      assert Enum.any?(file_names, &String.contains?(&1, "install.sh"))
+      assert Enum.any?(file_names, &String.contains?(&1, "README.md"))
+    end
+
+    test "generates install.sh with correct component type", %{
+      package: package,
+      join_token: join_token
+    } do
+      {:ok, tarball} = BundleGenerator.create_tarball(package, "", join_token)
+
+      {:ok, files} = :erl_tar.extract({:binary, tarball}, [:compressed, :memory])
+
+      {_, install_sh} =
+        Enum.find(files, fn {name, _} ->
+          name |> to_string() |> String.ends_with?("install.sh")
+        end)
+
+      assert install_sh =~ "COMPONENT_TYPE=\"gateway\""
+      assert install_sh =~ "ServiceRadar Edge Component Installer"
+      assert install_sh =~ "docker"
+      assert install_sh =~ "systemd"
+    end
+
+    test "generates config.yaml with correct structure", %{
+      package: package,
+      join_token: join_token
+    } do
+      {:ok, tarball} = BundleGenerator.create_tarball(package, "", join_token)
+
+      {:ok, files} = :erl_tar.extract({:binary, tarball}, [:compressed, :memory])
+
+      {_, config_yaml} =
+        Enum.find(files, fn {name, _} ->
+          name |> to_string() |> String.ends_with?("config.yaml")
+        end)
+
+      assert config_yaml =~ "component_type:"
+      assert config_yaml =~ "gateway_security:"
+      assert config_yaml =~ "tls:"
+      assert config_yaml =~ "component.pem"
+    end
+
+    test "encodes YAML string values as a single safe scalar", %{
+      package: package,
+      join_token: join_token
+    } do
+      malicious_gateway_addr = "demo-gw.serviceradar.cloud:50052\\\nmalicious: true"
+
+      {:ok, tarball} =
+        BundleGenerator.create_tarball(
+          package,
+          "",
+          join_token,
+          gateway_addr: malicious_gateway_addr
+        )
+
+      {:ok, files} = :erl_tar.extract({:binary, tarball}, [:compressed, :memory])
+
+      {_, config_yaml} =
+        Enum.find(files, fn {name, _} ->
+          name |> to_string() |> String.ends_with?("config.yaml")
+        end)
+
+      gateway_line =
+        config_yaml
+        |> String.split("\n")
+        |> Enum.find(&String.starts_with?(&1, "gateway_addr: "))
+
+      assert gateway_line =~ "gateway_addr: \"demo-gw.serviceradar.cloud:50052\\\\\\\\\\nmalicious: true\""
+      refute config_yaml =~ "\nmalicious: true\n"
+    end
+
+    test "handles empty bundle_pem gracefully", %{package: package, join_token: join_token} do
+      assert {:ok, tarball} = BundleGenerator.create_tarball(package, "", join_token)
+      assert is_binary(tarball)
+    end
+
+    test "never tars NATS creds or advertises NATS settings for agent packages",
+         %{
+           agent_package: agent_package,
+           agent_join_token: agent_join_token
+         } do
+      creds_content = "-----BEGIN NATS USER JWT-----\ntoken\n------END NATS USER JWT------\n"
+
+      {:ok, tarball} =
+        BundleGenerator.create_tarball(
+          agent_package,
+          "",
+          agent_join_token,
+          nats_creds: creds_content,
+          nats_url: "nats://example.test:4222"
+        )
+
+      {:ok, files} = :erl_tar.extract({:binary, tarball}, [:compressed, :memory])
+
+      refute Enum.any?(files, fn {name, _} ->
+               name |> to_string() |> String.ends_with?("creds/nats.creds")
+             end)
+
+      {_, config_json} =
+        Enum.find(files, fn {name, _} ->
+          name |> to_string() |> String.ends_with?("config.json")
+        end)
+
+      config = Jason.decode!(config_json)
+      refute Map.has_key?(config, "nats_creds_file")
+      refute Map.has_key?(config, "nats_url")
+    end
+
+    test "omits creds/nats.creds for agent packages without provisioned creds",
+         %{agent_package: agent_package, agent_join_token: agent_join_token} do
+      {:ok, tarball} =
+        BundleGenerator.create_tarball(agent_package, "", agent_join_token)
+
+      {:ok, files} = :erl_tar.extract({:binary, tarball}, [:compressed, :memory])
+
+      refute Enum.any?(files, fn {name, _} ->
+               name |> to_string() |> String.ends_with?("creds/nats.creds")
+             end)
+
+      {_, config_json} =
+        Enum.find(files, fn {name, _} ->
+          name |> to_string() |> String.ends_with?("config.json")
+        end)
+
+      config = Jason.decode!(config_json)
+      refute Map.has_key?(config, "nats_creds_file")
+      refute Map.has_key?(config, "nats_url")
+    end
+
+    test "never tars creds/nats.creds for non-agent (gateway) packages even when option is set",
+         %{package: package, join_token: join_token} do
+      # Gateway packages must never carry per-agent flow-collector creds —
+      # they don't publish to flow.host-slice.* and an accidental
+      # nats_creds: opt should be a no-op.
+      {:ok, tarball} =
+        BundleGenerator.create_tarball(
+          package,
+          "",
+          join_token,
+          nats_creds: "should-be-ignored\n"
+        )
+
+      {:ok, files} = :erl_tar.extract({:binary, tarball}, [:compressed, :memory])
+
+      refute Enum.any?(files, fn {name, _} ->
+               name |> to_string() |> String.ends_with?("creds/nats.creds")
+             end)
+    end
+  end
+
+  describe "bundle_filename/1" do
+    test "generates correct filename format", %{package: package} do
+      filename = BundleGenerator.bundle_filename(package)
+
+      assert filename =~ "edge-package-"
+      assert filename =~ ".tar.gz"
+      # Should contain first 8 chars of package ID
+      assert String.length(filename) > 20
+    end
+  end
+
+  describe "gateway defaults" do
+    test "derives gateway addr from base_url and uses hosted gateway host as server_name", %{
+      package: package,
+      join_token: join_token
+    } do
+      existing = Application.get_env(:serviceradar_web_ng, :gateway_addr)
+
+      Application.delete_env(:serviceradar_web_ng, :gateway_addr)
+
+      on_exit(fn ->
+        if is_nil(existing) do
+          Application.delete_env(:serviceradar_web_ng, :gateway_addr)
+        else
+          Application.put_env(:serviceradar_web_ng, :gateway_addr, existing)
+        end
+      end)
+
+      {:ok, tarball} =
+        BundleGenerator.create_tarball(package, "", join_token, base_url: "https://demo.serviceradar.cloud")
+
+      {:ok, files} = :erl_tar.extract({:binary, tarball}, [:compressed, :memory])
+
+      {_, config_json} =
+        Enum.find(files, fn {name, _} ->
+          name |> to_string() |> String.ends_with?("config.json")
+        end)
+
+      config = Jason.decode!(config_json)
+
+      assert config["gateway_addr"] == "demo-gw.serviceradar.cloud:50052"
+      assert get_in(config, ["gateway_security", "server_name"]) == "demo-gw.serviceradar.cloud"
+    end
+
+    test "uses configured hosted gateway addr and server_name overrides", %{
+      package: package,
+      join_token: join_token
+    } do
+      existing_gateway_addr = Application.get_env(:serviceradar_web_ng, :gateway_addr)
+      existing_gateway_server_name = Application.get_env(:serviceradar_web_ng, :gateway_server_name)
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :gateway_addr,
+        "test-tenant.grpc.serviceradar.cloud:50052"
+      )
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :gateway_server_name,
+        "test-tenant.grpc.serviceradar.cloud"
+      )
+
+      on_exit(fn ->
+        if is_nil(existing_gateway_addr) do
+          Application.delete_env(:serviceradar_web_ng, :gateway_addr)
+        else
+          Application.put_env(:serviceradar_web_ng, :gateway_addr, existing_gateway_addr)
+        end
+
+        if is_nil(existing_gateway_server_name) do
+          Application.delete_env(:serviceradar_web_ng, :gateway_server_name)
+        else
+          Application.put_env(
+            :serviceradar_web_ng,
+            :gateway_server_name,
+            existing_gateway_server_name
+          )
+        end
+      end)
+
+      {:ok, tarball} =
+        BundleGenerator.create_tarball(
+          package,
+          "",
+          join_token,
+          base_url: "https://test-tenant.serviceradar.cloud"
+        )
+
+      {:ok, files} = :erl_tar.extract({:binary, tarball}, [:compressed, :memory])
+
+      {_, config_json} =
+        Enum.find(files, fn {name, _} ->
+          name |> to_string() |> String.ends_with?("config.json")
+        end)
+
+      config = Jason.decode!(config_json)
+
+      assert config["gateway_addr"] == "test-tenant.grpc.serviceradar.cloud:50052"
+
+      assert get_in(config, ["gateway_security", "server_name"]) ==
+               "test-tenant.grpc.serviceradar.cloud"
+    end
+  end
+
+  describe "agent release verification trust anchor" do
+    test "agent bundle omits agent-env-overrides.env even when release key is configured", %{
+      agent_package: package,
+      agent_join_token: join_token
+    } do
+      {:ok, tarball} =
+        BundleGenerator.create_tarball(
+          package,
+          "",
+          join_token,
+          agent_release_public_key: "dLbXN6ouezVOgWJhOPoGTm1moz8MuxDcPmX5RdjM0Ns="
+        )
+
+      {:ok, files} = :erl_tar.extract({:binary, tarball}, [:compressed, :memory])
+
+      refute Enum.any?(files, fn {name, _} ->
+               name |> to_string() |> String.ends_with?("config/agent-env-overrides.env")
+             end)
+
+      {_, config_json} =
+        Enum.find(files, fn {name, _} ->
+          name |> to_string() |> String.ends_with?("config/config.json")
+        end)
+
+      config = Jason.decode!(config_json)
+      refute Map.has_key?(config, "release_public_key")
+      refute Map.has_key?(config, "agent_release_public_key")
+    end
+
+    test "agent bundle omits agent-env-overrides.env when release key is not configured", %{
+      agent_package: package,
+      agent_join_token: join_token
+    } do
+      {:ok, tarball} = BundleGenerator.create_tarball(package, "", join_token)
+      {:ok, files} = :erl_tar.extract({:binary, tarball}, [:compressed, :memory])
+
+      refute Enum.any?(files, fn {name, _} ->
+               name |> to_string() |> String.ends_with?("config/agent-env-overrides.env")
+             end)
+    end
+  end
+
+  describe "agent enrollment instructions" do
+    test "agent install script passes an explicit core-url with the onboarding token", %{
+      agent_package: package,
+      agent_join_token: join_token,
+      agent_download_token: download_token
+    } do
+      {:ok, tarball} =
+        BundleGenerator.create_tarball(
+          package,
+          "",
+          join_token,
+          base_url: "https://demo.serviceradar.cloud",
+          download_token: download_token,
+          onboarding_token_private_key: @onboarding_token_private_key
+        )
+
+      {:ok, files} = :erl_tar.extract({:binary, tarball}, [:compressed, :memory])
+
+      {_, install_sh} =
+        Enum.find(files, fn {name, _} ->
+          name |> to_string() |> String.ends_with?("install.sh")
+        end)
+
+      assert install_sh =~
+               "/usr/local/bin/serviceradar-cli enroll --core-url 'https://demo.serviceradar.cloud' --token '"
+    end
+
+    test "agent install script treats tokenized values as shell literals", %{
+      agent_package: package,
+      agent_join_token: join_token,
+      agent_download_token: download_token
+    } do
+      {:ok, tarball} =
+        BundleGenerator.create_tarball(
+          package,
+          "",
+          join_token,
+          base_url: "https://demo.serviceradar.cloud/$(touch /tmp/pwned)",
+          download_token: download_token,
+          onboarding_token_private_key: @onboarding_token_private_key
+        )
+
+      {:ok, files} = :erl_tar.extract({:binary, tarball}, [:compressed, :memory])
+
+      {_, install_sh} =
+        Enum.find(files, fn {name, _} ->
+          name |> to_string() |> String.ends_with?("install.sh")
+        end)
+
+      assert install_sh =~
+               "/usr/local/bin/serviceradar-cli enroll --core-url 'https://demo.serviceradar.cloud/$(touch /tmp/pwned)'"
+
+      refute install_sh =~
+               "/usr/local/bin/serviceradar-cli enroll --core-url \"https://demo.serviceradar.cloud/$(touch /tmp/pwned)\""
+    end
+  end
+
+  describe "docker_install_command/3" do
+    test "generates valid docker install command", %{
+      package: package,
+      download_token: download_token
+    } do
+      cmd = BundleGenerator.docker_install_command(package, download_token)
+
+      assert cmd =~ "curl -fsSL"
+      assert cmd =~ "-X POST"
+      assert cmd =~ ~S|x-serviceradar-download-token: ${SR_TOKEN}|
+      assert cmd =~ package.id
+      refute cmd =~ download_token
+      assert cmd =~ "docker run"
+      assert cmd =~ "serviceradar-gateway"
+    end
+
+    test "uses custom base_url option", %{package: package, download_token: download_token} do
+      cmd =
+        BundleGenerator.docker_install_command(package, download_token, base_url: "https://custom.example.com")
+
+      assert cmd =~ "'https://custom.example.com/api/edge-packages/"
+    end
+
+    test "uses custom image_tag option", %{package: package, download_token: download_token} do
+      cmd = BundleGenerator.docker_install_command(package, download_token, image_tag: "v1.2.3")
+
+      assert cmd =~ ":v1.2.3"
+    end
+  end
+
+  describe "systemd_install_command/3" do
+    test "generates valid systemd install command", %{
+      package: package,
+      download_token: download_token
+    } do
+      cmd = BundleGenerator.systemd_install_command(package, download_token)
+
+      assert cmd =~ "curl -fsSL"
+      assert cmd =~ "-X POST"
+      assert cmd =~ ~S|x-serviceradar-download-token: ${SR_TOKEN}|
+      assert cmd =~ package.id
+      refute cmd =~ download_token
+      assert cmd =~ "sudo ./install.sh"
+    end
+
+    test "uses custom base_url option", %{package: package, download_token: download_token} do
+      cmd =
+        BundleGenerator.systemd_install_command(package, download_token, base_url: "https://my-server.local")
+
+      assert cmd =~ "'https://my-server.local/api/edge-packages/"
+    end
+  end
+
+  describe "kubernetes_install_command/3" do
+    test "generates valid kubernetes install command", %{
+      package: package,
+      download_token: download_token
+    } do
+      cmd = BundleGenerator.kubernetes_install_command(package, download_token)
+
+      assert cmd =~ "curl -fsSL"
+      assert cmd =~ "-X POST"
+      assert cmd =~ ~S|x-serviceradar-download-token: ${SR_TOKEN}|
+      assert cmd =~ package.id
+      refute cmd =~ download_token
+      assert cmd =~ "kubectl apply -f kubernetes/"
+      assert cmd =~ "-n 'serviceradar'"
+    end
+
+    test "uses custom namespace option", %{package: package, download_token: download_token} do
+      cmd =
+        BundleGenerator.kubernetes_install_command(package, download_token, namespace: "my-namespace")
+
+      assert cmd =~ "-n 'my-namespace'"
+    end
+  end
+
+  describe "kubernetes manifests in bundle" do
+    test "bundle contains kubernetes manifests", %{package: package, join_token: join_token} do
+      {:ok, tarball} = BundleGenerator.create_tarball(package, sample_bundle_pem(), join_token)
+
+      {:ok, files} = :erl_tar.extract({:binary, tarball}, [:compressed, :memory])
+      file_names = Enum.map(files, fn {name, _} -> to_string(name) end)
+
+      # Verify kubernetes manifest files are present
+      assert Enum.any?(file_names, &String.ends_with?(&1, "kubernetes/namespace.yaml"))
+      assert Enum.any?(file_names, &String.ends_with?(&1, "kubernetes/secret.yaml"))
+      assert Enum.any?(file_names, &String.ends_with?(&1, "kubernetes/configmap.yaml"))
+      assert Enum.any?(file_names, &String.ends_with?(&1, "kubernetes/deployment.yaml"))
+      assert Enum.any?(file_names, &String.ends_with?(&1, "kubernetes/kustomization.yaml"))
+    end
+
+    test "kubernetes secret contains base64-encoded certificates", %{
+      package: package,
+      join_token: join_token
+    } do
+      {:ok, tarball} = BundleGenerator.create_tarball(package, sample_bundle_pem(), join_token)
+
+      {:ok, files} = :erl_tar.extract({:binary, tarball}, [:compressed, :memory])
+
+      {_, secret_yaml} =
+        Enum.find(files, fn {name, _} ->
+          name |> to_string() |> String.ends_with?("kubernetes/secret.yaml")
+        end)
+
+      # Verify secret structure
+      assert secret_yaml =~ "kind: Secret"
+      assert secret_yaml =~ "type: kubernetes.io/tls"
+      assert secret_yaml =~ "tls.crt:"
+      assert secret_yaml =~ "tls.key:"
+      assert secret_yaml =~ "ca.crt:"
+    end
+
+    test "kubernetes deployment has correct security context", %{
+      package: package,
+      join_token: join_token
+    } do
+      {:ok, tarball} = BundleGenerator.create_tarball(package, sample_bundle_pem(), join_token)
+
+      {:ok, files} = :erl_tar.extract({:binary, tarball}, [:compressed, :memory])
+
+      {_, deployment_yaml} =
+        Enum.find(files, fn {name, _} ->
+          name |> to_string() |> String.ends_with?("kubernetes/deployment.yaml")
+        end)
+
+      # Verify deployment has security best practices
+      assert deployment_yaml =~ "kind: Deployment"
+      assert deployment_yaml =~ "runAsNonRoot: true"
+      assert deployment_yaml =~ "readOnlyRootFilesystem: true"
+      assert deployment_yaml =~ "allowPrivilegeEscalation: false"
+      assert deployment_yaml =~ "ServiceAccount"
+    end
+
+    test "kustomization file references all manifests", %{
+      package: package,
+      join_token: join_token
+    } do
+      {:ok, tarball} = BundleGenerator.create_tarball(package, sample_bundle_pem(), join_token)
+
+      {:ok, files} = :erl_tar.extract({:binary, tarball}, [:compressed, :memory])
+
+      {_, kustomization} =
+        Enum.find(files, fn {name, _} ->
+          name |> to_string() |> String.ends_with?("kubernetes/kustomization.yaml")
+        end)
+
+      assert kustomization =~ "kind: Kustomization"
+      assert kustomization =~ "namespace.yaml"
+      assert kustomization =~ "secret.yaml"
+      assert kustomization =~ "configmap.yaml"
+      assert kustomization =~ "deployment.yaml"
+    end
+  end
+
+  # Helper function to generate sample PEM data
+  defp sample_bundle_pem do
+    """
+    # Component Certificate
+    -----BEGIN CERTIFICATE-----
+    MIIBkjCB/AIJAKHBfpeg1kP1MA0GCSqGSIb3DQEBCwUAMBExDzANBgNVBAMMBnRl
+    c3RjYTAeFw0yMzAxMDEwMDAwMDBaFw0yNDAxMDEwMDAwMDBaMBQxEjAQBgNVBAMM
+    CXRlc3QtY29tcDBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABAAAAAAAAAAAAAAAAA==
+    -----END CERTIFICATE-----
+    # Component Private Key
+    -----BEGIN RSA PRIVATE KEY-----
+    MIIBogIBAAJBAKHBfpeg1kP1MA0GCSqGSIb3DQEBCwUAMBExDzANBgNVBAMMBnRl
+    c3RjYTAeFw0yMzAxMDEwMDAwMDBaFw0yNDAxMDEwMDAwMDBaMBQxEjAQBgNVBAMM
+    -----END RSA PRIVATE KEY-----
+    # CA Chain
+    -----BEGIN CERTIFICATE-----
+    MIIBkjCB/AIJAKHBfpeg1kP1MA0GCSqGSIb3DQEBCwUAMBExDzANBgNVBAMMBnRl
+    c3RjYTAeFw0yMzAxMDEwMDAwMDBaFw0yNDAxMDEwMDAwMDBaMBQxEjAQBgNVBAMM
+    -----END CERTIFICATE-----
+    """
+  end
+end

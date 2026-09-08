@@ -1,0 +1,365 @@
+name: Publish External Wasm Plugin
+
+on:
+  workflow_dispatch:
+    inputs:
+      plugin_repository:
+        description: "External plugin repository in the carverauto organization."
+        required: true
+        type: string
+      plugin_tag:
+        description: "Exact external plugin release tag to rebuild and publish."
+        required: true
+        default: "v0.1.0"
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.inputs.plugin_repository }}-${{ github.event.inputs.plugin_tag }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: arc-runner-set
+    timeout-minutes: 30
+    outputs:
+      source_commit: ${{ steps.source.outputs.commit }}
+      source_committed_at: ${{ steps.source.outputs.committed_at }}
+      plugin_id: ${{ steps.bundle.outputs.plugin_id }}
+      plugin_version: ${{ steps.bundle.outputs.version }}
+    steps:
+      - name: Checkout trusted ServiceRadar release code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+
+      - name: Enforce trusted workflow source and plugin inputs
+        env:
+          PLUGIN_REPOSITORY: ${{ github.event.inputs.plugin_repository }}
+          PLUGIN_TAG: ${{ github.event.inputs.plugin_tag }}
+        run: |
+          set -euo pipefail
+          if [[ ! "${GITHUB_REF}" =~ ^refs/heads/(staging|main)$ ]]; then
+            echo "External plugin publication must run from ServiceRadar staging or main" >&2
+            exit 1
+          fi
+          if [[ ! "${PLUGIN_REPOSITORY}" =~ ^carverauto/serviceradar-plugin-[a-z0-9]+([a-z0-9-]*[a-z0-9])?$ ]]; then
+            echo "Invalid external plugin repository" >&2
+            exit 1
+          fi
+          if [[ ! "${PLUGIN_TAG}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
+            echo "Invalid external plugin release tag" >&2
+            exit 1
+          fi
+
+      - name: Checkout external plugin tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: ${{ github.event.inputs.plugin_repository }}
+          ref: ${{ github.event.inputs.plugin_tag }}
+          path: external-plugin
+          fetch-depth: 0
+          persist-credentials: false
+          token: ${{ secrets.EXTERNAL_PLUGIN_GITHUB_READ_TOKEN || github.token }}
+
+      - name: Verify external source provenance
+        id: source
+        env:
+          PLUGIN_TAG: ${{ github.event.inputs.plugin_tag }}
+        run: |
+          set -euo pipefail
+          plugin_root="${GITHUB_WORKSPACE}/external-plugin"
+          source_commit="$(git -C "${plugin_root}" rev-parse HEAD)"
+          if [[ ! "${source_commit}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "External plugin tag did not resolve to a Git commit" >&2
+            exit 1
+          fi
+          tag_commit="$(git -C "${plugin_root}" rev-parse "refs/tags/${PLUGIN_TAG}^{commit}")"
+          if [[ "${tag_commit}" != "${source_commit}" ]]; then
+            echo "External checkout is not the requested exact tag" >&2
+            exit 1
+          fi
+          if ! git -C "${plugin_root}" show-ref --verify --quiet refs/remotes/origin/main; then
+            echo "External checkout did not include origin/main" >&2
+            exit 1
+          fi
+          if ! git -C "${plugin_root}" merge-base --is-ancestor "${source_commit}" origin/main; then
+            echo "External plugin release commit is not reachable from origin/main" >&2
+            exit 1
+          fi
+          source_committed_at="$(git -C "${plugin_root}" show -s --format=%cI "${source_commit}")"
+          printf 'commit=%s\n' "${source_commit}" >>"${GITHUB_OUTPUT}"
+          printf 'committed_at=%s\n' "${source_committed_at}" >>"${GITHUB_OUTPUT}"
+
+      - name: Setup pinned Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: '1.25.12'
+
+      - name: Install trusted TinyGo toolchain
+        run: ./scripts/install-external-wasm-tinygo.sh
+
+      - name: Build and package deterministic external bundle
+        id: bundle
+        env:
+          PLUGIN_TAG: ${{ github.event.inputs.plugin_tag }}
+          SOURCE_COMMIT: ${{ steps.source.outputs.commit }}
+          SOURCE_COMMITTED_AT: ${{ steps.source.outputs.committed_at }}
+        run: |
+          set -euo pipefail
+          plugin_root="${GITHUB_WORKSPACE}/external-plugin"
+          output_dir="${GITHUB_WORKSPACE}/external-plugin-dist"
+          mkdir -p "${output_dir}"
+
+          (
+            cd "${plugin_root}"
+            GOTOOLCHAIN=go1.25.12 tinygo build -target=wasi -no-debug -p 1 \
+              -o "${output_dir}/plugin-first.wasm" ./
+            GOTOOLCHAIN=go1.25.12 tinygo build -target=wasi -no-debug -p 1 \
+              -o "${output_dir}/plugin-second.wasm" ./
+          )
+          cmp "${output_dir}/plugin-first.wasm" "${output_dir}/plugin-second.wasm"
+
+          version="${PLUGIN_TAG#v}"
+          plugin_id="$(python3 - "${plugin_root}/plugin.yaml" <<'PY'
+          import re
+          import sys
+
+          values = []
+          for line in open(sys.argv[1], encoding="utf-8"):
+              if line.startswith((" ", "\t", "-", "#")) or ":" not in line:
+                  continue
+              key, value = line.split(":", 1)
+              if key.strip() == "id":
+                  values.append(value.strip().strip("\"'"))
+          if len(values) != 1 or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", values[0]):
+              raise SystemExit("plugin.yaml must declare exactly one valid top-level id")
+          print(values[0])
+          PY
+          )"
+          stem="${plugin_id}-${version}"
+          bundle_entries=(
+            --entry "config.schema.json=${plugin_root}/config.schema.json"
+            --entry "plugin.wasm=${output_dir}/plugin-first.wasm"
+            --entry "plugin.yaml=${plugin_root}/plugin.yaml"
+          )
+          if [[ -f "${plugin_root}/display_contract.json" ]]; then
+            bundle_entries+=(--entry "display_contract.json=${plugin_root}/display_contract.json")
+          fi
+          for resource_dir in docs display schemas; do
+            if [[ -d "${plugin_root}/${resource_dir}" ]]; then
+              while IFS= read -r -d '' resource; do
+                relative="${resource#"${plugin_root}/"}"
+                bundle_entries+=(--entry "${relative}=${resource}")
+              done < <(find "${plugin_root}/${resource_dir}" -type f -print0 | sort -z)
+            fi
+          done
+          python3 build/wasm_plugins/assemble_bundle.py \
+            --bundle-out "${output_dir}/${stem}.zip" \
+            --sha-out "${output_dir}/${stem}.sha256" \
+            --metadata-out "${output_dir}/${stem}.metadata.json" \
+            --derive-from-manifest \
+            --source-commit "${SOURCE_COMMIT}" \
+            --source-committed-at "${SOURCE_COMMITTED_AT}" \
+            --artifact-type application/vnd.serviceradar.wasm-plugin.bundle.v1+zip \
+            --bundle-media-type application/zip \
+            --upload-signature-media-type application/vnd.serviceradar.wasm-plugin.upload-signature.v1+json \
+            "${bundle_entries[@]}"
+
+          metadata="${output_dir}/${stem}.metadata.json"
+          if [[ "$(jq -r '.plugin_id' "${metadata}")" != "${plugin_id}" ]]; then
+            echo "External bundle plugin id mismatch" >&2
+            exit 1
+          fi
+          if [[ "$(jq -r '.plugin_version' "${metadata}")" != "${version}" ]]; then
+            echo "External bundle version does not match ${PLUGIN_TAG}" >&2
+            exit 1
+          fi
+          if [[ "$(jq -r '.source_commit' "${metadata}")" != "${SOURCE_COMMIT}" ]]; then
+            echo "External bundle source commit mismatch" >&2
+            exit 1
+          fi
+          expected_sha="$(cat "${output_dir}/${stem}.sha256")"
+          actual_sha="$(sha256sum "${output_dir}/${stem}.zip" | awk '{print $1}')"
+          if [[ "${actual_sha}" != "${expected_sha}" ]]; then
+            echo "External bundle checksum mismatch" >&2
+            exit 1
+          fi
+          rm -f "${output_dir}/plugin-first.wasm" "${output_dir}/plugin-second.wasm"
+          printf 'plugin_id=%s\n' "${plugin_id}" >>"${GITHUB_OUTPUT}"
+          printf 'version=%s\n' "${version}" >>"${GITHUB_OUTPUT}"
+
+      - name: Install pinned Syft
+        run: ./scripts/install-syft.sh
+
+      - name: Generate external source SPDX SBOM
+        run: |
+          plugin_id="$(jq -r '.plugin_id' "${GITHUB_WORKSPACE}"/external-plugin-dist/*.metadata.json)"
+          syft scan dir:"${GITHUB_WORKSPACE}/external-plugin" \
+            -o spdx-json="${GITHUB_WORKSPACE}/external-plugin-dist/${plugin_id}.spdx.json"
+
+      - name: Retain unprivileged build output
+        uses: actions/upload-artifact@v7
+        with:
+          name: external-wasm-${{ github.run_id }}
+          path: external-plugin-dist/
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: serviceradar-signing
+    timeout-minutes: 45
+    permissions:
+      contents: write
+      id-token: write
+    environment: release
+    env:
+      OCI_REGISTRY: registry.carverauto.dev
+      OCI_PROJECT: serviceradar
+      OCI_USERNAME: ${{ secrets.HARBOR_ROBOT_USERNAME }}
+      OCI_TOKEN: ${{ secrets.HARBOR_ROBOT_SECRET }}
+      COSIGN_KEYLESS: ${{ secrets.COSIGN_KEYLESS }}
+      SIGSTORE_FULCIO_URL: ${{ secrets.SIGSTORE_FULCIO_URL }}
+      SIGSTORE_REKOR_URL: ${{ secrets.SIGSTORE_REKOR_URL }}
+      SIGSTORE_OIDC_ISSUER: ${{ secrets.SIGSTORE_OIDC_ISSUER }}
+      SIGSTORE_OIDC_CLIENT_ID: ${{ secrets.SIGSTORE_OIDC_CLIENT_ID }}
+      SIGSTORE_OIDC_AUDIENCE: ${{ secrets.SIGSTORE_OIDC_AUDIENCE }}
+      SIGSTORE_TRUSTED_ROOT: ${{ secrets.SIGSTORE_TRUSTED_ROOT }}
+      SIGSTORE_TRUSTED_ROOT_FILE: ${{ secrets.SIGSTORE_TRUSTED_ROOT_FILE }}
+      SIGSTORE_ROOT_PEM: ${{ secrets.SIGSTORE_ROOT_PEM }}
+      SIGSTORE_ROOT_FILE: ${{ secrets.SIGSTORE_ROOT_FILE }}
+      SIGSTORE_CT_LOG_PUBLIC_KEY: ${{ secrets.SIGSTORE_CT_LOG_PUBLIC_KEY }}
+      SIGSTORE_CT_LOG_PUBLIC_KEY_FILE: ${{ secrets.SIGSTORE_CT_LOG_PUBLIC_KEY_FILE }}
+      SIGSTORE_REKOR_PUBLIC_KEY_PEM: ${{ secrets.SIGSTORE_REKOR_PUBLIC_KEY_PEM }}
+      SIGSTORE_REKOR_PUBLIC_KEY_FILE: ${{ secrets.SIGSTORE_REKOR_PUBLIC_KEY_FILE }}
+      COSIGN_CERTIFICATE_IDENTITY: ${{ secrets.COSIGN_CERTIFICATE_IDENTITY }}
+      COSIGN_CERTIFICATE_IDENTITY_REGEXP: ${{ secrets.COSIGN_CERTIFICATE_IDENTITY_REGEXP }}
+      COSIGN_CERTIFICATE_OIDC_ISSUER: ${{ secrets.COSIGN_CERTIFICATE_OIDC_ISSUER }}
+      COSIGN_CERTIFICATE_OIDC_ISSUER_REGEXP: ${{ secrets.COSIGN_CERTIFICATE_OIDC_ISSUER_REGEXP }}
+      PLUGIN_UPLOAD_SIGNING_PRIVATE_KEY: ${{ secrets.PLUGIN_UPLOAD_SIGNING_PRIVATE_KEY }}
+      PLUGIN_UPLOAD_SIGNING_KEY_ID: ${{ secrets.PLUGIN_UPLOAD_SIGNING_KEY_ID }}
+      PLUGIN_UPLOAD_SIGNING_SIGNER: ${{ secrets.PLUGIN_UPLOAD_SIGNING_SIGNER }}
+      BAZELISK_HOME: ${{ github.workspace }}/.cache/bazelisk
+
+    steps:
+      - name: Checkout trusted ServiceRadar release code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+
+      - name: Restore unprivileged build output
+        uses: actions/download-artifact@v8
+        with:
+          name: external-wasm-${{ github.run_id }}
+          path: external-plugin-dist
+
+      - name: Install release tools
+        run: |
+          set -euo pipefail
+          ./scripts/install-bazelisk.sh
+          ./scripts/install-cosign.sh
+          INSTALL_DIR="${RUNNER_TEMP}/bin" ./scripts/install-oras.sh
+          bazel build //build/wasm_plugins:upload_signature_tool >/dev/null
+
+      - name: Resolve upload-signature tool
+        id: signature_tool
+        run: |
+          set -euo pipefail
+          bazel_bin_dir="$(bazel info bazel-bin)"
+          tool="$(bazel cquery --output=files //build/wasm_plugins:upload_signature_tool 2>/dev/null | head -n1)"
+          if [[ -n "${tool}" && ! -x "${tool}" && -x "${bazel_bin_dir}/${tool}" ]]; then
+            tool="${bazel_bin_dir}/${tool}"
+          fi
+          if [[ -z "${tool}" || ! -x "${tool}" ]]; then
+            echo "Unable to resolve upload-signature tool" >&2
+            exit 1
+          fi
+          printf 'path=%s\n' "${tool}" >>"${GITHUB_OUTPUT}"
+
+      - name: Validate restored external bundle
+        env:
+          SOURCE_COMMIT: ${{ needs.build.outputs.source_commit }}
+          PLUGIN_VERSION: ${{ needs.build.outputs.plugin_version }}
+        run: |
+          set -euo pipefail
+          metadata_files=(external-plugin-dist/*.metadata.json)
+          if [[ "${#metadata_files[@]}" -ne 1 || ! -f "${metadata_files[0]}" ]]; then
+            echo "Expected exactly one external plugin metadata file" >&2
+            exit 1
+          fi
+          metadata="${metadata_files[0]}"
+          bundle="external-plugin-dist/$(jq -r '.bundle_file' "${metadata}")"
+          python3 ./scripts/validate-external-wasm-plugin-bundle.py \
+            --metadata "${metadata}" \
+            --bundle "${bundle}" \
+            --plugin-id "${{ needs.build.outputs.plugin_id }}" \
+            --version "${PLUGIN_VERSION}" \
+            --source-commit "${SOURCE_COMMIT}"
+
+      - name: Login to Harbor
+        run: |
+          set -euo pipefail
+          if [[ -z "${OCI_USERNAME:-}" || -z "${OCI_TOKEN:-}" ]]; then
+            echo "Missing Harbor robot credentials" >&2
+            exit 1
+          fi
+          echo "${OCI_TOKEN}" | oras login "${OCI_REGISTRY}" -u "${OCI_USERNAME}" --password-stdin
+
+      - name: Publish, sign, and verify external OCI bundle
+        env:
+          PLUGIN_TAG: ${{ github.event.inputs.plugin_tag }}
+          SOURCE_COMMIT: ${{ needs.build.outputs.source_commit }}
+          SOURCE_COMMITTED_AT: ${{ needs.build.outputs.source_committed_at }}
+          UPLOAD_SIGNATURE_TOOL: ${{ steps.signature_tool.outputs.path }}
+          OPENBAO_ADDR: https://openbao-active.openbao-system.svc.cluster.local:8200
+          OPENBAO_K8S_ROLE: github-signing-runner
+          OPENBAO_SIGNING_ALLOWED_REFS_REGEX: '^refs/heads/(staging|main)$'
+          COSIGN_KEY_REF: hashivault://cosign-release
+        run: |
+          set -euo pipefail
+          metadata_files=(external-plugin-dist/*.metadata.json)
+          metadata="${metadata_files[0]}"
+          bundle="external-plugin-dist/$(jq -r '.bundle_file' "${metadata}")"
+
+          ./build/wasm_plugins/publish_plugin.sh \
+            --bundle "${bundle}" \
+            --metadata "${metadata}" \
+            --oras oras \
+            --upload-signature-tool "${UPLOAD_SIGNATURE_TOOL}" \
+            --commit-sha "${SOURCE_COMMIT}" \
+            --tag "${PLUGIN_TAG}"
+
+          source ./scripts/ci/prepare-openbao-cosign-env.sh
+          export WASM_PLUGIN_METADATA_DIR="${GITHUB_WORKSPACE}/external-plugin-dist"
+          export WASM_PLUGIN_UPLOAD_SIGNATURE_TOOL="${UPLOAD_SIGNATURE_TOOL}"
+          tags=("sha-${SOURCE_COMMIT}" "${PLUGIN_TAG}")
+          ./scripts/sign-wasm-plugin-publish.sh "${tags[@]}"
+          ./scripts/verify-wasm-plugin-publish.sh "${tags[@]}"
+          GENERATED_AT="${SOURCE_COMMITTED_AT}" \
+            OUTPUT="${RUNNER_TEMP}/serviceradar-wasm-plugin-index.json" \
+            ./scripts/generate-wasm-plugin-import-index.sh "${PLUGIN_TAG}"
+          unset VAULT_TOKEN VAULT_ADDR COSIGN_KEY_REF
+
+      - name: Publish verified index to external GitHub release
+        env:
+          PLUGIN_REPOSITORY: ${{ github.event.inputs.plugin_repository }}
+          PLUGIN_TAG: ${{ github.event.inputs.plugin_tag }}
+          EXTERNAL_PLUGIN_GITHUB_PUBLISH_TOKEN: ${{ secrets.EXTERNAL_PLUGIN_GITHUB_PUBLISH_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.EXTERNAL_PLUGIN_GITHUB_PUBLISH_TOKEN || github.token }}
+          EXTERNAL_PLUGIN_TARGET_COMMITISH: ${{ needs.build.outputs.source_commit }}
+        run: |
+          ./scripts/publish-external-wasm-plugin-release.sh \
+            "${PLUGIN_REPOSITORY}" \
+            "${PLUGIN_TAG}" \
+            "${RUNNER_TEMP}/serviceradar-wasm-plugin-index.json"
+
+      - name: Retain signed release evidence
+        uses: actions/upload-artifact@v7
+        with:
+          name: external-wasm-signed-${{ github.run_id }}
+          path: |
+            external-plugin-dist/
+            ${{ runner.temp }}/serviceradar-wasm-plugin-index.json
+          if-no-files-found: error

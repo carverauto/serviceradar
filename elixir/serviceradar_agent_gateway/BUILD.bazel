@@ -1,0 +1,167 @@
+load("@rules_elixir//:elixir_tests.bzl", "ex_unit_tests")
+load("@rules_elixir//:mix_app.bzl", "mix_app")
+load(
+    "//build:elixir_release.bzl",
+    "SHIPPED_ERTS_OTP_ROOT",
+    "SHIPPED_ERTS_ROOT_MARKER",
+    "elixir_release",
+)
+
+package(default_visibility = ["//visibility:public"])
+
+# The release RECIPE, as opposed to the release CONTENTS. mix.exs supplies releases/0,
+# config/ and rel/ supply the templates `mix release` renders. Compiled code is not here
+# -- it reaches the release through the ErlangAppInfo closure of :erlang_app.
+filegroup(
+    name = "release_recipe",
+    srcs = [
+        "mix.exs",
+        "mix.lock",
+    ] + glob(
+        [
+            "config/**",
+            "rel/**",
+        ],
+        allow_empty = True,
+    ),
+)
+
+filegroup(
+    name = "srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "bazel-*",
+            "_build/**",
+            "deps/**",
+            "tmp/**",
+        ],
+    ),
+)
+
+# What `mix compile` actually needs -- :srcs minus the test files it never compiles.
+# See the long note on //elixir/serviceradar_core:compile_srcs; the reasoning is identical.
+# mix.exs declares `elixirc_paths(:test), do: ["lib", "test/support"]`, so every other file
+# under test/ was a declared input of a compile that does not read it, and touching one
+# rebuilt this app and everything downstream of it.
+filegroup(
+    name = "compile_srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "bazel-*",
+            "_build/**",
+            "deps/**",
+            "tmp/**",
+            "test/**",
+        ],
+    ) + glob(
+        ["test/support/**"],
+        allow_empty = True,
+    ),
+)
+
+filegroup(
+    name = "deps_srcs",
+    srcs = [
+        "mix.exs",
+        "mix.lock",
+    ] + glob(["config/**"]),
+)
+
+# Deps shared by the :test and :prod compilations below. The first entry differs between
+# them -- each env must see serviceradar_core built for the SAME env, or a release ends up
+# with test-compiled configuration baked into a dependency.
+GATEWAY_DEPS = [
+    "@hexpm//:bandit",
+    "@hexpm//:boundary",
+    "@hexpm//:grpc_server",
+    "@hexpm//:gun",
+    "@hexpm//:jason",
+    "@hexpm//:libcluster",
+    "@hexpm//:plug",
+    "@hexpm//:protobuf",
+    "@hexpm//:req",
+    "@hexpm//:telemetry_metrics",
+    "@hexpm//:telemetry_metrics_prometheus_core",
+    "@rules_elixir//elixir",
+]
+
+# Declared `only: [:dev, :test]` in mix.exs, most with `runtime: false`. Mix therefore
+# excludes every one of them under MIX_ENV=prod -- but the Bazel :erlang_app_prod target was
+# declaring them anyway, which staged them into the prod compile's ERL_LIBS and, more
+# importantly, carried them through ErlangAppInfo into the OTP release closure that becomes
+# the shipped image. Lint and static-analysis tooling has no business in a production
+# release.
+#
+# Kept on the :test target, which is the env that actually resolves them.
+GATEWAY_DEV_DEPS = [
+    "@hexpm//:ash_credo",
+    "@hexpm//:credo",
+    "@hexpm//:dialyxir",
+    "@hexpm//:ex_dna",
+    "@hexpm//:ex_slop",
+    "@hexpm//:mix_audit",
+    "@hexpm//:mox",
+    "@hexpm//:styler",
+]
+
+# Compiled by Mix inside a single hermetic Bazel action. mix_env is "test" because
+# mix.exs sets elixirc_paths(:test) => ["lib", "test/support"], and the ExUnit targets
+# need those support modules on the code path.
+mix_app(
+    name = "erlang_app",
+    srcs = [":compile_srcs"],
+    app_name = "serviceradar_agent_gateway",
+    mix_env = "test",
+    deps = ["//elixir/serviceradar_core:erlang_app"] + GATEWAY_DEPS + GATEWAY_DEV_DEPS,
+)
+
+# The release build. See //elixir/serviceradar_core:erlang_app_prod for why the env
+# matters; this one also drops test/support from elixirc_paths and pulls the :prod build
+# of serviceradar_core, so no test-only application reaches the image.
+mix_app(
+    name = "erlang_app_prod",
+    srcs = [":compile_srcs"],
+    app_name = "serviceradar_agent_gateway",
+    mix_env = "prod",
+    deps = ["//elixir/serviceradar_core:erlang_app_prod"] + GATEWAY_DEPS,
+)
+
+# Assembly-only release: no deps.get, no recompilation, no cargo, no network.
+# Contents come from the transitive ErlangAppInfo closure of :erlang_app.
+elixir_release(
+    name = "release_tar",
+    srcs = [
+        ":release_recipe",
+        # Mix reads each PATH dependency's mix.exs to learn its app name and version,
+        # transitively. Only the manifest is needed -- the compiled code arrives via `app`.
+        "//third_party/hex_vendored/connection:mix.exs",
+        "//third_party/hex_vendored/elixir_uuid:mix.exs",
+        "//elixir/serviceradar_core:mix.exs",
+        "//elixir/serviceradar_srql:mix.exs",
+        "//third_party/hex_vendored/opentelemetry_oban:mix.exs",
+    ],
+    out = "serviceradar-agent-gateway-release.tar.gz",
+    app = ":erlang_app_prod",
+    erts_otp_root = SHIPPED_ERTS_OTP_ROOT,
+    erts_root_marker = SHIPPED_ERTS_ROOT_MARKER,
+    release_name = "serviceradar_agent_gateway",
+)
+
+ex_unit_tests(
+    config_loader = "//build:elixir_test_config_loader.exs",
+    name = "unit_tests",
+    srcs = glob(["test/**/*_test.exs"]),
+    data = glob(
+        [
+            "lib/**",
+            "priv/**",
+            "test/**",
+        ],
+        allow_empty = True,
+        exclude = ["test/**/*_test.exs"],
+    ),
+    test_helper = "test/test_helper.exs",
+    deps = [":erlang_app"],
+)

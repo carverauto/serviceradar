@@ -1,0 +1,115 @@
+# Copyright 2026 Carver Automation Corporation.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# Scheduled dependency audit for the Elixir workspace.
+#
+# Dependency audits are not a pull-request gate. Elixir Quality PRs run
+# format + Credo only; mix hex.audit / mix deps.audit run on this calendar
+# job and on the daily BuildBuddy Elixir quality action. This workflow's
+# trigger is the calendar, so an advisory published against a lockfile
+# nobody has touched still gets a run.
+
+name: Elixir Dependency Audit
+
+on:
+  schedule:
+    # Daily. Advisories are published on their own schedule, not ours.
+    - cron: '17 5 * * *'
+  workflow_dispatch:
+    inputs:
+      with_retired:
+        description: "Also run mix hex.audit for retired packages (slower; needs deps.get)."
+        required: false
+        type: boolean
+        default: true
+  # Only the audit machinery itself. This workflow deliberately does NOT gate
+  # ordinary Elixir changes -- duplicating it on every PR would add a slow
+  # required check with no extra signal over the daily run.
+  pull_request:
+    branches: [staging]
+    paths:
+      - '.github/workflows/elixir-dependency-audit.yml'
+      - 'scripts/elixir_dep_audit.sh'
+      - 'scripts/lib/hex-audit-filter.awk'
+      - 'scripts/elixir_quality.sh'
+  push:
+    branches: [staging]
+    paths:
+      - '.github/workflows/elixir-dependency-audit.yml'
+      - 'scripts/elixir_dep_audit.sh'
+      - 'scripts/lib/hex-audit-filter.awk'
+      - 'scripts/elixir_quality.sh'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  ImageOS: ubuntu24
+
+jobs:
+  audit:
+    name: Elixir Dependency Audit
+    runs-on: arc-runner-set
+    env:
+      ImageOS: ubuntu24
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Setup Beam
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124
+        env:
+          ImageOS: ubuntu24
+        with:
+          otp-version: '28.3'
+          elixir-version: '1.19.4'
+
+      # Caches the mix_audit escript and fetched deps. It deliberately does NOT
+      # cache the advisory database: that is fetched fresh on every run, and the
+      # script fails the job rather than fall back to a stale copy.
+      - name: Cache Elixir dependencies
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            ~/.hex
+            ~/.mix
+            elixir/*/deps
+          key: ${{ runner.os }}-elixir-dep-audit-${{ hashFiles('elixir/**/mix.lock', '.tool-versions', 'scripts/elixir_dep_audit.sh') }}
+          restore-keys: |
+            ${{ runner.os }}-elixir-dep-audit-
+
+      - name: Install Hex and Rebar
+        run: |
+          mix local.hex --force
+          mix local.rebar --force
+
+      - name: Audit dependencies
+        env:
+          # A scheduled run checks retired packages too; a PR run validating a
+          # change to the scripts stays fast and skips the deps.get phase.
+          WITH_RETIRED: ${{ (github.event_name == 'schedule' || github.event.inputs.with_retired == 'true') && 'true' || 'false' }}
+          HEX_HTTP_CONCURRENCY: '1'
+          HEX_HTTP_TIMEOUT: '120'
+        run: |
+          set -euo pipefail
+
+          args=()
+          if [[ "${WITH_RETIRED}" == "true" ]]; then
+            args+=(--with-retired)
+          fi
+
+          ./scripts/elixir_dep_audit.sh ${args[@]+"${args[@]}"}

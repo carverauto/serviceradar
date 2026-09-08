@@ -1,0 +1,27 @@
+load("@rules_python//python:py_test.bzl", "py_test")
+
+py_test(
+    name = "scratch_reaper_contract_test",
+    size = "small",
+    srcs = ["scratch_reaper_contract_test.py"],
+    data = [
+        "//k8s/srql-fixtures:scratch-reaper.sql",
+        "//k8s/srql-fixtures:scratch-reaper.yaml",
+    ],
+)
+
+py_test(
+    name = "ca_bundle_https_contract_test",
+    size = "small",
+    srcs = ["ca_bundle_https_contract_test.py"],
+    data = [
+        "//:buildbuddy.yaml",
+        "//:buildbuddy_setup_fixture_env.sh",
+        "//config/environments:ci.textproto",
+        "//k8s/buildbuddy:values.yaml",
+        "//k8s/buildbuddy:values-workflows.yaml",
+        "//k8s/srql-fixtures:httproute-ca.yaml",
+        "//k8s/srql-fixtures:namespace.yaml",
+        "//scripts:ci/configure-srql-fixture.sh",
+    ],
+)

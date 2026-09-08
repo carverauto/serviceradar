@@ -1,0 +1,291 @@
+{{- $certs := default dict .Values.certs -}}
+{{- $generator := default dict (get $certs "generator") -}}
+{{- $generatorEnabled := true -}}
+{{- if hasKey $generator "enabled" -}}
+{{- $generatorEnabled = get $generator "enabled" -}}
+{{- end -}}
+{{- $hostedRuntime := eq "true" (include "serviceradar.hostedRuntimeEnabled" .) -}}
+{{- if and $generatorEnabled (not $hostedRuntime) }}
+{{- $certJobImage := include "serviceradar.cnpgImageName" (dict "Values" .Values "Chart" .Chart "cnpg" .Values.cnpg) -}}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: serviceradar-runtime-cert-generator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: runtime-cert-generator
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-4"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: serviceradar-runtime-cert-generator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: runtime-cert-generator
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-4"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  resourceNames:
+    - {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
+  verbs: ["get", "patch"]
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["create"]
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: serviceradar-runtime-cert-generator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: runtime-cert-generator
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-4"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: serviceradar-runtime-cert-generator
+subjects:
+- kind: ServiceAccount
+  name: serviceradar-runtime-cert-generator
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: serviceradar-runtime-cert-generator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: runtime-cert-generator
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-4"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        app: serviceradar-runtime-cert-generator
+        app.kubernetes.io/part-of: serviceradar
+        app.kubernetes.io/component: runtime-cert-generator
+    spec:
+      serviceAccountName: serviceradar-runtime-cert-generator
+      restartPolicy: Never
+      {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
+      {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      containers:
+      - name: runtime-cert-generator
+        image: {{ $certJobImage | quote }}
+        imagePullPolicy: IfNotPresent
+        {{- include "serviceradar.nonRootContainerSecurityContext" . | nindent 8 }}
+        command: ["/bin/bash", "-c"]
+        env:
+        - name: SECRET_NAME
+          value: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
+        - name: CERT_DIR
+          value: "/tmp/certs"
+        - name: DEFAULT_PARTITION_ID
+          # B-5 partition_id coalesce chain — keep in sync with nats.yaml
+          value: {{ coalesce .Values.partitionId (default (dict) .Values.agent).partitionId "default" | quote }}
+        - name: DEFAULT_AGENT_COMPONENT_ID
+          value: {{ default "k8s-agent" (default (dict) .Values.agent).agentId | quote }}
+        - name: RUNTIME_CERT_LAYOUT_VERSION
+          value: {{ default "1" (default (dict) .Values.certs).runtimeLayoutVersion | quote }}
+        args:
+        - |
+          set -euo pipefail
+
+          if python3 <<'PY'
+          import os
+          import base64
+          import json
+          import ssl
+          import subprocess
+          import sys
+          import urllib.error
+          import urllib.request
+
+          secret_name = os.environ["SECRET_NAME"]
+          cert_dir = os.environ["CERT_DIR"]
+          expected_layout_version = os.environ["RUNTIME_CERT_LAYOUT_VERSION"]
+          agent_component_cert = f'{os.environ["DEFAULT_AGENT_COMPONENT_ID"]}-{os.environ["DEFAULT_PARTITION_ID"]}-chain.pem'
+          agent_component_key = f'{os.environ["DEFAULT_AGENT_COMPONENT_ID"]}-{os.environ["DEFAULT_PARTITION_ID"]}-key.pem'
+          serviceaccount = "/var/run/secrets/kubernetes.io/serviceaccount"
+          token = open(os.path.join(serviceaccount, "token"), encoding="utf-8").read().strip()
+          namespace = open(os.path.join(serviceaccount, "namespace"), encoding="utf-8").read().strip()
+          cafile = os.path.join(serviceaccount, "ca.crt")
+          context = ssl.create_default_context(cafile=cafile)
+          secret_url = f"https://kubernetes.default.svc/api/v1/namespaces/{namespace}/secrets/{secret_name}"
+          headers = {"Authorization": f"Bearer {token}"}
+
+          try:
+            request = urllib.request.Request(secret_url, headers=headers, method="GET")
+            payload = json.loads(urllib.request.urlopen(request, context=context).read().decode("utf-8"))
+            os.makedirs(cert_dir, exist_ok=True)
+
+            for name, encoded in (payload.get("data") or {}).items():
+              path = os.path.join(cert_dir, name)
+              os.makedirs(os.path.dirname(path), exist_ok=True)
+              with open(path, "wb") as handle:
+                handle.write(base64.b64decode(encoded))
+
+            required = [
+              "root.pem",
+              "root-key.pem",
+              "tools.pem",
+              "tools-key.pem",
+              "falcosidekick.pem",
+              "falcosidekick-key.pem",
+              "trivy-sidecar.pem",
+              "trivy-sidecar-key.pem",
+              "k8s-inventory.pem",
+              "k8s-inventory-key.pem",
+              "runtime-cert-layout-version",
+              agent_component_cert,
+              agent_component_key,
+            ]
+
+            missing = [name for name in required if not os.path.exists(os.path.join(cert_dir, name))]
+            layout_version_path = os.path.join(cert_dir, "runtime-cert-layout-version")
+            layout_version = ""
+            if os.path.exists(layout_version_path):
+              layout_version = open(layout_version_path, encoding="utf-8").read().strip()
+
+            invalid = []
+            root_cert = os.path.join(cert_dir, "root.pem")
+            for name in ["trivy-sidecar.pem", "k8s-inventory.pem"]:
+              cert_path = os.path.join(cert_dir, name)
+              if os.path.exists(root_cert) and os.path.exists(cert_path):
+                result = subprocess.run(
+                  ["openssl", "verify", "-CAfile", root_cert, cert_path],
+                  check=False,
+                  stdout=subprocess.PIPE,
+                  stderr=subprocess.STDOUT,
+                  text=True,
+                )
+                if result.returncode != 0:
+                  invalid.append(name)
+
+            if not missing and not invalid and layout_version == expected_layout_version:
+              print(f"Secret {secret_name} already exists with required runtime certs; preserving current runtime certs")
+              sys.exit(0)
+
+            if missing:
+              print(f"Secret {secret_name} exists but is missing runtime cert files: {', '.join(missing)}")
+            elif invalid:
+              print(
+                f"Secret {secret_name} has runtime cert files that do not verify against root.pem: "
+                f"{', '.join(invalid)}"
+              )
+            else:
+              print(
+                f"Secret {secret_name} has runtime cert layout version {layout_version or 'unset'}; "
+                f"expected {expected_layout_version}. Regenerating runtime certs."
+              )
+            sys.exit(1)
+          except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+              sys.exit(1)
+            raise
+          PY
+          then
+            exit 0
+          fi
+
+          cat >/tmp/generate-certs.sh.b64 <<'EOF_SCRIPT_B64'
+{{ tpl (.Files.Get "files/generate-certs.sh") . | b64enc | indent 12 }}
+          EOF_SCRIPT_B64
+          tr -d '[:space:]' </tmp/generate-certs.sh.b64 | base64 -d >/tmp/generate-certs.sh
+          chmod +x /tmp/generate-certs.sh
+          mkdir -p "${CERT_DIR}"
+          export FORCE_REGENERATE=true
+          bash /tmp/generate-certs.sh
+          printf '%s' "${RUNTIME_CERT_LAYOUT_VERSION}" > "${CERT_DIR}/runtime-cert-layout-version"
+
+          python3 <<'PY'
+          import base64
+          import json
+          import os
+          import ssl
+          import urllib.error
+          import urllib.request
+
+          secret_name = os.environ["SECRET_NAME"]
+          cert_dir = os.environ["CERT_DIR"]
+          serviceaccount = "/var/run/secrets/kubernetes.io/serviceaccount"
+          token = open(os.path.join(serviceaccount, "token"), encoding="utf-8").read().strip()
+          namespace = open(os.path.join(serviceaccount, "namespace"), encoding="utf-8").read().strip()
+          cafile = os.path.join(serviceaccount, "ca.crt")
+          context = ssl.create_default_context(cafile=cafile)
+
+          data = {}
+          for root, _, files in os.walk(cert_dir):
+            for entry in sorted(files):
+              path = os.path.join(root, entry)
+              key = os.path.basename(path)
+              with open(path, "rb") as handle:
+                data[key] = base64.b64encode(handle.read()).decode("ascii")
+
+          payload = {
+            "apiVersion": "v1",
+            "kind": "Secret",
+            "metadata": {
+              "name": secret_name,
+              "labels": {
+                "app.kubernetes.io/part-of": "serviceradar",
+                "app.kubernetes.io/component": "runtime-certs",
+              },
+            },
+            "type": "Opaque",
+            "data": data,
+          }
+
+          base_url = f"https://kubernetes.default.svc/api/v1/namespaces/{namespace}/secrets"
+          secret_url = f"{base_url}/{secret_name}"
+          headers = {"Authorization": f"Bearer {token}"}
+
+          try:
+            request = urllib.request.Request(secret_url, headers=headers, method="GET")
+            urllib.request.urlopen(request, context=context).read()
+            method = "PATCH"
+            url = secret_url
+            body = json.dumps(payload).encode("utf-8")
+            headers["Content-Type"] = "application/merge-patch+json"
+            action = "Reconciled"
+          except urllib.error.HTTPError as exc:
+            if exc.code != 404:
+              raise
+            method = "POST"
+            url = base_url
+            body = json.dumps(payload).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+            action = "Created"
+
+          request = urllib.request.Request(url, data=body, headers=headers, method=method)
+          urllib.request.urlopen(request, context=context).read()
+          print(f"{action} Secret {secret_name}")
+          PY
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir: {}
+{{- end }}

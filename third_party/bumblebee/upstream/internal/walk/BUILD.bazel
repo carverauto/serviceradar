@@ -1,0 +1,12 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "walk",
+    srcs = [
+        "dirkey_other.go",
+        "dirkey_unix.go",
+        "walk.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/third_party/bumblebee/upstream/internal/walk",
+    visibility = ["//third_party/bumblebee/upstream:__subpackages__"],
+)

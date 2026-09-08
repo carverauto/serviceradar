@@ -1,0 +1,10 @@
+{
+  "source": "mapper",
+  "hostname": "farm01",
+  "metadata": {
+    "sys_object_id": ".1.3.6.1.4.1.8072.3.2.10",
+    "sys_descr": "Ubiquiti UniFi UDM-Pro 4.4.6 Linux 4.19.152 al324",
+    "sys_name": "farm01",
+    "ip_forwarding": "1"
+  }
+}

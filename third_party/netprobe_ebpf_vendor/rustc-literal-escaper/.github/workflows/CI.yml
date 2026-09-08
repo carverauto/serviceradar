@@ -1,0 +1,37 @@
+on:
+  pull_request:
+  push:
+
+permissions:
+  contents: read
+
+name: CI
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  stable-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-none
+          components: rustfmt
+      - run: cargo fmt -- --check
+      - run: cargo check
+      - run: cargo check --target=x86_64-unknown-none
+      - run: cargo test
+      # Ensure that no untracked or tracked files have been added or modified.
+      - run: git diff --check --exit-code
+
+  nightly-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: clippy
+      # Check all entries, including tests and benchmarks.
+      - run: cargo clippy --all-targets

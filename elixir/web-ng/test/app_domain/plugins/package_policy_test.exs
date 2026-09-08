@@ -1,0 +1,222 @@
+defmodule ServiceRadarWebNG.Plugins.PackagePolicyTest do
+  use ServiceRadarWebNG.DataCase, async: false
+  use ServiceRadarWebNG.AshTestHelpers
+
+  alias ServiceRadar.Plugins.Plugin
+  alias ServiceRadar.Plugins.PluginAssignment
+  alias ServiceRadar.Plugins.PluginPackage
+  alias ServiceRadarWebNG.Plugins
+  alias ServiceRadarWebNG.Plugins.UploadSignature
+
+  @manifest %{
+    "id" => "http-check",
+    "name" => "HTTP Check",
+    "version" => "1.0.0",
+    "entrypoint" => "run_check",
+    "outputs" => "serviceradar.plugin_result.v1",
+    "capabilities" => ["submit_result"],
+    "resources" => %{
+      "requested_cpu_ms" => 1000,
+      "requested_memory_mb" => 64
+    },
+    "permissions" => %{"allowed_domains" => []}
+  }
+
+  setup do
+    original_policy = Application.get_env(:serviceradar_web_ng, :plugin_verification)
+
+    on_exit(fn ->
+      if is_nil(original_policy) do
+        Application.delete_env(:serviceradar_web_ng, :plugin_verification)
+      else
+        Application.put_env(:serviceradar_web_ng, :plugin_verification, original_policy)
+      end
+    end)
+
+    :ok
+  end
+
+  test "blocks approval for github packages without gpg verification" do
+    Application.put_env(:serviceradar_web_ng, :plugin_verification,
+      require_gpg_for_github: true,
+      allow_unsigned_uploads: true
+    )
+
+    _plugin = create_plugin()
+    package = create_package(%{source_type: :github, gpg_verified_at: nil})
+
+    assert {:error, :verification_required} =
+             Plugins.approve_package(package.id, %{}, scope: nil, approved_by: "admin")
+  end
+
+  test "blocks approval for github packages when trusted signers are not configured" do
+    Application.put_env(:serviceradar_web_ng, :plugin_verification,
+      require_gpg_for_github: true,
+      allow_unsigned_uploads: true,
+      trusted_github_signers: []
+    )
+
+    _plugin = create_plugin()
+
+    package =
+      create_package(%{
+        source_type: :github,
+        gpg_verified_at: DateTime.utc_now(),
+        gpg_key_id: "octo",
+        signature: %{"signer" => "octo"}
+      })
+
+    assert {:error, :trusted_signers_not_configured} =
+             Plugins.approve_package(package.id, %{}, scope: nil, approved_by: "admin")
+  end
+
+  test "blocks approval for github packages from untrusted signers" do
+    Application.put_env(:serviceradar_web_ng, :plugin_verification,
+      require_gpg_for_github: true,
+      allow_unsigned_uploads: true,
+      trusted_github_signers: ["trusted-maintainer"]
+    )
+
+    _plugin = create_plugin()
+
+    package =
+      create_package(%{
+        source_type: :github,
+        gpg_verified_at: DateTime.utc_now(),
+        gpg_key_id: "octo",
+        signature: %{"signer" => "octo"}
+      })
+
+    assert {:error, :untrusted_signer} =
+             Plugins.approve_package(package.id, %{}, scope: nil, approved_by: "admin")
+  end
+
+  test "blocks assignments for non-approved packages" do
+    _plugin = create_plugin()
+    package = create_package(%{source_type: :upload})
+
+    changeset =
+      Ash.Changeset.for_create(PluginAssignment, :create, %{agent_uid: "agent-1", plugin_package_id: package.id},
+        actor: system_actor()
+      )
+
+    assert {:error, error} = Ash.create(changeset)
+    assert has_error?(error, :plugin_package_id)
+  end
+
+  test "blocks approval for uploaded packages when trusted signing keys are not configured" do
+    Application.put_env(:serviceradar_web_ng, :plugin_verification,
+      require_gpg_for_github: false,
+      allow_unsigned_uploads: false,
+      trusted_upload_signing_keys: %{}
+    )
+
+    _plugin = create_plugin()
+    package = create_package(%{source_type: :upload, content_hash: String.duplicate("a", 64)})
+
+    assert {:error, :trusted_upload_signers_not_configured} =
+             Plugins.approve_package(package.id, %{}, scope: nil, approved_by: "admin")
+  end
+
+  test "blocks approval for uploaded packages with dummy signature metadata" do
+    {public_key, _private_key} = :crypto.generate_key(:eddsa, :ed25519)
+
+    Application.put_env(:serviceradar_web_ng, :plugin_verification,
+      require_gpg_for_github: false,
+      allow_unsigned_uploads: false,
+      trusted_upload_signing_keys: %{"signer-1" => Base.encode64(public_key)}
+    )
+
+    _plugin = create_plugin()
+
+    package =
+      create_package(%{
+        source_type: :upload,
+        content_hash: String.duplicate("a", 64),
+        signature: %{
+          "algorithm" => "ed25519",
+          "key_id" => "signer-1",
+          "signature" => Base.encode64("fake-signature")
+        }
+      })
+
+    assert {:error, :invalid_signature} =
+             Plugins.approve_package(package.id, %{}, scope: nil, approved_by: "admin")
+  end
+
+  test "approves signed uploads when signature matches a trusted key" do
+    {public_key, private_key} = :crypto.generate_key(:eddsa, :ed25519)
+    content_hash = String.duplicate("b", 64)
+
+    Application.put_env(:serviceradar_web_ng, :plugin_verification,
+      require_gpg_for_github: false,
+      allow_unsigned_uploads: false,
+      trusted_upload_signing_keys: %{"signer-1" => Base.encode64(public_key)}
+    )
+
+    _plugin = create_plugin()
+
+    signature =
+      @manifest
+      |> UploadSignature.verification_payload(content_hash)
+      |> then(&:crypto.sign(:eddsa, :none, &1, [private_key, :ed25519]))
+      |> Base.encode64()
+
+    package =
+      create_package(%{
+        source_type: :upload,
+        content_hash: content_hash,
+        signature: %{
+          "algorithm" => "ed25519",
+          "key_id" => "signer-1",
+          "signature" => signature
+        }
+      })
+
+    assert {:ok, approved} =
+             Plugins.approve_package(package.id, %{}, scope: nil, approved_by: "admin")
+
+    assert approved.status == :approved
+  end
+
+  defp create_plugin do
+    Plugin
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        plugin_id: "http-check",
+        name: "HTTP Check",
+        description: "Test plugin"
+      },
+      actor: system_actor()
+    )
+    |> Ash.create!()
+  end
+
+  defp create_package(attrs) do
+    defaults = %{
+      plugin_id: "http-check",
+      name: "HTTP Check",
+      version: "1.0.0",
+      entrypoint: "run_check",
+      outputs: "serviceradar.plugin_result.v1",
+      manifest: @manifest,
+      config_schema: %{},
+      signature: %{}
+    }
+
+    PluginPackage
+    |> Ash.Changeset.for_create(:create, Map.merge(defaults, attrs), actor: system_actor())
+    |> Ash.create!()
+  end
+
+  defp has_error?(%Ash.Error.Invalid{errors: errors}, field) do
+    Enum.any?(errors, fn
+      %Ash.Error.Changes.InvalidAttribute{field: ^field} -> true
+      %Ash.Error.Changes.Required{field: ^field} -> true
+      _ -> false
+    end)
+  end
+
+  defp has_error?(_, _), do: false
+end

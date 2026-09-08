@@ -1,0 +1,4 @@
+interface:
+  display_name: "Release Cut And Demo Roll"
+  short_description: "Cut a release and roll demo"
+  default_prompt: "Use $release-cut-and-demo-roll to update release metadata, cut the tag, and roll the demo namespace once release artifacts are published."

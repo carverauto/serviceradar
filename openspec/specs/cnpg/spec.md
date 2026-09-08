@@ -1,0 +1,419 @@
+# cnpg Specification
+
+## Purpose
+TBD - created by archiving change add-cnpg-timescale-age. Update Purpose after archive.
+## Requirements
+### Requirement: CNPG Postgres image ships TimescaleDB, Apache AGE, and pg_trgm
+ServiceRadar MUST publish a CNPG-compatible Postgres image that bundles the TimescaleDB, Apache AGE, pg_trgm, and PostGIS extensions so clusters can enable analytics and geospatial capabilities without manual package installs.
+
+#### Scenario: PostGIS extension loads successfully
+- **GIVEN** the custom image tag `ghcr.io/carverauto/serviceradar-cnpg:<version>`
+- **WHEN** a pod starts from that image and `psql` runs `CREATE EXTENSION IF NOT EXISTS postgis;`
+- **THEN** the command succeeds without downloading OS packages at runtime.
+
+#### Scenario: PostGIS runtime reports a valid version
+- **GIVEN** a running CNPG cluster using the custom image
+- **WHEN** `SELECT postgis_full_version();` is executed
+- **THEN** the query returns a non-empty PostGIS version string.
+
+### Requirement: SPIRE CNPG cluster uses the custom image
+The SPIRE CNPG deployment rendered by the Helm chart MUST consume the custom image and initialize required extensions in the target database(s).
+
+#### Scenario: Helm values deployment
+- **GIVEN** `helm template serviceradar ./helm/serviceradar --set spire.enabled=true --set spire.postgres.enabled=true`
+- **WHEN** the rendered CNPG manifest is inspected
+- **THEN** it references the same custom image
+- **AND** extension bootstrap SQL includes `CREATE EXTENSION IF NOT EXISTS postgis;` for the configured database.
+
+### Requirement: Clean rebuild path for SPIRE CNPG cluster
+Operators MUST have a documented, testable rebuild path that deletes and recreates the SPIRE CNPG cluster with the new image, re-applies the Helm release, and validates the system from a clean slate.
+
+#### Scenario: Recreate cluster without backups
+- **GIVEN** a running SPIRE deployment on the legacy CNPG image
+- **WHEN** the documented steps are followed (delete the existing `Cluster`, upgrade the Helm release, and wait for pods to reconcile)
+- **THEN** SPIRE reconnects to Postgres on the fresh database, the controller re-registers workloads, and agents can request new SVIDs without relying on an etcd backup.
+
+### Requirement: Trigram indexes optimize ILIKE text search queries
+The CNPG migrations MUST create GIN trigram indexes on frequently searched text columns to prevent full table scans when users run case-insensitive pattern matching queries via SRQL.
+
+#### Scenario: pg_trgm extension enabled by migration
+- **GIVEN** the migration `00000000000016_pg_trgm_extension.up.sql` in `pkg/db/cnpg/migrations/`
+- **WHEN** serviceradar-core runs migrations on startup
+- **THEN** `SELECT extname FROM pg_extension WHERE extname = 'pg_trgm';` returns one row.
+
+#### Scenario: GIN trigram indexes exist on unified_devices
+- **GIVEN** the pg_trgm extension is enabled
+- **WHEN** the migration completes
+- **THEN** `\di+ idx_unified_devices_*_trgm` shows GIN indexes on `hostname` and `ip` columns using `gin_trgm_ops`.
+
+#### Scenario: ILIKE queries use trigram indexes on large tables
+- **GIVEN** a `unified_devices` table with more than 1000 rows
+- **WHEN** `EXPLAIN ANALYZE SELECT * FROM unified_devices WHERE hostname ILIKE '%pattern%';` runs
+- **THEN** the query plan shows a Bitmap Index Scan on `idx_unified_devices_hostname_trgm` instead of a sequential scan.
+
+### Requirement: CNPG migrations enable pg_trgm and create trigram indexes
+The CNPG migration set MUST include a migration that enables the pg_trgm extension and creates GIN trigram indexes on frequently searched text columns to optimize ILIKE query performance.
+
+#### Scenario: Migration enables pg_trgm extension
+- **GIVEN** the migration file `00000000000016_pg_trgm_extension.up.sql` exists in `pkg/db/cnpg/migrations/`
+- **WHEN** the migration runs against a CNPG cluster
+- **THEN** `SELECT extname FROM pg_extension WHERE extname = 'pg_trgm';` returns one row.
+
+#### Scenario: Migration creates hostname trigram index
+- **GIVEN** the pg_trgm extension is enabled
+- **WHEN** the migration creates the index `idx_unified_devices_hostname_trgm`
+- **THEN** the index exists and uses the `gin_trgm_ops` operator class.
+
+#### Scenario: Migration creates ip trigram index
+- **GIVEN** the pg_trgm extension is enabled
+- **WHEN** the migration creates the index `idx_unified_devices_ip_trgm`
+- **THEN** the index exists and uses the `gin_trgm_ops` operator class.
+
+#### Scenario: Down migration removes extension cleanly
+- **GIVEN** the pg_trgm extension and indexes are installed
+- **WHEN** `00000000000016_pg_trgm_extension.down.sql` runs
+- **THEN** the trigram indexes are dropped and the extension is removed without errors.
+
+### Requirement: CNPG provides pre-computed trace summaries via materialized view
+
+The CNPG database MUST maintain a materialized view `otel_trace_summaries` that pre-aggregates span data by trace_id, enabling fast trace listing queries without on-the-fly aggregation.
+
+#### Scenario: Materialized view exists after migration
+
+- **GIVEN** the migration `00000000000007_trace_summaries_mv.up.sql` in `pkg/db/cnpg/migrations/`
+- **WHEN** the migration runs against a CNPG cluster with existing trace data
+- **THEN** `SELECT count(*) FROM otel_trace_summaries;` returns a non-zero count matching the number of unique trace_ids in the last 7 days.
+
+#### Scenario: Materialized view has required columns
+
+- **GIVEN** the `otel_trace_summaries` materialized view exists
+- **WHEN** `\d otel_trace_summaries` is run
+- **THEN** the view contains columns: `trace_id`, `timestamp`, `root_span_id`, `root_span_name`, `root_service_name`, `root_span_kind`, `start_time_unix_nano`, `end_time_unix_nano`, `duration_ms`, `status_code`, `status_message`, `service_set`, `span_count`, `error_count`.
+
+#### Scenario: Materialized view has unique index for concurrent refresh
+
+- **GIVEN** the `otel_trace_summaries` materialized view exists
+- **WHEN** `\di idx_trace_summaries_trace_id` is run
+- **THEN** a unique index on `trace_id` is shown, enabling `REFRESH MATERIALIZED VIEW CONCURRENTLY`.
+
+#### Scenario: Materialized view has timestamp index for time-range queries
+
+- **GIVEN** the `otel_trace_summaries` materialized view exists
+- **WHEN** `EXPLAIN ANALYZE SELECT * FROM otel_trace_summaries WHERE timestamp > NOW() - INTERVAL '1 hour' ORDER BY timestamp DESC LIMIT 100;` runs
+- **THEN** the query plan shows an Index Scan on `idx_trace_summaries_timestamp` instead of a sequential scan.
+
+#### Scenario: Materialized view has service index for filtered queries
+
+- **GIVEN** the `otel_trace_summaries` materialized view exists
+- **WHEN** `EXPLAIN ANALYZE SELECT * FROM otel_trace_summaries WHERE root_service_name = 'my-service' ORDER BY timestamp DESC LIMIT 100;` runs
+- **THEN** the query plan shows an Index Scan on `idx_trace_summaries_service_timestamp`.
+
+### Requirement: Trace summaries materialized view is refreshed periodically
+The system MUST automatically refresh the `otel_trace_summaries` materialized view at regular intervals using the Oban job scheduler, ensuring dashboard queries see recent trace data without manual intervention. Refresh scheduling MUST use Oban peer leader election so multi-node deployments do not enqueue duplicate refresh jobs.
+
+#### Scenario: Oban refresh job runs without pg_cron
+- **GIVEN** a CNPG cluster without the pg_cron extension installed
+- **WHEN** the Oban refresh worker runs in web-ng
+- **THEN** `SELECT count(*) FROM otel_trace_summaries;` returns a non-zero count after the job completes.
+
+#### Scenario: MV refresh completes without blocking reads
+- **GIVEN** the Oban refresh worker is running
+- **WHEN** a query `SELECT * FROM otel_trace_summaries LIMIT 10;` is executed during refresh
+- **THEN** the query returns results without waiting for the refresh to complete.
+
+#### Scenario: Refresh cadence aligns with 2-minute schedule
+- **GIVEN** web-ng is running with the default Oban cron schedule
+- **WHEN** 5 minutes elapse
+- **THEN** at least two refresh jobs are recorded in `oban_jobs` with worker `ServiceRadar.Jobs.RefreshTraceSummariesWorker`.
+
+#### Scenario: Multi-node cron scheduling does not duplicate refresh jobs
+- **GIVEN** web-ng and core nodes are running against the same CNPG cluster
+- **WHEN** the Oban cron leader schedules refresh jobs for 5 minutes
+- **THEN** cron scheduling does not enqueue duplicate refresh jobs across nodes
+- **AND** additional ingest-triggered jobs are permitted by the [OTel storage model](../../../docs/docs/otel.md#storage-model).
+
+### Requirement: CNPG image uses stable TimescaleDB release
+The CNPG Postgres image MUST be built with stable TimescaleDB releases, not development versions, to ensure retention policy creation and other TimescaleDB features work reliably during fresh database initialization.
+
+#### Scenario: TimescaleDB version matches stable release
+- **GIVEN** a fresh cnpg container started from `ghcr.io/carverauto/serviceradar-cnpg:<version>`
+- **WHEN** `SELECT extversion FROM pg_extension WHERE extname = 'timescaledb';` runs
+- **THEN** the version returned is a stable release (e.g., `2.24.0`) without `-dev` suffix.
+
+#### Scenario: Retention policies created without crashes
+- **GIVEN** a fresh CNPG database with TimescaleDB extension enabled
+- **WHEN** serviceradar-core runs migrations that call `add_retention_policy()` on hypertables
+- **THEN** all retention policies are created successfully without postgres crashes or assertion failures.
+
+#### Scenario: Fresh docker-compose deployment succeeds
+- **GIVEN** a clean environment with `docker compose down -v` removing all volumes
+- **WHEN** `docker compose up -d` starts the stack
+- **THEN** cnpg becomes healthy, core completes all migrations, and all services reach healthy state.
+
+### Requirement: CNPG build uses native TimescaleDB version
+The CNPG image build process MUST NOT override TimescaleDB's native `version.config` file, ensuring the compiled extension version matches the source code version.
+
+#### Scenario: No version.config override in build
+- **GIVEN** the `timescaledb_extension_layer` genrule in `docker/images/BUILD.bazel`
+- **WHEN** the build runs
+- **THEN** the TimescaleDB source's original `version.config` is preserved without modification.
+
+#### Scenario: Extension version matches source
+- **GIVEN** MODULE.bazel specifies `timescaledb-2.24.0` as the source archive
+- **WHEN** the cnpg image is built and deployed
+- **THEN** `SELECT extversion FROM pg_extension WHERE extname = 'timescaledb';` returns `2.24.0`.
+
+### Requirement: Logs severity continuous aggregate
+The system SHALL create a TimescaleDB continuous aggregate (`logs_severity_stats_5m`) with 5-minute buckets that pre-computes log severity counts from the `logs` hypertable so dashboard stats cards can query rollups instead of scanning raw data.
+
+#### Scenario: CAGG exists after migration
+- **GIVEN** a CNPG cluster where the observability rollup stats migration has been applied
+- **WHEN** an operator queries `timescaledb_information.continuous_aggregates`
+- **THEN** a continuous aggregate named `logs_severity_stats_5m` exists with columns for bucket, service_name, total_count, fatal_count, error_count, warning_count, info_count, and debug_count.
+
+#### Scenario: Severity normalization handles case variations
+- **GIVEN** logs with `severity_text` values of `ERROR`, `Error`, and `error`
+- **WHEN** the CAGG aggregates these logs
+- **THEN** all three are counted in the `error_count` column.
+
+#### Scenario: Severity normalization handles synonyms
+- **GIVEN** logs with `severity_text` values of `warn` and `warning`
+- **WHEN** the CAGG aggregates these logs
+- **THEN** both are counted in the `warning_count` column.
+
+### Requirement: Traces summary continuous aggregate
+The system SHALL create a TimescaleDB continuous aggregate (`traces_stats_5m`) with 5-minute buckets that pre-computes trace statistics from root spans in the `otel_traces` hypertable.
+
+#### Scenario: CAGG filters to root spans only
+- **GIVEN** traces with multiple spans per trace
+- **WHEN** the CAGG aggregates the data
+- **THEN** only spans with `parent_span_id IS NULL` or empty are counted in `total_count`.
+
+#### Scenario: CAGG computes duration percentiles
+- **GIVEN** the `traces_stats_5m` CAGG exists
+- **WHEN** data is aggregated
+- **THEN** the CAGG includes `avg_duration_ms` and `p95_duration_ms` columns computed from span duration.
+
+### Requirement: Services availability continuous aggregate
+The system SHALL create a TimescaleDB continuous aggregate (`services_availability_5m`) with 5-minute buckets that pre-computes service availability counts from the `services` hypertable.
+
+#### Scenario: CAGG counts unique service instances
+- **GIVEN** multiple status reports for the same service within a bucket
+- **WHEN** the CAGG aggregates the data
+- **THEN** unique services are identified by (gateway_id, agent_id, service_name) and counted once per availability state.
+
+#### Scenario: CAGG groups by service type
+- **GIVEN** services of different types (http, grpc, tcp, etc.)
+- **WHEN** the CAGG aggregates the data
+- **THEN** availability counts are broken down by `service_type`.
+
+### Requirement: Continuous aggregate refresh policies
+The system SHALL attach refresh policies to each observability CAGG that run every 5 minutes with appropriate offsets to handle late-arriving data.
+
+#### Scenario: Refresh jobs exist and run regularly
+- **GIVEN** the observability CAGGs are installed
+- **WHEN** an operator queries `timescaledb_information.jobs`
+- **THEN** each CAGG has a refresh job configured with 5-minute schedule interval.
+
+#### Scenario: Refresh handles late-arriving data
+- **GIVEN** a refresh policy with 1-hour end offset
+- **WHEN** data arrives up to 1 hour late
+- **THEN** subsequent refresh cycles include the late data in the appropriate buckets.
+
+### Requirement: Core-Elx Runs Ash Migrations on Startup
+The core-elx service SHALL run Ash migrations for the public schema and all tenant schemas during startup, and SHALL fail startup if migrations cannot be applied.
+
+#### Scenario: Startup migrations succeed
+- **GIVEN** a core-elx instance with database access
+- **WHEN** the service starts
+- **THEN** Ash migrations SHALL be applied to the public schema
+- **AND** tenant migrations SHALL be applied to every `tenant_<tenant_slug>` schema
+- **AND** the service SHALL continue startup after migrations succeed
+
+#### Scenario: Startup migrations fail fast
+- **GIVEN** a core-elx instance with database access
+- **WHEN** a migration fails
+- **THEN** core-elx SHALL terminate startup
+- **AND** application endpoints SHALL NOT be exposed until migrations succeed
+
+### Requirement: db-event-writer uses CNPG client certificate for mTLS
+The db-event-writer deployment SHALL provide CNPG TLS client certificate and key from the CNPG client certificate bundle (cnpg-client.pem/cnpg-client-key.pem) whenever CNPG client certificate authentication is enabled.
+
+#### Scenario: Helm deployment with client certs
+- **GIVEN** Helm values enable CNPG client certificate authentication and mount the CNPG client cert bundle at `/etc/serviceradar/certs`
+- **WHEN** `serviceradar-db-event-writer` starts
+- **THEN** it connects to CNPG using `cnpg-client.pem` and `cnpg-client-key.pem` for TLS client authentication
+
+#### Scenario: Demo kustomize deployment
+- **GIVEN** the demo kustomize manifests enable CNPG client certificate authentication
+- **WHEN** `serviceradar-db-event-writer` starts
+- **THEN** its CNPG TLS configuration references `cnpg-client.pem` and `cnpg-client-key.pem` and the connection succeeds
+
+### Requirement: CNPG search_path prefers platform schema
+CNPG bootstrap configuration SHALL set the database search_path to `platform, ag_catalog` so new tables are created under the platform schema rather than public.
+
+#### Scenario: Fresh bootstrap uses platform-first search_path
+- **GIVEN** a fresh CNPG cluster bootstrapped via Helm or Docker Compose
+- **WHEN** a client connects as the `serviceradar` role and queries `SHOW search_path`
+- **THEN** the result starts with `platform`
+- **AND** tables created by migrations are placed under the `platform` schema
+
+### Requirement: Interface observations hypertable with retention
+The system SHALL store interface observations in a TimescaleDB hypertable with a 3-day retention policy.
+
+#### Scenario: Hypertable exists
+- **GIVEN** a fresh CNPG cluster with TimescaleDB enabled
+- **WHEN** migrations run
+- **THEN** the interface observations table is converted to a hypertable
+
+#### Scenario: Retention policy enforces 3-day TTL
+- **GIVEN** interface observations older than 3 days
+- **WHEN** the retention policy runs
+- **THEN** observations older than 3 days are removed
+
+### Requirement: CNPG bootstrap credentials are generated and persisted
+The Helm CNPG bootstrap MUST generate random passwords for the `postgres` superuser and `spire`/`serviceradar` roles when they are not explicitly provided, and MUST store them in Kubernetes secrets that persist across upgrades.
+
+#### Scenario: New Helm install without provided passwords
+- **GIVEN** a Helm install where CNPG passwords are not set in values
+- **WHEN** the chart renders and installs CNPG resources
+- **THEN** `cnpg-superuser`, `spire-db-credentials`, and `serviceradar-db-credentials` secrets contain non-empty, non-default passwords
+- **AND** subsequent upgrades reuse the existing secret values without rotating them
+
+#### Scenario: Existing secrets are preserved
+- **GIVEN** `cnpg-superuser` or `spire-db-credentials` already exist in the namespace
+- **WHEN** the chart is upgraded
+- **THEN** the existing secret values are reused without being overwritten
+
+### Requirement: CNPG cluster access is internal by default
+The Helm CNPG deployment MUST avoid exposing CNPG services outside the cluster unless explicitly configured by the operator.
+
+#### Scenario: Default Helm render is cluster-internal
+- **GIVEN** a Helm install with default values
+- **WHEN** the CNPG service manifests are rendered
+- **THEN** services are ClusterIP-only (no NodePort or LoadBalancer exposure)
+
+### Requirement: Flow Traffic Continuous Aggregates
+The database SHALL maintain TimescaleDB continuous aggregates over `platform.ocsf_network_activity` at three resolutions: 5-minute, 1-hour, and 1-day. Each CAGG SHALL pre-aggregate bytes, packets, and flow count grouped by source IP, destination IP, protocol, destination port, application label, sampler address, and direction.
+
+#### Scenario: 5-minute CAGG refreshes automatically
+- **GIVEN** the `platform.flow_traffic_5min` continuous aggregate exists
+- **WHEN** new flow records are inserted into `platform.ocsf_network_activity`
+- **THEN** the 5-minute CAGG refreshes within 5 minutes via its configured refresh policy
+- **AND** querying the CAGG for a recent 5-minute bucket returns aggregated totals
+
+#### Scenario: Hierarchical CAGG chain
+- **GIVEN** the 1-hour CAGG `platform.flow_traffic_1h` is defined over the 5-minute CAGG
+- **WHEN** the 5-minute CAGG has data for a complete hour
+- **THEN** the 1-hour CAGG aggregates from the 5-minute data (not raw)
+- **AND** the 1-day CAGG `platform.flow_traffic_1d` aggregates from the 1-hour CAGG
+
+#### Scenario: Query-time auto-resolution selects appropriate CAGG
+- **GIVEN** a SRQL query with a 7-day time window
+- **WHEN** the SRQL engine resolves the query source
+- **THEN** it selects the 1-hour CAGG (`platform.flow_traffic_1h`) instead of raw data
+- **AND** the query completes significantly faster than querying raw data for the same window
+
+### Requirement: 95th Percentile Bandwidth Calculation
+The database SHALL support 95th percentile bandwidth calculation over the continuous aggregates. This MUST be available as a query-time operation using TimescaleDB `percentile_agg` or equivalent.
+
+#### Scenario: Monthly 95th percentile per interface
+- **GIVEN** 30 days of 5-minute CAGG data for sampler `10.0.0.1`
+- **WHEN** a 95th percentile query is executed for that sampler
+- **THEN** the result represents the bandwidth value below which 95% of all 5-minute samples fall
+- **AND** this matches the industry-standard burstable billing calculation
+
+### Requirement: Flow enrichment fields SHALL be persisted at ingestion time
+The ingestion pipeline SHALL normalize and persist canonical flow enrichment fields in CNPG when flow records are stored, including protocol label mapping, decoded TCP flag labels, destination service label metadata, directionality classification, and endpoint MAC vendor attribution.
+
+#### Scenario: Protocol and TCP enrichment persisted on write
+- **GIVEN** an ingested flow record with `protocol_num = 6` and `tcp_flags = 18`
+- **WHEN** the record is written to CNPG
+- **THEN** persisted enrichment fields include canonical protocol label `tcp`
+- **AND** include decoded TCP flag labels `SYN` and `ACK`
+- **AND** retain raw protocol number and raw tcp flag bitmask values
+
+#### Scenario: Unknown mappings persist deterministic fallback
+- **GIVEN** an ingested flow record with unknown protocol/service mappings
+- **WHEN** the record is written to CNPG
+- **THEN** persisted enrichment fields use deterministic unknown labels
+- **AND** include enrichment source metadata marking those values as unknown
+
+#### Scenario: OUI vendor enrichment persisted on write
+- **GIVEN** an ingested flow record with source or destination MAC addresses
+- **AND** an active IEEE OUI snapshot contains matching prefixes
+- **WHEN** the record is written to CNPG
+- **THEN** persisted enrichment fields include endpoint MAC vendor labels
+- **AND** enrichment source is recorded as OUI dataset driven
+
+### Requirement: Provider-hosting classification SHALL be persisted from cloud CIDR dataset
+The ingestion pipeline SHALL classify flow endpoints against the active cloud-provider CIDR dataset and persist provider-hosting enrichment fields for flow detail consumption.
+
+#### Scenario: Flow endpoint matches provider CIDR
+- **GIVEN** an active provider CIDR snapshot contains a range covering a flow source IP
+- **WHEN** the flow is ingested
+- **THEN** the persisted flow enrichment includes provider-hosting classification and provider identity
+- **AND** enrichment source is recorded as dataset-driven
+
+#### Scenario: No provider match falls back to unknown
+- **GIVEN** a flow endpoint IP does not match any active provider CIDR range
+- **WHEN** the flow is ingested
+- **THEN** provider-hosting classification is persisted as unknown
+- **AND** ingestion continues without failure
+
+### Requirement: CNPG SHALL store provider and OUI enrichment datasets in platform schema
+CNPG SHALL store cloud-provider CIDR snapshots and IEEE OUI snapshots in platform-schema tables with active snapshot metadata so ingestion can resolve provider and MAC vendor enrichment without in-memory-only datasets.
+
+#### Scenario: Provider and OUI snapshots persisted in platform schema
+- **GIVEN** refresh jobs complete successfully
+- **WHEN** snapshots are promoted
+- **THEN** active provider CIDR and active OUI snapshot metadata are persisted in `platform` schema tables
+- **AND** ingestion lookups read from those active snapshots
+
+### Requirement: CNPG major upgrades use controlled migration workflows
+ServiceRadar MUST NOT attempt unsupported direct reuse of Postgres data
+directories across CNPG major versions. Supported upgrade paths MUST use a
+controlled migration workflow appropriate to the deployment environment.
+
+#### Scenario: Docker Compose blocks direct PG16-on-PG18 reuse
+- **GIVEN** a Docker Compose deployment with a PG16 CNPG data directory
+- **WHEN** the deployment is reconfigured to use the PG18 CNPG image
+- **THEN** the system refuses to boot PG18 directly on the PG16 data directory
+- **AND** it requires the operator to run the supported Compose migration workflow first
+
+### Requirement: CNPG upgrade workflows preserve application role access
+Controlled CNPG major-upgrade workflows MUST preserve the application role
+access model that ServiceRadar relies on after the upgrade completes.
+
+#### Scenario: Application roles remain usable after Compose migration
+- **GIVEN** a supported Compose PG16-to-PG18 migration has completed
+- **WHEN** ServiceRadar services connect to the migrated PG18 CNPG cluster
+- **THEN** the configured superuser, `serviceradar`, and `spire` roles can authenticate as expected
+- **AND** the application database retains the required `platform, ag_catalog` search_path behavior
+
+### Requirement: Demo CNPG provides repeatable slow-query observability
+The CNPG deployment in the `demo` namespace SHALL provide a repeatable slow-query observability path that supports detection, triage, and regression tracking of web-ng latency incidents.
+
+#### Scenario: Operators can collect top slow-query evidence
+- **GIVEN** operators investigate slow pages reported by web-ng
+- **WHEN** they follow the documented demo triage workflow
+- **THEN** they can retrieve top slow-query evidence from CNPG observability mechanisms
+- **AND** they can correlate findings with application time windows.
+
+### Requirement: Demo slow-query logging thresholds are configurable and documented
+The CNPG deployment in `demo` SHALL enforce configurable query-duration logging thresholds and SHALL document tuning guidance to balance detection quality with log volume.
+
+#### Scenario: Threshold tuning avoids excessive log noise
+- **GIVEN** query-duration logging is enabled in demo
+- **WHEN** operators adjust the configured threshold
+- **THEN** slow-query events remain visible for triage
+- **AND** log volume stays within acceptable operational limits.
+
+### Requirement: Slow-query metrics are available for alerting in demo
+The system SHALL expose low-cardinality slow-query metrics derived from existing telemetry/log data so operators can monitor latency trends and configure alerts in `demo`.
+
+#### Scenario: Slow-query metrics are queryable
+- **GIVEN** slow-query telemetry is flowing in demo
+- **WHEN** operators query slow-query metrics
+- **THEN** they can view latency distribution and slow-query rates over time
+- **AND** metric labels remain low cardinality and suitable for alerting.

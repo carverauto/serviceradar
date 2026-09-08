@@ -1,0 +1,1026 @@
+defmodule ServiceRadarWebNGWeb.SRQL.Builder do
+  @moduledoc false
+
+  alias ServiceRadarWebNGWeb.SRQL.Catalog
+
+  # Builder-side safety cap; must be high enough to represent chart queries (e.g. flows downsample uses 4000).
+  @max_limit 5000
+  @allowed_filter_ops ["contains", "not_contains", "equals", "not_equals", "gt", "gte", "lt", "lte"]
+  @allowed_downsample_aggs ["avg", "min", "max", "sum", "count"]
+
+  @type state :: map()
+
+  def default_state(entity, limit \\ 100) when is_binary(entity) do
+    config = Catalog.entity(entity)
+
+    %{
+      "entity" => config.id,
+      "time" => config.default_time || "",
+      "bucket" => config[:default_bucket] || "",
+      "agg" => config[:default_agg] || "avg",
+      "value_field" => config[:default_value_field] || "",
+      "series" => config[:default_series_field] || "",
+      "sort_field" => config.default_sort_field,
+      "sort_dir" => config.default_sort_dir,
+      "limit" => normalize_limit(limit),
+      "filters" => [
+        %{
+          "field" => config.default_filter_field,
+          "op" => Catalog.default_filter_op(config, config.default_filter_field),
+          "value" => ""
+        }
+      ]
+    }
+  end
+
+  def build(%{} = state) do
+    entity = Map.get(state, "entity", "devices")
+    time = Map.get(state, "time", "")
+    bucket = Map.get(state, "bucket", "")
+    agg = Map.get(state, "agg", "avg")
+    value_field = Map.get(state, "value_field", "")
+    series = Map.get(state, "series", "")
+    sort_field = Map.get(state, "sort_field", default_sort_field(entity))
+    sort_dir = Map.get(state, "sort_dir", "desc")
+    limit = normalize_limit(Map.get(state, "limit", 100))
+    filters = normalize_filters(entity, Map.get(state, "filters", []))
+
+    mode =
+      if bucket |> safe_to_string() |> String.trim() == "",
+        do: :row,
+        else: :downsample
+
+    {filters, _stripped} = apply_mode_filter_allowlist(entity, mode, filters)
+
+    tokens =
+      ["in:#{entity}"]
+      |> maybe_add_time(time)
+      |> maybe_add_downsample(entity, time, bucket, agg, value_field, series)
+      |> maybe_add_filters(entity, filters)
+      |> maybe_add_sort(sort_field, sort_dir)
+      |> Kernel.++(["limit:#{limit}"])
+
+    Enum.join(tokens, " ")
+  end
+
+  def update(%{} = state, %{} = params) do
+    {next, _stripped} = update_meta(state, params)
+    next
+  end
+
+  @doc """
+  Like `update/2`, but also returns one field-name entry per filter row stripped
+  by mode allowlists (e.g. enabling chart mode drops `tag` on flows).
+  """
+  def update_meta(%{} = state, %{} = params) do
+    state
+    |> Map.merge(stringify_map(params))
+    |> normalize_state_meta()
+  end
+
+  @doc """
+  Active query mode for builder composition: `:downsample` when `bucket` is set,
+  otherwise `:row`. Stats-mode builder support is not wired yet.
+  """
+  def mode(%{} = state) do
+    bucket =
+      state
+      |> Map.get("bucket", "")
+      |> safe_to_string()
+      |> String.trim()
+
+    if bucket == "", do: :row, else: :downsample
+  end
+
+  def mode(_), do: :row
+
+  @doc """
+  Filter field options for the current builder state (mode-aware).
+  Returns a list, or `nil` when the entity does not constrain fields.
+  """
+  def filter_fields_for(%{} = state) do
+    entity = Map.get(state, "entity", "devices")
+    Catalog.filter_fields(entity, mode(state))
+  end
+
+  def filter_fields_for(_), do: nil
+
+  def parse(query) when is_binary(query) do
+    tokens =
+      query
+      |> String.trim()
+      |> tokenize()
+
+    with {:ok, parts} <- parse_tokens(tokens),
+         :ok <- reject_unknown_tokens(tokens, parts),
+         :ok <- validate_filter_fields(parts.entity, parts.filters),
+         :ok <-
+           validate_downsample(
+             parts.entity,
+             parts.bucket,
+             parts.agg,
+             parts.value_field,
+             parts.series
+           ) do
+      case normalize_state_meta(%{
+             "entity" => parts.entity,
+             "time" => parts.time,
+             "bucket" => parts.bucket,
+             "agg" => parts.agg,
+             "value_field" => parts.value_field,
+             "series" => parts.series,
+             "sort_field" => parts.sort_field,
+             "sort_dir" => parts.sort_dir,
+             "limit" => parts.limit,
+             "filters" => parts.filters
+           }) do
+        {state, []} -> {:ok, state}
+        {_state, stripped} -> {:error, {:unsupported_mode_filter_fields, stripped}}
+      end
+    end
+  end
+
+  def parse(_), do: {:error, :invalid_query}
+
+  defp tokenize(""), do: []
+
+  defp tokenize(query) when is_binary(query) do
+    {tokens_rev, current, _in_quotes, _escaped} =
+      query
+      |> String.graphemes()
+      |> Enum.reduce({[], "", false, false}, fn ch, {tokens_rev, current, in_quotes, escaped} ->
+        cond do
+          escaped ->
+            {tokens_rev, current <> ch, in_quotes, false}
+
+          ch == "\\" ->
+            {tokens_rev, current <> ch, in_quotes, true}
+
+          ch == "\"" ->
+            {tokens_rev, current <> ch, not in_quotes, false}
+
+          String.match?(ch, ~r/\s/) and not in_quotes ->
+            {updated_tokens, updated_current, updated_quotes} =
+              push_token(tokens_rev, current, in_quotes)
+
+            {updated_tokens, updated_current, updated_quotes, false}
+
+          true ->
+            {tokens_rev, current <> ch, in_quotes, false}
+        end
+      end)
+
+    tokens_rev
+    |> finalize_tokens(current)
+    |> Enum.reverse()
+  end
+
+  defp push_token(tokens_rev, "", in_quotes), do: {tokens_rev, "", in_quotes}
+  defp push_token(tokens_rev, current, in_quotes), do: {[current | tokens_rev], "", in_quotes}
+  defp finalize_tokens(tokens_rev, ""), do: tokens_rev
+  defp finalize_tokens(tokens_rev, current), do: [current | tokens_rev]
+
+  defp normalize_state_meta(%{} = state) do
+    entity =
+      state
+      |> Map.get("entity", "devices")
+      |> safe_to_string()
+      |> String.trim()
+      |> case do
+        "" -> "devices"
+        value -> value
+      end
+
+    config = Catalog.entity(entity)
+
+    sort_dir =
+      case Map.get(state, "sort_dir") do
+        "asc" -> "asc"
+        _ -> "desc"
+      end
+
+    bucket = normalize_bucket(config, Map.get(state, "bucket"))
+    agg = normalize_agg(config, Map.get(state, "agg"))
+    value_field = normalize_value_field(config, Map.get(state, "value_field"))
+    series = normalize_series_field(config, Map.get(state, "series"))
+
+    time =
+      state
+      |> Map.get("time", "")
+      |> normalize_time()
+      |> ensure_downsample_time(config, bucket)
+
+    mode = if bucket == "", do: :row, else: :downsample
+    raw_filters = normalize_filters(entity, Map.get(state, "filters", []))
+    {filters, stripped} = apply_mode_filter_allowlist(entity, mode, raw_filters)
+
+    normalized = %{
+      "entity" => config.id,
+      "time" => time,
+      "bucket" => bucket,
+      "agg" => agg,
+      "value_field" => value_field,
+      "series" => series,
+      "sort_field" => normalize_sort_field(entity, Map.get(state, "sort_field")),
+      "sort_dir" => sort_dir,
+      "limit" => normalize_limit(Map.get(state, "limit", 100)),
+      "filters" => filters
+    }
+
+    {normalized, stripped}
+  end
+
+  # Drop filters whose field is illegal for the active mode. Unrestricted
+  # entities (`filter_fields` empty → nil allowlist) keep every filter.
+  defp apply_mode_filter_allowlist(entity, mode, filters) when is_list(filters) do
+    case Catalog.filter_fields(entity, mode) do
+      nil ->
+        {filters, []}
+
+      allowed when is_list(allowed) ->
+        allowed_set = MapSet.new(allowed)
+
+        {kept, removed} =
+          Enum.split_with(filters, fn filter ->
+            field = filter |> Map.get("field") |> safe_to_string() |> String.trim()
+            field == "" or MapSet.member?(allowed_set, field)
+          end)
+
+        stripped =
+          removed
+          |> Enum.map(fn filter -> filter |> Map.get("field") |> safe_to_string() end)
+          |> Enum.reject(&(&1 == ""))
+
+        # If every filter was illegal, seed one empty legal row so the UI still
+        # has a place to type — matching default_state's single empty filter.
+        kept =
+          if kept == [] and stripped != [] do
+            field = default_mode_filter_field(entity, mode, allowed)
+
+            [
+              %{
+                "field" => field,
+                "op" => Catalog.default_filter_op(entity, field),
+                "value" => ""
+              }
+            ]
+          else
+            kept
+          end
+
+        {kept, stripped}
+    end
+  end
+
+  defp apply_mode_filter_allowlist(_entity, _mode, _), do: {[], []}
+
+  defp default_mode_filter_field(entity, _mode, allowed) when is_list(allowed) do
+    config = Catalog.entity(entity)
+    preferred = safe_to_string(config.default_filter_field || "")
+
+    if preferred != "" and preferred in allowed do
+      preferred
+    else
+      List.first(allowed) || preferred || "field"
+    end
+  end
+
+  defp normalize_time(nil), do: ""
+
+  defp normalize_time(time) when time in ["", "last_1h", "last_6h", "last_12h", "last_24h", "last_7d", "last_30d"] do
+    time
+  end
+
+  # Allow absolute ranges like: time:[2026-02-07T22:50:00Z,2026-02-07T22:55:00Z]
+  # These are common when clicking into time buckets in charts.
+  defp normalize_time(time) when is_binary(time) do
+    time = String.trim(time)
+
+    if bracketed_time_range?(time) do
+      time
+    else
+      ""
+    end
+  end
+
+  defp normalize_time(_), do: ""
+
+  defp bracketed_time_range?(value) when is_binary(value) do
+    # Keep this intentionally permissive; SRQL parsing is the source of truth.
+    String.starts_with?(value, "[") and String.ends_with?(value, "]") and
+      String.contains?(value, ",")
+  end
+
+  defp normalize_bucket(%{downsample: true} = config, value) do
+    candidate =
+      value
+      |> safe_to_string()
+      |> String.trim()
+
+    default = safe_to_string(Map.get(config, :default_bucket) || "")
+
+    cond do
+      # `default_state/2` seeds the initial chart bucket. Once a bucket is
+      # explicitly cleared, preserve that row-mode choice instead of silently
+      # re-enabling the default chart mode.
+      candidate == "" -> ""
+      Regex.match?(~r/^\d+(?:s|m|h|d)$/, candidate) -> candidate
+      true -> default
+    end
+  end
+
+  defp normalize_bucket(_config, _), do: ""
+
+  defp normalize_agg(%{downsample: true} = config, value) do
+    candidate =
+      value
+      |> safe_to_string()
+      |> String.trim()
+      |> String.downcase()
+
+    default = safe_to_string(Map.get(config, :default_agg) || "avg")
+
+    if candidate in @allowed_downsample_aggs, do: candidate, else: default
+  end
+
+  defp normalize_agg(_config, _), do: "avg"
+
+  defp normalize_series_field(%{downsample: true} = config, value) do
+    candidate =
+      value
+      |> safe_to_string()
+      |> String.trim()
+
+    allowed = Map.get(config, :series_fields) || Map.get(config, "series_fields")
+    default = safe_to_string(Map.get(config, :default_series_field) || "")
+
+    cond do
+      candidate == "" -> default
+      is_list(allowed) and candidate in allowed -> candidate
+      is_nil(allowed) -> candidate
+      true -> default
+    end
+  end
+
+  defp normalize_series_field(_config, _), do: ""
+
+  defp normalize_value_field(%{downsample: true} = config, value) do
+    candidate = value |> safe_to_string() |> String.trim()
+    allowed = Map.get(config, :value_fields) || Map.get(config, "value_fields") || []
+    default = safe_to_string(Map.get(config, :default_value_field) || "")
+
+    first = if is_list(allowed), do: List.first(allowed) || "", else: ""
+    fallback = if default != "" and default in allowed, do: default, else: first
+
+    cond do
+      not is_list(allowed) or allowed == [] -> ""
+      candidate in allowed -> candidate
+      true -> fallback
+    end
+  end
+
+  defp normalize_value_field(_config, _), do: ""
+
+  defp ensure_downsample_time(time, %{downsample: true} = config, bucket) do
+    if bucket != "" and time == "" do
+      safe_to_string(config.default_time || "last_24h")
+    else
+      time
+    end
+  end
+
+  defp ensure_downsample_time(time, _config, _bucket), do: time
+
+  defp normalize_sort_field(entity, field) when is_binary(field) do
+    field = String.trim(field)
+    allowed = allowed_sort_fields(entity)
+
+    cond do
+      is_list(allowed) and Enum.member?(allowed, field) -> field
+      field != "" and is_nil(allowed) -> field
+      true -> default_sort_field(entity)
+    end
+  end
+
+  defp normalize_sort_field(entity, _), do: default_sort_field(entity)
+
+  defp normalize_limit(limit) when is_integer(limit) and limit > 0, do: min(limit, @max_limit)
+
+  defp normalize_limit(limit) when is_binary(limit) do
+    case Integer.parse(String.trim(limit)) do
+      {value, ""} -> normalize_limit(value)
+      _ -> 100
+    end
+  end
+
+  defp normalize_limit(_), do: 100
+
+  defp allowed_sort_fields(entity) do
+    case Catalog.entity(entity) do
+      %{id: id} when id in ["devices", "gateways"] ->
+        if id == "gateways" do
+          ["last_seen", "gateway_id", "status", "agent_count", "checker_count"]
+        else
+          ["last_seen", "hostname", "ip", "uid", "is_available"]
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp allowed_search_fields(entity) do
+    # Parse/validate against the row allowlist (superset). Mode stripping happens
+    # later in normalize so freeform-illegal-for-chart fields can still parse,
+    # then get dropped when the builder is in downsample mode.
+    Catalog.filter_fields(entity, :row)
+  end
+
+  defp default_sort_field(entity) do
+    Catalog.entity(entity).default_sort_field
+  end
+
+  defp default_search_field(entity) do
+    case Catalog.entity(entity).default_filter_field do
+      "" -> "field"
+      value -> value
+    end
+  end
+
+  defp maybe_add_time(tokens, ""), do: tokens
+  defp maybe_add_time(tokens, nil), do: tokens
+  defp maybe_add_time(tokens, time), do: tokens ++ ["time:#{time}"]
+
+  defp maybe_add_downsample(tokens, entity, time, bucket, agg, value_field, series) do
+    config = Catalog.entity(entity)
+
+    cond do
+      not Map.get(config, :downsample, false) ->
+        tokens
+
+      bucket |> safe_to_string() |> String.trim() == "" ->
+        tokens
+
+      time |> safe_to_string() |> String.trim() == "" ->
+        tokens
+
+      true ->
+        bucket = bucket |> safe_to_string() |> String.trim()
+        agg = agg |> safe_to_string() |> String.trim() |> String.downcase()
+        value_field = value_field |> safe_to_string() |> String.trim()
+        series = series |> safe_to_string() |> String.trim()
+
+        tokens =
+          tokens
+          |> Kernel.++(["bucket:#{bucket}"])
+          |> Kernel.++(if agg == "", do: [], else: ["agg:#{agg}"])
+          |> Kernel.++(maybe_value_field_token(config, value_field))
+
+        if series == "" do
+          tokens
+        else
+          tokens ++ ["series:#{series}"]
+        end
+    end
+  end
+
+  defp maybe_value_field_token(config, value_field) do
+    allowed = Map.get(config, :value_fields) || Map.get(config, "value_fields") || []
+
+    if value_field != "" and is_list(allowed) and allowed != [] do
+      ["value_field:#{value_field}"]
+    else
+      []
+    end
+  end
+
+  defp maybe_add_sort(tokens, "", _dir), do: tokens
+  defp maybe_add_sort(tokens, nil, _dir), do: tokens
+  defp maybe_add_sort(tokens, field, dir), do: tokens ++ ["sort:#{field}:#{dir}"]
+
+  defp maybe_add_filters(tokens, entity, filters) when is_list(filters) do
+    # Group filters by field and operator type for merging
+    grouped = group_filters_for_merge(filters)
+    array_fields = get_array_fields(entity)
+
+    Enum.reduce(grouped, tokens, fn filter_group, acc ->
+      case build_merged_filter_token(filter_group, array_fields) do
+        nil -> acc
+        token -> acc ++ [token]
+      end
+    end)
+  end
+
+  defp get_array_fields(entity) do
+    case Catalog.entity(entity) do
+      %{array_fields: fields} when is_list(fields) -> fields
+      _ -> []
+    end
+  end
+
+  # Group filters that can be merged (same field, compatible operators)
+  defp group_filters_for_merge(filters) do
+    # Separate filters into mergeable (equals/not_equals) and non-mergeable (contains)
+    {mergeable, non_mergeable} =
+      Enum.split_with(filters, fn %{"op" => op} ->
+        op in ["equals", "not_equals"]
+      end)
+
+    # Group mergeable filters by {field, op}
+    merged =
+      mergeable
+      |> Enum.group_by(fn %{"field" => field, "op" => op} -> {field, op} end)
+      |> Enum.map(fn {{field, op}, group} ->
+        values = group |> Enum.map(&Map.get(&1, "value")) |> Enum.filter(&(&1 != ""))
+        %{"field" => field, "op" => op, "values" => values}
+      end)
+
+    # Non-mergeable filters stay as single-value
+    singles =
+      Enum.map(non_mergeable, fn %{"field" => field, "op" => op, "value" => value} ->
+        %{"field" => field, "op" => op, "values" => [value]}
+      end)
+
+    merged ++ singles
+  end
+
+  defp build_merged_filter_token(%{"field" => field, "op" => op, "values" => values}, array_fields) do
+    field = field |> safe_to_string() |> String.trim()
+    if field == "", do: nil, else: build_filter_by_op(field, op, values, array_fields)
+  end
+
+  defp build_filter_by_op(field, "equals", values, array_fields) do
+    expanded = expand_comma_values(values)
+    is_array_field = field in array_fields
+    build_equals_token(field, expanded, is_array_field)
+  end
+
+  defp build_filter_by_op(field, "not_equals", values, array_fields) do
+    expanded = expand_comma_values(values)
+    is_array_field = field in array_fields
+    build_not_equals_token(field, expanded, is_array_field)
+  end
+
+  defp build_filter_by_op(field, "contains", values, _array_fields) do
+    value = values |> List.first() |> safe_to_string() |> String.trim()
+    if value == "", do: nil, else: "#{field}:%#{escape_value(value)}%"
+  end
+
+  defp build_filter_by_op(field, "not_contains", values, _array_fields) do
+    value = values |> List.first() |> safe_to_string() |> String.trim()
+    if value == "", do: nil, else: "!#{field}:%#{escape_value(value)}%"
+  end
+
+  defp build_filter_by_op(field, "gt", values, _array_fields) do
+    build_comparison_token(field, ">", values)
+  end
+
+  defp build_filter_by_op(field, "gte", values, _array_fields) do
+    build_comparison_token(field, ">=", values)
+  end
+
+  defp build_filter_by_op(field, "lt", values, _array_fields) do
+    build_comparison_token(field, "<", values)
+  end
+
+  defp build_filter_by_op(field, "lte", values, _array_fields) do
+    build_comparison_token(field, "<=", values)
+  end
+
+  defp build_filter_by_op(_field, _op, _values, _array_fields), do: nil
+
+  defp build_comparison_token(field, op, values) do
+    value = values |> List.first() |> safe_to_string() |> String.trim()
+    if value == "", do: nil, else: "#{field}:#{op}#{escape_value(value)}"
+  end
+
+  # Expand comma-separated values into individual items (for equals/not_equals only)
+  defp expand_comma_values(values) do
+    values
+    |> Enum.flat_map(fn v ->
+      v |> safe_to_string() |> String.split(",") |> Enum.map(&String.trim/1)
+    end)
+    |> Enum.filter(&(&1 != ""))
+  end
+
+  defp build_equals_token(_field, [], _is_array_field), do: nil
+
+  # For array fields, always use list syntax even for single values
+  defp build_equals_token(field, [value], true = _is_array_field) do
+    "#{field}:(#{escape_value(value)})"
+  end
+
+  defp build_equals_token(field, [value], false = _is_array_field) do
+    "#{field}:#{escape_value(value)}"
+  end
+
+  defp build_equals_token(field, values, _is_array_field) do
+    escaped = Enum.map(values, &escape_value/1)
+    "#{field}:(#{Enum.join(escaped, ",")})"
+  end
+
+  defp build_not_equals_token(_field, [], _is_array_field), do: nil
+
+  # For array fields, always use list syntax even for single values
+  defp build_not_equals_token(field, [value], true = _is_array_field) do
+    "!#{field}:(#{escape_value(value)})"
+  end
+
+  defp build_not_equals_token(field, [value], false = _is_array_field) do
+    "!#{field}:#{escape_value(value)}"
+  end
+
+  defp build_not_equals_token(field, values, _is_array_field) do
+    escaped = Enum.map(values, &escape_value/1)
+    "!#{field}:(#{Enum.join(escaped, ",")})"
+  end
+
+  defp escape_value(value), do: String.replace(value, " ", "\\ ")
+
+  defp stringify_map(%{} = map) do
+    Map.new(map, fn
+      {k, v} when is_atom(k) -> {Atom.to_string(k), v}
+      {k, v} -> {to_string(k), v}
+    end)
+  end
+
+  defp parse_tokens(tokens) do
+    parts = %{
+      entity: nil,
+      time: "",
+      bucket: "",
+      agg: "avg",
+      value_field: "",
+      series: "",
+      sort_field: nil,
+      sort_dir: "desc",
+      limit: 100,
+      filters: []
+    }
+
+    tokens
+    |> Enum.reduce_while({:ok, parts}, fn token, {:ok, acc} ->
+      case parse_token(token, acc) do
+        {:ok, updated} -> {:cont, {:ok, updated}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, %{entity: nil}} ->
+        {:error, :missing_entity}
+
+      {:ok, %{sort_field: nil} = parts} ->
+        {:ok, %{parts | sort_field: default_sort_field(parts.entity)}}
+
+      other ->
+        other
+    end
+  end
+
+  defp parse_token(token, acc) do
+    case parse_known_token(token, acc) do
+      {:ok, updated} -> {:ok, updated}
+      :unknown -> parse_filter_token(token, acc)
+    end
+  end
+
+  defp parse_known_token(token, acc) do
+    cond do
+      String.starts_with?(token, "in:") ->
+        entity = String.replace_prefix(token, "in:", "")
+        {:ok, %{acc | entity: entity}}
+
+      String.starts_with?(token, "time:") ->
+        time = String.replace_prefix(token, "time:", "")
+        {:ok, %{acc | time: time}}
+
+      String.starts_with?(token, "bucket:") ->
+        bucket = String.replace_prefix(token, "bucket:", "")
+        {:ok, %{acc | bucket: bucket}}
+
+      String.starts_with?(token, "agg:") ->
+        agg = String.replace_prefix(token, "agg:", "")
+        {:ok, %{acc | agg: agg}}
+
+      String.starts_with?(token, "value_field:") ->
+        value_field = String.replace_prefix(token, "value_field:", "")
+        {:ok, %{acc | value_field: value_field}}
+
+      String.starts_with?(token, "series:") ->
+        series = String.replace_prefix(token, "series:", "")
+        {:ok, %{acc | series: series}}
+
+      String.starts_with?(token, "sort:") ->
+        parse_sort_token(token, acc)
+
+      String.starts_with?(token, "limit:") ->
+        limit = String.replace_prefix(token, "limit:", "")
+        {:ok, %{acc | limit: normalize_limit(limit)}}
+
+      true ->
+        :unknown
+    end
+  end
+
+  defp parse_sort_token(token, acc) do
+    sort = String.replace_prefix(token, "sort:", "")
+
+    case String.split(sort, ":", parts: 2) do
+      [field, dir] -> {:ok, %{acc | sort_field: field, sort_dir: dir}}
+      _ -> {:error, :invalid_sort}
+    end
+  end
+
+  defp parse_filter_token(token, acc) do
+    case String.split(token, ":", parts: 2) do
+      [field, value] ->
+        {field, negated} = parse_filter_field(field)
+        value = String.trim(value)
+        {op, final_value} = parse_filter_value(negated, value)
+
+        filter = %{
+          "field" => String.downcase(field),
+          "op" => op,
+          "value" => final_value
+        }
+
+        {:ok, %{acc | filters: acc.filters ++ [filter]}}
+
+      _ ->
+        {:error, :invalid_token}
+    end
+  end
+
+  defp unwrap_like("%" <> rest) do
+    rest
+    |> String.trim_trailing("%")
+    |> String.replace("\\ ", " ")
+  end
+
+  defp unwrap_like(value), do: value
+
+  defp parse_filter_field(field) when is_binary(field) do
+    field = String.trim(field)
+
+    if String.starts_with?(field, "!") do
+      {String.replace_prefix(field, "!", ""), true}
+    else
+      {field, false}
+    end
+  end
+
+  defp parse_filter_value(negated, value) do
+    value = String.trim(value)
+    value = maybe_unquote(value)
+
+    cond do
+      String.starts_with?(value, "(") and String.ends_with?(value, ")") ->
+        inner =
+          value
+          |> String.trim_leading("(")
+          |> String.trim_trailing(")")
+          |> String.replace("\\ ", " ")
+
+        op = if negated, do: "not_equals", else: "equals"
+        {op, inner}
+
+      String.starts_with?(value, ">=") ->
+        {"gte", String.replace_prefix(value, ">=", "")}
+
+      String.starts_with?(value, "<=") ->
+        {"lte", String.replace_prefix(value, "<=", "")}
+
+      String.starts_with?(value, ">") ->
+        {"gt", String.replace_prefix(value, ">", "")}
+
+      String.starts_with?(value, "<") ->
+        {"lt", String.replace_prefix(value, "<", "")}
+
+      String.contains?(value, "%") ->
+        op = if negated, do: "not_contains", else: "contains"
+        {op, unwrap_like(value)}
+
+      true ->
+        op = if negated, do: "not_equals", else: "equals"
+        {op, String.replace(value, "\\ ", " ")}
+    end
+  end
+
+  defp maybe_unquote("\"" <> value) do
+    if String.ends_with?(value, "\"") do
+      String.trim_trailing(value, "\"")
+    else
+      "\"" <> value
+    end
+  end
+
+  defp maybe_unquote(value), do: value
+
+  defp reject_unknown_tokens(tokens, parts) do
+    known_prefixes = [
+      "in:",
+      "time:",
+      "bucket:",
+      "agg:",
+      "value_field:",
+      "series:",
+      "sort:",
+      "limit:"
+    ]
+
+    unknown =
+      Enum.reject(tokens, fn token ->
+        Enum.any?(known_prefixes, &String.starts_with?(token, &1)) or
+          Enum.any?(parts.filters, fn %{"field" => field} ->
+            String.starts_with?(token, field <> ":") or
+              String.starts_with?(token, "!" <> field <> ":")
+          end)
+      end)
+
+    if unknown == [], do: :ok, else: {:error, {:unsupported_tokens, unknown}}
+  end
+
+  defp validate_downsample(entity, bucket, agg, value_field, series) do
+    config = Catalog.entity(entity)
+
+    if Map.get(config, :downsample, false) do
+      validate_downsample_fields(config, bucket, agg, value_field, series)
+    else
+      validate_downsample_unsupported(bucket)
+    end
+  end
+
+  defp validate_downsample_fields(config, bucket, agg, value_field, series) do
+    bucket = bucket |> safe_to_string() |> String.trim()
+    agg = agg |> safe_to_string() |> String.trim() |> String.downcase()
+    value_field = value_field |> safe_to_string() |> String.trim()
+    series = series |> safe_to_string() |> String.trim()
+
+    cond do
+      bucket == "" ->
+        :ok
+
+      not valid_bucket?(bucket) ->
+        {:error, {:invalid_bucket, bucket}}
+
+      agg != "" and agg not in @allowed_downsample_aggs ->
+        {:error, {:invalid_agg, agg}}
+
+      true ->
+        with :ok <- validate_downsample_value_field(config, value_field) do
+          validate_downsample_series(config, series)
+        end
+    end
+  end
+
+  defp validate_downsample_value_field(config, value_field) do
+    allowed = Map.get(config, :value_fields) || Map.get(config, "value_fields")
+
+    cond do
+      value_field == "" ->
+        :ok
+
+      is_list(allowed) and allowed != [] and value_field not in allowed ->
+        {:error, {:unsupported_value_field, value_field}}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp validate_downsample_series(config, series) do
+    allowed = Map.get(config, :series_fields) || Map.get(config, "series_fields")
+
+    if series != "" and is_list(allowed) and series not in allowed do
+      {:error, {:unsupported_series_field, series}}
+    else
+      :ok
+    end
+  end
+
+  defp validate_downsample_unsupported(bucket) do
+    if bucket |> safe_to_string() |> String.trim() == "" do
+      :ok
+    else
+      {:error, :downsample_not_supported}
+    end
+  end
+
+  defp valid_bucket?(bucket) do
+    Regex.match?(~r/^\d+(?:s|m|h|d)$/, bucket)
+  end
+
+  defp validate_filter_fields(entity, filters) when entity in ["devices", "gateways"] do
+    allowed = allowed_search_fields(entity)
+
+    invalid = invalid_filter_fields(filters, allowed)
+
+    if invalid == [], do: :ok, else: {:error, {:unsupported_filter_fields, invalid}}
+  end
+
+  defp validate_filter_fields(entity, filters) do
+    case allowed_search_fields(entity) do
+      nil ->
+        if entity == "" do
+          {:error, :missing_entity}
+        else
+          _ = filters
+          :ok
+        end
+
+      allowed ->
+        invalid = invalid_filter_fields(filters, allowed)
+
+        if invalid == [], do: :ok, else: {:error, {:unsupported_filter_fields, invalid}}
+    end
+  end
+
+  defp invalid_filter_fields(filters, allowed) do
+    filters
+    |> Enum.map(&Map.get(&1, "field"))
+    |> Enum.reject(fn field -> is_nil(field) or field in allowed end)
+  end
+
+  defp normalize_filters(entity, filters) when is_list(filters) do
+    Enum.map(filters, fn
+      %{"field" => field, "op" => op, "value" => value} ->
+        build_normalized_filter(entity, field, op, value)
+
+      %{} = other ->
+        build_normalized_filter(
+          entity,
+          Map.get(other, "field"),
+          Map.get(other, "op"),
+          Map.get(other, "value", "")
+        )
+
+      other ->
+        build_normalized_filter(entity, default_search_field(entity), nil, other)
+    end)
+  end
+
+  defp normalize_filters(entity, %{} = filters_by_index) do
+    filters_by_index
+    |> Enum.sort_by(fn {k, _} ->
+      case Integer.parse(to_string(k)) do
+        {i, ""} -> i
+        _ -> 0
+      end
+    end)
+    |> Enum.map(fn {_k, v} -> v end)
+    |> then(&normalize_filters(entity, &1))
+  end
+
+  defp normalize_filters(entity, _), do: normalize_filters(entity, [])
+
+  defp build_normalized_filter(entity, field, op, value) do
+    field = normalize_filter_field(entity, field)
+
+    %{
+      "field" => field,
+      "op" => normalize_filter_op(entity, field, op),
+      "value" => safe_to_string(value)
+    }
+  end
+
+  defp normalize_filter_field(entity, field) when is_binary(field) do
+    field = String.trim(field)
+
+    allowed = allowed_search_fields(entity)
+
+    cond do
+      is_list(allowed) and Enum.member?(allowed, field) -> field
+      field != "" and is_nil(allowed) -> field
+      true -> default_search_field(entity)
+    end
+  end
+
+  defp normalize_filter_field(entity, _), do: default_search_field(entity)
+
+  defp normalize_filter_op(entity, field, op) do
+    cond do
+      field in Catalog.exact_fields(entity) -> normalize_exact_filter_op(op)
+      op in @allowed_filter_ops -> op
+      true -> Catalog.default_filter_op(entity, field)
+    end
+  end
+
+  defp normalize_exact_filter_op(op) when op in ["not_equals", "not_contains"], do: "not_equals"
+  defp normalize_exact_filter_op(_op), do: "equals"
+
+  defp safe_to_string(nil), do: ""
+  defp safe_to_string(value) when is_binary(value), do: value
+  defp safe_to_string(value) when is_integer(value), do: Integer.to_string(value)
+  defp safe_to_string(value) when is_float(value), do: :erlang.float_to_binary(value)
+  defp safe_to_string(value) when is_atom(value), do: Atom.to_string(value)
+
+  defp safe_to_string(value) when is_list(value) do
+    if Enum.all?(value, &is_integer/1) do
+      to_string(value)
+    else
+      inspect(value)
+    end
+  end
+
+  defp safe_to_string(value), do: inspect(value)
+end

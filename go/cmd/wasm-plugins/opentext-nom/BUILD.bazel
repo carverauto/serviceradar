@@ -1,0 +1,20 @@
+# gazelle:ignore
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "config.schema.json",
+    "docs/configuration.md",
+    "main_tinygo.go",
+    "plugin.yaml",
+])
+
+filegroup(
+    name = "srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "dist/**",
+            "manifest.json",
+        ],
+    ),
+)

@@ -1,0 +1,89 @@
+suite: local mailer environment override
+templates:
+  - templates/web.yaml
+  - templates/core.yaml
+tests:
+  - it: renders one disabled local mailer setting for web-ng and core by default
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_LOCAL_MAILER
+            value: "false"
+          count: 1
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_LOCAL_MAILER
+            value: "true"
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_LOCAL_MAILER
+            value: "false"
+          count: 1
+        template: templates/core.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_LOCAL_MAILER
+            value: "true"
+          count: 1
+        template: templates/core.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: lets extraEnv replace the local mailer setting without duplicating it
+    set:
+      webNg.extraEnv.SERVICERADAR_LOCAL_MAILER: "true"
+      core.extraEnv.SERVICERADAR_LOCAL_MAILER: "true"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_LOCAL_MAILER
+            value: "true"
+          count: 1
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_LOCAL_MAILER
+            value: "false"
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_LOCAL_MAILER
+            value: "true"
+        template: templates/core.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_LOCAL_MAILER
+            value: "false"
+        template: templates/core.yaml
+        documentSelector:
+          path: kind
+          value: Deployment

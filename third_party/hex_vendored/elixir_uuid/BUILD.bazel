@@ -1,0 +1,43 @@
+load("@rules_elixir//:mix_app.bzl", "mix_app")
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "bazel-*",
+            "_build/**",
+            "deps/**",
+            "tmp/**",
+        ],
+    ),
+)
+
+# Bootstrap files only -- what `mix deps.get` needs to resolve this project as a path
+# dependency, with none of its lib/ sources. Keeping this separate from :srcs is what lets
+# //elixir/web-ng:deps_cache stay keyed on lockfiles, so it stays a remote cache hit across
+# any change that does not touch dependencies.
+filegroup(
+    name = "deps_srcs",
+    srcs = ["mix.exs"] + glob(
+        [
+            "mix.lock",
+            "config/**",
+        ],
+        allow_empty = True,
+    ),
+)
+
+# Compiled by Mix inside a single hermetic Bazel action, with dependencies supplied as
+# Bazel-built ErlangAppInfo rather than fetched. See //build:mix_app.bzl.
+mix_app(
+    name = "erlang_app",
+    srcs = [":srcs"],
+    app_name = "elixir_uuid",
+    deps = [
+        "@hexpm//:boundary",
+        "@rules_elixir//elixir",
+    ],
+)

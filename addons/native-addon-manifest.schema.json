@@ -1,0 +1,427 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://serviceradar.carverauto.dev/schemas/native-addon-manifest.schema.json",
+  "title": "ServiceRadar Native Add-on Manifest (addon.yaml)",
+  "description": "Schema for a first-party native ServiceRadar agent add-on manifest (issue 3425). The manifest is authored as YAML (addon.yaml) and validated (after YAML->JSON normalization) against this schema before the signed bundle is assembled. The build fails closed on a manifest that is missing required fields or declares an unknown kind/delivery/supervision value.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "name",
+    "version",
+    "kind",
+    "delivery",
+    "supervision",
+    "capabilities",
+    "requires",
+    "exec",
+    "config_schema"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "title": "Add-on identifier",
+      "description": "Stable, lowercase, hyphen/underscore-delimited identifier for the add-on.",
+      "minLength": 1,
+      "pattern": "^[a-z0-9][a-z0-9_-]*$"
+    },
+    "name": {
+      "type": "string",
+      "title": "Human-readable name",
+      "minLength": 1
+    },
+    "version": {
+      "type": "string",
+      "title": "Add-on version",
+      "description": "Semantic version of the add-on (e.g. 0.1.0).",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$"
+    },
+    "description": {
+      "type": "string",
+      "title": "Description"
+    },
+    "kind": {
+      "type": "string",
+      "title": "Add-on kind",
+      "description": "The add-on packaging kind. Only native add-ons are described by this schema.",
+      "enum": ["native"]
+    },
+    "delivery": {
+      "type": "string",
+      "title": "Delivery model",
+      "description": "How the add-on artifact reaches the agent.",
+      "enum": ["compiled-in", "pushed-artifact", "os-package"]
+    },
+    "supervision": {
+      "type": "string",
+      "title": "Supervision model",
+      "description": "How the agent supervises the add-on at runtime.",
+      "enum": [
+        "config-toggle",
+        "agent-sidecar",
+        "systemd-service",
+        "systemd-timer",
+        "ephemeral-helper"
+      ]
+    },
+    "language": {
+      "type": "string",
+      "title": "Implementation language",
+      "enum": ["go", "rust"]
+    },
+    "capabilities": {
+      "type": "array",
+      "title": "Capabilities",
+      "description": "Capability strings this add-on provides; at least one is required.",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "requires": {
+      "type": "object",
+      "title": "Runtime requirements",
+      "additionalProperties": false,
+      "required": ["base_agent", "platforms"],
+      "properties": {
+        "base_agent": {
+          "type": "string",
+          "title": "Required base agent version constraint",
+          "description": "A version constraint on the base serviceradar-agent (e.g. \">=1.2.0\").",
+          "minLength": 1
+        },
+        "platforms": {
+          "type": "array",
+          "title": "Supported platforms (OS)",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": ["linux", "darwin", "windows"]
+          }
+        },
+        "agent_capabilities": {
+          "type": "array",
+          "title": "Required agent capabilities",
+          "description": "Capabilities the base agent must advertise before this add-on can be assigned. Empty by default.",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "os_capabilities": {
+          "type": "array",
+          "title": "Required OS capabilities",
+          "description": "Linux capabilities the add-on requires (e.g. CAP_NET_RAW). Empty by default.",
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        },
+        "run_as": {
+          "type": "string",
+          "title": "Run-as user",
+          "description": "OS user the add-on is expected to run as."
+        }
+      }
+    },
+    "plugin": {
+      "type": "object",
+      "title": "go-plugin protocol settings",
+      "description": "Settings for the HashiCorp go-plugin transport the agent uses to supervise an agent-sidecar add-on.",
+      "additionalProperties": false,
+      "properties": {
+        "protocol": {
+          "type": "string",
+          "enum": ["grpc"]
+        },
+        "app_protocol_version": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "title": "Resource limits",
+      "description": "CPU and memory limits the agent supervisor (agent-sidecar) and the systemd unit generator (systemd-service) enforce for this add-on. Add-ons that perform on-host compute (for example per-series anomaly detection) MUST declare limits so they cannot impact the host or the base agent. Omitted means unbounded, which is only acceptable for trivial control-only add-ons.",
+      "additionalProperties": false,
+      "properties": {
+        "cpu_max_percent": {
+          "type": "number",
+          "title": "Max CPU percent",
+          "description": "Maximum CPU as a percentage of a single core (100 = one full core). Maps to systemd CPUQuota and cgroup cpu.max.",
+          "minimum": 1
+        },
+        "memory_max_bytes": {
+          "type": "integer",
+          "title": "Hard memory limit (bytes)",
+          "description": "Hard memory ceiling; the add-on is killed if it exceeds this. Maps to systemd MemoryMax and cgroup memory.max.",
+          "minimum": 1
+        },
+        "memory_high_bytes": {
+          "type": "integer",
+          "title": "Soft memory pressure threshold (bytes)",
+          "description": "Soft threshold above which the kernel reclaims aggressively before the hard limit. Maps to systemd MemoryHigh. Should be <= memory_max_bytes.",
+          "minimum": 1
+        },
+        "tasks_max": {
+          "type": "integer",
+          "title": "Max tasks/threads",
+          "description": "Maximum number of tasks (threads) the add-on may spawn. Maps to systemd TasksMax.",
+          "minimum": 1
+        },
+        "slice": {
+          "type": "string",
+          "title": "systemd slice",
+          "description": "Optional systemd slice to place the add-on under for shared accounting (for example \"serviceradar-addons.slice\")."
+        }
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "title": "Signed per-architecture artifacts",
+      "description": "Per-architecture artifact descriptors populated by the signed-bundle build (native-addon-builds). Omitted in reference/source manifests.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["os", "arch", "object_key", "sha256"],
+        "properties": {
+          "os": {
+            "type": "string",
+            "enum": ["linux", "darwin", "windows"]
+          },
+          "arch": {
+            "type": "string",
+            "enum": ["amd64", "arm64"]
+          },
+          "object_key": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "signature_ref": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "exec": {
+      "type": "object",
+      "title": "Execution descriptor",
+      "additionalProperties": false,
+      "required": ["binary", "install_path"],
+      "properties": {
+        "binary": {
+          "type": "string",
+          "title": "Binary name",
+          "minLength": 1
+        },
+        "install_path": {
+          "type": "string",
+          "title": "Install path",
+          "description": "Absolute path the add-on binary is installed under.",
+          "minLength": 1,
+          "pattern": "^/"
+        },
+        "args": {
+          "type": "array",
+          "title": "Default arguments",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "state_dirs": {
+      "type": "array",
+      "title": "State directories",
+      "description": "Absolute directories the add-on is allowed to read/write at runtime.",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^/"
+      }
+    },
+    "config_schema": {
+      "type": "string",
+      "title": "Config schema reference",
+      "description": "Relative path (within the bundle) to the JSON-Schema the control plane validates add-on configuration against.",
+      "minLength": 1
+    },
+    "producer_schedules": {
+      "type": "array",
+      "title": "Producer schedule contracts",
+      "description": "Declarative schedules materialized as disabled operator state when the package is imported or updated.",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "required": [
+          "schedule_id",
+          "label",
+          "action_id",
+          "command_type",
+          "default_cadence_seconds"
+        ],
+        "properties": {
+          "schedule_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9_.-]+$"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "type": "string"
+          },
+          "action_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9_.-]+$"
+          },
+          "command_type": {
+            "type": "string",
+            "enum": ["addon.run_command", "plugin.run_action"]
+          },
+          "default_cadence_seconds": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "min_cadence_seconds": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "max_cadence_seconds": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "schedule_type": {
+            "type": "string",
+            "enum": ["interval", "cron", "manual"]
+          },
+          "jitter_seconds": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "dispatch_scope": {
+            "type": "string",
+            "enum": ["assignment", "target_query"]
+          },
+          "timeout_seconds": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "settings_schema": {
+            "type": "object"
+          },
+          "credential_requirements": {
+            "type": "object"
+          },
+          "redaction": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    "signal_schemas": {
+      "type": "array",
+      "title": "Telemetry signal schema references",
+      "description": "Declarative log/event payload schemas and display contracts shipped with this add-on package. Required for add-ons that emit logs or events.",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version",
+          "signal_type",
+          "payload_kind",
+          "payload_schema",
+          "display_contract",
+          "display_contract_id",
+          "display_contract_version"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Signal schema identifier",
+            "description": "Stable reverse-DNS-style signal schema id.",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[a-z0-9][a-z0-9_.-]*$"
+          },
+          "version": {
+            "type": "string",
+            "title": "Signal schema version",
+            "description": "Semantic version of the producer payload schema.",
+            "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$"
+          },
+          "signal_type": {
+            "type": "string",
+            "title": "Signal type",
+            "enum": ["event", "log"]
+          },
+          "payload_kind": {
+            "type": "string",
+            "title": "Payload kind",
+            "description": "Canonical platform payload shape described by this schema.",
+            "enum": ["ocsf_event", "otel_log"]
+          },
+          "payload_schema": {
+            "type": "string",
+            "title": "Payload JSON Schema path",
+            "description": "Relative JSON file path inside the add-on bundle.",
+            "minLength": 1,
+            "maxLength": 240,
+            "pattern": "^[A-Za-z0-9_-][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*\\.json$"
+          },
+          "display_contract": {
+            "type": "string",
+            "title": "Display contract path",
+            "description": "Relative JSON file path inside the add-on bundle.",
+            "minLength": 1,
+            "maxLength": 240,
+            "pattern": "^[A-Za-z0-9_-][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*\\.json$"
+          },
+          "display_contract_id": {
+            "type": "string",
+            "title": "Display contract identifier",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[a-z0-9][a-z0-9_.-]*$"
+          },
+          "display_contract_version": {
+            "type": "string",
+            "title": "Display contract version",
+            "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$"
+          },
+          "ocsf_schema_version": {
+            "type": "string",
+            "title": "OCSF schema version",
+            "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$"
+          },
+          "class_uid": {
+            "type": "integer",
+            "title": "OCSF class UID",
+            "minimum": 1
+          },
+          "type_uid": {
+            "type": "integer",
+            "title": "OCSF type UID",
+            "minimum": 1
+          }
+        }
+      }
+    }
+  }
+}

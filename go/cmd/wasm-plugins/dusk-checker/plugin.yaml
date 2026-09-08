@@ -1,0 +1,30 @@
+id: dusk-checker
+name: Dusk Checker
+version: 1.0.0
+description: Monitors Dusk blockchain nodes via the RUES accepted-block stream
+entrypoint: run_check
+runtime: wasi-preview1
+outputs: serviceradar.plugin_result.v1
+capabilities:
+  - get_config
+  - log
+  - submit_result
+  - http_request
+  - websocket_connect
+  - websocket_send
+  - websocket_recv
+  - websocket_close
+permissions:
+  # The default RUES endpoint is the local rusk node, which listens on
+  # 127.0.0.1:8080 on the same VM as the agent. Scope egress to loopback + the
+  # RUES http/ws port only. Operators pointing the plugin at a remote node must
+  # widen this via the package's approved_permissions / assignment override.
+  allowed_domains:
+    - "localhost"
+    - "127.0.0.1"
+  allowed_ports:
+    - 8080
+resources:
+  requested_memory_mb: 64
+  requested_cpu_ms: 2000
+  max_open_connections: 1

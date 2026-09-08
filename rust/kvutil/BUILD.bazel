@@ -1,0 +1,60 @@
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:cargo_build_script.bzl", "cargo_build_script")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+
+filegroup(
+    name = "srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "target/**",
+            "bazel-*",
+        ],
+    ),
+    visibility = ["//visibility:public"],
+)
+
+cargo_build_script(
+    name = "build_script",
+    srcs = ["build.rs"],
+    build_script_env = {
+        "PROTOC": "$(execpath @bazel_tools//tools/proto:protoc)",
+    },
+    crate_root = "build.rs",
+    data = [
+        "//proto:kv_proto_src",
+    ],
+    # Restores the execroot as this script's working directory.
+    #
+    # rules_rs's rules_rust synthesizes CARGO_MANIFEST_DIR as a runfiles directory holding
+    # only files from THIS package, and runs the script there. Every proto consumed here
+    # comes from another package, so it lands outside that directory and build.rs's
+    # execroot-relative path resolves to nothing -- protoc reports "Could not make proto path
+    # relative: ... No such file or directory". The feature symlinks the execroot into the
+    # manifest dir, which is what build.rs's Bazel branch was written against.
+    #
+    # Still hermetic: the sandbox holds only declared inputs, so this changes which paths
+    # resolve, not which files exist. A build script whose data lives in its own package
+    # (//rust/addon-sdk, //rust/powerdns) does not need it.
+    features = ["symlink-exec-root"],
+    tools = ["@bazel_tools//tools/proto:protoc"],
+    deps = ["@crates//:tonic-prost-build"],
+)
+
+rust_library(
+    name = "kvutil",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    data = ["//proto:kv_proto_src"],
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + [":build_script"],
+)
+
+rust_test(
+    name = "kvutil_test",
+    crate = ":kvutil",
+)

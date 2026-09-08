@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Remote Access Feature-Set Configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "enabled": {
+      "type": "boolean",
+      "title": "Enable remote access",
+      "default": false
+    },
+    "ssh_enabled": {
+      "type": "boolean",
+      "title": "Enable SSH sessions",
+      "default": false
+    },
+    "application_tcp_enabled": {
+      "type": "boolean",
+      "title": "Enable application and TCP sessions",
+      "default": false
+    },
+    "file_transfer_enabled": {
+      "type": "boolean",
+      "title": "Enable file transfer sessions",
+      "default": false
+    },
+    "desktop_enabled": {
+      "type": "boolean",
+      "title": "Enable desktop sessions",
+      "default": false
+    },
+    "rdp_enabled": {
+      "type": "boolean",
+      "title": "Enable RDP sessions",
+      "default": false
+    },
+    "recording_enabled": {
+      "type": "boolean",
+      "title": "Enable session recording",
+      "default": false
+    },
+    "max_session_duration_seconds": {
+      "type": "integer",
+      "title": "Maximum session duration",
+      "minimum": 60,
+      "default": 3600
+    }
+  }
+}

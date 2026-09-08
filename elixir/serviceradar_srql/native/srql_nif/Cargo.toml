@@ -1,0 +1,23 @@
+[package]
+name = "srql_nif"
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"
+
+[lib]
+name = "srql_nif"
+crate-type = ["cdylib"]
+
+[dependencies]
+anyhow = { workspace = true }
+arrow-array = { workspace = true }
+arrow-ipc = { workspace = true }
+arrow-schema = { workspace = true }
+capnp = { workspace = true }
+chrono = { workspace = true }
+rustler = { workspace = true, features = ["nif_version_2_15"] }
+serde_json = { workspace = true }
+srql = { path = "../../../../rust/srql" }
+
+[build-dependencies]
+capnpc = { workspace = true }

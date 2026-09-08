@@ -1,0 +1,1017 @@
+defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
+  @moduledoc """
+  LiveView for managing collector packages.
+
+  This is a single-deployment UI - each instance serves one account.
+  Schema context is implicit from the PostgreSQL search_path.
+
+  Admin view for:
+  - Creating collector packages (flowgger, trapd, netflow, otel, falcosidekick)
+  - Viewing issued NATS credentials
+  - Revoking collector credentials
+  """
+  use ServiceRadarWebNGWeb, :live_view
+
+  alias ServiceRadar.Edge.CollectorPackage
+  alias ServiceRadar.Edge.EdgeSite
+  alias ServiceRadar.Edge.NatsCredential
+  alias ServiceRadarWebNG.Capabilities
+  alias ServiceRadarWebNG.Collectors.PubSub, as: CollectorPubSub
+  alias ServiceRadarWebNG.Edge.CollectorBundleGenerator
+  alias ServiceRadarWebNG.Edge.NatsDeploymentStatus
+  alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.Settings.Shell
+
+  require Ash.Query
+
+  @collector_types [
+    {"Syslog Collector (Flowgger)", :flowgger},
+    {"SNMP Trap Receiver", :trapd},
+    {"NetFlow Collector", :netflow},
+    {"OpenTelemetry Collector", :otel},
+    {"Falcosidekick (Falco)", :falcosidekick}
+  ]
+
+  @impl true
+  def mount(_params, _session, socket) do
+    scope = socket.assigns.current_scope
+
+    if RBAC.can?(scope, "settings.edge.manage") do
+      actor = get_actor(socket)
+
+      # Subscribe to real-time updates for collectors
+      if connected?(socket) do
+        CollectorPubSub.subscribe_collectors()
+        CollectorPubSub.subscribe_nats()
+      end
+
+      socket =
+        socket
+        |> assign(:page_title, "Collectors")
+        |> assign(:collector_types, @collector_types)
+        |> assign(:collectors_enabled, Capabilities.collectors_enabled?())
+        |> assign(:show_create_modal, false)
+        |> assign(:show_details_modal, false)
+        |> assign(:selected_package, nil)
+        |> assign(:created_package, nil)
+        |> assign(:created_download_token, nil)
+        |> assign(:created_install_command, nil)
+        |> assign(:filter_status, nil)
+        |> assign(:filter_type, nil)
+        |> load_account_status(actor)
+        |> load_packages(actor)
+        |> load_credentials(actor)
+        |> load_edge_sites(actor)
+
+      {:ok, socket}
+    else
+      {:ok,
+       socket
+       |> put_flash(:error, "You don't have permission to access Edge Ops.")
+       |> push_navigate(to: ~p"/dashboard")}
+    end
+  end
+
+  @impl true
+  def handle_params(params, _url, socket) do
+    {:noreply, apply_action(socket, socket.assigns.live_action, params)}
+  end
+
+  defp apply_action(socket, :index, _params), do: socket
+
+  defp apply_action(socket, :show, %{"id" => id}) do
+    actor = get_actor(socket)
+
+    case get_package(id, actor) do
+      {:ok, package} ->
+        socket
+        |> assign(:selected_package, package)
+        |> assign(:show_details_modal, true)
+
+      {:error, :not_found} ->
+        socket
+        |> put_flash(:error, "Package not found")
+        |> push_navigate(to: ~p"/admin/collectors")
+    end
+  end
+
+  @impl true
+  def handle_event("open_create_modal", _params, socket) do
+    if socket.assigns.collectors_enabled do
+      {:noreply, assign(socket, :show_create_modal, true)}
+    else
+      {:noreply, put_flash(socket, :error, collectors_disabled_message())}
+    end
+  end
+
+  def handle_event("close_create_modal", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:show_create_modal, false)
+     |> assign(:created_package, nil)
+     |> assign(:created_download_token, nil)
+     |> assign(:created_install_command, nil)}
+  end
+
+  def handle_event("close_details_modal", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:show_details_modal, false)
+     |> assign(:selected_package, nil)}
+  end
+
+  def handle_event("create_package", params, socket) do
+    if socket.assigns.collectors_enabled do
+      actor = get_actor(socket)
+
+      collector_type = params["collector_type"]
+      site = params["site"]
+      hostname = params["hostname"]
+      edge_site_id = params["edge_site_id"]
+      edge_site_id = if edge_site_id == "", do: nil, else: edge_site_id
+
+      base_url = ServiceRadarWebNGWeb.Endpoint.url()
+
+      case create_package(actor, collector_type, site, hostname, edge_site_id, base_url) do
+        {:ok, package, download_token} ->
+          {:noreply,
+           socket
+           |> assign(:created_package, package)
+           |> assign(:created_download_token, download_token)
+           |> assign(
+             :created_install_command,
+             created_install_command(package, download_token, base_url)
+           )
+           |> load_packages(actor)
+           |> put_flash(:info, "Collector package created")}
+
+        {:error, _reason} ->
+          {:noreply, put_flash(socket, :error, "Failed to create package")}
+      end
+    else
+      {:noreply, put_flash(socket, :error, collectors_disabled_message())}
+    end
+  end
+
+  def handle_event("revoke_package", %{"id" => id}, socket) do
+    actor = get_actor(socket)
+
+    case revoke_package(id, actor) do
+      {:ok, _} ->
+        {:noreply,
+         socket
+         |> assign(:show_details_modal, false)
+         |> assign(:selected_package, nil)
+         |> load_packages(actor)
+         |> load_credentials(actor)
+         |> put_flash(:info, "Package revoked")}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to revoke package")}
+    end
+  end
+
+  def handle_event("filter", params, socket) do
+    actor = get_actor(socket)
+    status = params["status"]
+    type = params["collector_type"]
+
+    {:noreply,
+     socket
+     |> assign(:filter_status, if(status == "", do: nil, else: status))
+     |> assign(:filter_type, if(type == "", do: nil, else: type))
+     |> load_packages(actor)}
+  end
+
+  def handle_event("copy_token", %{"token" => token}, socket) do
+    {:noreply,
+     socket
+     |> push_event("clipboard", %{text: token})
+     |> put_flash(:info, "Copied to clipboard")}
+  end
+
+  def handle_event("refresh", _params, socket) do
+    actor = get_actor(socket)
+
+    {:noreply,
+     socket
+     |> load_account_status(actor)
+     |> load_packages(actor)
+     |> load_credentials(actor)}
+  end
+
+  # PubSub event handlers for real-time updates
+
+  @impl true
+  def handle_info({:package_created, _package}, socket) do
+    actor = get_actor(socket)
+    {:noreply, load_packages(socket, actor)}
+  end
+
+  def handle_info({:package_updated, _package, _old_status, _new_status}, socket) do
+    actor = get_actor(socket)
+
+    {:noreply,
+     socket
+     |> load_packages(actor)
+     |> put_flash(:info, "Package status updated")}
+  end
+
+  def handle_info({:package_revoked, _package}, socket) do
+    actor = get_actor(socket)
+
+    {:noreply,
+     socket
+     |> load_packages(actor)
+     |> load_credentials(actor)
+     |> put_flash(:info, "Package revoked")}
+  end
+
+  def handle_info({:credential_created, _credential}, socket) do
+    actor = get_actor(socket)
+    {:noreply, load_credentials(socket, actor)}
+  end
+
+  def handle_info({:credential_revoked, _credential}, socket) do
+    actor = get_actor(socket)
+    {:noreply, load_credentials(socket, actor)}
+  end
+
+  def handle_info({:nats_status_updated, _status}, socket) do
+    actor = get_actor(socket)
+    {:noreply, load_account_status(socket, actor)}
+  end
+
+  # Catch-all for unhandled messages
+  def handle_info(_msg, socket), do: {:noreply, socket}
+
+  @impl true
+  def render(assigns) do
+    ~H"""
+    <Layouts.app flash={@flash} current_scope={@current_scope}>
+      <Shell.settings_chrome
+        current_path="/admin/collectors"
+        current_scope={@current_scope}
+        active_view={@settings_active_view}
+        active_category={@settings_active_category}
+        breadcrumbs={@settings_breadcrumbs}
+        nav_tree={@settings_nav_tree}
+        palette={@settings_palette}
+        stats={@settings_stats}
+      >
+        <div class="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h1 class="text-2xl font-semibold text-sr-ink">Collectors</h1>
+            <p class="text-sm text-sr-muted">
+              Manage NATS-connected data collectors for your account.
+            </p>
+          </div>
+          <div class="flex gap-2">
+            <.ui_button variant="ghost" size="sm" phx-click="refresh">
+              <.icon name="hero-arrow-path" class="size-4" /> Refresh
+            </.ui_button>
+            <.ui_button
+              :if={@collectors_enabled}
+              variant="primary"
+              size="sm"
+              phx-click="open_create_modal"
+              disabled={@account_status != :ready}
+            >
+              <.icon name="hero-plus" class="size-4" /> New Collector
+            </.ui_button>
+          </div>
+        </div>
+
+        <div :if={not @collectors_enabled} class={ui_alert_class("warning")}>
+          <.icon name="hero-lock-closed" class="size-5" />
+          <span>Collector onboarding is disabled for this deployment.</span>
+        </div>
+
+        <.account_status_card
+          account_status={@account_status}
+          nats_url={@nats_url}
+          account_public_key={@account_public_key}
+        />
+
+        <.ui_panel>
+          <:header>
+            <div>
+              <div class="text-sm font-semibold">Collector Packages</div>
+              <p class="text-xs text-sr-muted">
+                {@packages |> length()} package(s)
+              </p>
+            </div>
+            <div class="flex gap-2">
+              <select
+                name="status"
+                class={ui_field_class(size: "sm")}
+                phx-change="filter"
+              >
+                <option value="">All Statuses</option>
+                <option value="pending" selected={@filter_status == "pending"}>Pending</option>
+                <option value="ready" selected={@filter_status == "ready"}>Ready</option>
+                <option value="downloaded" selected={@filter_status == "downloaded"}>
+                  Downloaded
+                </option>
+                <option value="revoked" selected={@filter_status == "revoked"}>Revoked</option>
+              </select>
+              <select
+                name="collector_type"
+                class={ui_field_class(size: "sm")}
+                phx-change="filter"
+              >
+                <option value="">All Types</option>
+                <%= for {label, value} <- @collector_types do %>
+                  <option value={value} selected={@filter_type == to_string(value)}>{label}</option>
+                <% end %>
+              </select>
+            </div>
+          </:header>
+
+          <div class="overflow-x-auto">
+            <%= if @packages == [] do %>
+              <div class="rounded-xl border border-dashed border-sr-line bg-sr-surface p-8 text-center">
+                <div class="text-sm font-semibold text-sr-ink">No collectors found</div>
+                <p class="mt-1 text-xs text-sr-muted">
+                  <%= if @account_status == :ready do %>
+                    Create a new collector package to start sending data.
+                  <% else %>
+                    NATS is not configured for this deployment, so collector packages cannot be created yet.
+                  <% end %>
+                </p>
+              </div>
+            <% else %>
+              <table class={ui_table_class(size: "sm")}>
+                <thead>
+                  <tr class="text-xs uppercase tracking-wide text-sr-muted">
+                    <th>Collector</th>
+                    <th>Type</th>
+                    <th>Status</th>
+                    <th>Site</th>
+                    <th>Edge Site</th>
+                    <th>Created</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <%= for package <- @packages do %>
+                    <tr class="hover:bg-sr-subtle/30">
+                      <td>
+                        <div class="font-medium font-mono text-xs">{package.user_name}</div>
+                        <div class="text-xs text-sr-muted">
+                          {String.slice(package.id, 0, 8)}...
+                        </div>
+                      </td>
+                      <td>
+                        <.collector_type_badge type={package.collector_type} />
+                      </td>
+                      <td>
+                        <.status_badge status={package.status} />
+                      </td>
+                      <td class="text-xs">{package.site || "-"}</td>
+                      <td class="text-xs">
+                        <%= if package.edge_site do %>
+                          <.link
+                            navigate={~p"/admin/edge-sites/#{package.edge_site.id}"}
+                            class="text-sr-brand hover:underline"
+                          >
+                            {package.edge_site.name}
+                          </.link>
+                        <% else %>
+                          <span class="text-sr-muted">SaaS</span>
+                        <% end %>
+                      </td>
+                      <td class="text-xs text-sr-muted">
+                        <.user_time
+                          id={"admin-collector-package-#{package.id}-inserted-at"}
+                          value={package.inserted_at}
+                          timezone={@current_scope.user.timezone || "Etc/UTC"}
+                          style={:compact}
+                        />
+                      </td>
+                      <td>
+                        <div class="flex gap-1">
+                          <.ui_button
+                            variant="ghost"
+                            size="xs"
+                            navigate={~p"/admin/collectors/#{package.id}"}
+                          >
+                            View
+                          </.ui_button>
+                          <.ui_button
+                            :if={package.status in [:pending, :ready, :downloaded]}
+                            variant="ghost"
+                            size="xs"
+                            phx-click="revoke_package"
+                            phx-value-id={package.id}
+                            data-confirm="Are you sure you want to revoke this collector?"
+                          >
+                            Revoke
+                          </.ui_button>
+                        </div>
+                      </td>
+                    </tr>
+                  <% end %>
+                </tbody>
+              </table>
+            <% end %>
+          </div>
+        </.ui_panel>
+
+        <.ui_panel>
+          <:header>
+            <div class="flex items-center gap-2">
+              <.icon name="hero-key" class="size-4 text-secondary" />
+              <span class="font-semibold text-sm">NATS Credentials</span>
+            </div>
+          </:header>
+
+          <%= if @credentials == [] do %>
+            <div class="text-center py-4 text-sm text-sr-muted">
+              No credentials issued yet.
+            </div>
+          <% else %>
+            <div class="sr-ui-table-shell">
+              <table class={ui_table_class(size: "xs")}>
+                <thead>
+                  <tr class="text-[11px] uppercase tracking-wide text-sr-muted">
+                    <th>User</th>
+                    <th>Type</th>
+                    <th>Status</th>
+                    <th>Issued</th>
+                    <th>Expires</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <%= for cred <- @credentials do %>
+                    <tr>
+                      <td class="font-mono text-xs">{cred.user_name}</td>
+                      <td>
+                        <.collector_type_badge type={cred.collector_type} size="xs" />
+                      </td>
+                      <td>
+                        <.status_badge status={cred.status} size="xs" />
+                      </td>
+                      <td class="text-xs">
+                        <.user_time
+                          id={"admin-collector-credential-#{cred.id}-issued-at"}
+                          value={cred.issued_at}
+                          timezone={@current_scope.user.timezone || "Etc/UTC"}
+                          style={:compact}
+                        />
+                      </td>
+                      <td class="text-xs">
+                        <.user_time
+                          id={"admin-collector-credential-#{cred.id}-expires-at"}
+                          value={cred.expires_at}
+                          timezone={@current_scope.user.timezone || "Etc/UTC"}
+                          style={:compact}
+                        />
+                      </td>
+                    </tr>
+                  <% end %>
+                </tbody>
+              </table>
+            </div>
+          <% end %>
+        </.ui_panel>
+      </Shell.settings_chrome>
+
+      <.create_modal
+        :if={@show_create_modal and @collectors_enabled}
+        collector_types={@collector_types}
+        edge_sites={@edge_sites}
+        created_package={@created_package}
+        download_token={@created_download_token}
+        created_install_command={@created_install_command}
+      />
+
+      <.details_modal
+        :if={@show_details_modal}
+        package={@selected_package}
+        timezone={@current_scope.user.timezone || "Etc/UTC"}
+      />
+    </Layouts.app>
+    """
+  end
+
+  defp account_status_card(assigns) do
+    variant =
+      case assigns.account_status do
+        :ready -> "success"
+        :error -> "error"
+        _ -> "warning"
+      end
+
+    assigns = assign(assigns, :variant, variant)
+
+    ~H"""
+    <div class={ui_alert_class(@variant)}>
+      <div class="flex items-center gap-3">
+        <%= case @account_status do %>
+          <% :ready -> %>
+            <.icon name="hero-check-circle" class="size-6 text-success" />
+            <div>
+              <div class="font-semibold">NATS Ready</div>
+              <div class="text-xs text-sr-muted font-mono">
+                {@nats_url || "Cluster NATS is available for collector enrollment."}
+              </div>
+              <div :if={@account_public_key} class="text-xs text-sr-muted font-mono">
+                {@account_public_key}
+              </div>
+            </div>
+          <% :error -> %>
+            <.icon name="hero-exclamation-triangle" class="size-6 text-error" />
+            <div>
+              <div class="font-semibold">NATS Error</div>
+              <div class="text-xs text-sr-muted">
+                Collector enrollment cannot reach NATS. Check this deployment's NATS_URL.
+              </div>
+            </div>
+          <% _ -> %>
+            <.icon name="hero-exclamation-triangle" class="size-6 text-warning" />
+            <div>
+              <div class="font-semibold">NATS Not Configured</div>
+              <div class="text-xs text-sr-muted">
+                This deployment has no NATS URL, so collectors cannot be enrolled.
+              </div>
+            </div>
+        <% end %>
+      </div>
+    </div>
+    """
+  end
+
+  defp create_modal(assigns) do
+    ~H"""
+    <.ui_modal id="create_modal" on_cancel="close_create_modal">
+      <%= if @created_package do %>
+        <div class="text-center">
+          <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-success/10 mb-4">
+            <.icon name="hero-check-circle" class="size-10 text-success" />
+          </div>
+          <h3 class="text-xl font-bold">Collector Created</h3>
+          <p class="text-sm text-sr-muted mt-1">
+            Your collector package is being provisioned.
+          </p>
+        </div>
+
+        <div class="mt-6 space-y-4">
+          <div class="grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <div class="text-xs uppercase tracking-wide text-sr-muted">User Name</div>
+              <code class="font-mono text-xs">{@created_package.user_name}</code>
+            </div>
+            <div>
+              <div class="text-xs uppercase tracking-wide text-sr-muted">Type</div>
+              <span>{@created_package.collector_type}</span>
+            </div>
+          </div>
+
+          <%= if @download_token do %>
+            <div class="space-y-3">
+              <div class="text-sm font-medium">Enrollment Instructions</div>
+
+              <div class="bg-sr-subtle rounded-lg p-3">
+                <div class="text-xs uppercase tracking-wide text-sr-muted mb-2">
+                  <%= if @created_package.collector_type == :falcosidekick do %>
+                    Step 1: Download and deploy the bundle
+                  <% else %>
+                    Step 1: Install the collector
+                  <% end %>
+                </div>
+                <%= if @created_package.collector_type == :falcosidekick do %>
+                  <div class="text-xs text-sr-muted">
+                    This collector deploys through Helm and reuses the namespace's
+                    `serviceradar-runtime-certs` secret.
+                  </div>
+                <% else %>
+                  <code class="text-xs">
+                    # Debian/Ubuntu<br />
+                    sudo apt install serviceradar-{@created_package.collector_type}<br /><br />
+                    # RHEL/CentOS<br />
+                    sudo dnf install serviceradar-{@created_package.collector_type}
+                  </code>
+                <% end %>
+              </div>
+
+              <div class="bg-sr-subtle rounded-lg p-3">
+                <div class="flex items-center justify-between mb-2">
+                  <div class="text-xs uppercase tracking-wide text-sr-muted">
+                    <%= if @created_package.collector_type == :falcosidekick do %>
+                      Step 2: Run the bundle command
+                    <% else %>
+                      Step 2: Run the enrollment command
+                    <% end %>
+                  </div>
+                  <.ui_button
+                    type="button"
+                    phx-click="copy_token"
+                    phx-value-token={@created_install_command}
+                    size="xs"
+                    variant="ghost"
+                  >
+                    <.icon name="hero-clipboard-document" class="size-3" /> Copy
+                  </.ui_button>
+                </div>
+                <code class="font-mono text-xs break-all bg-sr-control p-2 rounded block">
+                  {@created_install_command}
+                </code>
+              </div>
+            </div>
+
+            <div class={ui_alert_class(variant: "warning", class: "text-xs")}>
+              <.icon name="hero-exclamation-triangle" class="size-4" />
+              <span>
+                <strong>Save this command!</strong> The enrollment token expires in 24 hours
+                and can only be used once.
+              </span>
+            </div>
+          <% else %>
+            <div class={ui_alert_class(variant: "info", class: "text-xs")}>
+              <.icon name="hero-information-circle" class="size-4" />
+              <span>
+                Credentials are being generated. Check back in a moment to download.
+              </span>
+            </div>
+          <% end %>
+        </div>
+
+        <div class="sr-ui-modal-action">
+          <.ui_button type="button" phx-click="close_create_modal" size="sm" variant="primary">
+            Done
+          </.ui_button>
+        </div>
+      <% else %>
+        <h3 class="text-lg font-bold">Create Collector Package</h3>
+        <p class="py-2 text-sm text-sr-muted">
+          Create a new NATS-connected collector for sending data to the platform.
+        </p>
+
+        <form phx-submit="create_package" class="mt-4 space-y-4">
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Collector Type</span>
+            </label>
+            <select name="collector_type" class={ui_field_class(class: "w-full")} required>
+              <%= for {label, value} <- @collector_types do %>
+                <option value={value}>{label}</option>
+              <% end %>
+            </select>
+          </div>
+
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Site (optional)</span>
+            </label>
+            <input
+              type="text"
+              name="site"
+              class={ui_field_class(class: "w-full")}
+              placeholder="e.g., datacenter-1, office-nyc"
+            />
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-xs text-sr-muted">
+                Deployment location for this collector
+              </span>
+            </label>
+          </div>
+
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Hostname (optional)</span>
+            </label>
+            <input
+              type="text"
+              name="hostname"
+              class={ui_field_class(class: "w-full")}
+              placeholder="e.g., collector-01.example.com"
+            />
+          </div>
+
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Edge Site (optional)</span>
+            </label>
+            <select name="edge_site_id" class={ui_field_class(class: "w-full")}>
+              <option value="">Connect to SaaS (default)</option>
+              <%= for site <- @edge_sites do %>
+                <option value={site.id}>{site.name} ({site.slug})</option>
+              <% end %>
+            </select>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-xs text-sr-muted">
+                Connect to a local NATS leaf server for low latency
+              </span>
+            </label>
+          </div>
+
+          <div class="sr-ui-modal-action">
+            <.ui_button type="button" phx-click="close_create_modal" size="sm" variant="neutral">
+              Cancel
+            </.ui_button>
+            <.ui_button type="submit" size="sm" variant="primary">Create Collector</.ui_button>
+          </div>
+        </form>
+      <% end %>
+    </.ui_modal>
+    """
+  end
+
+  attr :package, :map, required: true
+  attr :timezone, :string, required: true
+
+  defp details_modal(assigns) do
+    ~H"""
+    <.ui_modal id="details_modal" on_cancel="close_details_modal">
+      <:title>Collector Details</:title>
+
+      <div class="mt-4 space-y-4">
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <div class="text-xs uppercase tracking-wide text-sr-muted">User Name</div>
+            <code class="font-mono text-sm">{@package.user_name}</code>
+          </div>
+          <div>
+            <div class="text-xs uppercase tracking-wide text-sr-muted">Status</div>
+            <.status_badge status={@package.status} />
+          </div>
+          <div>
+            <div class="text-xs uppercase tracking-wide text-sr-muted">Type</div>
+            <.collector_type_badge type={@package.collector_type} />
+          </div>
+          <div>
+            <div class="text-xs uppercase tracking-wide text-sr-muted">Site</div>
+            <span class="text-sm">{@package.site || "-"}</span>
+          </div>
+          <div>
+            <div class="text-xs uppercase tracking-wide text-sr-muted">Hostname</div>
+            <span class="text-sm">{@package.hostname || "-"}</span>
+          </div>
+          <div>
+            <div class="text-xs uppercase tracking-wide text-sr-muted">Created</div>
+            <.user_time
+              id={"admin-collector-package-#{@package.id}-detail-inserted-at"}
+              value={@package.inserted_at}
+              timezone={@timezone}
+              style={:compact}
+              class="text-sm"
+            />
+          </div>
+        </div>
+
+        <div>
+          <div class="text-xs uppercase tracking-wide text-sr-muted mb-1">Package ID</div>
+          <code class="text-sm font-mono bg-sr-subtle p-2 rounded block">{@package.id}</code>
+        </div>
+
+        <%= if @package.error_message do %>
+          <div class={ui_alert_class(variant: "error", class: "text-sm")}>
+            <.icon name="hero-exclamation-triangle" class="size-4" />
+            {@package.error_message}
+          </div>
+        <% end %>
+      </div>
+
+      <div class="flex justify-end gap-2 pt-1">
+        <%= if @package.status in [:pending, :ready, :downloaded] do %>
+          <.ui_button
+            type="button"
+            phx-click="revoke_package"
+            phx-value-id={@package.id}
+            data-confirm="Are you sure you want to revoke this collector?"
+            size="sm"
+            variant="warning"
+          >
+            Revoke
+          </.ui_button>
+        <% end %>
+        <.ui_button type="button" phx-click="close_details_modal" size="sm" variant="neutral">
+          Close
+        </.ui_button>
+      </div>
+    </.ui_modal>
+    """
+  end
+
+  defp status_badge(assigns) do
+    size = assigns[:size] || "sm"
+    status = assigns.status
+
+    variant =
+      case status do
+        :pending -> "warning"
+        :provisioning -> "info"
+        :ready -> "success"
+        :downloaded -> "success"
+        :installed -> "success"
+        :revoked -> "error"
+        :failed -> "error"
+        _ -> "ghost"
+      end
+
+    assigns = assigns |> assign(:variant, variant) |> assign(:size, size)
+
+    ~H"""
+    <.ui_badge variant={@variant} size={@size}>{@status}</.ui_badge>
+    """
+  end
+
+  defp collector_type_badge(assigns) do
+    size = assigns[:size] || "sm"
+    type = assigns.type
+
+    {label, variant} =
+      case type do
+        :flowgger -> {"Syslog", "info"}
+        :trapd -> {"SNMP", "secondary"}
+        :netflow -> {"NetFlow", "accent"}
+        :sflow -> {"sFlow", "accent"}
+        :otel -> {"OTel", "primary"}
+        :falcosidekick -> {"Falco", "error"}
+        _ -> {to_string(type), "ghost"}
+      end
+
+    assigns = assigns |> assign(:label, label) |> assign(:variant, variant) |> assign(:size, size)
+
+    ~H"""
+    <.ui_badge variant={@variant} size={@size}>{@label}</.ui_badge>
+    """
+  end
+
+  # Data loading
+
+  defp load_account_status(socket, _actor) do
+    status = NatsDeploymentStatus.current()
+
+    socket
+    |> assign(:account_status, status.status)
+    |> assign(:nats_url, status.nats_url)
+    |> assign(:account_public_key, status.account_public_key)
+  end
+
+  defp load_packages(socket, actor) do
+    filter_status = socket.assigns[:filter_status]
+    filter_type = socket.assigns[:filter_type]
+
+    query =
+      CollectorPackage
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.load(:edge_site)
+      |> Ash.Query.sort(inserted_at: :desc)
+      |> Ash.Query.limit(50)
+
+    query =
+      if filter_status do
+        status_atom = String.to_existing_atom(filter_status)
+        Ash.Query.filter(query, status == ^status_atom)
+      else
+        query
+      end
+
+    query =
+      if filter_type do
+        type_atom = String.to_existing_atom(filter_type)
+        Ash.Query.filter(query, collector_type == ^type_atom)
+      else
+        query
+      end
+
+    packages =
+      case Ash.read(query, actor: actor) do
+        {:ok, packages} -> packages
+        {:error, _} -> []
+      end
+
+    assign(socket, :packages, packages)
+  end
+
+  defp load_credentials(socket, actor) do
+    credentials =
+      case NatsCredential
+           |> Ash.Query.for_read(:read)
+           |> Ash.Query.sort(inserted_at: :desc)
+           |> Ash.Query.limit(20)
+           |> Ash.read(actor: actor) do
+        {:ok, creds} -> creds
+        {:error, _} -> []
+      end
+
+    assign(socket, :credentials, credentials)
+  end
+
+  defp load_edge_sites(socket, actor) do
+    sites =
+      case EdgeSite
+           |> Ash.Query.for_read(:read)
+           |> Ash.Query.filter(status == :active)
+           |> Ash.Query.sort(name: :asc)
+           |> Ash.read(actor: actor) do
+        {:ok, sites} -> sites
+        {:error, _} -> []
+      end
+
+    assign(socket, :edge_sites, sites)
+  end
+
+  # Actions
+
+  defp create_package(actor, collector_type, site, hostname, edge_site_id, base_url) do
+    alias ServiceRadarWebNG.Edge.EnrollmentToken
+
+    type_atom = String.to_existing_atom(collector_type)
+
+    # Pre-generate the secret and hash for the enrollment token
+    # We'll regenerate the full token with the real package_id after creation
+    secret = EnrollmentToken.generate_secret()
+    temp_package_id = "placeholder"
+
+    {:ok, {_temp_token, token_hash, ^secret}} =
+      EnrollmentToken.generate(temp_package_id,
+        secret: secret,
+        base_url: base_url,
+        config_filename: collector_config_filename(collector_type)
+      )
+
+    token_expires_at = EnrollmentToken.expiry_datetime()
+
+    attrs = %{
+      collector_type: type_atom,
+      site: site,
+      hostname: hostname
+    }
+
+    attrs = if edge_site_id, do: Map.put(attrs, :edge_site_id, edge_site_id), else: attrs
+
+    changeset =
+      CollectorPackage
+      |> Ash.Changeset.for_create(:create, attrs)
+      |> Ash.Changeset.set_argument(:token_hash, token_hash)
+      |> Ash.Changeset.set_argument(:token_expires_at, token_expires_at)
+
+    case Ash.create(changeset, actor: actor) do
+      {:ok, package} ->
+        # Generate the final enrollment token with actual package ID and SAME secret
+        case EnrollmentToken.generate(package.id,
+               secret: secret,
+               base_url: base_url,
+               config_filename: collector_config_filename(collector_type)
+             ) do
+          {:ok, {final_token, ^token_hash, ^secret}} ->
+            {:ok, package, final_token}
+
+          {:error, reason} ->
+            {:error, reason}
+        end
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  defp get_package(id, actor) do
+    case CollectorPackage
+         |> Ash.Query.for_read(:read)
+         |> Ash.Query.filter(id == ^id)
+         |> Ash.read_one(actor: actor) do
+      {:ok, nil} -> {:error, :not_found}
+      {:ok, package} -> {:ok, package}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp created_install_command(package, download_token, base_url) do
+    CollectorBundleGenerator.update_command(package, download_token, base_url: base_url)
+  end
+
+  defp revoke_package(id, actor) do
+    case get_package(id, actor) do
+      {:ok, package} ->
+        package
+        |> Ash.Changeset.for_update(:revoke)
+        |> Ash.Changeset.set_argument(:reason, "Revoked from admin UI")
+        |> Ash.update(actor: actor)
+
+      error ->
+        error
+    end
+  end
+
+  defp get_actor(socket) do
+    case socket.assigns[:current_scope] do
+      %{user: user} when not is_nil(user) -> user
+      _ -> nil
+    end
+  end
+
+  defp collector_config_filename("flowgger"), do: "flowgger.toml"
+  defp collector_config_filename("otel"), do: "otel.toml"
+  defp collector_config_filename("trapd"), do: "trapd.json"
+  defp collector_config_filename("netflow"), do: "netflow.json"
+  defp collector_config_filename("falcosidekick"), do: "falcosidekick.yaml"
+  defp collector_config_filename(_), do: ""
+
+  defp collectors_disabled_message do
+    "Collector onboarding is disabled for this deployment."
+  end
+end

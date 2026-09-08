@@ -1,0 +1,38 @@
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "Cargo.lock",
+    "Cargo.toml",
+])
+
+rust_library(
+    name = "rdp_connector_probe_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_name = "serviceradar_rdp_connector_probe",
+    crate_root = "src/lib.rs",
+    deps = [
+        "@rdp_connector_crates//:ironrdp-blocking",
+        "@rdp_connector_crates//:ironrdp-connector",
+        "@rdp_connector_crates//:ironrdp-core",
+        "@rdp_connector_crates//:ironrdp-graphics",
+        "@rdp_connector_crates//:ironrdp-pdu",
+        "@rdp_connector_crates//:ironrdp-session",
+        "@rdp_connector_crates//:rustls",
+        "@rdp_connector_crates//:rustls-native-certs",
+        "@rdp_connector_crates//:serde",
+        "@rdp_connector_crates//:serde_json",
+        "@rdp_connector_crates//:x509-cert",
+        "@rdp_connector_crates//:zeroize",
+    ],
+)
+
+rust_test(
+    name = "rdp_connector_probe_test",
+    crate = ":rdp_connector_probe_lib",
+    deps = [
+        "@rdp_connector_crates//:base64",
+    ],
+)

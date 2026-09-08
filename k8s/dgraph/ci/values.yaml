@@ -1,0 +1,171 @@
+# Dgraph for CI and integration testing -- the "Basic Cluster" pattern from
+# https://docs.dgraph.io/installation/deployment-patterns : 1 Zero, 1 Alpha, no HA, no sharding.
+#
+# A CI fixture is disposable and reached only from inside the cluster, so replication buys
+# nothing here: it would triple the Raft round trips per mutation (see README, "Scaling") to
+# protect data that is dropped at the end of the run.
+#
+# Deploy: ./deploy-dgraph.sh ci
+
+image:
+  # Harbor mirror, not Docker Hub: the cluster pulls locally, which removes the Hub rate limit
+  # from the critical path and keeps image pulls working when egress does not.
+  # Re-mirror with ./deploy-dgraph.sh mirror after bumping the tag.
+  registry: registry.carverauto.dev
+  repository: mirror/dgraph/dgraph
+  # Pinned, not `latest`. v25.4.0 is the newest release; the tag is immutable so a rerun of an
+  # old commit gets the binary it was tested against.
+  tag: v25.4.0
+  pullPolicy: IfNotPresent
+
+serviceAccount:
+  create: true
+  name: dgraph
+
+zero:
+  replicaCount: 1
+  # THE REPLICATION FACTOR, and the chart's most misread key: it is Zero's `--replicas`, which
+  # sets how many Alphas serve each group -- not how many Zeros run. The chart defaults to 5,
+  # which would leave a single-Alpha cluster permanently short of quorum and unable to serve.
+  shardReplicaCount: 1
+
+  persistence:
+    enabled: true
+    size: 8Gi
+
+  # The chart emits only fsGroup and runAsUser, at pod level (alpha/statefulset.yaml:119-123).
+  # Enough to keep Dgraph off root and let it own its PVC, but it cannot express
+  # allowPrivilegeEscalation, capabilities.drop or seccompProfile -- which is why namespace.yaml
+  # pins this namespace to `baseline` rather than the cluster-default `restricted`.
+  securityContext:
+    enabled: true
+    fsGroup: 1001
+    runAsUser: 1001
+
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+
+alpha:
+  replicaCount: 1
+
+  persistence:
+    enabled: true
+    size: 16Gi
+
+  # The chart emits only fsGroup and runAsUser, at pod level (alpha/statefulset.yaml:119-123).
+  # Enough to keep Dgraph off root and let it own its PVC, but it cannot express
+  # allowPrivilegeEscalation, capabilities.drop or seccompProfile -- which is why namespace.yaml
+  # pins this namespace to `baseline` rather than the cluster-default `restricted`.
+  securityContext:
+    enabled: true
+    fsGroup: 1001
+    runAsUser: 1001
+
+  # Writes are CPU-bound before they are node-bound (README, "Scaling"), so give the single
+  # Alpha real cores rather than adding a second one.
+  resources:
+    requests:
+      cpu: "1"
+      memory: 2Gi
+    limits:
+      cpu: "4"
+      memory: 8Gi
+
+  # TLS ON, and verified: the Dgraph client (github.com/marvin-hansen/dgraph-rs) takes a CA to
+  # verify against instead of the
+  # system roots, so a privately-issued certificate for the in-cluster name is authenticated
+  # rather than merely encrypted. The CA reaches callers as the `dgraph.ca_cert` secret.
+  tls:
+    enabled: true
+    # Empty on purpose: the chart only templates the secret when this is non-empty, while the
+    # StatefulSet mounts it regardless. cert-manager owns it (./certificate.yaml).
+    files: {}
+
+  # client-auth-type stays at the chart default (VERIFYIFGIVEN) on the external port.
+  # REQUIREANDVERIFY would lock the client out entirely: it cannot present a client
+  # certificate. Internal ports negotiate mTLS between Zero and Alpha regardless.
+  # A BLOCK STRING, not a nested map. The chart renders `toYaml .Values.alpha.configFile`
+  # directly under a ConfigMap's `data:`, where every value must be a string; a map here
+  # fails the install with ".data.config.yaml: expected string, got map".
+  configFile:
+    config.yaml: |
+      security:
+        whitelist: 0.0.0.0/0
+
+  # HTTPS PROBES, because TLS moves the whole of port 8080 to HTTPS: Dgraph logs
+  # "client sent an HTTP request to an HTTPS server" and the pod never goes Ready. The chart's
+  # own probe blocks cannot express `scheme`, so they are switched off and the custom* escape
+  # hatches (rendered verbatim by toYaml) are used instead. Timings are the chart's defaults.
+  #
+  # The kubelet does not verify a probe's certificate, so a privately-issued cert needs no CA
+  # here -- the probe asks whether Dgraph answers, not who it is.
+  #
+  # /health?live=1 answers as soon as the process is alive; plain /health only once the Alpha
+  # can serve. That is the liveness/readiness split, so it is deliberately not the same path.
+  # Readiness also moves off the chart's /probe/graphql: this chart targets v24 and we run
+  # v25.4.0, and /health is the endpoint the v25 docs actually document.
+  livenessProbe:
+    enabled: false
+  readinessProbe:
+    enabled: false
+
+  customLivenessProbe:
+    httpGet:
+      path: /health?live=1
+      port: 8080
+      scheme: HTTPS
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 6
+    successThreshold: 1
+
+  customReadinessProbe:
+    httpGet:
+      path: /health
+      port: 8080
+      scheme: HTTPS
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 6
+    successThreshold: 1
+
+  # cert-manager's key names, which are not configurable; pointing Dgraph at the paths it
+  # actually has avoids a rename job that would need to re-run on every renewal.
+  # NO `internal-port=true` HERE, deliberately. Dgraph refuses to start with it unless
+  # client-cert/client-key are also given -- "Inter-node TLS is always client authenticated"
+  # (x.LoadClientTLSConfigForInternalPort) -- and inter-node TLS would additionally require
+  # Zero to terminate TLS too (the chart supports zero.tls, mounting its own
+  # dgraph-dgraph-zero-tls-secret). That is the right shape for demo, where three Zeros and
+  # three Alphas gossip across nodes. Here it is one Zero and one Alpha in one namespace, and
+  # the external ports still terminate TLS, which is what the Dgraph client's VERIFY_CA path
+  # actually exercises. Inter-node plaintext inside a disposable fixture buys nothing.
+  # ACL ON, which is what makes namespaces actually isolate. Without it Dgraph ACCEPTS a
+  # namespace parameter and then ignores it -- verified against this cluster before ACL was
+  # enabled: a write inside namespace N was visible from namespace 0. Silent, not an error.
+  acl:
+    enabled: true
+    # Empty on purpose, exactly as alpha.tls.files is: the chart templates the secret only when
+    # this is non-empty, while the StatefulSet mounts it regardless. An HMAC secret written into
+    # a values file is a secret committed to the repository, so it is created out of band.
+    file: {}
+
+  extraFlags: >-
+    --tls "ca-cert=/dgraph/tls/ca.crt; server-cert=/dgraph/tls/tls.crt;
+    server-key=/dgraph/tls/tls.key"
+    --acl "secret-file=/dgraph/acl/hmac_secret_file"
+
+ratel:
+  enabled: false
+
+backups:
+  full:
+    enabled: false
+  incremental:
+    enabled: false

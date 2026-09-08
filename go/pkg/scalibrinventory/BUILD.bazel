@@ -1,0 +1,43 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "scalibrinventory",
+    srcs = [
+        "adapter.go",
+        "config.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/scalibrinventory",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//go/pkg/addon",
+        "//go/pkg/endpointinventory",
+        "@com_github_google_osv_scalibr//binary/proto/config_go_proto",
+        "@com_github_google_osv_scalibr//extractor/filesystem",
+        "@com_github_google_osv_scalibr//extractor/filesystem/os/apk",
+        "@com_github_google_osv_scalibr//extractor/filesystem/os/apk/metadata",
+        "@com_github_google_osv_scalibr//extractor/filesystem/os/dpkg",
+        "@com_github_google_osv_scalibr//extractor/filesystem/os/dpkg/metadata",
+        "@com_github_google_osv_scalibr//extractor/filesystem/os/rpm",
+        "@com_github_google_osv_scalibr//extractor/filesystem/os/rpm/metadata",
+        "@com_github_google_osv_scalibr//fs",
+        "@com_github_google_osv_scalibr//inventory",
+        "@com_github_google_osv_scalibr//plugin",
+        "@com_github_google_osv_scalibr//result",
+        "@com_github_google_osv_scalibr//stats",
+    ],
+)
+
+go_test(
+    name = "scalibrinventory_test",
+    srcs = ["adapter_test.go"],
+    embed = [":scalibrinventory"],
+    deps = [
+        "//go/pkg/addon",
+        "//go/pkg/endpointinventory",
+        "@com_github_google_osv_scalibr//extractor",
+        "@com_github_google_osv_scalibr//extractor/filesystem/os/dpkg/metadata",
+        "@com_github_google_osv_scalibr//inventory",
+        "@com_github_google_osv_scalibr//plugin",
+        "@com_github_google_osv_scalibr//result",
+    ],
+)

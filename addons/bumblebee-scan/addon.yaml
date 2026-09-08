@@ -1,0 +1,44 @@
+# Bumblebee exposure scanner native add-on (migrate-bumblebee-to-native-addon).
+#
+# Delivers the root-owned Bumblebee scanner as a signed pushed-artifact add-on.
+# The agent remains non-root: the generic root-owned agent-updater installs the
+# bundled systemd service/timer, and the scanner writes sanitized output to the
+# spool the non-root agent already ingests.
+id: bumblebee
+name: Bumblebee Exposure Scanner
+version: 0.1.5
+description: >-
+  Root-owned local exposure scanner for developer and package-manager artifacts.
+  Runs on a systemd timer and writes sanitized findings to the Bumblebee spool
+  for non-root agent ingest.
+
+kind: native
+delivery: pushed-artifact
+supervision: systemd-timer
+language: go
+
+capabilities:
+  - exposure-scan
+
+requires:
+  base_agent: ">=1.2.0"
+  platforms: [linux]
+  os_capabilities: []
+  run_as: root
+
+exec:
+  binary: serviceradar-bumblebee-scan
+  install_path: /usr/local/lib/serviceradar/bin
+
+state_dirs:
+  - /var/lib/serviceradar/bumblebee
+  - /var/lib/serviceradar/bumblebee/cache
+  - /var/lib/serviceradar/bumblebee/catalog
+  - /var/lib/serviceradar/bumblebee/profile
+  - /var/lib/serviceradar/bumblebee/spool
+  - /var/lib/serviceradar/bumblebee/spool/runs
+  - /var/lib/serviceradar/bumblebee/tmp
+
+# artifacts[] are populated by build/native_addons signing/publish/import.
+
+config_schema: config.schema.json

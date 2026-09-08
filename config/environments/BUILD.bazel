@@ -1,0 +1,38 @@
+# gazelle:ignore
+
+load("//config:defs.bzl", "environment_config")
+
+# The committed environment instances, and the binary each compiles to.
+#
+# Targets are exposed per environment so a consumer declares exactly the instance it needs
+# as a `data` dependency, rather than receiving values through the ambient process
+# environment. That is what makes a test action's configuration a declared input -- and
+# what replaces forwarding 45 environment variable names to every database test action.
+
+# On-prem instances are a separate package (//config/environments/onprem), so they are not
+# in this glob -- a glob cannot cross a package boundary.
+exports_files(glob(["*.textproto"]))
+
+environment_config(
+    name = "ci",
+    src = "ci.textproto",
+    visibility = ["//visibility:public"],
+)
+
+environment_config(
+    name = "localhost",
+    src = "localhost.textproto",
+    visibility = ["//visibility:public"],
+)
+
+environment_config(
+    name = "saas",
+    src = "saas.textproto",
+    visibility = ["//visibility:public"],
+)
+
+environment_config(
+    name = "demo",
+    src = "demo.textproto",
+    visibility = ["//visibility:public"],
+)

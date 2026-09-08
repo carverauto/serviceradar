@@ -1,0 +1,31 @@
+[package]
+name = "serviceradar-powerdns-addon"
+version = "0.1.3"
+description = "PowerDNS protobuf telemetry native add-on for ServiceRadar"
+authors = ["ServiceRadar Team"]
+edition = "2024"
+license = "Apache-2.0"
+
+[lib]
+name = "serviceradar_powerdns_addon"
+path = "src/lib.rs"
+
+[[bin]]
+name = "serviceradar-powerdns-addon"
+path = "src/bin/serviceradar-powerdns-addon.rs"
+
+[dependencies]
+addon-sdk = { path = "../addon-sdk" }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+hex = { workspace = true }
+prost = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
+tokio-stream = { workspace = true, features = ["sync"] }
+tonic = { workspace = true }
+
+[build-dependencies]
+prost-build = { workspace = true }

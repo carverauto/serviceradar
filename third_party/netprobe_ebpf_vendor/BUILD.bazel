@@ -1,0 +1,25 @@
+"""Vendored Cargo dependency tree for the netprobe eBPF object build.
+
+Consumed only by //rust/netprobe/ebpf:netprobe_ebpf_object, which stages an
+isolated workspace pointing `[source.vendored-sources]` at this directory and
+builds offline. See README.md for the regeneration recipe.
+
+This lives here rather than under rust/netprobe/ebpf/ so that every committed
+third-party source tree sits in one place, and deliberately outside the vendored
+crate tree, which is regenerated wholesale and would take this with it.
+"""
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files(["README.md"])
+
+# rules_aya_ebpf derives the vendor directory cargo needs from THIS target's
+# package path, so the target has to be declared in the package that is the
+# vendor root -- which it is. Do not move it into a subpackage.
+filegroup(
+    name = "vendor_srcs",
+    srcs = glob(
+        ["**"],
+        exclude = ["BUILD.bazel"],
+    ),
+)

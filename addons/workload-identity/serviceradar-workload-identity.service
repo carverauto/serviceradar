@@ -1,0 +1,61 @@
+[Unit]
+Description=ServiceRadar workload identity collector
+Documentation=https://docs.serviceradar.cloud/
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Kubernetes CRI sockets are commonly root:root 0660. This unit keeps that
+# privileged runtime access isolated from serviceradar-agent and netprobe.
+User=root
+Group=serviceradar
+UMask=0027
+# Share cgroup accounting with ServiceRadar host components while keeping an
+# independent process, restart policy, hardening profile, and privilege boundary.
+Slice=serviceradar.slice
+WorkingDirectory=/var/lib/serviceradar/workload-identity
+Environment="HOME=/var/lib/serviceradar/workload-identity"
+# Staged binaries inherit SELinux var_lib_t. systemd (init_t) cannot exec that
+# label (status=203/EXEC). Relabel immediately before start. The + prefix keeps
+# this root-owned even with NoNewPrivileges=true. Missing chcon is ignored.
+ExecStartPre=+/bin/sh -c '/usr/bin/chcon -t bin_t /var/lib/serviceradar/agent/addons/workload-identity/current/serviceradar-workload-identity >/dev/null 2>&1 || true'
+ExecStart=/var/lib/serviceradar/agent/addons/workload-identity/current/serviceradar-workload-identity \
+    --config /var/lib/serviceradar/agent/addons/workload-identity/current/workload-identity.json
+
+Restart=on-failure
+RestartSec=10
+
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+StateDirectory=serviceradar/workload-identity serviceradar/workload-identity/spool
+# Keep the collector writable when a package upgrade reasserts the shared
+# serviceradar owner. The collector intentionally drops CAP_DAC_OVERRIDE, so
+# its primary group needs write access instead of relying on UID 0 bypasses.
+# setgid preserves the serviceradar group for files created below the state dir.
+StateDirectoryMode=2770
+# The staged binary path must be writable so ExecStartPre=+ chcon can set
+# bin_t under ProtectSystem=strict. Without it, chcon fails silently (|| true)
+# and systemd still hits 203/EXEC on Enforcing hosts.
+ReadWritePaths=/var/lib/serviceradar/workload-identity /var/lib/serviceradar/agent/addons/workload-identity
+
+[Install]
+WantedBy=multi-user.target

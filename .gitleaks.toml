@@ -1,0 +1,30 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Allow deterministic test UUIDs and Cargo's checksum-indexed upstream vendor snapshots"
+regexTarget = "match"
+regexes = [
+  '''018f3f56-[0-9a-f]{4}-7[0-9a-f]{3}-8[0-9a-f]{3}-123456789abc''',
+  # Deterministic identifiers produced only by the synthetic Starforge golden.
+  # Match the JSON field and exact value so unrelated content in that file is
+  # still scanned by every default rule.
+  '''lookup_key":"(?:d33a54fc-5181-8ccd-bbd9-3ce04269ccd5|9a957b63-dcdb-811a-bb72-eeb900f947eb|ae70d05b-c202-85fb-b018-6020c2ad8e6b|65882bc3-9ac8-8cd5-a979-958b54c21406|d0e7d95d-adc0-8d06-b115-2dde6a813fb8|1b1ba2c6-0ec1-8d1e-8e74-76e41acba1a3)''',
+  '''assertion_key":"(?:573ec3f9c352d782c5431d1e847c1d620a2da4dec9250bfbc79fa0cf1a794b73|90224ffd095e753bf425fb231f026ea5487dd643130e6aa5b062e8e12553c285)''',
+  '''lookup_key == "65882bc3-9ac8-8cd5-a979-958b54c21406"''',
+]
+# Both Cargo vendor trees.
+#
+# crate_mirror holds .crate archives; crates/ held the extracted cargo-vendor
+# tree and was DELETED in b23f0436a9. It is still listed because gitleaks scans
+# a push RANGE, so any branch whose remote_oid..local_oid spans that deletion
+# re-scans the removed blobs and blocks the push -- which is every new branch
+# cut from staging until the remote ref catches up.
+#
+# What it flags in there is upstream crate content, not ours: .cargo-checksum.json
+# SHA digests that pattern-match generic-api-key, and elliptic-curve's own PKCS8
+# test vector, all published on crates.io.
+paths = [
+  '''^third_party/crate_mirror/''',
+  '''^third_party/crates/''',
+]

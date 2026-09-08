@@ -1,0 +1,82 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<ICMP created="2006-08-03" last_updated="2024-05-27" author="xnih13@gmail.com" last_edited_by="xnih13@gmail.com" last_edited_with="Fingerprint Editor">
+    <fingerprints>
+        <fingerprint name="GFI LNSS" os_name="" os_class="" os_vendor="" os_url="" device_type="Scanner" device_vendor="GFI Software" device_url="http://www.gfi.com" comments="" author="xnih13@gmail.com" last_updated="2008-06-29">
+            <icmp_tests>
+                <test weight="5" matchtype="exact" icmptype="8" icmpcode="19" icmpid="0x0200" icmpseq="256" icmpchecksum="0x4a49" icmpdata="abcdefghijklmnopqrstuvwabcdefghi" icmpttl="128"/>
+            </icmp_tests>
+        </fingerprint>
+        <fingerprint name="MingSweeper" os_name="" os_class="" os_vendor="" os_url="" device_type="Scanner" device_vendor="Hoobie" device_url="http://www.hoobie.net/mingsweeper/" comments="" author="xnih13@gmail.com" last_updated="2008-06-29">
+            <icmp_tests>
+                <test weight="5" matchtype="exact" icmptype="8" icmpcode="0" icmpid="0x1ff" icmpseq="31337" icmpchecksum="0xaec6" icmpdata="01234567" icmpttl="128"/>
+            </icmp_tests>
+        </fingerprint>
+        <fingerprint name="Minolta Printer" os_name="" os_class="" os_vendor="" os_url="" device_type="Printer" device_vendor="Minolta" device_url="http://www.konicaminolta.com" comments="" author="thierry@zoller.lu" last_updated="2006-08-04">
+            <icmp_tests>
+                <test weight="5" matchtype="exact" icmptype="0" icmpcode="0" icmpid="0x0200" icmpseq="256" icmpchecksum="!=0" icmpttl="64"/>
+            </icmp_tests>
+        </fingerprint>
+        <fingerprint name="NetWare" os_name="NetWare" os_class="NetWare" os_vendor="Novell" os_url="http://www.novell.com" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2006-08-21">
+            <icmp_tests>
+                <test weight="5" matchtype="exact" icmptype="8" icmpcode="0" icmpid="0x4757" icmpseq="1" icmpchecksum="!=0" icmpttl="128"/>
+                <test weight="5" matchtype="exact" icmptype="0" icmpcode="0" icmpid="0x300C" icmpseq="1" icmpchecksum="!=0" icmpttl="128"/>
+            </icmp_tests>
+        </fingerprint>
+        <fingerprint name="NMAP" os_name="" os_class="" os_vendor="" os_url="" device_type="Scanner" device_vendor="insecure.org" device_url="http://insecure.org" comments="ttl is random value under 60, id is random, data is 120 chars repeating" author="xnih13@gmail.com" last_updated="2010-02-08">
+            <icmp_tests>
+                <test weight="5" matchtype="partial" icmptype="8" icmpcode="9" icmpid="*" icmpseq="295" icmpchecksum="!=0" icmpttl="60"/>
+            </icmp_tests>
+        </fingerprint>
+        <fingerprint name="Windows" os_name="Windows" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://www.microsoft.com/windows" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2009-08-22">
+            <icmp_tests>
+                <test weight="5" matchtype="exact" icmptype="8" icmpcode="0" icmpid="0x0200" icmpseq="256" icmpchecksum="!=0" icmpttl="128"/>
+                <test weight="5" matchtype="exact" icmptype="8" icmpcode="0" icmpid="0x0300" icmpseq="256" icmpchecksum="!=0" icmpttl="128"/>
+                <test weight="5" matchtype="exact" icmptype="8" icmpcode="0" icmpid="0x0400" icmpseq="256" icmpchecksum="!=0" icmpttl="128"/>
+                <test weight="5" matchtype="exact" icmptype="8" icmpcode="0" icmpid="0x0200" icmpseq="256" icmpchecksum="!=0" icmpttl="32"/>
+                <test weight="5" matchtype="exact" icmptype="8" icmpcode="0" icmpid="0x0300" icmpseq="256" icmpchecksum="!=0" icmpttl="32"/>
+                <test weight="5" matchtype="exact" icmptype="8" icmpcode="0" icmpid="0x0400" icmpseq="256" icmpchecksum="!=0" icmpttl="32"/>
+            </icmp_tests>
+        </fingerprint>
+        <fingerprint name="Windows 2000" os_name="Windows 2000" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://www.microsoft.com" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2006-08-22">
+            <icmp_tests>
+                <test weight="5" matchtype="exact" icmptype="8" icmpcode="0" icmpid="0x0200" icmpseq="256" icmpchecksum="!=0" icmpttl="32"/>
+                <test weight="5" matchtype="exact" icmptype="8" icmpcode="0" icmpid="0x0200" icmpseq="256" icmpchecksum="!=0" icmpttl="128"/>
+            </icmp_tests>
+        </fingerprint>
+        <fingerprint name="Windows 8" os_name="Windows 8" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://www.microsoft.com/windows/windows-7/default.aspx" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2014-06-24">
+            <icmp_tests>
+                <test weight="5" matchtype="exact" icmptype="8" icmpcode="0" icmpid="0x0001" icmpseq="280" icmpchecksum="!=0" icmpttl="128"/>
+            </icmp_tests>
+        </fingerprint>
+        <fingerprint name="Windows 95" os_name="Windows 95" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://www.microsoft.com" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2006-08-24">
+            <icmp_tests>
+                <test weight="5" matchtype="exact" icmptype="8" icmpcode="0" icmpid="0x0100" icmpseq="256" icmpchecksum="!=0" icmpttl="32"/>
+            </icmp_tests>
+        </fingerprint>
+        <fingerprint name="Windows ME" os_name="Windows ME" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://www.microsoft.com" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2006-08-24">
+            <icmp_tests>
+                <test weight="5" matchtype="exact" icmptype="8" icmpcode="0" icmpid="0x0300" icmpseq="256" icmpchecksum="!=0" icmpttl="32"/>
+            </icmp_tests>
+        </fingerprint>
+        <fingerprint name="Windows NT" os_name="Windows NT" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://www.microsoft.com" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2006-08-24">
+            <icmp_tests>
+                <test weight="5" matchtype="exact" icmptype="8" icmpcode="0" icmpid="0x0100" icmpseq="256" icmpchecksum="!=0" icmpttl="128"/>
+                <test weight="5" matchtype="exact" icmptype="8" icmpcode="0" icmpid="0x0100" icmpseq="256" icmpchecksum="!=0" icmpttl="32"/>
+            </icmp_tests>
+        </fingerprint>
+        <fingerprint name="Windows Server 2008 R2" os_name="Windows Server 2008 R2" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://www.microsoft.com/windowsserver2008r2" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2012-01-09">
+            <icmp_tests>
+                <test weight="5" matchtype="exact" icmptype="8" icmpcode="0" icmpid="0x0200" icmpseq="256" icmpchecksum="!=0" icmpttl="128"/>
+            </icmp_tests>
+        </fingerprint>
+        <fingerprint name="Windows XP" os_name="Windows XP" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://www.microsoft.com/windows/windows-xp" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2009-02-15">
+            <icmp_tests>
+                <test weight="5" matchtype="exact" icmptype="8" icmpcode="0" icmpid="0x0200" icmpseq="256" icmpchecksum="!=0" icmpttl="32"/>
+                <test weight="5" matchtype="exact" icmptype="8" icmpcode="0" icmpid="0x0300" icmpseq="256" icmpchecksum="!=0" icmpttl="32"/>
+                <test weight="5" matchtype="exact" icmptype="8" icmpcode="0" icmpid="0x0400" icmpseq="256" icmpchecksum="!=0" icmpttl="32"/>
+                <test weight="5" matchtype="exact" icmptype="8" icmpcode="0" icmpid="0x0200" icmpseq="256" icmpchecksum="!=0" icmpttl="128"/>
+                <test weight="5" matchtype="exact" icmptype="8" icmpcode="0" icmpid="0x0400" icmpseq="256" icmpchecksum="!=0" icmpttl="128"/>
+            </icmp_tests>
+        </fingerprint>
+    </fingerprints>
+</ICMP>

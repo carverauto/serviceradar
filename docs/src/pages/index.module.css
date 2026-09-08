@@ -1,0 +1,111 @@
+/**
+ * Homepage — aligned with ServiceRadar marketing surfaces.
+ */
+
+.heroBanner {
+  padding: 4.5rem 0 3.5rem;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.heroEyebrow {
+  margin: 0 0 1rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--sr-color-brand);
+}
+
+.buttons {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  margin-top: 2rem;
+  flex-wrap: wrap;
+}
+
+.features {
+  padding: 3.5rem 0 4.5rem;
+  width: 100%;
+  border-top: 1px solid var(--sr-color-line);
+}
+
+.featuresIntro {
+  max-width: 40rem;
+  margin: 0 auto 2rem;
+  text-align: center;
+}
+
+.featuresIntro h2 {
+  margin-bottom: 0.5rem;
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.featuresIntro p {
+  margin: 0;
+  color: var(--sr-color-muted);
+  line-height: 1.65;
+}
+
+.featureCard {
+  height: 100%;
+  padding: 1.5rem;
+  border: 1px solid var(--sr-color-line);
+  border-radius: var(--sr-radius-surface);
+  background-color: var(--sr-color-surface);
+  box-shadow: 0 10px 30px color-mix(in oklab, #000 14%, transparent);
+  transition:
+    transform 200ms var(--sr-ease-out),
+    border-color 200ms var(--sr-ease-out),
+    box-shadow 200ms var(--sr-ease-out);
+}
+
+.featureCard:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in oklab, var(--sr-color-brand) 45%, var(--sr-color-line));
+  box-shadow: 0 18px 40px color-mix(in oklab, #000 20%, transparent);
+}
+
+.featureIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: var(--sr-radius-control);
+  margin-bottom: 1rem;
+  color: var(--sr-color-brand);
+  background-color: color-mix(in oklab, var(--sr-color-brand) 12%, transparent);
+  border: 1px solid color-mix(in oklab, var(--sr-color-brand) 25%, transparent);
+}
+
+.featureIcon svg {
+  width: 1.4rem;
+  height: 1.4rem;
+}
+
+.featureTitle {
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  margin-bottom: 0.5rem;
+  color: var(--sr-color-ink);
+}
+
+.featureDescription {
+  color: var(--sr-color-muted);
+  font-size: 0.92rem;
+  line-height: 1.6;
+  margin-bottom: 0;
+}
+
+@media screen and (max-width: 996px) {
+  .heroBanner {
+    padding: 2.5rem 1rem 2rem;
+  }
+}

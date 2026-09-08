@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PowerDNS DNS Telemetry Add-on Configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "enabled": {
+      "type": "boolean",
+      "title": "Enabled",
+      "default": true
+    },
+    "listen_addr": {
+      "type": "string",
+      "title": "PowerDNS protobuf listener",
+      "description": "Local TCP address PowerDNS Recursor connects to with protobufServer(). Keep this on loopback.",
+      "default": "127.0.0.1:6000",
+      "pattern": "^[^:]+:[0-9]{1,5}$"
+    },
+    "source_instance": {
+      "type": "string",
+      "title": "Source instance",
+      "description": "DNS server identity stamped into telemetry source metadata.",
+      "default": "powerdns",
+      "minLength": 1
+    },
+    "rpz_only": {
+      "type": "boolean",
+      "title": "RPZ/policy hits only",
+      "description": "When enabled, non-policy-hit DNS messages are filtered locally before agent emission.",
+      "default": true
+    },
+    "batch_queue_size": {
+      "type": "integer",
+      "title": "Telemetry queue size",
+      "description": "Bounded in-process batch queue depth for the agent telemetry stream.",
+      "minimum": 16,
+      "maximum": 65536,
+      "default": 1024
+    }
+  }
+}

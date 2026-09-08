@@ -1,0 +1,61 @@
+load("@rules_rs//rs:cargo_build_script.bzl", "cargo_build_script")
+load("@rules_rs//rs:rust_binary.bzl", "rust_binary")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cargo_build_script(
+    name = "build_script",
+    srcs = ["build.rs"],
+    build_script_env = {
+        "PROTOC": "$(execpath @bazel_tools//tools/proto:protoc)",
+    },
+    crate_root = "build.rs",
+    data = ["proto/dnsmessage.proto"],
+    tools = ["@bazel_tools//tools/proto:protoc"],
+    deps = ["@crates//:prost-build"],
+)
+
+POWERDNS_DEPS = [
+    "@crates//:anyhow",
+    "@crates//:hex",
+    "@crates//:prost",
+    "@crates//:serde",
+    "@crates//:serde_json",
+    "@crates//:sha2",
+    "@crates//:tokio",
+    "@crates//:tokio-stream",
+    "@crates//:tonic",
+] + [
+    ":build_script",
+    "//rust/addon-sdk:addon_sdk",
+]
+
+POWERDNS_PROC_MACROS = ["@crates//:async-trait"]
+
+rust_library(
+    name = "powerdns_addon",
+    srcs = glob(
+        ["src/**/*.rs"],
+        exclude = ["src/bin/**"],
+    ),
+    crate_name = "serviceradar_powerdns_addon",
+    crate_root = "src/lib.rs",
+    proc_macro_deps = POWERDNS_PROC_MACROS,
+    deps = POWERDNS_DEPS,
+)
+
+rust_binary(
+    name = "serviceradar-powerdns-addon",
+    srcs = ["src/bin/serviceradar-powerdns-addon.rs"],
+    crate_root = "src/bin/serviceradar-powerdns-addon.rs",
+    proc_macro_deps = POWERDNS_PROC_MACROS,
+    deps = POWERDNS_DEPS + [":powerdns_addon"],
+)
+
+rust_test(
+    name = "powerdns_addon_test",
+    compile_data = ["//addons/powerdns:powerdns_manifest"],
+    crate = ":powerdns_addon",
+)

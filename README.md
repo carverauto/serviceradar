@@ -1,0 +1,232 @@
+<div align=center>
+  
+[![Website](https://img.shields.io/website?up_message=SERVICERADAR&down_message=DOWN&url=https%3A%2F%2Fserviceradar.cloud&style=for-the-badge)](https://serviceradar.cloud)
+[![Developer Portal](https://img.shields.io/badge/developer%20portal-SDKs%20%26%20guides-4f46e5?style=for-the-badge)](https://developer.serviceradar.cloud)
+[![Apache 2.0 License](https://img.shields.io/badge/license-Apache%202.0-blueviolet?style=for-the-badge)](https://www.apache.org/licenses/LICENSE-2.0)
+
+</div>
+
+# ServiceRadar
+
+<img width="1470" height="803" alt="Screenshot 2026-07-27 at 11 59 41 PM" src="https://github.com/user-attachments/assets/94d71c4d-1e8b-472a-9651-551825a2b41e" />
+<img width="1470" height="772" alt="Screenshot 2026-08-31 at 2 19 32 AM" src="https://github.com/user-attachments/assets/75d3da76-a162-4e4c-b0e4-b79090ebeb16" />
+
+
+[![CNCF Landscape](https://img.shields.io/badge/CNCF%20Landscape-5699C6)](https://landscape.cncf.io/?item=observability-and-analysis--observability--serviceradar)
+[![FOSSA Status](https://app.fossa.com/api/projects/custom%2B57999%2Fgit%40github.com%3Acarverauto%2Fserviceradar.git.svg?type=shield&issueType=security)](https://app.fossa.com/projects/custom%2B57999%2Fgit%40github.com%3Acarverauto%2Fserviceradar.git?ref=badge_shield&issueType=security)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/11310/badge)](https://www.bestpractices.dev/projects/11310)
+<a href="https://cla-assistant.io/carverauto/serviceradar"><img src="https://cla-assistant.io/readme/badge/carverauto/serviceradar" alt="CLA assistant" /></a>
+
+ServiceRadar is a distributed network monitoring system designed for infrastructure and services in hard-to-reach places or constrained environments. It provides real-time monitoring of internal services with cloud-based alerting to ensure you stay informed even during network or power outages.
+
+Demo site available at https://demo.serviceradar.cloud login: `demo@serviceradar.cloud` password: `serviceradar`
+
+## Features
+
+- **Distributed Architecture**: Multi-component design (Agent, Gateway, Core) for flexible edge deployments.
+- **WASM Plugin System**: Securely extend monitoring with custom checks in Go or Rust. Runs in a hardware-level sandbox with zero local dependencies and proxied networking.
+- **Topology**: GPU-native topology engine capable of rendering millions of interactive nodes and edges at 60fps via [deck.gl], (https://deck.gl/), [Apache Arrow](https://arrow.apache.org/) for zero-copy streaming, and WASM-native logic layer. 
+- **Custom React Dashboards**: Build powerful, data-driven dashboards with the [Dashboard SDK](https://developer.serviceradar.cloud/docs/v2/dashboard-sdk). Dashboards run inside ServiceRadar, receive SRQL-backed data frames, and can be developed locally with hot module reloading before publishing.
+- **Causal Engine**: Real-time triage and isolation via [DeepCausality](https://github.com/deepcausality-rs) (Rust). Employs hybrid filtering and [roaring bitmaps](https://github.com/RoaringBitmap/roaring) to identify root causes and visually isolate an event's "blast radius" in microseconds.
+- **Anomaly Engine**: Anomaly Engine scores numeric time series at the edge (robust median/MAD spikes plus CUSUM drift) and in core (seasonal hour-of-week baselines, episode lifecycle, severity, and capacity runway). Findings are episode-bounded—open/update/clear with cooldowns and storm shedding—so operators get durable alerts instead of noisy per-sample alarms.
+- **SRQL**: intuitive key:value syntax for querying time-series and relational data.
+- **Unified Data Layer**: Powered by CloudNativePG, TimescaleDB, PGVector, and Apache AGE for relational, time-series, and graph topology data.
+- **Monitoring**: Monitor endpoints with ICMP/TCP checks, create composite service checks from multiple vantage points by deploying serviceradar-agent in edge/segmented networks.
+- **Observability**: Native support for OTEL, GELF, Syslog, SNMP (polling/traps), BGP ([BMP](https://github.com/carverauto/arancini)), and [NetFlow](https://github.com/mikemiles-dev/netflow_parser).
+- **Graph Network Mapper**: Discovery engine that maps interfaces and topology relationships via SNMP/LLDP/CDP.
+- **Notifications**: Notifications turn an alert into a page through routes, escalation policies, and channels (Slack, Discord, email, webhooks, plus declarative and Wasm providers). Every attempt—including silences and withheld sends—is written to the Delivery Log, with retry, failover, and escalation kept as three separate knobs.
+- **Ansible Automation**: Run AWX/AAP playbooks against devices in the inventory with live per-host run telemetry, projected to OCSF for the universal log viewer. AWX-sourced and git-sourced playbook catalogs coexist; cron-driven schedules ride the same launch pipeline. See [docs/ansible.md](./docs/docs/ansible.md).
+- **Security**: Hardened with mTLS, RBAC, and SSO integration. Build images, WASM plugins, and add-ons are signed. SBOMs ship with every build.
+
+## WASM-Based Extensibility
+
+ServiceRadar replaces traditional "script-and-shell" plugins with a [modern WebAssembly runtime](https://github.com/wazero/wazero). This provides a generation leap in security and portability:
+
+| Feature | ServiceRadar (WASM) | Traditional NMS (Nagios/Zabbix) | Enterprise (SolarWinds) |
+| :--- | :--- | :--- | :--- |
+| **Isolation** | **Hardware Sandbox** | None (OS Process) | None (User Session) |
+| **Dependencies** | **Zero** (Static Binaries) | High (Local Libs/Python) | High (.NET/Runtimes) |
+| **Security** | Capability-based (Proxy) | Sudo/Root access | Local Admin / WMI |
+| **Portability** | Cross-platform WASM | Script-specific | Windows-centric |
+| **Auditability** | Every network call logged | Invisible to Agent | Opaque |
+
+**Why WASM?** Plugins are "FS-less" by default. They cannot access the host filesystem or raw sockets. Instead, they use a **Network Bridge** where the Agent proxies specific HTTP/TCP calls based on admin-approved allowlists.
+
+### Plug-in SDK
+
+**Go**: https://github.com/carverauto/serviceradar-sdk-go
+
+**Rust**: https://github.com/carverauto/serviceradar-sdk-rust
+
+## Dashboard SDK
+
+ServiceRadar supports customer-owned dashboard packages that are authored in
+React and rendered directly inside the web UI. The Dashboard SDK gives dashboard
+authors a stable browser-module API for SRQL queries, Arrow-backed data frames,
+query state, Mapbox/deck.gl maps, popups, filters, and local development.
+
+The published npm packages make it straightforward to create and validate a
+dashboard from a normal JavaScript workspace:
+
+```bash
+npm create @carverauto/create-dashboard@latest my-dashboard -- --template react-map
+cd my-dashboard
+npm ci
+npm run dev
+```
+
+Use `npm run dev` for the local HMR harness, `npm run validate` before handing a
+package to ServiceRadar, and `npx serviceradar-cli dashboard publish` when you
+are ready to upload a signed dashboard package to a ServiceRadar instance.
+
+Dashboard SDK documentation:
+**[developer.serviceradar.cloud/docs/v2/dashboard-sdk](https://developer.serviceradar.cloud/docs/v2/dashboard-sdk)**
+
+Developer portal:
+**[developer.serviceradar.cloud](https://developer.serviceradar.cloud)**
+
+## Quick Installation (Docker Compose)
+
+Get ServiceRadar running in under 5 minutes:
+
+```bash
+# Optional - set these in your .env 
+export SERVICERADAR_HOST=<my-vm-ip>
+export GATEWAY_PUBLIC_BIND=0.0.0.0
+
+git clone https://github.com/carverauto/serviceradar.git
+cd serviceradar
+
+docker compose pull
+docker compose up nats-creds-init
+docker compose up -d
+
+# Get your admin password
+docker compose logs config-updater
+```
+
+**Access:** http://localhost (login: `root@localhost`)
+
+## Kubernetes / Helm Deployment
+
+ServiceRadar provides an official Helm chart for Kubernetes deployments, published to Harbor as an OCI artifact.
+
+```bash
+# Inspect chart metadata and default values
+helm show chart oci://registry.carverauto.dev/serviceradar/charts/serviceradar
+helm show values oci://registry.carverauto.dev/serviceradar/charts/serviceradar > values.yaml
+
+# Install latest release
+helm upgrade --install serviceradar oci://registry.carverauto.dev/serviceradar/charts/serviceradar \
+  -n serviceradar --create-namespace
+
+# Track mutable images (staging/dev): pulls :latest and forces re-pull
+helm upgrade --install serviceradar oci://registry.carverauto.dev/serviceradar/charts/serviceradar \
+  -n serviceradar --create-namespace \
+  --set global.imageTag="latest" \
+  --set global.imagePullPolicy="Always"
+
+# Get password for 'root@localhost' user created by helm install
+kubectl get secret serviceradar-secrets -n serviceradar \
+    -o jsonpath='{.data.admin-password}' | base64 -d
+```
+
+Note: if you omit `global.imageTag`, the chart defaults to `latest`. Set `global.imagePullPolicy=Always` when you want to pick up new pushes on restart.
+
+## Verifying Published Images
+
+ServiceRadar publishes Cosign-signed images to Harbor. The public verification key is committed in [docs/cosign.pub](/Users/mfreeman/src/serviceradar/docs/cosign.pub).
+
+For the self-hosted keyless migration path, keep custom Sigstore trust
+material under [docs/sigstore/README.md](/home/mfreeman/src/serviceradar/docs/sigstore/README.md).
+The release scripts now support both legacy key-based verification and
+keyless verification against a custom trusted root.
+
+Verify a released or immutable image tag with:
+
+```bash
+cosign verify \
+  --experimental-oci11 \
+  --key docs/cosign.pub \
+  registry.carverauto.dev/serviceradar/serviceradar-core-elx:v1.4.49
+```
+
+For build-specific images, prefer the immutable `sha-<commit>` tags:
+
+```bash
+cosign verify \
+  --experimental-oci11 \
+  --key docs/cosign.pub \
+  registry.carverauto.dev/serviceradar/serviceradar-core-elx:sha-ac23dc0ebcbee0d6a964dc8307826bf2a063536c
+```
+
+Successful verification proves the image was signed with the ServiceRadar release key and that the signature published in Harbor matches the requested image.
+
+For self-hosted keyless verification, use the published trusted root and
+certificate identity policy instead of `docs/cosign.pub`:
+
+```bash
+cosign verify \
+  --experimental-oci11 \
+  --trusted-root docs/sigstore/trusted-root.json \
+  --certificate-identity-regexp '<issuer-specific SAN regex>' \
+  --certificate-oidc-issuer https://issuer.example.com \
+  registry.carverauto.dev/serviceradar/serviceradar-core-elx:sha-ac23dc0ebcbee0d6a964dc8307826bf2a063536c
+```
+
+Docker Compose notes:
+- Set `APP_TAG` in `.env` to pin release images (example: `APP_TAG=v1.4.49`).
+- Set `COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml` in `.env` to default to the dev overlay without `-f`.
+
+**Chart URL:** `oci://registry.carverauto.dev/serviceradar/charts/serviceradar`
+
+Notes:
+- [Chart](helm/serviceradar/Chart.yaml) versions are like `1.4.49`; ServiceRadar image tags are like `v1.4.49`.
+- If your cluster requires registry credentials, set `image.registryPullSecret` (default `registry-carverauto-dev-cred`).
+
+For ArgoCD deployments, use `registry.carverauto.dev/serviceradar/charts` as the repository URL (without the `oci://` prefix):
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: serviceradar
+  namespace: argocd
+spec:
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: serviceradar
+  source:
+    repoURL: registry.carverauto.dev/serviceradar/charts
+    chart: serviceradar
+    targetRevision: "1.4.49"
+    helm:
+      values: |
+        global:
+          imageTag: "v1.4.49"
+```
+
+## Architecture
+
+1. **Agent**: Lightweight Go service on monitored hosts; manages WASM execution and local collection.
+2. **Agent-Gateway**: Ingestion point that receives gRPC streams from edge agents.
+3. **Core (core-elx)**: Control plane (Elixir/Phoenix/Ash) for orchestration, ERTS, and job scheduling (Oban).
+4. **Web UI (web-ng)**: Real-time LiveView dashboard and APIs for configuration and visualization.
+5. **NATS**: [NATS JetStream](https://docs.nats.io/nats-concepts/jetstream) message broker for bulk ingestion streams.
+6. **Collectors**: Collect bulk data (netflow, logs, SNMP, etc.).
+
+## Documentation
+
+For detailed guides on setup and security, visit:
+**[https://docs.serviceradar.cloud](https://docs.serviceradar.cloud)**
+
+For SDKs, dashboard authoring, and extension guides, visit:
+**[https://developer.serviceradar.cloud](https://developer.serviceradar.cloud/)**
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request. Join our [Discord](https://discord.gg/dhaNgF9d3g)! 
+
+## License
+
+Apache 2.0 License - see the [LICENSE](LICENSE) file for details.

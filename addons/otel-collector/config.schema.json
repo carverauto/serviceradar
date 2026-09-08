@@ -1,0 +1,254 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OTEL Collector Add-on Configuration",
+  "description": "Operator configuration delivered over the Configure RPC and parsed into the otel crate's collector config. Omitted output defaults to durable gateway relay through the supervising agent (otlp-relay:v1). Set output.backend to jetstream, with nats settings, when the edge has a local NATS leaf and should publish directly.",
+  "type": "object",
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "required": ["output"],
+        "properties": {
+          "output": {
+            "properties": { "backend": { "const": "jetstream" } }
+          }
+        }
+      },
+      "then": {
+        "required": ["nats"],
+        "properties": {
+          "nats": {
+            "required": ["url", "tls"],
+            "not": { "required": ["creds_file"] },
+            "properties": {
+              "tls": {
+                "required": ["cert_file", "key_file", "ca_file"]
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "properties": {
+    "server": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "OTLP listener configuration.",
+      "properties": {
+        "bind_address": {
+          "type": "string",
+          "description": "Address the OTLP/gRPC listener binds.",
+          "default": "0.0.0.0"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535,
+          "description": "OTLP/gRPC port.",
+          "default": 4317
+        },
+        "max_request_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum accepted OTLP export request size in bytes (gRPC decode limit and HTTP body limit).",
+          "default": 67108864
+        },
+        "metrics": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Optional Prometheus metrics listener.",
+          "properties": {
+            "bind_address": { "type": "string", "default": "0.0.0.0" },
+            "port": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 65535,
+              "default": 9090
+            }
+          }
+        },
+        "http": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "OTLP/HTTP listener (port 4318 by default).",
+          "properties": {
+            "enabled": { "type": "boolean", "default": true },
+            "bind_address": { "type": "string", "default": "0.0.0.0" },
+            "port": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 65535,
+              "default": 4318
+            },
+            "allowed_origins": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "CORS origins allowed for browser-based OTLP exporters.",
+              "default": ["*"]
+            },
+            "tls_enabled": {
+              "type": "boolean",
+              "description": "Serve TLS on the HTTP listener (reuses the grpc_tls certificate when configured).",
+              "default": true
+            }
+          }
+        }
+      }
+    },
+    "grpc_tls": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional TLS for the OTLP listeners.",
+      "required": ["cert_file", "key_file"],
+      "properties": {
+        "cert_file": { "type": "string" },
+        "key_file": { "type": "string" },
+        "ca_file": { "type": "string" },
+        "client_auth": {
+          "type": "string",
+          "enum": ["required", "optional", "none"],
+          "description": "Client certificate policy when ca_file is set.",
+          "default": "required"
+        }
+      }
+    },
+    "auth": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Token-based ingestion authentication for both OTLP listeners. Note: token identities are advisory at the edge — the gateway stamps the authoritative identity from the agent's mTLS certificate.",
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "tokens": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["identity"],
+            "properties": {
+              "identity": { "type": "string" },
+              "token": { "type": "string" },
+              "token_file": { "type": "string" }
+            }
+          },
+          "default": []
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Output transport. Omit this section for the required/default gateway-relay add-on shape. Set backend to jetstream for direct-to-leaf publishing through a local NATS leaf.",
+      "properties": {
+        "backend": {
+          "type": "string",
+          "enum": ["agent", "jetstream"],
+          "default": "agent"
+        }
+      }
+    },
+    "nats": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "NATS/JetStream output settings used only when output.backend is jetstream. Point url at the registered local NATS leaf and use add-on-owned mTLS files for direct-to-leaf edge durability. Base onboarding never supplies these files.",
+      "required": ["url"],
+      "properties": {
+        "url": { "type": "string" },
+        "subject": {
+          "type": "string",
+          "default": "events.otlp"
+        },
+        "logs_subject": { "type": "string" },
+        "stream": {
+          "type": "string",
+          "default": "events"
+        },
+        "creds_file": {
+          "type": "string",
+          "description": "Reserved for a future short-lived, add-on-scoped credential flow. It is not accepted by the initial direct-leaf capability. Never place this in the base agent onboarding bundle."
+        },
+        "timeout_secs": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 10
+        },
+        "max_bytes": {
+          "type": "integer",
+          "default": 1073741824
+        },
+        "max_age_secs": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 86400
+        },
+        "stream_replicas": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1
+        },
+        "max_inflight_publishes": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 32
+        },
+        "tls": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["cert_file", "key_file", "ca_file"],
+          "description": "The paths are retained for compatibility with the add-on config contract. For a ready direct assignment, the control plane injects the short-lived assignment certificate as cert_pem/key_pem/ca_pem at delivery time; those values are never included in the base onboarding bundle.",
+          "properties": {
+            "cert_file": { "type": "string" },
+            "key_file": { "type": "string" },
+            "ca_file": { "type": "string" },
+            "cert_pem": {
+              "type": "string",
+              "description": "Control-plane injected assignment-scoped client certificate PEM. Do not configure in a persisted operator profile."
+            },
+            "key_pem": {
+              "type": "string",
+              "description": "Control-plane injected assignment-scoped private key PEM. Do not configure in a persisted operator profile."
+            },
+            "ca_pem": {
+              "type": "string",
+              "description": "Control-plane injected assignment-scoped CA chain PEM. Do not configure in a persisted operator profile."
+            }
+          }
+        }
+      }
+    },
+    "agent_forward": {
+      "type": "object",
+      "additionalProperties": false,
+      "title": "Relay spool retention",
+      "description": "Durable relay spool settings for the default agent/gateway relay backend (the durability owner between OTLP OK and gateway ack). Ignored when output.backend is jetstream. The spool is bounded: when any bound is reached, the oldest sealed segments are evicted first and every evicted record is counted in delivery accounting — telemetry is never allowed to fill the disk. Changing these bounds takes effect immediately on the running add-on, without a restart. Sizing hint: 256 MiB buffers roughly tens of minutes of moderate edge volume; for long-outage durability use the NATS leaf JetStream transport instead of a larger spool.",
+      "properties": {
+        "spool_dir": {
+          "type": "string",
+          "title": "Spool directory",
+          "description": "Directory holding spool segments and the ack-watermark file. Changing the directory reopens the spool at the new location.",
+          "default": "/var/lib/serviceradar/otel-spool"
+        },
+        "max_bytes": {
+          "type": "integer",
+          "minimum": 1048576,
+          "title": "Maximum spool size (bytes)",
+          "description": "Total on-disk budget in bytes before oldest-segment eviction (default 256 MiB). Shrinking this bound evicts oldest data immediately, with evictions counted. 256 MiB is roughly tens of minutes at moderate edge volume; use the NATS leaf transport for long-outage durability rather than a multi-gigabyte spool.",
+          "default": 268435456
+        },
+        "max_age_secs": {
+          "type": "integer",
+          "minimum": 1,
+          "title": "Maximum segment age (seconds)",
+          "description": "Optional age bound in seconds: sealed segments older than this are evicted (oldest first, counted) even when the spool is under its size budget. Unset means no age bound."
+        },
+        "min_free_disk_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "title": "Free-disk floor (bytes)",
+          "description": "Minimum free space in bytes the spool must leave on its volume (default 512 MiB). When the volume's free space drops below this floor the spool behaves as if its own bound were reached: oldest segments are evicted to make room and, if that cannot help, new telemetry is rejected with per-signal counts — the spool never fills the disk or crashes. Set to 0 to disable the floor.",
+          "default": 536870912
+        }
+      }
+    }
+  }
+}

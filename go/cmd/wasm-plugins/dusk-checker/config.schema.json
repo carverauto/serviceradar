@@ -1,0 +1,27 @@
+{
+  "type": "object",
+  "properties": {
+    "node_address": {
+      "type": "string",
+      "description": "Dusk node RUES endpoint (for example localhost:8080)"
+    },
+    "timeout": {
+      "type": "string",
+      "description": "Connection timeout duration (for example 30s, 1m)",
+      "default": "30s"
+    },
+    "websocket_path": {
+      "type": "string",
+      "description": "RUES WebSocket path",
+      "default": "/on"
+    },
+    "subscription_path": {
+      "type": "string",
+      "description": "RUES accepted-block subscription path",
+      "default": "/on/blocks/accepted"
+    }
+  },
+  "required": [
+    "node_address"
+  ]
+}

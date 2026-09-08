@@ -1,0 +1,173 @@
+# Publishes only the fixture CA certificate (ca.crt) on the in-cluster
+# ClusterIP Service. Clients do not dial this Service. They dial the LAN
+# HTTPS route:
+#
+#   https://srql-fixture-ca.carverauto.dev/ca.crt
+#
+# Do not store that PEM in a CI secret. Do not attach this namespace to the
+# shared public gateway; lan-shared-gateway is the HTTPS edge.
+#
+# Caddy stays HTTP. Envoy terminates TLS with the Let's Encrypt wildcard
+# already trusted by scratch images. The custom CA is the document being
+# served, not the certificate that terminates the fetch. Do not put nginx
+# back on this path. The fixture CA private key is not in any volume here.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: srql-fixture-ca-bundle-caddy
+  namespace: srql-fixtures
+  labels:
+    app: srql-fixture
+    app.kubernetes.io/component: fixture-ca-bundle
+data:
+  Caddyfile: |
+    {
+      admin off
+      auto_https off
+      persist_config off
+    }
+
+    :8080 {
+      header {
+        -Server
+        X-Content-Type-Options nosniff
+      }
+
+      handle /ca.crt {
+        root * /var/lib/srql-fixture-ca
+        file_server
+        header Content-Type application/x-pem-file
+        header Cache-Control "public, max-age=300"
+      }
+
+      handle {
+        respond 404
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: srql-fixture-ca-bundle
+  namespace: srql-fixtures
+  labels:
+    app: srql-fixture
+    app.kubernetes.io/component: fixture-ca-bundle
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: srql-fixture-ca-bundle
+  template:
+    metadata:
+      labels:
+        app: srql-fixture-ca-bundle
+        app.kubernetes.io/component: fixture-ca-bundle
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: NotIn
+                    values:
+                      - k8s-cp3-worker3
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: caddy
+          image: docker.io/library/caddy:2.11.4-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
+          imagePullPolicy: IfNotPresent
+          args:
+            - caddy
+            - run
+            - --config
+            - /etc/caddy/Caddyfile
+            - --adapter
+            - caddyfile
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /ca.crt
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /ca.crt
+              port: http
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+              # Binary is file-capped with cap_net_bind_service. Drop-only
+              # makes `exec /usr/bin/caddy` fail with EPERM (same as
+              # forgejo / powerdns-admin / plausible).
+              add:
+                - NET_BIND_SERVICE
+          volumeMounts:
+            - name: caddy-config
+              mountPath: /etc/caddy/Caddyfile
+              subPath: Caddyfile
+              readOnly: true
+            - name: fixture-ca
+              mountPath: /var/lib/srql-fixture-ca
+              readOnly: true
+            - name: caddy-data
+              mountPath: /data
+            - name: caddy-config-dir
+              mountPath: /config
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: caddy-config
+          configMap:
+            name: srql-fixture-ca-bundle-caddy
+        - name: fixture-ca
+          secret:
+            secretName: srql-fixture-server-ca
+            items:
+              - key: ca.crt
+                path: ca.crt
+        - name: caddy-data
+          emptyDir: {}
+        - name: caddy-config-dir
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+---
+# In-cluster only. GitHub ARC and the BuildBuddy workflow pool fetch the CA
+# here so they do not need kubectl or a public VIP.
+apiVersion: v1
+kind: Service
+metadata:
+  name: srql-fixture-ca-incluster
+  namespace: srql-fixtures
+  labels:
+    app: srql-fixture
+    app.kubernetes.io/component: fixture-ca-bundle
+spec:
+  type: ClusterIP
+  selector:
+    app: srql-fixture-ca-bundle
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

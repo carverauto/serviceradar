@@ -1,0 +1,233 @@
+package edgeonboarding
+
+import (
+	"crypto/ed25519"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"strings"
+)
+
+const (
+	tokenV2Prefix                = "edgepkg-v2:"
+	tokenV3Prefix                = "edgepkg-v3:"
+	onboardingTokenPrivateKeyEnv = "SERVICERADAR_ONBOARDING_TOKEN_PRIVATE_KEY"
+	onboardingTokenPublicKeyEnv  = "SERVICERADAR_ONBOARDING_TOKEN_PUBLIC_KEY"
+	onboardingTokenSignatureSep  = "."
+	defaultPartitionID           = "default"
+)
+
+var (
+	ErrOnboardingTokenPrivateKeyRequired = errors.New("onboarding token private key is not configured")
+	ErrOnboardingTokenPublicKeyRequired  = errors.New("onboarding token public key is not configured")
+	ErrOnboardingTokenInvalidSignature   = errors.New("onboarding token signature is invalid")
+	ErrOnboardingTokenMalformed          = errors.New("onboarding token is malformed")
+	errOnboardingTokenPrivateKeyLength   = errors.New("invalid onboarding token private key length")
+	errOnboardingTokenPublicKeyLength    = errors.New("invalid onboarding token public key length")
+)
+
+type tokenPayload struct {
+	PackageID     string `json:"pkg"`
+	DownloadToken string `json:"dl"`
+	PartitionID   string `json:"partition_id,omitempty"`
+	CoreURL       string `json:"api,omitempty"`
+	rawToken      string `json:"-"`
+	version       int    `json:"-"`
+}
+
+func parseOnboardingToken(raw string, fallbackPackageID, overrideCoreURL string) (*tokenPayload, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, ErrTokenRequired
+	}
+
+	switch {
+	case strings.HasPrefix(raw, tokenV3Prefix):
+		return parseSignedStructuredToken(raw, tokenV3Prefix, 3, fallbackPackageID, overrideCoreURL)
+	case strings.HasPrefix(raw, tokenV2Prefix):
+		return parseSignedStructuredToken(raw, tokenV2Prefix, 2, fallbackPackageID, overrideCoreURL)
+	default:
+		return nil, ErrUnsupportedTokenFormat
+	}
+}
+
+func parseSignedStructuredToken(raw, prefix string, version int, fallbackPackageID, overrideCoreURL string) (*tokenPayload, error) {
+	encoded := strings.TrimPrefix(raw, prefix)
+	encodedPayload, encodedSignature, ok := strings.Cut(encoded, onboardingTokenSignatureSep)
+	if !ok || encodedPayload == "" || encodedSignature == "" {
+		return nil, ErrOnboardingTokenMalformed
+	}
+
+	data, err := base64.RawURLEncoding.DecodeString(encodedPayload)
+	if err != nil {
+		return nil, fmt.Errorf("decode onboarding token payload: %w", err)
+	}
+
+	signature, err := base64.RawURLEncoding.DecodeString(encodedSignature)
+	if err != nil {
+		return nil, fmt.Errorf("decode onboarding token signature: %w", err)
+	}
+
+	publicKey, err := onboardingTokenPublicKey()
+	if err != nil {
+		return nil, err
+	}
+
+	if !ed25519.Verify(publicKey, data, signature) {
+		return nil, ErrOnboardingTokenInvalidSignature
+	}
+
+	var payload tokenPayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return nil, fmt.Errorf("unmarshal onboarding token: %w", err)
+	}
+
+	if payload.PackageID == "" {
+		payload.PackageID = fallbackPackageID
+	}
+	// A caller-supplied URL is an operator override. The signed token remains
+	// authoritative for package identity and the download secret, but its API
+	// origin must not make an explicit --core-url impossible to use for recovery
+	// after a deployment hostname changes.
+	if coreURL := strings.TrimSpace(overrideCoreURL); coreURL != "" {
+		payload.CoreURL = coreURL
+	}
+	payload.PartitionID = strings.TrimSpace(payload.PartitionID)
+	payload.rawToken = raw
+	payload.version = version
+
+	if err := validateTokenPayload(&payload); err != nil {
+		return nil, err
+	}
+
+	return &payload, nil
+}
+
+func validateTokenPayload(payload *tokenPayload) error {
+	if payload.PackageID == "" {
+		return ErrPackageIDEmpty
+	}
+	if strings.TrimSpace(payload.DownloadToken) == "" {
+		return ErrDownloadTokenEmpty
+	}
+	payload.DownloadToken = strings.TrimSpace(payload.DownloadToken)
+	payload.PartitionID = strings.TrimSpace(payload.PartitionID)
+	return nil
+}
+
+func encodeSignedTokenPayload(payload tokenPayload, prefix string) (string, error) {
+	if err := validateTokenPayload(&payload); err != nil {
+		return "", err
+	}
+
+	buf, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+
+	privateKey, err := onboardingTokenPrivateKey()
+	if err != nil {
+		return "", err
+	}
+
+	signature := ed25519.Sign(privateKey, buf)
+	return prefix +
+		base64.RawURLEncoding.EncodeToString(buf) +
+		onboardingTokenSignatureSep +
+		base64.RawURLEncoding.EncodeToString(signature), nil
+}
+
+func onboardingTokenPrivateKey() (ed25519.PrivateKey, error) {
+	raw := strings.TrimSpace(os.Getenv(onboardingTokenPrivateKeyEnv))
+	if raw == "" {
+		return nil, ErrOnboardingTokenPrivateKeyRequired
+	}
+
+	keyBytes, err := decodeOnboardingTokenKey(raw)
+	if err != nil {
+		return nil, fmt.Errorf("decode onboarding token private key: %w", err)
+	}
+
+	switch len(keyBytes) {
+	case ed25519.SeedSize:
+		return ed25519.NewKeyFromSeed(keyBytes), nil
+	case ed25519.PrivateKeySize:
+		return ed25519.PrivateKey(keyBytes), nil
+	default:
+		return nil, fmt.Errorf("%w: got %d bytes", errOnboardingTokenPrivateKeyLength, len(keyBytes))
+	}
+}
+
+func onboardingTokenPublicKey() (ed25519.PublicKey, error) {
+	raw := strings.TrimSpace(os.Getenv(onboardingTokenPublicKeyEnv))
+	if raw == "" {
+		return nil, ErrOnboardingTokenPublicKeyRequired
+	}
+
+	keyBytes, err := decodeOnboardingTokenKey(raw)
+	if err != nil {
+		return nil, fmt.Errorf("decode onboarding token public key: %w", err)
+	}
+	if len(keyBytes) != ed25519.PublicKeySize {
+		return nil, fmt.Errorf("%w: got %d bytes", errOnboardingTokenPublicKeyLength, len(keyBytes))
+	}
+
+	return ed25519.PublicKey(keyBytes), nil
+}
+
+func decodeOnboardingTokenKey(raw string) ([]byte, error) {
+	raw = strings.TrimSpace(raw)
+	decodeFns := []func(string) ([]byte, error){
+		base64.StdEncoding.DecodeString,
+		base64.RawStdEncoding.DecodeString,
+		base64.URLEncoding.DecodeString,
+		base64.RawURLEncoding.DecodeString,
+		hex.DecodeString,
+	}
+
+	for _, decodeFn := range decodeFns {
+		if decoded, err := decodeFn(raw); err == nil {
+			return decoded, nil
+		}
+	}
+
+	return nil, ErrOnboardingTokenMalformed
+}
+
+// EncodeToken builds a signed edgepkg-v3 token with the default partition.
+func EncodeToken(packageID, downloadToken, coreAPIURL string) (string, error) {
+	return EncodeTokenWithPartition(packageID, downloadToken, coreAPIURL, defaultPartitionID)
+}
+
+// EncodeTokenWithPartition builds a signed edgepkg-v3 token that embeds the
+// package id, download token, partition, and optional Core API base URL so
+// bootstrap clients only need ONBOARDING_TOKEN plus the configured public
+// verification key.
+func EncodeTokenWithPartition(packageID, downloadToken, coreAPIURL, partitionID string) (string, error) {
+	payload := tokenPayload{
+		PackageID:     strings.TrimSpace(packageID),
+		DownloadToken: strings.TrimSpace(downloadToken),
+		PartitionID:   normalizePartitionID(partitionID),
+	}
+	if trimmed := strings.TrimSpace(coreAPIURL); trimmed != "" {
+		payload.CoreURL = trimmed
+	}
+	return encodeSignedTokenPayload(payload, tokenV3Prefix)
+}
+
+// IsStructuredToken reports whether the token uses the structured edge package format.
+func IsStructuredToken(raw string) bool {
+	raw = strings.TrimSpace(raw)
+	return strings.HasPrefix(raw, tokenV3Prefix) || strings.HasPrefix(raw, tokenV2Prefix)
+}
+
+func normalizePartitionID(partitionID string) string {
+	partitionID = strings.TrimSpace(partitionID)
+	if partitionID == "" {
+		return defaultPartitionID
+	}
+	return partitionID
+}

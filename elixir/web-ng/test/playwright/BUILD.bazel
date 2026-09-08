@@ -1,0 +1,36 @@
+load("@web_ng_npm//elixir/web-ng/assets:@playwright/test/package_json.bzl", playwright_bin = "bin")
+
+package(default_visibility = ["//visibility:public"])
+
+playwright_bin.playwright_test(
+    name = "god_view_elk_scene_acceptance",
+    # Keep a 900-second outer allowance around the two 300-second Playwright
+    # contracts so a failure trace can flush before Bazel terminates the process.
+    size = "large",
+    args = [
+        "test",
+        "--config=playwright.config.js",
+    ],
+    chdir = package_name(),
+    data = [
+        "god_view_elk_scene.playwright.js",
+        "playwright.config.js",
+        "//elixir/web-ng/assets:god_view_elk_scene_acceptance_test_lib",
+        "//elixir/web-ng/assets:god_view_elk_scene_bundle",
+        "//elixir/web-ng/assets:node_modules/@playwright/test",
+    ],
+    env = {
+        "CI": "1",
+        "GOD_VIEW_ACCEPTANCE_BUNDLE": "$(rootpath //elixir/web-ng/assets:god_view_elk_scene_bundle)",
+        "PLAYWRIGHT_BROWSERS_PATH": "/ms-playwright",
+    },
+    exec_properties = {
+        "container-image": "docker://registry.carverauto.dev/serviceradar/playwright-rbe@sha256:d9266ee97f0dbd297618a10afb00b5006ebf2bb19dd38887da3230ed4b7829ea",
+    },
+    tags = [
+        "acceptance_test",
+        "external",
+        "no-local",
+        "no-remote-cache",
+    ],
+)

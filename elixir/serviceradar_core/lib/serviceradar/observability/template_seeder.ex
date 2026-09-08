@@ -1,0 +1,437 @@
+defmodule ServiceRadar.Observability.TemplateSeeder do
+  @moduledoc """
+  Seeds default rule templates on startup.
+
+  In single-deployment architecture, the DB connection's
+  search_path determines which schema templates are seeded into.
+  """
+
+  use ServiceRadar.DelayedSeeder, callback: :seed_all
+
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Camera.RelayHealthEventRouter
+  alias ServiceRadar.Observability.LogPromotionRuleTemplate
+  alias ServiceRadar.Observability.StatefulAlertRuleTemplate
+  alias ServiceRadar.Observability.ZenRuleTemplate
+
+  require Ash.Query
+  require Logger
+
+  def seed_all do
+    if repo_enabled?() do
+      # DB connection's search_path determines the schema
+      seed_templates()
+    end
+  end
+
+  defp seed_templates do
+    # DB connection's search_path determines the schema
+    actor = SystemActor.system(:template_seeder)
+    opts = [actor: actor]
+
+    ensure_zen_defaults(opts)
+    ensure_defaults(LogPromotionRuleTemplate, default_promotion_templates(), opts)
+    ensure_defaults(StatefulAlertRuleTemplate, default_stateful_templates(), opts)
+
+    :ok
+  end
+
+  defp ensure_defaults(resource, defaults, opts) do
+    query =
+      resource
+      |> Ash.Query.for_read(:read, %{})
+      |> Ash.Query.select([:name])
+
+    case Ash.read(query, opts) do
+      {:ok, templates} ->
+        existing = MapSet.new(templates, & &1.name)
+
+        Enum.each(defaults, fn attrs ->
+          seed_template_if_missing(existing, attrs, resource, opts)
+        end)
+
+      {:error, reason} ->
+        Logger.warning("Failed to check template defaults for #{resource}: #{inspect(reason)}")
+    end
+  end
+
+  defp ensure_zen_defaults(opts) do
+    query =
+      ZenRuleTemplate
+      |> Ash.Query.for_read(:read, %{})
+      |> Ash.Query.select([:id, :name, :subject])
+
+    case Ash.read(query, opts) do
+      {:ok, templates} ->
+        existing = MapSet.new(templates, &{&1.name, &1.subject})
+
+        existing = rename_legacy_templates(templates, existing, opts)
+
+        Enum.each(default_zen_templates(), fn attrs ->
+          seed_zen_template_if_missing(existing, attrs, opts)
+        end)
+
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to check template defaults for #{ZenRuleTemplate}: #{inspect(reason)}"
+        )
+    end
+  end
+
+  defp seed_template_if_missing(existing, attrs, resource, opts) do
+    if MapSet.member?(existing, attrs[:name]) do
+      :ok
+    else
+      create_template(resource, attrs, opts)
+    end
+  end
+
+  defp create_template(resource, attrs, opts) do
+    changeset = Ash.Changeset.for_create(resource, :create, attrs, opts)
+
+    case Ash.create(changeset) do
+      {:ok, _} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Failed to seed #{resource}: #{inspect(reason)}")
+    end
+  end
+
+  defp seed_zen_template_if_missing(existing, attrs, opts) do
+    key = {attrs[:name], attrs[:subject]}
+
+    if MapSet.member?(existing, key) do
+      :ok
+    else
+      create_zen_template(attrs, opts)
+    end
+  end
+
+  defp create_zen_template(attrs, opts) do
+    changeset = Ash.Changeset.for_create(ZenRuleTemplate, :create, attrs, opts)
+
+    case Ash.create(changeset) do
+      {:ok, _} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Failed to seed #{ZenRuleTemplate}: #{inspect(reason)}")
+    end
+  end
+
+  defp rename_legacy_templates(templates, existing, opts) do
+    Enum.reduce(templates, existing, fn template, acc ->
+      maybe_rename_legacy_template(template, acc, opts)
+    end)
+  end
+
+  defp maybe_rename_legacy_template(template, acc, opts) do
+    case legacy_template_name(template.name) do
+      nil -> acc
+      new_name -> rename_template_if_missing(template, new_name, acc, opts)
+    end
+  end
+
+  defp rename_template_if_missing(template, new_name, existing, opts) do
+    key = {new_name, template.subject}
+
+    if MapSet.member?(existing, key) do
+      existing
+    else
+      do_rename_template(template, new_name, key, existing, opts)
+    end
+  end
+
+  defp do_rename_template(template, new_name, key, existing, opts) do
+    changeset = Ash.Changeset.for_update(template, :update, %{name: new_name}, opts)
+
+    case Ash.update(changeset) do
+      {:ok, _} ->
+        MapSet.put(existing, key)
+
+      {:error, reason} ->
+        schema = Keyword.get(opts, :schema, "unknown")
+
+        Logger.warning(
+          "Failed to rename Zen template #{template.name} for #{schema}: #{inspect(reason)}"
+        )
+
+        existing
+    end
+  end
+
+  defp legacy_template_name("syslog_passthrough"), do: "passthrough"
+  defp legacy_template_name("syslog_strip_full_message"), do: "strip_full_message"
+  defp legacy_template_name("syslog_cef_severity"), do: "cef_severity"
+  defp legacy_template_name(_), do: nil
+
+  defp default_zen_templates do
+    [
+      %{
+        name: "passthrough",
+        description: "Default (passthrough) for syslog logs.",
+        subject: "logs.syslog",
+        template: "passthrough",
+        order: 100,
+        stream_name: "events",
+        agent_id: "default-agent",
+        enabled: true
+      },
+      %{
+        name: "passthrough",
+        description: "Default (passthrough) for SNMP logs.",
+        subject: "logs.snmp",
+        template: "passthrough",
+        order: 100,
+        stream_name: "events",
+        agent_id: "default-agent",
+        enabled: true
+      },
+      %{
+        name: "passthrough",
+        description: "Default (passthrough) for OTEL logs.",
+        subject: "logs.otel",
+        template: "passthrough",
+        order: 100,
+        stream_name: "events",
+        agent_id: "default-agent",
+        enabled: true
+      },
+      %{
+        name: "passthrough",
+        description: "Default (passthrough) for OTEL metrics.",
+        subject: "otel.metrics.raw",
+        template: "passthrough",
+        order: 100,
+        stream_name: "events",
+        agent_id: "default-agent",
+        enabled: true
+      },
+      %{
+        name: "passthrough",
+        description: "Default (passthrough) for internal health logs.",
+        subject: "logs.internal.health",
+        template: "passthrough",
+        order: 100,
+        stream_name: "events",
+        agent_id: "default-agent",
+        enabled: true
+      },
+      %{
+        name: "passthrough",
+        description: "Default (passthrough) for internal jobs logs.",
+        subject: "logs.internal.jobs",
+        template: "passthrough",
+        order: 100,
+        stream_name: "events",
+        agent_id: "default-agent",
+        enabled: true
+      },
+      %{
+        name: "passthrough",
+        description: "Default (passthrough) for internal onboarding logs.",
+        subject: "logs.internal.onboarding",
+        template: "passthrough",
+        order: 100,
+        stream_name: "events",
+        agent_id: "default-agent",
+        enabled: true
+      },
+      %{
+        name: "passthrough",
+        description: "Default (passthrough) for internal audit logs.",
+        subject: "logs.internal.audit",
+        template: "passthrough",
+        order: 100,
+        stream_name: "events",
+        agent_id: "default-agent",
+        enabled: true
+      },
+      %{
+        name: "passthrough",
+        description: "Default (passthrough) for internal sweep logs.",
+        subject: "logs.internal.sweep",
+        template: "passthrough",
+        order: 100,
+        stream_name: "events",
+        agent_id: "default-agent",
+        enabled: true
+      },
+      %{
+        name: "strip_full_message",
+        description: "Remove full_message from syslog payloads.",
+        subject: "logs.syslog",
+        template: "strip_full_message",
+        order: 110,
+        stream_name: "events",
+        agent_id: "default-agent",
+        enabled: true
+      },
+      %{
+        name: "coraza_waf",
+        description:
+          "Normalize Coraza WAF syslog payloads into the generic WAF security signal shape.",
+        subject: "logs.syslog",
+        template: "coraza_waf",
+        order: 105,
+        stream_name: "events",
+        agent_id: "default-agent",
+        enabled: true
+      },
+      %{
+        name: "syslog_severity",
+        description: "Map numeric syslog severity (GELF level) into OTEL severity fields.",
+        subject: "logs.syslog",
+        template: "syslog_severity",
+        order: 115,
+        stream_name: "events",
+        agent_id: "default-agent",
+        enabled: true
+      },
+      %{
+        name: "cef_severity",
+        description: "Map CEF severity values into normalized severity.",
+        subject: "logs.syslog",
+        template: "cef_severity",
+        order: 120,
+        stream_name: "events",
+        agent_id: "default-agent",
+        enabled: true
+      },
+      %{
+        name: "snmp_severity",
+        description: "Normalize SNMP trap body, sender IP, and severity fields.",
+        subject: "logs.snmp",
+        template: "snmp_severity",
+        order: 110,
+        stream_name: "events",
+        agent_id: "default-agent",
+        enabled: true
+      }
+    ]
+  end
+
+  defp default_promotion_templates do
+    [
+      %{
+        name: "promote_errors",
+        description: "Promote error logs into events.",
+        priority: 50,
+        enabled: true,
+        match: %{
+          "severity_text" => "error"
+        },
+        event: %{
+          "message" => "Promoted error log"
+        }
+      },
+      %{
+        name: "promote_warnings",
+        description: "Promote warning logs into events.",
+        priority: 75,
+        enabled: true,
+        match: %{
+          "severity_text" => "warning"
+        },
+        event: %{
+          "message" => "Promoted warning log"
+        }
+      }
+    ]
+  end
+
+  defp default_stateful_templates do
+    [
+      %{
+        name: "burst_errors",
+        description: "Alert on repeated errors in a short window.",
+        priority: 50,
+        enabled: true,
+        signal: :log,
+        threshold: 5,
+        window_seconds: 600,
+        bucket_seconds: 60,
+        cooldown_seconds: 300,
+        renotify_seconds: 21_600,
+        match: %{
+          "severity_text" => "error"
+        },
+        event: %{},
+        alert: %{}
+      },
+      %{
+        name: "camera_relay_failure_burst",
+        description: "Alert on repeated camera relay session failures for the same gateway.",
+        priority: 60,
+        enabled: true,
+        signal: :event,
+        group_by: ["gateway_id"],
+        threshold: 3,
+        window_seconds: 600,
+        bucket_seconds: 60,
+        cooldown_seconds: 300,
+        renotify_seconds: 21_600,
+        match: %{
+          "subject_prefix" => RelayHealthEventRouter.session_failure_log_name()
+        },
+        event: %{
+          "log_name" => RelayHealthEventRouter.failure_burst_alert_log_name(),
+          "message" => "Camera relay failure burst detected"
+        },
+        alert: %{
+          "title" => "Camera Relay Failure Burst",
+          "severity" => "warning"
+        }
+      },
+      %{
+        name: "camera_relay_gateway_saturation",
+        description: "Alert on sustained camera relay saturation denials for the same gateway.",
+        priority: 65,
+        enabled: true,
+        signal: :event,
+        group_by: ["gateway_id", "limit_kind"],
+        threshold: 3,
+        window_seconds: 900,
+        bucket_seconds: 60,
+        cooldown_seconds: 300,
+        renotify_seconds: 21_600,
+        match: %{
+          "subject_prefix" => RelayHealthEventRouter.gateway_saturation_log_name()
+        },
+        event: %{
+          "log_name" => RelayHealthEventRouter.gateway_saturation_alert_log_name(),
+          "message" => "Camera relay gateway saturation detected"
+        },
+        alert: %{
+          "title" => "Camera Relay Gateway Saturation",
+          "severity" => "critical"
+        }
+      },
+      %{
+        name: "camera_relay_viewer_idle_churn",
+        description: "Alert on repeated viewer-idle relay shutdowns for the same camera source.",
+        priority: 70,
+        enabled: true,
+        signal: :event,
+        group_by: ["camera_source_id"],
+        threshold: 5,
+        window_seconds: 900,
+        bucket_seconds: 60,
+        cooldown_seconds: 300,
+        renotify_seconds: 21_600,
+        match: %{
+          "subject_prefix" => RelayHealthEventRouter.viewer_idle_log_name()
+        },
+        event: %{
+          "log_name" => RelayHealthEventRouter.viewer_idle_churn_alert_log_name(),
+          "message" => "Camera relay viewer idle churn detected"
+        },
+        alert: %{
+          "title" => "Camera Relay Viewer Idle Churn",
+          "severity" => "warning"
+        }
+      }
+    ]
+  end
+end

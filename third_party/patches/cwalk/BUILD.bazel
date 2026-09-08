@@ -1,0 +1,3 @@
+exports_files([
+    "0001-add-bazel-build.patch",
+])

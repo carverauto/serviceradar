@@ -1,0 +1,99 @@
+# ServiceRadar environment configuration: ci
+#
+# GROUND TRUTH. This file is authored and reviewed here; a build action compiles it to a
+# binary message that every implementation loads. Do not edit the generated .binpb.
+#
+# NO SECRETS. Passwords, private keys and certificate material are resolved by
+# SecretManager. A build-time check rejects credential-shaped values in this file.
+
+kind: ENVIRONMENT_KIND_CI
+
+database {
+  # The in-cluster fixture service. No traffic on this path leaves the cluster.
+  #
+  # This name resolves and routes from a BuildBuddy action only because both executor fleets
+  # set `task_allowed_private_ips` and point `oci.dns` at CoreDNS -- see
+  # //k8s/buildbuddy/values.yaml. Without those two keys BuildBuddy REJECTs every RFC1918
+  # destination from an action's network namespace and hands it a resolv.conf of
+  # `nameserver 8.8.8.8`, so this name is NXDOMAIN and 10.43.106.83 is `Connection refused`.
+  # That is SSRF protection, not a broken cluster, and it is why an earlier revision of this
+  # file used the public MetalLB address instead: 23.138.124.18 is not RFC1918, so it was the
+  # only endpoint that had ever worked from CI.
+  #
+  # It is a SAN on srql-fixture-server-tls, so verify-full holds with no server-name override.
+  #
+  # A WORKSTATION CANNOT REACH THIS, and does not need to: `ci` describes the CI environment.
+  # A developer uses `localhost`, or overrides SRQL_FIXTURE_HOST with the LAN NodePort.
+  host: "srql-fixture-rw.srql-fixtures.svc.cluster.local"
+  port: 5432
+  database: "srql_fixture"
+
+  # Identities. Only the password is secret.
+  #
+  # These are the roles the shared fixture actually has -- `srql` is the application role from
+  # srql-test-db-credentials, `srql_hydra` the admin from srql-test-admin-credentials. An
+  # earlier revision named `srql_test` for both, which exists on no fixture; PostgreSQL reports
+  # that as `role "srql_test" does not exist`, which reads like a missing GRANT rather than a
+  # name nothing ever created. Verify before changing:
+  #
+  #   kubectl get secret srql-test-db-credentials -n srql-fixtures -o jsonpath='{.data.username}' | base64 -d
+  connecting_role: "srql"
+  owning_role: "srql"
+
+  # `srql` deliberately lacks CREATEDB, so the per-run database is created by the admin role.
+  # Its password is database.admin_password.
+  admin_role: "srql_hydra"
+
+  # Typed, so it cannot go missing and silently degrade to a plaintext fallback.
+  tls_mode: TLS_MODE_VERIFY_FULL
+
+  # The fixture certificate carries DNS SANs and no IP SANs, so verification must be performed
+  # against a name even when the connection is made by address. Equal to `host` here, and
+  # deliberately still stated: a caller that reaches the fixture by NodePort or by the
+  # in-cluster service overrides `host` and keeps a name the certificate actually carries.
+  tls_server_name: "srql-fixture-rw.srql-fixtures.svc.cluster.local"
+
+  # The cert-manager issuer behind the fixture, published by //k8s/srql-fixtures/ca-bundle.yaml
+  # and exposed on lan-shared-gateway. Named rather than copied because the issuer rotates: a
+  # stored PEM is correct until it is not, which is what a BuildBuddy SRQL_TEST_DATABASE_CA_CERT
+  # secret did. HTTPS, terminated by the LAN wildcard Let's Encrypt cert, so scratch images
+  # verify the fetch with the public roots they already carry. The custom CA is the document
+  # being served, not the certificate that terminates this hop.
+  ca_bundle_url: "https://srql-fixture-ca.carverauto.dev/ca.crt"
+
+  search_path: "platform, ag_catalog"
+  pool_size: 10
+  queue_target_ms: 500
+  queue_interval_ms: 1000
+  ownership_timeout_ms: 60000
+}
+
+nats {
+  url: "nats://nats.serviceradar.svc.cluster.local:4222"
+  server_name: "nats"
+}
+
+core {
+  address: "serviceradar-core:50052"
+  api_url: "http://serviceradar-core:8090"
+  security_mode: SECURITY_MODE_MTLS
+  server_name: "serviceradar-core"
+}
+
+dgraph {
+  # The alpha Service the chart renders, not a guess: release `dgraph` yields
+  # <release>-dgraph-alpha. Deployed by //k8s/dgraph/ci.
+  host: "dgraph-dgraph-alpha.dgraph-ci.svc.cluster.local"
+  port: 9080
+
+  # Verified against an in-cluster CA, not the system roots: no public authority signs a
+  # *.svc.cluster.local name.
+  tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+
+  # Fetched live rather than copied into a CI secret, the same arrangement the database
+  # fixture uses. cert-manager rotates `dgraph-ci-ca`, and a copy is correct until it is not.
+  # Published by //k8s/dgraph/ci/ca-bundle.yaml and exposed on lan-shared-gateway. HTTPS,
+  # terminated by the LAN wildcard Let's Encrypt cert: the custom CA is the document being
+  # served, not the certificate that terminates this hop.
+  ca_bundle_url: "https://dgraph-ci-ca.carverauto.dev/ca.crt"
+}

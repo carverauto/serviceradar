@@ -1,0 +1,138 @@
+{{- /* Component gate (issue #3859). ABSENT MEANS ENABLED: hasKey is used rather than a
+     truthiness test so that a chart or values file which never mentions `enabled`
+     renders exactly as before, and only an explicit `coldTier.enabled: false` removes
+     this component. `default true` cannot be used here -- Helm treats false as empty,
+     so it would resurrect anything explicitly disabled. */ -}}
+{{- $gate15 := default (dict) .Values.coldTier -}}
+{{- if or (not (hasKey $gate15 "enabled")) $gate15.enabled }}
+{{- /*
+Analytics query head for the tiered telemetry cold storage path
+(OpenSpec add-tiered-telemetry-offload, tasks 1.5/1.6).
+
+A small, single-instance CNPG cluster running the dedicated
+serviceradar-cnpg-analytics image (PostgreSQL 18 + pg_duckdb, no
+TimescaleDB). It owns all DuckDB execution: chunk exports, Parquet reads,
+and hot-vs-cold stitched views. Renders NOTHING unless
+coldTier.analyticsHead.enabled is set by deployment values.
+
+DuckDB posture (design D12): execution memory/threads are capped
+per-connection, spill is size-capped, and the resource request is derived
+from poolSize x maxMemoryMb because per-connection DuckDB memory lives
+outside PostgreSQL's own accounting.
+*/ -}}
+{{- $cold := default (dict) .Values.coldTier -}}
+{{- $head := default (dict) $cold.analyticsHead -}}
+{{- if default false $head.enabled }}
+{{- $ns := .Release.Namespace -}}
+{{- $globalStorage := default (dict) .Values.global.storage -}}
+{{- $encryptedStorageClass := default "encrypted" $globalStorage.encryptedStorageClassName -}}
+{{- $allowInsecureStorage := default false $globalStorage.allowInsecureStorage -}}
+{{- $storageClass := default "" $head.storageClass -}}
+{{- if and (eq $storageClass "") (not $allowInsecureStorage) -}}
+  {{- $storageClass = $encryptedStorageClass -}}
+{{- end -}}
+{{- $imageName := default "" $head.imageName -}}
+{{- if eq $imageName "" -}}
+  {{- fail "coldTier.analyticsHead.imageName is required when the analytics head is enabled (serviceradar-cnpg-analytics image)" -}}
+{{- end -}}
+{{- $clusterName := default "cnpg-analytics" $head.clusterName -}}
+{{- $duck := default (dict) $head.duckdb -}}
+{{- $maxMemoryMb := int (default 1536 $duck.maxMemoryMb) -}}
+{{- $threads := int (default 2 $duck.threads) -}}
+{{- $maxTemp := default "10GB" $duck.maxTempDirectorySize -}}
+{{- $poolSize := int (default 4 $head.poolSize) -}}
+{{- $overheadMb := int (default 1536 $head.overheadMb) -}}
+{{- $memRequestMb := add (mul $poolSize $maxMemoryMb) $overheadMb -}}
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ $clusterName }}
+  namespace: {{ $ns }}
+  labels:
+    app.kubernetes.io/name: serviceradar
+    app.kubernetes.io/component: cold-analytics-head
+spec:
+  instances: {{ int (default 1 $head.instances) }}
+  imageName: {{ $imageName | quote }}
+  {{- /* The analytics image is built on the official pgduckdb image, whose
+         postgres user is UID/GID 999 — NOT CloudNativePG's default 26. Without
+         these fields the instance dies before extension setup with
+         "initdb: could not look up effective user ID 26: user does not exist"
+         (verified against the pinned base). CNPG supports non-default UIDs
+         through postgresUID/postgresGID, and derives the pod fsGroup from
+         postgresGID so the PVC stays writable. These MUST match the image. */}}
+  postgresUID: {{ int (default 999 $head.postgresUID) }}
+  postgresGID: {{ int (default 999 $head.postgresGID) }}
+  {{- /* The analytics image is published to the same private registry as the
+         primary; without this it sits in ImagePullBackOff. */}}
+  {{- $pullSecret := default .Values.image.registryPullSecret $head.registryPullSecret }}
+  {{- if $pullSecret }}
+  imagePullSecrets:
+    - name: {{ $pullSecret | quote }}
+  {{- end }}
+  bootstrap:
+    initdb:
+      database: serviceradar
+      owner: serviceradar
+      # C collation is REQUIRED (spike 0.6): the primary CNPG initdb's are
+      # C-collated (operator default), and DuckDB execution always sorts in
+      # binary/codepoint order regardless of the database collation — a
+      # non-C head diverges from the primary AND from its own DuckDB-executed
+      # queries. The stock pgduckdb image defaults to en_US.utf8; never rely
+      # on image defaults here.
+      encoding: UTF8
+      localeCollate: C
+      localeCType: C
+      postInitApplicationSQL:
+        - CREATE EXTENSION IF NOT EXISTS pg_duckdb;
+        - CREATE EXTENSION IF NOT EXISTS postgres_fdw;
+        - CREATE SCHEMA IF NOT EXISTS platform AUTHORIZATION serviceradar;
+        - ALTER ROLE serviceradar SET search_path TO platform, public;
+  postgresql:
+    shared_preload_libraries:
+      - pg_duckdb
+    parameters:
+      max_connections: "30"
+      shared_buffers: 256MB
+      work_mem: 16MB
+      duckdb.max_memory: {{ printf "%dMB" $maxMemoryMb | quote }}
+      duckdb.threads: {{ $threads | quote }}
+      duckdb.max_temp_directory_size: {{ $maxTemp | quote }}
+      duckdb.autoinstall_known_extensions: "false"
+      duckdb.autoload_known_extensions: "true"
+      duckdb.allow_community_extensions: "false"
+      # Non-superusers may only execute DuckDB when granted this role
+      # (verified: without it they get "DuckDB execution is not allowed…").
+      # The cold-tier app role connects as the cluster owner, so this names
+      # the owner unless a deployment supplies its own analytics role.
+      duckdb.postgres_role: {{ default "serviceradar" $head.duckdbRole | quote }}
+      # Block local filesystem access from DuckDB: the head only ever reads
+      # Parquet from the object store and hot rows through postgres_fdw.
+      # Verified on pg_duckdb 1.1.0 that this blocks local reads/writes while
+      # leaving S3 COPY and query spill working.
+      duckdb.disabled_filesystems: "LocalFileSystem"
+      # Spill lives under PGDATA by default; keep it explicit so the size cap
+      # above is enforced on a known path.
+      duckdb.temporary_directory: /var/lib/postgresql/data/pg_duckdb/temp
+      {{- range $key, $value := default (dict) $head.postgresqlParameters }}
+      {{ $key }}: {{ $value | quote }}
+      {{- end }}
+  storage:
+    size: {{ default "20Gi" $head.storageSize }}
+    {{- if ne $storageClass "" }}
+    storageClass: {{ $storageClass }}
+    {{- end }}
+  resources:
+    {{- if $head.resources }}
+{{ toYaml $head.resources | indent 4 }}
+    {{- else }}
+    requests:
+      cpu: 500m
+      memory: {{ printf "%dMi" $memRequestMb }}
+    limits:
+      memory: {{ printf "%dMi" $memRequestMb }}
+    {{- end }}
+  monitoring:
+    enablePodMonitor: false
+{{- end }}
+{{- end }}

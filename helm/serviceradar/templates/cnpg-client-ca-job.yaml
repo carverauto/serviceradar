@@ -1,0 +1,218 @@
+{{- if and .Values.cnpg.clientCAFromCerts .Values.cnpg.clientCASecret }}
+{{- $toolsTag := include "serviceradar.imageTag" (dict "Values" .Values "Chart" .Chart "service" "tools") -}}
+{{- $pg := default (dict) .Values.spire.postgres -}}
+{{- $cnpgClusterName := default "cnpg" $pg.clusterName -}}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: serviceradar-cnpg-client-ca
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: cnpg-client-ca
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: serviceradar-cnpg-client-ca
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: cnpg-client-ca
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  resourceNames:
+    - {{ .Values.cnpg.clientCASecret | quote }}
+  verbs: ["get", "patch"]
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["create"]
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: serviceradar-cnpg-client-ca
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: cnpg-client-ca
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: serviceradar-cnpg-client-ca
+subjects:
+- kind: ServiceAccount
+  name: serviceradar-cnpg-client-ca
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: serviceradar-cnpg-client-ca
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: cnpg-client-ca
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        app: serviceradar-cnpg-client-ca
+        app.kubernetes.io/part-of: serviceradar
+        app.kubernetes.io/component: cnpg-client-ca
+      annotations:
+        {{- include "serviceradar.runtimeCertRollAnnotations" . | nindent 8 }}
+    spec:
+      serviceAccountName: serviceradar-cnpg-client-ca
+      restartPolicy: Never
+      {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      containers:
+      - name: cnpg-client-ca
+        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-tools" "service" "tools") }}
+        imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+        {{- include "serviceradar.containerSecurityContext" . | nindent 8 }}
+        command: ["/bin/sh", "-c"]
+        env:
+        - name: CERT_DIR
+          value: "/etc/serviceradar/certs"
+        - name: CNPG_CLIENT_CA_SECRET
+          value: {{ .Values.cnpg.clientCASecret | quote }}
+        args:
+        - |
+          set -euo pipefail
+
+          SECRET_NAME="${CNPG_CLIENT_CA_SECRET}"
+          CERT_DIR="${CERT_DIR:-/etc/serviceradar/certs}"
+          CA_CERT="${CERT_DIR}/cnpg-ca.pem"
+          CA_KEY="${CERT_DIR}/cnpg-ca-key.pem"
+          CNPG_CA_CERT="/etc/serviceradar/cnpg/ca.crt"
+
+          APISERVER="https://kubernetes.default.svc"
+          SERVICEACCOUNT="/var/run/secrets/kubernetes.io/serviceaccount"
+          TOKEN=$(cat "${SERVICEACCOUNT}/token")
+          NAMESPACE=$(cat "${SERVICEACCOUNT}/namespace")
+          CACERT="${SERVICEACCOUNT}/ca.crt"
+
+          echo "🔐 Ensuring CNPG client CA secret ${SECRET_NAME}"
+
+          for i in $(seq 1 60); do
+            if [ -s "${CA_CERT}" ] && [ -s "${CA_KEY}" ]; then
+              break
+            fi
+            echo "⏳ Waiting for ${CA_CERT} and ${CA_KEY}..."
+            sleep 2
+          done
+
+          if [ ! -s "${CA_CERT}" ] || [ ! -s "${CA_KEY}" ]; then
+            echo "❌ CNPG client CA source files missing; aborting"
+            exit 1
+          fi
+
+          for i in $(seq 1 60); do
+            if [ -s "${CNPG_CA_CERT}" ]; then
+              break
+            fi
+            echo "⏳ Waiting for ${CNPG_CA_CERT}..."
+            sleep 2
+          done
+
+          bundle=$(mktemp)
+          cat "${CA_CERT}" > "${bundle}"
+          if [ -s "${CNPG_CA_CERT}" ]; then
+            cat "${CNPG_CA_CERT}" >> "${bundle}"
+          else
+            echo "⚠️ CNPG server CA not found; proceeding with generated client CA only"
+          fi
+
+          existing_secret=$(mktemp)
+          has_secret=false
+          if curl -fsS --cacert "${CACERT}" --header "Authorization: Bearer ${TOKEN}" \
+            -o "${existing_secret}" \
+            "${APISERVER}/api/v1/namespaces/${NAMESPACE}/secrets/${SECRET_NAME}" >/dev/null 2>&1; then
+            has_secret=true
+          fi
+
+          CA_CERT_B64=$(base64 -w 0 "${bundle}")
+          CA_KEY_B64=$(base64 -w 0 "${CA_KEY}")
+
+          if [ "${has_secret}" = false ]; then
+            cat <<EOF >/tmp/secret.json
+          {
+            "apiVersion": "v1",
+            "kind": "Secret",
+            "metadata": {
+              "name": "${SECRET_NAME}",
+              "labels": {
+                "app.kubernetes.io/part-of": "serviceradar",
+                "app.kubernetes.io/component": "cnpg-client-ca"
+              }
+            },
+            "type": "Opaque",
+            "data": {
+              "ca.crt": "${CA_CERT_B64}",
+              "ca.key": "${CA_KEY_B64}"
+            }
+          }
+          EOF
+            curl -fsS --cacert "${CACERT}" --header "Authorization: Bearer ${TOKEN}" \
+              --header "Content-Type: application/json" \
+              -X POST "${APISERVER}/api/v1/namespaces/${NAMESPACE}/secrets" \
+              -d @/tmp/secret.json
+            echo "✅ Created ${SECRET_NAME}"
+            exit 0
+          fi
+
+          patch_file=$(mktemp)
+          cat <<EOF > "${patch_file}"
+          [
+            {"op":"add","path":"/data/ca.crt","value":"${CA_CERT_B64}"},
+            {"op":"add","path":"/data/ca.key","value":"${CA_KEY_B64}"}
+          ]
+          EOF
+
+          curl -fsS --cacert "${CACERT}" --header "Authorization: Bearer ${TOKEN}" \
+            --header "Content-Type: application/json-patch+json" \
+            -X PATCH "${APISERVER}/api/v1/namespaces/${NAMESPACE}/secrets/${SECRET_NAME}" \
+            -d @"${patch_file}"
+
+          echo "✅ Reconciled ${SECRET_NAME}"
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        - name: cnpg-issuer-ca
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+        - name: cnpg-ca
+          mountPath: /etc/serviceradar/cnpg
+          readOnly: true
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      - name: cnpg-issuer-ca
+        secret:
+          secretName: {{ include "serviceradar.cnpgIssuerSecretName" . | quote }}
+          items:
+{{ include "serviceradar.runtimeCertItems" (list "cnpg-ca.pem" "cnpg-ca-key.pem") | indent 12 }}
+      - name: cnpg-ca
+        secret:
+          secretName: {{ printf "%s-ca" $cnpgClusterName | quote }}
+{{- end }}

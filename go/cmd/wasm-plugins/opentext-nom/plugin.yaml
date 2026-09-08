@@ -1,0 +1,175 @@
+id: opentext-nom-inventory
+name: OpenText Network Operations Management Inventory
+version: 0.1.6
+description: Collects bounded OpenText NOM device inventory for DIRE reconciliation
+entrypoint: run_check
+runtime: wasi-preview1
+outputs: serviceradar.plugin_result.v1
+capabilities:
+  - get_config
+  - log
+  - submit_result
+  - http_request
+  - producer-schedule:v1
+  - action-result-ingest:v1
+  - action-only:v1
+permissions:
+  allowed_domains:
+    - "*"
+  # Domain wildcards never match literal-IP destinations; these ranges cover
+  # on-prem Network Automation instances addressed by private or carrier-grade
+  # NAT IP. Link-local (169.254.0.0/16) is excluded: no instance is
+  # deliberately addressed there.
+  allowed_networks:
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
+    - "192.168.0.0/16"
+    - "100.64.0.0/10"
+  allowed_ports:
+    - 443
+resources:
+  requested_memory_mb: 256
+  requested_cpu_ms: 120000
+  max_open_connections: 2
+producer_schedules:
+  - schedule_id: opentext-nom.inventory.refresh
+    label: Refresh OpenText NOM inventory
+    description: Collects one complete OpenText NOM inventory snapshot.
+    action_id: opentext-nom.inventory.refresh
+    command_type: plugin.run_action
+    schedule_type: interval
+    default_cadence_seconds: 86400
+    min_cadence_seconds: 3600
+    max_cadence_seconds: 2592000
+    jitter_seconds: 900
+    timeout_seconds: 900
+    dispatch_scope: assignment
+    settings_schema:
+      type: object
+      additionalProperties: false
+      required:
+        - instance_id
+        - api_url
+      properties:
+        instance_id:
+          type: string
+        nnm_url:
+          type: string
+          format: uri
+        token_url:
+          type: string
+          format: uri
+        api_url:
+          type: string
+          format: uri
+        queries:
+          type: array
+        page_size:
+          type: integer
+          default: 1000
+        max_rows:
+          type: integer
+          default: 25000
+        max_result_bytes:
+          type: integer
+          default: 10485760
+        request_timeout_seconds:
+          type: integer
+          default: 30
+        max_retries:
+          type: integer
+          default: 2
+        insecure_skip_verify:
+          type: boolean
+          default: false
+    credential_requirements:
+      nom_service_account:
+        required: true
+        resolution_location: agent
+        grants:
+          - name: inventory
+            grant_type: oauth2_password_bearer
+            purpose: device_inventory
+            allow:
+              methods:
+                - POST
+              url_param: api_url
+            inject:
+              type: oauth2_password_bearer
+              url_param: api_url
+              token_url_param: token_url
+              token_method: POST
+              field_username: username
+              field_password: password
+              fixed_grant_type: password
+              allow_insecure_tls: "true"
+    payload_template:
+      mode: complete_snapshot
+    redaction:
+      fields:
+        - credential_brokers
+        - authorization
+        - access_token
+integrations:
+  documentation:
+    title: OpenText NOM inventory configuration
+    path: docs/configuration.md
+    url: https://docs.serviceradar.cloud/docs/opentext-nom
+  credential_profiles:
+    - provider: opentext-nom
+      label: OpenText NOM
+      description: Collect device inventory from OpenText Network Operations Management (Network Automation, optionally NNMi).
+      auth_methods:
+        - id: username_password
+          label: Username and password
+          credential_kind: username_password
+          fields:
+            - id: username
+              label: Username
+              control: text
+              required: true
+              secret: false
+              public: true
+            - id: password
+              label: Password
+              control: password
+              required: true
+              secret: true
+      purposes:
+        - device_inventory
+      scope_types:
+        - agent
+      provisioning:
+        mode: producer_schedule
+        schedule_id: opentext-nom.inventory.refresh
+        credential_requirement: nom_service_account
+  inventory_sources:
+    - source: opentext-nom
+      label: OpenText NOM
+      description: Devices collected from OpenText Network Operations Management.
+      emitted_facts:
+        - switch_port_attachment
+        - vlan_uid
+      metadata_fields:
+        - key: instance_id
+          label: Instance
+        - key: partition
+          label: Partition
+        - key: management_status
+          label: Management status
+        - key: exclude_from_poll
+          label: Excluded from polling
+          format: boolean
+        - key: collection_id
+          label: Collection
+        - key: last_observed_at
+          label: Last observed
+          format: timestamp
+        - key: software_version
+          label: Software version
+        - key: firmware_version
+          label: Firmware version
+        - key: driver_name
+          label: Driver
+        - key: geographical_location
+          label: Location

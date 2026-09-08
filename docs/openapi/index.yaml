@@ -1,0 +1,1109 @@
+openapi: 3.0.3
+info:
+  title: ServiceRadar API
+  description: |
+    HTTP API for the ServiceRadar platform, served by the ServiceRadar web
+    application (`web-ng`).
+
+    The API is JSON over HTTPS. Most endpoints require an authenticated
+    request. There are two ways to authenticate:
+
+    - **Session** — when the request originates from a logged-in browser
+      session, the existing session cookie is used.
+    - **Bearer token** — for CLI tools and external integrations, send an
+      `Authorization: Bearer <token>` header. Tokens are issued from the
+      ServiceRadar UI under **Settings → API Credentials**
+      (`/settings/api-credentials`).
+
+    The data-plane endpoints under `/api` (for example `/api/query` and
+    `/api/devices`) accept either form of authentication. Some admin and
+    onboarding endpoints additionally accept an `X-API-Key` header.
+
+    See the published **API Reference** documentation page for an
+    authentication walkthrough and SRQL query examples.
+  termsOfService: https://serviceradar.cloud/terms/
+  contact:
+    name: API Support
+    url: https://serviceradar.cloud/support
+    email: support@serviceradar.cloud
+  license:
+    name: Apache 2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0.html
+  version: "1.0"
+servers:
+  - url: /
+    description: Same origin as the ServiceRadar web application
+tags:
+  - name: SRQL
+    description: ServiceRadar Query Language endpoints
+  - name: Devices
+    description: Device inventory
+  - name: System
+    description: System health and status
+  - name: Admin
+    description: Administrative endpoints (require admin privileges)
+paths:
+  /api/query:
+    post:
+      tags:
+        - SRQL
+      summary: Execute an SRQL query
+      description: |
+        Executes a ServiceRadar Query Language (SRQL) query and returns the
+        result set. SRQL is read-only: only `SELECT`/`WITH` statements are
+        produced and executed.
+
+        Results are subject to the caller's authorization scope.
+      operationId: executeQuery
+      security:
+        - bearerAuth: []
+        - sessionAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QueryRequest'
+            examples:
+              devices:
+                summary: List recently seen devices
+                value:
+                  query: "show devices order by last_seen desc"
+                  limit: 50
+      responses:
+        '200':
+          description: Query results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueryResponse'
+        '400':
+          description: Invalid or non-read-only query
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/devices:
+    get:
+      tags:
+        - Devices
+      summary: List devices
+      description: |
+        Returns a paginated list of devices from the inventory. Pagination is
+        offset based; use the `next_offset` value from the response to fetch
+        the next page.
+      operationId: listDevices
+      security:
+        - bearerAuth: []
+        - sessionAuth: []
+      parameters:
+        - name: limit
+          in: query
+          description: Maximum number of devices to return (default 100, max 500).
+          required: false
+          schema:
+            type: integer
+            default: 100
+            maximum: 500
+        - name: offset
+          in: query
+          description: Number of devices to skip for pagination (default 0).
+          required: false
+          schema:
+            type: integer
+            default: 0
+        - name: search
+          in: query
+          description: Free-text search across device identity fields.
+          required: false
+          schema:
+            type: string
+        - name: status
+          in: query
+          description: Filter by availability status.
+          required: false
+          schema:
+            type: string
+            enum:
+              - online
+              - offline
+        - name: gateway_id
+          in: query
+          description: Filter devices reported by a specific gateway.
+          required: false
+          schema:
+            type: string
+        - name: device_type
+          in: query
+          description: Filter by device type.
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: A page of devices
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Device'
+                  pagination:
+                    $ref: '#/components/schemas/OffsetPagination'
+        '400':
+          description: Invalid query parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/devices/{uid}:
+    get:
+      tags:
+        - Devices
+      summary: Get a device by UID
+      description: Returns a single device identified by its OCSF `uid`.
+      operationId: getDevice
+      security:
+        - bearerAuth: []
+        - sessionAuth: []
+      parameters:
+        - name: uid
+          in: path
+          description: The device's unique identifier (OCSF `uid`).
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The requested device
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Device'
+        '400':
+          description: Missing or malformed UID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Device not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/devices/ocsf/export:
+    get:
+      tags:
+        - Devices
+      summary: Export devices in OCSF format
+      description: |
+        Exports devices as OCSF v1.7.0 Device objects
+        (`Device Inventory Info`, class UID 5001). Supports filtering by
+        device type, time range, and offset pagination.
+      operationId: exportDevicesOcsf
+      security:
+        - bearerAuth: []
+        - sessionAuth: []
+      parameters:
+        - name: type_id
+          in: query
+          description: Filter by OCSF device `type_id`.
+          required: false
+          schema:
+            type: integer
+        - name: first_seen_after
+          in: query
+          description: Only include devices first seen after this ISO 8601 timestamp.
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: last_seen_after
+          in: query
+          description: Only include devices last seen after this ISO 8601 timestamp.
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          description: Maximum number of devices to return (default 100, max 1000).
+          required: false
+          schema:
+            type: integer
+            default: 100
+            maximum: 1000
+        - name: offset
+          in: query
+          description: Number of devices to skip for pagination (default 0).
+          required: false
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: OCSF device export
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ocsf_version:
+                    type: string
+                    example: "1.7.0"
+                  class_uid:
+                    type: integer
+                    example: 5001
+                  class_name:
+                    type: string
+                    example: "Device Inventory Info"
+                  devices:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+                  count:
+                    type: integer
+                  pagination:
+                    $ref: '#/components/schemas/OffsetPagination'
+        '400':
+          description: Invalid query parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /health:
+    get:
+      tags:
+        - System
+      summary: Readiness probe
+      description: |
+        Returns the application's readiness, including database connectivity.
+        Responds with `200 ready` when healthy and `503 not ready` otherwise.
+        This endpoint is unauthenticated. (`/health/ready` is an alias and
+        `/health/live` is a lightweight liveness probe.)
+      operationId: healthReady
+      responses:
+        '200':
+          description: The application is ready to serve traffic
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: ready
+        '503':
+          description: The application is not ready
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: not ready
+  /api/v1/identity/resolve:
+    get:
+      tags:
+        - Devices
+      summary: Resolve a device identity from an address
+      description: |
+        Returns the canonical `sr:` device UID at an address, without probing
+        the device. The IP is authoritative; an optional MAC corroborates it.
+        A MAC no device holds is ignored, and a MAC held by a different device
+        is reported as a conflict rather than used as a tiebreak. No identity
+        is ever created.
+
+        Composite check validation runs resolve identity too, but additionally
+        re-probe the device from every vantage-point agent on a named check.
+        Use this endpoint when you want the identifier and not the scan.
+
+        Requires the `identity.resolve` permission.
+      operationId: resolveDeviceIdentity
+      security:
+        - bearerAuth: []
+        - sessionAuth: []
+      parameters:
+        - name: ip
+          in: query
+          description: The address to resolve.
+          required: true
+          schema:
+            type: string
+            example: "192.168.1.55"
+        - name: partition
+          in: query
+          description: The partition to resolve within. Defaults to `default`.
+          required: false
+          schema:
+            type: string
+            default: default
+        - name: mac
+          in: query
+          description: |
+            Optional MAC to corroborate the address. Ignored when no device
+            holds it; a conflict when another device does.
+          required: false
+          schema:
+            type: string
+            example: "aa:bb:cc:dd:ee:ff"
+      responses:
+        '200':
+          description: The device at that address
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ResolvedIdentity'
+        '400':
+          description: No address was supplied (`missing_ip`), or it is not a valid address (`invalid_ip`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+        '403':
+          description: Caller lacks `identity.resolve`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+        '404':
+          description: No device holds that address (`not_found`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+        '409':
+          description: |
+            More than one device holds the address (`ambiguous`, with `uids`),
+            or the MAC belongs to a different device (`mac_ip_conflict`, with
+            `ip_uid` and `mac_uid`). Both are states a continuously reconciled
+            inventory can legitimately hold, not faults.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+    post:
+      tags:
+        - Devices
+      summary: Resolve several device identities from their addresses
+      description: |
+        The batch form of the resolve endpoint, taking the same `devices`
+        shape composite check validation runs accept, with the same limit of
+        128 per request.
+
+        Returns `200` and reports each address separately: one address that
+        cannot be resolved does not fail the request, because a caller
+        resolving a long list still needs the entries that worked. Every entry
+        echoes the address it is for, so results can be matched to the request
+        without relying on ordering.
+
+        Requires the `identity.resolve` permission.
+      operationId: resolveDeviceIdentities
+      security:
+        - bearerAuth: []
+        - sessionAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IdentityResolveRequest'
+      responses:
+        '200':
+          description: |
+            One outcome per submitted address, each carrying either a `uid` or
+            an `error`.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/IdentityResolveResult'
+        '400':
+          description: |
+            The list is empty (`empty_devices`) or longer than 128
+            (`too_many_devices`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+        '403':
+          description: Caller lacks `identity.resolve`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+  /api/admin/users:
+    get:
+      tags:
+        - Admin
+      summary: List users
+      description: Lists user accounts. Requires admin privileges.
+      operationId: listUsers
+      security:
+        - bearerAuth: []
+        - sessionAuth: []
+      parameters:
+        - name: limit
+          in: query
+          description: Maximum number of users to return (default 100).
+          required: false
+          schema:
+            type: integer
+            default: 100
+        - name: role
+          in: query
+          description: Filter by role.
+          required: false
+          schema:
+            type: string
+        - name: status
+          in: query
+          description: Filter by account status.
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: A list of users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Insufficient privileges
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      tags:
+        - Admin
+      summary: Create a user
+      description: Creates a new user account. Requires admin privileges.
+      operationId: createUser
+      security:
+        - bearerAuth: []
+        - sessionAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+      responses:
+        '201':
+          description: The created user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Insufficient privileges
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/admin/users/{id}:
+    get:
+      tags:
+        - Admin
+      summary: Get a user
+      description: Returns a single user account by ID. Requires admin privileges.
+      operationId: getUser
+      security:
+        - bearerAuth: []
+        - sessionAuth: []
+      parameters:
+        - name: id
+          in: path
+          description: The user's unique identifier.
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The requested user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Insufficient privileges
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    patch:
+      tags:
+        - Admin
+      summary: Update a user
+      description: Updates a user account. Requires admin privileges.
+      operationId: updateUser
+      security:
+        - bearerAuth: []
+        - sessionAuth: []
+      parameters:
+        - name: id
+          in: path
+          description: The user's unique identifier.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                display_name:
+                  type: string
+                role:
+                  type: string
+                role_profile_id:
+                  type: string
+      responses:
+        '200':
+          description: The updated user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Insufficient privileges
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/admin/role-profiles:
+    get:
+      tags:
+        - Admin
+      summary: List role profiles
+      description: Lists configured RBAC role profiles. Requires admin privileges.
+      operationId: listRoleProfiles
+      security:
+        - bearerAuth: []
+        - sessionAuth: []
+      responses:
+        '200':
+          description: A list of role profiles
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RoleProfile'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Insufficient privileges
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/admin/role-profiles/catalog:
+    get:
+      tags:
+        - Admin
+      summary: Get the RBAC permission catalog
+      description: |
+        Returns the catalog of RBAC permissions and resources available when
+        building role profiles. Requires admin privileges.
+      operationId: getRoleProfileCatalog
+      security:
+        - bearerAuth: []
+        - sessionAuth: []
+      responses:
+        '200':
+          description: The RBAC catalog
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Insufficient privileges
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/admin/openapi:
+    get:
+      tags:
+        - Admin
+      summary: Get the live admin OpenAPI document
+      description: |
+        Returns the OpenAPI document generated from the running web
+        application for the admin API surface. Requires admin privileges.
+        A published copy is also available unauthenticated at
+        `/api/docs/v1/admin/openapi.json`.
+      operationId: getAdminOpenapi
+      security:
+        - bearerAuth: []
+        - sessionAuth: []
+      responses:
+        '200':
+          description: The admin OpenAPI document
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Insufficient privileges
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: |
+        API credential token issued from the ServiceRadar UI under
+        **Settings → API Credentials**. Send it as
+        `Authorization: Bearer <token>`.
+    sessionAuth:
+      type: apiKey
+      in: cookie
+      name: _serviceradar_web_ng_key
+      description: |
+        Browser session cookie. Used automatically when the API is called
+        from a logged-in ServiceRadar session.
+  schemas:
+    QueryRequest:
+      type: object
+      required:
+        - query
+      properties:
+        query:
+          type: string
+          description: The SRQL query to execute.
+          example: "show devices where ip = '192.168.1.1'"
+        limit:
+          type: integer
+          description: Maximum number of rows to return.
+          example: 100
+        cursor:
+          type: string
+          description: Opaque pagination cursor returned by a previous response.
+        direction:
+          type: string
+          description: Pagination direction relative to the cursor.
+          enum:
+            - next
+            - prev
+        mode:
+          type: string
+          description: Optional execution mode hint.
+    QueryResponse:
+      type: object
+      properties:
+        results:
+          type: array
+          description: |
+            The result rows. Each element is typically an object keyed by
+            column name; scalar projections may return primitive values.
+          items: {}
+        pagination:
+          $ref: '#/components/schemas/CursorPagination'
+        viz:
+          type: object
+          nullable: true
+          description: Visualization hints derived from the query, if any.
+          additionalProperties: true
+        error:
+          type: string
+          nullable: true
+          description: Error message, or null on success.
+    CursorPagination:
+      type: object
+      properties:
+        next_cursor:
+          type: string
+          nullable: true
+          description: Cursor for the next page, or null when there is no next page.
+        prev_cursor:
+          type: string
+          nullable: true
+          description: Cursor for the previous page, or null.
+        limit:
+          type: integer
+          nullable: true
+          description: The effective row limit applied to the query.
+    OffsetPagination:
+      type: object
+      properties:
+        limit:
+          type: integer
+          description: The effective page size.
+        offset:
+          type: integer
+          description: The offset applied to this page.
+        next_offset:
+          type: integer
+          nullable: true
+          description: Offset for the next page, or null when there is no next page.
+    Device:
+      type: object
+      description: |
+        A device inventory record. Fields follow the OCSF Device object with
+        ServiceRadar extensions; nested objects are returned as-is.
+      properties:
+        uid:
+          type: string
+          description: Unique device identifier (OCSF `uid`).
+        type_id:
+          type: integer
+          description: OCSF device type ID.
+        type:
+          type: string
+        name:
+          type: string
+        hostname:
+          type: string
+        ip:
+          type: string
+        mac:
+          type: string
+        vendor_name:
+          type: string
+        model:
+          type: string
+        domain:
+          type: string
+        zone:
+          type: string
+        region:
+          type: string
+        first_seen:
+          type: string
+          format: date-time
+        last_seen:
+          type: string
+          format: date-time
+        first_seen_time:
+          type: string
+          format: date-time
+        last_seen_time:
+          type: string
+          format: date-time
+        risk_level:
+          type: string
+        risk_score:
+          type: number
+        is_managed:
+          type: boolean
+        is_available:
+          type: boolean
+        gateway_id:
+          type: string
+        agent_id:
+          type: string
+        discovery_sources:
+          type: array
+          items:
+            type: string
+        os:
+          type: object
+          additionalProperties: true
+        metadata:
+          type: object
+          additionalProperties: true
+      additionalProperties: true
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        display_name:
+          type: string
+        role:
+          type: string
+        role_profile_id:
+          type: string
+          nullable: true
+        status:
+          type: string
+        has_password:
+          type: boolean
+        has_external_id:
+          type: boolean
+        confirmed_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_login_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_auth_method:
+          type: string
+          nullable: true
+        inserted_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CreateUserRequest:
+      type: object
+      required:
+        - email
+      properties:
+        email:
+          type: string
+          example: jane@example.com
+        display_name:
+          type: string
+          example: Jane Doe
+        role:
+          type: string
+          example: viewer
+        password:
+          type: string
+          description: Optional password for a local account.
+        role_profile_id:
+          type: string
+          description: Optional RBAC role profile to assign.
+    RoleProfile:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        system:
+          type: boolean
+          description: Whether this is a built-in (non-editable) profile.
+      additionalProperties: true
+    ResolvedIdentity:
+      type: object
+      description: A resolved device identity, echoing the address it is for.
+      properties:
+        ip:
+          type: string
+          description: The address that was resolved.
+          example: "192.168.1.55"
+        partition:
+          type: string
+          description: The partition it was resolved within.
+          example: default
+        uid:
+          type: string
+          description: The canonical device identifier.
+          example: "sr:8cad4cc3-e9f8-4873-a1fe-cf2529b246a0"
+    IdentityResolveRequest:
+      type: object
+      required:
+        - devices
+      properties:
+        partition:
+          type: string
+          description: |
+            Partition applied to every entry that does not name its own.
+            Defaults to `default`.
+          default: default
+        devices:
+          type: array
+          description: The addresses to resolve. At most 128.
+          maxItems: 128
+          items:
+            type: object
+            required:
+              - ip
+            properties:
+              ip:
+                type: string
+                example: "192.168.1.55"
+              mac:
+                type: string
+                description: Optional MAC to corroborate this address.
+              partition:
+                type: string
+                description: Overrides the request's partition for this entry.
+    IdentityResolveResult:
+      type: object
+      description: |
+        One address's outcome within a batch. Carries `uid` when resolved and
+        `error` when not; `ip` and `partition` are always present so the entry
+        can be matched to its input.
+      properties:
+        ip:
+          type: string
+          example: "192.168.1.55"
+        partition:
+          type: string
+          example: default
+        uid:
+          type: string
+          description: Present when the address resolved.
+          example: "sr:8cad4cc3-e9f8-4873-a1fe-cf2529b246a0"
+        error:
+          type: string
+          description: Present when it did not.
+          enum:
+            - not_found
+            - invalid_ip
+            - ambiguous
+            - mac_ip_conflict
+        uids:
+          type: array
+          description: With `ambiguous`, the devices holding the address.
+          items:
+            type: string
+        ip_uid:
+          type: string
+          description: With `mac_ip_conflict`, the device at the address.
+        mac_uid:
+          type: string
+          description: With `mac_ip_conflict`, the device holding the MAC.
+    IdentityError:
+      type: object
+      description: |
+        A failed identity resolution. `error` is a stable machine-readable
+        code and `message` is the human-readable explanation.
+      properties:
+        error:
+          type: string
+          description: Machine-readable code.
+          example: ambiguous
+        message:
+          type: string
+          description: Human-readable explanation.
+          example: more than one device holds that address
+        uids:
+          type: array
+          description: With `ambiguous`, the devices holding the address.
+          items:
+            type: string
+        ip_uid:
+          type: string
+          description: With `mac_ip_conflict`, the device at the address.
+        mac_uid:
+          type: string
+          description: With `mac_ip_conflict`, the device holding the MAC.
+    ErrorResponse:
+      type: object
+      description: Error payload returned by the API on a failed request.
+      properties:
+        error:
+          type: string
+          description: Human-readable error message.
+          example: "missing required field: query"

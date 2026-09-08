@@ -1,0 +1,15 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<fingerprints matches="http_header.x-powered-by" protocol="http" database_type="service" preference="0.90">
+  <!-- HTTP X-Powered_by headers are matched against these patterns to fingerprint HTTP services. -->
+
+  <fingerprint pattern="^PHP/([0-9.]+)$">
+    <description>PHP</description>
+    <example service.version="8.2.14">PHP/8.2.14</example>
+    <param pos="0" name="service.vendor" value="PHP"/>
+    <param pos="0" name="service.family" value="PHP"/>
+    <param pos="0" name="service.product" value="PHP"/>
+    <param pos="1" name="service.version"/>
+    <param pos="0" name="service.cpe23" value="cpe:/a:php:php:{service.version}"/>
+  </fingerprint>
+
+</fingerprints>

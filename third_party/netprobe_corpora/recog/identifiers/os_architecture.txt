@@ -1,0 +1,10 @@
+ARM
+ARM64
+Alpha
+MIPS
+MIPS64
+PowerPC
+Sparc
+System/6000
+x86
+x86_64

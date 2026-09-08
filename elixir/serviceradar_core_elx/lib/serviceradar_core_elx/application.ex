@@ -1,0 +1,98 @@
+defmodule ServiceRadarCoreElx.Application do
+  @moduledoc """
+  ServiceRadar Core-ELX Application.
+
+  This is the primary coordination node for the ServiceRadar cluster.
+  It configures serviceradar_core with cluster-specific settings but does NOT
+  start duplicate processes - serviceradar_core handles all child processes.
+
+  ## Responsibilities
+
+  - Enable cluster mode for serviceradar_core
+  - Enable AshOban scheduler (only core-elx runs schedulers)
+  - Configure runtime settings before serviceradar_core starts
+
+  ## Architecture
+
+  Core-ELX is a thin wrapper that:
+  1. Sets cluster_enabled = true (enables ClusterSupervisor, ClusterHealth in serviceradar_core)
+  2. Sets start_ash_oban_scheduler = true (enables AshOban schedulers)
+  3. Starts any core-elx specific services (none currently)
+
+  All distributed registry, supervision, and clustering is handled by
+  serviceradar_core's Application module when cluster_enabled is true.
+  """
+
+  use Application
+
+  alias ServiceRadar.Repo
+  alias ServiceRadar.Telemetry.OtelSetup
+
+  require Logger
+
+  @impl true
+  def start(_type, _args) do
+    Logger.info("Starting ServiceRadar Core-ELX node: #{node()}")
+
+    # Attach OTEL auto-instrumentation handlers (SDK configured in runtime.exs)
+    OtelSetup.attach_instrumentations(
+      instrumentations: [:ecto, :oban],
+      ecto_repo: Repo
+    )
+
+    # Core-ELX doesn't start duplicate children - serviceradar_core handles everything
+    # when cluster_enabled=true is set in runtime.exs
+    #
+    # The following are started by serviceradar_core when cluster_enabled=true:
+    # - ServiceRadar.ClusterSupervisor (libcluster + Horde)
+    # - ServiceRadar.ClusterHealth
+    # - ProcessRegistry (singleton Horde registry + DynamicSupervisor)
+    #
+    # AshOban scheduler is started when :start_ash_oban_scheduler = true
+
+    children =
+      [
+        ServiceRadarCoreElx.Telemetry
+      ] ++
+        metrics_children() ++
+        [
+          ServiceRadarCoreElx.CameraRelay.ViewerRegistry,
+          ServiceRadarCoreElx.CameraRelay.PipelineManager,
+          ServiceRadarCoreElx.CameraRelay.AnalysisBranchManager,
+          ServiceRadarCoreElx.CameraRelay.BoomboxBranchManager,
+          {DynamicSupervisor, strategy: :one_for_one, name: ServiceRadarCoreElx.CameraRelay.BoomboxSidecarSupervisor},
+          ServiceRadarCoreElx.CameraRelay.BoomboxSidecarManager,
+          {DynamicSupervisor, strategy: :one_for_one, name: ServiceRadarCoreElx.CameraRelay.AnalysisDispatchSupervisor},
+          {Task.Supervisor, name: ServiceRadarCoreElx.CameraRelay.AnalysisDispatchTaskSupervisor},
+          ServiceRadarCoreElx.CameraRelay.AnalysisWorkerProbeManager,
+          ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManager,
+          ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager,
+          {Registry, keys: :unique, name: ServiceRadarCoreElx.RemoteDesktop.DataChannelProvider.Registry},
+          {DynamicSupervisor,
+           strategy: :one_for_one, name: ServiceRadarCoreElx.RemoteDesktop.DataChannelProvider.Supervisor},
+          {ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager,
+           control_forwarder: ServiceRadarCoreElx.RemoteDesktop.RemoteAccessBrokerControlForwarder},
+          ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManager,
+          ServiceRadarCoreElx.CameraMediaSessionTracker,
+          {Registry, keys: :unique, name: ServiceRadarCoreElx.CameraMediaIngressRegistry},
+          ServiceRadarCoreElx.CameraMediaIngressSupervisor,
+          {Registry, keys: :unique, name: ServiceRadarCoreElx.DesktopMediaIngressRegistry},
+          ServiceRadarCoreElx.DesktopMediaIngressSupervisor
+        ]
+
+    Logger.info("Core-ELX initialized - serviceradar_core handles cluster infrastructure")
+
+    opts = [strategy: :one_for_one, name: ServiceRadarCoreElx.Supervisor]
+    Supervisor.start_link(children, opts)
+  end
+
+  defp metrics_children do
+    opts = Application.get_env(:serviceradar_core_elx, :metrics, [])
+
+    if Keyword.get(opts, :enabled, true) do
+      [{ServiceRadarCoreElx.MetricsRouter, opts}]
+    else
+      []
+    end
+  end
+end

@@ -1,0 +1,113 @@
+# ServiceRadar environment configuration: localhost
+#
+# GROUND TRUTH. This file is authored and reviewed here; a build action compiles it to a
+# binary message that every implementation loads. Do not edit the generated .binpb.
+#
+# NO SECRETS. Passwords, private keys and certificate material are resolved by
+# SecretManager. A build-time check rejects credential-shaped values in this file.
+#
+# A developer machine. It is the ONLY kind the rule set exempts from verified TLS and from a
+# secure core transport
+# ---------------------------------------------------------------------------------------
+# THE LOCAL DATABASE FIXTURE
+# ---------------------------------------------------------------------------------------
+#
+# The values below describe a standalone CNPG container, NOT the Docker Compose stack. The
+# compose service (`docker compose up cnpg`) is the production-shaped one: it mounts a
+# pg_hba.conf demanding `clientcert=verify-full`, and rust/integration-db's TLS connector is
+# built `with_no_client_auth()`, so the fixture crate structurally cannot reach it.
+#
+# Image -- the same one the compose stack and the cluster use, carrying timescaledb, age,
+# postgis, vector and pg_trgm. //docker/images:cnpg_image_amd64 builds it:
+#
+#   registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.3.0-sr5
+#
+# It is a CNPG operator image with no docker-library entrypoint, so initdb and postgres are
+# invoked directly. `su` fails inside it, hence --user rather than switching users in the
+# script. On Apple silicon it runs under emulation; --platform is required.
+#
+#   docker run -d --name sr-testdb --platform linux/amd64 --user 26:102 -p 5455:5432 \
+#     --entrypoint /bin/bash \
+#     registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.3.0-sr5 -c '
+#   set -e
+#   export PATH=/usr/lib/postgresql/18/bin:$PATH
+#   export PGDATA=/tmp/pgdata
+#   mkdir -p "$PGDATA" /tmp/tls
+#   printf fixture > /tmp/pw
+#   openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -subj "/CN=srql-fixture-local-ca" \
+#     -keyout /tmp/tls/ca-key.pem -out /tmp/tls/ca.pem
+#   openssl req -newkey rsa:2048 -nodes -subj "/CN=srql-fixture-local" \
+#     -keyout /tmp/tls/server-key.pem -out /tmp/tls/server.csr
+#   printf "subjectAltName=DNS:srql-fixture-local\n" > /tmp/tls/ext
+#   openssl x509 -req -in /tmp/tls/server.csr -CA /tmp/tls/ca.pem -CAkey /tmp/tls/ca-key.pem \
+#     -CAcreateserial -days 3650 -extfile /tmp/tls/ext -out /tmp/tls/server.pem
+#   chmod 600 /tmp/tls/server-key.pem
+#   initdb -D "$PGDATA" -U postgres --pwfile=/tmp/pw --auth-local=trust --auth-host=scram-sha-256
+#   { echo "shared_preload_libraries = '"'"'timescaledb,age'"'"'"
+#     echo "listen_addresses = '"'"'*'"'"'"
+#     echo "ssl = on"
+#     echo "ssl_cert_file = '"'"'/tmp/tls/server.pem'"'"'"
+#     echo "ssl_key_file = '"'"'/tmp/tls/server-key.pem'"'"'"; } >> "$PGDATA/postgresql.conf"
+#   echo "hostssl all all 0.0.0.0/0 scram-sha-256" >> "$PGDATA/pg_hba.conf"
+#   exec postgres -D "$PGDATA"
+#   '
+#
+# Export the CA for clients that verify it:
+#
+#   docker cp sr-testdb:/tmp/tls/ca.pem .local-fixture-certs/fixture-ca.pem
+#
+# Verified: TLSv1.3 with sslmode=verify-full, dialling 127.0.0.1:5455 and verifying the
+# certificate name `srql-fixture-local`.
+
+kind: ENVIRONMENT_KIND_LOCALHOST
+
+database {
+  # The DIAL ADDRESS, which is loopback because the container publishes there. It is not the
+  # name TLS verifies: the fixture certificate carries `DNS:srql-fixture-local` and no IP SAN,
+  # so verify-full checks `tls_server_name` below instead. Keeping the two separate is why this
+  # works with no /etc/hosts entry -- a host file is undeclared machine state, and depending on
+  # it would make the committed instance mean different things on different workstations.
+  host: "127.0.0.1"
+  port: 5455
+  database: "postgres"
+
+  connecting_role: "postgres"
+  owning_role: "postgres"
+
+  # Verified TLS, even though this is the one kind permitted to skip it.
+  #
+  # The exemption exists so a first run cannot fail on a missing CA.
+  # The fixture above generates its own CA in one command, so the
+  # weaker posture buys nothing here -- and a local run that exercises a different TLS path
+  # from every other environment is exactly the divergence this schema exists to remove.
+  tls_mode: TLS_MODE_VERIFY_FULL
+  tls_server_name: "srql-fixture-local"
+
+  search_path: "platform, ag_catalog"
+  pool_size: 10
+  queue_target_ms: 500
+  queue_interval_ms: 1000
+  ownership_timeout_ms: 60000
+}
+
+nats {
+  url: "nats://localhost:4222"
+  server_name: "nats"
+}
+
+core {
+  address: "localhost:50052"
+  api_url: "http://localhost:8090"
+
+  # No mTLS: the compose stack's certificates are generated on demand and a developer
+  # running `mix phx.server` directly has none.
+  security_mode: SECURITY_MODE_NONE
+}
+
+dgraph {
+  host: "localhost"
+  port: 9080
+
+  # The only environment permitted to run Dgraph in plaintext: a dev machine.
+  tls_mode: DGRAPH_TLS_MODE_DISABLE
+}

@@ -1,0 +1,14 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library")
+
+go_binary(
+    name = "wait-for-port",
+    embed = [":waitforport_lib"],
+    visibility = ["//visibility:public"],
+)
+
+go_library(
+    name = "waitforport_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/carverauto/serviceradar/go/cmd/tools/waitforport",
+    visibility = ["//visibility:private"],
+)

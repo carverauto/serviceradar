@@ -1,0 +1,41 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "models",
+    # keep
+    #
+    # A glob, deliberately: this package is a flat bag of model types and a hand-maintained
+    # srcs list would churn on every added file. Gazelle cannot reconcile a glob with the
+    # explicit list it wants to generate, and says so:
+    #
+    #   go/pkg/models/BUILD.bazel:5.12-8.6: could not merge expression
+    #
+    # The warning is non-fatal, but without `# keep` Gazelle would replace the glob with an
+    # explicit list on the next `bazel run //:gazelle`, and the churn would come back.
+    srcs = glob(
+        ["*.go"],
+        exclude = ["*_test.go"],
+    ),
+    importpath = "github.com/carverauto/serviceradar/go/pkg/models",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//go/pkg/logger",
+        "//proto/discovery",
+    ],
+)
+
+go_test(
+    name = "models_test",
+    srcs = [
+        "auth_test.go",
+        "service_device_test.go",
+        "sweep_deepcopy_test.go",
+        "sync_test.go",
+        "utils_test.go",
+    ],
+    embed = [":models"],
+    deps = [
+        "@com_github_stretchr_testify//assert",
+        "@com_github_stretchr_testify//require",
+    ],
+)

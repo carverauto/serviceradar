@@ -1,0 +1,228 @@
+{{- /*
+Converge PostgreSQL extension catalogs to the version the INCOMING CNPG image ships,
+before the CNPG Cluster is told to use that image.
+
+WHY THIS EXISTS -- the extension-version invariant
+--------------------------------------------------
+Our CNPG image compiles TimescaleDB from source and ships exactly ONE
+`timescaledb-<version>.so`. The `timescaledb.so` in shared_preload_libraries is a
+loader: on each backend it reads the version recorded in that database's catalog
+(`pg_extension.extversion`) and dlopens the matching versioned module. If the image
+does not carry that exact file, the database cannot be opened -- and because you
+cannot run SQL against a database you cannot open, `ALTER EXTENSION ... UPDATE` is
+no longer available to dig you out. That is an unrecoverable-by-Helm state, which is
+why this runs as a pre-upgrade hook rather than post-upgrade.
+
+The fix is ordering. This job runs while the OLD image is still serving, so the old
+image's own retained modules are present and every database opens normally. It then
+moves each catalog to the old image's `default_version` -- which, by the invariant
+below, is the version the new image ships.
+
+  INVARIANT: the incoming image's TimescaleDB version MUST be one the outgoing image
+  can update a catalog to, i.e. the outgoing image's default_version. Bumping
+  TimescaleDB across more than one release in a single image bump breaks this, because
+  the intermediate version is the only thing the old image can converge to.
+
+Rather than trust that invariant silently, this job verifies it: it runs the INCOMING
+image, so `/usr/lib/postgresql/18/lib/timescaledb-*.so` in its own filesystem is
+exactly the set the upgraded cluster will have. After converging it checks every
+database's version against that set and FAILS the upgrade if any database would be
+stranded. A failed pre-upgrade hook leaves the Cluster untouched on the old image, so
+the database keeps running -- the opposite of discovering this after the rollout.
+
+That check also makes this job an image gate: it pulls the incoming CNPG image before
+the Cluster does, so an unpullable or broken image aborts the upgrade instead of
+reaching the database. A broken image published over a live tag is exactly what caused
+the 2026-06-17 demo CNPG outage.
+
+Idempotent by construction: `ALTER EXTENSION ... UPDATE` on an already-current
+extension is a NOTICE in PostgreSQL, not an error, and each ALTER runs on its own
+fresh connection because TimescaleDB refuses to update in a session that has already
+loaded the old module.
+*/ -}}
+{{- $cnpg := default (dict) .Values.cnpg -}}
+{{- $cnpgEnabled := default true $cnpg.enabled -}}
+{{- $extUpdate := default (dict) $cnpg.extensionUpdate -}}
+{{- $extUpdateEnabled := default true $extUpdate.enabled -}}
+{{- $managed := list "timescaledb" "postgis" "postgis_raster" "postgis_topology" "age" "vector" -}}
+{{- $extList := default $managed $extUpdate.extensions -}}
+{{- /* Resolve the cluster this job must actually talk to, mirroring the condition that
+       decides WHICH template renders the Cluster. Two do, and they are mutually
+       exclusive: spire-postgres.yaml when spire.postgres is on (demo-staging, where the
+       cluster is named cnpg-staging), otherwise cnpg-cluster.yaml. Deriving the host
+       from .Values.cnpg alone pointed this job at cnpg-rw in the spire case -- a service
+       that does not exist there -- so it would have failed every staging upgrade. */ -}}
+{{- $spire := default (dict) .Values.spire -}}
+{{- $spirePg := default (dict) $spire.postgres -}}
+{{- $spirePgActive := and (default false $spire.enabled) (default false $spirePg.enabled) -}}
+{{- $cnpgClusterName := include "serviceradar.cnpgClusterName" . -}}
+{{- $targetNamespace := .Release.Namespace -}}
+{{- if $spirePgActive -}}
+  {{- $cnpgClusterName = default "cnpg" $spirePg.clusterName -}}
+  {{- $targetNamespace = default .Release.Namespace $spire.namespace -}}
+{{- end -}}
+{{- $targetHost := default (printf "%s-rw.%s.svc.cluster.local" $cnpgClusterName $targetNamespace) $cnpg.host -}}
+{{- /* The cluster's CA is a Secret, and a Secret cannot be mounted across namespaces.
+       If the active cluster lives elsewhere, this job cannot verify TLS to it, and
+       silently downgrading sslmode to reach it would be worse than not running. */ -}}
+{{- $sameNamespace := eq $targetNamespace .Release.Namespace -}}
+{{- if and $cnpgEnabled $extUpdateEnabled $sameNamespace }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: serviceradar-cnpg-extension-update
+  annotations:
+    {{- /* pre-upgrade ONLY. On a fresh install the Cluster does not exist yet and
+           bootstrap's postInitApplicationSQL already creates extensions at the
+           image's default version, so there is nothing to converge. */}}
+    "helm.sh/hook": pre-upgrade
+    {{- /* Earlier than serviceradar-core-migrations (-1): application migrations may
+           use extension features that only exist after the catalog is current. */}}
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  ttlSecondsAfterFinished: 300
+  {{- /* No retries: a failure here is a version-compatibility verdict, not a flake,
+         and retrying re-runs DDL against a live database for no benefit. */}}
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: serviceradar-cnpg-extension-update
+        app.kubernetes.io/part-of: serviceradar
+    spec:
+      restartPolicy: Never
+      {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      containers:
+      - name: extension-update
+        {{- /* Deliberately the INCOMING CNPG image: its own lib directory is the
+               ground truth for which module versions the upgraded cluster will have. */}}
+        image: {{ include "serviceradar.cnpgImageName" (dict "Values" .Values "Chart" .Chart "cnpg" $cnpg) }}
+        imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+        {{- include "serviceradar.containerSecurityContext" . | nindent 8 }}
+        env:
+        - name: PGHOST
+          value: {{ $targetHost | quote }}
+        - name: PGPORT
+          value: {{ default 5432 $cnpg.port | quote }}
+        - name: PGUSER
+          valueFrom:
+            secretKeyRef:
+              name: {{ default "cnpg-superuser" $cnpg.superuserSecret | quote }}
+              key: username
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ default "cnpg-superuser" $cnpg.superuserSecret | quote }}
+              key: password
+        - name: PGSSLMODE
+          value: {{ default "verify-full" $cnpg.sslmode | quote }}
+        - name: PGSSLROOTCERT
+          value: {{ default "/etc/serviceradar/cnpg/ca.crt" $cnpg.caFile | quote }}
+        {{- if $cnpg.requireClientCert }}
+        - name: PGSSLCERT
+          value: {{ printf "%s/%s" (default "/etc/serviceradar/certs" $cnpg.certDir) (default "cnpg-client.pem" $cnpg.clientCertName) | quote }}
+        - name: PGSSLKEY
+          value: {{ printf "%s/%s" (default "/etc/serviceradar/certs" $cnpg.certDir) (default "cnpg-client-key.pem" $cnpg.clientKeyName) | quote }}
+        {{- end }}
+        {{- /* readOnlyRootFilesystem is on, so keep psql's history and temp files off $HOME. */}}
+        - name: HOME
+          value: /tmp
+        - name: MANAGED_EXTENSIONS
+          value: {{ join " " $extList | quote }}
+        command: ["/bin/bash", "-c"]
+        args:
+        - |
+          set -euo pipefail
+
+          LIBDIR=/usr/lib/postgresql/18/lib
+          # -X: never read ~/.psqlrc. -q -A -t: parseable single values.
+          PSQL="psql -X -q -A -t -v ON_ERROR_STOP=1"
+
+          echo "Incoming image ships these TimescaleDB modules:"
+          ls "$LIBDIR" | grep -E '^timescaledb-[0-9].*\.so$' | sed 's/^/  /' || {
+            echo "  (none -- this image has no versioned TimescaleDB module)" >&2
+          }
+
+          # Every database we could have to open. Ordered for stable logs.
+          DBS=$($PSQL -d postgres -c \
+            "select datname from pg_database where datistemplate = false and datallowconn order by datname")
+
+          if [ -z "$DBS" ]; then
+            echo "No connectable databases found -- refusing to report success, since that" >&2
+            echo "would silently skip the compatibility check this job exists to perform." >&2
+            exit 1
+          fi
+
+          for db in $DBS; do
+            echo "== $db =="
+            for ext in $MANAGED_EXTENSIONS; do
+              installed=$($PSQL -d "$db" -c \
+                "select extversion from pg_extension where extname = '$ext'")
+              # Not installed here: nothing to converge, and nothing that can strand.
+              [ -n "$installed" ] || continue
+
+              target=$($PSQL -d "$db" -c \
+                "select default_version from pg_available_extensions where name = '$ext'")
+
+              if [ "$installed" = "$target" ]; then
+                echo "  $ext $installed (current)"
+              else
+                echo "  $ext $installed -> $target"
+                # Fresh connection per ALTER: TimescaleDB refuses to update once the
+                # old module has been loaded in the session.
+                $PSQL -d "$db" -c "ALTER EXTENSION $ext UPDATE"
+                installed=$($PSQL -d "$db" -c \
+                  "select extversion from pg_extension where extname = '$ext'")
+              fi
+
+              # The verdict that matters: after converging, can the INCOMING image
+              # actually open this database? Only TimescaleDB ships a per-version
+              # module, so only it can strand a catalog this way.
+              if [ "$ext" = "timescaledb" ] && [ ! -f "$LIBDIR/timescaledb-$installed.so" ]; then
+                echo "" >&2
+                echo "ABORTING UPGRADE -- database '$db' would not open on the new image." >&2
+                echo "" >&2
+                echo "  catalog wants: timescaledb-$installed.so" >&2
+                echo "  image ships:   $(ls "$LIBDIR" | grep -E '^timescaledb-[0-9]' | tr '\n' ' ')" >&2
+                echo "" >&2
+                echo "Postgres loads the module named by the catalog, so it would fail to open" >&2
+                echo "'$db' and you could not run ALTER EXTENSION to recover. The Cluster has" >&2
+                echo "NOT been changed; it is still running the old image and is still serving." >&2
+                echo "" >&2
+                echo "This means the image bump skipped a TimescaleDB release: the running image" >&2
+                echo "can only converge catalogs to its own default_version ($installed), which the" >&2
+                echo "new image no longer carries. Upgrade to an image shipping $installed first," >&2
+                echo "or build the new image so it retains timescaledb-$installed.so." >&2
+                exit 1
+              fi
+            done
+          done
+
+          echo ""
+          echo "All databases are on extension versions the incoming image ships."
+        volumeMounts:
+        - name: {{ $cnpgClusterName }}-ca
+          mountPath: /etc/serviceradar/cnpg
+          readOnly: true
+        {{- if $cnpg.requireClientCert }}
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+        {{- end }}
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: {{ $cnpgClusterName }}-ca
+        secret:
+          secretName: {{ $cnpgClusterName }}-ca
+      {{- if $cnpg.requireClientCert }}
+      - name: cert-data
+        secret:
+          secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
+          items:
+{{ include "serviceradar.runtimeCertItems" (list "root.pem" "cnpg-client.pem" "cnpg-client-key.pem") | indent 12 }}
+      {{- end }}
+      - name: tmp
+        emptyDir: {}
+{{- end }}

@@ -1,0 +1,80 @@
+suite: otlp ingest service
+templates:
+  - templates/otlp-service.yaml
+tests:
+  - it: renders a ClusterIP service for OTLP gRPC by default (no public IP)
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: Service
+      - equal:
+          path: metadata.name
+          value: serviceradar-otlp
+      - equal:
+          path: spec.type
+          value: ClusterIP
+      - notExists:
+          path: spec.externalTrafficPolicy
+      - equal:
+          path: spec.selector.app
+          value: serviceradar-log-collector
+      - contains:
+          path: spec.ports
+          content:
+            name: otlp-grpc
+            port: 4317
+            targetPort: 4317
+            protocol: TCP
+      - notContains:
+          path: spec.ports
+          content:
+            name: otlp-http
+            port: 4318
+            targetPort: 4318
+            protocol: TCP
+
+  - it: omits the service when disabled
+    set:
+      logCollector.otlp.service.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: adds the OTLP/HTTP port only when explicitly enabled
+    set:
+      logCollector.otlp.service.http.enabled: true
+    asserts:
+      - contains:
+          path: spec.ports
+          content:
+            name: otlp-http
+            port: 4318
+            targetPort: 4318
+            protocol: TCP
+
+  - it: supports the opt-in LoadBalancer mode with externalTrafficPolicy
+    set:
+      logCollector.otlp.service.type: LoadBalancer
+      logCollector.otlp.service.externalTrafficPolicy: Local
+    asserts:
+      - equal:
+          path: spec.type
+          value: LoadBalancer
+      - equal:
+          path: spec.externalTrafficPolicy
+          value: Local
+
+  - it: carries annotations and pinned IP in LoadBalancer mode
+    set:
+      logCollector.otlp.service.type: LoadBalancer
+      logCollector.otlp.service.annotations:
+        metallb.universe.tf/address-pool: k3s-pool
+      logCollector.otlp.service.loadBalancerIP: "203.0.113.10"
+    asserts:
+      - equal:
+          path: metadata.annotations["metallb.universe.tf/address-pool"]
+          value: k3s-pool
+      - equal:
+          path: spec.loadBalancerIP
+          value: "203.0.113.10"

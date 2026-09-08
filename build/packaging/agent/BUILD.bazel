@@ -1,0 +1,55 @@
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+load("@rules_pkg//pkg:mappings.bzl", "pkg_attributes", "pkg_files")
+load("@rules_pkg//pkg:pkg.bzl", "pkg_tar")
+load("//build/packaging:package_rules.bzl", "serviceradar_package_from_config")
+load("//build/packaging:packages.bzl", "PACKAGES")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "bin/serviceradar-agent",
+    "systemd/50-serviceradar-shared-runtime.conf",
+    "systemd/serviceradar-agent.service",
+])
+
+serviceradar_package_from_config(
+    name = "agent",
+    config = PACKAGES["agent"],
+)
+
+# Stage the built agent RPM outside the output tree, for manual delivery to a
+# lab host. Same rationale and same script as
+# //build/native_addons:stage_netprobe_addon: the RPM is a declared input
+# consumed through runfiles, so this never hand-resolves a bazel-out path.
+#
+#   bazel run //build/packaging/agent:stage_agent_rpm -- /tmp/agent.rpm
+sh_binary(
+    name = "stage_agent_rpm",
+    srcs = ["//build/native_addons:stage_addon_bundle.sh"],
+    data = [":agent_rpm"],
+    env = {
+        "BUNDLE_RUNFILE": "$(rootpath :agent_rpm)",
+    },
+)
+
+# netprobe is no longer bundled here: it is carved out of the base agent and
+# delivered as a signed pushed-artifact add-on (migrate-netprobe-to-native-addon
+# §1.4; build/native_addons/addon_inventory.bzl: netprobe_addon_bundle).
+pkg_files(
+    name = "agent_release_runtime_files",
+    srcs = [
+        "//go/cmd/agent",
+    ],
+    attributes = pkg_attributes(mode = "0755"),
+    prefix = "/",
+    renames = {
+        "//go/cmd/agent": "serviceradar-agent",
+    },
+)
+
+pkg_tar(
+    name = "agent_release_runtime_archive",
+    srcs = [":agent_release_runtime_files"],
+    extension = "tar.gz",
+    package_dir = "/",
+)

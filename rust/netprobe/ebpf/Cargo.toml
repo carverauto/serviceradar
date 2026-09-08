@@ -1,0 +1,25 @@
+[package]
+name = "serviceradar-netprobe-ebpf"
+version = "0.1.0"
+edition = "2024"
+publish = false
+autolib = false
+
+# Its own workspace root, not a member of the repository's.
+#
+# This crate compiles for bpfel-unknown-none with -Z build-std on a pinned nightly,
+# which has nothing in common with how the workspace builds. Listing it in the
+# parent's `exclude` is not enough on its own: cargo still refuses to run here with
+# "current package believes it's in a workspace when it's not". Declaring the table
+# is what makes `cargo vendor` / `cargo check` work in this directory.
+#
+# //third_party/rules_aya_ebpf detects this and leaves the manifest alone; without
+# it, the rule appends the same table to its staged copy.
+[workspace]
+
+[dependencies]
+aya-ebpf = "0.1.1"
+
+[[bin]]
+name = "netprobe-ebpf"
+path = "src/lib.rs"

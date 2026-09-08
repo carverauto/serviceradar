@@ -1,0 +1,33 @@
+minimum_pre_commit_version: 3.5.0
+
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.0
+    hooks:
+      - id: gitleaks
+        stages:
+          - pre-commit
+
+  - repo: local
+    hooks:
+      # `mix format --check-formatted` gates every Elixir change in CI, and it fails
+      # the whole run for a single unformatted line -- long after the edit, on a
+      # machine that then has to be round-tripped. Formatting at commit time keeps
+      # that from reaching a PR at all.
+      #
+      # Each file is formatted from ITS OWN mix project, because .formatter.exs is
+      # what decides the result: it does `import_deps` and loads the Styler plugin,
+      # and those differ per project. Running from the repo root would format with
+      # the wrong config, or none.
+      #
+      # The hook FAILS if a staged file's Mix project has no deps/styler (run
+      # mix deps.get there) or if mix format / --check-formatted fails. It used
+      # to `|| true`, which is how unformatted Elixir reached CI. Sibling Mix
+      # projects with deps are also --check-formatted, matching the CI matrix.
+      - id: mix-format
+        name: mix format (Elixir)
+        language: system
+        files: '\.exs?$'
+        stages:
+          - pre-commit
+        entry: .githooks/mix-format-elixir

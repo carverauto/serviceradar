@@ -1,0 +1,705 @@
+defmodule ServiceRadar.Integrations.IntegrationSource do
+  @moduledoc """
+  Configuration for external data source integrations (Armis, SNMP, etc.).
+
+  This resource stores integration configuration in Postgres. Agents retrieve
+  configuration via GetConfig and push results through agent-gateway.
+
+  ## Source Types
+
+  - `:armis` - Armis security platform
+  - `:snmp` - SNMP polling
+  - `:syslog` - Syslog/flowgger ingestion
+  - `:nmap` - Network scanning
+  - `:custom` - Custom webhook/API
+
+  ## Workflow
+
+  1. Admin creates/edits source config via UI
+  2. Config is saved to Postgres
+  3. Agents fetch configuration via GetConfig
+  4. Agents push device updates through agent-gateway to core
+  """
+
+  use Ash.Resource,
+    domain: ServiceRadar.Integrations,
+    data_layer: AshPostgres.DataLayer,
+    authorizers: [Ash.Policy.Authorizer],
+    extensions: [AshStateMachine, AshCloak],
+    notifiers: [ServiceRadar.Integrations.IntegrationSourceNotifier]
+
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Integrations.Changes.PublishSyncLog
+  alias ServiceRadar.Integrations.Validations.CompositeExport
+
+  @source_fields [
+    :name,
+    :endpoint,
+    :agent_id,
+    :gateway_id,
+    :partition,
+    :poll_interval_seconds,
+    :discovery_interval_seconds,
+    :sweep_interval_seconds,
+    :northbound_enabled,
+    :northbound_interval_seconds,
+    :northbound_availability_source_agent_id,
+    :page_size,
+    :network_blacklist,
+    :queries,
+    :custom_fields,
+    :settings,
+    :credential_secret_id
+  ]
+  @source_create_fields [:source_type | @source_fields]
+
+  postgres do
+    table "integration_sources"
+    repo ServiceRadar.Repo
+    schema "platform"
+
+    references do
+      reference :credential_secret, on_delete: :restrict
+    end
+  end
+
+  state_machine do
+    initial_states [:idle]
+    default_initial_state :idle
+    state_attribute :sync_status
+
+    transitions do
+      transition :sync_start, from: [:idle, :success, :failed], to: :running
+      transition :sync_success, from: :running, to: :success
+      transition :sync_failed, from: :running, to: :failed
+    end
+  end
+
+  cloak do
+    vault(ServiceRadar.Vault)
+    # Encrypt the entire credentials map as JSON
+    attributes([:credentials_encrypted])
+    decrypt_by_default([:credentials_encrypted])
+  end
+
+  code_interface do
+    define :get_by_id, action: :by_id, args: [:id]
+    define :list_enabled, action: :enabled
+    define :list_by_type, action: :by_type, args: [:source_type]
+  end
+
+  actions do
+    defaults [:read]
+
+    read :by_id do
+      argument :id, :uuid, allow_nil?: false
+      get? true
+      filter expr(id == ^arg(:id))
+    end
+
+    read :enabled do
+      description "All enabled integration sources"
+      filter expr(enabled == true)
+    end
+
+    read :by_type do
+      argument :source_type, :atom, allow_nil?: false
+      filter expr(source_type == ^arg(:source_type))
+    end
+
+    read :by_agent do
+      argument :agent_id, :string, allow_nil?: false
+      filter expr(agent_id == ^arg(:agent_id))
+    end
+
+    create :create do
+      accept @source_create_fields
+
+      argument :credentials, :map do
+        description "Credentials map (will be encrypted)"
+        allow_nil? true
+        public? true
+      end
+
+      change fn changeset, _context ->
+        case Ash.Changeset.get_argument(changeset, :credentials) do
+          nil ->
+            changeset
+
+          credentials when is_map(credentials) ->
+            encrypt_credentials(changeset, credentials)
+        end
+      end
+
+      change &validate_agent_availability/2
+
+      validate CompositeExport
+    end
+
+    update :update do
+      # Non-atomic due to credentials encoding and agent availability check
+      require_atomic? false
+
+      accept @source_fields
+
+      argument :credentials, :map do
+        description "New credentials (will be encrypted)"
+        allow_nil? true
+        public? true
+      end
+
+      change fn changeset, _context ->
+        case Ash.Changeset.get_argument(changeset, :credentials) do
+          nil ->
+            changeset
+
+          credentials when is_map(credentials) ->
+            encrypt_credentials(changeset, credentials)
+        end
+      end
+
+      change &validate_agent_availability/2
+
+      validate CompositeExport
+    end
+
+    update :enable do
+      change set_attribute(:enabled, true)
+    end
+
+    update :disable do
+      change set_attribute(:enabled, false)
+    end
+
+    update :sync_start do
+      description "Mark sync ingestion as running"
+
+      argument :device_count, :integer, default: 0
+
+      change transition_state(:running)
+      change set_attribute(:last_error_message, nil)
+      change {PublishSyncLog, stage: :started}
+    end
+
+    update :sync_success do
+      description "Record a successful sync ingestion"
+
+      argument :result, :atom do
+        allow_nil? false
+        constraints one_of: [:success, :partial]
+      end
+
+      argument :device_count, :integer, default: 0
+
+      change transition_state(:success)
+      change set_attribute(:last_sync_at, &__MODULE__.utc_now_second/0)
+      change atomic_update(:last_sync_result, expr(^arg(:result)))
+      change atomic_update(:last_device_count, expr(^arg(:device_count)))
+      change atomic_update(:last_error_message, expr(nil))
+      change atomic_update(:consecutive_failures, expr(0))
+      change atomic_update(:total_syncs, expr(total_syncs + 1))
+      change {PublishSyncLog, stage: :finished}
+    end
+
+    update :sync_failed do
+      description "Record a failed sync ingestion"
+
+      argument :result, :atom do
+        allow_nil? false
+        constraints one_of: [:failed, :timeout]
+      end
+
+      argument :device_count, :integer, default: 0
+      argument :error_message, :string
+
+      change transition_state(:failed)
+      change set_attribute(:last_sync_at, &__MODULE__.utc_now_second/0)
+      change atomic_update(:last_sync_result, expr(^arg(:result)))
+      change atomic_update(:last_device_count, expr(^arg(:device_count)))
+      change atomic_update(:last_error_message, expr(^arg(:error_message)))
+      change atomic_update(:consecutive_failures, expr(consecutive_failures + 1))
+      change atomic_update(:total_syncs, expr(total_syncs + 1))
+      change {PublishSyncLog, stage: :finished}
+    end
+
+    update :northbound_start do
+      description "Mark northbound Armis update execution as running"
+
+      argument :device_count, :integer, default: 0
+
+      change set_attribute(:northbound_status, :running)
+      change set_attribute(:northbound_last_device_count, arg(:device_count))
+      change set_attribute(:northbound_last_error_message, nil)
+    end
+
+    update :northbound_success do
+      description "Record a successful northbound Armis update run"
+
+      argument :result, :atom do
+        allow_nil? false
+        constraints one_of: [:success, :partial]
+      end
+
+      argument :device_count, :integer, default: 0
+      argument :updated_count, :integer, default: 0
+      argument :skipped_count, :integer, default: 0
+
+      change set_attribute(:northbound_status, :success)
+      change set_attribute(:northbound_last_run_at, &__MODULE__.utc_now_second/0)
+      change set_attribute(:northbound_last_result, arg(:result))
+      change set_attribute(:northbound_last_device_count, arg(:device_count))
+      change set_attribute(:northbound_last_updated_count, arg(:updated_count))
+      change set_attribute(:northbound_last_skipped_count, arg(:skipped_count))
+      change set_attribute(:northbound_last_error_message, nil)
+      change set_attribute(:northbound_consecutive_failures, 0)
+    end
+
+    update :northbound_failed do
+      description "Record a failed northbound Armis update run"
+      require_atomic? false
+
+      argument :result, :atom do
+        allow_nil? false
+        constraints one_of: [:failed, :timeout]
+      end
+
+      argument :device_count, :integer, default: 0
+      argument :updated_count, :integer, default: 0
+      argument :skipped_count, :integer, default: 0
+      argument :error_message, :string
+
+      change fn changeset, _context ->
+        current_failures = changeset.data.northbound_consecutive_failures || 0
+
+        changeset
+        |> Ash.Changeset.change_attribute(:northbound_status, :failed)
+        |> Ash.Changeset.change_attribute(:northbound_last_run_at, utc_now_second())
+        |> Ash.Changeset.change_attribute(
+          :northbound_last_result,
+          Ash.Changeset.get_argument(changeset, :result)
+        )
+        |> Ash.Changeset.change_attribute(
+          :northbound_last_device_count,
+          Ash.Changeset.get_argument(changeset, :device_count)
+        )
+        |> Ash.Changeset.change_attribute(
+          :northbound_last_updated_count,
+          Ash.Changeset.get_argument(changeset, :updated_count)
+        )
+        |> Ash.Changeset.change_attribute(
+          :northbound_last_skipped_count,
+          Ash.Changeset.get_argument(changeset, :skipped_count)
+        )
+        |> Ash.Changeset.change_attribute(
+          :northbound_last_error_message,
+          Ash.Changeset.get_argument(changeset, :error_message)
+        )
+        |> Ash.Changeset.change_attribute(:northbound_consecutive_failures, current_failures + 1)
+      end
+    end
+
+    update :record_sync do
+      description "Record sync execution results"
+      # Non-atomic: computes new values based on current record state
+      require_atomic? false
+
+      argument :result, :atom do
+        allow_nil? false
+        constraints one_of: [:success, :partial, :failed, :timeout]
+      end
+
+      argument :device_count, :integer, default: 0
+      argument :error_message, :string
+
+      change fn changeset, _context ->
+        result = Ash.Changeset.get_argument(changeset, :result)
+        current_failures = changeset.data.consecutive_failures || 0
+
+        new_failures =
+          if result in [:success, :partial] do
+            0
+          else
+            current_failures + 1
+          end
+
+        changeset
+        |> Ash.Changeset.change_attribute(:last_sync_at, utc_now_second())
+        |> Ash.Changeset.change_attribute(:last_sync_result, result)
+        |> Ash.Changeset.change_attribute(
+          :last_device_count,
+          Ash.Changeset.get_argument(changeset, :device_count)
+        )
+        |> Ash.Changeset.change_attribute(
+          :last_error_message,
+          Ash.Changeset.get_argument(changeset, :error_message)
+        )
+        |> Ash.Changeset.change_attribute(:consecutive_failures, new_failures)
+        |> Ash.Changeset.change_attribute(
+          :total_syncs,
+          (changeset.data.total_syncs || 0) + 1
+        )
+      end
+    end
+
+    destroy :delete do
+    end
+  end
+
+  policies do
+    import ServiceRadar.Policies
+
+    system_bypass()
+    read_viewer_plus()
+    admin_action_type([:create, :update, :destroy])
+  end
+
+  changes do
+  end
+
+  attributes do
+    uuid_primary_key :id
+
+    attribute :name, :string do
+      allow_nil? false
+      public? true
+      description "Human-readable source name"
+    end
+
+    attribute :source_type, :atom do
+      allow_nil? false
+      public? true
+      constraints one_of: [:armis, :snmp, :syslog, :nmap, :netbox, :custom]
+      description "Type of data source"
+    end
+
+    attribute :endpoint, :string do
+      allow_nil? false
+      public? true
+      description "API endpoint URL"
+    end
+
+    attribute :enabled, :boolean do
+      default true
+      public? true
+      description "Whether this source is active"
+    end
+
+    # Assignment
+    attribute :agent_id, :string do
+      public? true
+      description "Agent to assign this source to"
+    end
+
+    attribute :gateway_id, :string do
+      public? true
+      description "Gateway to assign this source to"
+    end
+
+    attribute :partition, :string do
+      default "default"
+      public? true
+      description "Partition for this source"
+    end
+
+    # Scheduling
+    attribute :poll_interval_seconds, :integer do
+      default 300
+      public? true
+      description "How often to poll (seconds)"
+    end
+
+    attribute :discovery_interval_seconds, :integer do
+      default 3600
+      public? true
+      description "How often to run discovery (seconds)"
+    end
+
+    attribute :sweep_interval_seconds, :integer do
+      default 3600
+      public? true
+      description "How often to run network sweeps (seconds)"
+    end
+
+    attribute :northbound_enabled, :boolean do
+      default false
+      public? true
+      description "Whether northbound Armis availability updates are enabled"
+    end
+
+    attribute :northbound_interval_seconds, :integer do
+      default 3600
+      public? true
+      description "How often to run northbound Armis updates (seconds)"
+    end
+
+    attribute :northbound_availability_source_agent_id, :string do
+      public? true
+
+      description "Optional agent whose per-agent availability should be sent by northbound updates"
+    end
+
+    # Source-specific settings
+    attribute :page_size, :integer do
+      default 100
+      public? true
+      description "Page size for API pagination"
+    end
+
+    attribute :network_blacklist, {:array, :string} do
+      default []
+      public? true
+      description "Networks to exclude (CIDR notation)"
+    end
+
+    attribute :queries, {:array, :map} do
+      default []
+      public? true
+      description "Query configurations"
+    end
+
+    attribute :custom_fields, {:array, :string} do
+      default []
+      public? true
+      description "Custom fields to extract"
+    end
+
+    attribute :settings, :map do
+      default %{}
+      public? true
+      description "Additional source-specific settings"
+    end
+
+    # Encrypted credentials (stored as encrypted JSON)
+    attribute :credentials_encrypted, :string do
+      public? false
+      sensitive? true
+      description "Encrypted credentials JSON"
+    end
+
+    attribute :credential_secret_id, :uuid do
+      allow_nil? true
+      public? true
+      description "Optional NetworkCredentialSecret used by the credential broker"
+    end
+
+    # Sync tracking
+    attribute :last_sync_at, :utc_datetime do
+      public? true
+      description "Last successful sync time"
+    end
+
+    attribute :last_sync_result, :atom do
+      public? true
+      constraints one_of: [:success, :partial, :failed, :timeout]
+      description "Result of last sync"
+    end
+
+    attribute :last_device_count, :integer do
+      default 0
+      public? true
+      description "Devices found in last sync"
+    end
+
+    attribute :last_error_message, :string do
+      public? true
+      description "Error from last failed sync"
+    end
+
+    attribute :sync_status, :atom do
+      default :idle
+      allow_nil? false
+      public? true
+      constraints one_of: [:idle, :running, :success, :failed]
+      description "Current sync ingestion state"
+    end
+
+    attribute :consecutive_failures, :integer do
+      default 0
+      public? true
+      description "Consecutive failed syncs"
+    end
+
+    attribute :total_syncs, :integer do
+      default 0
+      public? true
+      description "Total sync attempts"
+    end
+
+    attribute :northbound_last_run_at, :utc_datetime do
+      public? true
+      description "Last northbound update run time"
+    end
+
+    attribute :northbound_last_result, :atom do
+      public? true
+      constraints one_of: [:success, :partial, :failed, :timeout]
+      description "Result of last northbound update run"
+    end
+
+    attribute :northbound_last_device_count, :integer do
+      default 0
+      public? true
+      description "Devices considered in last northbound run"
+    end
+
+    attribute :northbound_last_updated_count, :integer do
+      default 0
+      public? true
+      description "Devices updated in last northbound run"
+    end
+
+    attribute :northbound_last_skipped_count, :integer do
+      default 0
+      public? true
+      description "Devices skipped in last northbound run"
+    end
+
+    attribute :northbound_last_error_message, :string do
+      public? true
+      description "Error from last failed northbound run"
+    end
+
+    attribute :northbound_status, :atom do
+      default :idle
+      allow_nil? false
+      public? true
+      constraints one_of: [:idle, :running, :success, :failed]
+      description "Current northbound update state"
+    end
+
+    attribute :northbound_consecutive_failures, :integer do
+      default 0
+      public? true
+      description "Consecutive failed northbound runs"
+    end
+
+    create_timestamp :inserted_at
+    update_timestamp :updated_at
+  end
+
+  relationships do
+    belongs_to :credential_secret, ServiceRadar.Credentials.NetworkCredentialSecret do
+      allow_nil? true
+      public? true
+      source_attribute :credential_secret_id
+      destination_attribute :id
+      define_attribute? false
+    end
+
+    has_many :update_runs, ServiceRadar.Integrations.IntegrationUpdateRun do
+      destination_attribute :integration_source_id
+      public? true
+    end
+  end
+
+  calculations do
+    calculate :credentials, :map, fn records, _opts ->
+      # Public reads must not resolve broker-backed external references. Runtime
+      # sync paths that need plaintext credentials must use a scoped broker grant.
+      Enum.map(records, fn record ->
+        legacy_credentials(record)
+      end)
+    end do
+      load [:credentials_encrypted, :credential_secret_id]
+    end
+
+    calculate :poll_interval_display,
+              :string,
+              expr(
+                cond do
+                  poll_interval_seconds >= 3600 ->
+                    fragment("? || ' hours'", poll_interval_seconds / 3600)
+
+                  poll_interval_seconds >= 60 ->
+                    fragment("? || ' minutes'", poll_interval_seconds / 60)
+
+                  true ->
+                    fragment("? || ' seconds'", poll_interval_seconds)
+                end
+              )
+
+    calculate :status_label,
+              :string,
+              expr(
+                cond do
+                  enabled == false -> "Disabled"
+                  last_sync_result == :success -> "Healthy"
+                  last_sync_result == :partial -> "Partial"
+                  last_sync_result in [:failed, :timeout] -> "Failed"
+                  is_nil(last_sync_result) -> "Never Run"
+                  true -> "Unknown"
+                end
+              )
+
+    calculate :status_color,
+              :string,
+              expr(
+                cond do
+                  enabled == false -> "gray"
+                  last_sync_result == :success -> "green"
+                  last_sync_result == :partial -> "yellow"
+                  last_sync_result in [:failed, :timeout] -> "red"
+                  true -> "gray"
+                end
+              )
+
+    calculate :is_healthy,
+              :boolean,
+              expr(
+                enabled == true and
+                  last_sync_result in [:success, :partial] and
+                  consecutive_failures < 3
+              )
+  end
+
+  identities do
+    identity :unique_name, [:name]
+  end
+
+  defp validate_agent_availability(changeset, _context) do
+    # DB connection's search_path determines the schema
+    actor = SystemActor.system(:integration_source)
+
+    Agent
+    |> Ash.Query.for_read(:connected)
+    |> Ash.Query.limit(1)
+    |> Ash.read(actor: actor)
+    |> case do
+      {:ok, %Ash.Page.Keyset{results: results}} when results != [] ->
+        changeset
+
+      {:ok, results} when is_list(results) and results != [] ->
+        changeset
+
+      _ ->
+        Ash.Changeset.add_error(changeset,
+          field: :agent_id,
+          message: "install and register an agent before adding integrations"
+        )
+    end
+  rescue
+    _ ->
+      Ash.Changeset.add_error(changeset,
+        field: :agent_id,
+        message: "install and register an agent before adding integrations"
+      )
+  end
+
+  defp encrypt_credentials(changeset, credentials) do
+    AshCloak.encrypt_and_set(changeset, :credentials_encrypted, Jason.encode!(credentials))
+  end
+
+  defp legacy_credentials(record) do
+    case record.credentials_encrypted do
+      nil -> nil
+      "" -> %{}
+      %Ash.NotLoaded{} -> nil
+      json when is_binary(json) -> Jason.decode!(json)
+      _ -> nil
+    end
+  end
+
+  @doc false
+  def utc_now_second, do: DateTime.truncate(DateTime.utc_now(), :second)
+end

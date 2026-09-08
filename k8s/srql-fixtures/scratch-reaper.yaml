@@ -1,0 +1,156 @@
+# Hourly reaper for leftover scratch databases on the shared fixture.
+#
+# CI only sweeps sr_core_test_* when a guarded run starts. Workstation clones
+# and cancelled jobs do not go through that path, so they used to sit here
+# until Timescale background workers exhausted the instance.
+#
+# The job uses the same digest-pinned CNPG image as the cluster (already on
+# the nodes, already has psql). Switch the command to
+# //go/cmd/tools/srql-fixture-reaper after that binary ships in the tools
+# image; keep this SQL until then so the reaper does not wait on a publish.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: srql-fixture-scratch-reaper
+  namespace: srql-fixtures
+  labels:
+    app: srql-fixture
+    app.kubernetes.io/component: scratch-reaper
+data:
+  reap.sql: |
+    SELECT format('DROP DATABASE IF EXISTS %I WITH (FORCE)', d.datname)
+    FROM pg_database AS d
+    JOIN pg_tablespace AS t ON t.oid = d.dattablespace
+    WHERE NOT d.datistemplate
+      AND d.datname NOT IN (
+          'postgres',
+          'template0',
+          'template1',
+          'srql_fixture',
+          'sr_core_template'
+      )
+      -- Reserve the entire generation namespace, including malformed candidates.
+      -- Only dedicated registry cleanup may remove template generations.
+      AND d.datname !~ '^sr_tpl_'
+      AND d.datname ~ '^[A-Za-z_][A-Za-z0-9_]{0,62}$'
+      AND t.spcname = 'pg_default'
+      AND (pg_stat_file(format('base/%s/PG_VERSION', d.oid), true)).modification
+          < now() - interval '6 hours'
+      AND NOT EXISTS (
+            SELECT 1
+            FROM pg_stat_activity AS a
+            WHERE a.datname = d.datname
+              AND a.backend_type = 'client backend'
+              AND coalesce(a.application_name, '') NOT ILIKE 'TimescaleDB%'
+              AND a.pid <> pg_backend_pid()
+          );
+    \gexec
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: srql-fixture-scratch-reaper
+  namespace: srql-fixtures
+  labels:
+    app: srql-fixture
+    app.kubernetes.io/component: scratch-reaper
+spec:
+  schedule: "15 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  startingDeadlineSeconds: 300
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app: srql-fixture-scratch-reaper
+            app.kubernetes.io/component: scratch-reaper
+        spec:
+          restartPolicy: Never
+          imagePullSecrets:
+            - name: registry-carverauto-dev-cred
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: kubernetes.io/hostname
+                        operator: NotIn
+                        values:
+                          - k8s-cp3-worker3
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 26
+            runAsGroup: 26
+            fsGroup: 26
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: reaper
+              image: registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.4.0-sr4@sha256:59e442dec59fac3149e3a3c49ba0cc2987bfb052bca1a0ea8c01b4bb31427d1d
+              imagePullPolicy: IfNotPresent
+              command: ["/usr/lib/postgresql/18/bin/psql"]
+              args:
+                - "-v"
+                - "ON_ERROR_STOP=1"
+                - "-f"
+                - "/scripts/reap.sql"
+              env:
+                - name: HOME
+                  value: /tmp
+                - name: PGHOST
+                  value: srql-fixture-rw.srql-fixtures.svc.cluster.local
+                - name: PGPORT
+                  value: "5432"
+                - name: PGDATABASE
+                  value: postgres
+                - name: PGSSLMODE
+                  value: verify-full
+                - name: PGSSLROOTCERT
+                  value: /certs/ca.crt
+                - name: PGUSER
+                  valueFrom:
+                    secretKeyRef:
+                      name: srql-test-admin-credentials
+                      key: username
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: srql-test-admin-credentials
+                      key: password
+              resources:
+                requests:
+                  cpu: 25m
+                  memory: 64Mi
+                limits:
+                  memory: 128Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+                - name: ca
+                  mountPath: /certs
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: scripts
+              configMap:
+                name: srql-fixture-scratch-reaper
+            - name: ca
+              secret:
+                secretName: srql-fixture-server-ca
+                items:
+                  - key: ca.crt
+                    path: ca.crt
+            - name: tmp
+              emptyDir: {}

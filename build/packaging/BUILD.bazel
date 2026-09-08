@@ -1,0 +1,36 @@
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+package(default_visibility = ["//visibility:public"])
+
+# Read as data by //scripts:release_publish_contracts_test, which asserts that the release
+# workflow and the package inventory agree. A test only sees files declared in its data, so
+# these have to be exported even though nothing builds them.
+exports_files([
+    "packages.bzl",
+    "release_targets.bzl",
+])
+
+config_setting(
+    name = "remote_executor",
+    define_values = {"EXECUTOR": "remote"},
+)
+
+config_setting(
+    name = "linux",
+    constraint_values = ["@platforms//os:linux"],
+)
+
+sh_test(
+    name = "postinstall_shared_state_ownership_test",
+    srcs = ["postinstall_shared_state_ownership_test.sh"],
+    args = [
+        "$(rootpath //build/packaging/agent:scripts/postinstall.sh)",
+        "$(rootpath //build/packaging/rperf:scripts/postinstall.sh)",
+        "$(rootpath //build/packaging/rperf-checker:scripts/postinstall.sh)",
+    ],
+    data = [
+        "//build/packaging/agent:scripts/postinstall.sh",
+        "//build/packaging/rperf:scripts/postinstall.sh",
+        "//build/packaging/rperf-checker:scripts/postinstall.sh",
+    ],
+)

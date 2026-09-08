@@ -1,0 +1,26 @@
+"""Expose compose assets to Bazel targets."""
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files(
+    glob(
+        [
+            "entrypoint-*.sh",
+            "*.conf",
+            "*.docker.json",
+            "*.docker.toml",
+            "*.mtls.json",
+            "*.sh",
+            "*.ts",
+            "*.rs",
+        ],
+        allow_empty = True,
+        exclude = ["Dockerfile.*"],
+    ),
+)
+
+exports_files([
+    "tools-profile.sh",
+    "tools-entrypoint.sh",
+    "tools-motd.txt",
+])

@@ -1,0 +1,54 @@
+{
+  "id": "com.carverauto.powerdns.dns_activity.display",
+  "version": "1.1.0",
+  "schema_id": "com.carverauto.powerdns.dns_activity",
+  "schema_version": "1.0.0",
+  "widgets": [
+    {
+      "type": "summary",
+      "title": "query.hostname",
+      "message": "message",
+      "source": "log_provider",
+      "severity": "severity"
+    },
+    {
+      "type": "badges",
+      "fields": [
+        {"label": "Activity", "path": "activity_name", "tone": "info"},
+        {"label": "Status", "path": "status", "tone": "status"},
+        {"label": "Severity", "path": "severity", "tone": "severity"}
+      ]
+    },
+    {
+      "type": "facts",
+      "fields": [
+        {"label": "Domain", "path": "query.hostname"},
+        {"label": "Query Type", "path": "query.type"},
+        {"label": "Response Code", "path": "rcode"},
+        {"label": "Source IP", "path": "src_endpoint.ip"},
+        {"label": "Source Port", "path": "src_endpoint.port"},
+        {"label": "Destination IP", "path": "dst_endpoint.ip"},
+        {"label": "Destination Port", "path": "dst_endpoint.port"},
+        {"label": "Protocol", "path": "connection_info.protocol_name"},
+        {"label": "Policy Name", "path": "firewall_rule.name"},
+        {"label": "Policy Kind", "path": "firewall_rule.type"},
+        {"label": "Policy Category", "path": "firewall_rule.category"},
+        {"label": "Policy Condition", "path": "firewall_rule.condition"},
+        {"label": "Policy Match", "path": "firewall_rule.match_details.0.value"},
+        {"label": "Server Identity", "path": "unmapped.server_identity"}
+      ]
+    },
+    {
+      "type": "timeline",
+      "fields": [
+        {"label": "Event Time", "path": "time", "format": "timestamp"},
+        {"label": "Observed", "path": "metadata.service_radar.observed_time_unix_nano", "format": "unix_nano"}
+      ]
+    },
+    {
+      "type": "json_section",
+      "title": "PowerDNS Details",
+      "paths": ["query", "firewall_rule", "connection_info", "unmapped", "metadata.service_radar"]
+    }
+  ]
+}

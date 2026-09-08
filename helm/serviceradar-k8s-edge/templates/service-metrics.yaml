@@ -1,0 +1,20 @@
+{{- if and .Values.k8sInventory.enabled .Values.service.metrics.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "sr-edge.fullname" . }}-metrics
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "sr-edge.labels" . | nindent 4 }}
+    app.kubernetes.io/component: k8s-inventory
+spec:
+  type: {{ .Values.service.metrics.type }}
+  selector:
+    {{- include "sr-edge.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: k8s-edge
+  ports:
+    - name: metrics
+      port: {{ .Values.service.metrics.port }}
+      targetPort: metrics
+      protocol: TCP
+{{- end }}

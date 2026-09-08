@@ -1,0 +1,66 @@
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "target/**",
+            "bazel-*",
+        ],
+    ),
+    visibility = ["//visibility:public"],
+)
+
+rust_library(
+    name = "afpacket",
+    srcs = glob(["src/**/*.rs"]),
+    # Bazel names a crate after its TARGET unless told otherwise, which would
+    # make this `afpacket` while Cargo builds `serviceradar_afpacket` from the
+    # [lib] name. The divergence only shows up under Bazel, as an unresolved
+    # import in every consumer -- cargo test stays green.
+    crate_name = "serviceradar_afpacket",
+    crate_root = "src/lib.rs",
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ),
+)
+
+rust_test(
+    name = "afpacket_test",
+    crate = ":afpacket",
+)
+
+# The live-capture lane.
+#
+# Two targets, because "built by CI" and "run by CI" are different needs here.
+#
+# The test itself is `manual`: RBE executors have no CAP_NET_RAW. Measured, not
+# assumed -- running it there fails with
+#   open lo (needs CAP_NET_RAW): Os { code: 1, kind: PermissionDenied }
+# so wiring it into a normal lane would only make CI red. `integration_test` is
+# the wrong tag for the same reason: buildbuddy.yaml's integration lane selects
+# that tag positively and would run it.
+#
+# But a test nothing builds rots into one that no longer compiles, and
+# rust_test(crate = ":afpacket") covers the LIB only -- tests/*.rs needs its own
+# target or it is outside the graph entirely, which is how an integration test
+# ends up executing nowhere while looking present in the repo.
+rust_test(
+    name = "afpacket_live_test",
+    srcs = ["tests/live_capture.rs"],
+    tags = ["manual"],
+    deps = [":afpacket"],
+)
+
+build_test(
+    name = "afpacket_live_build_test",
+    targets = [":afpacket_live_test"],
+)

@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "com.carverauto.axis_camera.event_log",
+  "title": "AXIS Camera OCSF Event Log Activity",
+  "type": "object",
+  "required": ["id", "time", "class_uid", "category_uid", "type_uid", "activity_id", "severity_id", "message"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "time": { "type": "string" },
+    "class_uid": { "const": 1008 },
+    "category_uid": { "const": 1 },
+    "type_uid": { "const": 100801 },
+    "activity_id": { "const": 1 },
+    "activity_name": { "type": "string" },
+    "severity_id": { "type": "integer" },
+    "severity": { "type": "string" },
+    "message": { "type": "string" },
+    "metadata": { "type": "object" },
+    "unmapped": {
+      "type": "object",
+      "properties": {
+        "axis_ws_payload": { "type": "object" }
+      },
+      "additionalProperties": true
+    },
+    "raw_data": { "type": "string" },
+    "log_name": { "type": "string" },
+    "log_provider": { "type": "string" }
+  },
+  "additionalProperties": true
+}

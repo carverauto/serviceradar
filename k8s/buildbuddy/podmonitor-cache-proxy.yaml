@@ -1,0 +1,64 @@
+# Scrape the BuildBuddy cache proxies into Prometheus.
+#
+# WHY THIS EXISTS
+# The same reason as ./podmonitor.yaml: the chart puts `prometheus.io/scrape: "true"` on the
+# pods, but this cluster runs kube-prometheus-stack, which discovers targets through
+# ServiceMonitor/PodMonitor CRDs and ignores scrape annotations entirely. Without this object
+# the proxy exports its metrics to nobody.
+#
+# WHAT IT ANSWERS
+# "How much of the cache traffic stayed in the cluster, and how much went one hop further to
+# BuildBuddy Cloud?" -- the question the proxy was deployed to answer, and the one the Cache
+# Proxy tab in the web UI only summarises per-proxy. The proxy exports it directly, split by
+# whether it served a request from its own storage or had to go upstream:
+#
+#   buildbuddy_proxy_byte_stream_read_bytes{cache_hit_miss_status="hit"}    served locally
+#   buildbuddy_proxy_byte_stream_read_bytes{cache_hit_miss_status="miss"}   fetched upstream
+#   buildbuddy_proxy_byte_stream_write_bytes{...}                           writes, same split
+#   buildbuddy_proxy_action_cache_read_bytes{...}                           AC, same split
+#
+# So the WAN saving over a window is the hit share of the total:
+#
+#   sum(rate(buildbuddy_proxy_byte_stream_read_bytes{cache_hit_miss_status="hit"}[1h]))
+#     / sum(rate(buildbuddy_proxy_byte_stream_read_bytes[1h]))
+#
+# A near-zero denominator means nothing is addressing the proxy at all -- check
+# `executor.cache_target` in ./values.yaml and `build:cache_only --remote_cache` in //.bazelrc
+# before looking anywhere else.
+#
+# BuildBuddy ships a Grafana dashboard for these series at
+# //../buildbuddy/tools/metrics/grafana/dashboards/cache-proxy.json in the upstream checkout.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: buildbuddy-cache-proxy
+  namespace: buildbuddy
+  labels:
+    app.kubernetes.io/name: buildbuddy-enterprise-cache-proxy
+    app.kubernetes.io/part-of: buildbuddy
+spec:
+  selector:
+    matchLabels:
+      # Confirmed against the live cluster, not assumed -- these are exactly the two labels the
+      # chart's own Service selects on, read back from the running object:
+      #
+      #   $ kubectl get svc -n buildbuddy bb-cache-proxy-buildbuddy-enterprise-cache-proxy -o wide
+      #   SELECTOR  app.kubernetes.io/instance=bb-cache-proxy,
+      #             app.kubernetes.io/name=buildbuddy-enterprise-cache-proxy
+      #
+      # That Service has endpoints, so the pods carry them. Re-check the same way after a chart
+      # bump: a selector that matches nothing looks perfectly correct and scrapes nothing, which
+      # is indistinguishable from a proxy carrying no traffic.
+      #
+      # NOTE FOR ANYONE COPYING ./podmonitor.yaml: this chart ALSO sets a bare `app` label
+      # (`app: bb-cache-proxy-buildbuddy-enterprise-cache-proxy`), which the executor chart does
+      # not -- that file's comment says so about the executor pods only. Do not carry either
+      # assumption across; the two charts differ here.
+      app.kubernetes.io/name: buildbuddy-enterprise-cache-proxy
+      app.kubernetes.io/instance: bb-cache-proxy
+  podMetricsEndpoints:
+    # By port NAME (the chart's `metrics` container port, 9090) rather than number, so a chart
+    # bump that moves the port fails to find it instead of silently scraping the wrong one.
+    - port: metrics
+      path: /metrics
+      interval: 15s

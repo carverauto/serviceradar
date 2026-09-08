@@ -1,0 +1,94 @@
+load("@rules_rs//rs:cargo_build_script.bzl", "cargo_build_script")
+load("@rules_rs//rs:rust_binary.bzl", "rust_binary")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+
+package(default_visibility = ["//visibility:public"])
+
+WORKLOAD_IDENTITY_DEPS = [
+    "@crates//:anyhow",
+    "@crates//:clap",
+    "@crates//:hyper-util",
+    "@crates//:log",
+    "@crates//:prost",
+    "@crates//:serde",
+    "@crates//:serde_json",
+    "@crates//:tokio",
+    "@crates//:tonic",
+    "@crates//:tonic-prost",
+    "@crates//:tower",
+]
+
+# Generates the CRI runtime client from //proto/cri/v1.proto. This replaces the cri-api
+# crate, which is unmaintained (its repo is gone) and was built against tonic 0.12 --
+# depending on it forced a whole second gRPC stack into the build.
+cargo_build_script(
+    name = "build_script",
+    srcs = ["build.rs"],
+    build_script_env = {
+        "PROTOC": "$(execpath @bazel_tools//tools/proto:protoc)",
+    },
+    crate_root = "build.rs",
+    data = [
+        "//proto:cri_proto_src",
+    ],
+    # Restores the execroot as this script's working directory.
+    #
+    # rules_rs's rules_rust synthesizes CARGO_MANIFEST_DIR as a runfiles directory holding
+    # only files from THIS package, and runs the script there. Every proto consumed here
+    # comes from another package, so it lands outside that directory and build.rs's
+    # execroot-relative path resolves to nothing -- protoc reports "Could not make proto path
+    # relative: ... No such file or directory". The feature symlinks the execroot into the
+    # manifest dir, which is what build.rs's Bazel branch was written against.
+    #
+    # Still hermetic: the sandbox holds only declared inputs, so this changes which paths
+    # resolve, not which files exist. A build script whose data lives in its own package
+    # (//rust/addon-sdk, //rust/powerdns) does not need it.
+    features = ["symlink-exec-root"],
+    tools = ["@bazel_tools//tools/proto:protoc"],
+    deps = ["@crates//:tonic-prost-build"],
+)
+
+rust_library(
+    name = "workload_identity",
+    srcs = ["src/lib.rs"],
+    crate_name = "serviceradar_workload_identity",
+    crate_root = "src/lib.rs",
+    data = ["//proto:cri_proto_src"],
+    deps = WORKLOAD_IDENTITY_DEPS + [":build_script"],
+)
+
+rust_binary(
+    name = "workload_identity_check",
+    srcs = ["src/bin/workload-identity-check.rs"],
+    crate_root = "src/bin/workload-identity-check.rs",
+    deps = WORKLOAD_IDENTITY_DEPS + [":workload_identity"],
+)
+
+rust_binary(
+    name = "workload_identity_daemon",
+    srcs = ["src/bin/workload-identity.rs"],
+    crate_root = "src/bin/workload-identity.rs",
+    deps = WORKLOAD_IDENTITY_DEPS + [":workload_identity"],
+)
+
+rust_test(
+    name = "workload_identity_test",
+    srcs = ["src/lib.rs"],
+    crate_name = "serviceradar_workload_identity",
+    crate_root = "src/lib.rs",
+    data = ["//proto:cri_proto_src"],
+    deps = WORKLOAD_IDENTITY_DEPS + ["@crates//:tempfile"] + [":build_script"],
+)
+
+# fj#4383: the daemon's config decoder (Config/load_config) lives in the bin
+# crate, so it needs its own test target; the contract test include_str!'s
+# the core-emitted config_json fixture (regenerated via
+# `mix serviceradar.gen.addon_contract_fixtures`).
+rust_test(
+    name = "workload_identity_daemon_test",
+    srcs = ["src/bin/workload-identity.rs"],
+    compile_data = ["//go/pkg/agent:addonconfig_contract_fixtures"],
+    crate_root = "src/bin/workload-identity.rs",
+    deps = WORKLOAD_IDENTITY_DEPS + [":workload_identity"],
+)

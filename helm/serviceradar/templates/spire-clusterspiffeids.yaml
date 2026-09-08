@@ -1,0 +1,33 @@
+{{- if .Values.spire.enabled }}
+{{- $ns := default .Release.Namespace .Values.spire.namespace }}
+{{- $trustDomain := .Values.spire.trustDomain }}
+{{- $entries := list
+  (dict "name" "serviceradar-core" "label" "serviceradar-core" "sa" (.Values.spire.coreServiceAccount | default "serviceradar-core") "admin" true)
+  (dict "name" "serviceradar-web-ng" "label" "serviceradar-web-ng" "sa" (.Values.spire.webNgServiceAccount | default "serviceradar-web-ng"))
+  (dict "name" "serviceradar-datasvc" "label" "serviceradar-datasvc" "sa" (.Values.spire.datasvcServiceAccount | default "serviceradar-datasvc"))
+  (dict "name" "serviceradar-agent" "label" "serviceradar-agent" "sa" (.Values.spire.serviceradarAgentServiceAccount | default "serviceradar-agent"))
+  (dict "name" "serviceradar-log-collector" "label" "serviceradar-log-collector" "sa" (.Values.spire.logCollectorServiceAccount | default "serviceradar-log-collector"))
+  (dict "name" "serviceradar-rperf-checker" "label" "serviceradar-rperf-client" "sa" (.Values.spire.rperfCheckerServiceAccount | default "serviceradar-rperf-checker"))
+  (dict "name" "serviceradar-flow-collector" "label" "serviceradar-flow-collector" "sa" (.Values.spire.flowCollectorServiceAccount | default "serviceradar-flow-collector"))
+  (dict "name" "serviceradar-bmp-collector" "label" "serviceradar-bmp-collector" "sa" (.Values.spire.bmpCollectorServiceAccount | default "serviceradar-bmp-collector"))
+  (dict "name" "serviceradar-trapd" "label" "serviceradar-trapd" "sa" (.Values.spire.trapdServiceAccount | default "serviceradar-trapd"))
+}}
+{{- range $entries }}
+---
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
+metadata:
+  name: {{ printf "%s-%s" .name $ns }}
+spec:
+  spiffeIDTemplate: spiffe://{{ $trustDomain }}/ns/{{ $ns }}/sa/{{ .sa }}
+{{- if .admin }}
+  admin: true
+{{- end }}
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: {{ $ns }}
+  podSelector:
+    matchLabels:
+      app: {{ .label }}
+{{- end }}
+{{- end }}

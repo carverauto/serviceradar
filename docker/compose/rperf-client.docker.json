@@ -1,0 +1,46 @@
+{
+  "listen_addr": "0.0.0.0:50059",
+  "security": {
+    "tls_enabled": true,
+    "cert_file": "/etc/serviceradar/certs/rperf-client.pem",
+    "key_file": "/etc/serviceradar/certs/rperf-client-key.pem",
+    "ca_file": "/etc/serviceradar/certs/root.pem"
+  },
+  "default_poll_interval": 300,
+  "targets": [
+    {
+      "name": "Local Network TCP Test",
+      "address": "192.168.1.1",
+      "port": 5199,
+      "protocol": "tcp",
+      "reverse": false,
+      "bandwidth": 1000000,
+      "duration": 10.0,
+      "parallel": 1,
+      "length": 0,
+      "omit": 1,
+      "no_delay": true,
+      "send_buffer": 0,
+      "receive_buffer": 0,
+      "send_interval": 0.05,
+      "poll_interval": 300
+    },
+    {
+      "name": "Local Network UDP Test",
+      "address": "192.168.1.1",
+      "port": 5199,
+      "protocol": "udp",
+      "reverse": false,
+      "bandwidth": 1000000,
+      "duration": 10.0,
+      "parallel": 1,
+      "length": 1280,
+      "omit": 1,
+      "no_delay": false,
+      "send_buffer": 0,
+      "receive_buffer": 0,
+      "send_interval": 0.05,
+      "poll_interval": 300
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "name": "@carverauto/create-dashboard",
+  "version": "0.1.1",
+  "description": "npm-create scaffolder for ServiceRadar dashboards. `npm create @carverauto/dashboard <name>` forwards to `serviceradar-cli dashboard init`.",
+  "type": "module",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/carverauto/serviceradar.git",
+    "directory": "js/create-dashboard"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "bin": {
+    "create-dashboard": "bin/create.js"
+  },
+  "files": [
+    "bin",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "pack:check": "npm pack --dry-run",
+    "ci": "npm test && npm run pack:check"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@carverauto/serviceradar-cli": "^0.1.4"
+  }
+}

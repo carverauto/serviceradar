@@ -1,0 +1,46 @@
+# Remote access feature-set manifest (issue 3425 reference consumer).
+#
+# This is a contract reference for the remote-access suite that remains compiled
+# into the base serviceradar-agent. It is intentionally not listed in
+# build/native_addons/addon_inventory.bzl because no separate artifact is built or
+# pushed for a compiled-in/config-toggle feature set.
+id: remote-access
+name: Remote Access
+version: 0.1.0
+description: >-
+  Legacy in-agent remote access capability exposed through the native add-on
+  feature-set contract. The base agent already contains the implementation; an
+  assignment toggles the approved remote access surfaces by configuration. RDP
+  desktop sessions additionally require the separate rdp ephemeral-helper add-on.
+
+kind: native
+delivery: compiled-in
+supervision: config-toggle
+language: go
+
+capabilities:
+  - remote_access
+  - remote_access.ssh
+  - remote_access.app
+  - remote_access.tcp
+  - remote_access.file_transfer
+  - remote_access.sftp
+  - remote_access.desktop
+  - remote_access.rdp
+  - remote_access.recording
+
+requires:
+  base_agent: ">=1.2.0"
+  platforms: [linux]
+  os_capabilities: []
+  run_as: serviceradar
+
+exec:
+  binary: serviceradar-agent
+  install_path: /usr/bin
+
+state_dirs:
+  - /var/lib/serviceradar/checkers
+  - /var/lib/serviceradar/remote-access
+
+config_schema: config.schema.json

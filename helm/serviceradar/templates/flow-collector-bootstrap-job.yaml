@@ -1,0 +1,91 @@
+{{- if .Values.flowCollector.enabled }}
+{{- $data := default (dict) .Values.flowCollector.data -}}
+{{- $dataEnabled := true -}}
+{{- if hasKey $data "enabled" -}}
+{{- $dataEnabled = $data.enabled -}}
+{{- end -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: serviceradar-flow-collector-bootstrap
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: flow-collector-bootstrap
+  annotations:
+    # Runs before the Deployment is updated so the stream (and any pending
+    # events->flows cutover) is settled by exactly one writer before any
+    # collector pod starts. This is what allows replicaCount > 1.
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: serviceradar-flow-collector-bootstrap
+    spec:
+      restartPolicy: Never
+      {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
+      serviceAccountName: {{ .Values.spire.flowCollectorServiceAccount | default "serviceradar-flow-collector" }}
+      {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      containers:
+      - name: bootstrap
+        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-flow-collector" "service" "flowCollector") }}
+        imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+        {{- include "serviceradar.containerSecurityContext" . | nindent 8 }}
+        args:
+        - "--config"
+        - "/etc/serviceradar/flow-collector.json"
+        - "--bootstrap-stream"
+        env:
+        - name: RUST_LOG
+          value: "info"
+        volumeMounts:
+        - name: flow-collector-config
+          mountPath: /etc/serviceradar
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+        - name: nats-creds
+          mountPath: /etc/serviceradar/creds
+          readOnly: true
+        - name: flow-collector-data
+          mountPath: /var/lib/serviceradar
+      volumes:
+      - name: flow-collector-config
+        # NOT the ordinary serviceradar-flow-collector-config ConfigMap --
+        # see flow-collector-bootstrap-configmap.yaml for why this Job needs
+        # its own hook-scoped copy.
+        configMap:
+          name: serviceradar-flow-collector-bootstrap-config
+      - name: cert-data
+        secret:
+          secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
+          items:
+{{ include "serviceradar.runtimeCertItems" (list "root.pem" "ca.crt" "flow-collector.pem" "flow-collector-key.pem") | indent 12 }}
+      - name: nats-creds
+        secret:
+          secretName: serviceradar-nats-creds
+      - name: flow-collector-data
+      {{- if and $dataEnabled (not $data.existingClaim) .Release.IsInstall }}
+        # Fresh install: serviceradar-flow-collector-data (flow-collector.yaml)
+        # is an ordinary resource, so it does not exist yet the first time
+        # this pre-install hook runs (see flow-collector-bootstrap-configmap.yaml
+        # for why the PVC itself cannot become a hook resource to fix this --
+        # doing so would delete-and-recreate it, and therefore the durable
+        # cutover markers, on every future upgrade). Nothing to recover from
+        # on a genuinely first install: load_ownership_inventory and
+        # load_rehome_marker both treat an absent file as Ok(None), which is
+        # exactly what every pod already did on first boot before this PVC
+        # existed. Every later pre-upgrade run (any `helm upgrade`) mounts
+        # the real, by-then-existing PVC below, and every marker from that
+        # point on persists there uninterrupted.
+        emptyDir: {}
+      {{- else if $dataEnabled }}
+        persistentVolumeClaim:
+          claimName: {{ $data.existingClaim | default "serviceradar-flow-collector-data" }}
+      {{- else }}
+        emptyDir: {}
+      {{- end }}
+{{- end }}

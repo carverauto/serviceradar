@@ -1,0 +1,43 @@
+suite: flow collector replicas
+templates:
+  - flow-collector.yaml
+tests:
+  - it: rolls updates and spreads replicas once stateless
+    set:
+      flowCollector.enabled: true
+      flowCollector.replicaCount: 3
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 3
+      - equal:
+          path: spec.strategy.type
+          value: RollingUpdate
+      # Must be the SOFT (preferred) form specifically, not just "any
+      # podAntiAffinity" -- required/hard anti-affinity would leave
+      # replicas unschedulable on a cluster smaller than replicaCount,
+      # contradicting the design ("left soft so a small cluster can still
+      # schedule every replica").
+      - isNotNull:
+          path: spec.template.spec.affinity.podAntiAffinity.preferredDuringSchedulingIgnoredDuringExecution
+      - isNull:
+          path: spec.template.spec.affinity.podAntiAffinity.requiredDuringSchedulingIgnoredDuringExecution
+      - equal:
+          path: spec.template.spec.affinity.podAntiAffinity.preferredDuringSchedulingIgnoredDuringExecution[0].podAffinityTerm.topologyKey
+          value: kubernetes.io/hostname
+      - equal:
+          path: spec.template.spec.affinity.podAntiAffinity.preferredDuringSchedulingIgnoredDuringExecution[0].podAffinityTerm.labelSelector.matchLabels.app
+          value: serviceradar-flow-collector
+      # The Deployment's data volume must be emptyDir, never the PVC -- an
+      # RWO PVC cannot attach to pods scheduled on different nodes, so this
+      # is the one change that makes replicaCount > 1 possible at all.
+      - equal:
+          path: spec.template.spec.volumes[3].name
+          value: flow-collector-data
+      - isNotNull:
+          path: spec.template.spec.volumes[3].emptyDir
+      - isNull:
+          path: spec.template.spec.volumes[3].persistentVolumeClaim

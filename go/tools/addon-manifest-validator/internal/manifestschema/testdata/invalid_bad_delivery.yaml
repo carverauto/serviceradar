@@ -1,0 +1,22 @@
+# Invalid fixture: unknown `delivery` value AND a missing required field (`config_schema`).
+# The gate must fail closed on this manifest.
+id: broken
+name: Broken Add-on
+version: 0.1.0
+
+kind: native
+delivery: carrier-pigeon          # not one of compiled-in | pushed-artifact | os-package
+supervision: agent-sidecar
+
+capabilities:
+  - sample
+
+requires:
+  base_agent: ">=1.2.0"
+  platforms: [linux]
+
+exec:
+  binary: serviceradar-broken-addon
+  install_path: /usr/local/lib/serviceradar/bin
+
+# config_schema intentionally omitted (required field missing).

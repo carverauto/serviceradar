@@ -1,0 +1,32 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+
+# Hyphenated rule names, matching Gazelle's directory-derived convention. See the note in
+# //go/cmd/tools/sshca-signer:BUILD.bazel for what an underscored name costs: Gazelle cannot
+# see it, appends a duplicate go_test embedding a nonexistent `_lib`, and the package fails
+# analysis.
+go_library(
+    name = "mapper-baseline_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/carverauto/serviceradar/go/cmd/tools/mapper-baseline",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//go/pkg/logger",
+        "//go/pkg/mapper",
+    ],
+)
+
+go_binary(
+    name = "mapper-baseline",
+    embed = [":mapper-baseline_lib"],
+    visibility = ["//visibility:public"],
+)
+
+# `deps` is Gazelle's, not the hand-written rule's: the previous mapper_baseline_test declared
+# none, but main_test.go does import //go/pkg/mapper. It only compiled because `embed` pulls
+# the library's own deps in transitively.
+go_test(
+    name = "mapper-baseline_test",
+    srcs = ["main_test.go"],
+    embed = [":mapper-baseline_lib"],
+    deps = ["//go/pkg/mapper"],
+)

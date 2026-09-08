@@ -1,0 +1,7 @@
+{
+  "mapbox": {
+    "access_token": "",
+    "style_dark": "mapbox://styles/mapbox/dark-v11",
+    "style_light": "mapbox://styles/mapbox/light-v11"
+  }
+}

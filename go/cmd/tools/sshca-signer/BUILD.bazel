@@ -1,0 +1,38 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+
+# Rule names follow Gazelle's convention, which derives them from the DIRECTORY name and so
+# keeps the hyphen: `sshca-signer_lib`, not `sshca_signer_lib`.
+#
+# This is not cosmetic. Gazelle matches existing rules by the name it would generate, so an
+# underscored `sshca_signer_lib` is invisible to it. Instead of merging it appended a second
+# go_test embedding `:sshca-signer_lib`, a target that does not exist, and the package stopped
+# analyzing:
+#
+#   in embed attribute of go_test rule //go/cmd/tools/sshca-signer:sshca-signer_test:
+#   rule '//go/cmd/tools/sshca-signer:sshca-signer_lib' does not exist
+#
+# Four hyphenated siblings already use this convention (armis-api-probe, armis-northbound-smoke,
+# trivy-sidecar, serviceradar-sample-addon). Match it in any new hyphenated Go package.
+go_library(
+    name = "sshca-signer_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/carverauto/serviceradar/go/cmd/tools/sshca-signer",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//go/pkg/remoteaccess/sshca",
+        "@org_golang_x_crypto//ssh",
+    ],
+)
+
+go_binary(
+    name = "sshca-signer",
+    embed = [":sshca-signer_lib"],
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "sshca-signer_test",
+    srcs = ["main_test.go"],
+    embed = [":sshca-signer_lib"],
+    deps = ["@org_golang_x_crypto//ssh"],
+)

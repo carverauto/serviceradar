@@ -1,0 +1,129 @@
+services:
+  # Certificate Generation Service (runs once to generate mTLS certs)
+  cert-generator:
+    image: alpine:latest
+    command: ["/bin/sh", "-c", "apk add --no-cache openssl && /bin/sh /entrypoint-certs.sh"]
+    container_name: serviceradar-cert-generator
+    volumes:
+      - cert-data:/certs
+      - ./docker/compose/entrypoint-certs.sh:/entrypoint-certs.sh:ro
+    restart: "no"  # Only run once
+    networks:
+      - serviceradar-net
+
+  # ServiceRadar Core Service (Elixir)
+  # Note: This service was migrated from golang to Elixir (core-elx)
+  # For full core-elx configuration, use docker-compose.elx.yml overlay
+  core-elx:
+    build:
+      context: .
+      dockerfile: docker/compose/Dockerfile.core-elx
+    container_name: serviceradar-core-elx
+    hostname: core-elx
+    environment:
+      - CLUSTER_ENABLED=false
+      # Database configuration
+      - CNPG_HOST=cnpg
+      - CNPG_PORT=5432
+      - CNPG_DATABASE=serviceradar
+      - CNPG_USERNAME=serviceradar
+      - CNPG_PASSWORD=serviceradar
+      - CNPG_SSL_MODE=disable
+      # Feature flags
+      - SERVICERADAR_CORE_REPO_ENABLED=true
+      - SERVICERADAR_CORE_RUN_MIGRATIONS=true
+      # Initial MTR history retention in days (1-395) for a fresh database.
+      - MTR_RETENTION_DAYS=${MTR_RETENTION_DAYS:-30}
+    volumes:
+      - cert-data:/etc/serviceradar/certs:ro
+    depends_on:
+      cert-generator:
+        condition: service_completed_successfully
+    networks:
+      serviceradar-net:
+        ipv4_address: 172.28.0.3
+        aliases:
+          - core.serviceradar
+    restart: unless-stopped
+
+  # Optional: Redpanda for Kafka compatibility (if needed for event streaming)
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v23.2.15
+    container_name: serviceradar-redpanda
+    command:
+      - redpanda start
+      - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr internal://redpanda:9092,external://localhost:19092
+      - --smp 1
+      - --memory 1G
+      - --mode dev-container
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+    ports:
+      - "19092:19092"  # Kafka external port
+      - "9644:9644"    # Admin API
+    networks:
+      - serviceradar-net
+    profiles:
+      - full  # Only start when using --profile full
+    restart: unless-stopped
+
+  # Optional: NATS for messaging (if needed)
+  nats:
+    image: nats:2.14.0-alpine
+    container_name: serviceradar-nats
+    ports:
+      - "4222:4222"  # Client connections
+      - "127.0.0.1:8222:8222"  # HTTP monitoring
+      - "6222:6222"  # Cluster routing
+    volumes:
+      - nats-data:/data
+      - cert-data:/etc/serviceradar/certs:ro
+    command: ["--store_dir", "/data", "--cluster_name", "serviceradar"]
+    networks:
+      serviceradar-net:
+        ipv4_address: 172.28.0.4
+    profiles:
+      - full  # Only start when using --profile full
+    restart: unless-stopped
+
+  # Faker service - generates fake data for development/testing
+  faker:
+    image: registry.carverauto.dev/serviceradar/serviceradar-faker:${APP_TAG:-latest}
+    container_name: serviceradar-faker-mtls
+    hostname: faker
+    profiles:
+      - faker
+      - full
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./logs:/var/log/serviceradar
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 8080 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      serviceradar-net:
+        aliases:
+          - faker.serviceradar
+    restart: unless-stopped
+
+networks:
+  serviceradar-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+volumes:
+  cert-data:
+    driver: local
+  redpanda-data:
+    driver: local
+  nats-data:
+    driver: local

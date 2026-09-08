@@ -1,0 +1,235 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_test")
+load("@rules_python//python:py_test.bzl", "py_test")
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load(":addon_inventory.bzl", "ADDON_BUNDLES")
+load(":defs.bzl", "declare_native_addon_targets")
+
+# gazelle:ignore
+#
+# Hand-maintained. This package is the native add-on release gate
+# (//build/native_addons:build_gates_test), so a plausible-looking rewrite here fails the
+# publish, not the build. Gazelle gets three things wrong at once:
+#
+#   * It splits addon_artifact_signature_tool into go_binary + a generated
+#     `native_addons_lib`, giving the library importpath .../build/native_addons while the
+#     binary keeps .../build/native_addons/addon_artifact_signature_tool. The two disagree.
+#   * It appends a duplicate `native_addons_test` over addon_artifact_signature_tool_test.go,
+#     which addon_artifact_signature_tool_test already compiles.
+#   * Most of this package is py_test, sh_test, genquery and declare_native_addon_targets(),
+#     none of which Gazelle models, so it has no view of what the Go rules exist to serve.
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "assemble_addon_bundle.py",
+    # Shared with //build/packaging/agent:stage_agent_rpm -- the script is
+    # generic over any runfile, so both lab-delivery targets use one copy.
+    "stage_addon_bundle.sh",
+    "assemble_addon_bundle_test.py",
+    "binary_portability_test.sh",
+    "binary-size-baseline.json",
+    "binary_size_test.sh",
+    "dependency_isolation_test.sh",
+    "inventory_consistency_test.sh",
+    "publish_addon.sh",
+    "runfile_path.sh",
+    "validate_manifests_test.sh",
+])
+
+# Signs/verifies a native add-on pushed-artifact (per-arch tarball or bare binary)
+# with the agent release ed25519 key, producing exactly the raw signature the agent
+# verifies (verifyAddonArtifactSignature). Stdlib-only; no external deps.
+go_binary(
+    name = "addon_artifact_signature_tool",
+    srcs = ["addon_artifact_signature_tool.go"],
+    importpath = "github.com/carverauto/serviceradar/build/native_addons/addon_artifact_signature_tool",
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "addon_artifact_signature_tool_test",
+    srcs = [
+        "addon_artifact_signature_tool.go",
+        "addon_artifact_signature_tool_test.go",
+    ],
+)
+
+# Builds per-arch native add-on bundles (zip + sha256 + metadata.json) for every
+# add-on declared in addon_inventory.bzl. Signing (Cosign + ed25519
+# upload-signature), the discovery index, and the Forgejo release upload reuse the
+# Wasm plugin rails (scripts/ + .github/workflows) and consume :all_metadata / :all_bundles.
+declare_native_addon_targets(ADDON_BUNDLES)
+
+py_test(
+    name = "assemble_addon_bundle_test",
+    srcs = ["assemble_addon_bundle_test.py"],
+    data = [":assemble_addon_bundle.py"],
+)
+
+py_test(
+    name = "netprobe_bundle_payload_test",
+    srcs = ["netprobe_bundle_payload_test.py"],
+    args = [
+        "$(rootpath :netprobe_addon_bundle.linux.amd64.tar.gz)",
+        "$(rootpath :netprobe_addon_bundle_linux_amd64_static)",
+        "$(rootpath //rust/netprobe/ebpf:netprobe_ebpf_object)",
+    ],
+    data = [
+        ":netprobe_addon_bundle.linux.amd64.tar.gz",
+        ":netprobe_addon_bundle_linux_amd64_static",
+        "//rust/netprobe/ebpf:netprobe_ebpf_object",
+    ],
+    target_compatible_with = ["@platforms//os:linux"],
+)
+
+py_test(
+    name = "powerdns_bundle_manifest_files_test",
+    srcs = ["powerdns_bundle_manifest_files_test.py"],
+    args = [
+        "$(rootpath :powerdns_addon_bundle_zip)",
+        "$(rootpath :powerdns_addon_bundle.linux.amd64.tar.gz)",
+    ],
+    data = [
+        ":powerdns_addon_bundle.linux.amd64.tar.gz",
+        ":powerdns_addon_bundle_zip",
+    ],
+)
+
+genquery(
+    name = "agent_dependency_closure",
+    expression = "deps(//go/cmd/agent:agent)",
+    scope = ["//go/cmd/agent"],
+)
+
+sh_test(
+    name = "dependency_isolation_test",
+    timeout = "short",
+    srcs = ["dependency_isolation_test.sh"],
+    args = ["$(rootpath :agent_dependency_closure)"],
+    data = [
+        "runfile_path.sh",
+        ":agent_dependency_closure",
+    ],
+)
+
+sh_test(
+    name = "validate_addon_manifests_test",
+    timeout = "short",
+    srcs = ["validate_manifests_test.sh"],
+    args = [
+        "$(rootpath //go/tools/addon-manifest-validator:addon-manifest-validator)",
+        "$(rootpath //addons/sample-addon:addon.yaml)",
+        "$(rootpath //addons/rust-sample-addon:addon.yaml)",
+        "$(rootpath //addons/netprobe:addon.yaml)",
+        "$(rootpath //addons/powerdns:addon.yaml)",
+        "$(rootpath //addons/remote-access:addon.yaml)",
+        "$(rootpath //addons/rdp-adapter:addon.yaml)",
+        "$(rootpath //addons/workload-identity:addon.yaml)",
+        "$(rootpath //addons/bumblebee-scan:addon.yaml)",
+        "$(rootpath //addons/scalibr-endpoint-inventory:addon.yaml)",
+        "$(rootpath //addons/anomaly-addon:addon.yaml)",
+        "$(rootpath //addons/otel-collector:addon.yaml)",
+    ],
+    data = [
+        "runfile_path.sh",
+        "//addons/anomaly-addon:addon.yaml",
+        "//addons/bumblebee-scan:addon.yaml",
+        "//addons/netprobe:addon.yaml",
+        "//addons/otel-collector:addon.yaml",
+        "//addons/powerdns:addon.yaml",
+        "//addons/rdp-adapter:addon.yaml",
+        "//addons/remote-access:addon.yaml",
+        "//addons/rust-sample-addon:addon.yaml",
+        "//addons/sample-addon:addon.yaml",
+        "//addons/scalibr-endpoint-inventory:addon.yaml",
+        "//addons/workload-identity:addon.yaml",
+        "//go/tools/addon-manifest-validator",
+    ],
+)
+
+sh_test(
+    name = "inventory_consistency_test",
+    timeout = "short",
+    srcs = ["inventory_consistency_test.sh"],
+    args = [
+        "$(rootpath :addon_inventory.bzl)",
+        "$(rootpath //scripts:check-native-addon-version-bumps.sh)",
+        "$(rootpath :BUILD.bazel)",
+    ],
+    data = [
+        ":BUILD.bazel",
+        ":addon_inventory.bzl",
+        "//scripts:check-native-addon-version-bumps.sh",
+    ],
+)
+
+sh_test(
+    name = "binary_size_test",
+    timeout = "long",
+    srcs = ["binary_size_test.sh"],
+    args = [
+        "$(rootpath //scripts:check-addon-binary-size.sh)",
+        "$(rootpath :binary-size-baseline.json)",
+        "$(locations :all_binaries)",
+    ],
+    data = [
+        "binary-size-baseline.json",
+        "runfile_path.sh",
+        ":all_binaries",
+        "//scripts:check-addon-binary-size.sh",
+    ],
+    # go-size-analyzer (gsa) is not yet a hermetic Bazel tool — it's `go install`ed on
+    # the workflow runner, not present in the RBE/sandbox this sh_test runs in — so don't
+    # fail closed on its absence here. The size-regression check (baseline comparison) runs
+    # without it; the gsa breakdown is provided by the runner-side `make addon_build_gates`.
+    # add-hermetic-native-addon-builds will pin gsa as a tool target and restore "1".
+    env = {
+        "REQUIRE_GSA": "0",
+    },
+    target_compatible_with = ["@platforms//os:linux"],
+)
+
+sh_test(
+    name = "binary_portability_test",
+    timeout = "long",
+    srcs = ["binary_portability_test.sh"],
+    args = ["$(locations :all_tarballs)"],
+    data = [
+        "runfile_path.sh",
+        ":all_tarballs",
+    ],
+    env = {
+        # Native add-on artifacts are expected to run on the same baseline as
+        # EL9/RHEL-compatible release packages.
+        "MAX_GLIBC_VERSION": "2.34",
+    },
+    target_compatible_with = ["@platforms//os:linux"],
+)
+
+test_suite(
+    name = "build_gates_test",
+    tests = [
+        ":assemble_addon_bundle_test",
+        ":binary_portability_test",
+        ":binary_size_test",
+        ":dependency_isolation_test",
+        ":inventory_consistency_test",
+        ":netprobe_bundle_payload_test",
+        ":powerdns_bundle_manifest_files_test",
+        ":validate_addon_manifests_test",
+        "//scripts:native_addon_version_bumps_test",
+        "//scripts:verify_native_addon_publish_negative_test",
+    ],
+)
+
+# Stage a built add-on bundle to a path outside the output tree, for manual
+# delivery to a lab host. The bundle is a declared input consumed through
+# runfiles, so this never hand-resolves a bazel-out path.
+sh_binary(
+    name = "stage_netprobe_addon",
+    srcs = ["stage_addon_bundle.sh"],
+    data = [":netprobe_addon_bundle.linux.amd64.tar.gz"],
+    env = {
+        "BUNDLE_RUNFILE": "$(rootpath :netprobe_addon_bundle.linux.amd64.tar.gz)",
+    },
+)

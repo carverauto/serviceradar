@@ -1,0 +1,265 @@
+defmodule ServiceRadar.Identity.Users do
+  @moduledoc """
+  Ash-based context module for user operations.
+
+  Provides CRUD operations for managing users using the Ash User resource,
+  including authentication, registration, and profile updates.
+
+  This module serves as a facade over the Ash User resource, providing a familiar
+  API while leveraging Ash's authorization and authentication features.
+
+  In the schema-agnostic architecture, each instance serves only one account and
+  PostgreSQL schema isolation handles multi-tenancy at the infrastructure level.
+  """
+
+  alias ServiceRadar.Identity.PasswordHash
+  alias ServiceRadar.Identity.User
+
+  require Ash.Query
+
+  @doc """
+  Gets a user by email.
+
+  ## Examples
+
+      iex> get_by_email("foo@example.com")
+      %User{}
+
+      iex> get_by_email("unknown@example.com")
+      nil
+
+  """
+  @spec get_by_email(String.t(), keyword()) :: User.t() | nil
+  def get_by_email(email, opts \\ []) when is_binary(email) do
+    case User
+         |> Ash.Query.for_read(:by_email, %{email: email}, read_opts(opts, true))
+         |> Ash.read_one() do
+      {:ok, user} -> user
+      {:error, _} -> nil
+    end
+  end
+
+  @doc """
+  Gets a user by email and verifies the password.
+
+  Returns the user if the email exists and the password is correct,
+  otherwise returns nil.
+
+  ## Examples
+
+      iex> get_by_email_and_password("foo@example.com", "correct_password")
+      %User{}
+
+      iex> get_by_email_and_password("foo@example.com", "invalid_password")
+      nil
+
+  """
+  @spec get_by_email_and_password(String.t(), String.t(), keyword()) :: User.t() | nil
+  def get_by_email_and_password(email, password, opts \\ [])
+      when is_binary(email) and is_binary(password) do
+    case User.authenticate(email, password, read_opts(opts, true)) do
+      {:ok, %User{} = user} ->
+        user
+
+      {:ok, nil} ->
+        nil
+
+      {:error, _} ->
+        nil
+    end
+  end
+
+  @doc """
+  Checks if the given password is valid for the user.
+  """
+  @spec valid_password?(User.t(), String.t()) :: boolean()
+  def valid_password?(%User{hashed_password: hashed_password}, password)
+      when is_binary(hashed_password) and byte_size(password) > 0 do
+    PasswordHash.verify(password, hashed_password)
+  end
+
+  def valid_password?(_, _), do: false
+
+  @doc """
+  Gets a single user by ID.
+
+  Returns `{:ok, user}` or `{:error, :not_found}`.
+  """
+  @spec get(String.t(), keyword()) :: {:ok, User.t()} | {:error, :not_found}
+  def get(id, opts \\ []) when is_binary(id) do
+    case Ash.get(User, id, read_opts(opts, false)) do
+      {:ok, user} -> {:ok, user}
+      {:error, %Ash.Error.Query.NotFound{}} -> {:error, :not_found}
+      {:error, _} -> {:error, :not_found}
+    end
+  end
+
+  @doc """
+  Gets a single user by ID, raising if not found.
+  """
+  @spec get!(String.t(), keyword()) :: User.t()
+  def get!(id, opts \\ []) do
+    case get(id, opts) do
+      {:ok, user} -> user
+      {:error, :not_found} -> raise "User not found: #{id}"
+    end
+  end
+
+  @doc """
+  Registers a new user with password.
+
+  ## Options
+
+    * `:password` - Required password
+    * `:password_confirmation` - Required password confirmation
+    * `:role` - User role (default: :viewer)
+    * `:display_name` - Optional display name
+
+  """
+  @spec register_with_password(map(), keyword()) :: {:ok, User.t()} | {:error, Ash.Error.t()}
+  def register_with_password(attrs, opts \\ []) do
+    User
+    |> Ash.Changeset.for_create(:register_with_password, attrs, read_opts(opts, false))
+    |> Ash.create()
+  end
+
+  @doc """
+  Updates a user's email address.
+  """
+  @spec update_email(User.t(), map(), keyword()) :: {:ok, User.t()} | {:error, Ash.Error.t()}
+  def update_email(user, attrs, opts \\ []) do
+    update_user(user, :update_email, attrs, Keyword.put_new(opts, :actor, user))
+  end
+
+  @doc """
+  Updates a user's password.
+
+  Requires the current password for verification when a password is already set.
+  """
+  @spec update_password(User.t(), map(), keyword()) :: {:ok, User.t()} | {:error, Ash.Error.t()}
+  def update_password(user, attrs, opts \\ []) do
+    # Filter to only valid arguments for change_password action
+    valid_keys = [
+      :password,
+      :password_confirmation,
+      :current_password,
+      "password",
+      "password_confirmation",
+      "current_password"
+    ]
+
+    filtered_attrs = Map.take(attrs, valid_keys)
+
+    update_user(user, :change_password, filtered_attrs, Keyword.put_new(opts, :actor, user))
+  end
+
+  @doc """
+  Updates a user's role.
+
+  Requires admin privileges.
+  """
+  @spec update_role(User.t(), atom(), keyword()) :: {:ok, User.t()} | {:error, Ash.Error.t()}
+  def update_role(user, role, opts \\ []) do
+    update_user(user, :update_role, %{role: role}, opts)
+  end
+
+  @doc """
+  Deactivates a user account and revokes access.
+  """
+  @spec deactivate(User.t(), keyword()) :: {:ok, User.t()} | {:error, Ash.Error.t()}
+  def deactivate(user, opts \\ []) do
+    update_user(user, :deactivate, %{}, opts)
+  end
+
+  @doc """
+  Reactivates a user account.
+  """
+  @spec reactivate(User.t(), keyword()) :: {:ok, User.t()} | {:error, Ash.Error.t()}
+  def reactivate(user, opts \\ []) do
+    update_user(user, :reactivate, %{}, opts)
+  end
+
+  @doc """
+  Records a user login and authentication method.
+  """
+  @spec record_login(User.t(), atom(), keyword()) :: {:ok, User.t()} | {:error, Ash.Error.t()}
+  def record_login(user, auth_method, opts \\ []) do
+    update_user(
+      user,
+      :record_login,
+      %{auth_method: auth_method},
+      Keyword.put_new(opts, :actor, user)
+    )
+  end
+
+  @doc """
+  Confirms a user's email address.
+  """
+  @spec confirm(User.t(), keyword()) :: {:ok, User.t()} | {:error, Ash.Error.t()}
+  def confirm(user, opts \\ []) do
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+    opts = Keyword.put_new(opts, :actor, user)
+
+    update_user(user, :update, %{}, opts, fn changeset ->
+      Ash.Changeset.force_change_attribute(changeset, :confirmed_at, now)
+    end)
+  end
+
+  @doc """
+  Lists all users, optionally filtered.
+
+  ## Options
+
+    * `:role` - Filter by role
+    * `:status` - Filter by status
+    * `:limit` - Maximum number of results (default: 100)
+    * `:actor` - The actor performing the query
+
+  """
+  @spec list(keyword()) :: {:ok, [User.t()]} | {:error, Ash.Error.t()}
+  def list(opts \\ []) do
+    limit = Keyword.get(opts, :limit, 100)
+    role = Keyword.get(opts, :role)
+    status = Keyword.get(opts, :status)
+
+    User
+    |> Ash.Query.for_read(:read, %{}, read_opts(opts, false))
+    |> maybe_filter_role(role)
+    |> maybe_filter_status(status)
+    |> Ash.Query.sort(inserted_at: :desc)
+    |> Ash.Query.limit(limit)
+    |> Ash.read()
+  end
+
+  # Private helpers
+
+  defp maybe_filter_role(query, nil), do: query
+
+  defp maybe_filter_role(query, role) do
+    import Ash.Expr
+
+    Ash.Query.filter(query, expr(role == ^role))
+  end
+
+  defp maybe_filter_status(query, nil), do: query
+
+  defp maybe_filter_status(query, status) do
+    import Ash.Expr
+
+    Ash.Query.filter(query, expr(status == ^status))
+  end
+
+  defp read_opts(opts, default_authorize?) do
+    [actor: actor(opts), authorize?: authorize?(opts, default_authorize?)]
+  end
+
+  defp actor(opts), do: Keyword.get(opts, :actor)
+  defp authorize?(opts, default), do: Keyword.get(opts, :authorize?, default)
+
+  defp update_user(user, action, attrs, opts, mutate \\ &Function.identity/1) do
+    user
+    |> Ash.Changeset.for_update(action, attrs, read_opts(opts, true))
+    |> mutate.()
+    |> Ash.update()
+  end
+end

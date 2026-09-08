@@ -1,0 +1,149 @@
+{{- /* Component gate (issue #3859). ABSENT MEANS ENABLED: hasKey is used rather than a
+     truthiness test so that a chart or values file which never mentions `enabled`
+     renders exactly as before, and only an explicit `rperfChecker.enabled: false` removes
+     this component. `default true` cannot be used here -- Helm treats false as empty,
+     so it would resurrect anything explicitly disabled. */ -}}
+{{- $gate12 := default (dict) .Values.rperfChecker -}}
+{{- if or (not (hasKey $gate12 "enabled")) $gate12.enabled }}
+{{- $rperfChecker := default (dict) .Values.rperfChecker -}}
+{{- $rperfCheckerEnabled := true -}}
+{{- if hasKey $rperfChecker "enabled" -}}
+{{- $rperfCheckerEnabled = $rperfChecker.enabled -}}
+{{- end -}}
+{{- if $rperfCheckerEnabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-rperf-client
+spec:
+  replicas: {{ default 1 $rperfChecker.replicaCount }}
+  selector:
+    matchLabels:
+      app: serviceradar-rperf-client
+  template:
+    metadata:
+      labels:
+        app: serviceradar-rperf-client
+        app.kubernetes.io/part-of: serviceradar
+      annotations:
+        {{- include "serviceradar.runtimeCertRollAnnotations" . | nindent 8 }}
+      {{- if .Values.global.forceRolloutOnUpgrade }}
+        serviceradar.io/release-revision: {{ .Release.Revision | quote }}
+      {{- end }}
+    spec:
+      {{- include "serviceradar.topologySpread" (dict "root" . "app" "serviceradar-rperf-client") | nindent 6 }}
+      {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
+      serviceAccountName: {{ .Values.spire.rperfCheckerServiceAccount | default "serviceradar-rperf-checker" }}
+      {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      initContainers:
+        - name: init-rperf-config
+          image: busybox:1.36
+          {{- include "serviceradar.nonRootContainerSecurityContext" . | nindent 10 }}
+          command: ['sh', '-c', 'mkdir -p /etc/serviceradar/checkers && cp /config/rperf.json /etc/serviceradar/checkers/rperf.json']
+          volumeMounts:
+            - name: serviceradar-config
+              mountPath: /config
+            - name: checkers-dir
+              mountPath: /etc/serviceradar/checkers
+      containers:
+      - name: rperf-checker
+        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-rperf-client" "service" "rperfClient") }}
+        imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+        {{- include "serviceradar.containerSecurityContext" . | nindent 8 }}
+        ports:
+        - containerPort: 50081
+          name: grpc
+        volumeMounts:
+        - name: serviceradar-config
+          mountPath: /etc/serviceradar
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+        - name: checkers-dir
+          mountPath: /etc/serviceradar/checkers
+        {{- if .Values.spire.enabled }}
+        - name: spire-agent-socket
+          mountPath: /run/spire/sockets
+          readOnly: true
+        {{- end }}
+        env:
+{{ include "serviceradar.kvEnv" . | indent 8 }}
+        - name: CONFIG_PATH
+          value: "/etc/serviceradar/checkers/rperf.json"
+        - name: RUST_LOG
+          value: "info"
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        livenessProbe:
+          tcpSocket:
+            port: 50081
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          tcpSocket:
+            port: 50081
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+      volumes:
+      - name: serviceradar-config
+        configMap:
+          name: serviceradar-config
+      - name: cert-data
+        secret:
+          secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
+          items:
+{{ include "serviceradar.runtimeCertItems" (list "root.pem" "rperf-checker.pem" "rperf-checker-key.pem") | indent 12 }}
+            - key: "rperf-checker.pem"
+              path: "rperf-client.pem"
+            - key: "rperf-checker-key.pem"
+              path: "rperf-client-key.pem"
+      - name: checkers-dir
+        emptyDir: {}
+      {{- if .Values.spire.enabled }}
+      - name: spire-agent-socket
+        hostPath:
+          path: {{ include "serviceradar.spireSocketHostPath" . | quote }}
+          type: DirectoryOrCreate
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-rperf-client
+spec:
+  selector:
+    app: serviceradar-rperf-client
+  ports:
+  - name: grpc
+    port: 50081
+    targetPort: grpc
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.spire.rperfCheckerServiceAccount | default "serviceradar-rperf-checker" }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-rperf
+spec:
+  selector:
+    app: serviceradar-rperf-client
+  ports:
+  - name: grpc
+    port: 50081
+    targetPort: grpc
+{{- end }}
+{{- end }}

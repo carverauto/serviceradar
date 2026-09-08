@@ -1,0 +1,126 @@
+# IPFIX BGP Test Configuration
+# Tests BGP AS path and community extraction from IPFIX flows
+
+flows:
+  # Flow 1: Template + Data with BGP fields (AS 64512 → AS 64513)
+  - version: ipfix
+    header:
+      export_time: 1735141200
+      sequence_number: 100
+      observation_domain_id: 1
+    flowsets:
+      # Template with BGP fields
+      - type: template
+        template_id: 500
+        fields:
+          # Standard flow fields
+          - field_type: "sourceIPv4Address"
+            field_length: 4
+          - field_type: "destinationIPv4Address"
+            field_length: 4
+          - field_type: "packetDeltaCount"
+            field_length: 8
+          - field_type: "octetDeltaCount"
+            field_length: 8
+          - field_type: "sourceTransportPort"
+            field_length: 2
+          - field_type: "destinationTransportPort"
+            field_length: 2
+          - field_type: "protocolIdentifier"
+            field_length: 1
+
+          # BGP AS fields
+          - field_type: "bgpSourceAsNumber"
+            field_length: 4
+          - field_type: "bgpDestinationAsNumber"
+            field_length: 4
+          - field_type: "bgpNextAdjacentAsNumber"
+            field_length: 4
+
+          # BGP Community fields (RFC 8549)
+          - field_type: "bgpCommunity"
+            field_length: 4
+
+      # Data record 1: HTTPS traffic from AS 64512 to AS 64513
+      - type: data
+        template_id: 500
+        records:
+          - source_ipv4_address: "10.1.0.100"
+            destination_ipv4_address: "198.51.100.50"
+            packet_delta_count: 250
+            octet_delta_count: 375000
+            source_transport_port: 49876
+            destination_transport_port: 443
+            protocol_identifier: 6  # TCP
+            bgp_source_as_number: 64512
+            bgp_destination_as_number: 64513
+            bgp_next_hop_as_number: 0  # No intermediate AS
+            bgp_community: 4259840100  # 65000:100 encoded as (65000 << 16) | 100
+
+          # Data record 2: DNS traffic with different BGP community
+          - source_ipv4_address: "10.1.0.200"
+            destination_ipv4_address: "8.8.8.8"
+            packet_delta_count: 5
+            octet_delta_count: 500
+            source_transport_port: 54321
+            destination_transport_port: 53
+            protocol_identifier: 17  # UDP
+            bgp_source_as_number: 64512
+            bgp_destination_as_number: 15169  # Google AS
+            bgp_next_hop_as_number: 64514  # Transit AS
+            bgp_community: 4259840200  # 65000:200 encoded as (65000 << 16) | 200
+
+          # Data record 3: Multiple hops - AS path: 64512 → 64514 → 64515
+          - source_ipv4_address: "10.1.0.150"
+            destination_ipv4_address: "203.0.113.10"
+            packet_delta_count: 1000
+            octet_delta_count: 1500000
+            source_transport_port: 45000
+            destination_transport_port: 80
+            protocol_identifier: 6  # TCP
+            bgp_source_as_number: 64512
+            bgp_destination_as_number: 64515
+            bgp_next_hop_as_number: 64514  # Transit AS
+            bgp_community: 4259840100  # 65000:100
+
+  # Flow 2: Flow without BGP data (backward compatibility test)
+  - version: ipfix
+    header:
+      export_time: 1735141203
+      sequence_number: 103
+      observation_domain_id: 1
+    flowsets:
+      # Template without BGP fields
+      - type: template
+        template_id: 501
+        fields:
+          - field_type: "sourceIPv4Address"
+            field_length: 4
+          - field_type: "destinationIPv4Address"
+            field_length: 4
+          - field_type: "packetDeltaCount"
+            field_length: 8
+          - field_type: "octetDeltaCount"
+            field_length: 8
+          - field_type: "sourceTransportPort"
+            field_length: 2
+          - field_type: "destinationTransportPort"
+            field_length: 2
+          - field_type: "protocolIdentifier"
+            field_length: 1
+
+      # Data without BGP fields
+      - type: data
+        template_id: 501
+        records:
+          - source_ipv4_address: "192.168.1.100"
+            destination_ipv4_address: "10.0.0.1"
+            packet_delta_count: 10
+            octet_delta_count: 1500
+            source_transport_port: 60000
+            destination_transport_port: 22
+            protocol_identifier: 6  # TCP
+
+destination:
+  ip: "127.0.0.1"
+  port: 2055

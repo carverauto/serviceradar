@@ -1,0 +1,166 @@
+suite: remote access RDP WebRTC runtime custody
+templates:
+  - templates/core.yaml
+  - templates/web.yaml
+# Assertions are scoped with `template:` and select documents by a path that is unique
+# within that template. Selecting on metadata.name matches several documents here and
+# fails with `multiple indexes found`. See README.md in this directory.
+tests:
+  - it: renders RDP and public STUN metadata without a secret mount
+    set:
+      remoteAccess.desktop.rdp.enabled: true
+      remoteAccess.desktop.rdp.webRTC.iceServers:
+        - urls:
+            - stun:stun.example.com:3478
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_REMOTE_ACCESS_DESKTOP_RDP_ENABLED
+            value: "true"
+        template: templates/core.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_REMOTE_ACCESS_DESKTOP_RDP_ENABLED
+            value: "true"
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_REMOTE_ACCESS_DESKTOP_WEBRTC_ICE_SERVERS_JSON
+            value: '[{"urls":["stun:stun.example.com:3478"]}]'
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_REMOTE_ACCESS_DESKTOP_WEBRTC_TURN_SHARED_SECRET_FILE
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: remote-access-rdp-turn
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: fails rendering TURN without an operator-owned Secret
+    set:
+      remoteAccess.desktop.rdp.enabled: true
+      remoteAccess.desktop.rdp.webRTC.iceServers:
+        - urls:
+            - turn:turn.example.com:3478?transport=udp
+    asserts:
+      - failedTemplate:
+          errorMessage: remoteAccess.desktop.rdp.webRTC.turn.existingSecretName is required when TURN endpoints are configured
+        template: templates/web.yaml
+
+  - it: rejects inline static TURN credentials
+    set:
+      remoteAccess.desktop.rdp.enabled: true
+      remoteAccess.desktop.rdp.webRTC.iceServers:
+        - urls:
+            - turn:turn.example.com:3478
+          username: static-user
+          credential: static-password
+      remoteAccess.desktop.rdp.webRTC.turn.existingSecretName: ignored-because-inline-is-forbidden
+    asserts:
+      - failedTemplate:
+          errorMessage: remoteAccess.desktop.rdp.webRTC.iceServers must not contain credentials or shared secrets
+        template: templates/web.yaml
+
+  - it: mounts exactly one selected TURN REST Secret key into web-ng
+    set:
+      remoteAccess.desktop.rdp.enabled: true
+      remoteAccess.desktop.rdp.webRTC.iceServers:
+        - urls:
+            - turn:turn.example.com:3478?transport=udp
+            - turns:turn.example.com:5349?transport=tcp
+      remoteAccess.desktop.rdp.webRTC.turn.existingSecretName: serviceradar-turn-rest
+      remoteAccess.desktop.rdp.webRTC.turn.secretKey: current-shared-secret
+      remoteAccess.desktop.rdp.webRTC.turn.credentialTtlSeconds: 300
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_REMOTE_ACCESS_DESKTOP_WEBRTC_TURN_SHARED_SECRET_FILE
+            value: /etc/serviceradar/remote-access-rdp-turn/shared-secret
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_REMOTE_ACCESS_DESKTOP_WEBRTC_TURN_CREDENTIAL_TTL_SECONDS
+            value: "300"
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: remote-access-rdp-turn
+            mountPath: /etc/serviceradar/remote-access-rdp-turn
+            readOnly: true
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: remote-access-rdp-turn
+            secret:
+              secretName: serviceradar-turn-rest
+              defaultMode: 288
+              items:
+                - key: current-shared-secret
+                  path: shared-secret
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_REMOTE_ACCESS_DESKTOP_WEBRTC_TURN_SHARED_SECRET
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: remote-access-rdp-turn
+        template: templates/core.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: rejects TURN credential TTL above one hour
+    set:
+      remoteAccess.desktop.rdp.enabled: true
+      remoteAccess.desktop.rdp.webRTC.iceServers:
+        - urls:
+            - turn:turn.example.com:3478
+      remoteAccess.desktop.rdp.webRTC.turn.existingSecretName: serviceradar-turn-rest
+      remoteAccess.desktop.rdp.webRTC.turn.credentialTtlSeconds: 3601
+    asserts:
+      - failedTemplate:
+          errorMessage: remoteAccess.desktop.rdp.webRTC.turn.credentialTtlSeconds must be between 1 and 3600
+        template: templates/web.yaml

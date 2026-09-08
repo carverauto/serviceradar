@@ -1,0 +1,106 @@
+- generic [ref=e3]:
+  - complementary "Primary navigation" [ref=e4]:
+    - navigation [ref=e5]:
+      - link "Dashboard" [ref=e6] [cursor=pointer]:
+        - /url: /dashboard
+      - link "Devices" [ref=e8] [cursor=pointer]:
+        - /url: /devices
+      - link "Topology" [ref=e10] [cursor=pointer]:
+        - /url: /topology
+      - link "Flows" [ref=e12] [cursor=pointer]:
+        - /url: /observability/flows
+      - link "Events" [ref=e14] [cursor=pointer]:
+        - /url: /events
+      - link "Cameras" [ref=e16] [cursor=pointer]:
+        - /url: /cameras
+      - link "FieldSurvey" [ref=e18] [cursor=pointer]:
+        - /url: /spatial
+      - link "Observability" [ref=e20] [cursor=pointer]:
+        - /url: /observability
+      - link "Settings" [ref=e22] [cursor=pointer]:
+        - /url: /settings/cluster
+    - link "Log out" [ref=e25] [cursor=pointer]:
+      - /url: /users/log-out
+  - generic [ref=e27]:
+    - banner [ref=e28]:
+      - generic [ref=e29]:
+        - generic [ref=e31]: ServiceRadar
+        - heading "ServiceRadar" [level=1] [ref=e33]
+      - generic [ref=e34]:
+        - generic [ref=e35]:
+          - button [ref=e37] [cursor=pointer]
+          - button [ref=e39] [cursor=pointer]
+          - button [ref=e41] [cursor=pointer]
+        - link "Events" [ref=e43] [cursor=pointer]:
+          - /url: /events
+          - generic [ref=e45]: "0"
+        - link "Account" [ref=e46] [cursor=pointer]:
+          - /url: /settings/profile
+          - generic [ref=e47]: "?"
+    - main [ref=e48]:
+      - generic [ref=e49]:
+        - generic [ref=e50]:
+          - link "0 Total Devices" [ref=e51] [cursor=pointer]:
+            - /url: /devices
+            - generic [ref=e55]:
+              - generic [ref=e56]: "0"
+              - generic [ref=e57]: Total Devices
+          - link "0 Offline Devices" [ref=e58] [cursor=pointer]:
+            - /url: /devices?q=in%3Adevices+is_available%3Afalse+sort%3Alast_seen%3Adesc+limit%3A100
+            - generic [ref=e62]:
+              - generic [ref=e63]: "0"
+              - generic [ref=e64]: Offline Devices
+          - link "0 Active Services | unique" [ref=e65] [cursor=pointer]:
+            - /url: /services
+            - generic [ref=e69]:
+              - generic [ref=e70]: "0"
+              - generic [ref=e71]: Active Services | unique
+          - link "0 Failing Services | unique" [ref=e72] [cursor=pointer]:
+            - /url: /services?q=in%3Aservices+available%3Afalse+time%3Alast_1h+sort%3Atimestamp%3Adesc+limit%3A100
+            - generic [ref=e76]:
+              - generic [ref=e77]: "0"
+              - generic [ref=e78]: Failing Services | unique
+        - generic [ref=e79]:
+          - generic [ref=e81]:
+            - link "Device Availability" [ref=e82] [cursor=pointer]:
+              - /url: /devices
+              - generic [ref=e83]: Device Availability
+            - link "View offline devices" [ref=e84] [cursor=pointer]:
+              - /url: /devices?q=in%3Adevices+is_available%3Afalse+sort%3Alast_seen%3Adesc+limit%3A100
+          - generic [ref=e89]:
+            - link "High Utilization" [ref=e90] [cursor=pointer]:
+              - /url: /dashboard?q=in%3Acpu_metrics+time%3Alast_1h+sort%3Atimestamp%3Adesc
+              - generic [ref=e91]: High Utilization
+            - link "View metrics" [ref=e92] [cursor=pointer]:
+              - /url: /dashboard?q=in%3Acpu_metrics+time%3Alast_1h+sort%3Atimestamp%3Adesc+limit%3A100
+          - generic [ref=e97]:
+            - link "Bandwidth Tracker" [ref=e98] [cursor=pointer]:
+              - /url: /dashboard?q=in%3Arperf_targets+time%3Alast_1h+sort%3Atimestamp%3Adesc
+              - generic [ref=e99]: Bandwidth Tracker
+            - link "View bandwidth data" [ref=e100] [cursor=pointer]:
+              - /url: /dashboard?q=in%3Arperf_targets+time%3Alast_1h+sort%3Atimestamp%3Adesc+limit%3A50
+          - generic [ref=e105]:
+            - link "Critical Logs" [ref=e106] [cursor=pointer]:
+              - /url: /observability?tab=logs
+              - generic [ref=e107]: Critical Logs
+            - link "View critical logs" [ref=e108] [cursor=pointer]:
+              - /url: /observability?q=in%3Alogs+severity_text%3A%28fatal%2CFATAL%2Ccritical%2CCRITICAL%2Cemergency%2CEMERGENCY%2Calert%2CALERT%2Cerror%2CERROR%2Cerr%2CERR%29+time%3Alast_24h+sort%3Atimestamp%3Adesc+limit%3A100&tab=logs
+          - generic [ref=e112]:
+            - link "Observability" [ref=e113] [cursor=pointer]:
+              - /url: /observability
+              - generic [ref=e114]: Observability
+            - link "View traces" [ref=e115] [cursor=pointer]:
+              - /url: /observability?q=in%3Aotel_trace_summaries+time%3Alast_24h+sort%3Atimestamp%3Adesc+limit%3A100&tab=traces
+          - generic [ref=e120]:
+            - link "Event Levels" [ref=e121] [cursor=pointer]:
+              - /url: /events
+              - generic [ref=e122]: Event Levels
+            - link "View high severity events" [ref=e123] [cursor=pointer]:
+              - /url: /events?q=in%3Aevents+log_level%3A%28FATAL%2Cfatal%2CCRITICAL%2Ccritical%2CERROR%2Cerror%29+time%3Alast_24h+sort%3Atime%3Adesc+limit%3A100
+        - generic [ref=e126]:
+          - generic [ref=e127]: ·
+          - generic [ref=e128]: Auto-refresh 30s
+    - alert [ref=e129]:
+      - generic [ref=e130]:
+        - paragraph [ref=e133]: Signed in successfully.
+        - button "close" [ref=e134] [cursor=pointer]

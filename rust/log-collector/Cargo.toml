@@ -1,0 +1,29 @@
+[package]
+name = "serviceradar-log-collector"
+version = "0.1.0"
+description = "Unified log collector for ServiceRadar — syslog/GELF (via Flowgger) and OpenTelemetry gRPC"
+edition = "2024"
+
+[[bin]]
+name = "serviceradar-log-collector"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+config-bootstrap = { path = "../config-bootstrap" }
+env_logger = { workspace = true }
+flowgger = { package = "serviceradar-flowgger", path = "../flowgger", default-features = false }
+log = { workspace = true }
+otel = { path = "../otel", optional = true }
+rustls = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal"] }
+toml = { workspace = true }
+tonic = { workspace = true }
+tonic-health = { workspace = true }
+
+[features]
+default = ["syslog", "otel"]
+syslog = ["flowgger/syslog", "flowgger/tls", "flowgger/gelf", "flowgger/nats-output"]
+otel = ["dep:otel"]

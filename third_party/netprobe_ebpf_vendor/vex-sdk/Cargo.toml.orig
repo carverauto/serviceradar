@@ -1,0 +1,23 @@
+[package]
+name = "vex-sdk"
+description = "FFI bindings to VEXos system APIs."
+repository = "https://github.com/vexide/vex-sdk/"
+authors = ["Tropical"]
+license = "MIT"
+categories = ["science::robotics", "no-std", "embedded"]
+keywords = ["vex", "vex-v5", "vex-robotics", "robotics"]
+version = "0.27.1"
+edition = "2021"
+
+[dependencies]
+core = { package = "rustc-std-workspace-core", version = "1.0.0", optional = true }
+
+[features]
+rustc-dep-of-std = ["core"]
+
+[package.metadata.docs.rs]
+targets = ["armv7a-vex-v5"]
+cargo-args=[
+    "-Zbuild-std=core,alloc,compiler_builtins",
+    "-Zbuild-std-features=compiler-builtins-mem"
+]

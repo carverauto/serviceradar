@@ -1,0 +1,163 @@
+{{- /*
+DEV/DEMO ONLY — the faker simulates a 50k-device Armis estate (DHCP churn,
+optional gobgpd BGP peers for BMP topology). It is never part of a customer
+deployment: faker.enabled and faker.gobgp.enabled both default to false and
+are only switched on by demo/dev values files.
+*/}}
+{{- if .Values.faker.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-faker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: serviceradar-faker
+  template:
+    metadata:
+      labels:
+        app: serviceradar-faker
+        app.kubernetes.io/part-of: serviceradar
+      {{- if .Values.global.forceRolloutOnUpgrade }}
+      annotations:
+        serviceradar.io/release-revision: {{ .Release.Revision | quote }}
+      {{- end }}
+    spec:
+      {{- include "serviceradar.topologySpread" (dict "root" . "app" "serviceradar-faker") | nindent 6 }}
+      {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
+      initContainers:
+      # local-path PVs are hostPath-backed, so kubelet never applies the pod
+      # fsGroup to the faker-data volume. Fix ownership explicitly so the faker
+      # (uid 1001) can read and replace device data, including files written by
+      # older images that ran as root.
+      - name: init-faker-data
+        image: busybox:1.36
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsUser: 0
+          runAsNonRoot: false
+          capabilities:
+            drop: ["ALL"]
+            add: ["CHOWN", "DAC_OVERRIDE", "FOWNER"]
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          set -eu
+          chown -R 1001:1001 /var/lib/serviceradar/faker
+          chmod -R u+rwX,g+rwX /var/lib/serviceradar/faker
+        volumeMounts:
+        - name: faker-data
+          mountPath: /var/lib/serviceradar/faker
+      {{- if .Values.faker.gobgp.enabled }}
+      - name: gobgp-binaries
+        image: {{ .Values.faker.gobgp.image.repository }}:{{ .Values.faker.gobgp.image.tag }}
+        imagePullPolicy: {{ .Values.faker.gobgp.image.pullPolicy | default "IfNotPresent" }}
+        {{- include "serviceradar.containerSecurityContext" . | nindent 8 }}
+        command:
+        - /bin/sh
+        - -ec
+        - |
+          cp "$(command -v gobgpd)" /gobgp-bin/gobgpd
+          cp "$(command -v gobgp)" /gobgp-bin/gobgp
+          chmod 0755 /gobgp-bin/gobgpd /gobgp-bin/gobgp
+        volumeMounts:
+        - name: gobgp-bin
+          mountPath: /gobgp-bin
+      {{- end }}
+      containers:
+      - name: faker
+        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-faker" "service" "faker") }}
+        imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+        {{- include "serviceradar.containerSecurityContext" . | nindent 8 }}
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: CONFIG_SOURCE
+          value: "file"
+        - name: CONFIG_PATH
+          value: "/etc/serviceradar/faker.json"
+        - name: LOG_LEVEL
+          value: "info"
+        {{- if .Values.faker.gobgp.enabled }}
+        - name: PATH
+          value: "{{ .Values.faker.gobgp.binDir }}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+        {{- end }}
+        volumeMounts:
+        - name: faker-data
+          mountPath: /var/lib/serviceradar/faker
+        - name: faker-data
+          mountPath: /data
+        {{- if .Values.faker.gobgp.enabled }}
+        - name: gobgp-bin
+          mountPath: {{ .Values.faker.gobgp.binDir }}
+          readOnly: true
+        {{- end }}
+        - name: serviceradar-config
+          mountPath: /etc/serviceradar
+          readOnly: true
+        {{- if .Values.spire.enabled }}
+        - name: spire-agent-socket
+          mountPath: /run/spire/sockets
+          readOnly: true
+        {{- end }}
+        readinessProbe:
+          httpGet:
+            path: /api/v1/search/?aql=test&length=1
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /api/v1/search/?aql=test&length=1
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+      volumes:
+      - name: faker-data
+        persistentVolumeClaim:
+          claimName: serviceradar-faker-data
+      - name: serviceradar-config
+        configMap:
+          name: serviceradar-config
+      {{- if .Values.spire.enabled }}
+      - name: spire-agent-socket
+        hostPath:
+          path: {{ include "serviceradar.spireSocketHostPath" . | quote }}
+          type: DirectoryOrCreate
+      {{- end }}
+      {{- if .Values.faker.gobgp.enabled }}
+      - name: gobgp-bin
+        emptyDir: {}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-faker
+spec:
+  selector:
+    app: serviceradar-faker
+  ports:
+  - name: http
+    port: 8080
+    targetPort: http
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: serviceradar-faker-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+{{- end }}

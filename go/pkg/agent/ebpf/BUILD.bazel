@@ -1,0 +1,35 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "ebpf",
+    srcs = [
+        "runtime_linux.go",
+        "runtime_other.go",
+        "types.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/agent/ebpf",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@com_github_cilium_ebpf//:ebpf",
+    ] + select({
+        "@io_bazel_rules_go//go/platform:android": [
+            "@com_github_cilium_ebpf//features",
+        ],
+        "@io_bazel_rules_go//go/platform:linux": [
+            "@com_github_cilium_ebpf//features",
+        ],
+        "//conditions:default": [],
+    }),
+)
+
+go_test(
+    name = "ebpf_test",
+    srcs = [
+        "runtime_integration_linux_test.go",
+        "runtime_linux_test.go",
+        "runtime_other_test.go",
+        "runtime_test.go",
+    ],
+    embed = [":ebpf"],
+    deps = ["//go/pkg/agent/ebpf/probes"],
+)

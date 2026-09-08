@@ -1,0 +1,1009 @@
+# observability-signals Specification
+
+## Purpose
+TBD - created by archiving change add-logs-events-alerts-panes. Update Purpose after archive.
+## Requirements
+### Requirement: Signal taxonomy
+The system SHALL classify observability data into logs (raw), events (derived OCSF), and alerts (stateful escalation) with consistent tenant scoping.
+
+#### Scenario: Raw syslog remains a log
+- **WHEN** a syslog message is ingested
+- **THEN** it SHALL be stored as a log record
+- **AND** it SHALL NOT be stored as an event unless promoted by a rule
+
+#### Scenario: Internal health state stored as an event
+- **WHEN** an internal health transition is emitted
+- **THEN** it SHALL be stored as an OCSF event
+
+### Requirement: Raw logs ingestion
+The system SHALL ingest syslog, SNMP traps, GELF logs, and OTEL logs as OTEL log records with source metadata and tenant scoping. OTEL fields (timestamp, severity, body, resource, scope, attributes, and trace/span identifiers when present) SHALL be preserved in storage and query results.
+
+#### Scenario: SNMP trap stored as OTEL log
+- **WHEN** an SNMP trap is received
+- **THEN** the system SHALL persist the log as an OTEL log record
+- **AND** it SHALL include source metadata and a normalized severity/body
+
+#### Scenario: OTEL log attributes preserved
+- **WHEN** an OTEL log record is ingested
+- **THEN** the system SHALL retain resource attributes, scope attributes, and log attributes
+- **AND** trace/span identifiers SHALL be queryable when present
+
+### Requirement: Log-to-event promotion
+The system SHALL support per-tenant rules that promote log records into OCSF events and retain provenance links.
+
+#### Scenario: Promotion creates linked event
+- **GIVEN** a promotion rule that matches a log record
+- **WHEN** the log is ingested
+- **THEN** the system SHALL create an OCSF event
+- **AND** the event SHALL reference the source log record and rule
+
+### Requirement: Event-to-alert generation
+The system SHALL allow alerts to be generated from events and SHALL link alerts to their triggering events.
+
+#### Scenario: Critical event triggers alert
+- **GIVEN** an event classified as critical by alert rules
+- **WHEN** the event is created
+- **THEN** an alert SHALL be created or updated
+- **AND** the alert SHALL reference the triggering event
+
+### Requirement: Observability panes in the UI
+The web UI SHALL provide a shared observability shell for logs, traces, metrics, events, alerts, flows, BMP, BGP Routing, and Camera Relays. Navigating to any of those panes, including direct entry by URL, SHALL preserve the same top-level observability shell and active-pane treatment rather than replacing it with pane-specific top-level navigation chrome.
+
+#### Scenario: Switching from logs to flows keeps the shared shell
+- **GIVEN** a user is viewing `/observability` in the logs pane
+- **WHEN** the user opens the flows pane
+- **THEN** the observability shell SHALL remain visible
+- **AND** the flows pane SHALL appear as the active top-level observability pane instead of suppressing the shared shell
+
+#### Scenario: Direct entry into a route-backed observability pane keeps the shared shell
+- **WHEN** a user navigates directly to a route-backed observability pane such as BMP, BGP Routing, or Camera Relays
+- **THEN** the page SHALL render within the same observability shell used by the other observability panes
+- **AND** the matching top-level observability pane SHALL appear active
+
+### Requirement: Integration sync lifecycle logging
+The system SHALL record integration sync lifecycle updates as OTEL log records and SHALL NOT emit OCSF events by default.
+
+#### Scenario: Sync start recorded as a log
+- **GIVEN** an integration source begins a sync
+- **WHEN** the sync start is recorded
+- **THEN** the system SHALL write a log record to the tenant logs table
+- **AND** the log SHALL include the integration source identifier and stage "started"
+
+#### Scenario: Sync failure remains a log unless promoted
+- **GIVEN** an integration sync finishes with result "failed" or "timeout"
+- **WHEN** the sync finish is recorded
+- **THEN** the system SHALL write a log record with the result and error details
+- **AND** it SHALL NOT create an OCSF event unless a promotion rule matches
+
+### Requirement: Stateful alert rules with grouping
+The system SHALL support stateful alert rules that evaluate threshold windows
+(e.g., N occurrences in T minutes) and SHALL allow grouping by configurable
+attribute keys with a default group of integration source id.
+
+#### Scenario: Grouped threshold evaluation
+- **GIVEN** a rule with group keys ["serviceradar.sync.integration_source_id"]
+- **WHEN** five matching failures arrive within ten minutes for the same source
+- **THEN** the system SHALL create an alert for that source
+- **AND** failures from a different source SHALL be evaluated separately
+
+### Requirement: Stateful rules evaluate OCSF events
+The system SHALL evaluate stateful alert rules against OCSF events generated by
+log promotion or direct event ingestion rather than raw log records.
+
+#### Scenario: OCSF event evaluation
+- **GIVEN** a stateful rule targeting OCSF events
+- **WHEN** promoted events exceed the configured threshold in the window
+- **THEN** the system SHALL create an alert tied to the event stream
+
+### Requirement: Durable rule state snapshots
+The system SHALL persist rule state snapshots per rule+group key using fixed-size
+buckets and SHALL restore state after restart without creating duplicate alerts.
+
+#### Scenario: Restart recovery
+- **GIVEN** a rule with a ten-minute window and one-minute buckets
+- **WHEN** the service restarts mid-window
+- **THEN** the engine SHALL reload the latest snapshot
+- **AND** it SHALL continue evaluation without re-firing the last alert
+
+### Requirement: Cooldown and re-notify for long-lived incidents
+The system SHALL support cooldown and re-notify intervals for active alerts
+triggered by stateful rules.
+
+#### Scenario: Re-notify during sustained failure
+- **GIVEN** a rule with a re-notify interval of six hours
+- **WHEN** the triggering condition remains true
+- **THEN** the system SHALL re-notify at the configured interval
+- **AND** it SHALL NOT create duplicate alerts within the cooldown window
+
+### Requirement: Bounded rule evaluation history
+The system SHALL record rule evaluation transitions (fired, recovered, cooldown)
+with bounded retention and compression to prevent unbounded storage growth.
+
+#### Scenario: Evaluation history retention
+- **GIVEN** rule evaluation history retention is set to seven days
+- **WHEN** history rows are older than seven days
+- **THEN** the system SHALL remove or compress them per retention policy
+
+### Requirement: OTEL log schema visibility in the UI
+The Logs UI SHALL surface OTEL log fields in the detail view, including resource attributes, scope information, attributes, and trace/span identifiers when present.
+
+#### Scenario: Log detail shows OTEL metadata
+- **GIVEN** a user opens a log detail view
+- **WHEN** the log record includes OTEL resource/scope/attributes
+- **THEN** the UI SHALL display those OTEL fields alongside time, severity, service, and body
+
+### Requirement: Analysis detections enter observability state
+The system SHALL ingest camera-analysis detections or derived findings into platform observability/event surfaces using a normalized contract.
+
+#### Scenario: Object detection produces a normalized event
+- **GIVEN** an analysis worker reports a person detection for an active relay session
+- **WHEN** the result is ingested by the platform
+- **THEN** the system SHALL create a normalized event or derived signal linked to the relay session and camera source
+- **AND** the result SHALL be queryable through the normal observability surfaces
+
+### Requirement: Analysis events preserve provenance
+The system SHALL preserve provenance between relay sessions, analysis workers, and derived events.
+
+#### Scenario: Operator inspects an analysis result
+- **GIVEN** a derived event produced by camera analysis
+- **WHEN** an operator views the result
+- **THEN** the system SHALL expose the originating relay session and analysis pipeline identity
+- **AND** SHALL distinguish derived analysis output from raw camera state
+
+### Requirement: HTTP worker results are normalized into observability state
+The system SHALL normalize successful HTTP worker responses through the camera analysis result contract before ingesting them into observability state.
+
+#### Scenario: Worker returns a detection payload
+- **GIVEN** the platform dispatches a bounded analysis input to an HTTP worker
+- **WHEN** the worker returns a valid result payload
+- **THEN** the platform SHALL normalize the response as camera analysis output
+- **AND** SHALL ingest the derived result through the normal observability event surfaces
+
+### Requirement: Worker failures are observable
+The system SHALL expose HTTP analysis worker failures and dropped work through telemetry.
+
+#### Scenario: Worker times out
+- **GIVEN** the platform dispatches a bounded analysis input to an HTTP worker
+- **WHEN** the worker times out or returns an invalid response
+- **THEN** the platform SHALL record the failure as analysis dispatch telemetry
+- **AND** SHALL distinguish worker failure from raw relay session failure
+
+### Requirement: Reference analysis workers must preserve analysis provenance
+The system SHALL provide at least one reference analysis worker implementation whose derived outputs preserve relay session, branch, and worker provenance through normal observability ingestion.
+
+#### Scenario: Reference worker emits a derived finding
+- **GIVEN** a relay-scoped analysis branch sends a normalized analysis input to the reference worker
+- **WHEN** the worker returns a valid result payload
+- **THEN** the platform SHALL ingest the derived result through the normal observability path
+- **AND** SHALL preserve the originating relay session, analysis branch, and worker identity
+
+### Requirement: Reference workers may return bounded no-op results
+The system SHALL allow a reference analysis worker to return no derived findings for bounded unsupported or uninteresting inputs.
+
+#### Scenario: Input does not produce a finding
+- **GIVEN** a normalized analysis input that the reference worker intentionally treats as a no-op
+- **WHEN** the worker processes the request
+- **THEN** the worker MAY return an empty result set
+- **AND** the platform SHALL treat that as a successful bounded analysis outcome rather than a relay failure
+
+### Requirement: Boombox-backed analysis preserves observability provenance
+The system SHALL preserve relay session, analysis branch, and worker provenance when ingesting results from Boombox-backed analysis.
+
+#### Scenario: Boombox-backed worker returns a derived finding
+- **GIVEN** a relay-scoped analysis branch bridged through Boombox
+- **WHEN** the downstream worker returns a valid analysis result
+- **THEN** the platform SHALL ingest the result through the normal observability path
+- **AND** SHALL preserve the originating relay session, branch, and worker identity
+
+### Requirement: Boombox sidecar findings preserve observability provenance
+The system SHALL preserve relay session, analysis branch, and worker provenance when ingesting normalized results from a Boombox-backed sidecar worker.
+
+#### Scenario: Sidecar worker returns a derived finding
+- **GIVEN** a relay-scoped Boombox-backed sidecar worker path
+- **WHEN** the sidecar returns a valid normalized analysis result
+- **THEN** the platform SHALL ingest the result through the normal observability path
+- **AND** SHALL preserve the originating relay session, branch, and worker identity
+
+### Requirement: External Boombox worker findings preserve observability provenance
+The system SHALL preserve relay session, analysis branch, and worker provenance when ingesting normalized results from an external Boombox-backed worker.
+
+#### Scenario: External worker returns a derived finding
+- **GIVEN** a relay-scoped analysis branch with an attached external Boombox-backed worker
+- **WHEN** the worker returns a valid normalized analysis result
+- **THEN** the platform SHALL ingest the result through the normal observability path
+- **AND** SHALL preserve the originating relay session, branch, and worker identity
+
+### Requirement: Worker selection remains observable
+The system SHALL emit observable worker identity and selection outcomes for relay-scoped camera analysis dispatch.
+
+#### Scenario: A registered worker is selected successfully
+- **GIVEN** a relay-scoped analysis branch with a resolvable worker target
+- **WHEN** the platform dispatches work to that worker
+- **THEN** observability signals SHALL preserve the selected worker identity
+- **AND** SHALL preserve the originating relay session and branch identity
+
+#### Scenario: Worker selection fails
+- **GIVEN** a relay-scoped analysis branch that requests an unavailable or unmatched worker
+- **WHEN** the platform cannot resolve a valid worker
+- **THEN** the platform SHALL emit an explicit bounded failure signal
+- **AND** SHALL preserve the originating relay session and branch identity in that signal
+
+### Requirement: Worker health and failover remain observable
+The system SHALL emit observable worker health, selection, and failover outcomes for relay-scoped camera analysis dispatch.
+
+#### Scenario: Worker health changes
+- **GIVEN** a registered camera analysis worker
+- **WHEN** the platform marks that worker healthy or unhealthy
+- **THEN** observability signals SHALL preserve the worker identity
+- **AND** SHALL preserve the health reason metadata when present
+
+#### Scenario: Capability-targeted branch fails over
+- **GIVEN** a relay-scoped analysis branch that fails over from one worker to another
+- **WHEN** the platform performs the failover
+- **THEN** observability signals SHALL preserve the originating relay session and branch identity
+- **AND** SHALL preserve the original worker identity, replacement worker identity, and failover attempt count
+
+#### Scenario: Terminal worker selection or failover failure
+- **GIVEN** a relay-scoped analysis branch that cannot resolve or fail over to a healthy worker
+- **WHEN** the platform terminates that selection path
+- **THEN** observability signals SHALL preserve the relay session and branch identity
+- **AND** SHALL emit an explicit bounded failure reason
+
+### Requirement: Camera Analysis Worker Probe Telemetry
+The platform SHALL emit operational telemetry for active camera analysis worker probing.
+
+#### Scenario: Probe succeeds
+- **WHEN** the platform successfully probes a registered camera analysis worker
+- **THEN** it emits a probe success signal including worker identity and adapter metadata
+
+#### Scenario: Probe fails
+- **WHEN** the platform fails to probe a registered camera analysis worker
+- **THEN** it emits a probe failure signal including worker identity and normalized failure reason
+
+#### Scenario: Probe changes worker health state
+- **WHEN** an active probe causes a worker health transition
+- **THEN** the platform emits a health transition signal with the previous and new health states
+
+### Requirement: Probe History Mirrors Emitted Probe Outcomes
+The operator-visible recent probe history SHALL align with the platform’s active probe outcomes.
+
+#### Scenario: Probe failure is visible through management surface
+- **WHEN** the platform emits a failed active probe outcome for a worker
+- **THEN** the worker management surface can show a recent failed probe entry with the same normalized reason
+
+### Requirement: Worker Flapping State Transitions SHALL Emit Observability Signals
+The platform SHALL emit explicit observability signals when a registered camera analysis worker enters or leaves flapping state.
+
+#### Scenario: Worker starts flapping
+- **WHEN** recomputation changes a worker from not flapping to flapping
+- **THEN** the platform SHALL emit a worker flapping transition signal
+- **AND** the signal SHALL include worker identity and bounded transition metadata
+
+#### Scenario: Worker stops flapping
+- **WHEN** recomputation changes a worker from flapping to not flapping
+- **THEN** the platform SHALL emit a worker flapping transition signal indicating recovery
+
+### Requirement: Camera Analysis Worker Degradation SHALL Emit Thresholded Alert Signals
+The platform SHALL emit explicit observability signals when a registered camera analysis worker crosses bounded degradation thresholds.
+
+#### Scenario: Worker alert activates
+- **WHEN** a worker meets a configured degradation threshold such as sustained unhealthy state, flapping, or failover exhaustion
+- **THEN** the platform SHALL emit an alert activation signal for that worker
+- **AND** the signal SHALL include worker identity and normalized alert metadata
+
+#### Scenario: Worker alert clears
+- **WHEN** a worker no longer meets an active degradation threshold
+- **THEN** the platform SHALL emit an alert clear signal for that worker
+
+### Requirement: Camera Analysis Worker Alerts SHALL Be Transition-Based
+The platform SHALL emit worker alert signals on state transitions instead of on every repeated probe or dispatch event.
+
+#### Scenario: Worker remains in the same alert state
+- **WHEN** repeated worker events occur without changing the derived alert state
+- **THEN** the platform SHALL NOT emit a new worker alert transition signal for each repeated event
+
+### Requirement: Camera analysis worker alert transitions generate observability signals
+The platform SHALL route camera analysis worker alert activation and clear transitions into the existing observability event and alert pipeline.
+
+#### Scenario: Worker alert activates
+- **WHEN** a registered camera analysis worker enters an active derived alert state such as sustained unhealthy, flapping, or failover exhausted
+- **THEN** the platform SHALL emit a normalized observability event for that transition
+- **AND** the platform SHALL create or update the corresponding routed alert
+
+#### Scenario: Worker alert clears
+- **WHEN** a registered camera analysis worker leaves an active derived alert state
+- **THEN** the platform SHALL emit a normalized observability recovery or clear signal
+- **AND** the corresponding routed alert SHALL resolve or clear through the standard alert path
+
+### Requirement: Camera analysis worker alert routing is duplicate-safe
+The platform SHALL suppress duplicate routed alerts while the authoritative worker alert state remains unchanged.
+
+#### Scenario: Repeated failures do not create duplicate routed alerts
+- **GIVEN** a camera analysis worker remains in the same derived alert state across multiple repeated probe or dispatch failures
+- **WHEN** additional failures occur without changing that derived alert state
+- **THEN** the platform SHALL NOT emit a new routed alert transition for each repeated failure
+
+### Requirement: Worker assignment visibility uses runtime-derived source of truth
+The platform SHALL derive worker assignment visibility from the authoritative analysis dispatch runtime rather than from stale registry metadata.
+
+#### Scenario: Runtime snapshot backs assignment visibility
+- **WHEN** current assignment visibility is requested for a registered camera analysis worker
+- **THEN** the platform SHALL use the active dispatch snapshot as the source of truth
+- **AND** it SHALL NOT require persistent assignment records in the worker registry
+
+### Requirement: Camera analysis worker alerts participate in notification policy
+The platform SHALL evaluate routed camera analysis worker alerts through the standard notification-policy path used by existing observability alerts.
+
+#### Scenario: Routed worker alert is notification-eligible
+- **GIVEN** a camera analysis worker enters a derived routed alert state
+- **WHEN** the corresponding observability alert is created or activated
+- **THEN** the alert SHALL be eligible for standard notification-policy evaluation
+- **AND** the platform SHALL NOT require a worker-specific notification subsystem
+
+#### Scenario: Routed worker alert clears through the standard path
+- **GIVEN** a routed camera analysis worker alert is active
+- **WHEN** the worker leaves the derived alert state and the routed alert clears
+- **THEN** the notification-policy path SHALL observe the clear through the standard alert lifecycle
+
+### Requirement: Long-lived worker alerts use bounded re-notify semantics
+The platform SHALL rely on the existing alert cooldown and re-notify behavior for sustained routed camera analysis worker alerts.
+
+#### Scenario: Sustained worker degradation re-notifies without duplicate transitions
+- **GIVEN** a routed camera analysis worker alert remains active without changing alert state
+- **WHEN** the standard alert re-notify interval elapses
+- **THEN** the platform SHALL re-notify through the standard alert path
+- **AND** it SHALL NOT emit duplicate routed worker alert transitions for the unchanged worker state
+
+### Requirement: Routed worker alerts expose current notification audit state
+The platform SHALL expose bounded current notification audit state for routed camera analysis worker alerts from the standard alert lifecycle.
+
+#### Scenario: Active routed worker alert has notification audit context
+- **GIVEN** a routed camera analysis worker alert exists in the standard alert model
+- **WHEN** current worker notification audit state is requested
+- **THEN** the platform SHALL expose bounded current fields such as notification count and last notification time
+
+#### Scenario: Worker has no active routed alert
+- **WHEN** a camera analysis worker has no active routed alert
+- **THEN** the platform SHALL NOT claim notification delivery state for that worker
+
+### Requirement: Camera relay health degradation emits structured events
+The system SHALL emit structured relay health events for repeated relay failures, gateway saturation denials, and abnormal viewer-idle churn so those conditions can be monitored and correlated.
+
+#### Scenario: Relay failure burst is detected
+- **GIVEN** camera relay session starts are failing repeatedly within a bounded time window
+- **WHEN** the failure threshold is crossed
+- **THEN** the system SHALL emit a structured relay health event describing the failure burst
+- **AND** the event SHALL include the relevant gateway, agent, and relay context when available
+
+#### Scenario: Gateway saturation denies new relay sessions
+- **GIVEN** the gateway rejects new relay sessions because the configured concurrency limit is exhausted
+- **WHEN** saturation denials occur
+- **THEN** the system SHALL emit a structured relay health event for the saturation condition
+
+### Requirement: Camera relay health events can drive alerting
+The system SHALL provide default alert rules or templates that can create alerts from structured camera relay health events for repeated failures and sustained saturation.
+
+#### Scenario: Repeated relay failures trigger an alert
+- **GIVEN** the relay health event stream records repeated failure-burst events for the same gateway or camera source
+- **WHEN** the configured alert threshold is met
+- **THEN** the system SHALL create or update an alert for that condition
+- **AND** the alert SHALL reference the triggering relay health event or events
+
+#### Scenario: Sustained saturation triggers an alert
+- **GIVEN** the relay health event stream records gateway saturation over the configured alert window
+- **WHEN** the saturation condition persists
+- **THEN** the system SHALL create or update an alert for the saturation incident
+
+### Requirement: Opt-in live log streaming
+The Observability logs pane SHALL default to standard paginated browsing with live updates disabled. The pane SHALL expose a header control that lets the operator explicitly enable live log streaming for the current view.
+
+#### Scenario: Logs open in standard browsing mode
+- **WHEN** a user opens the `/observability` logs pane
+- **THEN** the logs list SHALL load as a normal paginated view
+- **AND** incoming log-ingest refresh events SHALL NOT force the list to reload automatically
+
+#### Scenario: Operator enables live mode
+- **GIVEN** the user is viewing the logs pane
+- **WHEN** the user activates the `Live` control in the pane header
+- **THEN** the logs pane SHALL begin auto-refreshing as new logs arrive
+- **AND** the UI SHALL indicate that live mode is active
+
+#### Scenario: Manual browsing pauses live mode
+- **GIVEN** live mode is active in the logs pane
+- **WHEN** the user changes pagination, query text, or log filters
+- **THEN** the logs pane SHALL pause live mode before applying the manual navigation change
+- **AND** subsequent incoming log-ingest refresh events SHALL NOT reset the user's current page or query state unless live mode is enabled again
+
+### Requirement: Camera relay subsections stay under Camera Relays
+Camera relay operational surfaces SHALL remain under the Camera Relays top-level observability pane. Camera Analysis Workers SHALL be presented as a subsection of Camera Relays rather than a separate top-level observability destination.
+
+#### Scenario: Camera relay worker management loads as a subsection
+- **GIVEN** a user is in the Camera Relays observability pane
+- **WHEN** the user opens Camera Analysis Workers
+- **THEN** the Camera Relays top-level pane SHALL remain active
+- **AND** the worker management surface SHALL render as a Camera Relays subsection
+
+#### Scenario: Direct worker link resolves under Camera Relays
+- **WHEN** a user opens a direct link to the camera worker management surface
+- **THEN** the UI SHALL resolve that request under the Camera Relays top-level observability pane
+- **AND** the worker management subsection SHALL be selected on load
+
+### Requirement: Event-derived alerts SHALL be incident-grouped
+The system SHALL treat repeated event-derived alerts as incident updates when incoming events resolve to the same incident fingerprint and the existing incident is still active.
+
+#### Scenario: Repeated Falco critical detections collapse into one incident
+- **GIVEN** critical Falco-promoted events that share the same configured incident grouping fields
+- **WHEN** multiple matching events arrive while the incident is still active
+- **THEN** the system SHALL keep a single active alert incident for that fingerprint
+- **AND** duplicate events SHALL update the active incident instead of creating new alert rows
+
+#### Scenario: A new incident is created after the previous incident is no longer active
+- **GIVEN** an earlier event-derived incident has been resolved or aged out of its suppression window
+- **WHEN** a matching event arrives again
+- **THEN** the system SHALL create a new alert incident
+- **AND** the new incident SHALL remain linked to the triggering event
+
+### Requirement: Duplicate event bursts SHALL NOT trigger repeated immediate notification attempts
+The system SHALL suppress repeated immediate notification attempts for duplicate event-derived alerts while an incident remains active and inside its cooldown window.
+
+#### Scenario: Duplicate events arrive while outbound notification is unavailable
+- **GIVEN** an active event-derived incident with an initial notification attempt already recorded
+- **AND** outbound webhook notification is unavailable
+- **WHEN** duplicate matching events arrive inside the cooldown window
+- **THEN** the system SHALL NOT perform a new immediate notification attempt for each duplicate event
+- **AND** it SHALL NOT emit one warning log per duplicate event for the same incident burst
+
+#### Scenario: Sustained incident is re-notified after the configured interval
+- **GIVEN** an active incident with `renotify_seconds` configured
+- **WHEN** the incident remains active beyond the renotify interval
+- **THEN** the system SHALL attempt a repeat notification at the configured interval
+- **AND** duplicate events before that interval SHALL remain suppressed for immediate notification
+
+### Requirement: Incident suppression SHALL preserve observability provenance
+The system SHALL preserve source-event provenance when duplicate events are suppressed into an existing incident.
+
+#### Scenario: Duplicate event updates incident audit data
+- **GIVEN** an active event-derived incident
+- **WHEN** a duplicate matching event is associated with that incident
+- **THEN** the incident SHALL record updated occurrence metadata including at least occurrence count and last-seen time
+- **AND** operators SHALL be able to inspect the grouping context that caused the event to be suppressed into that incident
+
+### Requirement: Logs time filtering uses observed timestamps when available
+The system SHALL evaluate log time filters and ordering against an effective timestamp that prefers `observed_timestamp` when present and falls back to the event `timestamp`.
+
+#### Scenario: Syslog without timezone appears in recent results
+- **GIVEN** a syslog log record with an event `timestamp` that lacks timezone context and an `observed_timestamp` set at ingest
+- **WHEN** a user queries `in:logs time:last_24h sort:timestamp:desc`
+- **THEN** the log SHALL be included based on the observed timestamp
+- **AND** the stored event timestamp SHALL remain unchanged in the result payload
+
+### Requirement: BMP Causal Ingestion Path
+BMP routing events SHALL enter ServiceRadar through `BMP collector (risotto) -> NATS JetStream -> Elixir Broadway consumer` and SHALL NOT require agent-originated gRPC payloads.
+
+#### Scenario: BMP event consumed through JetStream and Broadway
+- **GIVEN** risotto publishes a BMP routing event to JetStream
+- **WHEN** the Broadway consumer processes the event
+- **THEN** the event SHALL be persisted/forwarded through the causal signal pipeline
+- **AND** causal overlay updates SHALL proceed without requiring agent stream delivery
+
+#### Scenario: Agent stream remains scoped to agent-originated payloads
+- **GIVEN** an agent gRPC stream is connected
+- **WHEN** external BMP events are processed
+- **THEN** the system SHALL process BMP events through the JetStream/Broadway path
+- **AND** the agent stream contract SHALL remain unchanged for agent-originated data
+
+### Requirement: Routing Signal Persistence Fidelity
+The observability pipeline SHALL persist BMP routing signals in a way that preserves raw payload fidelity while storing normalized causal envelope fields for query and overlay use.
+
+#### Scenario: Routing event persists normalized and raw forms
+- **GIVEN** a BMP routing event is consumed by Broadway
+- **WHEN** the event is persisted
+- **THEN** the system SHALL store normalized causal fields used by overlays and queries
+- **AND** the system SHALL preserve raw routing payload data for replay/remapping
+
+#### Scenario: OCSF projection remains optional
+- **GIVEN** a routing event does not map cleanly to a single OCSF activity class
+- **WHEN** the event is normalized and persisted
+- **THEN** the system SHALL preserve the event in canonical causal form without dropping routing detail
+- **AND** optional OCSF projection fields MAY be emitted where semantically suitable
+
+### Requirement: Routing Correlation Keys
+Normalized BMP causal events SHALL include routing correlation keys needed to join with topology and causal overlays.
+
+#### Scenario: Event carries topology-joinable keys
+- **GIVEN** a BMP event includes peer/router context
+- **WHEN** the event is normalized
+- **THEN** the normalized envelope SHALL include stable source identity and routing correlation fields
+- **AND** those fields SHALL be sufficient for downstream topology/causal association workflows
+
+### Requirement: Grouped Causal Context Support
+The observability pipeline SHALL support grouped causal contexts so normalized events can be evaluated against routing/security propagation domains.
+
+#### Scenario: Event evaluated in grouped context
+- **GIVEN** a normalized causal event references one or more grouped contexts
+- **WHEN** causal evaluation executes
+- **THEN** propagation SHALL be evaluated within the referenced contexts
+- **AND** resulting classifications SHALL be emitted for overlay consumption
+
+#### Scenario: Conflicting grouped signal domains resolve deterministically
+- **GIVEN** a normalized causal event references multiple signal domains with different precedence
+- **WHEN** grouped causal evaluation executes
+- **THEN** precedence resolution SHALL be deterministic
+- **AND** the chosen primary domain/context SHALL be included in explainability metadata
+
+### Requirement: Causal Explainability Metadata
+The system SHALL emit explainability metadata for propagated causal outcomes.
+
+#### Scenario: Propagated state includes evidence metadata
+- **GIVEN** a node state is marked affected due to propagation
+- **WHEN** overlay state is emitted
+- **THEN** metadata SHALL include source signal references and propagation context identifiers
+- **AND** operators SHALL be able to inspect why the state was assigned
+
+### Requirement: Grouped Evaluation Guardrails
+Grouped causal evaluation SHALL enforce bounded context handling to preserve predictable latency under burst input.
+
+#### Scenario: Context set is bounded under burst input
+- **GIVEN** an event carries context references exceeding configured limits
+- **WHEN** normalization/evaluation executes
+- **THEN** contexts SHALL be truncated to configured bounds
+- **AND** guardrail metadata SHALL indicate truncation and applied limits
+
+### Requirement: Metric Ingestion via JetStream
+All metric and telemetry sources SHALL publish to a NATS JetStream subject and be persisted into the database by the event-writer consumer pipeline. Collectors and agents SHALL NOT write metrics directly to the database, and core SHALL NOT ingest a metric path that bypassed JetStream. This keeps every metric stream subscribable by real-time consumers (anomaly detection, the causal engine) rather than being visible only after it lands in a hypertable.
+
+#### Scenario: New metric source added
+- **WHEN** a new metric or telemetry source is introduced
+- **THEN** it SHALL publish to a JetStream subject consumed by the event-writer pipeline
+- **AND** it SHALL NOT write directly to the database
+
+#### Scenario: Sysmon metrics migrated off the direct-to-DB path
+- **WHEN** sysmon cpu/memory/disk/process metrics are collected by an agent
+- **THEN** they SHALL be published to a JetStream subject and persisted by the event-writer consumer
+- **AND** the legacy gRPC `StreamStatus` path that wrote sysmon metrics directly to the database SHALL be retired once the JetStream path reaches parity
+
+### Requirement: Defined Ingress Publisher and Single Database Writer
+Each telemetry type SHALL have exactly one defined ingress publisher to NATS JetStream, and all telemetry SHALL be persisted into the database by a single writer. The system SHALL NOT run two writers persisting the same records to the same tables, and SHALL NOT persist any telemetry path that bypassed JetStream.
+
+#### Scenario: One publisher per telemetry type
+- **WHEN** a telemetry type (e.g. OTLP, flows, SNMP traps, host metrics) is ingested
+- **THEN** exactly one component SHALL be responsible for publishing it to JetStream
+- **AND** other components SHALL forward into that publisher rather than re-publishing the same data
+
+#### Scenario: One writer per table
+- **WHEN** a telemetry record is persisted to the database
+- **THEN** exactly one consumer SHALL be responsible for writing that record's table
+- **AND** there SHALL NOT be a second consumer writing the same rows that relies on conflict-dedup to avoid duplicates
+
+#### Scenario: Legacy persister retired
+- **WHEN** the consolidated single-writer pipeline reaches parity for the tables previously written by the standalone persister
+- **THEN** the standalone persister SHALL be retired so a single writer owns persistence
+
+#### Scenario: No publish-then-read-back loop for persistence
+- **WHEN** a component generates or relays telemetry that must be persisted
+- **THEN** it SHALL NOT publish that record to the message bus solely to consume its own message back in order to write it to the database
+- **AND** normalization required before persistence SHALL run in-process rather than in a separate round-tripping component
+
+### Requirement: Leaf-Compatible Ingress Publishing
+Ingress publishers SHALL publish to a configurable NATS endpoint so they can run against a local NATS leaf node at a customer edge site or against the central hub, and the subjects they publish SHALL federate cleanly to the hub JetStream stream. Publishers SHALL NOT assume co-location with the JetStream stream or hardcode the central endpoint.
+
+#### Scenario: Publisher runs against an edge leaf
+- **WHEN** an ingress publisher is configured with a local NATS leaf endpoint
+- **THEN** it SHALL publish to that endpoint
+- **AND** its subjects SHALL federate to the central hub stream without reconfiguring downstream consumers
+
+### Requirement: Required Local OTLP Terminator on Every Agent
+Every agent SHALL include a local OTLP terminator (the `otel-collector` add-on) as a required, auto-installed component, so that OTLP emitted at the edge (by plugins, add-ons, local apps, or the agent itself) always has a local endpoint. The terminator SHALL durably spool accepted telemetry, and SHALL support both a gateway-relay transport (requiring no edge NATS) and a direct-to-NATS-leaf transport (when a leaf is deployed at the site).
+
+#### Scenario: Agent installed without explicit add-on assignment
+- **WHEN** an agent is installed
+- **THEN** the local OTLP terminator add-on SHALL be installed by default without an operator assigning it
+
+#### Scenario: Edge site without a NATS leaf
+- **WHEN** OTLP is emitted at an edge site that has no local NATS access
+- **THEN** the terminator SHALL relay it through the agent to the agent-gateway, which publishes it to NATS
+- **AND** the telemetry SHALL be durably spooled until the gateway acknowledges it
+
+#### Scenario: Edge site with a NATS leaf
+- **WHEN** a NATS leaf is deployed at the edge site
+- **THEN** the terminator MAY publish directly to the local leaf, which federates to the central hub
+
+### Requirement: Total-Order Context Updates
+Per-series detector context SHALL be updated in total temporal order regardless of how many producers emit updates concurrently. Each context-update event SHALL carry a time-sortable identifier with an embedded high-resolution timestamp (e.g. UUIDv8), stamped once at the ingress gateway so there is a single clock domain, and the context engine SHALL fold updates in that total order. Folding SHALL be idempotent so that replayed or duplicated updates do not corrupt context.
+
+#### Scenario: Concurrent updates from multiple producers
+- **WHEN** updates for the same series arrive from multiple producers, possibly out of arrival order
+- **THEN** the context engine SHALL apply them in total temporal order by their sortable identifier
+- **AND** the resulting context SHALL be deterministic and independent of arrival order
+
+#### Scenario: Identifier stamped at ingress
+- **WHEN** a telemetry sample enters the system at the ingress gateway
+- **THEN** its time-sortable identifier SHALL be assigned there (first contact, one clock domain)
+- **AND** the original sample timestamp SHALL be preserved as a separate field
+
+#### Scenario: Replayed update is idempotent
+- **WHEN** a context-update event is delivered more than once
+- **THEN** folding it again SHALL NOT change the context beyond its first application
+
+### Requirement: Anomaly and Capacity Signal Routing
+Anomaly findings and capacity-forecast findings SHALL be emitted through the existing causal-engine emission spine (causal prediction signals routed into OCSF events) so they reach the standard event-to-alert pipeline without introducing a separate inbound routing path or a separate alert engine.
+
+#### Scenario: Anomaly finding becomes an alert
+- **WHEN** the detector confirms a sustained anomaly for a series associated with a device
+- **THEN** it SHALL emit an anomaly verdict that is routed into OCSF events
+- **AND** the existing stateful alert engine SHALL evaluate it and raise a device-grouped alert
+
+#### Scenario: Capacity finding becomes an alert
+- **WHEN** a resource is projected to exhaust within the warning horizon
+- **THEN** a capacity-forecast verdict SHALL be routed into OCSF events and evaluated by the existing alert engine
+
+### Requirement: Edge anomaly execution
+Per-series short-term spike anomaly detection SHALL run at the edge
+(co-located with the agent) for agents assigned the native anomaly add-on. Core
+SHALL consume and persist edge verdicts through the existing signal path, but it
+SHALL NOT run the retired raw-stream per-series anomaly analyzer as a fallback.
+
+#### Scenario: Edge-covered series emits upstream verdicts
+- **GIVEN** a metric source is covered by an edge anomaly add-on
+- **WHEN** its samples are analyzed at the edge and verdicts are emitted upstream
+- **THEN** core SHALL route the verdicts onto the causal signal path
+- **AND** core SHALL persist and alert on those verdicts without re-running raw-stream detection
+
+#### Scenario: Disabling the edge add-on stops spike verdicts
+- **GIVEN** a series currently covered by an edge anomaly add-on
+- **WHEN** the add-on is disabled or removed
+- **THEN** the agent SHALL stop sending that series to the add-on
+- **AND** raw metrics SHALL continue flowing to JetStream and CNPG for storage, graphs, capacity forecasts, and future aggregate detectors
+
+### Requirement: Edge anomaly coverage is observable
+Anomaly verdicts SHALL carry their execution source and the system SHALL expose
+add-on assignment/status plus shed-pressure events so operators can see edge
+coverage and detect gaps before they affect alerting.
+
+#### Scenario: Operator inspects anomaly coverage
+- **WHEN** an operator inspects anomaly coverage telemetry
+- **THEN** add-on assignment and status SHALL show which agents are covered
+- **AND** each edge spike verdict SHALL be attributable with `verdict_source=edge-spike`
+- **AND** add-on capacity shed SHALL be reported as an operational event rather than an anomaly verdict
+
+### Requirement: External Signal Normalization
+
+The system SHALL normalize external SIEM and BMP/BGP routing events into a common **signal
+envelope** (the previously "causal" envelope, renamed for honesty) with source provenance and
+replay-safe identity. This envelope is **shared** with the anomaly verdict path, the BMP/BGP
+routing path, and the topology-overlay path, so its naming is corrected on the wire as a single
+**BREAKING** schema change. The honest renaming SHALL cover the verdict `signal_type` discriminator
+value `"causal"`, the NATS subject namespace (`signals.causal.predictions.*` and the causal
+envelope subjects consumed by `causal_signals.ex`), and the `SignalSchemaRef` / schema names. To
+avoid a flag-day, the rename SHALL be delivered as a **versioned envelope with dual-publish +
+dual-consume** during a cutover window (see design D7): producers publish both old and new forms,
+consumers accept both, and the old subject/field is dropped only after all producers and consumers
+have migrated. The normalization behavior, provenance, replay-safe identity, and topology-overlay
+eligibility SHALL be preserved across the rename.
+
+#### Scenario: BMP event normalized into the renamed signal envelope
+
+- **GIVEN** a BMP routing event is received from the external BMP collector path
+- **WHEN** the event enters the observability pipeline
+- **THEN** the system SHALL normalize it into the signal envelope with signal type, severity, source, and event identity fields
+- **AND** the normalized event SHALL be eligible for topology overlay evaluation
+
+#### Scenario: SIEM alert normalized with provenance
+
+- **GIVEN** a SIEM alert event is received from an external source
+- **WHEN** the event is normalized
+- **THEN** the signal envelope SHALL include source provenance, detection timestamp, and normalized severity
+
+#### Scenario: Dual-publish/dual-consume cutover preserves delivery
+
+- **GIVEN** the de-causal rename is mid-cutover with both old (`signals.causal.predictions.*`) and new subjects active
+- **WHEN** a producer publishes an envelope and a not-yet-migrated consumer reads it
+- **THEN** the consumer SHALL still receive and normalize the event (dual-consume)
+- **AND** the old subject/field SHALL be dropped only after all producers and consumers have migrated
+
+### Requirement: Honest Statistical Signal Classification
+
+The edge spike detector and the seasonal/capacity disposition tiers SHALL classify their
+emitted signals by what they statistically are, and SHALL NOT label a robust z-score, a
+seasonal residual-z, or a trend/forecast as causal inference. The OCSF `signal_type` field
+emitted by the edge add-on SHALL NOT be `"causal"` for a statistical detector verdict
+(today `rust/anomaly-addon/src/verdict.rs:54` stamps `"signal_type": "causal"` on a rolling
+z-score); it SHALL be a value that names the actual method (for example a statistical
+spike/anomaly classification). Hosting a kernel in `deep_causality_core::CausalFlow` (used as a
+pipeline/state-machine combinator) SHALL NOT, by itself, justify a causal label.
+
+#### Scenario: Edge z-score verdict is not labeled causal
+
+- **GIVEN** the edge add-on confirms a rolling-z-score spike on a series
+- **WHEN** it emits the OCSF verdict
+- **THEN** the verdict `signal_type` SHALL NOT be `"causal"`
+- **AND** the verdict SHALL be classified as a statistical spike/anomaly detection
+
+#### Scenario: Seasonal and capacity tiers are named for their method
+
+- **GIVEN** the seasonal residual-z disposition or the trend/forecast capacity model emits a signal
+- **WHEN** the signal is surfaced in code, schema, or docs
+- **THEN** it SHALL be described as a statistical seasonal disposition or a trend/forecast model
+- **AND** it SHALL NOT be presented as causal inference (no SCM, do-calculus, counterfactual, or intervention claim)
+
+### Requirement: Dependency Reasoning Is Not Labeled Causal Inference
+
+The deterministic dependency/expert-reasoning engine (`rust/causal-engine`) SHALL be kept, but
+its documentation and operator-facing descriptions SHALL NOT claim causal inference. The engine
+is a finite set of hand-coded if-then rules plus ultragraph centrality/reachability whose
+`CausaloidGraph` wraps identity functions; it SHALL be described as deterministic rule +
+dependency-graph reasoning. The on-the-wire envelope rename shared with the topology overlay and
+BMP paths is handled by the MODIFIED `External Signal Normalization` requirement (and design
+decision D7); this requirement additionally governs the engine's descriptive/labeling claims.
+
+#### Scenario: Expert system documented honestly
+
+- **GIVEN** the dependency/expert-reasoning engine is documented
+- **WHEN** its capability is described
+- **THEN** it SHALL be described as deterministic rule and dependency-graph reasoning
+- **AND** it SHALL NOT be described as performing causal inference, counterfactual analysis, or interventional reasoning
+
+### Requirement: Honest Capacity Forecast Uncertainty
+
+The capacity forecaster SHALL surface a **valid prediction interval** for its projected
+`lower`/`upper`, not a constant-width in-sample band. Today
+(`capacity_forecasting/worker.ex:368`) the band is `projection ± 1.96·in-sample-RMSE` (constant
+width across the whole horizon, ignoring extrapolation variance) and `confidence` is
+`clamp(1 - rmse/scale)` (a heuristic, not a probability). The system SHALL replace this on **both**
+model paths:
+
+- For the **linear-trend (OLS)** model, the system SHALL compute a closed-form OLS prediction
+  interval whose half-width inflates with horizon distance by `sqrt(1 + 1/n + (x0 - x̄)² / Sxx)`, so
+  the band widens with horizon.
+- For the **additive Holt-Winters** path (whose interval is not closed-form), the system SHALL
+  compute a valid prediction interval via residual-bootstrap / simulation. This runs off the hot
+  path (capacity is a periodic Oban job), so the extra compute is acceptable.
+
+The heuristic `confidence` SHALL be **removed**, or replaced with a calibrated quantity (for
+example the chosen interval's coverage level). An in-sample error band SHALL NOT be surfaced as if
+it were a prediction interval.
+
+#### Scenario: OLS prediction interval widens with horizon
+
+- **GIVEN** the linear-trend model is used
+- **WHEN** the forecaster projects a resource forward over the horizon
+- **THEN** the band half-width SHALL increase with distance from the fitted window mean (per `sqrt(1 + 1/n + (x0 - x̄)² / Sxx)`)
+- **AND** the band SHALL NOT be a constant width across the full horizon
+
+#### Scenario: Holt-Winters path yields a valid simulated interval
+
+- **GIVEN** the additive Holt-Winters path is used
+- **WHEN** the periodic capacity Oban job projects the resource forward
+- **THEN** the `lower`/`upper` SHALL be a valid prediction interval computed by residual-bootstrap / simulation
+- **AND** it SHALL NOT be a constant `± 1.96·in-sample-RMSE` band
+
+#### Scenario: Heuristic confidence removed or calibrated
+
+- **GIVEN** the surfaced forecast output
+- **WHEN** uncertainty is presented in storage and UI
+- **THEN** the heuristic `confidence = clamp(1 - rmse/scale)` SHALL be removed or replaced with a calibrated quantity
+- **AND** no value SHALL be presented as a probability unless it is calibrated
+
+### Requirement: Matched-Resolution Anomaly Disposition Loop
+
+The platform SHALL close the open disposition loop between the edge spike detector and the
+central seasonal tier **at matched resolution**, so a specific edge finding is judged real vs
+seasonally-expected. The edge finding SHALL carry the spike's **peak magnitude and time window**.
+The core SHALL build a **peak profile** — a robust hour-of-week aggregate of the series' per-hour
+maxima from the existing `timeseries_metrics_hourly.max_value` (no schema change) — and judge the
+spike peak against it. A sustained condition with **no** edge spike SHALL instead be judged
+against the hourly **mean** profile (`profile_hour_of_week` over `avg_value`). The disposition
+(`suppress` / `downgrade` / `escalate` / `pass_through`) SHALL be computed at the alert/query
+layer; the raw edge finding SHALL be retained regardless of disposition (recall + audit). The
+central seasonal worker SHALL record a verdict for **every** evaluated series and window
+(including a non-surfacing `normal` verdict) so the correlation always has something to join.
+This requirement supersedes and absorbs `add-anomaly-finding-disposition`'s loop-closure
+decision; it builds on `fix-anomaly-engine-semantics-and-delivery`'s proven edge↔central
+`series_key` alignment and does not re-author it.
+
+#### Scenario: Spike judged against the peak profile, not the diluting mean
+
+- **GIVEN** an edge spike finding for series `S` carrying its peak and window
+- **AND** the peak profile for the matching hour-of-week cell is stable
+- **WHEN** the alert engine evaluates the finding
+- **THEN** the disposition SHALL be derived from the spike peak versus the peak profile (over `max_value`)
+- **AND** it SHALL NOT be derived from the hourly mean (which dilutes a sub-minute spike)
+
+#### Scenario: Recurring spike within the normal peak is suppressed; novel spike escalates
+
+- **GIVEN** an edge spike whose peak is within the series' normal hour-of-week peak range
+- **WHEN** it is evaluated against a stable peak profile
+- **THEN** the disposition SHALL be `suppress` or `downgrade`
+- **AND** an edge spike whose peak exceeds the normal hour-of-week peak range SHALL be `escalate`
+
+#### Scenario: Raw finding retained and every series gets a verdict
+
+- **GIVEN** the seasonal worker evaluates series `S` and finds it within baseline
+- **WHEN** the run completes
+- **THEN** it SHALL persist a non-surfacing `normal` verdict keyed by the canonical `series_key` and window
+- **AND** any edge finding for `S` SHALL remain persisted regardless of its disposition
+
+#### Scenario: Sustained drift without a spike is judged against the mean profile
+
+- **GIVEN** no edge spike for series `S` in hour `H`
+- **AND** the hourly **mean** profile for `S` in `H` is off-baseline
+- **WHEN** the central tier runs
+- **THEN** it SHALL surface a low-grade sustained-drift finding for `S`
+
+### Requirement: Robust Peak-Profile Stability Gate
+
+Peak-based suppression SHALL use a robust, safety-biased band over the `(series, hod)` cell
+(collapsing only day-of-week) that ramps with the cell sample count `n`, and SHALL ship
+**disabled (report-only)** behind a per-metric-class kill switch until its constants are
+calibrated against real per-cell distributions. False-suppress (silencing a real anomaly) is the
+cardinal error: every uncertain path SHALL resolve to `pass_through` or `escalate`, never to
+`suppress`. The band's constants are calibration; the following invariants are binding:
+
+- The band SHALL be **two-sided** (a downward excursion outside the escalation band SHALL escalate, never be auto-suppressed).
+- The suppression (inner) band scale SHALL be **bounded above by a per-series prior** (`min(s_cell, CAP·s_prior)`), so a poisoned or thin cell cannot widen the suppression region; the prior SHALL be the series-overall robust scale (a `min`-cap bound, not the band center/width).
+- The cell center/scale SHALL be `(series, hod)` and SHALL NOT be pooled across `hod`.
+- A cold cell (`n < N_min`), an over-dispersed cell (`s_cell > D·s_prior`), or a ceiling-proximity cell (no upward headroom below 100) SHALL pass through.
+- The low-`n` margin SHALL be **sigma-relative** (`1 + A/√n`), never an additive raw floor (an absolute floor applies only when the robust scale is ≈ 0).
+- A `suppress` verdict SHALL NOT reset the confirm-slot counter.
+- Suppression coverage SHALL be reported as suppression-eligible mass (fraction of cells that are not cold, not saturated, and not over-dispersed), so the ramp is observable rather than assumed.
+
+#### Scenario: Downward anomaly escalates (two-sided)
+
+- **GIVEN** a stable `(series, hod)` cell and a spike peak far below the escalation band
+- **WHEN** the spike is evaluated
+- **THEN** the disposition SHALL be `escalate` and SHALL NOT be `suppress`
+
+#### Scenario: Poisoned thin cell cannot widen the suppression band
+
+- **GIVEN** a `(series, hod)` cell with a minority of poisoned high samples and a real novel spike above the series' normal range
+- **WHEN** the spike is evaluated
+- **THEN** the suppression band SHALL be bounded by `CAP·s_prior`
+- **AND** the spike SHALL `escalate`, not `suppress`
+
+#### Scenario: Cold or ceiling-proximity cell passes through
+
+- **GIVEN** a `(series, hod)` cell with `n < N_min`, or whose upper band would exceed 100
+- **WHEN** an edge spike is evaluated
+- **THEN** the disposition SHALL be `pass_through`
+- **AND** the band SHALL NOT produce an upper bound above 100
+
+### Requirement: Robust Seasonal Statistic And Confirm-Slot Hysteresis
+
+The default central seasonal sources SHALL compute their baselines with a robust statistic
+(`median + MAD`, or a robust IQR-based scale for the peak profile) rather than `mean + stddev`, so
+a past incident in the history does not poison the profile. The central seasonal tier SHALL also
+apply **confirm-slot hysteresis** (its `confirm_slots` SHALL be tunable and SHALL support a value
+greater than 1), so a single off-baseline bucket does not flip a disposition; today the core
+seasonal `confirm_slots` default is 1 (no hysteresis).
+
+#### Scenario: Past incident does not hide itself
+
+- **GIVEN** a seasonal cell with a small sample count, one of which is a prior incident spike
+- **WHEN** the baseline is computed for that cell
+- **THEN** the center and dispersion SHALL be computed with median and MAD (not mean and stddev)
+- **AND** a subsequent spike of similar magnitude SHALL still be classified off-baseline
+
+#### Scenario: Hysteresis requires sustained breach
+
+- **GIVEN** the central seasonal tier configured with `confirm_slots > 1`
+- **WHEN** a single bucket is off-baseline but the next is normal
+- **THEN** the tier SHALL NOT flip its disposition on the single bucket alone
+
+### Requirement: Core Seasonal Validator Adopts S-H-ESD
+
+The primary central seasonal validator SHALL adopt **S-H-ESD** (seasonal-hybrid ESD: STL/MSTL
+decomposition plus a median/MAD-based Extreme Studentized Deviate test on the residual) as the
+seasonal validator, and SHALL be the **source of the coarse hour-of-week baseline pushed back to
+the edge** for deseasonalization. Holt-Winters SHALL remain reserved for capacity forecasting and
+SHALL NOT be repurposed as the seasonal anomaly validator.
+
+#### Scenario: Seasonal validator decomposes before testing residuals
+
+- **GIVEN** a series with a strong diurnal pattern
+- **WHEN** the central seasonal validator scores the latest bucket
+- **THEN** it SHALL test the STL/MSTL residual with a robust (median/MAD) ESD criterion
+- **AND** the expected seasonal component SHALL be removed before the residual is scored
+
+#### Scenario: Edge baseline is sourced from the core seasonal profile
+
+- **GIVEN** the core seasonal validator has a stable hour-of-week profile for a series
+- **WHEN** the edge requests a deseasonalization baseline for that series
+- **THEN** the baseline SHALL be derived from the core seasonal profile
+
+### Requirement: Optional Fleet And Multivariate RPCA Layer
+
+The platform SHALL support an **optional, feature-flagged** core/batch RPCA layer that reshapes a
+series into an hour-of-week matrix and/or stacks hosts to detect fleet-wide correlated and
+multivariate anomalies that univariate edge scoring is blind to. This layer SHALL run off the hot
+path (batch, core-side) and SHALL be disabled by default; it SHALL NOT be required for the edge or
+seasonal tiers to function.
+
+#### Scenario: RPCA detects a fleet-correlated anomaly invisible to univariate scoring
+
+- **GIVEN** the RPCA layer is enabled and many hosts shift together in a correlated way that no single series flags as a spike
+- **WHEN** the batch RPCA layer runs
+- **THEN** it SHALL surface the correlated/multivariate anomaly
+- **AND** with the layer disabled, the edge and seasonal tiers SHALL continue to function unchanged
+
+### Requirement: Engine Documentation And Dead-Code Hygiene
+
+The anomaly engine's code and documentation SHALL reflect reality. The dead `peak_profile` kernel
+(`rust/causal-disposition/.../peak_profile`, which `types.rs:8` admits has no NIF ABI and which
+has zero production callers) SHALL be removed or unambiguously marked as dead/non-wired.
+Documentation that states the capacity forecaster's "phase 2 is not wired" SHALL be corrected,
+since the capacity forecaster is live (`capacity_forecasting/worker.ex:368`). Documentation SHALL
+describe the engine as a robust statistical detector, a seasonal/forecast disposition engine, and
+a deterministic dependency expert system.
+
+#### Scenario: Dead kernel removed or marked
+
+- **GIVEN** the `peak_profile` kernel has no NIF ABI and no production callers
+- **WHEN** the change is implemented
+- **THEN** the kernel SHALL be removed, OR clearly marked dead/non-wired so no reader mistakes it for a live path
+
+#### Scenario: Stale capacity documentation corrected
+
+- **GIVEN** documentation claiming capacity "phase 2 is not wired"
+- **WHEN** the documentation is reviewed
+- **THEN** it SHALL be corrected to reflect that the capacity forecaster is live
+
+### Requirement: Honest End-To-End Engine Documentation
+
+The change SHALL author a single-source-of-truth end-to-end documentation set for the anomaly
+engine under the Docusaurus content directory (`docs/docs/`, registered in `docs/sidebars.ts`),
+and SHALL remove causal-inference claims from the engine's own code module-docs/comments
+(`rust/anomaly-core`, `rust/anomaly-addon`, `rust/causal-disposition`, `rust/causal-engine`,
+`causal_disposition_nif`, and the Elixir `observability` modules) and from the docs site (the
+existing `docs/docs/anomaly-detection.md` overclaims and SHALL be overhauled or superseded). The
+new documentation SHALL cover: the two-tier architecture (edge robust spike detector + core
+seasonal/capacity disposition + the deterministic dependency expert system); the exact data
+contract (gauges vs monotonic counters, rate normalization, counter wrap/reset, the directional
+saturation gate, series keying); the actual statistics (rolling robust z-score; hour-of-week
+residual-z / S-H-ESD; OLS + Holt-Winters capacity); honest naming (what is and is NOT causal); the
+disposition loop; operations/tuning knobs; and how to run the proof harness (`tools/anomaly-proof`).
+The change SHALL NOT rewrite other proposals' archived history.
+
+#### Scenario: End-to-end engine doc set authored and registered
+
+- **GIVEN** the documentation overhaul is implemented
+- **WHEN** the docs site is built
+- **THEN** a new end-to-end anomaly-engine document set SHALL exist under `docs/docs/` and be registered in `docs/sidebars.ts`
+- **AND** it SHALL cover architecture, data contract, statistics, honest naming, the disposition loop, operations/tuning, and how to run the proof harness
+
+#### Scenario: Causal-inference claims removed from code docs and docs site
+
+- **GIVEN** engine code module-docs/comments and the docs site that assert causal inference
+- **WHEN** the overhaul is complete
+- **THEN** those causal-inference claims SHALL be removed (the detector/disposition layer described as statistics; the expert system described as deterministic rule + dependency-graph reasoning)
+- **AND** the stale `docs/docs/anomaly-detection.md` SHALL be overhauled or superseded by the new set
+
+### Requirement: Anti-Hallucination Proof-Harness Acceptance Gate
+
+Every behavioral requirement in this change SHALL be proven by a reproducible proof-harness
+scenario that exercises the **real** code — the `rust/anomaly-core` detector via the
+`target/debug/anomaly-backtest` binary (built from `rust/anomaly-core/src/bin/anomaly-backtest.rs`)
+driven by `tools/anomaly-proof/{gen.py,plot.py}`, and the **real** Elixir seasonal/capacity workers
+plus the `causal_disposition` NIF — over **synthetic labeled datasets** (bounded percent gauges
+for cpu/mem/disk and monotonic SNMP counters, with injected spike, step, drift, off-cycle, and
+counter wrap/reset anomalies), with **no production database** (the core half runs against the
+`srql-fixtures` CNPG scratch database or a local TimescaleDB CAGG). The harness SHALL emit
+precision, recall, and detection-latency scorecards and labeled-overlay plots. The
+`anomaly-backtest` binary SHALL be extended to expose the `ReasonContext` fields it currently
+hardcodes off (`seasonal_enabled`/`trend_enabled`/`min_std_floor`/`min_cv`/`saturation_gate`) so
+the stability-gate, MAD, CUSUM, and seasonal requirements are provable rather than asserted. A
+behavioral requirement SHALL NOT be considered satisfied on assertion alone.
+
+#### Scenario: Each requirement maps to a harness scenario over real code
+
+- **GIVEN** a behavioral requirement in this change
+- **WHEN** acceptance is evaluated
+- **THEN** there SHALL be a harness scenario that exercises the real detector or worker code on a labeled dataset and reports precision/recall/detection-latency
+- **AND** the harness SHALL NOT use the production database
+
+#### Scenario: Self-masking regression is caught by the harness
+
+- **GIVEN** a labeled dataset containing a large sustained spike followed by a second spike
+- **WHEN** the harness runs the real edge detector
+- **THEN** the scorecard SHALL show whether the second spike is still detected (recall) under the chosen dispersion estimator
+- **AND** a regression that lets the first spike mask the second SHALL be visible in the recall metric
+

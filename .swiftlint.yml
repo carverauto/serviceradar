@@ -1,0 +1,29 @@
+included:
+  - swift/FieldSurvey/FieldSurvey
+  - swift/FieldSurvey/Tests
+  - swift/RPerfClient/Sources
+  - swift/RPerfClient/Tests
+
+excluded:
+  - swift/FieldSurvey/LocalPackages
+  - swift/FieldSurvey/.build
+  - swift/FieldSurvey/FieldSurvey.xcodeproj
+  - swift/FieldSurvey/Config
+  - swift/FieldSurvey/test.swift
+  - test.swift
+
+only_rules:
+  - force_cast
+  - force_try
+  - unused_import
+
+force_cast:
+  severity: error
+
+force_try:
+  severity: error
+
+unused_import:
+  severity: error
+
+reporter: "xcode"

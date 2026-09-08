@@ -1,0 +1,84 @@
+FROM hexpm/elixir:1.19.4-erlang-28.3-debian-bookworm-20251208-slim AS build
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    ca-certificates \
+    curl \
+    git \
+    pkg-config \
+    protobuf-compiler \
+    libssl-dev \
+    unzip \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+RUN curl -fsSL https://bun.sh/install | bash
+ENV PATH="/root/.cargo/bin:/root/.bun/bin:${PATH}"
+
+WORKDIR /app
+
+# Preserve repo-relative layout so all path deps resolve naturally:
+#   elixir/web-ng/mix.exs uses path: "../serviceradar_core", "../datasvc", etc.
+#   elixir/serviceradar_srql/native/srql_nif/Cargo.toml uses path: "../../../../rust/srql"
+COPY elixir/serviceradar_core ./elixir/serviceradar_core
+COPY elixir/serviceradar_srql ./elixir/serviceradar_srql
+COPY elixir/datasvc ./elixir/datasvc
+COPY elixir/connection ./elixir/connection
+COPY elixir/vendor ./elixir/vendor
+
+# Copy web-ng application
+COPY elixir/web-ng ./elixir/web-ng
+
+COPY proto ./proto
+
+COPY rust/srql ./rust/srql
+COPY rust/kvutil ./rust/kvutil
+
+RUN mkdir -p /app/rust \
+  && cat > /app/rust/Cargo.toml <<'EOF'
+[workspace]
+resolver = "2"
+members = [
+  "srql",
+  "kvutil",
+]
+
+[workspace.dependencies]
+tonic = { version = "0.12", features = ["tls"] }
+prost = "0.13"
+tonic-build = "0.12"
+tokio = { version = "1" }
+tokio-stream = "0.1"
+EOF
+
+WORKDIR /app/elixir/web-ng
+
+ENV MIX_ENV=prod
+
+RUN mix local.hex --force && mix local.rebar --force
+RUN HEX_HTTP_CONCURRENCY=1 HEX_HTTP_TIMEOUT=120 mix deps.get --only prod
+RUN mix deps.compile
+RUN mix compile
+RUN mix assets.deploy
+
+FROM hexpm/elixir:1.19.4-erlang-28.3-debian-bookworm-20251208-slim AS runtime
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    git \
+  && rm -rf /var/lib/apt/lists/*
+
+ENV MIX_ENV=prod
+
+WORKDIR /app/elixir/web-ng
+
+RUN mix local.hex --force && mix local.rebar --force
+
+# Copy compiled Elixir code and Rust workspace
+COPY --from=build /app/elixir /app/elixir
+COPY --from=build /app/rust /app/rust
+COPY --from=build /app/proto /app/proto
+
+EXPOSE 4000
+
+CMD ["mix", "phx.server"]

@@ -1,0 +1,229 @@
+# Device classification from netprobe's passive mDNS identification stream.
+#
+# These rules read `mdns.*` metadata written by the agent-side translator
+# (go/pkg/agent/netprobe/mdns_translator.go). Two properties of that data shape
+# everything here:
+#
+#   * `mdns.model` exists only when the MAC advertised exactly ONE product. A
+#     device announcing both an Apple TV and a HomePod has not said which it is,
+#     so the key is absent and no model rule can fire. Absence is the answer.
+#
+#   * `mdns.service_types` is every service type the MAC announced, joined by
+#     commas, and matching is case-insensitive substring -- so a rule naming
+#     `_ipp._tcp` fires on a device that also announces six other services.
+#
+# Priorities sit above the passive-fingerprint rules (545-570). A printer runs
+# Linux, and "Printer" is the more useful of the two answers; the first matching
+# rule wins, so the ordering is the decision.
+#
+# What is deliberately NOT here: a vendor guess from a protocol. Third parties
+# implement AirPlay and Chromecast, so `_airplay._tcp` gives a type and no
+# vendor. Vendor is asserted only where the device named its own manufacturer
+# (usb_MFG) or its own hardware (`mdns.model`).
+rules:
+  # --- Model-declared hardware (strongest: the device named its own product) --
+
+  - id: mdns-model-apple-tv
+    enabled: true
+    priority: 600
+    confidence: 85
+    reason: "mDNS model identifies an Apple TV"
+    match:
+      any:
+        metadata.mdns.model: ["appletv"]
+    set:
+      vendor_name: "Apple"
+      type: "Media Device"
+      type_id: 99
+      os_family: "tvOS"
+
+  - id: mdns-model-apple-homepod
+    enabled: true
+    priority: 600
+    confidence: 85
+    reason: "mDNS model identifies a HomePod"
+    match:
+      any:
+        metadata.mdns.model: ["audioaccessory"]
+    set:
+      vendor_name: "Apple"
+      type: "Speaker"
+      type_id: 99
+
+  - id: mdns-model-apple-iphone
+    enabled: true
+    priority: 600
+    confidence: 85
+    reason: "mDNS model identifies an iPhone"
+    match:
+      any:
+        metadata.mdns.model: ["iphone"]
+    set:
+      vendor_name: "Apple"
+      type: "Mobile"
+      type_id: 5
+      os_family: "iOS"
+
+  - id: mdns-model-apple-ipad
+    enabled: true
+    priority: 600
+    confidence: 85
+    reason: "mDNS model identifies an iPad"
+    match:
+      any:
+        metadata.mdns.model: ["ipad"]
+    set:
+      vendor_name: "Apple"
+      type: "Tablet"
+      type_id: 4
+      os_family: "iPadOS"
+
+  - id: mdns-model-apple-laptop
+    enabled: true
+    priority: 600
+    confidence: 85
+    reason: "mDNS model identifies a Mac laptop"
+    match:
+      any:
+        metadata.mdns.model: ["macbook"]
+    set:
+      vendor_name: "Apple"
+      type: "Laptop"
+      type_id: 3
+      os_family: "macOS"
+
+  - id: mdns-model-apple-desktop
+    enabled: true
+    priority: 599
+    confidence: 85
+    reason: "mDNS model identifies a desktop Mac"
+    match:
+      any:
+        metadata.mdns.model: ["imac", "macmini", "macpro", "macstudio"]
+    set:
+      vendor_name: "Apple"
+      type: "Desktop"
+      type_id: 2
+      os_family: "macOS"
+
+  # --- Manufacturer the device named for itself ---------------------------
+
+  - id: mdns-printer-manufacturer-brother
+    enabled: true
+    priority: 590
+    confidence: 80
+    reason: "mDNS printer TXT names Brother as the manufacturer"
+    match:
+      any:
+        metadata.mdns.txt.usb_mfg: ["brother"]
+    set:
+      vendor_name: "Brother"
+      type: "Printer"
+      type_id: 99
+
+  - id: mdns-printer-manufacturer-hp
+    enabled: true
+    priority: 590
+    confidence: 80
+    reason: "mDNS printer TXT names HP as the manufacturer"
+    match:
+      any:
+        metadata.mdns.txt.usb_mfg: ["hewlett-packard", "hewlett packard", "hp inc"]
+    set:
+      vendor_name: "HP"
+      type: "Printer"
+      type_id: 99
+
+  - id: mdns-printer-manufacturer-epson
+    enabled: true
+    priority: 590
+    confidence: 80
+    reason: "mDNS printer TXT names Epson as the manufacturer"
+    match:
+      any:
+        metadata.mdns.txt.usb_mfg: ["epson"]
+    set:
+      vendor_name: "Epson"
+      type: "Printer"
+      type_id: 99
+
+  - id: mdns-printer-manufacturer-canon
+    enabled: true
+    priority: 590
+    confidence: 80
+    reason: "mDNS printer TXT names Canon as the manufacturer"
+    match:
+      any:
+        metadata.mdns.txt.usb_mfg: ["canon"]
+    set:
+      vendor_name: "Canon"
+      type: "Printer"
+      type_id: 99
+
+  # --- Service types (type only; the protocol does not name a vendor) ------
+
+  - id: mdns-service-printer
+    enabled: true
+    priority: 585
+    confidence: 75
+    reason: "mDNS advertises an IPP or line-printer service"
+    match:
+      any:
+        metadata.mdns.service_types:
+          ["_ipp._tcp", "_ipps._tcp", "_printer._tcp", "_pdl-datastream._tcp"]
+    set:
+      type: "Printer"
+      type_id: 99
+
+  - id: mdns-service-sonos-speaker
+    enabled: true
+    priority: 584
+    confidence: 80
+    reason: "mDNS advertises the Sonos control service"
+    match:
+      any:
+        metadata.mdns.service_types: ["_sonos._tcp"]
+    set:
+      vendor_name: "Sonos"
+      type: "Speaker"
+      type_id: 99
+
+  - id: mdns-service-axis-camera
+    enabled: true
+    priority: 584
+    confidence: 80
+    reason: "mDNS advertises the Axis video service"
+    match:
+      any:
+        metadata.mdns.service_types: ["_axis-video._tcp"]
+    set:
+      vendor_name: "Axis Communications"
+      type: "Camera"
+      type_id: 99
+
+  - id: mdns-service-homekit-accessory
+    enabled: true
+    priority: 583
+    confidence: 70
+    reason: "mDNS advertises a HomeKit accessory protocol endpoint"
+    match:
+      any:
+        metadata.mdns.service_types: ["_hap._tcp", "_hap._udp"]
+    set:
+      type: "IOT"
+      type_id: 7
+
+  # Third parties implement both of these, so they give a type and no vendor:
+  # a TV with Chromecast built in is made by Sony or TCL, not Google.
+  - id: mdns-service-media-streaming
+    enabled: true
+    priority: 582
+    confidence: 65
+    reason: "mDNS advertises a media streaming or casting service"
+    match:
+      any:
+        metadata.mdns.service_types:
+          ["_googlecast._tcp", "_airplay._tcp", "_raop._tcp", "_spotify-connect._tcp"]
+    set:
+      type: "Media Device"
+      type_id: 99

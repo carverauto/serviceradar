@@ -1,0 +1,11 @@
+{
+  "devices": [],
+  "stats": {
+    "ambiguous": 0,
+    "devices": 1,
+    "emitted": 0,
+    "skipped_no_evidence": 0,
+    "skipped_no_mac": 1,
+    "truncated": 0
+  }
+}

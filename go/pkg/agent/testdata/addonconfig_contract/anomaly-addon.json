@@ -1,0 +1,1 @@
+{"checkpoint_max_age_secs":21600,"checkpoint_path":"/var/lib/serviceradar/anomaly/checkpoint.bin","confirm_slots":5,"cusum_h":5.0,"cusum_k":0.5,"max_series":50000,"metric_feed":{"sources":["sysmon","snmp"]},"min_samples":30,"n_sigma":3.5,"window_size":300}

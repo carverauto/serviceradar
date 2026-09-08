@@ -1,0 +1,250 @@
+.NET
+AOS
+APV
+ASM
+Abyss Web Server
+ActiveMQ
+Alteon
+Antivirus for Gateways
+Apache
+AppleShare IP Mail Server
+Application Protection System
+Appweb
+Atlas Anchor
+Aura
+Azure
+BIG-IP
+BIND
+Bftpd
+Bigfoot Email Tools
+CCProxy
+CMS
+CMS400.NET
+CRM
+CUPS
+Check Point
+CherryPy
+CleanBrowsing
+Cloud
+CloudFlare
+CloudFront
+ColdFusion
+Commerce Server
+Compaq HTTP Server
+Connect
+ConnectUPS
+Content Server
+Content Service Switch
+Courier MTA
+Cyrus MTA
+DNS
+DSM
+DSView
+David
+Desktop Authority
+Diskstation
+Dnsmasq
+Dovecot
+Dropbear
+Dynamo
+E-mail Services
+EWS
+Ecelerity Mail Server
+EmWeb
+Email Security
+Embedded SSH Server
+Endpoint Protection Manager
+Exchange Server
+FTGate
+FTP Server
+FWTK
+FastTrack Server
+FileZilla FTP
+Firewall-1
+FortressSSH Server
+FreSSH
+GNAT Box
+Gateway
+Gene6
+GoAhead Webserver
+Google Web Server
+GroupWise
+HAProxy
+HTTP Server
+Helix Server
+IBM Domino
+IIS
+IMail Server
+IOS
+IP-DECT Base Station
+IP-DECT Gateway
+Integrated Lights Out Manager
+Intel(R) Active Management Technology
+Internet Mail Scanner
+Internet Mail Server
+Internet Mail Services
+IntraStore
+JBoss
+JC-HTTPD
+JC-SHTTPD
+JRun
+JServ
+Java System Application Server
+Java System Web Proxy Server
+Java System Web Server
+JetDirect
+Jetty
+Joom!Fish
+Knot
+Kubernetes
+ListManager
+Lotus Domino
+Lotus Expeditor
+MAILsweeper
+MDaemon
+MERCUR
+META IP
+MOVEit DMZ
+MPEG4 DVR
+MT
+Mail Server
+Mail-Max
+MailSite
+Management Agent
+Mercury Mail Transport System
+Messaging Server
+Mongrel
+MultiNet
+Multicraft
+MySQL
+NSD
+NTMail
+NTP
+Nepenthes
+NetCache
+NetScaler
+NetScreen
+NetTracker
+NetVanta
+NetWare Enterprise Web Server
+NetWare HTTP Server
+NetWare HTTP Stack
+NetWeaver
+Netscaler
+Network Printer Manager
+Niagara
+OpenAdStream
+OpenSMTPD
+OpenSSH
+OpenVMS
+OpenView
+Oracle
+OracleAS
+OzymanDNS
+PBX
+PHP
+PWS
+Phabricator
+Pi-hole
+Post.Office
+Postfix
+PowerDNS
+PowerMTA
+Pro
+ProCurve
+ProFTPD
+ProLiant
+Proxy
+Pure-FTPd
+Python
+Qpopper
+Quad9
+RT
+Reflection
+Remote Access Controller
+RemoteView
+Resin
+SIP Server
+SIPPS
+SLMail
+SMH
+SSH
+SSH Tectia Server
+SSL-VPN
+Sage X3 Syracuse Web Server
+Samba
+Secure Access Gateway
+Secure FTP Server
+Sendmail
+Sentinel
+Serv-U
+SmbFTPD
+SoundPoint
+SpeedTouch
+Squid
+Sunny
+SystemEdge
+TBS FTP Server
+Tengine
+Thin
+TippingPoint
+Tivoli
+Tomcat
+Tornado
+Traefik
+Twisted
+Twisted Web
+UPnP
+UTM
+UltraDNS
+Unbound
+Unified Security Gateway
+Urchin
+VM
+VOPMail
+VPOP3
+VRP
+VShell
+Vantio
+Varnish
+Vignette
+VoiP Gateway
+WS_FTP
+WeOnlyDo
+Web PN Server
+Web Services
+WebGUI
+WebLogic
+WebServer
+WebShield
+WebSphere
+WebTrends
+Webserver
+WinRoute
+WinSSHD
+WinWebMail
+Windows CE Web Server
+Windows Media Server
+Windows Media Services
+Wing FTP
+ZMailer
+Zope
+ZyWALL
+Zywall
+djbdns
+ePolicy Orchestrator
+emHTTPD
+exim
+gdnsd
+iLO
+inetutils
+libssh
+lighttpd
+mini_httpd
+nginx
+qmail
+rbldnsd
+sfcb
+thttpd
+ucftpd
+vsFTPd

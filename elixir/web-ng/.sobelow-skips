@@ -1,0 +1,113 @@
+
+XSS.ContentType: XSS in `put_resp_content_type`,lib/serviceradar_web_ng_web/controllers/dashboard_package_asset_controller.ex:36,1B98639
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/log_live/index.ex:7059,260960
+Traversal.SendFile: Directory Traversal in `send_file`,lib/serviceradar_web_ng_web/controllers/dashboard_package_asset_controller.ex:45,1F18D29
+XSS.ContentType: XSS in `put_resp_content_type`,lib/serviceradar_web_ng_web/controllers/api/spatial_controller.ex:71,2739E3C
+Traversal.FileModule: Directory Traversal in `File.read`,lib/serviceradar_web_ng/plugins/cosign_verifier.ex:129,73DEB0A
+Traversal.FileModule: Directory Traversal in `File.write!`,lib/serviceradar_web_ng/plugins/cosign_verifier.ex:108,63E2060
+Traversal.FileModule: Directory Traversal in `File.rm`,lib/serviceradar_web_ng/plugins/cosign_verifier.ex:53,6CE256A
+Traversal.FileModule: Directory Traversal in `File.write!`,lib/serviceradar_web_ng/plugins/first_party_importer.ex:349,4118B40
+Traversal.FileModule: Directory Traversal in `File.rm_rf`,lib/serviceradar_web_ng/plugins/cosign_verifier.ex:103,55538D2
+Traversal.FileModule: Directory Traversal in `File.rm`,lib/serviceradar_web_ng/plugins/first_party_importer.ex:359,4813369
+Traversal.FileModule: Directory Traversal in `File.mkdir_p!`,lib/serviceradar_web_ng/plugins/cosign_verifier.ex:90,70E0615
+Traversal.FileModule: Directory Traversal in `File.write!`,lib/serviceradar_web_ng/plugins/cosign_verifier.ex:52,2F44BA1
+Traversal.FileModule: Directory Traversal in `File.open`,lib/serviceradar_web_ng_web/plugs/upload_guard.ex:168,6BF5E3C
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/log_live/index.ex:7383,1EB4111
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:216,65705FD
+Traversal.FileModule: Directory Traversal in `File.read`,lib/serviceradar_web_ng/plugins/first_party_importer.ex:888,6E72540
+CI.System: Command Injection via `System` function,lib/serviceradar_web_ng/plugins/cosign_verifier.ex:61,42AA114
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:528,28B96A3
+Traversal.FileModule: Directory Traversal in `File.read!`,lib/serviceradar_web_ng_web/live/admin/dashboard_package_live/index.ex:980,61EB013
+DOS.StringToAtom: Unsafe `String.to_atom`,lib/serviceradar_web_ng_web/controllers/cli_auth_controller.ex:408,1CCC991
+Traversal.FileModule: Directory Traversal in `File.read`,lib/serviceradar_web_ng_web/controllers/dashboard_package_publish_controller.ex:268,38F2839
+SQL.Query: SQL injection,lib/serviceradar_web_ng/topology/god_view_stream.ex:4543,313CAF2
+Config.CSRF: Missing CSRF Protections,lib/serviceradar_web_ng_web/router.ex:60,7965C17
+Traversal.FileModule: Directory Traversal in `File.rm_rf`,lib/serviceradar_web_ng/plugins/cosign_verifier.ex:119,507AFC6
+XSS.SendResp: XSS in `send_resp`,lib/serviceradar_web_ng_web/controllers/api/spatial_controller.ex:76,5667F4
+XSS.SendResp: XSS in `send_resp`,lib/serviceradar_web_ng_web/controllers/dashboard_package_asset_controller.ex:38,3711A5E
+Traversal.FileModule: Directory Traversal in `File.mkdir_p!`,lib/serviceradar_web_ng/plugins/cosign_verifier.ex:107,4580ACF
+XSS.ContentType: XSS in `put_resp_content_type`,lib/serviceradar_web_ng_web/controllers/dashboard_package_asset_controller.ex:43,3FDCB8
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:1804,206D3CA
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:1167,2105349
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:1265,236E761
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:994,24A1018
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:2206,36F6164
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:2106,3AE7F17
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:2687,3E2FF6E
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:700,47A1162
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:1930,4ED0091
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:2274,534EB45
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:1242,646852D
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:1215,66D36C8
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:1767,6ABF804
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:2160,73F2AC7
+SQL.Query: SQL injection,lib/serviceradar_web_ng/topology/runtime_graph.ex:281,A3C160
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:2240,A4C49E
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:1394,CD24A0
+
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:1243,18A2DD
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:1168,2B8F800
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:995,3004967
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:2242,373EF17
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:2276,39E4037
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:2208,3B81245
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:529,3C8EF52
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:1395,40F321
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:1768,413892A
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:1266,4857155
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:217,4CF9201
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:1216,4EDB045
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:701,513BFE7
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:2108,53D0698
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:1931,5CCDBC9
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:1805,6EBA71B
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:2689,781E7D7
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:2162,7AE0139
+
+# browser_raw_auth is a GET-only websocket-upgrade pipeline. It does not mutate
+# state, and router-origin checks plus authentication protect browser clients.
+Config.CSRF: Missing CSRF Protections,lib/serviceradar_web_ng_web/router.ex:64,4B2D56B
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/log_live/index.ex:7217,78D02A4
+
+# Refreshed by `mix sobelow --mark-skip-all` after line/hash drift in existing
+# low-confidence findings.
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:2751,136A4A1
+DOS.StringToAtom: Unsafe `String.to_atom`,lib/serviceradar_web_ng_web/live/authored_dashboard_live/panel_components.ex:730,150F9AC
+Traversal.FileModule: Directory Traversal in `File.read`,lib/serviceradar_web_ng/plugins/forgejo_oci_client.ex:369,19DB0B5
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:2224,222C0F2
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:1057,245D997
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:1993,27B9FF6
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:530,2A10E
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:1278,2AF3CC9
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:704,349725E
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:2338,36C7F77
+Traversal.FileModule: Directory Traversal in `File.rm`,lib/serviceradar_web_ng/plugins/first_party_importer.ex:287,39B1652
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:1867,43D04D6
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:2170,47962F0
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:1230,4B26CC4
+Traversal.FileModule: Directory Traversal in `File.rm`,lib/serviceradar_web_ng/plugins/native_addon_importer.ex:335,4CE3597
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:2270,56D4647
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:2304,5CF2385
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:1305,5D80915
+Traversal.FileModule: Directory Traversal in `File.write!`,lib/serviceradar_web_ng/plugins/first_party_importer.ex:277,5E84FA6
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:1328,65F098C
+Traversal.FileModule: Directory Traversal in `File.write!`,lib/serviceradar_web_ng/plugins/native_addon_importer.ex:328,673D7F1
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:1457,7531665
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:1830,79EFDC1
+SQL.Query: SQL injection,lib/serviceradar_web_ng/topology/god_view_stream.ex:4545,7C81AB4
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:218,A63EBB
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/log_live/index.ex:7429,F7A721
+
+# Refreshed by `mix sobelow --mark-skip-all` after current dependency/tooling
+# updates changed line hashes for existing low-confidence findings.
+Traversal.FileModule: Directory Traversal in `File.read!`,lib/serviceradar_web_ng_web/live/admin/dashboard_package_live/index.ex:986,18C6798
+DOS.StringToAtom: Unsafe `String.to_atom`,lib/serviceradar_web_ng_web/live/device_live/discovery_sources_components.ex:326,199F9A5
+
+# browser_raw_auth is a GET-only websocket-upgrade pipeline. It does not mutate
+# state, and router-origin checks plus authentication protect browser clients.
+Config.CSRF: Missing CSRF Protections,lib/serviceradar_web_ng_web/router.ex:66,7009373
+
+# api_docs_spec serves authenticated OpenAPI JSON only; callers must already be
+# authorized through session or bearer authentication and no form action mutates state.
+Config.CSRF: Missing CSRF Protections,lib/serviceradar_web_ng_web/router.ex:114,3173E02
+DOS.StringToAtom: Unsafe `String.to_atom`,lib/serviceradar_web_ng_web/live/device_live/discovery_sources_components.ex:341,7DB415F

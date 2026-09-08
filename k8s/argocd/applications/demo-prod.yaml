@@ -1,0 +1,59 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: serviceradar-demo-prod
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://git.carverauto.dev/carverauto/serviceradar.git
+    # Render demo from the latest published release source, not moving staging.
+    # The release workflow advances this branch after release artifacts publish.
+    targetRevision: demo/prod-release
+    path: helm/serviceradar
+    helm:
+      releaseName: serviceradar
+      # IMPORTANT: values-demo.yaml contains environment-specific overrides
+      # including the CNPG cluster name. Never change clusterName without
+      # migrating data first!
+      valueFiles:
+        - values-demo.yaml
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: demo
+  ignoreDifferences:
+    - group: ""
+      kind: PersistentVolumeClaim
+      jsonPointers:
+        - /status
+    # Ignore CNPG cluster spec changes to prevent accidental data loss
+    - group: postgresql.cnpg.io
+      kind: Cluster
+      jsonPointers:
+        - /spec/instances
+        - /spec/storage/size
+  syncPolicy:
+    # The release workflow advances demo/prod-release only after the tagged
+    # release, chart, catalogs, signatures, and security assets verify. Reconcile
+    # that immutable revision automatically, but never prune or self-heal live
+    # drift: deletion and unrelated operator changes remain explicit actions.
+    automated:
+      enabled: true
+      prune: false
+      selfHeal: false
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - SkipDryRunOnMissingResource=true
+      - RespectIgnoreDifferences=true
+      # Prevent deletion of CNPG clusters during sync
+      - PrunePropagationPolicy=foreground
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

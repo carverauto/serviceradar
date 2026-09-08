@@ -1,0 +1,421 @@
+defmodule ServiceRadar.Plugins.PluginPackage do
+  @moduledoc """
+  Wasm plugin package metadata and import review state.
+
+  Each record represents a specific plugin version (plugin_id + version).
+  Packages are staged on import and require explicit approval before use.
+  """
+
+  use Ash.Resource,
+    domain: ServiceRadar.Plugins,
+    data_layer: AshPostgres.DataLayer,
+    notifiers: [
+      ServiceRadar.AgentConfig.DependencyNotifier,
+      # Revoking a package must not leave a notification provider bound to it
+      # still active (tasks 3.3.2). The watcher explains why it is a notifier
+      # rather than a change on `:revoke`, and why the enforcing check still
+      # lives at dispatch.
+      ServiceRadar.Notifications.PackageApprovalWatcher
+    ],
+    authorizers: [Ash.Policy.Authorizer],
+    extensions: [AshStateMachine]
+
+  alias ServiceRadar.Changes.AfterAction
+  alias ServiceRadar.Plugins.ProducerScheduleCatalog
+  alias ServiceRadar.Plugins.Validations.DisplayContracts
+  alias ServiceRadar.Plugins.Validations.Manifest
+
+  @package_fields [
+    :name,
+    :description,
+    :entrypoint,
+    :runtime,
+    :outputs,
+    :manifest,
+    :config_schema,
+    :display_contract,
+    :display_contracts,
+    :signal_schemas,
+    :producer_schedules,
+    :alert_rules,
+    :snmp_requirements,
+    :wasm_object_key,
+    :content_hash,
+    :signature,
+    :source_type,
+    :source_repo_url,
+    :source_commit,
+    :source_release_tag,
+    :source_oci_ref,
+    :source_oci_digest,
+    :source_bundle_digest,
+    :source_metadata,
+    :gpg_key_id,
+    :gpg_verified_at,
+    :imported_at,
+    :verification_status,
+    :verification_error
+  ]
+
+  @package_create_fields [:plugin_id, :version | List.delete(@package_fields, :wasm_object_key)]
+  @approval_fields [
+    :approved_capabilities,
+    :approved_permissions,
+    :approved_resources,
+    :approved_by
+  ]
+  @denial_fields [:denied_reason]
+
+  postgres do
+    table "plugin_packages"
+    repo ServiceRadar.Repo
+    schema "platform"
+
+    references do
+      reference :plugin, on_delete: :delete
+    end
+  end
+
+  state_machine do
+    initial_states [:staged]
+    default_initial_state :staged
+    state_attribute :status
+
+    transitions do
+      transition :approve, from: :staged, to: :approved
+      transition :deny, from: :staged, to: :denied
+      transition :revoke, from: [:approved], to: :revoked
+      transition :restage, from: [:denied, :revoked], to: :staged
+    end
+  end
+
+  actions do
+    defaults [:read, :destroy]
+
+    read :by_plugin_id do
+      argument :plugin_id, :string, allow_nil?: false
+      filter expr(plugin_id == ^arg(:plugin_id))
+    end
+
+    read :approved do
+      description "Approved plugin packages"
+      filter expr(status == :approved)
+    end
+
+    create :create do
+      accept @package_create_fields
+
+      validate Manifest
+      validate DisplayContracts
+      change &sync_producer_schedule_contracts/2
+    end
+
+    update :update do
+      require_atomic? false
+      accept @package_fields
+
+      validate Manifest
+      validate DisplayContracts
+      change &sync_producer_schedule_contracts/2
+    end
+
+    update :approve do
+      description "Approve a staged plugin package for distribution"
+
+      accept @approval_fields
+
+      change transition_state(:approved)
+      change set_attribute(:approved_at, &DateTime.utc_now/0)
+    end
+
+    update :deny do
+      description "Deny a staged plugin package"
+      accept @denial_fields
+
+      change transition_state(:denied)
+    end
+
+    update :revoke do
+      description "Revoke an approved plugin package"
+      accept @denial_fields
+
+      change transition_state(:revoked)
+    end
+
+    update :restage do
+      description "Move a denied or revoked package back to staged"
+      accept []
+
+      change transition_state(:staged)
+      change set_attribute(:denied_reason, nil)
+      change set_attribute(:approved_at, nil)
+    end
+  end
+
+  policies do
+    import ServiceRadar.Plugins.Policies
+
+    manage_action_types()
+  end
+
+  attributes do
+    uuid_primary_key :id
+
+    attribute :plugin_id, :string do
+      allow_nil? false
+      public? true
+      description "Plugin identifier from manifest"
+    end
+
+    attribute :name, :string do
+      allow_nil? false
+      public? true
+      description "Human-readable name"
+    end
+
+    attribute :version, :string do
+      allow_nil? false
+      public? true
+      description "Plugin version (semver)"
+    end
+
+    attribute :description, :string do
+      allow_nil? true
+      public? true
+    end
+
+    attribute :entrypoint, :string do
+      allow_nil? false
+      public? true
+    end
+
+    attribute :runtime, :string do
+      allow_nil? true
+      public? true
+    end
+
+    attribute :outputs, :string do
+      allow_nil? false
+      public? true
+    end
+
+    attribute :manifest, :map do
+      allow_nil? false
+      public? true
+      default %{}
+    end
+
+    attribute :config_schema, :map do
+      allow_nil? false
+      public? true
+      default %{}
+    end
+
+    attribute :display_contract, :map do
+      allow_nil? false
+      public? true
+      default %{}
+    end
+
+    attribute :display_contracts, :map do
+      allow_nil? false
+      public? true
+      default %{}
+
+      description """
+      Package-shipped display contract documents, keyed by "<contract_id>@<contract_version>". \
+      Read at RUNTIME by the UI, which is what lets a third-party package ship a renderable \
+      contract without a web-ng recompile. Validated by ServiceRadar.Plugins.DisplayContract \
+      on the way in, never trusted on the way out.\
+      """
+    end
+
+    attribute :signal_schemas, {:array, :map} do
+      allow_nil? false
+      public? true
+      default []
+      description "Package-owned log/event signal schemas and display contract references"
+    end
+
+    attribute :producer_schedules, {:array, :map} do
+      allow_nil? false
+      public? true
+      default []
+
+      description "Package-owned recurring producer schedule contracts"
+    end
+
+    attribute :alert_rules, {:array, :map} do
+      allow_nil? false
+      public? true
+      default []
+
+      description "Package-proposed alert rules, materialized disabled on approval"
+    end
+
+    attribute :snmp_requirements, {:array, :map} do
+      allow_nil? false
+      public? true
+      default []
+
+      description "Package-declared SNMP needs, materialized disabled on approval"
+    end
+
+    attribute :wasm_object_key, :string do
+      allow_nil? true
+      public? true
+      description "Object store key for the wasm blob"
+    end
+
+    attribute :content_hash, :string do
+      allow_nil? true
+      public? true
+      description "SHA256 of the package contents"
+    end
+
+    attribute :signature, :map do
+      allow_nil? false
+      public? true
+      default %{}
+      description "Signature metadata"
+    end
+
+    attribute :source_type, :atom do
+      allow_nil? false
+      public? true
+      default :upload
+      constraints one_of: [:upload, :github, :first_party]
+    end
+
+    attribute :source_repo_url, :string do
+      allow_nil? true
+      public? true
+    end
+
+    attribute :source_commit, :string do
+      allow_nil? true
+      public? true
+    end
+
+    attribute :source_release_tag, :string do
+      allow_nil? true
+      public? true
+      description "Repository release tag that advertised this package"
+    end
+
+    attribute :source_oci_ref, :string do
+      allow_nil? true
+      public? true
+      description "OCI reference for first-party package source"
+    end
+
+    attribute :source_oci_digest, :string do
+      allow_nil? true
+      public? true
+      description "OCI manifest digest for first-party package source"
+    end
+
+    attribute :source_bundle_digest, :string do
+      allow_nil? true
+      public? true
+      description "SHA256 digest of the mirrored plugin bundle payload"
+    end
+
+    attribute :source_metadata, :map do
+      allow_nil? false
+      public? true
+      default %{}
+      description "Repository import and verification metadata"
+    end
+
+    attribute :gpg_key_id, :string do
+      allow_nil? true
+      public? true
+    end
+
+    attribute :gpg_verified_at, :utc_datetime_usec do
+      allow_nil? true
+      public? true
+    end
+
+    attribute :imported_at, :utc_datetime_usec do
+      allow_nil? true
+      public? true
+    end
+
+    attribute :verification_status, :string do
+      allow_nil? true
+      public? true
+    end
+
+    attribute :verification_error, :string do
+      allow_nil? true
+      public? true
+    end
+
+    attribute :status, :atom do
+      allow_nil? false
+      public? true
+      default :staged
+      constraints one_of: [:staged, :approved, :denied, :revoked]
+    end
+
+    attribute :approved_capabilities, {:array, :string} do
+      allow_nil? false
+      public? true
+      default []
+    end
+
+    attribute :approved_permissions, :map do
+      allow_nil? false
+      public? true
+      default %{}
+    end
+
+    attribute :approved_resources, :map do
+      allow_nil? false
+      public? true
+      default %{}
+    end
+
+    attribute :approved_by, :string do
+      allow_nil? true
+      public? true
+    end
+
+    attribute :approved_at, :utc_datetime_usec do
+      allow_nil? true
+      public? true
+    end
+
+    attribute :denied_reason, :string do
+      allow_nil? true
+      public? true
+    end
+
+    create_timestamp :inserted_at
+    update_timestamp :updated_at
+  end
+
+  relationships do
+    belongs_to :plugin, ServiceRadar.Plugins.Plugin do
+      allow_nil? false
+      public? true
+      source_attribute :plugin_id
+      destination_attribute :plugin_id
+      define_attribute? false
+    end
+
+    has_many :assignments, ServiceRadar.Plugins.PluginAssignment do
+      destination_attribute :plugin_package_id
+    end
+  end
+
+  identities do
+    identity :unique_plugin_version, [:plugin_id, :version]
+  end
+
+  defp sync_producer_schedule_contracts(changeset, _context) do
+    AfterAction.after_action_result(changeset, &ProducerScheduleCatalog.sync_package/1)
+  end
+end

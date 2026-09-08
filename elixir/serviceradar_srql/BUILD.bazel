@@ -1,0 +1,54 @@
+load("@rules_elixir//:mix_app.bzl", "mix_app")
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "bazel-*",
+            "_build/**",
+            "deps/**",
+            "native/srql_nif/target/**",
+            "tmp/**",
+        ],
+    ),
+)
+
+# Bootstrap files only -- what `mix deps.get` needs to resolve this project as a path
+# dependency, with none of its lib/ sources. Keeping this separate from :srcs is what lets
+# //elixir/web-ng:deps_cache stay keyed on lockfiles, so it stays a remote cache hit across
+# any change that does not touch dependencies.
+filegroup(
+    name = "deps_srcs",
+    srcs = ["mix.exs"] + glob(
+        [
+            "mix.lock",
+            "config/**",
+        ],
+        allow_empty = True,
+    ),
+)
+
+# Compiled by Mix inside a single hermetic Bazel action, with dependencies supplied as
+# Bazel-built ErlangAppInfo rather than fetched. See //build:mix_app.bzl.
+mix_app(
+    name = "erlang_app",
+    srcs = [":srcs"],
+    app_name = "serviceradar_srql",
+    # Bazel builds the cdylib; Mix must not shell out to cargo. The library itself arrives
+    # via native_libs below.
+    extra_config = [
+        "config :serviceradar_srql, ServiceRadarSRQL.Native, skip_compilation?: true",
+    ],
+    native_libs = {
+        "//elixir/serviceradar_srql/native/srql_nif:srql_nif": "srql_nif",
+    },
+    deps = [
+        "@hexpm//:boundary",
+        "@hexpm//:jason",
+        "@hexpm//:rustler",
+        "@rules_elixir//elixir",
+    ],
+)

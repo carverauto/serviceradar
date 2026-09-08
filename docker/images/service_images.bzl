@@ -1,0 +1,665 @@
+"""Shared helpers for straightforward service OCI images."""
+
+load("@rules_oci//oci:defs.bzl", "oci_image", "oci_image_index", "oci_load")
+load("@rules_pkg//pkg:pkg.bzl", "pkg_tar")
+
+_DEFAULT_PATH = "/usr/local/bin:/usr/bin:/bin"
+_SERVICERADAR_UID = "10001"
+_SERVICERADAR_GID = "10001"
+_LINUX_ARM64_PLATFORM = "//build/platforms:linux_aarch64"
+_LINUX_ARM64_SELECT = "//build/platforms:target_linux_arm64"
+_LINUX_MULTIARCH_PLATFORMS = [
+    "//build/platforms:linux_x86_64",
+    _LINUX_ARM64_PLATFORM,
+]
+
+def _platform_select(default, linux_arm64):
+    return select({
+        _LINUX_ARM64_SELECT: linux_arm64,
+        "//conditions:default": default,
+    })
+
+def _common_tools_layers():
+    return _platform_select(
+        [":common_tools_amd64"],
+        [":common_tools_arm64"],
+    )
+
+def declare_serviceradar_user_layer(name = "serviceradar_user_layer", visibility = None):
+    """Create a rootfs layer that adds the serviceradar user and group (10001)."""
+
+    native.genrule(
+        name = name + "_gen",
+        outs = [name + "_passwd", name + "_group"],
+        cmd = """
+echo 'root:x:0:0:root:/root:/bin/sh' > $(location {name}_passwd)
+echo 'serviceradar:x:{uid}:{gid}:serviceradar:/home/serviceradar:/bin/sh' >> $(location {name}_passwd)
+echo 'root:x:0:' > $(location {name}_group)
+echo 'serviceradar:x:{gid}:' >> $(location {name}_group)
+""".format(name = name, uid = _SERVICERADAR_UID, gid = _SERVICERADAR_GID),
+        visibility = visibility,
+    )
+
+    pkg_tar(
+        name = name,
+        files = {
+            ":{}_passwd".format(name): "etc/passwd",
+            ":{}_group".format(name): "etc/group",
+        },
+        empty_dirs = [
+            "home/serviceradar",
+            "app",
+            "var/lib/serviceradar",
+        ],
+        modes = {
+            "etc/passwd": "0644",
+            "etc/group": "0644",
+        },
+        owner = "{}.{}".format(_SERVICERADAR_UID, _SERVICERADAR_GID),
+        package_dir = "/",
+        visibility = visibility,
+    )
+
+def _ubuntu_noble_base():
+    return _platform_select(
+        "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
+        "@ubuntu_noble_linux_arm64_v8//:ubuntu_noble_linux_arm64_v8",
+    )
+
+def _debian_bookworm_slim_base():
+    return _platform_select(
+        "@debian_bookworm_slim_linux_amd64//:debian_bookworm_slim_linux_amd64",
+        "@debian_bookworm_slim_linux_arm64_v8//:debian_bookworm_slim_linux_arm64_v8",
+    )
+
+def _alpine_3_20_base():
+    return _platform_select(
+        "@alpine_3_20_linux_amd64//:alpine_3_20_linux_amd64",
+        "@alpine_3_20_linux_arm64_v8//:alpine_3_20_linux_arm64_v8",
+    )
+
+def _service_env(extra_env):
+    env = {
+        "PATH": _DEFAULT_PATH,
+    }
+    env.update(extra_env)
+    return env
+
+def service_layer(
+        name,
+        files = None,
+        modes = None,
+        empty_dirs = None,
+        symlinks = None,
+        target_compatible_with = None,
+        visibility = None):
+    """Create a rootfs layer for a service image."""
+
+    if files == None:
+        files = {}
+    if modes == None:
+        modes = {}
+    if empty_dirs == None:
+        empty_dirs = []
+    if symlinks == None:
+        symlinks = {}
+    if target_compatible_with == None:
+        target_compatible_with = []
+
+    pkg_tar(
+        name = name,
+        files = files,
+        modes = modes,
+        empty_dirs = empty_dirs,
+        symlinks = symlinks,
+        owner = "{}.{}".format(_SERVICERADAR_UID, _SERVICERADAR_GID),
+        package_dir = "/",
+        target_compatible_with = target_compatible_with,
+        visibility = visibility,
+    )
+
+def declare_postgresql_client_symlink_layer(
+        name = "postgresql_client_symlinks",
+        libexec_dir = "postgresql18",
+        visibility = None):
+    """Create a compatibility layer exposing PostgreSQL client tools under /usr/bin."""
+
+    prefix = "/usr/libexec/{}".format(libexec_dir)
+
+    service_layer(
+        name = name,
+        symlinks = {
+            "usr/bin/clusterdb": "{}/clusterdb".format(prefix),
+            "usr/bin/createdb": "{}/createdb".format(prefix),
+            "usr/bin/createuser": "{}/createuser".format(prefix),
+            "usr/bin/dropdb": "{}/dropdb".format(prefix),
+            "usr/bin/dropuser": "{}/dropuser".format(prefix),
+            "usr/bin/pg_amcheck": "{}/pg_amcheck".format(prefix),
+            "usr/bin/pg_basebackup": "{}/pg_basebackup".format(prefix),
+            "usr/bin/pg_dump": "{}/pg_dump".format(prefix),
+            "usr/bin/pg_dumpall": "{}/pg_dumpall".format(prefix),
+            "usr/bin/pg_isready": "{}/pg_isready".format(prefix),
+            "usr/bin/pg_recvlogical": "{}/pg_recvlogical".format(prefix),
+            "usr/bin/pg_receivewal": "{}/pg_receivewal".format(prefix),
+            "usr/bin/pg_restore": "{}/pg_restore".format(prefix),
+            "usr/bin/pg_verifybackup": "{}/pg_verifybackup".format(prefix),
+            "usr/bin/pgbench": "{}/pgbench".format(prefix),
+            "usr/bin/psql": "{}/psql".format(prefix),
+            "usr/bin/reindexdb": "{}/reindexdb".format(prefix),
+            "usr/bin/vacuumdb": "{}/vacuumdb".format(prefix),
+        },
+        visibility = visibility,
+    )
+
+def declare_common_tools_layer(
+        name = "common_tools_amd64",
+        visibility = None,
+        target_compatible_with = None):
+    """Create the shared debugging/tooling layer used by service images."""
+
+    if target_compatible_with == None:
+        target_compatible_with = []
+
+    arm64_name = name.replace("_amd64", "_arm64") if name.endswith("_amd64") else name + "_arm64"
+
+    service_layer(
+        name = name,
+        files = {
+            "@jq_linux_amd64//file": "usr/local/bin/jq",
+            "@curl_linux_amd64//file": "usr/local/bin/curl",
+            "@grpcurl_linux_amd64//:grpcurl": "usr/local/bin/grpcurl",
+            "//go/cmd/tools/waitforport:wait-for-port": "usr/local/bin/wait-for-port",
+        },
+        modes = {
+            "usr/local/bin/jq": "0755",
+            "usr/local/bin/curl": "0755",
+            "usr/local/bin/grpcurl": "0755",
+            "usr/local/bin/wait-for-port": "0755",
+        },
+        visibility = visibility,
+        target_compatible_with = target_compatible_with,
+    )
+
+    service_layer(
+        name = arm64_name,
+        files = {
+            "@jq_linux_arm64//file": "usr/local/bin/jq",
+            "@curl_linux_arm64//file": "usr/local/bin/curl",
+            "@grpcurl_linux_arm64//:grpcurl": "usr/local/bin/grpcurl",
+            "//go/cmd/tools/waitforport:wait-for-port": "usr/local/bin/wait-for-port",
+        },
+        modes = {
+            "usr/local/bin/jq": "0755",
+            "usr/local/bin/curl": "0755",
+            "usr/local/bin/grpcurl": "0755",
+            "usr/local/bin/wait-for-port": "0755",
+        },
+        visibility = visibility,
+        target_compatible_with = target_compatible_with,
+    )
+
+def service_image_amd64(
+        name,
+        base,
+        tars,
+        image_title,
+        entrypoint = None,
+        cmd = None,
+        env = None,
+        workdir = None,
+        exposed_ports = None,
+        user = "10001",
+        target_compatible_with = None,
+        visibility = None):
+    """Create an amd64 OCI image for a straightforward service."""
+
+    if entrypoint == None:
+        entrypoint = []
+    if cmd == None:
+        cmd = []
+    if env == None:
+        env = {}
+    if workdir == None:
+        workdir = ""
+    if exposed_ports == None:
+        exposed_ports = []
+    if target_compatible_with == None:
+        target_compatible_with = []
+
+    all_tars = [":serviceradar_user_layer"] + tars
+
+    oci_image(
+        name = name,
+        base = base,
+        tars = all_tars,
+        entrypoint = entrypoint,
+        cmd = cmd,
+        env = env,
+        workdir = workdir,
+        user = user,
+        exposed_ports = exposed_ports,
+        target_compatible_with = target_compatible_with,
+        labels = {
+            "org.opencontainers.image.title": image_title,
+        },
+        visibility = visibility,
+    )
+
+def service_image_tar(name, image, repo_tags, visibility = None):
+    """Create an oci_load target for local image testing."""
+
+    oci_load(
+        name = name,
+        image = image,
+        repo_tags = repo_tags,
+        visibility = visibility,
+    )
+
+def declare_loaded_oci_image_amd64(
+        name,
+        base,
+        image_title,
+        repo_tags,
+        tars = None,
+        entrypoint = None,
+        cmd = None,
+        env = None,
+        workdir = "",
+        exposed_ports = None,
+        target_compatible_with = None,
+        visibility = None):
+    """Declare an arbitrary OCI image plus its local oci_load target."""
+
+    if tars == None:
+        tars = []
+    if env == None:
+        env = {}
+
+    service_image_amd64(
+        name = name,
+        base = base,
+        tars = tars,
+        image_title = image_title,
+        entrypoint = entrypoint,
+        cmd = cmd,
+        env = env,
+        workdir = workdir,
+        exposed_ports = exposed_ports,
+        target_compatible_with = target_compatible_with,
+        visibility = visibility,
+    )
+
+    service_image_tar(
+        name = "{}_tar".format(name),
+        image = ":{}".format(name),
+        repo_tags = repo_tags,
+        visibility = visibility,
+    )
+
+def alpine_service_image_amd64(
+        name,
+        layer,
+        image_title,
+        entrypoint = None,
+        cmd = None,
+        env = None,
+        workdir = "/var/lib/serviceradar",
+        exposed_ports = None,
+        extra_tars = None,
+        user = "10001",
+        target_compatible_with = None,
+        visibility = None):
+    """Create an Alpine-based service image with common tools."""
+
+    if env == None:
+        env = {}
+    if extra_tars == None:
+        extra_tars = []
+
+    service_image_amd64(
+        name = name,
+        base = _alpine_3_20_base(),
+        tars = _common_tools_layers() + extra_tars + [layer],
+        entrypoint = entrypoint,
+        cmd = cmd,
+        env = _service_env(env),
+        workdir = workdir,
+        exposed_ports = exposed_ports,
+        user = user,
+        target_compatible_with = target_compatible_with,
+        visibility = visibility,
+        image_title = image_title,
+    )
+
+def scratch_service_image_amd64(
+        name,
+        layer,
+        image_title,
+        entrypoint = None,
+        cmd = None,
+        env = None,
+        workdir = "/var/lib/serviceradar",
+        exposed_ports = None,
+        extra_tars = None,
+        user = "10001",
+        target_compatible_with = None,
+        visibility = None):
+    """Create a base-less (scratch) image for a service that is one static binary.
+
+    Only for services that ship a single statically linked binary, call nothing through
+    os/exec, and are probed over the network rather than by a shell. There is no libc, no
+    shell and no busybox in here, so a script entrypoint or a CMD-SHELL healthcheck will not
+    run, and neither failure is visible at build time.
+
+    `os`, `architecture` and `variant` are literal attributes that rules_oci requires
+    when there is no base image to inherit them from, and the oci_image_index platform
+    transition does NOT populate them. Hardcoding architecture is precisely how an index
+    comes to advertise two platforms while both entries report amd64, so they go through
+    the same _platform_select every base image uses. Alpine/Ubuntu arm64 bases already
+    carry variant v8; scratch must set it or the published index is `linux/arm64` and
+    `verify-oci-publish.sh` rejects it as missing `linux/arm64/v8`.
+    """
+
+    if env == None:
+        env = {}
+    if extra_tars == None:
+        extra_tars = []
+    if entrypoint == None:
+        entrypoint = []
+    if cmd == None:
+        cmd = []
+    if exposed_ports == None:
+        exposed_ports = []
+    if target_compatible_with == None:
+        target_compatible_with = []
+
+    oci_image(
+        name = name,
+        architecture = _platform_select("amd64", "arm64"),
+        os = "linux",
+        variant = _platform_select("", "v8"),
+        tars = [":serviceradar_user_layer"] + extra_tars + [layer],
+        entrypoint = entrypoint,
+        cmd = cmd,
+        env = _service_env(env),
+        workdir = workdir,
+        user = user,
+        exposed_ports = exposed_ports,
+        target_compatible_with = target_compatible_with,
+        labels = {
+            "org.opencontainers.image.title": image_title,
+        },
+        visibility = visibility,
+    )
+
+def ubuntu_service_image_amd64(
+        name,
+        layer,
+        image_title,
+        entrypoint = None,
+        cmd = None,
+        env = None,
+        workdir = "/var/lib/serviceradar",
+        exposed_ports = None,
+        extra_tars = None,
+        user = "10001",
+        target_compatible_with = None,
+        visibility = None):
+    """Create an Ubuntu-based service image with common tools."""
+
+    if env == None:
+        env = {}
+    if extra_tars == None:
+        extra_tars = []
+
+    service_image_amd64(
+        name = name,
+        base = _ubuntu_noble_base(),
+        tars = _common_tools_layers() + extra_tars + [layer],
+        entrypoint = entrypoint,
+        cmd = cmd,
+        env = _service_env(env),
+        workdir = workdir,
+        exposed_ports = exposed_ports,
+        user = user,
+        target_compatible_with = target_compatible_with,
+        visibility = visibility,
+        image_title = image_title,
+    )
+
+def debian_service_image_amd64(
+        name,
+        layer,
+        image_title,
+        entrypoint = None,
+        cmd = None,
+        env = None,
+        workdir = "/var/lib/serviceradar",
+        exposed_ports = None,
+        extra_tars = None,
+        user = "10001",
+        target_compatible_with = None,
+        visibility = None):
+    """Create a Debian-based service image with common tools."""
+
+    if env == None:
+        env = {}
+    if extra_tars == None:
+        extra_tars = []
+
+    service_image_amd64(
+        name = name,
+        base = _debian_bookworm_slim_base(),
+        tars = _common_tools_layers() + extra_tars + [layer],
+        entrypoint = entrypoint,
+        cmd = cmd,
+        env = _service_env(env),
+        workdir = workdir,
+        exposed_ports = exposed_ports,
+        user = user,
+        target_compatible_with = target_compatible_with,
+        visibility = visibility,
+        image_title = image_title,
+    )
+
+def declare_service_container_amd64(
+        name,
+        image_title,
+        files = None,
+        modes = None,
+        empty_dirs = None,
+        symlinks = None,
+        runtime = "ubuntu",
+        entrypoint = None,
+        cmd = None,
+        env = None,
+        workdir = "/var/lib/serviceradar",
+        exposed_ports = None,
+        extra_tars = None,
+        target_compatible_with = None,
+        visibility = None,
+        repo_tags = None):
+    """Declare a straightforward service layer, image, and local tar target."""
+
+    if files == None:
+        files = {}
+    if modes == None:
+        modes = {}
+    if empty_dirs == None:
+        empty_dirs = []
+    if symlinks == None:
+        symlinks = {}
+    if env == None:
+        env = {}
+    if extra_tars == None:
+        extra_tars = []
+    if target_compatible_with == None:
+        target_compatible_with = []
+    if repo_tags == None:
+        repo_tags = []
+
+    if name.endswith("_image_amd64"):
+        layer_name = name[:-len("_image_amd64")] + "_layer_amd64"
+        tar_name = name + "_tar"
+    else:
+        layer_name = name + "_layer"
+        tar_name = name + "_tar"
+
+    service_layer(
+        name = layer_name,
+        files = files,
+        modes = modes,
+        empty_dirs = empty_dirs,
+        symlinks = symlinks,
+        target_compatible_with = target_compatible_with,
+        visibility = visibility,
+    )
+
+    layer_label = ":{}".format(layer_name)
+
+    if runtime == "alpine":
+        alpine_service_image_amd64(
+            name = name,
+            layer = layer_label,
+            image_title = image_title,
+            entrypoint = entrypoint,
+            cmd = cmd,
+            env = env,
+            workdir = workdir,
+            exposed_ports = exposed_ports,
+            extra_tars = extra_tars,
+            target_compatible_with = target_compatible_with,
+            visibility = visibility,
+        )
+    elif runtime == "ubuntu":
+        ubuntu_service_image_amd64(
+            name = name,
+            layer = layer_label,
+            image_title = image_title,
+            entrypoint = entrypoint,
+            cmd = cmd,
+            env = env,
+            workdir = workdir,
+            exposed_ports = exposed_ports,
+            extra_tars = extra_tars,
+            target_compatible_with = target_compatible_with,
+            visibility = visibility,
+        )
+    elif runtime == "debian":
+        debian_service_image_amd64(
+            name = name,
+            layer = layer_label,
+            image_title = image_title,
+            entrypoint = entrypoint,
+            cmd = cmd,
+            env = env,
+            workdir = workdir,
+            exposed_ports = exposed_ports,
+            extra_tars = extra_tars,
+            target_compatible_with = target_compatible_with,
+            visibility = visibility,
+        )
+    elif runtime == "scratch":
+        scratch_service_image_amd64(
+            name = name,
+            layer = layer_label,
+            image_title = image_title,
+            entrypoint = entrypoint,
+            cmd = cmd,
+            env = env,
+            workdir = workdir,
+            exposed_ports = exposed_ports,
+            extra_tars = extra_tars,
+            target_compatible_with = target_compatible_with,
+            visibility = visibility,
+        )
+    else:
+        fail("unsupported runtime '{}'".format(runtime))
+
+    service_image_tar(
+        name = tar_name,
+        image = ":{}".format(name),
+        repo_tags = repo_tags,
+        visibility = visibility,
+    )
+
+def declare_custom_base_service_container_amd64(
+        name,
+        base,
+        image_title,
+        repo_tags,
+        files = None,
+        modes = None,
+        empty_dirs = None,
+        symlinks = None,
+        entrypoint = None,
+        cmd = None,
+        env = None,
+        workdir = "",
+        exposed_ports = None,
+        extra_tars = None,
+        target_compatible_with = None,
+        visibility = None):
+    """Declare a service layer packaged onto an arbitrary base image."""
+
+    if files == None:
+        files = {}
+    if modes == None:
+        modes = {}
+    if empty_dirs == None:
+        empty_dirs = []
+    if symlinks == None:
+        symlinks = {}
+    if env == None:
+        env = {}
+    if extra_tars == None:
+        extra_tars = []
+    if target_compatible_with == None:
+        target_compatible_with = []
+
+    if name.endswith("_image_amd64"):
+        layer_name = name[:-len("_image_amd64")] + "_layer_amd64"
+    else:
+        layer_name = name + "_layer"
+
+    service_layer(
+        name = layer_name,
+        files = files,
+        modes = modes,
+        empty_dirs = empty_dirs,
+        symlinks = symlinks,
+        target_compatible_with = target_compatible_with,
+        visibility = visibility,
+    )
+
+    declare_loaded_oci_image_amd64(
+        name = name,
+        base = base,
+        image_title = image_title,
+        repo_tags = repo_tags,
+        tars = extra_tars + [":{}".format(layer_name)],
+        entrypoint = entrypoint,
+        cmd = cmd,
+        env = env,
+        workdir = workdir,
+        exposed_ports = exposed_ports,
+        target_compatible_with = target_compatible_with,
+        visibility = visibility,
+    )
+
+def declare_multiarch_image_index(
+        name,
+        image,
+        platforms = None,
+        visibility = None):
+    """Declare a multi-architecture OCI image index for a platform-aware image target."""
+
+    if platforms == None:
+        platforms = _LINUX_MULTIARCH_PLATFORMS
+
+    oci_image_index(
+        name = name,
+        images = [image],
+        platforms = platforms,
+        visibility = visibility,
+    )

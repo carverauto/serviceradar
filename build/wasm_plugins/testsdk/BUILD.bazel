@@ -1,0 +1,13 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "sdk",
+    testonly = True,
+    srcs = ["sdk.go"],
+    importpath = "github.com/carverauto/serviceradar-sdk-go/v2/sdk",
+    visibility = [
+        "//go/cmd/wasm-plugins/axis:__pkg__",
+        "//go/cmd/wasm-plugins/proxmox:__pkg__",
+        "//go/cmd/wasm-plugins/unifi-protect:__pkg__",
+    ],
+)

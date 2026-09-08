@@ -1,0 +1,32 @@
+[package]
+name = "fortanix-sgx-abi"
+version = "0.6.1"
+authors = ["Fortanix, Inc."]
+license = "MPL-2.0"
+description = """
+An interface for Intel SGX enclaves. This is the interface for the
+`x86_64-fortanix-unknown-sgx` target.
+
+This is a small yet functional interface suitable for writing larger enclaves.
+In contrast to other enclave interfaces, this interface is primarly designed
+for running entire applications in an enclave.
+
+This crate fully describes the type-level interface complete with
+documentation. For implementors, this crate contains all the type definitions
+and a macro with the function definitions.
+"""
+repository = "https://github.com/fortanix/rust-sgx"
+documentation = "https://edp.fortanix.com/docs/api/fortanix_sgx_abi/"
+homepage = "https://edp.fortanix.com/"
+keywords = ["sgx", "enclave"]
+categories = ["os"]
+
+[dependencies]
+core = { version = "1.0.0", optional = true, package = "rustc-std-workspace-core" }
+
+[features]
+docs = []
+rustc-dep-of-std = ["core"]
+
+[package.metadata.docs.rs]
+features = ["docs"]

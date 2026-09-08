@@ -1,0 +1,193 @@
+//go:build !ci
+// +build !ci
+
+package scan
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"go.uber.org/mock/gomock"
+
+	"github.com/carverauto/serviceradar/go/pkg/logger"
+	"github.com/carverauto/serviceradar/go/pkg/models"
+)
+
+func TestNewICMPSweeper(t *testing.T) {
+	tests := []struct {
+		name      string
+		timeout   time.Duration
+		rateLimit int
+		wantErr   bool
+	}{
+		{
+			name:      "default values",
+			timeout:   0,
+			rateLimit: 0,
+			wantErr:   false,
+		},
+		{
+			name:      "custom values",
+			timeout:   2 * time.Second,
+			rateLimit: 500,
+			wantErr:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s, err := NewICMPSweeper(tt.timeout, tt.rateLimit, logger.NewTestLogger())
+			if err != nil {
+				t.Skipf("ICMP scanner requires root privileges: %v", err)
+				return
+			}
+
+			expectedTimeout := tt.timeout
+			if expectedTimeout == 0 {
+				expectedTimeout = defaultICMPTimeout
+			}
+
+			if s.timeout != expectedTimeout {
+				t.Errorf("timeout = %v, want %v", s.timeout, expectedTimeout)
+			}
+
+			expectedRateLimit := tt.rateLimit
+			if expectedRateLimit == 0 {
+				expectedRateLimit = defaultICMPRateLimit
+			}
+
+			if s.rateLimit != expectedRateLimit {
+				t.Errorf("rateLimit = %v, want %v", s.rateLimit, expectedRateLimit)
+			}
+
+			_ = s.Stop()
+		})
+	}
+}
+
+func TestICMPSweeper_Scan(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping ICMP scan test in short mode")
+	}
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	sweeper, err := NewICMPSweeper(1*time.Second, 100, logger.NewTestLogger())
+	if err != nil {
+		t.Skipf("ICMP scanner requires root privileges: %v", err)
+		return
+	}
+
+	defer func(sweeper *ICMPSweeper, _ context.Context) {
+		err = sweeper.Stop()
+		if err != nil {
+			t.Errorf("Failed to stop ICMPSweeper: %v", err)
+		}
+	}(sweeper, context.Background())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	// Use an unreachable private IP to test failure case
+	targets := []models.Target{
+		{Host: "192.168.255.254", Mode: models.ModeICMP}, // Typically unused
+		{Host: "10.255.255.254", Mode: models.ModeICMP},  // Typically unused
+	}
+
+	resultCh, err := sweeper.Scan(ctx, targets)
+	if err != nil {
+		t.Fatalf("Scan() error = %v", err)
+	}
+
+	results := make([]models.Result, 0, len(targets))
+	for result := range resultCh {
+		results = append(results, result)
+	}
+
+	if len(results) != len(targets) {
+		t.Errorf("Expected %d results, got %d", len(targets), len(results))
+	}
+
+	// In a test env without mocking, results depend on network access.
+	// We expect failure for unreachable IPs, but if run with privileges, they might succeed.
+	for _, r := range results {
+		if r.Available {
+			t.Logf("Note: %s was reachable; test assumes unreachable targets", r.Target.Host)
+		} else if r.PacketLoss != 100 {
+			t.Errorf("Expected 100%% packet loss for %s, got %f", r.Target.Host, r.PacketLoss)
+		}
+	}
+}
+
+func TestICMPSweeper_IPv6LoopbackScan(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping ICMPv6 loopback scan test in short mode")
+	}
+
+	sweeper, err := NewICMPSweeper(500*time.Millisecond, 100, logger.NewTestLogger(), WithICMPCount(1))
+	if err != nil {
+		t.Skipf("ICMP scanner requires runtime socket privileges: %v", err)
+		return
+	}
+
+	defer func() {
+		if stopErr := sweeper.Stop(); stopErr != nil {
+			t.Errorf("Failed to stop ICMPSweeper: %v", stopErr)
+		}
+	}()
+
+	if !sweeper.Capabilities().ICMPv6 {
+		t.Skip("ICMPv6 socket is unavailable on this runtime")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	resultCh, err := sweeper.Scan(ctx, []models.Target{{Host: "::1", Mode: models.ModeICMP}})
+	if err != nil {
+		t.Fatalf("Scan() error = %v", err)
+	}
+
+	var results []models.Result
+	for result := range resultCh {
+		results = append(results, result)
+	}
+
+	if len(results) != 1 {
+		t.Fatalf("result count = %d, want 1", len(results))
+	}
+	if !results[0].Available {
+		t.Fatalf("IPv6 loopback was not available: error=%v packet_loss=%v", results[0].Error, results[0].PacketLoss)
+	}
+}
+
+func TestICMPSweeper_Stop(t *testing.T) {
+	sweeper, err := NewICMPSweeper(1*time.Second, 100, logger.NewTestLogger())
+	if err != nil {
+		t.Skipf("ICMP scanner requires root privileges: %v", err)
+		return
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	sweeper.cancel = cancel
+
+	err = sweeper.Stop()
+	if err != nil {
+		t.Errorf("Stop() error = %v", err)
+	}
+
+	// Check that rawSocketFD is closed
+	if sweeper.rawSocketFD != invalidRawSocketFD {
+		t.Errorf("rawSocketFD not reset after Stop()")
+	}
+
+	// Check that context was canceled
+	select {
+	case <-ctx.Done():
+		// Expected
+	default:
+		t.Errorf("Context not canceled after Stop()")
+	}
+}

@@ -1,0 +1,172 @@
+id: netbox-inventory
+name: NetBox Inventory Sync
+version: 0.4.0
+description: >
+  Scheduled assignment that walks one or more NetBox instances' device
+  inventories (/api/dcim/devices/ with DRF pagination) and emits
+  DeviceDiscovery snapshots (discovery_source=netbox) into the existing
+  agent -> gateway -> DIRE pipeline. Envelopes carry snapshot_complete +
+  source_instance + reference_hash bookkeeping so complete snapshots mark
+  missing devices absent; a pull that fails during pagination emits nothing,
+  and rows that fail to parse mark the snapshot incomplete.
+entrypoint: inventory_sync
+runtime: wasi-preview1
+outputs: serviceradar.plugin_result.v1
+capabilities:
+  - get_config
+  - log
+  - submit_result
+  - http_request
+permissions:
+  allowed_domains:
+    - "*"
+  # Domain wildcards never match literal-IP destinations; RFC1918 ranges
+  # cover lab NetBox instances addressed by private IP. A NetBox reached via
+  # a public IP literal needs a hostname (or an operator-adjusted manifest).
+  allowed_networks:
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
+    - "192.168.0.0/16"
+  allowed_ports:
+    - 80
+    - 443
+    - 8000
+    - 8080
+    - 8443
+resources:
+  requested_memory_mb: 128
+  requested_cpu_ms: 60000
+  max_open_connections: 2
+integrations:
+  credential_profiles:
+    - provider: netbox
+      label: NetBox
+      description: Device inventory collected from a NetBox instance's DCIM API.
+      supports_rules: true
+      auth_methods:
+        - id: api_token
+          label: API token
+          credential_kind: api_token
+          # Declared explicitly so the rule form renders the TLS policy control;
+          # the rendered control is what drives insecure_skip_verify below.
+          tls_policies:
+            - verify
+            - skip_verify
+          fields:
+            - id: api_token
+              label: API token
+              control: password
+              required: true
+              secret: true
+              public: false
+          payload:
+            format: scalar
+            field: api_token
+      purposes:
+        - inventory_sync
+      # Agent only, and core enforces it: the inventory_sync consumer below is
+      # target_cardinality: single, so one run covers the whole instance. A
+      # gateway- or partition-scoped rule is in scope for every agent under it
+      # and the materializer reconciles each one separately, so the same
+      # instance would be walked once per agent and every walk would emit
+      # another complete DeviceDiscovery snapshot under the same
+      # source_instance. Which agent can reach the NetBox host is an operator
+      # fact, so the rule names it.
+      scope_types:
+        - agent
+      rule_defaults:
+        auth_method: api_token
+        purposes:
+          - inventory_sync
+        # A NetBox instance is the rule's controller host, not a resolved
+        # device: the sync reads base_url from the rule and ignores
+        # inputs[].items[]. The target set is therefore only a delivery gate,
+        # which makes two properties of this default load-bearing.
+        #
+        # It must RESOLVE. Nothing in ServiceRadar writes a
+        # metadata.netbox_candidate marker (unlike proxmox_candidate, which the
+        # mapper's Proxmox probe writes), so the previous default matched zero
+        # devices on every deployment and the rule materialized nothing --
+        # silently, which is the failure this integration exists to remove.
+        #
+        # It must stay SMALL. The consumer below is target_cardinality: single,
+        # so the whole target set is delivered in one assignment and a broad
+        # query is rejected rather than truncated.
+        #
+        # Narrow it to the NetBox host's own device record (for example
+        # `in:devices ip:10.0.0.5`) when you want the rule's targets to name
+        # the instance, and give each NetBox rule a distinct query: rules that
+        # share a target query are collapsed to the highest-priority one.
+        target_query: in:devices sort:uid:asc limit:1
+        scope_type: agent
+        allowed_ports: "443, 8443"
+        tls_policy: verify
+      rule_controls:
+        allowed_ports: true
+        controller_host: true
+        target_query: true
+        transport: true
+      provisioning:
+        mode: target_policy
+        consumers:
+          - purpose: inventory_sync
+            plugin_id: netbox-inventory
+            auth_methods:
+              - api_token
+            constraints: {}
+            # One run of this consumer syncs a whole NetBox instance: the
+            # endpoint is the rule's controller host and the plugin emits one
+            # complete DeviceDiscovery snapshot for it. Chunking the resolved
+            # targets would not divide that work, it would repeat it -- each
+            # chunk becomes its own assignment and re-walks the same
+            # /api/dcim/devices/ listing, emitting another complete snapshot
+            # under the same source_instance. Declaring single cardinality
+            # makes the planner emit exactly one un-chunked assignment per
+            # (rule, agent).
+            target_cardinality: single
+            grant:
+              grant_type: netbox_api_token
+              resolution_location: control_plane
+              ttl_seconds: 300
+            params:
+              credential_broker:
+                $source: grant
+              api_token_secret_ref:
+                $source: secret_ref
+              credential_rule_id:
+                $source: rule
+                field: id
+              # The controller host field on the rule is stored as metadata
+              # "host"; an operator-set "base_url" wins so a BASE_PATH
+              # deployment (https://tools.example.com/netbox) can be expressed.
+              base_url:
+                $source: metadata_first
+                keys:
+                  - base_url
+                  - host
+                  - controller_host
+                omit_if_blank: true
+              source_id:
+                $source: metadata
+                key: source_id
+                type: string
+                omit_if_blank: true
+              source_name:
+                $source: metadata
+                key: source_name
+                type: string
+                omit_if_blank: true
+              page_size:
+                $source: metadata
+                key: page_size
+                type: integer
+                default: 100
+              timeout_ms:
+                $source: metadata
+                key: timeout_ms
+                type: integer
+                default: 30000
+              insecure_skip_verify:
+                $source: rule
+                field: tls_policy
+                equals: skip_verify

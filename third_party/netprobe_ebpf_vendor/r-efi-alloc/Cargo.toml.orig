@@ -1,0 +1,47 @@
+[package]
+name = "r-efi-alloc"
+version = "2.1.0"
+
+categories = [
+        "embedded",
+        "hardware-support",
+        "memory-management",
+        "no-std",
+        "os",
+]
+description = "UEFI Memory Allocator Integration"
+edition = "2018"
+homepage = "https://github.com/r-efi/r-efi/wiki"
+keywords = [
+        "efi",
+        "uefi",
+        "firmware",
+        "alloc",
+        "memory",
+]
+license = "MIT OR Apache-2.0 OR LGPL-2.1-or-later"
+readme = "README.md"
+repository = "https://github.com/r-efi/r-efi-alloc"
+rust-version = "1.68"
+
+[dependencies]
+r-efi = "5.2.0"
+# Required setup to build as part of rustc.
+core = { version = '1.0.0', optional = true, package = 'rustc-std-workspace-core' }
+
+[features]
+# Use the unstable `allocator_api` feature of the standard library to provide
+# an allocator with the `core::alloc::Allocator` trait.
+allocator_api = []
+# We feature-gate all native code, since it will not link correctly, unless you
+# use a UEFI target configuration. To make `cargo test` work, we exclude all
+# these from normal runs.
+native = []
+# This feature-gate is a requirement to integrate crates into the dependency
+# tree of the standard library. Use outside of the standard library is not
+# supported.
+rustc-dep-of-std = ['core']
+
+[[example]]
+name = "hello-world"
+required-features = ["native"]

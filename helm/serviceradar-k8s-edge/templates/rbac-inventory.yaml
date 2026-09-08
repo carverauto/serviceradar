@@ -1,0 +1,103 @@
+{{- if .Values.k8sInventory.enabled }}
+{{- $scope := default "cluster" .Values.k8sInventory.rbac.scope }}
+{{- if eq $scope "cluster" }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "sr-edge.fullname" . }}-k8s-inventory
+  labels:
+    {{- include "sr-edge.labels" . | nindent 4 }}
+    app.kubernetes.io/component: k8s-inventory
+rules:
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["get", "list", "watch"]
+  {{- if default true .Values.k8sInventory.gatewayAPI.enabled }}
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources:
+      - gateways
+      - httproutes
+      - grpcroutes
+      - tcproutes
+      - udproutes
+      - tlsroutes
+    verbs: ["get", "list", "watch"]
+  {{- end }}
+  {{- if default false .Values.k8sInventory.envoyProxyCRD.enabled }}
+  - apiGroups: ["gateway.envoyproxy.io"]
+    resources: ["envoyproxies"]
+    verbs: ["get", "list", "watch"]
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "sr-edge.fullname" . }}-k8s-inventory
+  labels:
+    {{- include "sr-edge.labels" . | nindent 4 }}
+    app.kubernetes.io/component: k8s-inventory
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "sr-edge.inventoryServiceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "sr-edge.fullname" . }}-k8s-inventory
+{{- else }}
+{{- /* Namespace-scoped Roles for each allow-listed namespace */ -}}
+{{- $namespaces := .Values.k8sInventory.namespaces | default list }}
+{{- if eq (len $namespaces) 0 }}
+{{- fail "k8sInventory.rbac.scope=namespace requires k8sInventory.namespaces to be non-empty" }}
+{{- end }}
+{{- range $ns := $namespaces }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "sr-edge.fullname" $ }}-k8s-inventory
+  namespace: {{ $ns }}
+  labels:
+    {{- include "sr-edge.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: k8s-inventory
+rules:
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["get", "list", "watch"]
+  {{- if default true $.Values.k8sInventory.gatewayAPI.enabled }}
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources:
+      - gateways
+      - httproutes
+      - grpcroutes
+      - tcproutes
+      - udproutes
+      - tlsroutes
+    verbs: ["get", "list", "watch"]
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "sr-edge.fullname" $ }}-k8s-inventory
+  namespace: {{ $ns }}
+  labels:
+    {{- include "sr-edge.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: k8s-inventory
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "sr-edge.inventoryServiceAccountName" $ }}
+    namespace: {{ $.Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "sr-edge.fullname" $ }}-k8s-inventory
+{{- end }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,64 @@
+{
+  "type": "object",
+  "properties": {
+    "host": {
+      "type": "string",
+      "x-serviceradar-ui-hidden": true,
+      "x-serviceradar-credential-materialized": true,
+      "description": "AXIS camera host or IP. Injected per target at runtime from credential rules / SRQL-scoped targets; not configured per assignment."
+    },
+    "scheme": {
+      "type": "string",
+      "description": "http or https",
+      "default": "https"
+    },
+    "username": {
+      "type": "string",
+      "x-serviceradar-ui-hidden": true,
+      "x-serviceradar-credential-materialized": true,
+      "description": "Camera API username. Stored on a username/password credential secret, not on this assignment."
+    },
+    "password_secret_ref": {
+      "type": "string",
+      "x-serviceradar-ui-hidden": true,
+      "x-serviceradar-credential-materialized": true,
+      "description": "Secret reference for the camera API password. Created by a credential rule, not entered here.",
+      "secretRef": true
+    },
+    "stream_auth_mode": {
+      "type": "string",
+      "description": "Expected RTSP stream authentication mode",
+      "default": "unknown",
+      "enum": ["none", "basic", "digest", "unknown"]
+    },
+    "timeout_ms": {
+      "type": "integer",
+      "description": "Request timeout in milliseconds",
+      "default": 30000
+    },
+    "rtsp_port": {
+      "type": "integer",
+      "description": "RTSP port (appended to the stream URL only when non-standard)",
+      "default": 554
+    },
+    "discover_streams": {
+      "type": "boolean",
+      "description": "Attempt stream profile/status discovery",
+      "default": true
+    },
+    "collect_events": {
+      "type": "boolean",
+      "description": "Collect camera events from VAPIX websocket stream",
+      "default": false
+    },
+    "event_topic_filters": {
+      "type": "string",
+      "description": "Comma or newline separated VAPIX topic filters for websocket events"
+    },
+    "event_sources": {
+      "type": "string",
+      "description": "VAPIX websocket sources query string value",
+      "default": "events"
+    }
+  }
+}

@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://serviceradar.carverauto.dev/schemas/addons/anomaly/capacity_shed.schema.json",
+  "title": "Anomaly Add-on Capacity Shed Event",
+  "description": "Operational OCSF Event Log Activity emitted when the edge anomaly add-on sheds new detector or counter series at its configured series cap. This is not an anomaly verdict.",
+  "type": "object",
+  "required": [
+    "id",
+    "time",
+    "class_uid",
+    "category_uid",
+    "type_uid",
+    "activity_id",
+    "status_code",
+    "unmapped"
+  ],
+  "properties": {
+    "id": {"type": "string", "minLength": 1},
+    "time": {"oneOf": [{"type": "integer"}, {"type": "string"}]},
+    "class_uid": {"const": 1008},
+    "category_uid": {"const": 1},
+    "type_uid": {"const": 100801},
+    "activity_id": {"const": 1},
+    "activity_name": {"type": "string"},
+    "severity_id": {"type": "integer"},
+    "severity": {"type": "string"},
+    "message": {"type": "string"},
+    "status_id": {"type": "integer"},
+    "status": {"type": "string"},
+    "status_code": {"const": "anomaly_capacity_shed"},
+    "log_name": {"const": "anomaly.capacity"},
+    "log_provider": {"const": "anomaly"},
+    "actor": {"type": "object", "additionalProperties": true},
+    "device": {"type": "object", "additionalProperties": true},
+    "metadata": {"type": "object", "additionalProperties": true},
+    "unmapped": {
+      "type": "object",
+      "required": [
+        "addon_id",
+        "event_kind",
+        "dropped_series_delta",
+        "dropped_series_total",
+        "tracked_series",
+        "max_series"
+      ],
+      "properties": {
+        "addon_id": {"const": "anomaly"},
+        "event_kind": {"const": "capacity_shed"},
+        "feed_id": {"type": "integer"},
+        "agent_id": {"type": "string"},
+        "host_id": {"type": "string"},
+        "device_id": {"type": "string"},
+        "host_ip": {"type": "string"},
+        "partition": {"type": "string"},
+        "dropped_series_delta": {"type": "integer", "minimum": 1},
+        "dropped_series_total": {"type": "integer", "minimum": 1},
+        "tracked_series": {"type": "integer", "minimum": 0},
+        "tracked_counters": {"type": "integer", "minimum": 0},
+        "max_series": {"type": "integer", "minimum": 1}
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

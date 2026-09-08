@@ -1,0 +1,64 @@
+suite: web-ng deployed release version
+templates:
+  - templates/web.yaml
+tests:
+  # The regression this suite exists for. Immutable rollouts pin
+  # global.imageTag to a sha-<gitsha>, and no Forgejo release is ever named
+  # that. While SERVICERADAR_RELEASE_VERSION was derived from the image tag,
+  # NativeAddonSyncWorker and FirstPartySyncWorker discarded permanently with
+  # "Release tag sha-... was not found", and the status UI showed a 40-character
+  # sha as the deployed version.
+  #
+  # Every test here pins .Chart.AppVersion via the `chart:` override rather than
+  # asserting the repo's current VERSION. The invariant under test is where the
+  # value is DERIVED from, not which release happens to be checked in -- pinning
+  # the live version made these assertions fail on every release bump.
+  - it: does not follow an immutable sha image tag
+    chart:
+      version: 1.4.29
+      appVersion: 1.4.29
+    set:
+      global.imageTag: sha-c4a7ba28bbf10d91c908d224434908a8fed4eccd
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_RELEASE_VERSION
+            value: v1.4.29
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: defaults to the chart appVersion
+    chart:
+      version: 1.4.29
+      appVersion: 1.4.29
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_RELEASE_VERSION
+            value: v1.4.29
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: can be pinned to a different release than the chart
+    chart:
+      version: 1.4.29
+      appVersion: 1.4.29
+    set:
+      global.releaseVersion: v9.8.7
+      global.imageTag: sha-c4a7ba28bbf10d91c908d224434908a8fed4eccd
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_RELEASE_VERSION
+            value: v9.8.7
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment

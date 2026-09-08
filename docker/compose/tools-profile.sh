@@ -1,0 +1,121 @@
+# ServiceRadar tools shell customizations
+
+export PS1='\u@serviceradar-tools:\w\$ '
+export TERM=${TERM:-xterm-256color}
+if [ -d /usr/glibc-compat/lib ]; then
+    export LD_LIBRARY_PATH="/usr/glibc-compat/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+fi
+if [ -d /usr/glibc-compat/lib64 ]; then
+    export LD_LIBRARY_PATH="/usr/glibc-compat/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+fi
+export NATS_HOST=${NATS_HOST:-serviceradar-nats}
+export NATS_CA=${NATS_CA:-/etc/serviceradar/certs/root.pem}
+export NATS_CERT=${NATS_CERT:-/etc/serviceradar/certs/client.pem}
+export NATS_KEY=${NATS_KEY:-/etc/serviceradar/certs/client-key.pem}
+export NATS_CONTEXT=${NATS_CONTEXT:-serviceradar}
+unset NATS_URL
+
+export CNPG_HOST=${CNPG_HOST:-cnpg-rw}
+export CNPG_PORT=${CNPG_PORT:-5432}
+export CNPG_DATABASE=${CNPG_DATABASE:-serviceradar}
+export CNPG_SSLMODE=${CNPG_SSLMODE:-verify-full}
+export CNPG_CA_FILE=${CNPG_CA_FILE:-/etc/serviceradar/cnpg/ca.crt}
+export CNPG_SERVICE_NAME=${CNPG_SERVICE_NAME:-serviceradar}
+if [ -f /etc/serviceradar/cnpg/superuser-password ]; then
+    export CNPG_PASSWORD_FILE=${CNPG_PASSWORD_FILE:-/etc/serviceradar/cnpg/superuser-password}
+fi
+if [ -n "${CNPG_SERVICE_NAME:-}" ] && [ -z "${PGSERVICE:-}" ]; then
+    export PGSERVICE="${CNPG_SERVICE_NAME}"
+fi
+export PGPASSFILE=${PGPASSFILE:-/root/.pgpass}
+
+alias ll='ls -alF'
+alias la='ls -A'
+alias l='ls -CF'
+
+alias nats-info='nats server info'
+alias nats-streams='nats stream ls'
+alias nats-consumers='nats consumer ls'
+alias nats-events='nats stream info events'
+alias nats-kv='nats stream info KV_serviceradar-datasvc'
+alias nats-kv='nats stream info KV_serviceradar-datasvc'
+alias nats-datasvc='nats stream info KV_serviceradar-datasvc'
+alias nats-cert-check='echo "=== NATS Certificate Check ==="; echo "1. Client certificate:"; openssl x509 -in /etc/serviceradar/certs/client.pem -subject -issuer -noout; echo ""; echo "2. Root CA:"; openssl x509 -in /etc/serviceradar/certs/root.pem -subject -issuer -noout; echo ""; echo "3. Testing NATS without client cert:"; timeout 5 openssl s_client -connect serviceradar-nats:4222 -CAfile /etc/serviceradar/certs/root.pem -verify_return_error </dev/null 2>/dev/null || echo "  ✗ Server cert verification failed"; echo ""; echo "4. Testing NATS with client cert:"; timeout 5 openssl s_client -connect serviceradar-nats:4222 -CAfile /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem -verify_return_error </dev/null 2>/dev/null || echo "  ✗ mTLS verification failed"'
+
+alias grpc-core='grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-core-elx:50052'
+alias grpc-agent='grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-agent:50051'
+alias grpc-datasvc='grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-datasvc:50057'
+alias grpc-trapd='grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-trapd:50043'
+
+alias sr='serviceradar-cli'
+alias sr-devices='serviceradar-cli devices list'
+alias sr-events='serviceradar-cli events list'
+
+cnpg_info() {
+    local service="${PGSERVICE:-${CNPG_SERVICE_NAME:-}}"
+    echo "CNPG target:"
+    echo "  host: ${CNPG_HOST:-cnpg-rw}"
+    echo "  port: ${CNPG_PORT:-5432}"
+    echo "  database: ${CNPG_DATABASE:-serviceradar}"
+    echo "  service: ${service:-<unset>}"
+    echo "  sslmode: ${CNPG_SSLMODE:-verify-full}"
+    if [ -n "${CNPG_PASSWORD_FILE:-}" ]; then
+        echo "  password file: ${CNPG_PASSWORD_FILE}"
+    elif [ -n "${CNPG_PASSWORD:-}" ]; then
+        echo "  password: (set via CNPG_PASSWORD env)"
+    else
+        echo "  password: <not set>"
+    fi
+}
+
+alias cnpg-info='cnpg_info'
+cnpg_sql() {
+    psql "$@"
+}
+alias cnpg-sql='cnpg_sql'
+
+alias ping-nats='ping -c 3 serviceradar-nats'
+alias ping-core='ping -c 3 serviceradar-core-elx'
+alias telnet-nats='telnet serviceradar-nats 4222'
+alias nc-nats='nc -zv serviceradar-nats 4222'
+
+test_connectivity() {
+    echo "=== ServiceRadar Service Connectivity Test ==="
+    echo "Testing NATS..."
+    nc -zv serviceradar-nats 4222 || echo "  NATS connection failed"
+    echo "Testing Core API..."
+    nc -zv serviceradar-core-elx 8090 || echo "  Core API connection failed"
+    echo "Testing Core gRPC..."
+    nc -zv serviceradar-core-elx 50052 || echo "  Core gRPC connection failed"
+    echo "Testing CNPG..."
+    nc -zv "${CNPG_HOST:-cnpg-rw}" "${CNPG_PORT:-5432}" || echo "  CNPG connection failed"
+    echo "Legacy streaming DB removed; skipping legacy connectivity checks."
+}
+
+nats_js_status() {
+    echo "=== NATS JetStream Status ==="
+    nats server info --json | jq '.jetstream // "JetStream not available"'
+    echo
+    echo "=== Streams ==="
+    nats stream ls
+    echo
+    echo "=== Events Stream Info ==="
+    nats stream info events 2>/dev/null || echo "Events stream not found"
+}
+
+test_grpc() {
+    echo "=== gRPC Service Health Checks ==="
+    for service in core:50052 agent:50051 kv:50057 trapd:50043; do
+        host="${service%%:*}"
+        port="${service##*:}"
+        echo "Testing serviceradar-${service}..."
+        if grpcurl -cacert /etc/serviceradar/certs/root.pem \
+                -cert /etc/serviceradar/certs/client.pem \
+                -key /etc/serviceradar/certs/client-key.pem \
+                "serviceradar-${service}" grpc.health.v1.Health/Check >/dev/null 2>&1; then
+            echo "  ✓ Healthy"
+        else
+            echo "  ✗ Unhealthy"
+        fi
+    done
+}

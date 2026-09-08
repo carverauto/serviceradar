@@ -1,0 +1,147 @@
+load("@rules_elixir//:mix_app.bzl", "mix_app")
+load(
+    "//build:elixir_release.bzl",
+    "SHIPPED_ERTS_OTP_ROOT",
+    "SHIPPED_ERTS_ROOT_MARKER",
+    "elixir_release",
+)
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "bazel-*",
+            "_build/**",
+            "deps/**",
+            "tmp/**",
+        ],
+    ),
+)
+
+# What `mix compile` actually needs -- :srcs minus the test files it never compiles.
+# See the long note on //elixir/serviceradar_core:compile_srcs; the reasoning is identical.
+# mix.exs declares `elixirc_paths(:test), do: ["lib", "test/support"]`, so every other file
+# under test/ was a declared input of a compile that does not read it, and touching one
+# rebuilt this app and everything downstream of it.
+filegroup(
+    name = "compile_srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "bazel-*",
+            "_build/**",
+            "deps/**",
+            "tmp/**",
+            "test/**",
+        ],
+    ) + glob(
+        ["test/support/**"],
+        allow_empty = True,
+    ),
+)
+
+filegroup(
+    name = "deps_srcs",
+    srcs = [
+        "mix.exs",
+        "mix.lock",
+    ] + glob(["config/**"]),
+)
+
+CORE_ELX_DEPS = [
+    "//third_party/hex_vendored/elixir_uuid:erlang_app",
+    "//elixir/serviceradar_core:erlang_app_prod",
+    "//third_party/hex_vendored/boombox:erlang_app",
+    "@hexpm//:bandit",
+    "@hexpm//:boundary",
+    "@hexpm//:bundlex",
+    "@hexpm//:credo",
+    "@hexpm//:decimal",
+    "@hexpm//:grpc",
+    "@hexpm//:gun",
+    "@hexpm//:libcluster",
+    "@hexpm//:membrane_core",
+    "@hexpm//:membrane_mpeg_ts_plugin",
+    "@hexpm//:membrane_webrtc_plugin",
+    "@hexpm//:mpeg_ts",
+    "@hexpm//:numbers",
+    "@hexpm//:plug",
+    "@hexpm//:protobuf",
+    "@hexpm//:req",
+    "@hexpm//:swoosh",
+    "@hexpm//:telemetry_metrics_prometheus_core",
+    "@rules_elixir//elixir",
+]
+
+# The release RECIPE: mix.exs supplies releases/0, config/ and rel/ supply the templates
+# `mix release` renders. Compiled code arrives through :erlang_app_prod.
+filegroup(
+    name = "release_recipe",
+    srcs = [
+        "mix.exs",
+        "mix.lock",
+    ] + glob(
+        [
+            "config/**",
+            "rel/**",
+        ],
+        allow_empty = True,
+    ),
+)
+
+# core_elx compiled by Mix inside a hermetic Bazel action.
+#
+# This project had no mix_app at all until now. Its Membrane dependencies build native
+# code through Bundlex, which reads its dependencies' SOURCE bundlex.exs and resolves them
+# through Mix.Project.deps_paths/0 -- a map Mix populates from mix.lock, not from each
+# package's mix.exs. Hex tarballs ship no lock, so the whole stack was unbuildable and this
+# project stayed on the non-hermetic mix_release path. See //build:mix_app.bzl.
+#
+# There is no :test variant: nothing runs ExUnit against core_elx under Bazel today, and a
+# second env would compile the entire Membrane stack twice.
+mix_app(
+    name = "erlang_app_prod",
+    srcs = [":compile_srcs"],
+    app_name = "serviceradar_core_elx",
+    # Bazel builds the cdylibs; Mix must not shell out to cargo. The libraries reach the
+    # release through serviceradar_core's own priv.
+    extra_config = [
+        "config :serviceradar_srql, ServiceRadarSRQL.Native, skip_compilation?: true",
+        "config :serviceradar_core, ServiceRadar.Observability.Zen.Native, skip_compilation?: true",
+        "config :serviceradar_core, ServiceRadar.Observability.DispositionKernels, skip_compilation?: true",
+    ],
+    mix_env = "prod",
+    deps = CORE_ELX_DEPS,
+)
+
+# Assembly-only release: no deps.get, no recompilation, no cargo, no network, and no
+# precompiled_os_deps -- the Membrane native code is built by the mix_app targets above,
+# so the release action no longer needs the Bundlex OS-dep tarballs.
+elixir_release(
+    name = "release_tar",
+    srcs = [
+        ":release_recipe",
+        # Mix reads each PATH dependency's mix.exs to learn its app name and version.
+        "//third_party/hex_vendored/boombox:mix.exs",
+        "//third_party/hex_vendored/connection:mix.exs",
+        "//third_party/hex_vendored/elixir_uuid:mix.exs",
+        "//elixir/serviceradar_core:mix.exs",
+        "//elixir/serviceradar_srql:mix.exs",
+        "//third_party/hex_vendored/opentelemetry_oban:mix.exs",
+    ],
+    out = "serviceradar-core-elx-release.tar.gz",
+    app = ":erlang_app_prod",
+    erts_otp_root = SHIPPED_ERTS_OTP_ROOT,
+    erts_root_marker = SHIPPED_ERTS_ROOT_MARKER,
+    # Must match what :erlang_app_prod compiled with -- `mix release` refuses to assemble
+    # when an Application.compile_env/2 key differs between compile and release time.
+    extra_config = [
+        "config :serviceradar_srql, ServiceRadarSRQL.Native, skip_compilation?: true",
+        "config :serviceradar_core, ServiceRadar.Observability.Zen.Native, skip_compilation?: true",
+        "config :serviceradar_core, ServiceRadar.Observability.DispositionKernels, skip_compilation?: true",
+    ],
+    release_name = "serviceradar_core_elx",
+)

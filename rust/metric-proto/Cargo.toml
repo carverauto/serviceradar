@@ -1,0 +1,17 @@
+[package]
+name = "serviceradar-metric-proto"
+version = "0.1.0"
+description = "Generated prost bindings for ServiceRadar's canonical metric envelope."
+edition = "2024"
+license = "Apache-2.0"
+
+[lib]
+name = "serviceradar_metric_proto"
+path = "src/lib.rs"
+doctest = false
+
+[dependencies]
+prost = { workspace = true }
+
+[build-dependencies]
+tonic-prost-build = { workspace = true }

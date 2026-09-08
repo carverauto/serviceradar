@@ -1,0 +1,78 @@
+# Build stage
+FROM --platform=$BUILDPLATFORM rust:latest AS builder
+
+# Add build arguments for cross-compilation
+ARG TARGETPLATFORM
+ARG BUILDPLATFORM
+ARG TARGETOS
+ARG TARGETARCH
+
+WORKDIR /usr/src/serviceradar
+
+# Install dependencies for building
+RUN apt-get update && apt-get install -y \
+    protobuf-compiler \
+    gcc-aarch64-linux-gnu \
+    gcc-x86-64-linux-gnu \
+    && rm -rf /var/lib/apt/lists/*
+
+# Setup Rust cross-compilation targets based on platform
+RUN case "$TARGETARCH" in \
+    amd64) rustup target add x86_64-unknown-linux-gnu ;; \
+    arm64) rustup target add aarch64-unknown-linux-gnu ;; \
+    *) echo "Unsupported architecture: $TARGETARCH" && exit 1 ;; \
+    esac
+
+# Copy workspace files so path dependencies resolve and the patched rperf
+# binary is built from the same dependency graph as the checker.
+COPY Cargo.toml Cargo.lock ./
+COPY rust ./rust/
+COPY third_party/rust_patches ./third_party/rust_patches/
+COPY proto ./proto/
+
+# Set environment variables for cross-compilation
+ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
+    CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=x86_64-linux-gnu-gcc
+
+# Build based on target architecture
+RUN case "$TARGETARCH" in \
+    amd64) cargo build -p serviceradar-rperf-checker -p rperf --release --target x86_64-unknown-linux-gnu && \
+           cp target/x86_64-unknown-linux-gnu/release/serviceradar-rperf-checker target/release/serviceradar-rperf-checker && \
+           cp target/x86_64-unknown-linux-gnu/release/rperf target/release/serviceradar-rperf ;; \
+    arm64) cargo build -p serviceradar-rperf-checker -p rperf --release --target aarch64-unknown-linux-gnu && \
+           cp target/aarch64-unknown-linux-gnu/release/serviceradar-rperf-checker target/release/serviceradar-rperf-checker && \
+           cp target/aarch64-unknown-linux-gnu/release/rperf target/release/serviceradar-rperf ;; \
+    *) echo "Unsupported architecture: $TARGETARCH" && exit 1 ;; \
+    esac
+
+# Runtime stage
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y \
+    libssl-dev \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy the binary from the builder stage
+COPY --from=builder /usr/src/serviceradar/target/release/serviceradar-rperf-checker /usr/local/bin/serviceradar-rperf-checker
+COPY --from=builder /usr/src/serviceradar/target/release/serviceradar-rperf /usr/local/bin/serviceradar-rperf
+
+# Create necessary directories
+RUN mkdir -p /etc/serviceradar/checkers /etc/serviceradar/certs
+
+# Create serviceradar user and group
+RUN groupadd -r serviceradar && useradd -r -g serviceradar serviceradar
+
+# Copy entrypoint script and configuration
+COPY docker/compose/entrypoint-rperf-client.sh /entrypoint.sh
+COPY docker/compose/rperf-client.docker.json /tmp/rperf-client.docker.json
+RUN chmod +x /entrypoint.sh
+
+# Set ownership
+RUN chown -R serviceradar:serviceradar /etc/serviceradar
+
+USER serviceradar
+EXPOSE 50059
+
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["/usr/local/bin/serviceradar-rperf-checker", "--config", "/etc/serviceradar/checkers/rperf.json"]

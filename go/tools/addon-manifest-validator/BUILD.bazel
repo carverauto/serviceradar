@@ -1,0 +1,15 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library")
+
+go_library(
+    name = "addon-manifest-validator_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/carverauto/serviceradar/go/tools/addon-manifest-validator",
+    visibility = ["//visibility:private"],
+    deps = ["//go/tools/addon-manifest-validator/internal/manifestschema"],
+)
+
+go_binary(
+    name = "addon-manifest-validator",
+    embed = [":addon-manifest-validator_lib"],
+    visibility = ["//visibility:public"],
+)

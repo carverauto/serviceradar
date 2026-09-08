@@ -1,0 +1,714 @@
+{{- $gatewayApi := default (dict) .Values.gatewayApi -}}
+{{- if $gatewayApi.enabled }}
+{{- $host := required "gatewayApi.host is required when gatewayApi.enabled=true" $gatewayApi.host -}}
+{{- $mode := default "managed" $gatewayApi.mode -}}
+{{- $managedMode := eq $mode "managed" -}}
+{{- $attachMode := eq $mode "attach" -}}
+{{- $service := default (dict) $gatewayApi.service -}}
+{{- $serviceName := default "serviceradar-web-ng" $service.name -}}
+{{- $servicePort := default 4000 $service.port -}}
+{{- $dns := default (dict) $gatewayApi.dns -}}
+{{- $dnsEnabled := true -}}
+{{- if hasKey $dns "enabled" -}}
+{{- $dnsEnabled = $dns.enabled -}}
+{{- end -}}
+{{- $dnsHostname := default $host $dns.hostname -}}
+{{- $envoyProxy := default (dict) $gatewayApi.envoyProxy -}}
+{{- $envoyDeployment := default (dict) $envoyProxy.deployment -}}
+{{- $envoyPDB := default (dict) $envoyProxy.pdb -}}
+{{- $envoyService := default (dict) $envoyProxy.service -}}
+{{- $http := default (dict) $gatewayApi.http -}}
+{{- $httpEnabled := default true $http.enabled -}}
+{{- $httpRedirectToHttps := default false $http.redirectToHttps -}}
+{{- $tls := default (dict) $gatewayApi.tls -}}
+{{- $tlsEnabled := default false $tls.enabled -}}
+{{- $tlsSecretName := $tls.secretName -}}
+{{- $certificateName := default (include "serviceradar.gatewayApiCertificateName" .) $tls.certificateName -}}
+{{- $route := default (dict) $gatewayApi.route -}}
+{{- $pathPrefixes := default (list "/api/query" "/api" "/") $route.pathPrefixes -}}
+{{- $streamingPathPrefixes := default (list "/v1/camera-relay-sessions") $route.streamingPathPrefixes -}}
+{{- $streamingTimeouts := default (dict) $route.streamingTimeouts -}}
+{{- $syslog := default (dict) $gatewayApi.syslog -}}
+{{- $syslogEnabled := default false $syslog.enabled -}}
+{{- $syslogPort := default 514 $syslog.port -}}
+{{- $syslogService := default (dict) $syslog.service -}}
+{{- $syslogServiceName := default "serviceradar-log-collector" $syslogService.name -}}
+{{- $syslogServicePort := default 514 $syslogService.port -}}
+{{- $syslogParentRefs := default (list) $syslog.parentRefs -}}
+{{- $envoyGatewayNamespace := default "envoy-gateway-system" $gatewayApi.envoyGatewayNamespace -}}
+{{- $flowCollector := default (dict) $gatewayApi.flowCollector -}}
+{{- $flowCollectorEnabled := default false $flowCollector.enabled -}}
+{{- $flowCollectorService := default (dict) $flowCollector.service -}}
+{{- $flowCollectorServiceName := default "serviceradar-flow-collector" $flowCollectorService.name -}}
+{{- $flowCollectorNetflow := default (dict) $flowCollector.netflow -}}
+{{- $flowCollectorNetflowEnabled := true -}}
+{{- if hasKey $flowCollectorNetflow "enabled" -}}
+{{- $flowCollectorNetflowEnabled = $flowCollectorNetflow.enabled -}}
+{{- end -}}
+{{- $flowCollectorNetflowListenerName := default "netflow" $flowCollectorNetflow.listenerName -}}
+{{- $flowCollectorNetflowPort := default 2055 $flowCollectorNetflow.port -}}
+{{- $flowCollectorNetflowServicePort := default $flowCollectorNetflowPort $flowCollectorNetflow.servicePort -}}
+{{- $flowCollectorNetflowRouteName := default (printf "%s-netflow" (include "serviceradar.fullname" .)) $flowCollectorNetflow.routeName -}}
+{{- $flowCollectorNetflowParentRefs := default (list) $flowCollectorNetflow.parentRefs -}}
+{{- $flowCollectorSflow := default (dict) $flowCollector.sflow -}}
+{{- $flowCollectorSflowEnabled := true -}}
+{{- if hasKey $flowCollectorSflow "enabled" -}}
+{{- $flowCollectorSflowEnabled = $flowCollectorSflow.enabled -}}
+{{- end -}}
+{{- $flowCollectorSflowListenerName := default "sflow" $flowCollectorSflow.listenerName -}}
+{{- $flowCollectorSflowPort := default 6343 $flowCollectorSflow.port -}}
+{{- $flowCollectorSflowServicePort := default $flowCollectorSflowPort $flowCollectorSflow.servicePort -}}
+{{- $flowCollectorSflowRouteName := default (printf "%s-sflow" (include "serviceradar.fullname" .)) $flowCollectorSflow.routeName -}}
+{{- $flowCollectorSflowParentRefs := default (list) $flowCollectorSflow.parentRefs -}}
+{{- $flowCollectorIpfix := default (dict) $flowCollector.ipfix -}}
+{{- $flowCollectorIpfixEnabled := false -}}
+{{- if hasKey $flowCollectorIpfix "enabled" -}}
+{{- $flowCollectorIpfixEnabled = $flowCollectorIpfix.enabled -}}
+{{- end -}}
+{{- $flowCollectorIpfixListenerName := default "ipfix" $flowCollectorIpfix.listenerName -}}
+{{- $flowCollectorIpfixPort := default 4739 $flowCollectorIpfix.port -}}
+{{- $flowCollectorIpfixServicePort := default $flowCollectorIpfixPort $flowCollectorIpfix.servicePort -}}
+{{- $flowCollectorIpfixRouteName := default (printf "%s-ipfix" (include "serviceradar.fullname" .)) $flowCollectorIpfix.routeName -}}
+{{- $flowCollectorIpfixParentRefs := default (list) $flowCollectorIpfix.parentRefs -}}
+{{- $flowCollectorListenerEnabled := and $flowCollectorEnabled (or $flowCollectorNetflowEnabled $flowCollectorSflowEnabled $flowCollectorIpfixEnabled) -}}
+{{- $trapd := default (dict) $gatewayApi.trapd -}}
+{{- $trapdEnabled := default false $trapd.enabled -}}
+{{- $trapdListenerName := default "snmp-traps" $trapd.listenerName -}}
+{{- $trapdPort := default 162 $trapd.port -}}
+{{- $trapdServicePort := default $trapdPort $trapd.servicePort -}}
+{{- $trapdRouteName := default (printf "%s-snmp-traps" (include "serviceradar.fullname" .)) $trapd.routeName -}}
+{{- $trapdParentRefs := default (list) $trapd.parentRefs -}}
+{{- $trapdService := default (dict) $trapd.service -}}
+{{- $trapdServiceName := default "serviceradar-trapd" $trapdService.name -}}
+{{- $bmpCollector := default (dict) $gatewayApi.bmpCollector -}}
+{{- $bmpCollectorEnabled := default false $bmpCollector.enabled -}}
+{{- $bmpCollectorListenerName := default "bmp" $bmpCollector.listenerName -}}
+{{- $bmpCollectorPort := default 11019 $bmpCollector.port -}}
+{{- $bmpCollectorServicePort := default $bmpCollectorPort $bmpCollector.servicePort -}}
+{{- $bmpCollectorRouteName := default (printf "%s-bmp" (include "serviceradar.fullname" .)) $bmpCollector.routeName -}}
+{{- $bmpCollectorParentRefs := default (list) $bmpCollector.parentRefs -}}
+{{- $bmpCollectorService := default (dict) $bmpCollector.service -}}
+{{- $bmpCollectorServiceName := default "serviceradar-bmp-collector" $bmpCollectorService.name -}}
+{{- $agentGateway := default (dict) $gatewayApi.agentGateway -}}
+{{- $agentGatewayEnabled := false -}}
+{{- if hasKey $agentGateway "enabled" -}}
+{{- $agentGatewayEnabled = $agentGateway.enabled -}}
+{{- end -}}
+{{- $agentGatewayService := default (dict) $agentGateway.service -}}
+{{- $agentGatewayServiceName := default "serviceradar-agent-gateway" $agentGatewayService.name -}}
+{{- $agentGatewayGrpc := default (dict) $agentGateway.grpc -}}
+{{- $agentGatewayGrpcListenerName := default "agent-grpc" $agentGatewayGrpc.listenerName -}}
+{{- $agentGatewayGrpcPort := default 50052 $agentGatewayGrpc.port -}}
+{{- $agentGatewayGrpcServicePort := default $agentGatewayGrpcPort $agentGatewayGrpc.servicePort -}}
+{{- $agentGatewayGrpcRouteName := default (printf "%s-agent-grpc" (include "serviceradar.fullname" .)) $agentGatewayGrpc.routeName -}}
+{{- $agentGatewayGrpcParentRefs := default (list) $agentGatewayGrpc.parentRefs -}}
+{{- $agentGatewayArtifacts := default (dict) $agentGateway.artifacts -}}
+{{- $agentGatewayArtifactsEnabled := true -}}
+{{- if hasKey $agentGatewayArtifacts "enabled" -}}
+{{- $agentGatewayArtifactsEnabled = $agentGatewayArtifacts.enabled -}}
+{{- end -}}
+{{- $agentGatewayArtifactsListenerName := default "agent-artifacts" $agentGatewayArtifacts.listenerName -}}
+{{- $agentGatewayArtifactsPort := default 50053 $agentGatewayArtifacts.port -}}
+{{- $agentGatewayArtifactsServicePort := default $agentGatewayArtifactsPort $agentGatewayArtifacts.servicePort -}}
+{{- $agentGatewayArtifactsRouteName := default (printf "%s-agent-artifacts" (include "serviceradar.fullname" .)) $agentGatewayArtifacts.routeName -}}
+{{- $agentGatewayArtifactsParentRefs := default (list) $agentGatewayArtifacts.parentRefs -}}
+{{- $parentRefs := default (list) $gatewayApi.parentRefs -}}
+{{- $redirectParentRefs := default (list) $gatewayApi.redirectParentRefs -}}
+{{- $btp := default (dict) $gatewayApi.backendTrafficPolicy -}}
+{{- $streamingBtp := default (dict) $btp.streaming -}}
+{{- if and (not $managedMode) (not $attachMode) }}
+{{- fail "gatewayApi.mode must be either managed or attach" }}
+{{- end }}
+{{- if and $managedMode $tlsEnabled (not $tlsSecretName) }}
+{{- fail "gatewayApi.tls.secretName is required when gatewayApi.tls.enabled=true" }}
+{{- end }}
+{{- if and $managedMode $httpRedirectToHttps (not $tlsEnabled) }}
+{{- fail "gatewayApi.http.redirectToHttps requires gatewayApi.tls.enabled=true" }}
+{{- end }}
+{{- if and $managedMode (not (or $httpEnabled $tlsEnabled $syslogEnabled $agentGatewayEnabled $flowCollectorListenerEnabled $trapdEnabled $bmpCollectorEnabled)) }}
+{{- fail "gatewayApi must expose at least one listener" }}
+{{- end }}
+{{- if and $attachMode (eq (len $parentRefs) 0) }}
+{{- fail "gatewayApi.parentRefs is required when gatewayApi.mode=attach" }}
+{{- end }}
+{{- if and $attachMode $httpRedirectToHttps (eq (len $redirectParentRefs) 0) }}
+{{- fail "gatewayApi.redirectParentRefs is required when gatewayApi.http.redirectToHttps=true and gatewayApi.mode=attach" }}
+{{- end }}
+{{- if and $attachMode $syslogEnabled (eq (len $syslogParentRefs) 0) }}
+{{- fail "gatewayApi.syslog.parentRefs is required when gatewayApi.syslog.enabled=true and gatewayApi.mode=attach" }}
+{{- end }}
+{{- if and $attachMode $flowCollectorEnabled $flowCollectorNetflowEnabled (eq (len $flowCollectorNetflowParentRefs) 0) }}
+{{- fail "gatewayApi.flowCollector.netflow.parentRefs is required when gatewayApi.flowCollector.enabled=true and gatewayApi.mode=attach" }}
+{{- end }}
+{{- if and $attachMode $flowCollectorEnabled $flowCollectorSflowEnabled (eq (len $flowCollectorSflowParentRefs) 0) }}
+{{- fail "gatewayApi.flowCollector.sflow.parentRefs is required when gatewayApi.flowCollector.enabled=true and gatewayApi.mode=attach" }}
+{{- end }}
+{{- if and $attachMode $flowCollectorEnabled $flowCollectorIpfixEnabled (eq (len $flowCollectorIpfixParentRefs) 0) }}
+{{- fail "gatewayApi.flowCollector.ipfix.parentRefs is required when gatewayApi.flowCollector.enabled=true and gatewayApi.mode=attach" }}
+{{- end }}
+{{- if and $attachMode $trapdEnabled (eq (len $trapdParentRefs) 0) }}
+{{- fail "gatewayApi.trapd.parentRefs is required when gatewayApi.trapd.enabled=true and gatewayApi.mode=attach" }}
+{{- end }}
+{{- if and $attachMode $bmpCollectorEnabled (eq (len $bmpCollectorParentRefs) 0) }}
+{{- fail "gatewayApi.bmpCollector.parentRefs is required when gatewayApi.bmpCollector.enabled=true and gatewayApi.mode=attach" }}
+{{- end }}
+{{- if and $attachMode $agentGatewayEnabled (eq (len $agentGatewayGrpcParentRefs) 0) }}
+{{- fail "gatewayApi.agentGateway.grpc.parentRefs is required when gatewayApi.agentGateway.enabled=true and gatewayApi.mode=attach" }}
+{{- end }}
+{{- if and $attachMode $agentGatewayEnabled $agentGatewayArtifactsEnabled (eq (len $agentGatewayArtifactsParentRefs) 0) }}
+{{- fail "gatewayApi.agentGateway.artifacts.parentRefs is required when gatewayApi.agentGateway.artifacts.enabled=true and gatewayApi.mode=attach" }}
+{{- end }}
+{{- if and $managedMode $tlsEnabled $tls.clusterIssuer }}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ $certificateName }}
+spec:
+  secretName: {{ $tlsSecretName | quote }}
+  issuerRef:
+    kind: ClusterIssuer
+    name: {{ $tls.clusterIssuer | quote }}
+  commonName: {{ $host | quote }}
+  dnsNames:
+    - {{ $host | quote }}
+{{- end }}
+{{- if $managedMode }}
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: {{ include "serviceradar.gatewayApiEnvoyProxyName" . }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: edge-gateway
+spec:
+  logging:
+    level:
+      default: {{ default "warn" $envoyProxy.loggingLevel | quote }}
+  provider:
+    type: Kubernetes
+    kubernetes:
+      {{- with $envoyDeployment }}
+      envoyDeployment:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $envoyPDB }}
+      envoyPDB:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      envoyService:
+        type: {{ default "LoadBalancer" $envoyService.type }}
+        externalTrafficPolicy: {{ default "Local" $envoyService.externalTrafficPolicy }}
+        {{- with $envoyService.annotations }}
+        annotations:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        patch:
+          type: StrategicMerge
+          value:
+            spec:
+              {{- if $envoyService.loadBalancerIP }}
+              loadBalancerIP: {{ $envoyService.loadBalancerIP }}
+              {{- end }}
+              {{- with $envoyService.ipFamilies }}
+              ipFamilies:
+                {{- toYaml . | nindent 16 }}
+              {{- end }}
+              {{- if $envoyService.ipFamilyPolicy }}
+              ipFamilyPolicy: {{ $envoyService.ipFamilyPolicy }}
+              {{- end }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: {{ include "serviceradar.gatewayApiGatewayClassName" . }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: edge-gateway
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+  parametersRef:
+    group: gateway.envoyproxy.io
+    kind: EnvoyProxy
+    name: {{ include "serviceradar.gatewayApiEnvoyProxyName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: {{ include "serviceradar.gatewayApiGatewayName" . }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: edge-gateway
+spec:
+  gatewayClassName: {{ include "serviceradar.gatewayApiGatewayClassName" . }}
+  listeners:
+    {{- if $httpEnabled }}
+    - name: http
+      hostname: {{ $host | quote }}
+      port: 80
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: Same
+    {{- end }}
+    {{- if $tlsEnabled }}
+    - name: https
+      hostname: {{ $host | quote }}
+      port: 443
+      protocol: HTTPS
+      tls:
+        certificateRefs:
+          - kind: Secret
+            name: {{ $tlsSecretName | quote }}
+        mode: Terminate
+      allowedRoutes:
+        namespaces:
+          from: Same
+    {{- end }}
+    {{- if $syslogEnabled }}
+    - name: syslog-udp
+      port: {{ $syslogPort }}
+      protocol: UDP
+      allowedRoutes:
+        namespaces:
+          from: Same
+    {{- end }}
+    {{- if and $flowCollectorEnabled $flowCollectorNetflowEnabled }}
+    - name: {{ $flowCollectorNetflowListenerName }}
+      port: {{ $flowCollectorNetflowPort }}
+      protocol: UDP
+      allowedRoutes:
+        namespaces:
+          from: Same
+    {{- end }}
+    {{- if and $flowCollectorEnabled $flowCollectorSflowEnabled }}
+    - name: {{ $flowCollectorSflowListenerName }}
+      port: {{ $flowCollectorSflowPort }}
+      protocol: UDP
+      allowedRoutes:
+        namespaces:
+          from: Same
+    {{- end }}
+    {{- if and $flowCollectorEnabled $flowCollectorIpfixEnabled }}
+    - name: {{ $flowCollectorIpfixListenerName }}
+      port: {{ $flowCollectorIpfixPort }}
+      protocol: UDP
+      allowedRoutes:
+        namespaces:
+          from: Same
+    {{- end }}
+    {{- if $trapdEnabled }}
+    - name: {{ $trapdListenerName }}
+      port: {{ $trapdPort }}
+      protocol: UDP
+      allowedRoutes:
+        namespaces:
+          from: Same
+    {{- end }}
+    {{- if $bmpCollectorEnabled }}
+    - name: {{ $bmpCollectorListenerName }}
+      port: {{ $bmpCollectorPort }}
+      protocol: TCP
+      allowedRoutes:
+        namespaces:
+          from: Same
+    {{- end }}
+    {{- if $agentGatewayEnabled }}
+    - name: {{ $agentGatewayGrpcListenerName }}
+      port: {{ $agentGatewayGrpcPort }}
+      protocol: TCP
+      allowedRoutes:
+        namespaces:
+          from: Same
+    {{- if $agentGatewayArtifactsEnabled }}
+    - name: {{ $agentGatewayArtifactsListenerName }}
+      port: {{ $agentGatewayArtifactsPort }}
+      protocol: TCP
+      allowedRoutes:
+        namespaces:
+          from: Same
+    {{- end }}
+    {{- end }}
+{{- end }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "serviceradar.gatewayApiRouteName" . }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: edge-gateway
+  {{- if $dnsEnabled }}
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: {{ $dnsHostname | quote }}
+  {{- end }}
+spec:
+  parentRefs:
+    {{- if $managedMode }}
+    {{- if $tlsEnabled }}
+    - name: {{ include "serviceradar.gatewayApiGatewayName" . }}
+      namespace: {{ .Release.Namespace }}
+      sectionName: https
+    {{- if and $httpEnabled (not $httpRedirectToHttps) }}
+    - name: {{ include "serviceradar.gatewayApiGatewayName" . }}
+      namespace: {{ .Release.Namespace }}
+      sectionName: http
+    {{- end }}
+    {{- else }}
+    - name: {{ include "serviceradar.gatewayApiGatewayName" . }}
+      namespace: {{ .Release.Namespace }}
+      sectionName: http
+    {{- end }}
+    {{- else }}
+{{ toYaml $parentRefs | nindent 4 }}
+    {{- end }}
+  hostnames:
+    - {{ $host | quote }}
+  rules:
+    - matches:
+        {{- range $pathPrefixes }}
+        - path:
+            type: PathPrefix
+            value: {{ . | quote }}
+        {{- end }}
+      backendRefs:
+        - name: {{ $serviceName | quote }}
+          port: {{ $servicePort }}
+{{- if gt (len $streamingPathPrefixes) 0 }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "serviceradar.gatewayApiStreamingRouteName" . }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: edge-gateway
+spec:
+  parentRefs:
+    {{- if $managedMode }}
+    {{- if $tlsEnabled }}
+    - name: {{ include "serviceradar.gatewayApiGatewayName" . }}
+      namespace: {{ .Release.Namespace }}
+      sectionName: https
+    {{- if and $httpEnabled (not $httpRedirectToHttps) }}
+    - name: {{ include "serviceradar.gatewayApiGatewayName" . }}
+      namespace: {{ .Release.Namespace }}
+      sectionName: http
+    {{- end }}
+    {{- else }}
+    - name: {{ include "serviceradar.gatewayApiGatewayName" . }}
+      namespace: {{ .Release.Namespace }}
+      sectionName: http
+    {{- end }}
+    {{- else }}
+{{ toYaml $parentRefs | nindent 4 }}
+    {{- end }}
+  hostnames:
+    - {{ $host | quote }}
+  rules:
+    - matches:
+        {{- range $streamingPathPrefixes }}
+        - path:
+            type: PathPrefix
+            value: {{ . | quote }}
+        {{- end }}
+      backendRefs:
+        - name: {{ $serviceName | quote }}
+          port: {{ $servicePort }}
+      {{- if or $streamingTimeouts.request $streamingTimeouts.backendRequest }}
+      timeouts:
+        {{- if $streamingTimeouts.request }}
+        request: {{ $streamingTimeouts.request }}
+        {{- end }}
+        {{- if $streamingTimeouts.backendRequest }}
+        backendRequest: {{ $streamingTimeouts.backendRequest }}
+        {{- end }}
+      {{- end }}
+{{- end }}
+{{- if and $btp.enabled (gt (len $streamingPathPrefixes) 0) }}
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: {{ include "serviceradar.gatewayApiStreamingBackendTrafficPolicyName" . }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: edge-gateway
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: {{ include "serviceradar.gatewayApiStreamingRouteName" . }}
+  httpUpgrade:
+    - type: websocket
+  timeout:
+    http:
+      requestTimeout: {{ default "0s" $streamingBtp.requestTimeout }}
+      maxStreamDuration: {{ default "0s" $streamingBtp.maxStreamDuration }}
+{{- end }}
+{{- if $syslogEnabled }}
+---
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: UDPRoute
+metadata:
+  name: {{ default (printf "%s-syslog" (include "serviceradar.fullname" .)) $syslog.routeName }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: edge-gateway
+spec:
+  parentRefs:
+    {{- if $managedMode }}
+    - name: {{ include "serviceradar.gatewayApiGatewayName" . }}
+      namespace: {{ .Release.Namespace }}
+      sectionName: syslog-udp
+    {{- else }}
+{{ toYaml $syslogParentRefs | nindent 4 }}
+    {{- end }}
+  rules:
+    - backendRefs:
+        - group: ""
+          kind: Service
+          name: {{ $syslogServiceName | quote }}
+          port: {{ $syslogServicePort }}
+          weight: 1
+{{- end }}
+{{- if and $flowCollectorEnabled $flowCollectorNetflowEnabled }}
+---
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: UDPRoute
+metadata:
+  name: {{ $flowCollectorNetflowRouteName }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: edge-gateway
+spec:
+  parentRefs:
+    {{- if $managedMode }}
+    - name: {{ include "serviceradar.gatewayApiGatewayName" . }}
+      namespace: {{ .Release.Namespace }}
+      sectionName: {{ $flowCollectorNetflowListenerName }}
+    {{- else }}
+{{ toYaml $flowCollectorNetflowParentRefs | nindent 4 }}
+    {{- end }}
+  rules:
+    - backendRefs:
+        - group: ""
+          kind: Service
+          name: {{ $flowCollectorServiceName | quote }}
+          port: {{ $flowCollectorNetflowServicePort }}
+          weight: 1
+{{- end }}
+{{- if and $flowCollectorEnabled $flowCollectorSflowEnabled }}
+---
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: UDPRoute
+metadata:
+  name: {{ $flowCollectorSflowRouteName }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: edge-gateway
+spec:
+  parentRefs:
+    {{- if $managedMode }}
+    - name: {{ include "serviceradar.gatewayApiGatewayName" . }}
+      namespace: {{ .Release.Namespace }}
+      sectionName: {{ $flowCollectorSflowListenerName }}
+    {{- else }}
+{{ toYaml $flowCollectorSflowParentRefs | nindent 4 }}
+    {{- end }}
+  rules:
+    - backendRefs:
+        - group: ""
+          kind: Service
+          name: {{ $flowCollectorServiceName | quote }}
+          port: {{ $flowCollectorSflowServicePort }}
+          weight: 1
+{{- end }}
+{{- if and $flowCollectorEnabled $flowCollectorIpfixEnabled }}
+---
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: UDPRoute
+metadata:
+  name: {{ $flowCollectorIpfixRouteName }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: edge-gateway
+spec:
+  parentRefs:
+    {{- if $managedMode }}
+    - name: {{ include "serviceradar.gatewayApiGatewayName" . }}
+      namespace: {{ .Release.Namespace }}
+      sectionName: {{ $flowCollectorIpfixListenerName }}
+    {{- else }}
+{{ toYaml $flowCollectorIpfixParentRefs | nindent 4 }}
+    {{- end }}
+  rules:
+    - backendRefs:
+        - group: ""
+          kind: Service
+          name: {{ $flowCollectorServiceName | quote }}
+          port: {{ $flowCollectorIpfixServicePort }}
+          weight: 1
+{{- end }}
+{{- if $trapdEnabled }}
+---
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: UDPRoute
+metadata:
+  name: {{ $trapdRouteName }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: edge-gateway
+spec:
+  parentRefs:
+    {{- if $managedMode }}
+    - name: {{ include "serviceradar.gatewayApiGatewayName" . }}
+      namespace: {{ .Release.Namespace }}
+      sectionName: {{ $trapdListenerName }}
+    {{- else }}
+{{ toYaml $trapdParentRefs | nindent 4 }}
+    {{- end }}
+  rules:
+    - backendRefs:
+        - group: ""
+          kind: Service
+          name: {{ $trapdServiceName | quote }}
+          port: {{ $trapdServicePort }}
+          weight: 1
+{{- end }}
+{{- if $bmpCollectorEnabled }}
+---
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: TCPRoute
+metadata:
+  name: {{ $bmpCollectorRouteName }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: edge-gateway
+spec:
+  parentRefs:
+    {{- if $managedMode }}
+    - name: {{ include "serviceradar.gatewayApiGatewayName" . }}
+      namespace: {{ .Release.Namespace }}
+      sectionName: {{ $bmpCollectorListenerName }}
+    {{- else }}
+{{ toYaml $bmpCollectorParentRefs | nindent 4 }}
+    {{- end }}
+  rules:
+    - backendRefs:
+        - group: ""
+          kind: Service
+          name: {{ $bmpCollectorServiceName | quote }}
+          port: {{ $bmpCollectorServicePort }}
+          weight: 1
+{{- end }}
+{{- if $agentGatewayEnabled }}
+---
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: TCPRoute
+metadata:
+  name: {{ $agentGatewayGrpcRouteName }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: edge-gateway
+spec:
+  parentRefs:
+    {{- if $managedMode }}
+    - name: {{ include "serviceradar.gatewayApiGatewayName" . }}
+      namespace: {{ .Release.Namespace }}
+      sectionName: {{ $agentGatewayGrpcListenerName }}
+    {{- else }}
+{{ toYaml $agentGatewayGrpcParentRefs | nindent 4 }}
+    {{- end }}
+  rules:
+    - backendRefs:
+        - group: ""
+          kind: Service
+          name: {{ $agentGatewayServiceName | quote }}
+          port: {{ $agentGatewayGrpcServicePort }}
+          weight: 1
+{{- if $agentGatewayArtifactsEnabled }}
+---
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: TCPRoute
+metadata:
+  name: {{ $agentGatewayArtifactsRouteName }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: edge-gateway
+spec:
+  parentRefs:
+    {{- if $managedMode }}
+    - name: {{ include "serviceradar.gatewayApiGatewayName" . }}
+      namespace: {{ .Release.Namespace }}
+      sectionName: {{ $agentGatewayArtifactsListenerName }}
+    {{- else }}
+{{ toYaml $agentGatewayArtifactsParentRefs | nindent 4 }}
+    {{- end }}
+  rules:
+    - backendRefs:
+        - group: ""
+          kind: Service
+          name: {{ $agentGatewayServiceName | quote }}
+          port: {{ $agentGatewayArtifactsServicePort }}
+          weight: 1
+{{- end }}
+{{- end }}
+{{- if and $httpEnabled $httpRedirectToHttps }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "serviceradar.gatewayApiRedirectRouteName" . }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: edge-gateway
+spec:
+  parentRefs:
+    {{- if $managedMode }}
+    - name: {{ include "serviceradar.gatewayApiGatewayName" . }}
+      namespace: {{ .Release.Namespace }}
+      sectionName: http
+    {{- else }}
+{{ toYaml $redirectParentRefs | nindent 4 }}
+    {{- end }}
+  hostnames:
+    - {{ $host | quote }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            statusCode: 301
+{{- end }}
+{{- if $btp.enabled }}
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: {{ include "serviceradar.gatewayApiBackendTrafficPolicyName" . }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: edge-gateway
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: {{ include "serviceradar.gatewayApiRouteName" . }}
+  {{- if $btp.requestTimeout }}
+  timeout:
+    http:
+      requestTimeout: {{ $btp.requestTimeout }}
+  {{- end }}
+  {{- if $btp.requestBufferLimit }}
+  requestBuffer:
+    limit: {{ $btp.requestBufferLimit }}
+  {{- end }}
+{{- end }}
+{{- end }}

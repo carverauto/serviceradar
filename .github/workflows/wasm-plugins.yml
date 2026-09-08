@@ -1,0 +1,367 @@
+name: Publish Wasm Plugins
+
+on:
+  # Republish Wasm plugins on every release tag so the published artifacts (and the
+  # versions surfaced in the Plugins Manager) track the code, instead of only on manual
+  # dispatch. Mirrors native-addons.yml, which republishes add-ons on the same `v*` tags.
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Optional extra tag to apply to published Wasm plugin artifacts."
+        required: false
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: serviceradar-signing
+    environment: release
+    env:
+      BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY || secrets.BUILDBUDDY_API_KEY }}
+      OCI_REGISTRY: registry.carverauto.dev
+      OCI_PROJECT: serviceradar
+      OCI_USERNAME: ${{ secrets.HARBOR_ROBOT_USERNAME }}
+      OCI_TOKEN: ${{ secrets.HARBOR_ROBOT_SECRET }}
+      BAZELISK_HOME: ${{ github.workspace }}/.cache/bazelisk
+      GH_TOKEN: ${{ github.token }}
+      GITHUB_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+
+      - name: Enforce release tag source
+        env:
+          INPUT_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || '' }}
+          RELEASE_BASE_REF: origin/staging
+        run: |
+          set -euo pipefail
+
+          publish_tag="${INPUT_TAG}"
+          if [[ -z "${publish_tag}" && "${GITHUB_REF}" == refs/tags/* ]]; then
+            publish_tag="${GITHUB_REF#refs/tags/}"
+          fi
+          if [[ -z "${publish_tag}" || "${publish_tag}" != v* ]]; then
+            echo "Branch catalog dispatch: skipping release-tag source gate."
+            exit 0
+          fi
+
+          release_tag="${publish_tag}"
+          ./scripts/validate-release-tag.sh "${release_tag}"
+          expected_ref="refs/tags/${release_tag}"
+          # Tag-push must run on the annotated tag ref. workflow_dispatch may
+          # use staging (or another branch) to recover a failed tag publish so
+          # long as the tag still points at a staging-reachable release commit.
+          if [[ "${GITHUB_EVENT_NAME}" != "workflow_dispatch" && "${GITHUB_REF}" != "${expected_ref}" ]]; then
+            echo "Release tag ${release_tag} must be published from ${expected_ref}, got ${GITHUB_REF}" >&2
+            exit 1
+          fi
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && "${GITHUB_REF}" != "${expected_ref}" ]]; then
+            echo "workflow_dispatch recovery for ${release_tag} from ${GITHUB_REF} (expected tag ref ${expected_ref})."
+          fi
+
+          git fetch --no-tags origin "+${expected_ref}:${expected_ref}" || true
+          if ! git rev-parse -q --verify "refs/tags/${release_tag}^{commit}" >/dev/null; then
+            git fetch --no-tags origin "refs/tags/${release_tag}:refs/tags/${release_tag}"
+          fi
+
+          tag_commit="$(git rev-list -n1 "refs/tags/${release_tag}^{commit}")"
+          if [[ ! "${tag_commit}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Unable to resolve commit for ${release_tag}" >&2
+            exit 1
+          fi
+          file_version="$(git show "${tag_commit}:VERSION")"
+          file_version="${file_version%%[$'\r\n']*}"
+          if [[ "${release_tag}" != "v${file_version}" ]]; then
+            echo "Release tag ${release_tag} does not match VERSION (${file_version})" >&2
+            exit 1
+          fi
+
+          git fetch --no-tags origin +refs/heads/staging:refs/remotes/origin/staging
+          if ! git merge-base --is-ancestor "${tag_commit}" "${RELEASE_BASE_REF}"; then
+            echo "Release commit ${tag_commit} is not reachable from ${RELEASE_BASE_REF}" >&2
+            exit 1
+          fi
+
+          echo "Validated ${release_tag} at ${tag_commit} from ${RELEASE_BASE_REF}."
+
+      - name: Cache Bazel artifacts
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            ${{ env.BAZELISK_HOME }}
+          key: ${{ runner.os }}-bazel-${{ hashFiles('.bazelversion', '.bazelrc', 'MODULE.bazel', 'MODULE.bazel.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bazel-
+
+      - name: Configure BuildBuddy remote cache
+        if: ${{ env.BUILDBUDDY_ORG_API_KEY != '' }}
+        run: |
+          umask 077
+          cat <<'EOF' | sed 's/^ *//' > .bazelrc.remote
+            build --bes_results_url=https://carverauto.buildbuddy.io/invocation/
+            build --bes_backend=grpcs://carverauto.buildbuddy.io
+            build --remote_cache=grpcs://carverauto.buildbuddy.io
+            build --remote_executor=grpcs://carverauto.buildbuddy.io
+            build --remote_timeout=10m
+            build --remote_download_minimal
+            build --remote_upload_local_results
+            build --jobs=100
+            build --strategy=ExpandTemplate=local
+            build --strategy=NpmPackageExtract=local
+            build --strategy=CopyDirectory=local
+          EOF
+          printf 'common --remote_header=x-buildbuddy-api-key=%s\n' "${BUILDBUDDY_ORG_API_KEY}" >> .bazelrc.remote
+
+      - name: Install Bazelisk
+        run: |
+          ./scripts/install-bazelisk.sh
+          echo "${RUNNER_TEMP:-${HOME}/.local}/bin" >> "${GITHUB_PATH}"
+
+      - name: Install Cosign
+        run: ./scripts/install-cosign.sh
+
+      - name: Install ORAS
+        run: |
+          ./scripts/install-oras.sh
+          echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
+
+      - name: Verify Bazel version
+        run: |
+          expected="$(tr -d '\r\n' < .bazelversion)"
+          actual="$(bazel --version | awk '{print $NF}')"
+          if [[ "${actual}" != "${expected}" ]]; then
+            echo "Expected Bazel ${expected}, got ${actual}" >&2
+            exit 1
+          fi
+
+      - name: Login to Harbor
+        run: |
+          set -euo pipefail
+          if [[ -z "${OCI_USERNAME:-}" || -z "${OCI_TOKEN:-}" ]]; then
+            echo "Missing Harbor robot credentials. Set HARBOR_ROBOT_USERNAME and HARBOR_ROBOT_SECRET." >&2
+            exit 1
+          fi
+
+          echo "${OCI_TOKEN}" | oras login "${OCI_REGISTRY}" -u "${OCI_USERNAME}" --password-stdin
+
+      - name: Publish Wasm plugin OCI artifacts
+        env:
+          EXTRA_TAG: ${{ github.event.inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
+          OPENBAO_ADDR: https://openbao-active.openbao-system.svc.cluster.local:8200
+          OPENBAO_K8S_ROLE: github-signing-runner
+          OPENBAO_SIGNING_ALLOWED_REFS_REGEX: '^refs/(tags/v.*|heads/(staging|main|master))$'
+          COSIGN_KEY_REF: hashivault://cosign-release
+          COSIGN_YES: "true"
+          COSIGN_DOCKER_MEDIA_TYPES: "1"
+        run: |
+          set -euo pipefail
+          # Exchange the signing-runner SA for a short-lived OpenBao token
+          # before Wasm publish so the upload signature is minted by Transit
+          # instead of a long-lived private key in CI secrets.
+          source ./scripts/ci/prepare-openbao-cosign-env.sh
+          if [[ -z "${PLUGIN_UPLOAD_SIGNING_TRANSIT_KEY:-}" && -z "${PLUGIN_UPLOAD_SIGNING_PRIVATE_KEY:-}" ]]; then
+            echo "Missing Wasm upload signing: set PLUGIN_UPLOAD_SIGNING_TRANSIT_KEY or PLUGIN_UPLOAD_SIGNING_PRIVATE_KEY." >&2
+            exit 1
+          fi
+          if [[ -z "${PLUGIN_UPLOAD_SIGNING_KEY_ID:-}" ]]; then
+            echo "Missing Wasm upload signing key id. Set PLUGIN_UPLOAD_SIGNING_KEY_ID." >&2
+            exit 1
+          fi
+
+          push_args=()
+          verify_tags=("sha-${GITHUB_SHA}")
+          if [[ -n "${EXTRA_TAG:-}" ]]; then
+            push_args+=(--tag "${EXTRA_TAG}")
+            verify_tags+=("${EXTRA_TAG}")
+          fi
+
+          ./scripts/push_all_wasm_plugins.sh "${push_args[@]}"
+          ./scripts/sign-wasm-plugin-publish.sh "${verify_tags[@]}"
+          ./scripts/verify-wasm-plugin-publish.sh "${verify_tags[@]}"
+          unset VAULT_TOKEN VAULT_ADDR COSIGN_KEY_REF PLUGIN_UPLOAD_SIGNING_TRANSIT_KEY
+
+      - name: Generate import index
+        env:
+          EXTRA_TAG: ${{ github.event.inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
+        run: |
+          set -euo pipefail
+          tag="${EXTRA_TAG:-sha-${GITHUB_SHA}}"
+          OUTPUT="${RUNNER_TEMP:-/tmp}/serviceradar-wasm-plugin-index.json" \
+            ./scripts/generate-wasm-plugin-import-index.sh "${tag}"
+          jq '.plugins | length' "${RUNNER_TEMP:-/tmp}/serviceradar-wasm-plugin-index.json"
+
+      - name: Upload import index release asset
+        env:
+          EXTRA_TAG: ${{ github.event.inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
+          # ARC does not put the reserved GITHUB_TOKEN name in the step env.
+          # GH_TOKEN is the name that actually arrives on serviceradar-signing.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          token="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
+          if [[ -z "${token}" ]]; then
+            echo "Missing GitHub token (GITHUB_TOKEN/GH_TOKEN)." >&2
+            exit 1
+          fi
+
+          release_tag="${EXTRA_TAG:-sha-${GITHUB_SHA}}"
+          # GITHUB_SHA on an annotated tag-push is the tag object, not the
+          # commit. GitHub 404/403s if that is sent as target_commitish.
+          # When the git tag already exists, omit the field entirely.
+          target_commitish=""
+          if [[ "${release_tag}" =~ ^sha-([0-9a-f]{40})$ ]]; then
+            target_commitish="${BASH_REMATCH[1]}"
+          elif git rev-parse -q --verify "refs/tags/${release_tag}" >/dev/null; then
+            target_commitish=""
+          else
+            peeled="$(git rev-parse -q --verify "${GITHUB_SHA}^{commit}" 2>/dev/null || true)"
+            if [[ "${peeled}" =~ ^[0-9a-f]{40}$ ]]; then
+              target_commitish="${peeled}"
+            fi
+          fi
+
+          index_path="${RUNNER_TEMP:-/tmp}/serviceradar-wasm-plugin-index.json"
+          if [[ ! -s "${index_path}" ]]; then
+            echo "Missing Wasm plugin import index at ${index_path}" >&2
+            exit 1
+          fi
+
+          api_base="https://api.github.com/repos/${GITHUB_REPOSITORY}"
+          gh_headers=(
+            -H "Accept: application/vnd.github+json"
+            -H "Authorization: Bearer ${token}"
+            -H "X-GitHub-Api-Version: 2022-11-28"
+          )
+
+          # /releases/tags/{tag} hides drafts. Always list first.
+          fetch_release() {
+            local release_json releases_json
+            releases_json="$(curl -sS "${gh_headers[@]}" \
+              "${api_base}/releases?per_page=100" || true)"
+            release_json="$(jq -c --arg tag "${release_tag}" \
+              'if type == "array" then first(.[] | select(.tag_name == $tag)) // empty else empty end' \
+              <<<"${releases_json}" 2>/dev/null || true)"
+            if [[ -n "${release_json}" ]]; then
+              printf '%s\n' "${release_json}"
+              return 0
+            fi
+            curl -sS "${gh_headers[@]}" \
+              "${api_base}/releases/tags/${release_tag}" || true
+          }
+
+          release_json="$(fetch_release)"
+          release_id="$(echo "${release_json}" | jq -r 'select(type == "object") | .id // empty')"
+
+          if [[ -z "${release_id}" ]]; then
+            # Create a DRAFT so the index can be attached before the release is
+            # immutable. A published GitHub immutable release rejects later assets.
+            if [[ -n "${target_commitish}" ]]; then
+              create_body="$(
+                jq -n \
+                  --arg tag_name "${release_tag}" \
+                  --arg target_commitish "${target_commitish}" \
+                  --arg name "Wasm plugin catalog ${release_tag}" \
+                  --arg body "Generated Wasm plugin import catalog for ${release_tag}." \
+                  '{
+                    tag_name: $tag_name,
+                    target_commitish: $target_commitish,
+                    name: $name,
+                    body: $body,
+                    draft: true,
+                    prerelease: true
+                  }'
+              )"
+            else
+              create_body="$(
+                jq -n \
+                  --arg tag_name "${release_tag}" \
+                  --arg name "Wasm plugin catalog ${release_tag}" \
+                  --arg body "Generated Wasm plugin import catalog for ${release_tag}." \
+                  '{
+                    tag_name: $tag_name,
+                    name: $name,
+                    body: $body,
+                    draft: true,
+                    prerelease: true
+                  }'
+              )"
+            fi
+            create_json="$(curl -sS -w '\n%{http_code}' -X POST \
+              "${gh_headers[@]}" \
+              -H "Content-Type: application/json" \
+              -d "${create_body}" \
+              "${api_base}/releases" || true)"
+            create_code="$(echo "${create_json}" | tail -n1)"
+            create_json="$(echo "${create_json}" | sed '$d')"
+            echo "Create release HTTP ${create_code}"
+            release_id="$(echo "${create_json}" | jq -r 'select(type == "object") | .id // empty')"
+            if [[ -z "${release_id}" ]]; then
+              echo "${create_json}" | jq -c . >&2 || echo "${create_json}" >&2
+              release_json="$(fetch_release)"
+              release_id="$(echo "${release_json}" | jq -r 'select(type == "object") | .id // empty')"
+            fi
+          fi
+
+          if [[ -z "${release_id}" ]]; then
+            echo "Unable to resolve or create release id for ${release_tag}" >&2
+            exit 1
+          fi
+
+          release_json="$(curl -sSf "${gh_headers[@]}" \
+            "${api_base}/releases/${release_id}")"
+          resolved_release_id="$(echo "${release_json}" | jq -r '.id // empty')"
+          if [[ "${resolved_release_id}" != "${release_id}" ]]; then
+            echo "GitHub returned an unexpected release while resolving ${release_tag}" >&2
+            exit 1
+          fi
+
+          is_draft="$(echo "${release_json}" | jq -r '.draft // false')"
+          existing_asset_id="$(echo "${release_json}" | jq -r '.assets[]? | select(.name == "serviceradar-wasm-plugin-index.json") | .id' | head -n1)"
+          if [[ -n "${existing_asset_id}" ]]; then
+            if [[ "${is_draft}" != "true" ]]; then
+              echo "Release ${release_tag} is published and immutable; cannot replace serviceradar-wasm-plugin-index.json (asset ${existing_asset_id})." >&2
+              exit 1
+            fi
+            curl -sSf -X DELETE "${gh_headers[@]}" \
+              "${api_base}/releases/assets/${existing_asset_id}" >/dev/null
+          fi
+
+          upload_url="https://uploads.github.com/repos/${GITHUB_REPOSITORY}/releases/${release_id}/assets?name=serviceradar-wasm-plugin-index.json"
+          upload_status="$(curl -sS -o /tmp/wasm-index-upload.json -w '%{http_code}' -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${token}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -H "Content-Type: application/octet-stream" \
+            --data-binary "@${index_path}" \
+            "${upload_url}")"
+          if [[ "${upload_status}" != "201" ]]; then
+            echo "Wasm plugin import index upload failed with HTTP ${upload_status}" >&2
+            jq -c . /tmp/wasm-index-upload.json 2>/dev/null || true
+            exit 1
+          fi
+
+          refreshed_release_json="$(curl -sSf "${gh_headers[@]}" \
+            "${api_base}/releases/${release_id}")"
+          uploaded_asset_id="$(echo "${refreshed_release_json}" | jq -r '.assets[]? | select(.name == "serviceradar-wasm-plugin-index.json") | .id' | head -n1)"
+          if [[ -z "${uploaded_asset_id}" ]]; then
+            echo "Wasm plugin import index asset was not present after upload for ${release_tag}" >&2
+            exit 1
+          fi
+
+          # Leave v* releases draft. release.yml finalize publishes after
+          # packages, catalogs, and security bundles are all present.
+          echo "Uploaded serviceradar-wasm-plugin-index.json to ${release_tag}"

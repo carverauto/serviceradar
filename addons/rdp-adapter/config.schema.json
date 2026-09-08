@@ -1,0 +1,8 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RDP Adapter Configuration",
+  "description": "Configuration for the per-session RDP helper. The helper is invoked by the compiled-in remote-access subsystem; no operator fields are required for the add-on artifact itself.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {}
+}

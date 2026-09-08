@@ -1,0 +1,57 @@
+"""Precompiled Membrane OS dependencies, pinned in //MODULE.bazel."""
+
+package(default_visibility = ["//visibility:public"])
+
+# The archives Bundlex would otherwise fetch from github.com during `mix deps.compile`.
+#
+# //build:mix_app.bzl stages these into BUNDLEX_LOCAL_PRECOMPILED_DIR for any package that
+# depends on bundlex, and //third_party/patches/bundlex makes Bundlex prefer that directory
+# over the network. Matching is by URL basename, so a file only has to be present here for
+# the corresponding download to be skipped.
+#
+# Selected on the TARGET platform. Upstream publishes a Linux ARM build of all ten under
+# the same release tag as the x86 one -- contrary to a long-standing note in
+# //openspec claiming core_elx could not be made multi-arch because they did not exist.
+# They do; each pair is pinned at matching versions in //MODULE.bazel.
+#
+# Staging the arm archive is only half of it: Bundlex has to ASK for the arm URL, and
+# `Bundlex.get_target/0` derived it from the executor's BEAM, so an arm64 build looked for
+# `<dep>_linux_x86.tar.gz`, missed everything here (matching is by basename) and downloaded
+# an x86 library. //third_party/patches/bundlex:target_triple.patch is the other half.
+#
+# Even with both, core_elx is not multi-arch yet: ex_dtls and ex_libsrt are still built with
+# the executor's system gcc (see _SYSTEM_CC_APPS in //build:mix_app.bzl), which emits amd64
+# objects wherever it runs. The ELF check at the end of that same file will name any package
+# that still gets this wrong rather than letting a mismatched .so reach an image.
+#
+# Keep in sync with the `membrane_precompiled_*` http_file rules in //MODULE.bazel: an
+# archive declared there but missing here is silently downloaded at build time again.
+filegroup(
+    name = "precompiled_os_deps",
+    srcs = select({
+        "//build/platforms:target_linux_arm64": [
+            "@membrane_precompiled_fdk_aac_arm64//file",
+            "@membrane_precompiled_ffmpeg_arm64//file",
+            "@membrane_precompiled_lame_arm64//file",
+            "@membrane_precompiled_libvpx_arm64//file",
+            "@membrane_precompiled_mad_arm64//file",
+            "@membrane_precompiled_opus_arm64//file",
+            "@membrane_precompiled_portaudio_arm64//file",
+            "@membrane_precompiled_sdl2_arm64//file",
+            "@membrane_precompiled_srt_arm64//file",
+            "@membrane_precompiled_srtp_arm64//file",
+        ],
+        "//conditions:default": [
+            "@membrane_precompiled_fdk_aac//file",
+            "@membrane_precompiled_ffmpeg//file",
+            "@membrane_precompiled_lame//file",
+            "@membrane_precompiled_libvpx//file",
+            "@membrane_precompiled_mad//file",
+            "@membrane_precompiled_opus//file",
+            "@membrane_precompiled_portaudio//file",
+            "@membrane_precompiled_sdl2//file",
+            "@membrane_precompiled_srt//file",
+            "@membrane_precompiled_srtp//file",
+        ],
+    }),
+)

@@ -1,0 +1,59 @@
+{
+  "listen_addr": ":50057",
+  "nats_url": "tls://nats:4222",
+  "nats_creds_file": "/etc/serviceradar/creds/platform.creds",
+  "nats_operator": {
+    "name": "serviceradar-dev",
+    "operator_seed_env": "NATS_OPERATOR_SEED",
+    "operator_seed_file": "/etc/serviceradar/creds/operator.seed",
+    "system_account_public_key_env": "NATS_SYSTEM_ACCOUNT_PUBLIC_KEY",
+    "system_account_public_key_file": "/etc/serviceradar/creds/system_account.pub",
+    "system_account_creds_file": "/etc/serviceradar/creds/system.creds",
+    "allowed_client_identities": [
+      "CN=core.serviceradar,O=ServiceRadar"
+    ]
+  },
+  "security": {
+    "mode": "mtls",
+    "cert_dir": "/etc/serviceradar/certs",
+    "role": "datasvc",
+    "server_name": "datasvc.serviceradar",
+    "tls": {
+      "cert_file": "/etc/serviceradar/certs/datasvc.pem",
+      "key_file": "/etc/serviceradar/certs/datasvc-key.pem",
+      "ca_file": "/etc/serviceradar/certs/root.pem",
+      "client_ca_file": "/etc/serviceradar/certs/root.pem"
+    }
+  },
+  "nats_security": {
+    "mode": "mtls",
+    "cert_dir": "/etc/serviceradar/certs",
+    "server_name": "nats.serviceradar",
+    "role": "datasvc",
+    "tls": {
+      "cert_file": "/etc/serviceradar/certs/datasvc.pem",
+      "key_file": "/etc/serviceradar/certs/datasvc-key.pem",
+      "ca_file": "/etc/serviceradar/certs/root.pem",
+      "client_ca_file": "/etc/serviceradar/certs/root.pem"
+    }
+  },
+  "rbac": {
+    "roles": [
+      {"identity": "CN=core.serviceradar,O=ServiceRadar", "role": "writer"},
+      {"identity": "CN=agent-gateway.serviceradar,O=ServiceRadar", "role": "writer"},
+      {"identity": "CN=agent.serviceradar,O=ServiceRadar", "role": "writer"},
+      {"identity": "CN=sync.serviceradar,O=ServiceRadar", "role": "writer"},
+      {"identity": "CN=flowgger.serviceradar,O=ServiceRadar", "role": "writer"},
+      {"identity": "CN=trapd.serviceradar,O=ServiceRadar", "role": "writer"},
+      {"identity": "CN=otel.serviceradar,O=ServiceRadar", "role": "writer"},
+      {"identity": "CN=rperf-client.serviceradar,O=ServiceRadar", "role": "writer"},
+      {"identity": "CN=web.serviceradar,O=ServiceRadar", "role": "reader"}
+    ]
+  },
+  "bucket": "serviceradar-datasvc",
+  "bucket_history": 1,
+  "bucket_ttl": "24h",
+  "bucket_max_bytes": 2147483648,
+  "object_max_bytes": 536870912,
+  "object_store_bytes": 2147483648
+}

@@ -1,0 +1,300 @@
+/*
+ * Copyright 2026 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+syntax = "proto3";
+
+package serviceradar.agent.addon.v1;
+
+option go_package = "github.com/carverauto/serviceradar/proto/agent/addon/v1;addonpb";
+
+// AddonService is the gRPC contract every native agent add-on serves over the
+// HashiCorp go-plugin transport (a subprocess + gRPC on a restricted Unix-domain
+// socket with AutoMTLS). The agent is the go-plugin client; the add-on is the
+// server. The contract is intentionally language-agnostic so add-ons may be
+// implemented in Go (via the first-party SDK) or any language with a gRPC stack
+// (e.g. Rust via tonic).
+service AddonService {
+  // Info reports the add-on's stable identity, version, and the capability
+  // identifiers it advertises when active.
+  rpc Info(InfoRequest) returns (InfoResponse);
+
+  // Configure delivers the operator-selected configuration (already validated
+  // against the add-on's config.schema.json by the control plane) and returns a
+  // stable hash the agent can use for change detection.
+  rpc Configure(ConfigureRequest) returns (ConfigureResponse);
+
+  // Health is the liveness/readiness probe the agent polls on an interval. It
+  // doubles as the go-plugin health signal and carries a bounded degradation
+  // reason so the agent can report an add-on as degraded rather than absent.
+  rpc Health(HealthRequest) returns (HealthResponse);
+
+  // StreamTelemetry is an optional add-on-to-agent telemetry stream. The agent
+  // only calls this RPC for add-ons that advertise the native-telemetry:v1
+  // capability in InfoResponse.capabilities. Add-ons that do not produce
+  // telemetry may leave the stream empty.
+  rpc StreamTelemetry(StreamTelemetryRequest) returns (stream TelemetryBatch);
+
+  // RelayOtlp is the acked add-on-to-agent OTLP relay stream. The agent only
+  // calls this RPC for add-ons that advertise the otlp-relay:v1 capability in
+  // InfoResponse.capabilities. The add-on is the gRPC server (go-plugin
+  // transport), but the AGENT is the RPC client: it opens the stream, reads
+  // OtlpRelayFrame messages off the response stream, and writes OtlpRelayAck
+  // watermarks on the request stream.
+  //
+  // Unlike StreamTelemetry (lossy, fire-and-forget), RelayOtlp is an
+  // at-least-once delivery contract: every frame carries a persistent,
+  // monotonically increasing relay_id assigned by the add-on's durable spool,
+  // and the frame remains the add-on's responsibility (spooled on disk) until
+  // the agent acks it. The agent forwards each frame to the agent-gateway
+  // inside a GatewayServiceStatus envelope with source == "otlp-relay"
+  // (GatewayServiceStatus.message = the encoded TelemetryBatch) and acks the
+  // add-on only after the gateway confirms the forward succeeded. After a
+  // reconnect the add-on re-sends every unacked frame, resuming from its last
+  // acked watermark with the original relay_ids.
+  rpc RelayOtlp(stream OtlpRelayAck) returns (stream OtlpRelayFrame);
+
+  // StreamMetricFeed is the agent-to-add-on local metric feed. The agent only
+  // calls this RPC for add-ons that advertise the metric-feed:v1 capability in
+  // InfoResponse.capabilities. It is the data-direction inverse of the upstream
+  // streams: the add-on is the gRPC server, but the AGENT is the RPC client and
+  // the DATA PRODUCER. The agent writes MetricFeedFrame messages on the request
+  // stream BEFORE those samples are published to agent-gateway, and reads
+  // MetricFeedAck watermarks on the response stream for flow control.
+  //
+  // The feed lets a co-located compute add-on (for example per-series anomaly
+  // detection) analyze the agent's locally collected samples at the edge so the
+  // platform can ship verdicts/rollups instead of every raw point. Acks are
+  // cumulative and back-pressure the agent: the agent bounds the number of
+  // unacked in-flight frames per add-on so a slow add-on can never stall the
+  // agent's own collection or its gateway publishing path. The feed is lossy by
+  // contract (it is analysis input, not a durable delivery path): if an add-on
+  // falls past the agent's in-flight bound, the agent drops feed frames for that
+  // add-on and records the drop rather than blocking.
+  rpc StreamMetricFeed(stream MetricFeedFrame) returns (stream MetricFeedAck);
+
+  // RunCommand executes a bounded, platform-scheduled command against a local
+  // add-on instance. The control plane records an addon.run_command command,
+  // agent-gateway streams it to the agent, and the agent invokes this RPC on the
+  // supervised add-on subprocess. Add-ons never receive direct core, web-ng, or
+  // object-store connectivity through this contract.
+  rpc RunCommand(RunCommandRequest) returns (RunCommandResponse);
+}
+
+message InfoRequest {}
+
+message InfoResponse {
+  string id = 1;
+  string version = 2;
+  repeated string capabilities = 3;
+}
+
+message ConfigureRequest {
+  // config_json is the operator-selected configuration for this add-on,
+  // validated by the control plane against the add-on's config.schema.json.
+  bytes config_json = 1;
+}
+
+message ConfigureResponse {
+  // config_hash is a stable hash of the applied configuration for change
+  // detection by the agent.
+  string config_hash = 1;
+  bool accepted = 2;
+  // error is a bounded diagnostic when accepted is false.
+  string error = 3;
+}
+
+message HealthRequest {}
+
+message HealthResponse {
+  enum Status {
+    STATUS_UNSPECIFIED = 0;
+    STATUS_HEALTHY = 1;
+    STATUS_DEGRADED = 2;
+    STATUS_UNHEALTHY = 3;
+  }
+
+  Status status = 1;
+  string version = 2;
+  // degradation_reason is a bounded explanation when status is not HEALTHY
+  // (e.g. "CAP_BPF not granted").
+  string degradation_reason = 3;
+  // details carries bounded, STRUCTURED capability state the agent reads to
+  // make decisions -- distinct from degradation_reason, which is prose for a
+  // human and must not be parsed.
+  //
+  // netprobe reports `running_as_root` and its p0f/muonfp/recog/satori corpus
+  // revisions here; the agent turns those into the sweep banner-grab capability
+  // status. Without a structured carrier that state has no home once the
+  // bespoke IPC is retired, and the capability silently reports unavailable.
+  //
+  // Keys are add-on-defined and NOT trusted for identity or authorization: this
+  // is the add-on describing its own runtime, the same trust level as
+  // TelemetrySource.metadata.
+  map<string, string> details = 4;
+}
+
+message StreamTelemetryRequest {
+  // capability is the telemetry capability version requested by the agent, for
+  // example "native-telemetry:v1".
+  string capability = 1;
+}
+
+message RunCommandRequest {
+  // command_id is the platform command identifier assigned by the commandbus.
+  string command_id = 1;
+  // command_type identifies the generic control-plane command, for example
+  // "addon.run_command".
+  string command_type = 2;
+  // action_id is the package-declared producer action to execute.
+  string action_id = 3;
+  // schema identifies the payload contract carried in payload_json.
+  string schema = 4;
+  // payload_json is an opaque JSON object for the add-on to interpret according
+  // to schema and action_id. It may include credential broker grants, never raw
+  // secret values.
+  bytes payload_json = 5;
+  // deadline_unix is the absolute Unix second deadline supplied by the agent
+  // after applying command TTL limits. Zero means no explicit deadline.
+  int64 deadline_unix = 6;
+  map<string, string> metadata = 7;
+}
+
+message RunCommandResponse {
+  bool success = 1;
+  string message = 2;
+  bytes payload_json = 3;
+  map<string, string> metadata = 4;
+}
+
+enum TelemetryPayloadKind {
+  TELEMETRY_PAYLOAD_KIND_UNSPECIFIED = 0;
+  TELEMETRY_PAYLOAD_KIND_OCSF_EVENT = 1;
+  TELEMETRY_PAYLOAD_KIND_OTEL_LOG = 2;
+  // OTLP relay payload kinds (RelayOtlp / otlp-relay:v1). The record payload
+  // is exactly one encoded OTLP ExportTraceServiceRequest /
+  // ExportLogsServiceRequest / ExportMetricsServiceRequest chunk, chunked
+  // ONCE at the edge so one TelemetryRecord maps to one NATS message
+  // upstream.
+  TELEMETRY_PAYLOAD_KIND_OTLP_TRACES = 3;
+  TELEMETRY_PAYLOAD_KIND_OTLP_LOGS = 4;
+  TELEMETRY_PAYLOAD_KIND_OTLP_METRICS = 5;
+  // Metrics the edge collector derived locally from other signals (e.g.
+  // span-derived RED metrics), kept distinct from pass-through OTLP_METRICS
+  // so core can route them to the derived-metrics subject.
+  TELEMETRY_PAYLOAD_KIND_OTLP_DERIVED_METRIC = 6;
+  // ServiceRadar-native metric batches produced by non-OTLP collectors.
+  // TelemetryRecord.payload is exactly one encoded
+  // serviceradar.metric.v1.MetricBatch. Gateway republishes this payload
+  // unchanged to metrics.* so core/event_writer owns persistence.
+  TELEMETRY_PAYLOAD_KIND_SERVICERADAR_METRICS = 7;
+  // Device observations an add-on made about OTHER hosts, for the inventory
+  // pipeline rather than the observability one.
+  //
+  // TelemetryRecord.payload is exactly one encoded
+  // serviceradar.agent.discovery.v1.DiscoveryEnvelope, whose `schema` field --
+  // a STRING, not another enum value -- selects the decoder in core.
+  //
+  // This is deliberately the ONLY discovery payload kind that will ever be
+  // added. A kind per observation type would put every new payload back on the
+  // path this exists to remove: edit the proto, regenerate Go, Elixir and Rust,
+  // teach the agent and the gateway, ship an agent release. With a schema
+  // string, a new observation type is one registry entry in core and nothing
+  // else. Add a schema, never a kind.
+  TELEMETRY_PAYLOAD_KIND_DISCOVERY_V1 = 8;
+}
+
+message TelemetrySource {
+  // source_type identifies the producer family, for example "powerdns".
+  string source_type = 1;
+  // source_instance identifies the local producer instance, for example
+  // "recursor" or a configured listener name.
+  string source_instance = 2;
+  // metadata carries bounded source-local labels. Gateway-attested identity is
+  // attached upstream and MUST NOT be trusted from this map.
+  map<string, string> metadata = 3;
+}
+
+message TelemetryCounters {
+  uint64 received = 1;
+  uint64 filtered = 2;
+  uint64 emitted = 3;
+  uint64 dropped = 4;
+  uint64 queue_depth = 5;
+}
+
+message TelemetryRecord {
+  // event_id is a stable idempotency key for this record.
+  string event_id = 1;
+  int64 observed_time_unix_nano = 2;
+  int64 event_time_unix_nano = 3;
+  TelemetryPayloadKind payload_kind = 4;
+  bytes payload = 5;
+  map<string, string> metadata = 6;
+}
+
+message TelemetryBatch {
+  TelemetrySource source = 1;
+  repeated TelemetryRecord records = 2;
+  TelemetryCounters counters = 3;
+}
+
+// OtlpRelayFrame is one acked relay unit the add-on ships to the agent on the
+// RelayOtlp response stream. relay_id is a persistent, strictly increasing
+// sequence number assigned by the add-on's durable spool; it identifies the
+// frame for acknowledgement and never resets across reconnects (unacked
+// frames are re-sent with their original relay_ids). batch reuses
+// TelemetryBatch with the OTLP payload kinds; each TelemetryRecord.payload is
+// one pre-chunked Export*ServiceRequest, so the agent can forward a frame
+// verbatim as the GatewayServiceStatus.message bytes for source ==
+// "otlp-relay" without re-chunking.
+message OtlpRelayFrame {
+  uint64 relay_id = 1;
+  TelemetryBatch batch = 2;
+}
+
+// OtlpRelayAck is the agent-to-add-on acknowledgement watermark on the
+// RelayOtlp request stream. acked_relay_id confirms that every frame with
+// relay_id <= acked_relay_id has been accepted upstream by the agent-gateway;
+// the add-on may then release those frames from its spool. Acks are
+// cumulative, so the agent may coalesce them.
+message OtlpRelayAck {
+  uint64 acked_relay_id = 1;
+}
+
+// MetricFeedFrame is one unit of the agent-to-add-on local metric feed
+// (StreamMetricFeed / metric-feed:v1). The agent writes frames on the request
+// stream. feed_id is a per-stream, strictly increasing sequence the agent
+// assigns for acknowledgement and drop accounting; unlike RelayOtlp's relay_id
+// it resets when the stream is re-opened (the feed is lossy, not a durable
+// spool). source identifies which local collector produced the samples (for
+// example sysmon, snmp, icmp, timeseries) so an add-on can route or subscribe to
+// a subset. payload is exactly one encoded serviceradar.metric.v1.MetricBatch,
+// matching the SERVICERADAR_METRICS telemetry payload kind, so edge and central
+// analysis decode identical bytes.
+message MetricFeedFrame {
+  uint64 feed_id = 1;
+  TelemetrySource source = 2;
+  bytes payload = 3;
+}
+
+// MetricFeedAck is the add-on-to-agent flow-control watermark on the
+// StreamMetricFeed response stream. acked_feed_id confirms the add-on has
+// accepted every frame with feed_id <= acked_feed_id; the agent uses it to bound
+// in-flight frames and to detect a stalled add-on. Acks are cumulative, so the
+// add-on may coalesce them.
+message MetricFeedAck {
+  uint64 acked_feed_id = 1;
+}

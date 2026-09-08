@@ -1,0 +1,232 @@
+# base/serviceradar-tools.yaml - Debugging container with comprehensive tooling
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-tools
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: serviceradar-tools
+  template:
+    metadata:
+      labels:
+        app: serviceradar-tools
+        app.kubernetes.io/part-of: serviceradar
+      annotations:
+        {{- include "serviceradar.runtimeCertRollAnnotations" . | nindent 8 }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+      - name: init-debug-tools
+        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-tools" "service" "tools") }}
+        imagePullPolicy: Always
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+        command: ["/bin/bash", "-c"]
+        args:
+        - |
+          set -e
+          echo "🔧 Initializing ServiceRadar debugging tools..."
+
+          mkdir -p /shared/home/.config /shared/bin
+
+          cat > /shared/bin/nats << 'EOF'
+          #!/bin/sh
+          export HOME="/shared/home"
+          export XDG_CONFIG_HOME="/shared/home/.config"
+          unset NATS_CONTEXT
+          exec /usr/local/bin/nats \
+            --server "${NATS_URL}" \
+            --tlsca "${NATS_CA}" \
+            --tlscert "${NATS_CERT}" \
+            --tlskey "${NATS_KEY}" \
+            "$@"
+          EOF
+          chmod 0755 /shared/bin/nats
+          ln -sf /shared/bin/nats /shared/bin/natsc
+
+          # Set up bash profile to show MOTD and setup PATH
+          cat > /shared/home/.bashrc << 'EOF'
+          # ServiceRadar Debug Tools - Auto-generated
+          export HOME="/shared/home"
+          export XDG_CONFIG_HOME="/shared/home/.config"
+          unset NATS_CONTEXT
+          export PATH="/shared/bin:/usr/local/go/bin:/go/bin:$PATH"
+          
+          # Show MOTD on login
+          if [ -f /etc/motd ] && [ "$SHOW_MOTD" != "0" ]; then
+            cat /etc/motd
+            echo ""
+          fi
+
+          # ServiceRadar debugging aliases
+          alias test-connectivity='echo "Testing ServiceRadar connectivity..."; nc -zv serviceradar-nats 4222 2>&1 || echo "NATS: Not available"; nc -zv serviceradar-core 8090 2>&1 || echo "Core: Not available"'
+          alias nats-info='natsc server info'
+          alias nats-streams='echo "=== NATS Streams ==="; natsc stream ls 2>/dev/null || echo "Streams not available - check NATS connection and JetStream"'
+          alias nats-events='echo "=== Events Stream Info ==="; natsc stream info events 2>/dev/null || echo "Events stream not found"'
+          alias nats-kv='echo "=== KV Stores ==="; natsc kv ls 2>/dev/null || echo "KV stores not available - check NATS connection and JetStream"'
+          alias nats-datasvc='echo "=== Data Service ==="; natsc obj ls 2>/dev/null || echo "object stores not available - check NATS connection and JetStream"'
+          alias nats-js-status='echo "=== NATS JetStream Status ==="; natsc server info 2>/dev/null | grep -E "(Cluster|JetStream|Storage|Memory)" || echo "JetStream info not available - check connection"'
+          alias grpc-core='echo "Usage: grpc-core [METHOD] - Examples:"; echo "  grpc-core grpc.health.v1.Health/Check"; echo "  grpc-core list"; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/tools.pem -key /etc/serviceradar/certs/tools-key.pem serviceradar-core:50052'
+          alias grpc-agent='echo "Usage: grpc-agent [METHOD] - Examples:"; echo "  grpc-agent grpc.health.v1.Health/Check"; echo "  grpc-agent list"; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/tools.pem -key /etc/serviceradar/certs/tools-key.pem serviceradar-agent:50051'
+          alias grpc-trapd='echo "Usage: grpc-trapd [METHOD] - Examples:"; echo "  grpc-trapd grpc.health.v1.Health/Check"; echo "  grpc-trapd list"; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/tools.pem -key /etc/serviceradar/certs/tools-key.pem serviceradar-trapd:50043'
+          alias nc-nats='nc -zv serviceradar-nats 4222'
+          alias ping-nats='ping serviceradar-nats'
+          alias sr-devices='serviceradar-cli devices list'
+          alias test-grpc='echo "=== gRPC Service Health Checks ==="; echo "Testing serviceradar-core:50052..."; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/tools.pem -key /etc/serviceradar/certs/tools-key.pem serviceradar-core:50052 grpc.health.v1.Health/Check 2>/dev/null && echo "  ✓ Healthy" || echo "  ✗ Unhealthy"; echo "Testing serviceradar-agent:50051..."; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/tools.pem -key /etc/serviceradar/certs/tools-key.pem serviceradar-agent:50051 grpc.health.v1.Health/Check 2>/dev/null && echo "  ✓ Healthy" || echo "  ✗ Unhealthy"; echo "Testing serviceradar-datasvc:50057..."; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/tools.pem -key /etc/serviceradar/certs/tools-key.pem serviceradar-datasvc:50057 grpc.health.v1.Health/Check 2>/dev/null && echo "  ✓ Healthy" || echo "  ✗ Unhealthy"; echo "Testing serviceradar-trapd:50043..."; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/tools.pem -key /etc/serviceradar/certs/tools-key.pem serviceradar-trapd:50043 grpc.health.v1.Health/Check 2>/dev/null && echo "  ✓ Healthy" || echo "  ✗ Unhealthy"'
+          alias nats-cert-check='echo "=== NATS Certificate Check ==="; echo "1. Client Certificate:"; openssl x509 -in /etc/serviceradar/certs/tools.pem -subject -issuer -noout; echo ""; echo "2. Client CA:"; openssl x509 -in /etc/serviceradar/certs/root.pem -subject -issuer -noout; echo ""; echo "3. Testing NATS without client cert (server cert only):"; timeout 5 openssl s_client -connect serviceradar-nats:4222 -CAfile /etc/serviceradar/certs/root.pem -verify_return_error 2>/dev/null || echo "Server cert verification failed"; echo ""; echo "4. Testing NATS with client cert (mTLS):"; timeout 5 openssl s_client -connect serviceradar-nats:4222 -CAfile /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/tools.pem -key /etc/serviceradar/certs/tools-key.pem -verify_return_error 2>/dev/null || echo "mTLS verification failed"'
+          alias nats-skip-verify='echo "=== NOTE: This NATS CLI version does not support --tls-skip-verify ==="; echo "To debug TLS issues, check the NATS server certificate SAN entries"; echo "The server cert must include: serviceradar-nats"'
+          
+          echo "✓ ServiceRadar debugging environment configured"
+          EOF
+
+          echo "🎉 ServiceRadar debugging tools initialization complete!"
+        env:
+        - name: HOME
+          value: /shared/home
+        - name: XDG_CONFIG_HOME
+          value: /shared/home/.config
+        volumeMounts:
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+        - name: shared-config
+          mountPath: /shared
+      containers:
+      - name: tools
+        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-tools" "service" "tools") }}
+        imagePullPolicy: Always
+        command: ["/bin/bash", "-c"]
+        args:
+        - |
+          export HOME="/shared/home"
+          export XDG_CONFIG_HOME="/shared/home/.config"
+          unset NATS_CONTEXT
+          export PATH="/shared/bin:/usr/local/go/bin:/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+          mkdir -p "$HOME"
+
+          # Start the container with bash as the default shell
+          exec /bin/bash --rcfile "$HOME/.bashrc" -lc "tail -f /dev/null"
+        env:
+        - name: HOME
+          value: /shared/home
+        - name: XDG_CONFIG_HOME
+          value: /shared/home/.config
+        - name: NATS_URL
+          value: "tls://serviceradar-nats:4222"
+        - name: NATS_CA
+          value: "/etc/serviceradar/certs/root.pem"
+        - name: NATS_CERT
+          value: "/etc/serviceradar/certs/tools.pem"
+        - name: NATS_KEY
+          value: "/etc/serviceradar/certs/tools-key.pem"
+        - name: PATH
+          value: /shared/bin:/usr/local/go/bin:/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+        - name: SHOW_MOTD
+          value: "1"
+        volumeMounts:
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+        - name: tools-config
+          mountPath: /etc/motd
+          subPath: motd
+          readOnly: true
+        - name: shared-config
+          mountPath: /shared
+        resources:
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+      volumes:
+      - name: cert-data
+        secret:
+          secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
+          items:
+{{ include "serviceradar.runtimeCertItems" (list "root.pem" "tools.pem" "tools-key.pem") | indent 12 }}
+      - name: tools-config
+        configMap:
+          name: serviceradar-tools-config
+          defaultMode: 0755
+      - name: shared-config
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-tools
+spec:
+  selector:
+    app: serviceradar-tools
+  ports:
+  - name: debug-port
+    port: 22
+    targetPort: 22
+  type: ClusterIP
+---
+# Additional configuration for serviceradar-tools
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: serviceradar-tools-config
+data:
+  motd: |
+
+    ===============================================================================
+    =                          ServiceRadar Debug Tools                          =
+    ===============================================================================
+    
+    [*] DEBUGGING COMMANDS:
+        test-connectivity    - Test all service connectivity
+        nats-js-status      - Show NATS JetStream status
+        test-grpc           - Health check all gRPC services
+        nats-cert-check     - Diagnose NATS certificate issues
+    
+    [*] NATS ALIASES:
+        nats-info           - Show NATS server information
+        nats-streams        - List all JetStream streams
+        nats-events         - Show events stream details
+        nats-kv                  - Show KV store stream details
+        nats-datasvc             - Alias for nats-kv (DataService-backed)
+    
+    [*] gRPC ALIASES:
+        grpc-core           - Connect to core gRPC (add method after)
+        grpc-agent          - Connect to agent gRPC
+        grpc-trapd          - Connect to trapd gRPC
+    
+    [*] QUICK TESTS:
+        nc-nats             - Test NATS TCP connectivity
+        ping-nats           - Ping NATS server
+        sr-devices          - List devices via ServiceRadar CLI
+    
+    [*] CERT LOCATIONS:
+        /etc/serviceradar/certs/root.pem       - Root CA
+        /etc/serviceradar/certs/tools.pem      - Tools client certificate
+        /etc/serviceradar/certs/tools-key.pem  - Tools private key
+    
+    [*] NATS CONTEXT: Auto-configured with proper FQDN and mTLS
+    
+    [+] STATUS: All TLS certificates working, JetStream fully operational
+        NATS streams, KV stores, and debugging tools are ready to use
+    
+    [!] READY TO USE: All aliases loaded, MOTD shows on connect
+    
+    ===============================================================================

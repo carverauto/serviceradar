@@ -1,0 +1,308 @@
+defmodule ServiceRadarWebNGWeb.Auth.ConfigCacheTest do
+  @moduledoc """
+  Tests for authentication configuration cache.
+
+  These tests verify the caching functionality without database access. The
+  configured loader keeps auth-settings results deterministic in the db-free
+  Bazel tier.
+
+  Run with: mix test test/phoenix/auth/config_cache_test.exs
+  """
+
+  use ExUnit.Case, async: false
+
+  alias ServiceRadarWebNGWeb.Auth.ConfigCache
+
+  @moduletag :db_free
+
+  setup do
+    {:ok, _apps} = Application.ensure_all_started(:phoenix_pubsub)
+
+    case Process.whereis(ServiceRadar.PubSub) do
+      nil -> start_supervised!({Phoenix.PubSub, name: ServiceRadar.PubSub})
+      _pid -> :ok
+    end
+
+    case Process.whereis(ConfigCache) do
+      nil -> start_supervised!({ConfigCache, ttl_ms: 60_000})
+      _pid -> :ok
+    end
+
+    previous_loader = Application.get_env(:serviceradar_web_ng, :auth_settings_loader)
+
+    Application.put_env(:serviceradar_web_ng, :auth_settings_loader, fn ->
+      {:error, :not_configured}
+    end)
+
+    on_exit(fn ->
+      if previous_loader do
+        Application.put_env(:serviceradar_web_ng, :auth_settings_loader, previous_loader)
+      else
+        Application.delete_env(:serviceradar_web_ng, :auth_settings_loader)
+      end
+
+      if :ets.whereis(ConfigCache) != :undefined do
+        :ets.delete(ConfigCache, :auth_settings)
+      end
+    end)
+
+    :ok
+  end
+
+  describe "get_cached/1 and put_cached/3" do
+    setup do
+      # Use unique keys for each test to avoid collisions
+      key = "test_key_#{System.unique_integer([:positive])}"
+      {:ok, key: key}
+    end
+
+    test "returns :miss for non-existent key", %{key: key} do
+      assert :miss = ConfigCache.get_cached(key)
+    end
+
+    test "caches and retrieves a value", %{key: key} do
+      value = %{test: "data"}
+      assert :ok = ConfigCache.put_cached(key, value)
+      assert {:ok, ^value} = ConfigCache.get_cached(key)
+    end
+
+    test "supports different value types", %{key: key} do
+      # String
+      ConfigCache.put_cached(key <> "_string", "test")
+      assert {:ok, "test"} = ConfigCache.get_cached(key <> "_string")
+
+      # List
+      ConfigCache.put_cached(key <> "_list", [1, 2, 3])
+      assert {:ok, [1, 2, 3]} = ConfigCache.get_cached(key <> "_list")
+
+      # Map
+      ConfigCache.put_cached(key <> "_map", %{a: 1})
+      assert {:ok, %{a: 1}} = ConfigCache.get_cached(key <> "_map")
+    end
+
+    test "respects TTL expiration", %{key: key} do
+      # Cache with very short TTL
+      ConfigCache.put_cached(key, "value", ttl: 10)
+      assert {:ok, "value"} = ConfigCache.get_cached(key)
+
+      # Wait for expiration
+      Process.sleep(20)
+
+      # Should be expired now
+      assert :miss = ConfigCache.get_cached(key)
+    end
+
+    test "uses default TTL when not specified", %{key: key} do
+      ConfigCache.put_cached(key, "value")
+      # Should still be valid immediately
+      assert {:ok, "value"} = ConfigCache.get_cached(key)
+    end
+  end
+
+  describe "delete_cached/1" do
+    test "removes cached value" do
+      key = "delete_test_#{System.unique_integer([:positive])}"
+      ConfigCache.put_cached(key, "value")
+      assert {:ok, "value"} = ConfigCache.get_cached(key)
+
+      ConfigCache.delete_cached(key)
+      assert :miss = ConfigCache.get_cached(key)
+    end
+
+    test "succeeds even for non-existent key" do
+      key = "nonexistent_#{System.unique_integer([:positive])}"
+      assert :ok = ConfigCache.delete_cached(key)
+    end
+  end
+
+  describe "clear_cache/0" do
+    test "removes all cached values" do
+      key1 = "clear_test_1_#{System.unique_integer([:positive])}"
+      key2 = "clear_test_2_#{System.unique_integer([:positive])}"
+
+      ConfigCache.put_cached(key1, "value1")
+      ConfigCache.put_cached(key2, "value2")
+
+      ConfigCache.clear_cache()
+
+      assert :miss = ConfigCache.get_cached(key1)
+      assert :miss = ConfigCache.get_cached(key2)
+    end
+  end
+
+  describe "get_mode/0" do
+    test "returns :password_only when not configured" do
+      # When no auth settings exist, should default to password_only
+      mode = ConfigCache.get_mode()
+      assert mode in [:password_only, :active_sso, :passive_proxy]
+    end
+  end
+
+  describe "sso_enabled?/0" do
+    test "returns boolean" do
+      # Should return a boolean regardless of configuration state
+      result = ConfigCache.sso_enabled?()
+      assert is_boolean(result)
+    end
+  end
+
+  describe "get_config/0" do
+    test "returns result tuple" do
+      result = ConfigCache.get_config()
+
+      case result do
+        {:ok, settings} ->
+          # Settings should have expected fields
+          assert is_map(settings)
+
+        {:error, reason} ->
+          # Error should be an atom
+          assert is_atom(reason)
+      end
+    end
+
+    test "caches a missing singleton for the normal TTL" do
+      counter = start_supervised!({Agent, fn -> 0 end})
+
+      Application.put_env(:serviceradar_web_ng, :auth_settings_loader, fn ->
+        Agent.update(counter, &(&1 + 1))
+        {:error, :not_configured}
+      end)
+
+      :ets.delete(ConfigCache, :auth_settings)
+
+      assert {:error, :not_configured} = ConfigCache.get_config()
+      assert {:error, :not_configured} = ConfigCache.get_config()
+      assert Agent.get(counter, & &1) == 1
+    end
+
+    test "a settings broadcast replaces a cached missing singleton immediately" do
+      Application.put_env(:serviceradar_web_ng, :auth_settings_loader, fn ->
+        {:error, :not_configured}
+      end)
+
+      :ets.delete(ConfigCache, :auth_settings)
+      assert {:error, :not_configured} = ConfigCache.get_config()
+
+      settings = %{mode: :active_sso, is_enabled: true}
+      send(ConfigCache, {:auth_settings_updated, settings})
+
+      _ = :sys.get_state(ConfigCache)
+      assert ConfigCache.get_config() == {:ok, settings}
+    end
+
+    test "a stale in-flight miss cannot overwrite a newer settings broadcast" do
+      parent = self()
+
+      Application.put_env(:serviceradar_web_ng, :auth_settings_loader, fn ->
+        send(parent, {:loader_waiting, self()})
+
+        receive do
+          :release_loader -> {:error, :not_configured}
+        end
+      end)
+
+      :ets.delete(ConfigCache, :auth_settings)
+      refresh = Task.async(&ConfigCache.get_config/0)
+
+      assert_receive {:loader_waiting, loader_pid}
+
+      settings = %{mode: :active_sso, is_enabled: true}
+      send(ConfigCache, {:auth_settings_updated, settings})
+      _ = :sys.get_state(ConfigCache)
+      assert ConfigCache.get_config() == {:ok, settings}
+
+      send(loader_pid, :release_loader)
+
+      assert Task.await(refresh) == {:ok, settings}
+      assert ConfigCache.get_config() == {:ok, settings}
+    end
+  end
+
+  describe "get_settings/0" do
+    test "is alias for get_config/0" do
+      # Both functions should return the same result
+      assert ConfigCache.get_config() == ConfigCache.get_settings()
+    end
+  end
+
+  describe "refresh/0" do
+    test "returns result tuple" do
+      result = ConfigCache.refresh()
+
+      case result do
+        {:ok, _settings} -> :ok
+        {:error, _reason} -> :ok
+      end
+    end
+  end
+
+  describe "single-flight refresh" do
+    test "concurrent cache misses share one loader invocation" do
+      counter = start_supervised!({Agent, fn -> 0 end})
+      parent = self()
+
+      Application.put_env(:serviceradar_web_ng, :auth_settings_loader, fn ->
+        send(parent, {:loader_called, self()})
+
+        receive do
+          :release_loader -> :ok
+        end
+
+        Agent.update(counter, &(&1 + 1))
+        {:ok, %{mode: :password_only, is_enabled: false}}
+      end)
+
+      if :ets.whereis(ConfigCache) != :undefined do
+        :ets.delete(ConfigCache, :auth_settings)
+      end
+
+      task =
+        Task.async(fn ->
+          1..5
+          |> Task.async_stream(fn _ -> ConfigCache.get_config() end, max_concurrency: 5, timeout: :infinity)
+          |> Enum.map(fn {:ok, result} -> result end)
+        end)
+
+      assert_receive {:loader_called, loader_pid}
+      refute_receive {:loader_called, _other_loader}, 50
+
+      send(loader_pid, :release_loader)
+
+      results = Task.await(task, :infinity)
+
+      assert Enum.all?(results, &match?({:ok, %{mode: :password_only}}, &1))
+      assert Agent.get(counter, & &1) == 1
+    end
+
+    test "returns waiter refresh failures without crashing the caller" do
+      parent = self()
+
+      Application.put_env(:serviceradar_web_ng, :auth_settings_loader, fn ->
+        send(parent, {:loader_called, self()})
+
+        receive do
+          :release_loader -> :ok
+        end
+
+        {:error, :database_unavailable}
+      end)
+
+      if :ets.whereis(ConfigCache) != :undefined do
+        :ets.delete(ConfigCache, :auth_settings)
+      end
+
+      task =
+        Task.async(fn ->
+          1..2
+          |> Task.async_stream(fn _ -> ConfigCache.get_config() end, max_concurrency: 2, timeout: :infinity)
+          |> Enum.map(fn {:ok, result} -> result end)
+        end)
+
+      assert_receive {:loader_called, loader_pid}
+      send(loader_pid, :release_loader)
+
+      assert [{:error, :load_failed}, {:error, :load_failed}] = Task.await(task, :infinity)
+    end
+  end
+end

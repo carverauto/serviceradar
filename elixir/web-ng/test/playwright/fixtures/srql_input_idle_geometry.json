@@ -1,0 +1,15 @@
+{
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  },
+  "input": {
+    "height": 30,
+    "heightTolerance": 4,
+    "fontSize": "12px",
+    "lineHeight": "16px",
+    "paddingLeft": "12px",
+    "paddingRight": "12px",
+    "borderRadius": "8px"
+  }
+}

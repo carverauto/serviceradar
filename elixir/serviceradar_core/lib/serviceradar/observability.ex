@@ -1,0 +1,108 @@
+defmodule ServiceRadar.Observability do
+  @moduledoc """
+  The Observability domain manages logs, metrics, and traces.
+
+  This domain is responsible for:
+  - Log ingestion and querying (OCSF-aligned schema)
+  - Time-series metrics storage
+  - Trace/span data for distributed tracing
+  - OpenTelemetry trace summaries
+
+  ## Resources
+
+  - `ServiceRadar.Observability.Log` - Log entries (OCSF-aligned)
+  - `ServiceRadar.Observability.TimeseriesMetric` - Generic time-series metrics
+  - `ServiceRadar.Observability.CpuMetric` - CPU utilization metrics
+  - `ServiceRadar.Observability.MemoryMetric` - Memory usage metrics
+  - `ServiceRadar.Observability.DiskMetric` - Disk usage metrics
+  - `ServiceRadar.Observability.OtelTraceSummary` - OpenTelemetry trace summaries
+
+  ## TimescaleDB Integration
+
+  Metrics tables use TimescaleDB hypertables for efficient time-series storage.
+  The timestamp column is the primary dimension for partitioning.
+  """
+
+  use Ash.Domain,
+    extensions: [
+      AshJsonApi.Domain,
+      AshAdmin.Domain
+    ]
+
+  admin do
+    show?(true)
+  end
+
+  resources do
+    resource ServiceRadar.Observability.Log
+    resource ServiceRadar.Observability.ZenRule
+    resource ServiceRadar.Observability.ZenRuleTemplate
+    resource ServiceRadar.Observability.EventRule
+    resource ServiceRadar.Observability.LogPromotionRule
+    resource ServiceRadar.Observability.LogPromotionRuleTemplate
+    resource ServiceRadar.Observability.StatefulAlertRule
+    resource ServiceRadar.Observability.StatefulAlertRuleTemplate
+    resource ServiceRadar.Observability.StatefulAlertRuleState
+    resource ServiceRadar.Observability.StatefulAlertRuleHistory
+    resource ServiceRadar.Observability.IpGeoEnrichmentCache
+    resource ServiceRadar.Observability.IpRdnsCache
+    resource ServiceRadar.Observability.IpIpinfoCache
+    resource ServiceRadar.Observability.ThreatIntelIndicator
+    resource ServiceRadar.Observability.ThreatIntelSourceObject
+    resource ServiceRadar.Observability.ThreatIntelSyncStatus
+    resource ServiceRadar.Observability.TrivyReport
+    resource ServiceRadar.Observability.TrivyFinding
+    resource ServiceRadar.Observability.OTXRetrohuntRun
+    resource ServiceRadar.Observability.OTXRetrohuntFinding
+    resource ServiceRadar.Observability.IpThreatIntelCache
+    resource ServiceRadar.Observability.NetflowPortScanFlag
+    resource ServiceRadar.Observability.NetflowPortAnomalyFlag
+    resource ServiceRadar.Observability.NetflowSettings
+    resource ServiceRadar.Observability.BmpSettings
+    resource ServiceRadar.Observability.MtrSettings
+    resource ServiceRadar.Observability.NetflowLocalCidr
+    resource ServiceRadar.Observability.NetflowAppClassificationRule
+    resource ServiceRadar.Observability.NetflowExporterCache
+    resource ServiceRadar.Observability.NetflowInterfaceCache
+    resource ServiceRadar.Observability.NetflowProviderDatasetSnapshot
+    resource ServiceRadar.Observability.NetflowProviderCidr
+    resource ServiceRadar.Observability.NetflowOuiDatasetSnapshot
+    resource ServiceRadar.Observability.NetflowOuiPrefix
+    resource ServiceRadar.Observability.AnomalyDetectionConfig
+    resource ServiceRadar.Observability.AnomalyEpisode
+    resource ServiceRadar.Observability.CapacityForecastConfig
+    # Metrics resources - all map to TimescaleDB hypertables with migrate?: false
+    # matching Go schema exactly
+    resource ServiceRadar.Observability.TimeseriesMetric
+    resource ServiceRadar.Observability.ServiceStatus
+    resource ServiceRadar.Observability.ServiceState
+    resource ServiceRadar.Observability.CpuMetric
+    resource ServiceRadar.Observability.CpuMetricHourly
+    resource ServiceRadar.Observability.CpuClusterMetric
+    resource ServiceRadar.Observability.MemoryMetric
+    resource ServiceRadar.Observability.MemoryMetricHourly
+    resource ServiceRadar.Observability.DiskMetric
+    resource ServiceRadar.Observability.DiskMetricHourly
+    resource ServiceRadar.Observability.ProcessMetric
+    resource ServiceRadar.Observability.ProcessMetricHourly
+    resource ServiceRadar.Observability.TimeseriesMetricHourly
+    resource ServiceRadar.Observability.TimeseriesMetricInterfaceHourly
+    resource ServiceRadar.Observability.CapacityForecast
+    # MTR resources - map to TimescaleDB hypertables with migrate?: false
+    resource ServiceRadar.Observability.MtrTrace
+    resource ServiceRadar.Observability.MtrHop
+    resource ServiceRadar.Observability.MtrPolicy
+    resource ServiceRadar.Observability.MtrDispatchWindow
+    # OTel resources - these map to existing TimescaleDB hypertables/views
+    # with migrate?: false so Ash doesn't try to manage the schema
+    resource ServiceRadar.Observability.OtelMetric
+    resource ServiceRadar.Observability.OtelMetricPoint
+    resource ServiceRadar.Observability.OtelTrace
+    resource ServiceRadar.Observability.OtelTraceSummary
+  end
+
+  authorization do
+    require_actor? false
+    authorize :by_default
+  end
+end

@@ -1,0 +1,42 @@
+{
+  "type": "object",
+  "properties": {
+    "host": {
+      "type": "string",
+      "x-serviceradar-ui-hidden": true,
+      "x-serviceradar-credential-materialized": true,
+      "description": "AXIS camera host or IP. Injected per target at runtime from credential rules / SRQL-scoped targets or derived from the relay source URL; not configured per assignment."
+    },
+    "scheme": {
+      "type": "string",
+      "description": "http or https",
+      "default": "https"
+    },
+    "username": {
+      "type": "string",
+      "x-serviceradar-ui-hidden": true,
+      "x-serviceradar-credential-materialized": true,
+      "description": "Camera API username. Stored on a username/password credential secret, not on this assignment."
+    },
+    "password": {
+      "type": "string",
+      "x-serviceradar-ui-hidden": true,
+      "x-serviceradar-credential-materialized": true,
+      "description": "Camera API password. Stored on a credential secret, not on this assignment."
+    },
+    "timeout_ms": {
+      "type": "integer",
+      "description": "Request timeout in milliseconds",
+      "default": 30000
+    },
+    "rtsp_port": {
+      "type": "integer",
+      "description": "RTSP port (appended to the stream URL only when non-standard)",
+      "default": 554
+    },
+    "relay": {
+      "type": "object",
+      "description": "Injected relay session context from the agent streaming runtime"
+    }
+  }
+}

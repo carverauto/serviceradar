@@ -1,0 +1,337 @@
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("@aspect_bazel_lib//lib:transitions.bzl", "platform_transition_filegroup")
+load("@io_bazel_rules_go//go:def.bzl", "go_test")
+load("@rules_rs//rs:cargo_build_script.bzl", "cargo_build_script")
+load("@rules_rs//rs:rust_binary.bzl", "rust_binary")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("//build:benchmarks.bzl", "rust_benchmark")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+
+package(default_visibility = ["//visibility:public"])
+
+NETPROBE_FEATURES = select({
+    "//build/platforms:target_linux_aarch64_musl": [],
+    "//build/platforms:target_linux_x86_64_musl": [],
+    "//conditions:default": [],
+})
+
+NETPROBE_PROC_MACROS = [
+    # async-trait expands the Addon trait impl in src/addon_service.rs. It is a
+    # PROC MACRO, so it belongs here rather than in NETPROBE_DEPS -- rules_rs
+    # will not expand it from `deps`.
+    "@crates//:async-trait",
+]
+
+NETPROBE_DEPS = [
+    "//rust/addon-sdk:addon_sdk",
+    "//rust/afpacket:afpacket",
+    "@crates//:anyhow",
+    "@crates//:base64",
+    "@crates//:clap",
+    "@crates//:crossbeam-channel",
+    "@crates//:env_logger",
+    "@crates//:etherparse",
+    "@crates//:libc",
+    "@crates//:log",
+    "@crates//:nix",
+    "@crates//:phf",
+    "@crates//:prometheus",
+    "@crates//:prost",
+    "@crates//:quick-xml",
+    "@crates//:regex-automata",
+    "@crates//:serde",
+    "@crates//:serde_json",
+    "@crates//:sha2",
+    "@crates//:thiserror",
+    "@crates//:tokio",
+    "@crates//:tokio-stream",
+    "@crates//:tonic",
+] + select({
+    "//build/platforms:target_linux_aarch64_musl": [
+        "@crates//:aya",
+        "@crates//:aya-log",
+        "@crates//:procfs",
+    ],
+    "//build/platforms:target_linux_x86_64_musl": [
+        "@crates//:aya",
+        "@crates//:aya-log",
+        "@crates//:procfs",
+    ],
+    "//build/platforms:target_linux_arm64": [
+        "@crates//:aya",
+        "@crates//:aya-log",
+        "@crates//:procfs",
+    ],
+    "//build/platforms:target_linux_x86_64": [
+        "@crates//:aya",
+        "@crates//:aya-log",
+        "@crates//:procfs",
+    ],
+    "//conditions:default": [],
+}) + [":build_script"]
+
+NETPROBE_RUSTC_FLAGS = select({
+    "//build/platforms:target_linux_aarch64_musl": [],
+    "//build/platforms:target_linux_x86_64_musl": [],
+    "//build/platforms:target_linux_arm64": [
+        "-C",
+        "link-arg=-Wl,--disable-new-dtags",
+    ],
+    "//build/platforms:target_linux_x86_64": [
+        "-C",
+        "link-arg=-Wl,--disable-new-dtags",
+    ],
+    "//conditions:default": [],
+})
+
+NETPROBE_VERSION = "0.2.61"
+
+cargo_build_script(
+    name = "build_script",
+    srcs = [
+        "build.rs",
+        "src/p0f_corpus.rs",
+    ],
+    build_script_env = {
+        "PROTOC": "$(execpath @bazel_tools//tools/proto:protoc)",
+    },
+    crate_root = "build.rs",
+    data = [
+        "//proto/agent/netprobe/v1:netprobe_proto_src",
+        "//third_party/netprobe_corpora:p0f/p0f.fp",
+        "//third_party/netprobe_corpora:p0f/serviceradar-additions.fp",
+        "//third_party/netprobe_corpora:recog/serviceradar-recog-additions.xml",
+        "//third_party/netprobe_corpora:recog_xml",
+    ],
+    # Restores the execroot as this script's working directory.
+    #
+    # rules_rs's rules_rust synthesizes CARGO_MANIFEST_DIR as a runfiles directory holding
+    # only files from THIS package, and runs the script there. Every proto consumed here
+    # comes from another package, so it lands outside that directory and build.rs's
+    # execroot-relative path resolves to nothing -- protoc reports "Could not make proto path
+    # relative: ... No such file or directory". The feature symlinks the execroot into the
+    # manifest dir, which is what build.rs's Bazel branch was written against.
+    #
+    # Still hermetic: the sandbox holds only declared inputs, so this changes which paths
+    # resolve, not which files exist. A build script whose data lives in its own package
+    # (//rust/addon-sdk, //rust/powerdns) does not need it.
+    features = ["symlink-exec-root"],
+    tools = ["@bazel_tools//tools/proto:protoc"],
+    deps = [
+        "@crates//:aya-build",
+        "@crates//:phf_codegen",
+        "@crates//:prost-build",
+        "@crates//:quick-xml",
+    ],
+)
+
+rust_binary(
+    name = "netprobe",
+    proc_macro_deps = NETPROBE_PROC_MACROS,
+    srcs = glob(["src/**/*.rs"]),
+    compile_data = [
+        "//third_party/netprobe_corpora:p0f/p0f.fp",
+        "//third_party/netprobe_corpora:p0f/serviceradar-additions.fp",
+        "//third_party/netprobe_corpora:recog/serviceradar-recog-additions.xml",
+        "//third_party/netprobe_corpora:recog_xml",
+        # Read by `include_str!` in the #[cfg(test)] differential module, so it is a
+        # COMPILE-time input, not runfiles. Declared here rather than on a test target
+        # because every `crate = ":netprobe"` test compiles that module: naming it per
+        # test silently breaks the next test target added, which is exactly what
+        # happened to loaded_tcp_attribution_test. The binary never reads it -- cfg(test)
+        # -- this only makes the file visible to rustc.
+        "testdata/libpcap_reference_programs.tsv",
+    ],
+    crate_features = NETPROBE_FEATURES,
+    crate_root = "src/main.rs",
+    rustc_flags = NETPROBE_RUSTC_FLAGS,
+    version = NETPROBE_VERSION,
+    deps = NETPROBE_DEPS,
+)
+
+# Unit tests: `crate` inherits the binary's srcs/deps/features/rustc_flags/compile_data,
+# so they cannot drift from //rust/netprobe:netprobe. Only test-only extras are here.
+rust_test(
+    name = "netprobe_test",
+    proc_macro_deps = NETPROBE_PROC_MACROS,
+    crate = ":netprobe",
+    data = ["//third_party/netprobe_corpora:satori_xml"],
+    deps = ["@crates//:tempfile"],
+)
+
+# Privileged production-object gate for the TCP attribution lifecycle. This is
+# intentionally separate from :netprobe_test: it needs a Linux host with
+# CAP_BPF, CAP_PERFMON, and CAP_NET_ADMIN, loads the exact eBPF object shipped
+# in the native add-on, and exercises real loopback sockets rather than
+# synthetic records. Keep it manual so capability-free wildcard test lanes do
+# not turn a missing worker prerequisite into a product failure.
+rust_test(
+    name = "loaded_tcp_attribution_test",
+    args = [
+        "--ignored",
+        "ebpf_runtime::loaded_tcp_tests::loaded_object_tcp_loopback_emits_owner_resolved_client_and_server_events",
+        "--exact",
+        "--nocapture",
+    ],
+    crate = ":netprobe",
+    data = ["//rust/netprobe/ebpf:netprobe_ebpf_object"],
+    deps = ["@crates//:tempfile"],
+    env = {
+        "NETPROBE_TEST_EBPF_OBJECT": "$(rootpath //rust/netprobe/ebpf:netprobe_ebpf_object)",
+    },
+    tags = [
+        "integration_test",
+        "manual",
+        "requires_cap_bpf",
+        "requires_cap_net_admin",
+        "requires_cap_perfmon",
+    ],
+    target_compatible_with = ["@platforms//os:linux"],
+)
+
+# S2 acceptance: a capture driven over the real IPC socket, against a real ring.
+#
+# Manual and Linux-only for the same reason as //rust/afpacket:afpacket_live_test:
+# it needs CAP_NET_RAW, which RBE executors do not have. The `build_test` below is
+# what keeps it compiling -- an integration test that only exists as a `manual`
+# target is one that silently stops building, which is how a test ends up
+# executing nowhere while looking present in the repo.
+rust_test(
+    name = "live_capture_ipc_test",
+    srcs = ["tests/live_capture_ipc.rs"],
+    proc_macro_deps = NETPROBE_PROC_MACROS,
+    crate_features = NETPROBE_FEATURES,
+    deps = NETPROBE_DEPS + [
+        ":netprobe_lib",
+        "@crates//:tempfile",
+    ],
+    tags = [
+        "integration_test",
+        "manual",
+        "requires_cap_net_raw",
+    ],
+    target_compatible_with = ["@platforms//os:linux"],
+)
+
+build_test(
+    name = "live_capture_ipc_build_test",
+    targets = [":live_capture_ipc_test"],
+    target_compatible_with = ["@platforms//os:linux"],
+)
+
+###############################################################################
+# Static musl linkage gates
+#
+# Was the "Verify static linkage" step of .forgejo/workflows/rust-musl.yml: a `bazel build`
+# with --platforms, then `bazel cquery --output=files | tail -n 1` to locate the artifact,
+# then shell assertions over it, plus scripts/ci/assert-netprobe-libpcap-free.sh.
+#
+# As targets the binary is a declared input rather than something recovered from a cquery
+# expression, so the assertions run under a plain `bazel test //...`, cache like any other
+# test, and cannot drift from the thing they check.
+#
+# The platform transition is what makes this work without --platforms on the command line.
+# //rust/netprobe:netprobe under the default RBE platform is a glibc build and would fail
+# every one of these checks; platform_transition_filegroup rebuilds it for the musl platform
+# named here, so the two test targets below always look at the artifact the release actually
+# ships. That is also why there are two: x86_64 and aarch64 are separate builds and a
+# regression in one says nothing about the other.
+#
+# Deliberately NOT ported: the `--help` smoke run that step did for the host architecture
+# only. A cross-built aarch64 binary cannot execute on an x86_64 executor, so as a test
+# target it would have to be silently skipped on one of the two platforms, which is the
+# failure mode this whole change exists to remove. Execution belongs in a test that can
+# state its own platform requirement.
+###############################################################################
+platform_transition_filegroup(
+    name = "netprobe_linux_x86_64_musl",
+    srcs = [":netprobe"],
+    target_platform = "//build/platforms:linux_x86_64_musl",
+)
+
+platform_transition_filegroup(
+    name = "netprobe_linux_aarch64_musl",
+    srcs = [":netprobe"],
+    target_platform = "//build/platforms:linux_aarch64_musl",
+)
+
+# One test for both architectures. debug/elf parses any ELF regardless of the host, so an
+# aarch64 artifact is checked from an x86_64 executor without a second runner. See the file
+# header for why this is Go and not the sh_test it started as.
+#
+# target_compatible_with is about the MUSL BUILD, not the ELF parsing. The transitions above
+# need the musl Rust toolchain, which a macOS developer running `bazel test //...` under
+# --config=darwin_local cannot resolve; pinning the test to Linux makes that a skip rather
+# than a toolchain error. On CI the target platform is the RBE Linux platform, so it runs.
+go_test(
+    name = "static_linkage_test",
+    size = "small",
+    srcs = ["static_linkage_test.go"],
+    data = [
+        ":netprobe_linux_aarch64_musl",
+        ":netprobe_linux_x86_64_musl",
+    ],
+    env = {
+        "NETPROBE_AARCH64_MUSL": "$(rootpath :netprobe_linux_aarch64_musl)",
+        "NETPROBE_X86_64_MUSL": "$(rootpath :netprobe_linux_x86_64_musl)",
+    },
+    target_compatible_with = ["@platforms//os:linux"],
+)
+
+# The crate as a LIBRARY, for the benches under benches/ to link against. `Cargo.toml` declares
+# both a lib and a bin; the Bazel build only ever needed the bin, so nothing built src/lib.rs and
+# `[[bench]]` targets that `use serviceradar_netprobe::...` had nothing to depend on.
+#
+# SEPARATE FROM :netprobe RATHER THAN UNDERNEATH IT. Restructuring the binary to depend on this
+# would change how a SHIPPED add-on artifact is built, and the whole point of the version gate is
+# that those bytes are accounted for. This adds a target and leaves the binary's build untouched;
+# the cost is compiling the sources twice.
+rust_library(
+    name = "netprobe_lib",
+    proc_macro_deps = NETPROBE_PROC_MACROS,
+    srcs = glob(["src/**/*.rs"]),
+    compile_data = [
+        "//third_party/netprobe_corpora:p0f/p0f.fp",
+        "//third_party/netprobe_corpora:p0f/serviceradar-additions.fp",
+        "//third_party/netprobe_corpora:recog/serviceradar-recog-additions.xml",
+        "//third_party/netprobe_corpora:recog_xml",
+    ],
+    crate_features = NETPROBE_FEATURES,
+    crate_name = "serviceradar_netprobe",
+    crate_root = "src/lib.rs",
+    rustc_flags = NETPROBE_RUSTC_FLAGS,
+    version = NETPROBE_VERSION,
+    deps = NETPROBE_DEPS,
+)
+
+# `harness = false` in Cargo.toml: each bench is a standalone program with its own main, not a
+# criterion harness, so it is a rust_binary here and the runner just executes it.
+rust_binary(
+    name = "af_xdp_cpu_bench_bin",
+    proc_macro_deps = NETPROBE_PROC_MACROS,
+    srcs = ["benches/af_xdp_cpu.rs"],
+    crate_features = NETPROBE_FEATURES,
+    crate_root = "benches/af_xdp_cpu.rs",
+    rustc_flags = NETPROBE_RUSTC_FLAGS,
+    deps = NETPROBE_DEPS + [":netprobe_lib"],
+)
+
+rust_binary(
+    name = "census_decode_cpu_bench_bin",
+    proc_macro_deps = NETPROBE_PROC_MACROS,
+    srcs = ["benches/census_decode_cpu.rs"],
+    crate_features = NETPROBE_FEATURES,
+    crate_root = "benches/census_decode_cpu.rs",
+    rustc_flags = NETPROBE_RUSTC_FLAGS,
+    deps = NETPROBE_DEPS + [":netprobe_lib"],
+)
+
+rust_benchmark(
+    name = "af_xdp_cpu_bench",
+    binary = ":af_xdp_cpu_bench_bin",
+)
+
+rust_benchmark(
+    name = "census_decode_cpu_bench",
+    binary = ":census_decode_cpu_bench_bin",
+)

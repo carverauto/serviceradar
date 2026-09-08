@@ -1,0 +1,104 @@
+# cert-manager issuance for the SRQL fixture Postgres server certificate.
+#
+# CNPG user-provided mode consumes these two Secrets. Names are deliberately
+# distinct from the operator-managed srql-fixture-ca / srql-fixture-server pair
+# so the two controllers never write the same object.
+#
+# The CA private key stays in srql-fixture-server-ca and is never mounted into
+# the CA-bundle publisher or copied into CI.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: srql-fixture-selfsigned
+  namespace: srql-fixtures
+  labels:
+    app: srql-fixture
+    app.kubernetes.io/component: fixture-tls
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: srql-fixture-server-ca
+  namespace: srql-fixtures
+  labels:
+    app: srql-fixture
+    app.kubernetes.io/component: fixture-tls
+spec:
+  isCA: true
+  commonName: srql-fixture-server-ca
+  secretName: srql-fixture-server-ca
+  duration: 87600h
+  renewBefore: 2160h
+  usages:
+    - cert sign
+    - crl sign
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Never
+  issuerRef:
+    name: srql-fixture-selfsigned
+    kind: Issuer
+    group: cert-manager.io
+  secretTemplate:
+    labels:
+      cnpg.io/reload: ""
+      app: srql-fixture
+      app.kubernetes.io/component: fixture-tls
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: srql-fixture-ca-issuer
+  namespace: srql-fixtures
+  labels:
+    app: srql-fixture
+    app.kubernetes.io/component: fixture-tls
+spec:
+  ca:
+    secretName: srql-fixture-server-ca
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: srql-fixture-server-tls
+  namespace: srql-fixtures
+  labels:
+    app: srql-fixture
+    app.kubernetes.io/component: fixture-tls
+spec:
+  commonName: srql-fixture-rw
+  secretName: srql-fixture-server-tls
+  duration: 2160h
+  renewBefore: 360h
+  usages:
+    - server auth
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  dnsNames:
+    - srql-fixture-rw
+    - srql-fixture-rw.srql-fixtures
+    - srql-fixture-rw.srql-fixtures.svc
+    - srql-fixture-rw.srql-fixtures.svc.cluster.local
+    - srql-fixture-r
+    - srql-fixture-r.srql-fixtures
+    - srql-fixture-r.srql-fixtures.svc
+    - srql-fixture-r.srql-fixtures.svc.cluster.local
+    - srql-fixture-ro
+    - srql-fixture-ro.srql-fixtures
+    - srql-fixture-ro.srql-fixtures.svc
+    - srql-fixture-ro.srql-fixtures.svc.cluster.local
+    - srql-fixture.serviceradar.cloud
+  issuerRef:
+    name: srql-fixture-ca-issuer
+    kind: Issuer
+    group: cert-manager.io
+  secretTemplate:
+    labels:
+      cnpg.io/reload: ""
+      app: srql-fixture
+      app.kubernetes.io/component: fixture-tls

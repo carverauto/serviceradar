@@ -1,0 +1,1123 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+syntax = "proto3";
+
+package monitoring;
+
+option go_package = "github.com/carverauto/serviceradar/proto";
+
+import "automation_launch_envelope.proto";
+
+service AgentService {
+  rpc GetStatus(StatusRequest) returns (StatusResponse) {}
+  rpc GetResults(ResultsRequest) returns (ResultsResponse) {}
+  rpc StreamResults(ResultsRequest) returns (stream ResultsChunk) {}
+}
+
+// AgentGatewayService receives status pushes from agents.
+// Agents connect outbound to the gateway and push their status/results.
+service AgentGatewayService {
+  // Hello is called by the agent on startup to announce itself and enroll.
+  // The gateway validates the mTLS certificate and registers the agent.
+  rpc Hello(AgentHelloRequest) returns (AgentHelloResponse) {}
+  // GetConfig is called by the agent to fetch its configuration.
+  // Supports versioning - returns not_modified if config hasn't changed.
+  rpc GetConfig(AgentConfigRequest) returns (AgentConfigResponse) {}
+  // StreamConfig streams chunked agent configuration for large payloads.
+  rpc StreamConfig(AgentConfigRequest) returns (stream AgentConfigChunk) {}
+  // PushStatus sends a batch of service statuses from the agent to the gateway.
+  rpc PushStatus(GatewayStatusRequest) returns (GatewayStatusResponse) {}
+  // StreamStatus streams service status chunks for large payloads.
+  rpc StreamStatus(stream GatewayStatusChunk) returns (GatewayStatusResponse) {}
+  // ControlStream establishes a bidirectional control channel for commands and push-config.
+  rpc ControlStream(stream ControlStreamRequest) returns (stream ControlStreamResponse) {}
+  // ResolveCredentialGrant resolves a scoped broker grant for agent-owned execution.
+  rpc ResolveCredentialGrant(CredentialBrokerResolveRequest) returns (CredentialBrokerResolveResponse) {}
+  // ResolveAutomationLaunchEnvelope releases one callback bearer to the exact
+  // mTLS-authenticated agent and command. It is intentionally separate from
+  // the reusable credential-broker contract.
+  rpc ResolveAutomationLaunchEnvelope(AutomationLaunchEnvelopeResolveRequest) returns (AutomationLaunchEnvelopeResolveResponse) {}
+}
+
+message DeviceStatusRequest {
+  string agent_id = 1; // Unique identifier for the agent
+}
+
+message StatusRequest {
+  string service_name = 1; // Name of the service to check
+  string service_type = 2; // Type of service (process, port, grpc, etc)
+  string agent_id = 3;     // Agent ID for traceability
+  string gateway_id = 4;   // Gateway ID for traceability
+  string details = 5;      // Additional details (e.g., process name)
+  int32 port = 6;          // Port number for port checks
+}
+
+message ResultsRequest {
+  string service_name = 1; // Name of the service to get results from
+  string service_type = 2; // Type of service (grpc, etc)
+  string agent_id = 3;     // Agent ID for traceability
+  string gateway_id = 4;   // Gateway ID for traceability
+  string details = 5;      // Additional details
+  string last_sequence = 6; // Last sequence received by gateway
+  SweepCompletionStatus completion_status = 7; // Completion status reported by gateway
+}
+
+message StatusResponse {
+  bool available = 1;
+  bytes message = 2; // New field
+  string service_name = 3;
+  string service_type = 4;
+  int64 response_time = 5;
+  string agent_id = 6;
+  string gateway_id = 7;   // Gateway ID for traceability
+  repeated SidecarStatus sidecars = 8;
+}
+
+message SidecarStatus {
+  string name = 1;
+  string state = 2;
+  int32 pid = 3;
+  int64 last_health_at = 4; // Unix seconds, UTC.
+  uint32 restart_count = 5;
+  string last_error = 6;
+  string version = 7; // Add-on version (empty if unknown).
+  string arch = 8;    // Host architecture the add-on runs on (GOARCH), empty if unknown.
+}
+
+message ResultsResponse {
+  bool available = 1;
+  bytes data = 2;          // Results data (e.g., discovery results)
+  string service_name = 3;
+  string service_type = 4;
+  int64 response_time = 5;
+  string agent_id = 6;
+  string gateway_id = 7;   // Gateway ID for traceability
+  int64 timestamp = 8;     // When results were generated
+  string current_sequence = 9; // Current sequence of this response
+  bool has_new_data = 10;     // Whether data changed since last_sequence
+  SweepCompletionStatus sweep_completion = 11; // Sweep completion status for coordination
+  string execution_id = 12;   // Sweep execution UUID for result tracking
+  string sweep_group_id = 13; // Sweep group UUID this execution belongs to
+}
+
+message SweepServiceStatus {
+  string network = 1;         // CIDR range being swept
+  int32 total_hosts = 2;      // Total hosts in range
+  int32 available_hosts = 3;  // Number of responding hosts
+  repeated PortStatus ports = 4;
+  int64 last_sweep = 5;       // Timestamp of last sweep
+}
+
+message PortStatus {
+  int32 port = 1;
+  int32 available = 2;        // Number of hosts with this port open
+}
+
+message ResultsChunk {
+  bytes data = 1;              // Chunk of results data
+  bool is_final = 2;          // Whether this is the last chunk
+  int32 chunk_index = 3;      // Order of this chunk
+  int32 total_chunks = 4;     // Total number of chunks
+  string current_sequence = 5; // Current sequence of this chunk stream
+  int64 timestamp = 6;        // When chunk was generated
+}
+
+message SweepCompletionStatus {
+  enum Status {
+    UNKNOWN = 0;          // Status not available
+    NOT_STARTED = 1;      // Sweep has not been initiated
+    IN_PROGRESS = 2;      // Sweep is currently running
+    COMPLETED = 3;        // Sweep completed successfully
+    FAILED = 4;           // Sweep failed or was interrupted
+  }
+  Status status = 1;          // Current completion status
+  int64 completion_time = 2;  // Timestamp when sweep completed (if COMPLETED)
+  string target_sequence = 3; // Sequence ID of the targets being swept
+  int32 total_targets = 4;    // Total number of targets to sweep
+  int32 completed_targets = 5; // Number of targets completed so far
+  string error_message = 6;   // Error details if status is FAILED
+  string execution_id = 7;    // Sweep execution UUID for tracking
+  string sweep_group_id = 8;  // Sweep group UUID this execution belongs to
+  SweepScannerStats scanner_stats = 9;  // Scanner performance metrics
+}
+
+// SweepScannerStats contains performance metrics from the network scanner.
+// These metrics help diagnose scan performance and network conditions.
+message SweepScannerStats {
+  // Packet statistics
+  uint64 packets_sent = 1;      // Total SYN packets sent
+  uint64 packets_recv = 2;      // Total packets received (SYN-ACK, RST, etc.)
+  uint64 packets_dropped = 3;   // Packets dropped by kernel (ring buffer full)
+
+  // Ring buffer statistics (TPACKET_V3)
+  uint64 ring_blocks_processed = 4;  // Blocks successfully processed
+  uint64 ring_blocks_dropped = 5;    // Blocks lost due to buffer overruns
+
+  // Retry statistics
+  uint64 retries_attempted = 6;    // Number of retry attempts made
+  uint64 retries_successful = 7;   // Number of successful retries
+
+  // Port allocation statistics
+  uint64 ports_allocated = 8;      // Total source port allocations
+  uint64 ports_released = 9;       // Total source port releases
+  uint64 port_exhaustion_count = 10; // Times port allocator was exhausted
+
+  // Rate limiting statistics
+  uint64 rate_limit_deferrals = 11;  // Legacy aggregate of deferred send loops
+
+  // Computed metrics
+  double rx_drop_rate_percent = 12;  // Percentage of received packets dropped
+
+  // Detailed throttle metrics
+  uint64 rate_limit_waits = 13;         // Token-bucket wait events
+  uint64 source_port_waits = 14;        // Source-port allocator wait events
+  uint64 rate_limit_wait_time_ms = 15;  // Total token-bucket wait time
+  uint64 source_port_wait_time_ms = 16; // Total source-port wait time
+
+  // Scanner path labels
+  string protocol = 17;       // "tcp", "icmp", etc.
+  string address_family = 18; // "ipv4", "ipv6", or "dual_stack"
+  string scanner_path = 19;   // "raw_syn", "tcp_connect", etc.
+
+  // TCP connect statistics
+  uint64 dials_started = 20;         // Total full TCP connect dials started
+  uint64 dials_succeeded = 21;       // Full TCP connect dials that established
+  uint64 dial_timeouts = 22;         // Dial attempts that timed out
+  uint64 dial_resets = 23;           // Dial attempts refused or reset
+  uint64 dial_resource_errors = 24;  // Local fd/port/buffer pressure errors
+  uint64 active_dials = 25;          // Current full TCP connect dials
+  uint64 max_active_dials = 26;      // High-water mark of active dials
+  uint64 queue_depth = 27;           // Latest scanner input queue depth
+  uint64 max_queue_depth = 28;       // High-water mark of input queue depth
+}
+
+
+// GatewayStatusRequest is sent by agents to push their status to the gateway.
+message GatewayStatusRequest {
+  repeated GatewayServiceStatus services = 1;
+  string gateway_id = 2;       // Gateway receiving this status
+  string agent_id = 3;         // Agent sending this status
+  int64 timestamp = 4;
+  string partition = 5;        // Partition identifier
+  string source_ip = 6;        // Host IP where agent is running
+  string kv_store_id = 7;      // KV store identifier this agent is using
+  reserved 8, 9;               // Removed: deployment identifiers (single-deployment)
+  string config_source = 10;   // Source of sysmon config: "remote", "local", "cached", "default"
+  string version = 11;         // Agent runtime version at push time
+  string hostname = 12;        // Agent host name at push time
+  string os = 13;              // Agent runtime OS at push time
+  string arch = 14;            // Agent runtime architecture at push time
+  repeated EndpointInventoryStandingQuestionResultCount endpoint_inventory_standing_question_counts = 15;
+}
+
+// GatewayStatusResponse is the response from the gateway after receiving status.
+message GatewayStatusResponse {
+  bool received = 1;
+  repeated GatewayStatusDirective directives = 2;
+}
+
+// GatewayStatusDirective carries bounded server-to-agent instructions produced
+// while processing a status payload.
+message GatewayStatusDirective {
+  string service_name = 1;
+  string service_type = 2;
+  string directive_type = 3;
+  bytes payload_json = 4;
+}
+
+// GatewayStatusChunk is used for streaming large status payloads.
+message GatewayStatusChunk {
+  repeated GatewayServiceStatus services = 1;
+  string gateway_id = 2;
+  string agent_id = 3;
+  int64 timestamp = 4;
+  string partition = 5;
+  string source_ip = 6;
+  bool is_final = 7;           // Whether this is the last chunk
+  int32 chunk_index = 8;       // Order of this chunk
+  int32 total_chunks = 9;      // Total number of chunks
+  string kv_store_id = 10;     // KV store identifier this agent is using
+  reserved 11, 12;             // Removed: deployment identifiers (single-deployment)
+  string config_source = 13;   // Source of sysmon config: "remote", "local", "cached", "default"
+  string version = 14;         // Agent runtime version at push time
+  string hostname = 15;        // Agent host name at push time
+  string os = 16;              // Agent runtime OS at push time
+  string arch = 17;            // Agent runtime architecture at push time
+  repeated EndpointInventoryStandingQuestionResultCount endpoint_inventory_standing_question_counts = 18;
+  repeated string capabilities = 19; // Delivery capabilities asserted for every chunk in this stream
+}
+
+// GatewayServiceStatus represents a single service status pushed by an agent.
+message GatewayServiceStatus {
+  string service_name = 1;
+  bool available = 2;
+  bytes message = 3;
+  string service_type = 4;
+  int64 response_time = 5;
+  string agent_id = 6;         // Agent ID for traceability
+  string gateway_id = 7;       // Gateway ID for traceability
+  string partition = 8;        // Partition identifier
+  string source = 9;           // Source of the message: "status" or "results"
+  string kv_store_id = 10;     // KV store identifier this service is using
+  reserved 11, 12;             // Removed: deployment identifiers (single-deployment)
+}
+
+// ============================================================================
+// Agent Hello/Enrollment Messages
+// ============================================================================
+
+// AgentHelloRequest is sent by the agent on startup to announce itself.
+message AgentHelloRequest {
+  string agent_id = 1;              // Unique agent identifier (from bootstrap config)
+  string version = 2;               // Agent software version (e.g., "1.2.3")
+  repeated string capabilities = 3; // Agent capabilities (e.g., ["icmp", "tcp", "http", "sweep"])
+  string hostname = 4;              // Host machine name
+  string os = 5;                    // Operating system (e.g., "linux", "darwin", "windows")
+  string arch = 6;                  // Architecture (e.g., "amd64", "arm64")
+  string partition = 7;             // Partition/site identifier
+  string config_version = 8;        // Current config version hash (for config sync)
+  map<string, string> labels = 9;   // Optional labels/tags for grouping
+  string config_source = 10;        // Source of sysmon config: "remote", "local", "cached", "default"
+  string host_ip = 11;              // Agent's own host IP (for device correlation behind NAT)
+}
+
+// AgentHelloResponse is returned by the gateway after validating the agent.
+message AgentHelloResponse {
+  bool accepted = 1;                // Whether the agent was accepted
+  string agent_id = 2;              // Confirmed agent ID (may be assigned if not provided)
+  string message = 3;               // Human-readable status message
+  string gateway_id = 4;            // Gateway that accepted the connection
+  int64 server_time = 5;            // Server timestamp (for clock sync)
+  int32 heartbeat_interval_sec = 6; // Recommended status push interval in seconds
+  bool config_outdated = 7;         // True if agent should fetch new config
+  reserved 8, 9;                    // Removed: deployment identifiers (single-deployment)
+}
+
+// ============================================================================
+// Agent Configuration Messages
+// ============================================================================
+
+// AgentConfigRequest is sent by the agent to fetch its configuration.
+message AgentConfigRequest {
+  string agent_id = 1;              // Agent requesting config
+  string config_version = 2;        // Current config version hash (for cache validation)
+}
+
+// AgentConfigResponse contains the agent's configuration from the SaaS control plane.
+message AgentConfigResponse {
+  bool not_modified = 1;            // True if config_version matches current; config fields empty
+  string config_version = 2;        // New config version hash
+  int64 config_timestamp = 3;       // When config was last updated (unix timestamp)
+
+  // Agent settings
+  int32 heartbeat_interval_sec = 4; // How often to push status (seconds)
+  int32 config_poll_interval_sec = 5; // How often to check for config updates (seconds)
+
+  // Checks to perform
+  repeated AgentCheckConfig checks = 6;
+
+  // Optional: raw JSON config for extensibility
+  bytes config_json = 7;
+
+  // Sysmon configuration for embedded system monitoring
+  SysmonConfig sysmon_config = 8;
+
+  // SNMP configuration for embedded SNMP monitoring
+  SNMPConfig snmp_config = 9;
+
+  // Host network visibility sidecar configuration
+  VisibilityConfig visibility_config = 10;
+
+  // Wasm plugin configuration assignments
+  PluginConfig plugin_config = 11;
+
+  // Bumblebee developer endpoint exposure scanner configuration
+  BumblebeeConfig bumblebee_config = 12;
+
+  // Native add-on (feature set) assignments. The agent's add-on manager
+  // supervises enabled assignments as go-plugin subprocesses (see
+  // proto/agent/addon/v1).
+  repeated AddonAssignmentConfig addons = 13;
+
+  // Endpoint software inventory and SBOM collector configuration.
+  EndpointInventoryConfig endpoint_inventory_config = 14;
+}
+
+// AddonAssignmentConfig is one native add-on (feature set) assignment delivered
+// to an agent.
+message AddonAssignmentConfig {
+  string addon_id = 1;              // Stable add-on identifier (matches addon.yaml id)
+  string version = 2;               // Assigned add-on version
+  bool enabled = 3;                 // Whether the add-on should run on this agent
+  string binary_path = 4;           // Resolved absolute path to the add-on plugin binary
+  repeated string args = 5;         // Optional extra arguments for the plugin binary
+  bytes config_json = 6;            // Operator-selected config (validated against config.schema.json)
+  repeated string capabilities = 7; // Capability identifiers the add-on advertises
+  string delivery = 8;              // Delivery model: compiled_in | pushed_artifact | os_package
+  string supervision = 9;           // Supervision model: config_toggle | agent_sidecar | systemd_service | systemd_timer | ephemeral_helper
+
+  // Artifact reference for the `pushed_artifact` delivery model. The agent fetches
+  // object_key from object storage, verifies sha256 (and signature when present),
+  // and stages it; binary_path above is then the resolved path under the staged dir.
+  string artifact_object_key = 10;  // Object-storage key of the selected per-arch artifact
+  string artifact_sha256 = 11;      // Expected SHA-256 (hex) of the artifact, verified before activation
+  string artifact_signature = 12;   // Optional ed25519 signature over the artifact (verified when set)
+  string target_os = 13;            // OS of the selected artifact (e.g. linux)
+  string target_arch = 14;          // Architecture of the selected artifact (e.g. amd64)
+
+  // Linux file capabilities (manifest `requires.os_capabilities`) the agent applies
+  // to the staged binary via the root-owned agent-updater before launch, e.g.
+  // ["cap_net_raw","cap_bpf","cap_perfmon"]. Empty means no elevated capabilities.
+  repeated string os_capabilities = 15;
+
+  // Gateway-proxied download for the `pushed_artifact` delivery model. Agents MUST
+  // NOT access object storage / the KV directly; when these are set the agent fetches
+  // the artifact from the agent-gateway over HTTPS.
+  // download_url points at the gateway artifact endpoint; download_token is the
+  // signed (HMAC) grant authorizing the specific artifact_object_key. The agent
+  // still verifies artifact_sha256 + artifact_signature after download.
+  string download_url = 16;
+  string download_token = 17;
+
+  // Manifest-declared CPU/memory/task limits (addon.yaml `resources`) the agent
+  // supervisor enforces on the add-on subprocess (cgroup v2 for agent-sidecar,
+  // systemd unit directives for systemd-service). Absent/zero means unbounded,
+  // which is only acceptable for trivial control-only add-ons.
+  AddonResources resources = 18;
+}
+
+// AddonResources are the per-add-on resource limits the agent supervisor applies
+// when launching the add-on. Mirrors addon.yaml `resources` and the manifest
+// schema; a zero value (all fields unset) means no limit is enforced.
+message AddonResources {
+  double cpu_max_percent = 1;   // Max CPU as percent of one core (100 = one full core); cgroup cpu.max / systemd CPUQuota
+  int64 memory_max_bytes = 2;   // Hard memory ceiling (bytes); cgroup memory.max / systemd MemoryMax
+  int64 memory_high_bytes = 3;  // Soft memory pressure threshold (bytes); cgroup memory.high / systemd MemoryHigh
+  int64 tasks_max = 4;          // Max threads/tasks; cgroup pids.max / systemd TasksMax
+  string slice = 5;             // Optional systemd slice / cgroup parent the add-on is placed under
+}
+
+// AgentConfigChunk carries one chunk of a protobuf-encoded AgentConfigResponse.
+message AgentConfigChunk {
+  string agent_id = 1;              // Agent requesting config
+  string config_version = 2;        // Config version for the full response
+  int64 config_timestamp = 3;       // Config timestamp for the full response
+  bool not_modified = 4;            // True when the config_version is current
+  bytes payload = 5;                // Chunk of encoded AgentConfigResponse
+  bool is_final = 6;                // Whether this is the last chunk
+  int32 chunk_index = 7;            // Zero-based chunk index
+  int32 total_chunks = 8;           // Total chunks in this stream
+  string payload_sha256 = 9;        // SHA-256 hex digest of the full payload
+}
+
+// ============================================================================
+// Agent Control Stream Messages
+// ============================================================================
+
+// ControlStreamHello identifies the agent on the control stream.
+message ControlStreamHello {
+  string agent_id = 1;              // Unique agent identifier
+  string partition = 2;             // Partition/site identifier
+  repeated string capabilities = 3; // Agent capabilities (e.g., ["mapper", "sweep"])
+  string config_version = 4;        // Current config version hash
+  string version = 5;               // Agent software version (e.g., "1.2.3")
+  string hostname = 6;              // Host machine name
+  string os = 7;                    // Operating system (e.g., "linux", "darwin", "windows")
+  string arch = 8;                  // Architecture (e.g., "amd64", "arm64")
+  map<string, string> labels = 9;   // Optional labels/tags for grouping
+  string config_source = 10;        // Source of sysmon config: "remote", "local", "cached", "default"
+  string host_ip = 11;              // Agent's own host IP (for device correlation behind NAT)
+  repeated PluginAssignmentPolicyAck applied_plugin_assignments = 12; // Host-parsed Proxmox assignment bindings in config_version
+}
+
+// CommandRequest represents a command sent to the agent.
+message CommandRequest {
+  string command_id = 1;       // Unique command identifier (UUID)
+  string command_type = 2;     // Command type (e.g., "mapper.run_job")
+  bytes payload_json = 3;      // Command payload as JSON
+  int64 ttl_seconds = 4;       // Time-to-live in seconds
+  int64 created_at = 5;        // Command creation time (unix seconds)
+}
+
+// CommandAck acknowledges receipt of a command.
+message CommandAck {
+  string command_id = 1;       // Command identifier
+  string command_type = 2;     // Command type
+  int64 timestamp = 3;         // Ack time (unix seconds)
+  string message = 4;          // Optional message
+}
+
+// CommandProgress reports intermediate progress for a command.
+message CommandProgress {
+  string command_id = 1;       // Command identifier
+  string command_type = 2;     // Command type
+  int32 progress_percent = 3;  // Progress percentage (0-100)
+  string message = 4;          // Optional progress message
+  int64 timestamp = 5;         // Progress time (unix seconds)
+  bytes payload_json = 6;      // Optional progress payload as JSON
+}
+
+// CommandResult reports completion for a command.
+message CommandResult {
+  string command_id = 1;       // Command identifier
+  string command_type = 2;     // Command type
+  bool success = 3;            // Whether the command succeeded
+  string message = 4;          // Result message or error
+  bytes payload_json = 5;      // Optional result payload as JSON
+  int64 timestamp = 6;         // Completion time (unix seconds)
+}
+
+// ConfigSectionStatus reports the apply outcome of a single config section in a
+// ConfigAck. Optional: agents that predate sectioned acks omit it, and core treats
+// an ack without section statuses as a legacy whole-version ack.
+message ConfigSectionStatus {
+  string section = 1;          // Config section name (bumblebee, endpoint_inventory, addons, visibility, ...)
+  string disposition = 2;      // "success" | "transient_failure" | "permanent_failure"
+  string error = 3;            // Failure detail (empty on success)
+  int64 since = 4;             // When the current failure state began (unix seconds; 0 on success)
+}
+
+// ConfigAck acknowledges a pushed config.
+message ConfigAck {
+  string config_version = 1;   // Applied config version
+  int64 timestamp = 2;         // Ack time (unix seconds)
+  repeated ConfigSectionStatus section_statuses = 3; // Per-section apply status (optional; absent on legacy agents)
+  repeated PluginAssignmentPolicyAck applied_plugin_assignments = 4; // Host-parsed Proxmox assignment bindings in config_version
+}
+
+// PluginAssignmentPolicyAck proves that trusted agent host code parsed and
+// retained one exact Proxmox assignment-policy binding. It is emitted only
+// after config application; browser, plugin, and console payload fields never
+// participate in this acknowledgement.
+message PluginAssignmentPolicyAck {
+  string assignment_id = 1;
+  string plugin_id = 2;
+  uint64 assignment_policy_version = 3;
+  string assignment_policy_fingerprint = 4;
+}
+
+// ConsoleFrame carries interactive console bytes and control events over the
+// existing bidirectional agent control stream.
+message ConsoleFrame {
+  string session_id = 1;        // Proxmox console session UUID
+  string frame_type = 2;        // open, ready, data, resize, close, error
+  bytes data = 3;               // Raw PTY bytes for data frames
+  uint32 cols = 4;              // Terminal columns for open/resize frames
+  uint32 rows = 5;              // Terminal rows for open/resize frames
+  string reason = 6;            // Close/error reason
+  int64 timestamp = 7;          // Frame creation time (unix seconds)
+  uint64 seq = 8;               // Per-session monotonic frame-auth sequence
+  string payload_sha256 = 9;     // SHA-256 hex digest of data
+  string signature = 10;         // HMAC over the frame binding fields
+  uint64 assignment_policy_version = 11; // Exact policy generation authorized for this open
+  string assignment_policy_fingerprint = 12; // Exact assignment/policy/rule binding digest
+}
+
+// ControlStreamRequest carries agent → gateway control messages.
+message ControlStreamRequest {
+  oneof payload {
+    ControlStreamHello hello = 1;
+    CommandAck command_ack = 2;
+    CommandProgress command_progress = 3;
+    CommandResult command_result = 4;
+    ConfigAck config_ack = 5;
+    ConsoleFrame console_frame = 6;
+  }
+}
+
+// ControlStreamResponse carries gateway → agent control messages.
+message ControlStreamResponse {
+  oneof payload {
+    CommandRequest command = 1;
+    AgentConfigResponse config = 2;
+    ConsoleFrame console_frame = 3;
+  }
+}
+
+// CredentialBrokerResolveRequest asks the gateway/control plane to resolve a
+// scoped credential broker grant for an authenticated agent. The gateway uses
+// the mTLS identity as the source of truth for agent authorization.
+message CredentialBrokerResolveRequest {
+  string agent_id = 1;
+  string grant_id = 2;
+  string credential_secret_ref = 3;
+  string consumer_kind = 4;
+  string consumer_id = 5;
+  string purpose = 6;
+  string resolution_location = 7;
+}
+
+// CredentialBrokerResolveResponse returns memory-only credential material to
+// the trusted agent host. Plugins receive only the original grant envelope.
+message CredentialBrokerResolveResponse {
+  bool success = 1;
+  string message = 2;
+  string value = 3;
+  map<string, string> fields = 4;
+  string source_type = 5;
+  int64 lease_expires_at_unix = 6;
+  string cache_status = 7;
+}
+
+// PluginConfig defines plugin assignments for the agent.
+message PluginConfig {
+  repeated PluginAssignmentConfig assignments = 1;
+  PluginEngineLimits engine_limits = 2;
+}
+
+// PluginEngineLimits defines per-agent engine resource limits.
+message PluginEngineLimits {
+  int32 max_memory_mb = 1;
+  int32 max_cpu_ms = 2;
+  int32 max_concurrent = 3;
+  int32 max_open_connections = 4;
+}
+
+// PluginAssignmentConfig defines a single plugin assignment for the agent.
+message PluginAssignmentConfig {
+  string assignment_id = 1;
+  string plugin_id = 2;
+  string package_id = 3;
+  string version = 4;
+  string name = 5;
+  string entrypoint = 6;
+  string runtime = 7;
+  string outputs = 8;
+  repeated string capabilities = 9;
+  bytes params_json = 10;
+  bytes permissions_json = 11;
+  bytes resources_json = 12;
+  bool enabled = 13;
+  int32 interval_sec = 14;
+  int32 timeout_sec = 15;
+  string wasm_object_key = 16;
+  string content_hash = 17;
+  string source_type = 18;
+  string source_repo_url = 19;
+  string source_commit = 20;
+  string download_url = 21;
+  string download_token = 22;
+  // Trusted-host-only material. This field must never be merged into
+  // params_json: older agents ignore unknown field 23, so a new control plane
+  // paired with an old agent fails closed instead of exposing secrets through
+  // the Wasm get_config surface.
+  bytes host_params_json = 23;
+}
+
+// BumblebeeConfig defines the optional developer endpoint exposure scanner profile.
+message BumblebeeConfig {
+  bool enabled = 1;
+  string agent_id = 2;
+  string scan_profile = 3;
+  string root_discovery_mode = 4;
+  repeated string explicit_roots = 5;
+  repeated string exclude_roots = 6;
+  repeated string ecosystems = 7;
+  string scan_timeout = 8;
+  int32 max_findings = 9;
+  int64 max_output_bytes = 10;
+  string cadence = 11;
+  bool findings_only = 12;
+  BumblebeeCatalogAssignment catalog = 13;
+}
+
+// BumblebeeCatalogAssignment identifies the immutable catalog artifact assigned to an agent.
+message BumblebeeCatalogAssignment {
+  string schema_version = 1;
+  string snapshot_ref = 2;
+  string catalog_version = 3;
+  string source_revision = 4;
+  string object_key = 5;
+  string sha256 = 6;
+  int64 size_bytes = 7;
+  string promoted_at = 8;
+}
+
+// EndpointInventoryConfig defines the optional endpoint package/SBOM inventory profile.
+message EndpointInventoryConfig {
+  bool enabled = 1;
+  string agent_id = 2;
+  repeated string sources = 3;
+  string scan_timeout = 4;
+  int32 max_packages = 5;
+  int64 max_output_bytes = 6;
+  string cadence = 7;
+  bool collect_paths = 8;
+  bool collect_file_hashes = 9;
+  bool force_fresh_enabled = 10;
+  int32 force_full_scan_interval = 11;
+  string cache_stale_threshold = 12;
+  string upload_jitter = 13;
+  string upload_retry_initial = 14;
+  string upload_retry_max = 15;
+  int32 upload_retry_max_attempts = 16;
+}
+
+// EndpointInventoryReport is the typed endpoint software inventory payload
+// produced by an agent after a collector scan. Raw SBOM bytes are stored
+// separately as a durable object and referenced by artifact.
+message EndpointInventoryReport {
+  EndpointInventoryScanMetadata metadata = 1;
+  EndpointInventoryArtifactRef artifact = 2;
+  repeated EndpointInventoryPackageSummary packages = 3;
+  EndpointInventoryCohortCoverage cohort_coverage = 4;
+}
+
+// EndpointInventoryScanMetadata captures scan-level provenance and state.
+message EndpointInventoryScanMetadata {
+  string schema_version = 1;
+  string scan_id = 2;
+  string agent_id = 3;
+  string device_uid = 4;
+  string collector_name = 5;
+  string collector_version = 6;
+  string state = 7;
+  string coverage_state = 8;
+  int64 scanned_at_unix = 9;
+  int64 last_successful_scan_at_unix = 10;
+  repeated EndpointInventorySourceSummary sources = 11;
+  int32 package_count = 12;
+  repeated string enabled_sources = 13;
+  map<string, string> redaction = 14;
+  string ingestion_status = 15;
+  string ingestion_error = 16;
+  string package_set_hash = 17;
+  string artifact_hash = 18;
+  string hash_algorithm = 19;
+  string upload_reason = 20;
+  int64 last_changed_scan_at_unix = 21;
+  int32 unchanged_scan_count = 22;
+  EndpointInventoryFreshness freshness = 23;
+}
+
+// EndpointInventoryFreshness describes whether an inventory answer is backed
+// by current enough local or persisted data.
+message EndpointInventoryFreshness {
+  string verdict = 1; // fresh, stale, or unknown
+  int64 age_seconds = 2;
+  int64 stale_threshold_seconds = 3;
+  int64 last_successful_scan_at_unix = 4;
+}
+
+// EndpointInventoryCohortCoverage summarizes bounded live-query fan-out.
+message EndpointInventoryCohortCoverage {
+  int32 targeted = 1;
+  int32 answered = 2;
+  int32 offline = 3;
+  int32 expired = 4;
+  int32 pending = 5;
+  int32 rejected = 6;
+  string rejection_reason = 7;
+}
+
+// EndpointInventorySourceSummary reports coverage for one collector source.
+message EndpointInventorySourceSummary {
+  string source = 1;
+  string state = 2;
+  int32 package_count = 3;
+  string error = 4;
+}
+
+// EndpointInventoryArtifactRef identifies the raw CycloneDX SBOM object.
+message EndpointInventoryArtifactRef {
+  string object_key = 1;
+  string bucket = 2;
+  string domain = 3;
+  string content_type = 4;
+  string format = 5;
+  string spec_version = 6;
+  string sha256 = 7;
+  int64 size_bytes = 8;
+  int64 uploaded_at_unix = 9;
+  map<string, string> metadata = 10;
+}
+
+// EndpointInventoryPackageSummary is the normalized package/component shape
+// used for package inventory queries.
+message EndpointInventoryPackageSummary {
+  string name = 1;
+  string version = 2;
+  string architecture = 3;
+  string package_manager = 4;
+  string ecosystem = 5;
+  string purl = 6;
+  repeated string cpes = 7;
+  string supplier = 8;
+  string license = 9;
+  string source = 10;
+  map<string, string> evidence = 11;
+  string purl_canonical = 12;
+}
+
+// EndpointInventoryQueryRequest is the typed payload for
+// endpoint_inventory.cache_query.
+message EndpointInventoryQueryRequest {
+  string schema = 1;
+  string mode = 2; // exists, count, or detail
+  EndpointInventoryPackagePredicate predicate = 3;
+  int32 limit = 4;
+  int64 stale_threshold_seconds = 5;
+  map<string, string> metadata = 6;
+}
+
+// EndpointInventoryForceFreshScanRequest is the typed payload for
+// endpoint_inventory.force_fresh_scan. It is device-scoped only.
+message EndpointInventoryForceFreshScanRequest {
+  string schema = 1;
+  bool authorized = 2;
+  repeated string sources = 3;
+  EndpointInventoryQueryRequest query = 4;
+  map<string, string> metadata = 5;
+}
+
+message EndpointInventoryPackagePredicate {
+  string package_manager = 1;
+  string name = 2;
+  string version = 3;
+  string architecture = 4;
+  string ecosystem = 5;
+  string purl = 6;
+  string purl_canonical = 7;
+  string cpe = 8;
+}
+
+// EndpointInventoryStandingQuestionResultCount is a compact heartbeat result
+// for an operator-defined inventory predicate evaluated against local cache.
+message EndpointInventoryStandingQuestionResultCount {
+  string schema = 1;
+  string question_id = 2;
+  string question_version = 3;
+  string predicate_hash = 4;
+  string mode = 5; // exists or count
+  bool matched = 6;
+  int32 count = 7;
+  string package_set_hash = 8;
+  string hash_algorithm = 9;
+  int64 evaluated_at_unix = 10;
+  EndpointInventoryFreshness freshness = 11;
+  map<string, string> labels = 12;
+  map<string, string> metadata = 13;
+}
+
+// EndpointInventoryQueryResult is the compact typed response for
+// endpoint_inventory.cache_query and optional force-fresh query responses.
+message EndpointInventoryQueryResult {
+  string schema = 1;
+  string agent_id = 2;
+  string device_uid = 3;
+  string mode = 4;
+  bool matched = 5;
+  int32 count = 6;
+  repeated EndpointInventoryPackageSummary packages = 7;
+  string package_set_hash = 8;
+  string artifact_hash = 9;
+  string hash_algorithm = 10;
+  int64 last_successful_scan_at_unix = 11;
+  int64 last_changed_scan_at_unix = 12;
+  int32 unchanged_scan_count = 13;
+  repeated EndpointInventorySourceSummary source_summaries = 14;
+  EndpointInventoryFreshness freshness = 15;
+  int64 stale_threshold_seconds = 16;
+  int64 evaluated_at_unix = 17;
+  bool truncated = 18;
+  repeated string unsupported_capabilities = 19;
+  EndpointInventoryCohortCoverage cohort_coverage = 20;
+}
+
+// SysmonConfig defines system monitoring configuration for the embedded sysmon collector.
+message SysmonConfig {
+  // Whether sysmon collection is enabled
+  bool enabled = 1;
+
+  // Sample interval as a duration string (e.g., "10s", "1m", "500ms")
+  string sample_interval = 2;
+
+  // Which metrics to collect
+  bool collect_cpu = 3;
+  bool collect_memory = 4;
+  bool collect_disk = 5;
+  bool collect_network = 6;
+  bool collect_processes = 7;
+
+  // Disk paths to monitor (e.g., ["/", "/data"])
+  // Empty means monitor all mounted filesystems
+  repeated string disk_paths = 8;
+
+  // Reserved field 9 (was process_top_n, removed - collect all processes)
+  reserved 9;
+
+  // Disk paths to exclude when collecting disk metrics
+  repeated string disk_exclude_paths = 14;
+
+  // Alert thresholds as key-value pairs
+  // Keys: cpu_warning, cpu_critical, memory_warning, memory_critical,
+  //       disk_warning, disk_critical
+  // Values: percentage as string (e.g., "80", "95")
+  map<string, string> thresholds = 10;
+
+  // Profile metadata (for UI display and debugging)
+  string profile_id = 11;           // UUID of the profile this config came from
+  string profile_name = 12;         // Name of the profile for logging
+  string config_source = 13;        // Source: "profile", "tag", "device", "default"
+
+  // Maximum process metrics retained per sample. 0 means unlimited.
+  int32 process_limit = 15;
+}
+
+// AgentCheckConfig defines a single check for the agent to perform.
+message AgentCheckConfig {
+  string check_id = 1;              // Unique check identifier
+  string check_type = 2;            // Type: "icmp", "tcp", "http", "grpc", "process", "sweep", "mtr"
+  string name = 3;                  // Human-readable name
+  bool enabled = 4;                 // Whether check is active
+  int32 interval_sec = 5;           // Check interval in seconds
+  int32 timeout_sec = 6;            // Check timeout in seconds
+
+  // Target configuration (interpretation depends on check_type)
+  string target = 7;                // Target host/IP/URL
+  int32 port = 8;                   // Target port (for tcp, http, grpc)
+  string path = 9;                  // Path (for http checks)
+  string method = 10;               // HTTP method (for http checks)
+
+  // Additional settings as key-value pairs
+  map<string, string> settings = 11;
+}
+
+// ============================================================================
+// SNMP Configuration Messages
+// ============================================================================
+
+// SNMPConfig defines SNMP monitoring configuration for the embedded SNMP collector.
+message SNMPConfig {
+  // Whether SNMP collection is enabled
+  bool enabled = 1;
+
+  // Profile metadata (for UI display and debugging)
+  string profile_id = 2;           // UUID of the profile this config came from
+  string profile_name = 3;         // Name of the profile for logging
+
+  // SNMP targets to poll
+  repeated SNMPTargetConfig targets = 4;
+}
+
+// VisibilityConfig defines host network visibility sidecar configuration.
+message VisibilityConfig {
+  bool enabled = 1;
+  repeated string capture_interfaces = 2;
+  VisibilityBinaryOverrides binary_overrides = 3;
+  repeated VisibilityDeviceBinding device_bindings = 4;
+  uint32 default_sample_interval_ms = 5;
+  VisibilityDpiConfig dpi = 20;
+  uint32 flow_table_max_entries = 40;
+
+  reserved 21 to 39;
+  reserved "flow_attribution", "process_snapshot_interval_s";
+}
+
+message VisibilityBinaryOverrides {
+  string path = 1;
+}
+
+message VisibilityDeviceBinding {
+  string ip = 1;
+  string profile_id = 2;
+  string profile_name = 3;
+  VisibilityFingerprintConfig fingerprint = 4;
+  uint32 sample_interval_ms = 5;
+  VisibilityDpiConfig dpi = 6;
+}
+
+message VisibilityFingerprintConfig {
+  bool tcp = 1;
+  bool tls = 2;
+  bool http = 3;
+}
+
+message VisibilityDpiConfig {
+  bool enabled = 1;
+  repeated string protocols = 2;
+}
+
+// SNMPTargetConfig defines a single SNMP target (network device) to poll.
+message SNMPTargetConfig {
+  string id = 1;                    // Target ID (UUID)
+  string name = 2;                  // Human-readable name
+  string host = 3;                  // Hostname or IP address
+  uint32 port = 4;                  // SNMP port (default 161)
+  SNMPVersion version = 5;          // SNMP protocol version
+
+  // SNMPv1/v2c authentication
+  string community = 6;             // Community string (decrypted)
+
+  // SNMPv3 authentication
+  SNMPv3Auth v3_auth = 7;
+
+  // Polling configuration
+  uint32 poll_interval_seconds = 8; // How often to poll (default 60)
+  uint32 timeout_seconds = 9;       // Timeout per request (default 5)
+  uint32 retries = 10;              // Number of retries (default 3)
+
+  // OIDs to poll
+  repeated SNMPOIDConfig oids = 11;
+}
+
+// SNMPVersion represents SNMP protocol versions.
+enum SNMPVersion {
+  SNMP_VERSION_UNSPECIFIED = 0;
+  SNMP_VERSION_V1 = 1;
+  SNMP_VERSION_V2C = 2;
+  SNMP_VERSION_V3 = 3;
+}
+
+// SNMPv3Auth contains SNMPv3 authentication parameters.
+message SNMPv3Auth {
+  string username = 1;
+  SNMPSecurityLevel security_level = 2;
+  SNMPAuthProtocol auth_protocol = 3;
+  string auth_password = 4;         // Decrypted password
+  SNMPPrivProtocol priv_protocol = 5;
+  string priv_password = 6;         // Decrypted password
+}
+
+// SNMPSecurityLevel represents SNMPv3 security levels.
+enum SNMPSecurityLevel {
+  SNMP_SECURITY_LEVEL_UNSPECIFIED = 0;
+  SNMP_SECURITY_LEVEL_NO_AUTH_NO_PRIV = 1;
+  SNMP_SECURITY_LEVEL_AUTH_NO_PRIV = 2;
+  SNMP_SECURITY_LEVEL_AUTH_PRIV = 3;
+}
+
+// SNMPAuthProtocol represents SNMPv3 authentication protocols.
+enum SNMPAuthProtocol {
+  SNMP_AUTH_PROTOCOL_UNSPECIFIED = 0;
+  SNMP_AUTH_PROTOCOL_MD5 = 1;
+  SNMP_AUTH_PROTOCOL_SHA = 2;
+  SNMP_AUTH_PROTOCOL_SHA224 = 3;
+  SNMP_AUTH_PROTOCOL_SHA256 = 4;
+  SNMP_AUTH_PROTOCOL_SHA384 = 5;
+  SNMP_AUTH_PROTOCOL_SHA512 = 6;
+}
+
+// SNMPPrivProtocol represents SNMPv3 privacy (encryption) protocols.
+enum SNMPPrivProtocol {
+  SNMP_PRIV_PROTOCOL_UNSPECIFIED = 0;
+  SNMP_PRIV_PROTOCOL_DES = 1;
+  SNMP_PRIV_PROTOCOL_AES = 2;
+  SNMP_PRIV_PROTOCOL_AES192 = 3;
+  SNMP_PRIV_PROTOCOL_AES256 = 4;
+  SNMP_PRIV_PROTOCOL_AES192C = 5;
+  SNMP_PRIV_PROTOCOL_AES256C = 6;
+}
+
+// SNMPOIDConfig defines an OID to poll from an SNMP target.
+message SNMPOIDConfig {
+  string oid = 1;                   // OID string (e.g., ".1.3.6.1.2.1.1.1.0")
+  string name = 2;                  // Human-readable name (e.g., "sysDescr")
+  SNMPDataType data_type = 3;       // Expected data type
+  double scale = 4;                 // Scale factor (default 1.0)
+  bool delta = 5;                   // Calculate rate of change
+  // Retrieval mode. Empty or "get" issues a single SNMP GET of one scalar
+  // instance. "walk" walks the subtree rooted at oid (GETBULK on v2c/v3,
+  // GETNEXT on v1) and emits one data point per discovered row. Tables whose
+  // row indexes are not known ahead of time need walk; a GET of the column
+  // OID itself is not a table read.
+  string mode = 6;
+  // Walk only: cap on discovered rows. Zero means the agent default.
+  int32 max_rows = 7;
+  // Walk only: wall-clock bound in seconds. Zero means the agent default.
+  uint32 walk_timeout_seconds = 8;
+}
+
+// SNMPDataType represents the type of data for an OID.
+enum SNMPDataType {
+  SNMP_DATA_TYPE_UNSPECIFIED = 0;
+  SNMP_DATA_TYPE_COUNTER = 1;       // Monotonically increasing counter
+  SNMP_DATA_TYPE_GAUGE = 2;         // Current value that can go up or down
+  SNMP_DATA_TYPE_BOOLEAN = 3;       // True/false value
+  SNMP_DATA_TYPE_BYTES = 4;         // Byte count
+  SNMP_DATA_TYPE_STRING = 5;        // Text value
+  SNMP_DATA_TYPE_FLOAT = 6;         // Floating point value
+  SNMP_DATA_TYPE_TIMETICKS = 7;     // Time value in hundredths of a second
+}
+
+// ============================================================================
+// MTR (My Traceroute) Diagnostic Messages
+// ============================================================================
+
+// MtrMplsLabel represents a single MPLS label stack entry extracted from
+// RFC 4884 ICMP extension objects.
+message MtrMplsLabel {
+  int32 label = 1;                   // 20-bit MPLS label
+  int32 exp = 2;                     // 3-bit experimental/traffic class
+  bool s = 3;                        // Bottom-of-stack flag
+  int32 ttl = 4;                     // MPLS TTL
+}
+
+// MtrAsnInfo holds Autonomous System information for a hop IP,
+// enriched from GeoLite2 MMDB at collection time.
+message MtrAsnInfo {
+  int32 asn = 1;                     // Autonomous System Number
+  string org = 2;                    // Organization name
+}
+
+// MtrHopResult contains per-hop statistics from an MTR trace.
+message MtrHopResult {
+  int32 hop_number = 1;              // TTL distance (1-indexed)
+  string addr = 2;                   // Primary responding IP address
+  string hostname = 3;               // Reverse-DNS hostname
+  repeated string ecmp_addrs = 4;    // Additional ECMP responding IPs
+  MtrAsnInfo asn = 5;                // Autonomous System information
+  repeated MtrMplsLabel mpls_labels = 6; // MPLS label stack from ICMP extensions
+  int32 sent = 7;                    // Total probes sent
+  int32 received = 8;                // Probe responses received
+  double loss_pct = 9;               // Packet loss percentage
+  int64 last_us = 10;                // Most recent RTT (microseconds)
+  int64 avg_us = 11;                 // Mean RTT (microseconds)
+  int64 min_us = 12;                 // Minimum RTT (microseconds)
+  int64 max_us = 13;                 // Maximum RTT (microseconds)
+  int64 stddev_us = 14;              // Standard deviation of RTT (microseconds)
+  int64 jitter_us = 15;              // Average jitter (microseconds)
+  int64 jitter_worst_us = 16;        // Worst observed jitter (microseconds)
+  int64 jitter_interarrival_us = 17; // RFC 1889 interarrival jitter (microseconds)
+}
+
+// MtrTraceResult is the complete result of an MTR trace.
+message MtrTraceResult {
+  string target = 1;                 // Target hostname or IP
+  string target_ip = 2;              // Resolved target IP address
+  bool target_reached = 3;           // Whether the target responded
+  int32 total_hops = 4;              // Number of hops in the trace
+  string protocol = 5;               // Probe protocol: "icmp", "udp", "tcp"
+  int32 ip_version = 6;              // IP version: 4 or 6
+  int32 packet_size = 7;             // Probe packet size in bytes
+  repeated MtrHopResult hops = 8;    // Per-hop results
+  string agent_id = 9;               // Agent that ran the trace
+  string gateway_id = 10;            // Gateway receiving the results
+  int64 timestamp = 11;              // Trace completion timestamp (unix nanos)
+}
+
+// MtrCheckResult wraps an MTR trace with check metadata for scheduled checks.
+message MtrCheckResult {
+  string check_id = 1;               // Check configuration ID
+  string check_name = 2;             // Human-readable check name
+  string target = 3;                 // Target hostname or IP
+  string device_id = 4;              // Associated device ID
+  bool available = 5;                // Whether the target was reached
+  MtrTraceResult trace = 6;          // Full trace result
+  int64 timestamp = 7;               // Result timestamp (unix nanos)
+  string error = 8;                  // Error message if trace failed
+}

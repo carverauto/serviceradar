@@ -1,0 +1,42 @@
+[Unit]
+Description=ServiceRadar Example native add-on (template)
+Documentation=https://docs.serviceradar.cloud/
+After=local-fs.target
+
+[Service]
+# Type=oneshot pairs with the .timer (systemd-timer model). For a long-lived
+# systemd-service add-on, drop the .timer and use Type=notify/simple instead.
+Type=oneshot
+User=serviceradar
+Group=serviceradar
+UMask=0027
+# Share cgroup accounting with the host agent while preserving independent
+# systemd supervision, restart policy, privileges, and hardening.
+Slice=serviceradar.slice
+WorkingDirectory=/var/lib/serviceradar/example-addon
+Environment="HOME=/var/lib/serviceradar/example-addon"
+ExecStart=/usr/local/lib/serviceradar/bin/serviceradar-addon-example -config /etc/serviceradar/serviceradar-addon-example.json
+Nice=10
+IOSchedulingClass=best-effort
+# Hardening (tighten/loosen per the add-on's requires.os_capabilities; capabilities
+# are granted out of band by the root-owned agent-updater via setcap, never here).
+PrivateTmp=true
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+ReadWritePaths=/var/lib/serviceradar/example-addon

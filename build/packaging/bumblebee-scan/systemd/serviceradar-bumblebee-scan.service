@@ -1,0 +1,41 @@
+[Unit]
+Description=ServiceRadar Bumblebee Root Scanner
+Documentation=https://docs.serviceradar.cloud/
+After=local-fs.target
+
+[Service]
+Type=oneshot
+User=root
+Group=serviceradar
+UMask=0027
+# Share cgroup accounting with the host agent while preserving independent
+# systemd supervision, restart policy, privileges, and hardening.
+Slice=serviceradar.slice
+WorkingDirectory=/var/lib/serviceradar/bumblebee
+Environment="HOME=/var/lib/serviceradar/bumblebee"
+Environment="XDG_CACHE_HOME=/var/lib/serviceradar/bumblebee/cache"
+ExecStart=/usr/local/lib/serviceradar/bin/serviceradar-bumblebee-scan -config /etc/serviceradar/bumblebee-scan.json
+Nice=10
+IOSchedulingClass=best-effort
+PrivateTmp=true
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateNetwork=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+ReadWritePaths=/var/lib/serviceradar/bumblebee

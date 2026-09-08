@@ -1,0 +1,65 @@
+{
+  "id": "com.carverauto.falco.runtime_event.display",
+  "version": "1.1.0",
+  "schema_id": "com.carverauto.falco.runtime_event",
+  "schema_version": "1.0.0",
+  "widgets": [
+    {
+      "type": "summary",
+      "title": "metadata.security_signal.diagnostics.rule.name",
+      "message": "message",
+      "source": "log_provider",
+      "severity": "severity"
+    },
+    {
+      "type": "badges",
+      "fields": [
+        {"label": "Signal", "path": "metadata.security_signal.kind", "tone": "info"},
+        {"label": "Priority", "path": "metadata.security_signal.diagnostics.rule.priority", "tone": "severity"},
+        {"label": "Source", "path": "metadata.security_signal.diagnostics.rule.source", "tone": "info"},
+        {"label": "Attribution", "path": "metadata.security_signal.diagnostics.attribution.status", "tone": "status"}
+      ]
+    },
+    {
+      "type": "facts",
+      "fields": [
+        {"label": "Rule", "path": "metadata.security_signal.diagnostics.rule.name"},
+        {"label": "Host", "path": "metadata.security_signal.diagnostics.host.name"},
+        {"label": "Process", "path": "metadata.security_signal.diagnostics.process.name"},
+        {"label": "Command", "path": "metadata.security_signal.diagnostics.process.command"},
+        {"label": "Working Directory", "path": "metadata.security_signal.diagnostics.process.cwd"},
+        {"label": "Executable", "path": "metadata.security_signal.diagnostics.process.executable"},
+        {"label": "Parent Process", "path": "metadata.security_signal.diagnostics.parent_process.name"},
+        {"label": "User", "path": "metadata.security_signal.diagnostics.user.name"},
+        {"label": "Container", "path": "metadata.security_signal.diagnostics.container.name"},
+        {"label": "Container ID", "path": "metadata.security_signal.diagnostics.container.id"},
+        {"label": "Image Repository", "path": "metadata.security_signal.diagnostics.container.image_repository"},
+        {"label": "Image Tag", "path": "metadata.security_signal.diagnostics.container.image_tag"},
+        {"label": "Namespace", "path": "metadata.security_signal.diagnostics.kubernetes.namespace"},
+        {"label": "Pod", "path": "metadata.security_signal.diagnostics.kubernetes.pod"},
+        {"label": "Node", "path": "metadata.security_signal.diagnostics.kubernetes.node"},
+        {"label": "File", "path": "metadata.security_signal.diagnostics.file.name"},
+        {"label": "Network Source", "path": "metadata.security_signal.diagnostics.network.source_ip"},
+        {"label": "Network Destination", "path": "metadata.security_signal.diagnostics.network.destination_ip"},
+        {"label": "Network Destination Port", "path": "metadata.security_signal.diagnostics.network.destination_port"}
+      ]
+    },
+    {
+      "type": "timeline",
+      "fields": [
+        {"label": "Event Time", "path": "metadata.security_signal.diagnostics.event.time", "format": "unix_nano"},
+        {"label": "Observed", "path": "time", "format": "timestamp"}
+      ]
+    },
+    {
+      "type": "json_section",
+      "title": "Falco Evidence",
+      "paths": [
+        "metadata.security_signal.diagnostics.process.executable_flags",
+        "metadata.security_signal.diagnostics.rule.references",
+        "metadata.security_signal.diagnostics.attribution",
+        "metadata.output_fields"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,381 @@
+{{- $gateway := default (dict) .Values.agentGateway -}}
+{{- if $gateway.enabled -}}
+{{- $gatewaySA := default "serviceradar-agent-gateway" $gateway.serviceAccountName -}}
+{{- $clusterSelector := default "app.kubernetes.io/part-of=serviceradar" $gateway.kubernetesSelector -}}
+{{- $clusterNodeBasename := default "serviceradar_agent_gateway" $gateway.kubernetesNodeBasename -}}
+{{- $coreVals := default (dict) .Values.core -}}
+{{- $webNg := default (dict) .Values.webNg -}}
+{{- $webNgPublicUrl := include "serviceradar.webNgPublicUrl" . -}}
+{{- $gatewayService := default (dict) $gateway.service -}}
+{{- $gatewayServiceType := default "ClusterIP" $gatewayService.type -}}
+{{- $gatewayArtifactPublicUrl := "" -}}
+{{- if $gateway.publicHostname -}}
+{{- $gatewayArtifactPublicUrl = printf "https://%s:%v" $gateway.publicHostname (default 50053 $gatewayService.artifactPort) -}}
+{{- end -}}
+{{- $agentArtifactPublicUrl := default $webNgPublicUrl $gatewayArtifactPublicUrl -}}
+{{- $coreClusterNodeBasename := default "serviceradar_core" $coreVals.kubernetesNodeBasename -}}
+{{- $clusterCoreNodeBasename := default $coreClusterNodeBasename $gateway.clusterCoreNodeBasename -}}
+{{- $datasvc := default (dict) $gateway.datasvc -}}
+{{- $datasvcHost := default "serviceradar-datasvc" $datasvc.host -}}
+{{- $datasvcPort := default 50057 $datasvc.port -}}
+{{- $datasvcSecMode := default "mtls" $datasvc.secMode -}}
+{{- $datasvcSecModeLower := lower $datasvcSecMode -}}
+{{- $datasvcTLS := ternary "true" "false" (ne $datasvcSecModeLower "plaintext") -}}
+{{- $datasvcCertDir := default "/etc/serviceradar/certs" $datasvc.certDir -}}
+{{- $datasvcCertName := default "gateway" $datasvc.certName -}}
+{{- $datasvcServerName := default "datasvc.serviceradar" $datasvc.serverName -}}
+{{- $sysmonMetricsEnabled := true -}}
+{{- if hasKey $gateway "sysmonMetricsEnabled" -}}
+{{- $sysmonMetricsEnabled = $gateway.sysmonMetricsEnabled -}}
+{{- end -}}
+{{- $snmpMetricsEnabled := true -}}
+{{- if hasKey $gateway "snmpMetricsEnabled" -}}
+{{- $snmpMetricsEnabled = $gateway.snmpMetricsEnabled -}}
+{{- end -}}
+{{- $pluginMetricsEnabled := true -}}
+{{- if hasKey $gateway "pluginMetricsEnabled" -}}
+{{- $pluginMetricsEnabled = $gateway.pluginMetricsEnabled -}}
+{{- end -}}
+{{- $otlpRelayPublishEnabled := true -}}
+{{- if hasKey $gateway "otlpRelayPublishEnabled" -}}
+{{- $otlpRelayPublishEnabled = $gateway.otlpRelayPublishEnabled -}}
+{{- end -}}
+{{- $natsPublishingEnabled := or $sysmonMetricsEnabled $snmpMetricsEnabled $pluginMetricsEnabled $otlpRelayPublishEnabled -}}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $gatewaySA }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-agent-gateway
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  replicas: {{ default 1 $gateway.replicas }}
+  selector:
+    matchLabels:
+      app: serviceradar-agent-gateway
+  template:
+    metadata:
+      labels:
+        app: serviceradar-agent-gateway
+        app.kubernetes.io/part-of: serviceradar
+      annotations:
+        {{- include "serviceradar.runtimeCertRollAnnotations" . | nindent 8 }}
+      {{- if .Values.global.forceRolloutOnUpgrade }}
+        serviceradar.io/release-revision: {{ .Release.Revision | quote }}
+      {{- end }}
+    spec:
+      {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      {{- include "serviceradar.topologySpread" (dict "root" . "app" "serviceradar-agent-gateway") | nindent 6 }}
+      serviceAccountName: {{ $gatewaySA }}
+      {{- include "serviceradar.elixirReleasePodSecurityContext" . | nindent 6 }}
+      containers:
+      - name: agent-gateway
+        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-agent-gateway" "service" "agentGateway") }}
+        imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+        {{- include "serviceradar.containerSecurityContext" . | nindent 8 }}
+        ports:
+        - name: grpc
+          containerPort: {{ default 50052 $gateway.service.port }}
+          protocol: TCP
+        - name: artifacts
+          containerPort: {{ default 50053 $gateway.service.artifactPort }}
+          protocol: TCP
+        - name: metrics
+          containerPort: {{ default 9090 $gateway.service.metricsPort }}
+          protocol: TCP
+        - name: epmd
+          containerPort: 4369
+          protocol: TCP
+        - name: dist
+          containerPort: 9100
+          protocol: TCP
+        env:
+        - name: TMPDIR
+          value: /tmp
+        - name: ELIXIR_ERL_OPTIONS
+          value: "+fnu"
+        - name: ERL_FLAGS
+          value: "-kernel inet_dist_listen_min 9100 -kernel inet_dist_listen_max 9155"
+        - name: GATEWAY_PARTITION_ID
+          # B-5 partition_id coalesce chain — keep in sync with nats.yaml
+          value: {{ coalesce $gateway.partitionId .Values.partitionId (default (dict) .Values.agent).partitionId "default" | quote }}
+        - name: GATEWAY_ID
+          value: {{ default "gateway-platform" $gateway.gatewayId | quote }}
+        - name: GATEWAY_DOMAIN
+          value: {{ default "default" $gateway.domain | quote }}
+        - name: GATEWAY_GRPC_PORT
+          value: {{ default 50052 $gateway.service.port | quote }}
+        - name: GATEWAY_ARTIFACT_PORT
+          value: {{ default 50053 $gateway.service.artifactPort | quote }}
+        - name: GATEWAY_METRICS_PORT
+          value: {{ default 9090 $gateway.service.metricsPort | quote }}
+        - name: GATEWAY_CAPABILITIES
+          value: {{ default "icmp,tcp,http,grpc" $gateway.capabilities | quote }}
+        - name: AGENT_GATEWAY_SYSMON_METRICS_ENABLED
+          value: {{ $sysmonMetricsEnabled | quote }}
+        - name: AGENT_GATEWAY_SYSMON_METRICS_SUBJECT_PREFIX
+          value: {{ default "metrics.sysmon" $gateway.sysmonMetricsSubjectPrefix | quote }}
+        - name: AGENT_GATEWAY_SNMP_METRICS_ENABLED
+          value: {{ $snmpMetricsEnabled | quote }}
+        - name: AGENT_GATEWAY_SNMP_METRICS_SUBJECT_PREFIX
+          value: {{ default "metrics.snmp" $gateway.snmpMetricsSubjectPrefix | quote }}
+        {{- if $gateway.snmpInterfaceMetrics }}
+        # "all" to publish every collected SNMP interface OID, or a comma-separated
+        # allowlist of metric names. Unset keeps the built-in default
+        # (ifHCInOctets, ifHCOutOctets). See fj #3788 REC7e.
+        - name: AGENT_GATEWAY_SNMP_INTERFACE_METRICS
+          value: {{ $gateway.snmpInterfaceMetrics | quote }}
+        {{- end }}
+        - name: AGENT_GATEWAY_PLUGIN_METRICS_ENABLED
+          value: {{ $pluginMetricsEnabled | quote }}
+        - name: AGENT_GATEWAY_PLUGIN_METRICS_SUBJECT_PREFIX
+          value: {{ default "metrics.timeseries" $gateway.pluginMetricsSubjectPrefix | quote }}
+        - name: AGENT_GATEWAY_OTLP_RELAY_PUBLISH_ENABLED
+          value: {{ $otlpRelayPublishEnabled | quote }}
+        - name: AGENT_GATEWAY_OTLP_RELAY_TRACES_SUBJECT
+          value: {{ default "otel.traces.raw" $gateway.otlpRelayTracesSubject | quote }}
+        - name: AGENT_GATEWAY_OTLP_RELAY_LOGS_SUBJECT
+          value: {{ default "logs.otel" $gateway.otlpRelayLogsSubject | quote }}
+        - name: AGENT_GATEWAY_OTLP_RELAY_METRICS_SUBJECT
+          value: {{ default "otel.metrics.raw" $gateway.otlpRelayMetricsSubject | quote }}
+        - name: AGENT_GATEWAY_OTLP_RELAY_DERIVED_METRICS_SUBJECT
+          value: {{ default "otel.metrics.derived" $gateway.otlpRelayDerivedMetricsSubject | quote }}
+        {{- if $natsPublishingEnabled }}
+        - name: AGENT_GATEWAY_NATS_URL
+          value: {{ default "tls://serviceradar-nats:4222" $gateway.natsUrl | quote }}
+        - name: AGENT_GATEWAY_NATS_TLS
+          value: {{ default true $gateway.natsTls | quote }}
+        - name: AGENT_GATEWAY_NATS_SERVER_NAME
+          value: {{ default "serviceradar-nats" $gateway.natsServerName | quote }}
+        {{- if or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.autoGenerate }}
+        - name: AGENT_GATEWAY_NATS_CREDS_FILE
+          value: "/etc/serviceradar/creds/platform.creds"
+        {{- end }}
+        {{- end }}
+        - name: CLUSTER_ENABLED
+          value: "true"
+        - name: CLUSTER_STRATEGY
+          value: {{ default "dns" $gateway.clusterStrategy | quote }}
+        - name: CLUSTER_DNS_QUERY
+          value: {{ default (printf "serviceradar-agent-gateway-headless.%s.svc.cluster.local" .Release.Namespace) $gateway.clusterDnsQuery | quote }}
+        - name: CLUSTER_NODE_BASENAME
+          value: {{ $clusterNodeBasename | quote }}
+        - name: CLUSTER_CORE_DNS_QUERY
+          value: {{ default (printf "%s.%s.svc.cluster.local" (default "serviceradar-core-elx-headless" $gateway.clusterCoreService) .Release.Namespace) $gateway.clusterCoreDnsQuery | quote }}
+        - name: NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: RELEASE_NODE
+          value: {{ printf "%s@$(POD_IP)" $clusterNodeBasename | quote }}
+        - name: RELEASE_DISTRIBUTION
+          value: "name"
+        - name: RELEASE_COOKIE
+          valueFrom:
+            secretKeyRef:
+              name: {{ default "serviceradar-secrets" .Values.secrets.existingSecretName | quote }}
+              key: cluster-cookie
+        - name: SERVICERADAR_EDGE_CRYPTO_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: {{ default "serviceradar-secrets" .Values.secrets.existingSecretName | quote }}
+              key: web-ng-secret-key-base
+        - name: PLUGIN_STORAGE_SIGNING_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: {{ default "serviceradar-secrets" .Values.secrets.existingSecretName | quote }}
+              key: plugin-storage-signing-secret
+        {{- if $agentArtifactPublicUrl }}
+        - name: PLUGIN_STORAGE_PUBLIC_URL
+          value: {{ $agentArtifactPublicUrl | quote }}
+        {{- end }}
+        - name: KUBERNETES_SELECTOR
+          value: {{ $clusterSelector | quote }}
+        - name: KUBERNETES_NODE_BASENAME
+          value: {{ $clusterNodeBasename | quote }}
+        - name: CLUSTER_CORE_SERVICE
+          value: {{ default "serviceradar-core-elx-headless" $gateway.clusterCoreService | quote }}
+        - name: CLUSTER_CORE_NODE_BASENAME
+          value: {{ $clusterCoreNodeBasename | quote }}
+        - name: GATEWAY_CERT_DIR
+          value: "/etc/serviceradar/certs"
+        - name: GATEWAY_CA_CERT_FILE
+          value: "/etc/serviceradar/issuer/root.pem"
+        - name: GATEWAY_CA_KEY_FILE
+          value: "/etc/serviceradar/issuer/root-key.pem"
+        - name: DATASVC_ENABLED
+          value: "true"
+        - name: DATASVC_ADDRESS
+          value: {{ printf "%s:%v" $datasvcHost $datasvcPort | quote }}
+        - name: DATASVC_HOST
+          value: {{ $datasvcHost | quote }}
+        - name: DATASVC_PORT
+          value: {{ $datasvcPort | quote }}
+        - name: DATASVC_SEC_MODE
+          value: {{ $datasvcSecMode | quote }}
+        - name: DATASVC_SSL
+          value: {{ $datasvcTLS | quote }}
+        - name: DATASVC_CERT_DIR
+          value: {{ $datasvcCertDir | quote }}
+        - name: DATASVC_CERT_NAME
+          value: {{ $datasvcCertName | quote }}
+        - name: DATASVC_SERVER_NAME
+          value: {{ $datasvcServerName | quote }}
+        {{- with $.Values.otelExporter }}
+        {{- if .enabled }}
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: {{ .endpoint | quote }}
+        - name: OTEL_CERT_DIR
+          value: {{ default "/etc/serviceradar/certs" .certDir | quote }}
+        - name: OTEL_CERT_NAME
+          value: "gateway"
+        - name: OTEL_SERVICE_NAME
+          value: "serviceradar-agent-gateway"
+        - name: OTEL_TRACES_SAMPLER_ARG
+          value: {{ default "1.0" .samplingRatio | quote }}
+        {{- end }}
+        {{- end }}
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+        - name: issuer-ca
+          mountPath: /etc/serviceradar/issuer
+          readOnly: true
+        {{- if and $natsPublishingEnabled (or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.autoGenerate) }}
+        - name: nats-creds
+          mountPath: /etc/serviceradar/creds
+          readOnly: true
+        {{- end }}
+        resources:
+          limits:
+            cpu: {{ default "1" $gateway.resources.limits.cpu | quote }}
+            memory: {{ default "2Gi" $gateway.resources.limits.memory | quote }}
+          requests:
+            cpu: {{ default "200m" $gateway.resources.requests.cpu | quote }}
+            memory: {{ default "1Gi" $gateway.resources.requests.memory | quote }}
+        livenessProbe:
+          tcpSocket:
+            port: grpc
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          tcpSocket:
+            port: grpc
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      - name: cert-data
+        secret:
+          secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
+          items:
+{{ include "serviceradar.runtimeCertItems" (list "root.pem" "gateway.pem" "gateway-key.pem") | indent 12 }}
+      - name: issuer-ca
+        secret:
+          secretName: {{ include "serviceradar.runtimeIssuerSecretName" . | quote }}
+          items:
+{{ include "serviceradar.runtimeCertItems" (list "root.pem" "root-key.pem") | indent 12 }}
+      {{- if and $natsPublishingEnabled (or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.autoGenerate) }}
+      - name: nats-creds
+        secret:
+          secretName: serviceradar-nats-creds
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-agent-gateway
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+  {{- with $gateway.service.annotations }}
+  {{- if ne (len .) 0 }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- end }}
+spec:
+  selector:
+    app: serviceradar-agent-gateway
+  type: {{ $gatewayServiceType }}
+  {{- if ne $gatewayServiceType "ClusterIP" }}
+  {{- with $gateway.service.externalTrafficPolicy }}
+  externalTrafficPolicy: {{ . }}
+  {{- end }}
+  {{- end }}
+  {{- if and (eq $gatewayServiceType "LoadBalancer") $gateway.service.loadBalancerIP }}
+  loadBalancerIP: {{ $gateway.service.loadBalancerIP | quote }}
+  {{- end }}
+  ports:
+  - name: grpc
+    port: {{ default 50052 $gateway.service.port }}
+    targetPort: grpc
+    {{- with $gateway.service.nodePort }}
+    nodePort: {{ . }}
+    {{- end }}
+  - name: artifacts
+    port: {{ default 50053 $gateway.service.artifactPort }}
+    targetPort: artifacts
+    {{- with $gateway.service.artifactNodePort }}
+    nodePort: {{ . }}
+    {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-agent-gateway-headless
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  clusterIP: None
+  selector:
+    app: serviceradar-agent-gateway
+  ports:
+  - name: grpc
+    port: {{ default 50052 $gateway.service.port }}
+    targetPort: grpc
+  - name: artifacts
+    port: {{ default 50053 $gateway.service.artifactPort }}
+    targetPort: artifacts
+  - name: epmd
+    port: 4369
+    targetPort: epmd
+  - name: dist
+    port: 9100
+    targetPort: dist
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-agent-gateway-metrics
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/name: serviceradar-agent-gateway
+    app.kubernetes.io/component: agent-gateway
+spec:
+  selector:
+    app: serviceradar-agent-gateway
+  type: ClusterIP
+  ports:
+  - name: metrics
+    port: {{ default 9090 $gateway.service.metricsPort }}
+    targetPort: metrics
+{{- end }}

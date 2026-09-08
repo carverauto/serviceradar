@@ -1,0 +1,30 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+
+go_library(
+    name = "faker_lib",
+    srcs = [
+        "bgp_sim.go",
+        "main.go",
+    ],
+    embedsrcs = ["config.json"],
+    importpath = "github.com/carverauto/serviceradar/go/cmd/faker",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//go/pkg/config",
+        "//go/pkg/config/bootstrap",
+        "//go/pkg/models",
+    ],
+)
+
+go_binary(
+    name = "faker",
+    embed = [":faker_lib"],
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "faker_test",
+    srcs = glob(["*_test.go"]),
+    embed = [":faker_lib"],
+    deps = ["@com_github_stretchr_testify//require"],
+)

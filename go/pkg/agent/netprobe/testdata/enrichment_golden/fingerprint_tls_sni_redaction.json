@@ -1,0 +1,20 @@
+{
+  "ip": "10.20.30.44",
+  "metadata": {
+    "_alias_collector_ip": "10.20.30.40",
+    "_alias_last_seen_at": "2026-08-23T15:46:40Z",
+    "_alias_last_seen_ip": "10.20.30.44",
+    "agent_id": "agent-synthetic-1",
+    "discovery_source": "passive-netprobe",
+    "gateway_id": "gateway-synthetic-1",
+    "ip_alias:10.20.30.44": "2026-08-23T15:46:40Z",
+    "passive_fingerprint.observed_at": "2026-08-23T15:46:40Z",
+    "passive_fingerprint.observed_at_unix_nano": "1787500000000000000",
+    "passive_fingerprint.protocol": "tls",
+    "passive_fingerprint.source": "passive-netprobe",
+    "passive_fingerprint.tls.ja4": "t13d1516h2_synthetic",
+    "passive_fingerprint.tls.ja4s": "t130200_synthetic",
+    "passive_fingerprint.tls.sni_redacted": "\u003cpresent\u003e",
+    "source": "passive-netprobe"
+  }
+}

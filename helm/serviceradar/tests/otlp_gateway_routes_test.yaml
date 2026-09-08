@@ -1,0 +1,166 @@
+suite: otlp gateway routes
+templates:
+  - templates/otlp-gateway-routes.yaml
+tests:
+  - it: renders nothing when gateway exposure is disabled (default)
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders nothing when the otlp service is disabled
+    set:
+      logCollector.otlp.service.enabled: false
+      logCollector.otlp.gateway.enabled: true
+      logCollector.otlp.gateway.grpcHostname: otlp-demo.grpc.serviceradar.cloud
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders HTTPRoute and TLSRoute when both hostnames are set
+    set:
+      logCollector.otlp.service.http.enabled: true
+      logCollector.otlp.gateway.enabled: true
+      logCollector.otlp.gateway.httpHostname: otlp-demo.serviceradar.cloud
+      logCollector.otlp.gateway.grpcHostname: otlp-demo.grpc.serviceradar.cloud
+    asserts:
+      - hasDocuments:
+          count: 2
+      - isKind:
+          of: HTTPRoute
+        documentIndex: 0
+      - isKind:
+          of: TLSRoute
+        documentIndex: 1
+
+  - it: attaches the HTTPRoute to the shared gateway HTTPS listener
+    set:
+      logCollector.otlp.service.http.enabled: true
+      logCollector.otlp.gateway.enabled: true
+      logCollector.otlp.gateway.httpHostname: otlp-demo.serviceradar.cloud
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: HTTPRoute
+      - equal:
+          path: metadata.name
+          value: serviceradar-otlp-http
+      - equal:
+          path: metadata.annotations["external-dns.alpha.kubernetes.io/hostname"]
+          value: otlp-demo.serviceradar.cloud
+      - contains:
+          path: spec.parentRefs
+          content:
+            group: gateway.networking.k8s.io
+            kind: Gateway
+            name: serviceradar-shared-gateway
+            namespace: serviceradar-system
+            sectionName: https-web
+      - contains:
+          path: spec.hostnames
+          content: otlp-demo.serviceradar.cloud
+      - equal:
+          path: spec.rules[0].backendRefs[0].name
+          value: serviceradar-otlp
+      - equal:
+          path: spec.rules[0].backendRefs[0].port
+          value: 4318
+      - equal:
+          path: spec.rules[0].matches[0].path.type
+          value: PathPrefix
+      - equal:
+          path: spec.rules[0].matches[0].path.value
+          value: /v1
+
+  - it: attaches the TLSRoute to the tls passthrough listener with the gRPC backend
+    set:
+      logCollector.otlp.gateway.enabled: true
+      logCollector.otlp.gateway.grpcHostname: otlp-demo.grpc.serviceradar.cloud
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: TLSRoute
+      - isAPIVersion:
+          of: gateway.networking.k8s.io/v1alpha3
+      - equal:
+          path: metadata.name
+          value: serviceradar-otlp-grpc
+      - equal:
+          path: metadata.annotations["external-dns.alpha.kubernetes.io/hostname"]
+          value: otlp-demo.grpc.serviceradar.cloud
+      - equal:
+          path: metadata.annotations["external-dns.alpha.kubernetes.io/cloudflare-proxied"]
+          value: "false"
+      - contains:
+          path: spec.parentRefs
+          content:
+            group: gateway.networking.k8s.io
+            kind: Gateway
+            name: serviceradar-shared-gateway
+            namespace: serviceradar-system
+            sectionName: tls-grpc
+      - contains:
+          path: spec.hostnames
+          content: otlp-demo.grpc.serviceradar.cloud
+      - equal:
+          path: spec.rules[0].backendRefs[0].name
+          value: serviceradar-otlp
+      - equal:
+          path: spec.rules[0].backendRefs[0].port
+          value: 4317
+
+  - it: suppresses external-dns annotations when hosted DNS is control-plane managed
+    set:
+      logCollector.otlp.service.http.enabled: true
+      logCollector.otlp.gateway.enabled: true
+      logCollector.otlp.gateway.dns.enabled: false
+      logCollector.otlp.gateway.httpHostname: otlp-demo.serviceradar.cloud
+      logCollector.otlp.gateway.grpcHostname: otlp-demo.grpc.serviceradar.cloud
+    asserts:
+      - hasDocuments:
+          count: 2
+      - notExists:
+          path: metadata.annotations
+        documentIndex: 0
+      - notExists:
+          path: metadata.annotations
+        documentIndex: 1
+
+  - it: honors gateway name, namespace and sectionName overrides
+    set:
+      logCollector.otlp.service.http.enabled: true
+      logCollector.otlp.gateway.enabled: true
+      logCollector.otlp.gateway.gatewayName: my-gateway
+      logCollector.otlp.gateway.gatewayNamespace: my-namespace
+      logCollector.otlp.gateway.httpHostname: otlp.example.com
+      logCollector.otlp.gateway.httpSectionName: https-custom
+      logCollector.otlp.gateway.grpcHostname: otlp.grpc.example.com
+      logCollector.otlp.gateway.grpcSectionName: tls-custom
+    asserts:
+      - contains:
+          path: spec.parentRefs
+          content:
+            group: gateway.networking.k8s.io
+            kind: Gateway
+            name: my-gateway
+            namespace: my-namespace
+            sectionName: https-custom
+        documentIndex: 0
+      - contains:
+          path: spec.parentRefs
+          content:
+            group: gateway.networking.k8s.io
+            kind: Gateway
+            name: my-gateway
+            namespace: my-namespace
+            sectionName: tls-custom
+        documentIndex: 1
+
+  - it: fails when httpHostname is set without exposing the http service port
+    set:
+      logCollector.otlp.gateway.enabled: true
+      logCollector.otlp.gateway.httpHostname: otlp-demo.serviceradar.cloud
+    asserts:
+      - failedTemplate:
+          errorMessage: "logCollector.otlp.gateway.httpHostname requires logCollector.otlp.service.http.enabled=true (the HTTPRoute backend is the serviceradar-otlp Service OTLP/HTTP port)"

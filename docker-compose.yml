@@ -1,0 +1,1141 @@
+services:
+  cert-generator:
+    image: alpine:3.20
+    container_name: serviceradar-cert-generator-mtls
+    environment:
+      # Optional extra SAN entries for `cnpg.pem` so clients can connect using a LAN IP
+      # (example: CNPG_CERT_EXTRA_IPS=192.168.2.134)
+      - CNPG_CERT_EXTRA_IPS=${CNPG_CERT_EXTRA_IPS:-}
+      - CNPG_SUPERUSER=${CNPG_SUPERUSER:-}
+      - CNPG_SUPERUSER_FILE=/etc/serviceradar/cnpg/superuser-username
+    volumes:
+      - cert-data:/certs
+      - cnpg-credentials:/etc/serviceradar/cnpg:ro
+      - ./docker/compose/generate-certs.sh:/generate-certs.sh:ro
+    command: sh -c "apk add --no-cache openssl bash && cp /generate-certs.sh /tmp/gen.sh && chmod +x /tmp/gen.sh && CERT_DIR=/certs bash /tmp/gen.sh"
+    depends_on:
+      db-credentials:
+        condition: service_completed_successfully
+    restart: "no"
+    networks:
+      - serviceradar-net
+
+  cnpg-migrator:
+    image: docker:28.0.1-cli
+    container_name: serviceradar-cnpg-migrator
+    environment:
+      - FORCE=true
+      - CNPG_ALLOW_RUNNING_COMPOSE_PROJECT=true
+      - SERVICERADAR_VOLUME_PREFIX=${SERVICERADAR_VOLUME_PREFIX:-serviceradar}
+      - CNPG_DATA_VOLUME=${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_cnpg-data
+      - CNPG_CREDENTIALS_VOLUME=${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_cnpg-credentials
+      - CNPG_MIGRATOR_DATA_DIR=/mnt/cnpg-data
+      - CNPG_MIGRATOR_CREDENTIALS_DIR=/mnt/cnpg-credentials
+      - CNPG_DATABASE=${CNPG_DATABASE:-serviceradar}
+      - CNPG_SUPERUSER=${CNPG_SUPERUSER:-}
+      - CNPG_SUPERUSER_PASSWORD=${CNPG_SUPERUSER_PASSWORD:-}
+      - CNPG_PASSWORD=${CNPG_PASSWORD:-}
+      - CNPG_EXPECTED_PG_MAJOR=18
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - cnpg-data:/mnt/cnpg-data:ro
+      - cnpg-credentials:/mnt/cnpg-credentials:ro
+      - ./docker/compose/migrate-cnpg-pg16-to-pg18.sh:/migrate-cnpg-pg16-to-pg18.sh:ro
+    command: sh /migrate-cnpg-pg16-to-pg18.sh
+    restart: "no"
+
+  db-credentials:
+    image: alpine:3.20
+    container_name: serviceradar-db-credentials
+    volumes:
+      - cnpg-credentials:/etc/serviceradar/cnpg
+      - cnpg-data:/var/lib/postgresql/18/docker:ro
+      - ./docker/compose/bootstrap-db-credentials.sh:/bootstrap-db-credentials.sh:ro
+    environment:
+      - CNPG_DATA_DIR=/var/lib/postgresql/18/docker
+      - CNPG_SUPERUSER=${CNPG_SUPERUSER:-}
+      - CNPG_PASSWORD=${CNPG_PASSWORD:-}
+      - CNPG_SUPERUSER_PASSWORD=${CNPG_SUPERUSER_PASSWORD:-}
+    command: sh /bootstrap-db-credentials.sh
+    depends_on:
+      cnpg-migrator:
+        condition: service_completed_successfully
+    restart: "no"
+    networks:
+      - serviceradar-net
+
+  cnpg-data-permissions-fixer:
+    image: alpine:3.20
+    container_name: serviceradar-cnpg-data-permissions-fixer
+    volumes:
+      - cnpg-data:/var/lib/postgresql/18/docker
+    command: >
+      sh -c 'set -e;
+      mkdir -p /var/lib/postgresql/18/docker;
+      chown -R 26:102 /var/lib/postgresql/18/docker;
+      chmod 700 /var/lib/postgresql/18/docker'
+    depends_on:
+      cnpg-migrator:
+        condition: service_completed_successfully
+    restart: "no"
+    networks:
+      - serviceradar-net
+
+  cnpg:
+    image: ${CNPG_IMAGE:-registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.3.0-sr5@sha256:c349a1d34aef056f818630e0766501b5c98fa7598bdeee38d59d677a94cb18c9}
+    container_name: serviceradar-cnpg-mtls
+    user: "26:102"
+    entrypoint: ["/bin/sh", "/check-cnpg-major-version.sh"]
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_preload_libraries=timescaledb,age"
+      - "-c"
+      - "ssl=on"
+      - "-c"
+      - "ssl_cert_file=/etc/serviceradar/certs/cnpg.pem"
+      - "-c"
+      - "ssl_key_file=/etc/serviceradar/certs/cnpg-key.pem"
+      - "-c"
+      - "ssl_ca_file=/etc/serviceradar/certs/root.pem"
+      - "-c"
+      - "hba_file=/etc/serviceradar/pg_hba.conf"
+      - "-c"
+      - "ident_file=/etc/serviceradar/pg_ident.conf"
+      - "-c"
+      - "checkpoint_timeout=15min"
+      - "-c"
+      - "checkpoint_completion_target=0.9"
+      - "-c"
+      - "min_wal_size=1GB"
+      - "-c"
+      - "max_wal_size=4GB"
+      - "-c"
+      - "wal_compression=on"
+      - "-c"
+      - "log_parameter_max_length=0"
+    environment:
+      - CNPG_DATA_DIR=/var/lib/postgresql/18/docker
+      - CNPG_EXPECTED_PG_MAJOR=18
+      - POSTGRES_USER=${CNPG_SUPERUSER:-postgres}
+      - POSTGRES_PASSWORD_FILE=/etc/serviceradar/cnpg/superuser-password
+      - POSTGRES_DB=${CNPG_DATABASE:-serviceradar}
+      - TS_TUNE=false
+    ports:
+      - "${CNPG_PUBLIC_BIND:-127.0.0.1}:${CNPG_PUBLIC_PORT:-5455}:5432"
+    volumes:
+      - cnpg-data:/var/lib/postgresql/18/docker
+      - cert-data:/etc/serviceradar/certs:ro
+      - cnpg-credentials:/etc/serviceradar/cnpg:ro
+      - ./docker/compose/check-cnpg-major-version.sh:/check-cnpg-major-version.sh:ro
+      - ./docker/compose/pg_hba.conf:/etc/serviceradar/pg_hba.conf:ro
+      - ./docker/compose/pg_ident.conf:/etc/serviceradar/pg_ident.conf:ro
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "set -e; cp /etc/serviceradar/certs/db-superuser-key.pem /tmp/pg_healthcheck.key; chmod 600 /tmp/pg_healthcheck.key; CNPG_HEALTHCHECK_USER=$$(cat /etc/serviceradar/cnpg/superuser-username 2>/dev/null || printf '%s' ${CNPG_SUPERUSER:-postgres}); PGPASSWORD=$$(cat /etc/serviceradar/cnpg/superuser-password) PGSSLMODE=verify-full PGSSLROOTCERT=/etc/serviceradar/certs/root.pem PGSSLCERT=/etc/serviceradar/certs/db-superuser.pem PGSSLKEY=/tmp/pg_healthcheck.key pg_isready -h localhost -U $$CNPG_HEALTHCHECK_USER -d ${CNPG_DATABASE:-serviceradar}"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    networks:
+      serviceradar-net:
+        aliases:
+          - cnpg
+          - cnpg-rw
+    depends_on:
+      cnpg-data-permissions-fixer:
+        condition: service_completed_successfully
+      cert-permissions-fixer:
+        condition: service_completed_successfully
+      db-credentials:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  cert-permissions-fixer:
+    image: alpine:3.20
+    container_name: serviceradar-cert-permissions-fixer-mtls
+    volumes:
+      - cert-data:/etc/serviceradar/certs
+      - ./docker/compose/fix-cert-permissions.sh:/fix-cert-permissions.sh:ro
+    command: sh /fix-cert-permissions.sh
+    depends_on:
+      cert-generator:
+        condition: service_completed_successfully
+    restart: "no"
+    networks:
+      - serviceradar-net
+
+  migrations-permissions-fixer:
+    image: alpine:3.20
+    container_name: serviceradar-migrations-permissions-fixer
+    volumes:
+      - migrations-data:/var/lib/serviceradar/migrations
+    command: >
+      sh -c 'set -e;
+      APP_UID="$${SERVICERADAR_UID:-10001}";
+      APP_GID="$${SERVICERADAR_GID:-10001}";
+      mkdir -p /var/lib/serviceradar/migrations;
+      chown -R "$${APP_UID}:$${APP_GID}" /var/lib/serviceradar/migrations;
+      chmod 755 /var/lib/serviceradar/migrations'
+    restart: "no"
+    networks:
+      - serviceradar-net
+
+  plugin-packages-permissions-fixer:
+    image: alpine:3.20
+    container_name: serviceradar-plugin-packages-permissions-fixer
+    volumes:
+      - plugin-packages:/var/lib/serviceradar/plugin-packages
+    command: >
+      sh -c 'set -e;
+      APP_UID="$${SERVICERADAR_UID:-10001}";
+      APP_GID="$${SERVICERADAR_GID:-10001}";
+      mkdir -p /var/lib/serviceradar/plugin-packages;
+      chown -R "$${APP_UID}:$${APP_GID}" /var/lib/serviceradar/plugin-packages;
+      chmod 755 /var/lib/serviceradar/plugin-packages'
+    restart: "no"
+    networks:
+      - serviceradar-net
+
+  cnpg-app-bootstrap:
+    image: ${CNPG_IMAGE:-registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.3.0-sr5@sha256:c349a1d34aef056f818630e0766501b5c98fa7598bdeee38d59d677a94cb18c9}
+    container_name: serviceradar-cnpg-app-bootstrap
+    user: "0:0"
+    environment:
+      - CNPG_HOST=${CNPG_DOCKER_HOST:-cnpg}
+      - CNPG_PORT=${CNPG_DOCKER_PORT:-5432}
+      - CNPG_ADMIN_DATABASE=${CNPG_ADMIN_DATABASE:-postgres}
+      - CNPG_DATABASE=${CNPG_DATABASE:-serviceradar}
+      - CNPG_APP_USER=${CNPG_APP_USER:-serviceradar}
+      - CNPG_SSL_MODE=${CNPG_SSL_MODE:-verify-full}
+      - CNPG_CERT_DIR=/etc/serviceradar/certs
+      - CNPG_CRED_DIR=/etc/serviceradar/cnpg
+    volumes:
+      - cert-data:/etc/serviceradar/certs:ro
+      - cnpg-credentials:/etc/serviceradar/cnpg:ro
+      - ./docker/compose/bootstrap-cnpg-app-db.sh:/bootstrap-cnpg-app-db.sh:ro
+    command: sh /bootstrap-cnpg-app-db.sh
+    depends_on:
+      cert-permissions-fixer:
+        condition: service_completed_successfully
+      db-credentials:
+        condition: service_completed_successfully
+      cnpg:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - serviceradar-net
+
+  # Bootstrap admin credentials (idempotent).
+  config-updater:
+    image: alpine:3.20
+    container_name: serviceradar-config-updater
+    environment:
+      - SERVICERADAR_ADMIN_EMAIL=${SERVICERADAR_ADMIN_EMAIL:-root@localhost}
+    volumes:
+      - admin-creds:/etc/serviceradar/admin
+      - ./docker/compose/bootstrap-admin.sh:/bootstrap-admin.sh:ro
+    command: sh /bootstrap-admin.sh
+    restart: "no"
+    networks:
+      - serviceradar-net
+
+  cloak-keygen:
+    image: alpine:3.20
+    container_name: serviceradar-cloak-keygen
+    volumes:
+      - cloak-key:/etc/serviceradar/cloak
+    command: >
+      sh -c 'set -e;
+      APP_UID="$${SERVICERADAR_UID:-10001}";
+      APP_GID="$${SERVICERADAR_GID:-10001}";
+      mkdir -p /etc/serviceradar/cloak;
+      if [ ! -f /etc/serviceradar/cloak/cloak.key ]; then
+        umask 027;
+        head -c 32 /dev/urandom | base64 | tr -d "\n" > /etc/serviceradar/cloak/cloak.key;
+        echo "Generated CLOAK_KEY";
+      else
+        echo "CLOAK_KEY already present";
+      fi;
+      chown "$${APP_UID}:$${APP_GID}" /etc/serviceradar/cloak /etc/serviceradar/cloak/cloak.key;
+      chmod 750 /etc/serviceradar/cloak;
+      chmod 640 /etc/serviceradar/cloak/cloak.key'
+    restart: "no"
+    networks:
+      - serviceradar-net
+
+  core-elx-migrations:
+    image: registry.carverauto.dev/serviceradar/serviceradar-core-elx:${APP_TAG:-latest}
+    container_name: serviceradar-core-elx-migrations
+    user: "0:0"
+    hostname: core-elx-migrations
+    environment:
+      - CLUSTER_ENABLED=false
+      - ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS:-+fnu}
+      - SERVICERADAR_CORE_REPO_ENABLED=true
+      - SERVICERADAR_CORE_OBAN_ENABLED=false
+      - SERVICERADAR_CORE_RUN_MIGRATIONS=true
+      - SERVICERADAR_MIGRATION_ONLY=true
+      - SERVICERADAR_MIGRATIONS_MARKER_PATH=/var/lib/serviceradar/migrations/complete
+      - MTR_RETENTION_DAYS=${MTR_RETENTION_DAYS:-30}
+      - CLOAK_KEY_FILE=/etc/serviceradar/cloak/cloak.key
+      - CNPG_HOST=${CNPG_DOCKER_HOST:-cnpg}
+      - CNPG_PORT=${CNPG_DOCKER_PORT:-5432}
+      - CNPG_DATABASE=${CNPG_DATABASE:-serviceradar}
+      - CNPG_USERNAME_FILE=/etc/serviceradar/cnpg/superuser-username
+      - CNPG_USERNAME=${CNPG_SUPERUSER:-postgres}
+      - CNPG_PASSWORD_FILE=/etc/serviceradar/cnpg/superuser-password
+      - CNPG_APP_USER=${CNPG_APP_USER:-serviceradar}
+      - CNPG_APP_PASSWORD_FILE=/etc/serviceradar/cnpg/serviceradar-password
+      - CNPG_SSL_MODE=${CNPG_SSL_MODE:-verify-full}
+      - CNPG_TLS_SERVER_NAME=${CNPG_TLS_SERVER_NAME:-cnpg}
+      - CNPG_CERT_DIR=/etc/serviceradar/certs
+      - CNPG_CA_FILE=/etc/serviceradar/certs/root.pem
+      - CNPG_CERT_FILE=/etc/serviceradar/certs/db-superuser.pem
+      - CNPG_KEY_FILE=/etc/serviceradar/certs/db-superuser-key.pem
+    volumes:
+      - cert-data:/etc/serviceradar/certs:ro
+      - cloak-key:/etc/serviceradar/cloak:ro
+      - cnpg-credentials:/etc/serviceradar/cnpg:ro
+      - migrations-data:/var/lib/serviceradar/migrations
+    depends_on:
+      cert-permissions-fixer:
+        condition: service_completed_successfully
+      cloak-keygen:
+        condition: service_completed_successfully
+      migrations-permissions-fixer:
+        condition: service_completed_successfully
+      cnpg-app-bootstrap:
+        condition: service_completed_successfully
+      db-credentials:
+        condition: service_completed_successfully
+      cnpg:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - serviceradar-net
+
+  core-elx:
+    image: registry.carverauto.dev/serviceradar/serviceradar-core-elx:${APP_TAG:-latest}
+    container_name: serviceradar-core-elx-mtls
+    hostname: core-elx
+    environment:
+      - CLUSTER_ENABLED=true
+      - CLUSTER_STRATEGY=epmd
+      - CLUSTER_HOSTS=serviceradar_web_ng@web-ng,serviceradar_agent_gateway@agent-gateway,serviceradar_agent_gateway_t2@agent-gateway-t2
+      - ENABLE_TLS_DIST=true
+      - SSL_DIST_OPTFILE=/etc/serviceradar/ssl_dist.conf
+      - ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS:-+fnu}
+      - SPIFFE_CERT_DIR=/etc/serviceradar/certs
+      - RELEASE_COOKIE_FILE=/etc/serviceradar/admin/release-cookie
+      - RELEASE_NODE=serviceradar_core@core-elx
+      - RELEASE_DISTRIBUTION=sname
+      - SERVICERADAR_CORE_OBAN_ENABLED=${SERVICERADAR_CORE_OBAN_ENABLED:-true}
+      - SERVICERADAR_CORE_REPO_ENABLED=${SERVICERADAR_CORE_REPO_ENABLED:-true}
+      - SERVICERADAR_CORE_RUN_MIGRATIONS=${SERVICERADAR_CORE_RUN_MIGRATIONS:-false}
+      - SERVICERADAR_MIGRATIONS_MARKER_PATH=/var/lib/serviceradar/migrations/complete
+      - SERVICERADAR_LOCAL_MAILER=${SERVICERADAR_LOCAL_MAILER:-false}
+      - CLOAK_KEY_FILE=/etc/serviceradar/cloak/cloak.key
+      # Keep Compose DB pressure conservative. CNPG defaults to 100 max connections and
+      # core-elx is the dominant DB client in a single-node stack.
+      - POOL_SIZE=${CORE_ELX_POOL_SIZE:-12}
+      - DATABASE_QUEUE_TARGET_MS=${CORE_ELX_DATABASE_QUEUE_TARGET_MS:-2000}
+      - DATABASE_QUEUE_INTERVAL_MS=${CORE_ELX_DATABASE_QUEUE_INTERVAL_MS:-2000}
+      - DATABASE_TIMEOUT_MS=${CORE_ELX_DATABASE_TIMEOUT_MS:-120000}
+      - DATABASE_POOL_TIMEOUT_MS=${CORE_ELX_DATABASE_POOL_TIMEOUT_MS:-120000}
+      # Protected control-plane pool. Command/status writes use this separate budget
+      # so background jobs cannot starve foreground workflows.
+      - CONTROL_REPO_ENABLED=${CONTROL_REPO_ENABLED:-true}
+      - CONTROL_REPO_POOL_SIZE=${CONTROL_REPO_POOL_SIZE:-4}
+      - CONTROL_DATABASE_QUEUE_TARGET_MS=${CONTROL_DATABASE_QUEUE_TARGET_MS:-2000}
+      - CONTROL_DATABASE_QUEUE_INTERVAL_MS=${CONTROL_DATABASE_QUEUE_INTERVAL_MS:-2000}
+      - CONTROL_DATABASE_TIMEOUT_MS=${CONTROL_DATABASE_TIMEOUT_MS:-120000}
+      - CONTROL_DATABASE_POOL_TIMEOUT_MS=${CONTROL_DATABASE_POOL_TIMEOUT_MS:-120000}
+      # Keep Oban concurrency conservative in Compose. A single-node customer stack
+      # should prioritize user-facing workflows like MTR and diagnostics over heavy
+      # enrichment, maintenance, and wide scheduler fan-out.
+      - OBAN_QUEUE_DEFAULT=${OBAN_QUEUE_DEFAULT:-1}
+      - OBAN_QUEUE_ALERTS=${OBAN_QUEUE_ALERTS:-1}
+      - OBAN_QUEUE_SERVICE_CHECKS=${OBAN_QUEUE_SERVICE_CHECKS:-1}
+      - OBAN_QUEUE_NOTIFICATIONS=${OBAN_QUEUE_NOTIFICATIONS:-1}
+      - OBAN_QUEUE_ONBOARDING=${OBAN_QUEUE_ONBOARDING:-1}
+      - OBAN_QUEUE_EVENTS=${OBAN_QUEUE_EVENTS:-1}
+      - OBAN_QUEUE_SWEEPS=${OBAN_QUEUE_SWEEPS:-1}
+      - OBAN_QUEUE_EDGE=${OBAN_QUEUE_EDGE:-1}
+      - OBAN_QUEUE_INTEGRATIONS=${OBAN_QUEUE_INTEGRATIONS:-1}
+      - OBAN_QUEUE_NATS_ACCOUNTS=${OBAN_QUEUE_NATS_ACCOUNTS:-1}
+      - OBAN_QUEUE_MAINTENANCE=${OBAN_QUEUE_MAINTENANCE:-1}
+      - OBAN_QUEUE_MONITORING=${OBAN_QUEUE_MONITORING:-1}
+      - TRACE_SUMMARIES_REFRESH_CRON=${TRACE_SUMMARIES_REFRESH_CRON:-*/15 * * * *}
+      - TRACE_SUMMARIES_CLEANUP_BATCH_SIZE=${TRACE_SUMMARIES_CLEANUP_BATCH_SIZE:-5000}
+      - SYNC_INGESTOR_BATCH_CONCURRENCY=${SYNC_INGESTOR_BATCH_CONCURRENCY:-2}
+      - SYNC_INGESTOR_COALESCE_MS=${SYNC_INGESTOR_COALESCE_MS:-250}
+      - SYNC_INGESTOR_MAX_INFLIGHT=${SYNC_INGESTOR_MAX_INFLIGHT:-2}
+      - SYNC_INGESTOR_QUEUE_MAX_CHUNKS=${SYNC_INGESTOR_QUEUE_MAX_CHUNKS:-10}
+      - SYNC_INGESTOR_ASYNC=${SYNC_INGESTOR_ASYNC:-true}
+      # Compose should exercise saved MTR automation profiles by default.
+      # Keep the rollout conservative: baseline scheduling on, trigger/consensus off.
+      - MTR_AUTOMATION_ENABLED=${MTR_AUTOMATION_ENABLED:-true}
+      - MTR_AUTOMATION_BASELINE_ENABLED=${MTR_AUTOMATION_BASELINE_ENABLED:-true}
+      - MTR_AUTOMATION_TRIGGER_ENABLED=${MTR_AUTOMATION_TRIGGER_ENABLED:-false}
+      - MTR_AUTOMATION_CONSENSUS_ENABLED=${MTR_AUTOMATION_CONSENSUS_ENABLED:-false}
+      - MTR_RETENTION_DAYS=${MTR_RETENTION_DAYS:-30}
+      # Ansible integration. RetentionWorker treats 0 for run_detail_days
+      # as "disabled"; unset / 0 for run_summary_days means "keep forever".
+      - ANSIBLE_RETENTION_RUN_DETAIL_DAYS=${ANSIBLE_RETENTION_RUN_DETAIL_DAYS:-90}
+      - ANSIBLE_RETENTION_RUN_SUMMARY_DAYS=${ANSIBLE_RETENTION_RUN_SUMMARY_DAYS:-}
+      - ANSIBLE_RETENTION_INTERVAL_SECONDS=${ANSIBLE_RETENTION_INTERVAL_SECONDS:-86400}
+      - AWX_CONTROLLER_HEALTH_INTERVAL_SECONDS=${AWX_CONTROLLER_HEALTH_INTERVAL_SECONDS:-30}
+      - AWX_RUN_WATCHDOG_INTERVAL_SECONDS=${AWX_RUN_WATCHDOG_INTERVAL_SECONDS:-60}
+      - AWX_SCHEDULE_EVALUATOR_INTERVAL_SECONDS=${AWX_SCHEDULE_EVALUATOR_INTERVAL_SECONDS:-60}
+      - ANSIBLE_CATALOG_BASE_DIR=${ANSIBLE_CATALOG_BASE_DIR:-/var/lib/serviceradar/ansible_catalog}
+      # NetFlow/IP enrichment maintenance jobs are intentionally opt-in for the
+      # default Docker stack. They are useful in full telemetry deployments but
+      # expensive on a single embedded Postgres instance, especially with no flow
+      # collection configured. Helm/demo keeps these enabled unless overridden.
+      - IP_ENRICHMENT_SCHEDULER_ENABLED=${IP_ENRICHMENT_SCHEDULER_ENABLED:-false}
+      - GEOLITE_MMDB_SCHEDULER_ENABLED=${GEOLITE_MMDB_SCHEDULER_ENABLED:-false}
+      - IPINFO_MMDB_SCHEDULER_ENABLED=${IPINFO_MMDB_SCHEDULER_ENABLED:-false}
+      - NETFLOW_ENRICHMENT_DATASET_SCHEDULER_ENABLED=${NETFLOW_ENRICHMENT_DATASET_SCHEDULER_ENABLED:-false}
+      - NETFLOW_SECURITY_SCHEDULER_ENABLED=${NETFLOW_SECURITY_SCHEDULER_ENABLED:-false}
+      - NETFLOW_CACHE_SCHEDULER_ENABLED=${NETFLOW_CACHE_SCHEDULER_ENABLED:-false}
+      - ARMIS_NORTHBOUND_SCHEDULER_ENABLED=${ARMIS_NORTHBOUND_SCHEDULER_ENABLED:-true}
+      - PLUGIN_TARGET_POLICY_SCHEDULER_ENABLED=${PLUGIN_TARGET_POLICY_SCHEDULER_ENABLED:-true}
+      - TOPOLOGY_STATE_SCHEDULER_ENABLED=${TOPOLOGY_STATE_SCHEDULER_ENABLED:-true}
+      - DEVICE_ENRICHMENT_RULES_DIR=/var/lib/serviceradar/rules/device-enrichment
+      # Core-owned advisory vulnerability feed ingestion (disk-staged on a named
+      # volume). Off by default in the single-node Compose stack; set
+      # SERVICERADAR_ADVISORY_FEEDS_ENABLED=true to run CISA/VulnCheck KEV
+      # enrichment. The VulnCheck token is a credential rule, not an
+      # environment variable -- see docs/docs/credentials.md. nist-nvd2 stays
+      # sub-gated.
+      - SERVICERADAR_ADVISORY_FEEDS_ENABLED=${SERVICERADAR_ADVISORY_FEEDS_ENABLED:-false}
+      - ADVISORY_FEED_SCHEDULER_ENABLED=${SERVICERADAR_ADVISORY_FEEDS_ENABLED:-false}
+      - SERVICERADAR_ADVISORY_NIST_NVD2_ENABLED=${SERVICERADAR_ADVISORY_NIST_NVD2_ENABLED:-false}
+      - SERVICERADAR_ADVISORY_STAGING_DIR=/var/lib/serviceradar/advisory-feeds
+      - PLUGIN_STORAGE_PUBLIC_URL=${PLUGIN_STORAGE_PUBLIC_URL:-http://web-ng:4000}
+      - PLUGIN_STORAGE_SIGNING_SECRET_FILE=/etc/serviceradar/admin/plugin-storage-signing-secret
+      - PLUGIN_STORAGE_DOWNLOAD_TTL_SECONDS=${PLUGIN_STORAGE_DOWNLOAD_TTL_SECONDS:-86400}
+      - CNPG_HOST=${CNPG_DOCKER_HOST:-cnpg}
+      - CNPG_PORT=${CNPG_DOCKER_PORT:-5432}
+      - CNPG_DATABASE=${CNPG_DATABASE:-serviceradar}
+      - CNPG_USERNAME=${CNPG_USERNAME:-serviceradar}
+      - CNPG_PASSWORD_FILE=/etc/serviceradar/cnpg/serviceradar-password
+      - CNPG_SSL_MODE=${CNPG_SSL_MODE:-verify-full}
+      - CNPG_TLS_SERVER_NAME=${CNPG_TLS_SERVER_NAME:-cnpg}
+      - CNPG_CERT_DIR=/etc/serviceradar/certs
+      - CNPG_CERT_FILE=/etc/serviceradar/certs/db-client.pem
+      - CNPG_KEY_FILE=/etc/serviceradar/certs/db-client-key.pem
+      # Datasvc gRPC client configuration
+      - DATASVC_HOST=datasvc
+      - DATASVC_PORT=50057
+      - DATASVC_SSL=true
+      - DATASVC_CERT_DIR=/etc/serviceradar/certs
+      - DATASVC_CERT_NAME=core
+      - NATS_ENABLED=true
+      - NATS_URL=nats://nats:4222
+      - NATS_TLS=true
+      - NATS_SERVER_NAME=nats.serviceradar
+      - NATS_CREDS_FILE=/etc/serviceradar/creds/platform.creds
+      # OpenTelemetry
+      - OTEL_EXPORTER_OTLP_ENDPOINT=https://log-collector:4317
+      - OTEL_EXPORTER_OTLP_TIMEOUT_MS=${OTEL_EXPORTER_OTLP_TIMEOUT_MS:-30000}
+      - OTEL_EXPORTER_OTLP_RETRY_MAX_ATTEMPTS=${OTEL_EXPORTER_OTLP_RETRY_MAX_ATTEMPTS:-3}
+      - OTEL_BSP_EXPORT_TIMEOUT_MILLIS=${OTEL_BSP_EXPORT_TIMEOUT_MILLIS:-60000}
+      - OTEL_CERT_DIR=/etc/serviceradar/certs
+      - OTEL_CERT_NAME=core
+      - OTEL_SERVICE_NAME=serviceradar-core-elx
+    volumes:
+      - cert-data:/etc/serviceradar/certs:ro
+      - admin-creds:/etc/serviceradar/admin:ro
+      - ./docker/compose/ssl_dist.core.conf:/etc/serviceradar/ssl_dist.conf:ro
+      - cloak-key:/etc/serviceradar/cloak:ro
+      - cnpg-credentials:/etc/serviceradar/cnpg:ro
+      - ${NATS_CREDS_DIR:-nats-creds}:/etc/serviceradar/creds:ro
+      - migrations-data:/var/lib/serviceradar/migrations
+      - serviceradar-advisory-feeds:/var/lib/serviceradar/advisory-feeds
+      - ${DEVICE_ENRICHMENT_RULES_DIR_HOST:-./docker/compose/rules/device-enrichment}:/var/lib/serviceradar/rules/device-enrichment:ro
+    depends_on:
+      config-updater:
+        condition: service_completed_successfully
+      core-elx-migrations:
+        condition: service_completed_successfully
+      cnpg:
+        condition: service_healthy
+      nats:
+        condition: service_started
+      log-collector:
+        condition: service_started
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "test -f /var/lib/serviceradar/migrations/complete && /app/bin/serviceradar_core_elx pid"
+        ]
+      interval: 30s
+      timeout: 15s
+      retries: 10
+      start_period: 300s
+    networks:
+      - serviceradar-net
+    restart: unless-stopped
+
+  # Bootstrap NATS operator/account credentials (idempotent).
+  nats-creds-init:
+    image: registry.carverauto.dev/serviceradar/serviceradar-tools:${APP_TAG:-latest}
+    container_name: serviceradar-nats-creds-init
+    user: "0:0"
+    volumes:
+      - ${NATS_CREDS_DIR:-nats-creds}:/etc/serviceradar/creds
+      - ${NATS_CREDS_SEED_DIR:-./docker/compose/creds}:/seed/creds:ro
+      - ./docker/compose/init-nats-creds.sh:/init-nats-creds.sh:ro
+    environment:
+      - NATS_OPERATOR_NAME=${NATS_OPERATOR_NAME:-serviceradar-dev}
+      - NATS_OPERATOR_SEED=${NATS_OPERATOR_SEED:-}
+      - NATS_SYSTEM_ACCOUNT_PUBLIC_KEY=${NATS_SYSTEM_ACCOUNT_PUBLIC_KEY:-}
+    command: bash /init-nats-creds.sh
+    restart: "no"
+    networks:
+      - serviceradar-net
+
+  # Initialize NATS resolver directory for account JWT persistence
+  nats-config-init:
+    image: alpine:3.20
+    container_name: serviceradar-nats-config-init
+    volumes:
+      - nats-data:/data
+      - ${NATS_CREDS_DIR:-nats-creds}:/etc/serviceradar/creds:ro
+    depends_on:
+      nats-creds-init:
+        condition: service_completed_successfully
+    command:
+      - sh
+      - -c
+      - |
+          set -e
+          mkdir -p /data/jwt
+          if [ -d /etc/serviceradar/creds/jwt ]; then
+            find /etc/serviceradar/creds/jwt -maxdepth 1 -type f -name '*.jwt' -exec cp {} /data/jwt/ \;
+            echo 'Seeded account JWTs from creds/jwt'
+          fi
+          if [ -f /etc/serviceradar/creds/system.jwt ] && [ -f /etc/serviceradar/creds/system_account.pub ]; then
+            system_key="$$(cat /etc/serviceradar/creds/system_account.pub)"
+            if [ -n "$${system_key}" ]; then
+              cp /etc/serviceradar/creds/system.jwt "/data/jwt/$${system_key}.jwt"
+              echo 'Seeded system account JWT'
+            fi
+          fi
+          echo 'Prepared NATS resolver directory'
+    restart: "no"
+    networks:
+      - serviceradar-net
+
+  nats:
+    image: nats:2.14.0-alpine
+    platform: linux/amd64
+    container_name: serviceradar-nats-mtls
+    ports:
+      - "4222:4222"
+      - "${NATS_MONITORING_BIND:-127.0.0.1}:${NATS_MONITORING_PORT:-8222}:8222"
+      - "6222:6222"
+    volumes:
+      - nats-data:/data
+      - cert-data:/etc/serviceradar/certs:ro
+      - ${NATS_CREDS_DIR:-nats-creds}:/etc/serviceradar/creds:ro
+      - ./docker/compose/nats.docker.conf:/etc/nats/nats-server.conf:ro
+    command: ["--config", "/etc/nats/nats-server.conf"]
+    depends_on:
+      cert-generator:
+        condition: service_completed_successfully
+      cert-permissions-fixer:
+        condition: service_completed_successfully
+      nats-config-init:
+        condition: service_completed_successfully
+    networks:
+      serviceradar-net:
+        aliases:
+          - nats.serviceradar
+          - serviceradar-nats
+    restart: unless-stopped
+
+  datasvc:
+    image: registry.carverauto.dev/serviceradar/serviceradar-datasvc:${APP_TAG:-latest}
+    container_name: serviceradar-datasvc-mtls
+    cpus: "2.0"
+    ports:
+      - "50057:50057"
+    volumes:
+      - ./docker/compose/datasvc.mtls.json:/etc/serviceradar/datasvc.json:ro
+      - ./docker/compose/entrypoint-datasvc.sh:/usr/local/bin/entrypoint.sh:ro
+      - cert-data:/etc/serviceradar/certs:ro
+      - ${NATS_CREDS_DIR:-nats-creds}:/etc/serviceradar/creds:ro
+      - datasvc-data:/var/lib/serviceradar
+      - ./logs:/var/log/serviceradar
+    environment:
+      - CONFIG_PATH=/etc/serviceradar/datasvc.json
+      - WAIT_FOR_NATS=true
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - NATS_OPERATOR_SEED=${NATS_OPERATOR_SEED:-}
+      - NATS_SYSTEM_ACCOUNT_PUBLIC_KEY=${NATS_SYSTEM_ACCOUNT_PUBLIC_KEY:-}
+    depends_on:
+      nats:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 50057"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    networks:
+      serviceradar-net:
+        aliases:
+          - datasvc.serviceradar
+    restart: unless-stopped
+
+  agent:
+    image: registry.carverauto.dev/serviceradar/serviceradar-agent:${APP_TAG:-latest}
+    container_name: serviceradar-agent-mtls
+    hostname: agent
+    # Note: agent is push-based and doesn't expose a gRPC server
+    volumes:
+      - ./docker/compose/agent.mtls.json:/etc/serviceradar/agent.json:ro
+      - cert-data:/etc/serviceradar/certs:ro
+      - agent-data:/var/lib/serviceradar
+      - agent-checkers:/var/lib/serviceradar/checkers
+      - ./logs:/var/log/serviceradar
+    environment:
+      - CONFIG_PATH=/etc/serviceradar/agent.json
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    # MTR/traceroute diagnostics run inside the agent container and require raw sockets.
+    # Docker does not make added capabilities effective for our non-root image user, so
+    # run this container as root and explicitly retain NET_RAW for ICMP/MTR sockets.
+    user: "0:0"
+    cap_add:
+      - NET_RAW
+    depends_on:
+      datasvc:
+        condition: service_healthy
+      agent-gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f serviceradar-agent"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      serviceradar-net:
+        aliases:
+          - agent.serviceradar
+    restart: unless-stopped
+
+  agent-gateway:
+    image: registry.carverauto.dev/serviceradar/serviceradar-agent-gateway:${APP_TAG:-latest}
+    container_name: serviceradar-agent-gateway-mtls
+    hostname: agent-gateway
+    environment:
+      - GATEWAY_PARTITION_ID=${GATEWAY_PARTITION_ID:-default}
+      - GATEWAY_ID=${GATEWAY_ID:-docker-gateway}
+      - GATEWAY_DOMAIN=${GATEWAY_DOMAIN:-default}
+      - GATEWAY_GRPC_PORT=50052
+      # Disable StateMonitor - agent-gateway has no database
+      - STATE_MONITOR_ENABLED=false
+      - CLUSTER_ENABLED=true
+      - CLUSTER_STRATEGY=epmd
+      - CLUSTER_HOSTS=serviceradar_web_ng@web-ng,serviceradar_core@core-elx
+      - ENABLE_TLS_DIST=true
+      - SSL_DIST_OPTFILE=/etc/serviceradar/ssl_dist.conf
+      - ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS:-+fnu}
+      - SPIFFE_CERT_DIR=/etc/serviceradar/certs
+      - RELEASE_COOKIE_FILE=/etc/serviceradar/admin/release-cookie
+      - RELEASE_NODE=serviceradar_agent_gateway@agent-gateway
+      - RELEASE_DISTRIBUTION=sname
+      # OpenTelemetry
+      - OTEL_EXPORTER_OTLP_ENDPOINT=https://log-collector:4317
+      - OTEL_EXPORTER_OTLP_TIMEOUT_MS=${OTEL_EXPORTER_OTLP_TIMEOUT_MS:-30000}
+      - OTEL_EXPORTER_OTLP_RETRY_MAX_ATTEMPTS=${OTEL_EXPORTER_OTLP_RETRY_MAX_ATTEMPTS:-3}
+      - OTEL_BSP_EXPORT_TIMEOUT_MILLIS=${OTEL_BSP_EXPORT_TIMEOUT_MILLIS:-60000}
+      - OTEL_CERT_DIR=/etc/serviceradar/certs
+      - OTEL_CERT_NAME=gateway
+      - OTEL_SERVICE_NAME=serviceradar-agent-gateway
+    ports:
+      - "${GATEWAY_PUBLIC_BIND:-127.0.0.1}:${GATEWAY_PUBLIC_PORT:-50052}:50052"
+    volumes:
+      - cert-data:/etc/serviceradar/certs:ro
+      - admin-creds:/etc/serviceradar/admin:ro
+      - ./docker/compose/ssl_dist.gateway.conf:/etc/serviceradar/ssl_dist.conf:ro
+    depends_on:
+      config-updater:
+        condition: service_completed_successfully
+      core-elx:
+        condition: service_healthy
+      log-collector:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "/app/bin/serviceradar_agent_gateway", "pid"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 60s
+    networks:
+      serviceradar-net:
+        aliases:
+          - agent-gateway
+          - agent-gateway.serviceradar
+    restart: unless-stopped
+
+  log-collector:
+    image: registry.carverauto.dev/serviceradar/serviceradar-log-collector:${APP_TAG:-latest}
+    container_name: serviceradar-log-collector-mtls
+    build:
+      context: .
+      dockerfile: docker/compose/Dockerfile.log-collector
+    ports:
+      - "514:514/udp"
+      - "4317:4317"
+      - "50044:50044"
+    volumes:
+      - ./docker/compose/log-collector.docker.toml:/etc/serviceradar/log-collector.toml:ro
+      - ./docker/compose/flowgger.docker.toml:/etc/serviceradar/flowgger.toml:ro
+      - ./docker/compose/otel.docker.toml:/etc/serviceradar/otel.toml:ro
+      - cert-data:/etc/serviceradar/certs:ro
+      - ${NATS_CREDS_DIR:-nats-creds}:/etc/serviceradar/creds:ro
+      - log-collector-data:/var/lib/serviceradar
+      - ./logs:/var/log/serviceradar
+    environment:
+      - CONFIG_SOURCE=file
+      - CONFIG_PATH=/etc/serviceradar/log-collector.toml
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    cap_add:
+      - NET_BIND_SERVICE
+    depends_on:
+      nats:
+        condition: service_started
+    networks:
+      - serviceradar-net
+    restart: unless-stopped
+
+  # Optional network-ingest collectors are disabled in the default compose stack.
+  # Enable all with `docker compose --profile network-ingest up -d`, or enable
+  # individual collectors with `--profile snmp-traps`, `--profile flows`, or
+  # `--profile bmp`.
+  trapd:
+    image: registry.carverauto.dev/serviceradar/serviceradar-trapd:${APP_TAG:-latest}
+    container_name: serviceradar-trapd-mtls
+    profiles:
+      - network-ingest
+      - snmp-traps
+    ports:
+      - "162:162/udp"
+      - "50043:50043"
+    volumes:
+      - ./docker/compose/trapd.docker.json:/etc/serviceradar/trapd.json:ro
+      - cert-data:/etc/serviceradar/certs:ro
+      - ${NATS_CREDS_DIR:-nats-creds}:/etc/serviceradar/creds:ro
+      - trapd-data:/var/lib/serviceradar
+      - ./logs:/var/log/serviceradar
+    environment:
+      - CONFIG_SOURCE=file
+      - CONFIG_PATH=/etc/serviceradar/trapd.json
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    cap_add:
+      - NET_BIND_SERVICE
+    depends_on:
+      nats:
+        condition: service_started
+    networks:
+      - serviceradar-net
+    restart: unless-stopped
+
+  flow-collector:
+    image: registry.carverauto.dev/serviceradar/serviceradar-flow-collector:${APP_TAG:-latest}
+    container_name: serviceradar-flow-collector-mtls
+    profiles:
+      - network-ingest
+      - flows
+    build:
+      context: .
+      dockerfile: rust/flow-collector/Dockerfile
+    ports:
+      - "2055:2055/udp"       # NetFlow/IPFIX
+      - "6343:6343/udp"       # sFlow
+    volumes:
+      - ./docker/compose/flow-collector.docker.json:/etc/serviceradar/flow-collector.json:ro
+      - cert-data:/etc/serviceradar/certs:ro
+      - ${NATS_CREDS_DIR:-nats-creds}:/etc/serviceradar/creds:ro
+      - flow-data:/var/lib/serviceradar
+      - ./logs:/var/log/serviceradar
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      # Share shutdown budget with the publisher drain path (see main.rs).
+      - TERMINATION_GRACE_PERIOD_SECONDS=45
+      - FLOW_COLLECTOR_READY_PATH=/var/lib/serviceradar/flow-collector.ready
+    # Must cover publisher concurrent-ACK drain (default process budget ~43s).
+    stop_grace_period: 45s
+    cap_add:
+      - NET_BIND_SERVICE
+    depends_on:
+      nats:
+        condition: service_started
+    networks:
+      - serviceradar-net
+    restart: unless-stopped
+
+  bmp-collector:
+    image: registry.carverauto.dev/serviceradar/arancini:${ARANCINI_TAG:-latest}
+    container_name: serviceradar-bmp-collector-mtls
+    profiles:
+      - network-ingest
+      - bmp
+    ports:
+      - "11019:11019"
+    volumes:
+      - ./docker/compose/bmp-collector.docker.json:/etc/serviceradar/bmp-collector.json:ro
+      - cert-data:/etc/serviceradar/certs:ro
+      - ${NATS_CREDS_DIR:-nats-creds}:/etc/serviceradar/creds:ro
+      - bmp-data:/var/lib/serviceradar
+      - ./logs:/var/log/serviceradar
+    command:
+      - "--config"
+      - "/etc/serviceradar/bmp-collector.json"
+    cap_add:
+      - NET_BIND_SERVICE
+    depends_on:
+      nats:
+        condition: service_started
+    networks:
+      - serviceradar-net
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Cold-tier DEV TOOLING (profile: coldtier) — OpenSpec add-tiered-telemetry-offload.
+  #
+  # Opt-in ONLY: `docker compose --profile coldtier up -d`. The default stack
+  # never starts these services, and core-elx never sees cold-tier config
+  # unless you wire it in yourself (design D11 — zero behavior change when the
+  # cold-tier configuration is absent). This is not an OSS enablement path.
+  #
+  # Services: MinIO (S3-compatible object store), a one-shot bucket bootstrap,
+  # and `cold-head` — a local analytics query head (PostgreSQL 18 + pg_duckdb,
+  # no TimescaleDB) mirroring the Helm cold-analytics-head.yaml component.
+  # Together with the default compose CNPG this exercises the full
+  # export→verify→drop→query-back loop without cloud object storage.
+  #
+  # To point core-elx at this tier, set the cold-tier environment consumed by
+  # elixir/serviceradar_core/config/runtime.exs (ServiceRadar.ColdTier block):
+  #   SERVICERADAR_COLD_TIER_ENABLED=true
+  #   SERVICERADAR_COLD_TIER_BUCKET_URL=s3://serviceradar-cold
+  #   SERVICERADAR_COLD_TIER_S3_ENDPOINT=minio:9000   # in-network endpoint
+  #   SERVICERADAR_COLD_TIER_S3_URL_STYLE=path
+  #   SERVICERADAR_COLD_TIER_S3_USE_SSL=false
+  #   SERVICERADAR_COLD_TIER_S3_ACCESS_KEY_ID / _SECRET_ACCESS_KEY
+  #   SERVICERADAR_COLD_TIER_HEAD_HOST=cold-head (+ _PORT/_DATABASE/_USERNAME/_PASSWORD)
+  #   SERVICERADAR_COLD_TIER_PRIMARY_HOST=cnpg   # the primary as seen FROM the head
+  #   SERVICERADAR_COLD_TIER_PRIMARY_FDW_USERNAME / _PASSWORD (+ _PORT/_DATABASE)
+  # Full annotated list: docker/compose/coldtier.env.example. Recommended
+  # wiring is a docker-compose.override.yml that adds
+  #   services: { core-elx: { env_file: [./docker/compose/coldtier.env] } }
+  # so the main file stays cold-tier-free by default.
+  minio:
+    image: minio/minio:latest
+    container_name: serviceradar-coldtier-minio
+    profiles:
+      - coldtier
+    environment:
+      - MINIO_ROOT_USER=${SR_COLDTIER_MINIO_USER:-serviceradar}
+      - MINIO_ROOT_PASSWORD=${SR_COLDTIER_MINIO_PASSWORD:-serviceradarcold}
+    command: ["server", "/data", "--console-address", ":9001"]
+    ports:
+      - "127.0.0.1:${SR_COLDTIER_MINIO_PORT:-59000}:9000"
+      - "127.0.0.1:${SR_COLDTIER_MINIO_CONSOLE_PORT:-59001}:9001"
+    volumes:
+      - coldtier-minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+    networks:
+      - serviceradar-net
+    restart: unless-stopped
+
+  # One-shot bucket bootstrap (idempotent). Bucket versioning stays OFF (the
+  # MinIO default): idempotent re-export overwrites objects in place, and a
+  # versioned bucket would silently accumulate full noncurrent copies
+  # (design D9 / spike 0.4).
+  minio-init:
+    image: minio/mc:latest
+    container_name: serviceradar-coldtier-minio-init
+    profiles:
+      - coldtier
+    environment:
+      - SR_COLDTIER_MINIO_USER=${SR_COLDTIER_MINIO_USER:-serviceradar}
+      - SR_COLDTIER_MINIO_PASSWORD=${SR_COLDTIER_MINIO_PASSWORD:-serviceradarcold}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        mc alias set coldtier http://minio:9000 "$${SR_COLDTIER_MINIO_USER}" "$${SR_COLDTIER_MINIO_PASSWORD}"
+        mc mb -p coldtier/serviceradar-cold
+        mc ls coldtier
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - serviceradar-net
+
+  # Local analytics query head: PostgreSQL 18 + pg_duckdb (no TimescaleDB),
+  # the compose analogue of helm/serviceradar/templates/cold-analytics-head.yaml.
+  # C collation is REQUIRED (design D7 / spike 0.6): the CNPG primary is
+  # C-collated and DuckDB always sorts binary/codepoint — the stock pgduckdb
+  # image defaults to en_US.utf8, so initdb args must never be dropped.
+  cold-head:
+    image: pgduckdb/pgduckdb:18-v1.1.1
+    container_name: serviceradar-coldtier-head
+    profiles:
+      - coldtier
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_preload_libraries=pg_duckdb"
+      - "-c"
+      - "duckdb.max_memory=1536MB"
+      - "-c"
+      - "duckdb.threads=2"
+      - "-c"
+      - "duckdb.max_temp_directory_size=10GB"
+      - "-c"
+      - "duckdb.autoinstall_known_extensions=false"
+      - "-c"
+      - "duckdb.autoload_known_extensions=true"
+      - "-c"
+      - "duckdb.allow_community_extensions=false"
+    environment:
+      - POSTGRES_USER=${SR_COLDTIER_HEAD_USER:-serviceradar}
+      - POSTGRES_PASSWORD=${SR_COLDTIER_HEAD_PASSWORD:-serviceradarcoldhead}
+      - POSTGRES_DB=${SR_COLDTIER_HEAD_DATABASE:-serviceradar}
+      - POSTGRES_INITDB_ARGS=--locale=C --encoding=UTF8
+    ports:
+      - "127.0.0.1:${SR_COLDTIER_HEAD_PORT:-55433}:5432"
+    volumes:
+      # PG18 official-image layout: PGDATA is /var/lib/postgresql/<major>/docker
+      # and the image VOLUME moved to the parent — mount /var/lib/postgresql,
+      # NOT the legacy /var/lib/postgresql/data.
+      - coldtier-head-data:/var/lib/postgresql
+      - ./docker/compose/coldtier-head-init.sh:/docker-entrypoint-initdb.d/coldtier-head-init.sh:ro
+      # The compose primary's pg_hba enforces hostssl + clientcert=verify-full,
+      # so the head's postgres_fdw SERVER options need sslrootcert/sslcert/
+      # sslkey under this mount to reach cnpg. Read-only; empty when the head
+      # is started standalone (harmless).
+      - cert-data:/etc/serviceradar/certs:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    networks:
+      - serviceradar-net
+    restart: unless-stopped
+
+  web-ng:
+    image: registry.carverauto.dev/serviceradar/serviceradar-web-ng:${APP_TAG:-latest}
+    container_name: serviceradar-web-ng-mtls
+    environment:
+      - PORT=4000
+      - PHX_SERVER=true
+      - PHX_HOST=${SERVICERADAR_HOST:-localhost}
+      - PHX_CHECK_ORIGIN=${PHX_CHECK_ORIGIN:-false}
+      - SERVICERADAR_DEV_ROUTES=${SERVICERADAR_DEV_ROUTES:-true}
+      - SERVICERADAR_LOCAL_MAILER=${SERVICERADAR_LOCAL_MAILER:-true}
+      # web-ng runs Oban workers, but not Cron scheduling/peer leadership. Queue widths
+      # are explicitly budgeted so Compose does not rely on hidden high-concurrency defaults.
+      - SERVICERADAR_WEB_NG_OBAN_ENABLED=${SERVICERADAR_WEB_NG_OBAN_ENABLED:-true}
+      - WEB_NG_OBAN_QUEUE_DEFAULT=${WEB_NG_OBAN_QUEUE_DEFAULT:-1}
+      - WEB_NG_OBAN_QUEUE_ALERTS=${WEB_NG_OBAN_QUEUE_ALERTS:-1}
+      - WEB_NG_OBAN_QUEUE_SERVICE_CHECKS=${WEB_NG_OBAN_QUEUE_SERVICE_CHECKS:-1}
+      - WEB_NG_OBAN_QUEUE_NOTIFICATIONS=${WEB_NG_OBAN_QUEUE_NOTIFICATIONS:-1}
+      - WEB_NG_OBAN_QUEUE_ONBOARDING=${WEB_NG_OBAN_QUEUE_ONBOARDING:-1}
+      - WEB_NG_OBAN_QUEUE_EVENTS=${WEB_NG_OBAN_QUEUE_EVENTS:-1}
+      - WEB_NG_OBAN_QUEUE_SWEEPS=${WEB_NG_OBAN_QUEUE_SWEEPS:-1}
+      - WEB_NG_OBAN_QUEUE_EDGE=${WEB_NG_OBAN_QUEUE_EDGE:-1}
+      - WEB_NG_OBAN_QUEUE_INTEGRATIONS=${WEB_NG_OBAN_QUEUE_INTEGRATIONS:-1}
+      - WEB_NG_OBAN_QUEUE_MAINTENANCE=${WEB_NG_OBAN_QUEUE_MAINTENANCE:-0}
+      - WEB_NG_OBAN_NOTIFIER=${WEB_NG_OBAN_NOTIFIER:-pg}
+      - SERVICERADAR_GOD_VIEW_ENABLED=true
+      - SERVICERADAR_GOD_VIEW_RUNTIME_GRAPH_REFRESH_MS=${SERVICERADAR_GOD_VIEW_RUNTIME_GRAPH_REFRESH_MS:-30000}
+      - SERVICERADAR_GOD_VIEW_RUNTIME_GRAPH_AUTO_REFRESH=${SERVICERADAR_GOD_VIEW_RUNTIME_GRAPH_AUTO_REFRESH:-true}
+      - SERVICERADAR_ADMIN_EMAIL=${SERVICERADAR_ADMIN_EMAIL:-root@localhost}
+      - SERVICERADAR_ADMIN_PASSWORD_FILE=/etc/serviceradar/admin/admin-password
+      # Leave force-sync off by default so UI-driven admin password changes are
+      # not overwritten on restart. Set true only when the mounted admin-password
+      # file is the intended source of truth.
+      - SERVICERADAR_ADMIN_PASSWORD_FORCE_SYNC=${SERVICERADAR_ADMIN_PASSWORD_FORCE_SYNC:-false}
+      # Break-glass: permit local password login regardless of SSO enforcement
+      # (server-side LoginPolicy). A valid password is still required — this is the
+      # recover-from-broken-AuthSettings hatch, not a bypass or per-user policy
+      # control. DISABLE_SSO hides the SSO button. Both default off.
+      - SERVICERADAR_AUTH_FORCE_LOCAL_LOGIN=${SERVICERADAR_AUTH_FORCE_LOCAL_LOGIN:-false}
+      - SERVICERADAR_AUTH_DISABLE_SSO=${SERVICERADAR_AUTH_DISABLE_SSO:-false}
+      # MCP at /mcp. Off by default. extraEnv-style overrides are not needed;
+      # these are the runtime flags web-ng reads.
+      - SERVICERADAR_MCP_ENABLED=${SERVICERADAR_MCP_ENABLED:-false}
+      - SERVICERADAR_MCP_CLIENT_CREDENTIALS_ENABLED=${SERVICERADAR_MCP_CLIENT_CREDENTIALS_ENABLED:-true}
+      - SERVICERADAR_MCP_REFRESH_TTL_SECONDS=${SERVICERADAR_MCP_REFRESH_TTL_SECONDS:-28800}
+      - SERVICERADAR_GATEWAY_ADDR=${SERVICERADAR_GATEWAY_ADDR:-${SERVICERADAR_HOST:-localhost}:50052}
+      - NATS_URL=${NATS_URL:-nats://nats:4222}
+      - CORE_ADDRESS=${CORE_ADDRESS:-core-elx:50052}
+      - CLUSTER_ENABLED=true
+      - CLUSTER_STRATEGY=epmd
+      - CLUSTER_HOSTS=serviceradar_agent_gateway@agent-gateway,serviceradar_core@core-elx,serviceradar_agent_gateway_t2@agent-gateway-t2
+      - CLUSTER_TLS_ENABLED=true
+      - SSL_DIST_OPTFILE=/etc/serviceradar/ssl_dist.conf
+      - ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS:-+fnu}
+      - RELEASE_COOKIE_FILE=/etc/serviceradar/admin/release-cookie
+      - RELEASE_NODE=serviceradar_web_ng@web-ng
+      - RELEASE_DISTRIBUTION=sname
+      - SERVICERADAR_SECURITY_MODE=${SERVICERADAR_SECURITY_MODE:-mtls}
+      - SERVICERADAR_MIGRATIONS_MARKER_PATH=/var/lib/serviceradar/migrations/complete
+      - SECRET_KEY_BASE_FILE=/etc/serviceradar/admin/secret-key-base
+      - PLUGIN_STORAGE_BACKEND=filesystem
+      - PLUGIN_STORAGE_PATH=/var/lib/serviceradar/plugin-packages
+      - PLUGIN_STORAGE_SIGNING_SECRET_FILE=/etc/serviceradar/admin/plugin-storage-signing-secret
+      - DEVICE_ENRICHMENT_RULES_DIR=/var/lib/serviceradar/rules/device-enrichment
+      - CLOAK_KEY_FILE=/etc/serviceradar/cloak/cloak.key
+      - ADMIN_BASIC_AUTH_USERNAME=${ADMIN_BASIC_AUTH_USERNAME:-}
+      - ADMIN_BASIC_AUTH_PASSWORD=${ADMIN_BASIC_AUTH_PASSWORD:-}
+      - CNPG_HOST=${CNPG_DOCKER_HOST:-cnpg}
+      - CNPG_PORT=${CNPG_DOCKER_PORT:-5432}
+      - CNPG_DATABASE=${CNPG_DATABASE:-serviceradar}
+      - CNPG_USERNAME=${CNPG_USERNAME:-serviceradar}
+      - CNPG_PASSWORD_FILE=/etc/serviceradar/cnpg/serviceradar-password
+      - CNPG_SSL_MODE=${CNPG_SSL_MODE:-verify-full}
+      - CNPG_TLS_SERVER_NAME=${CNPG_TLS_SERVER_NAME:-cnpg}
+      - CNPG_CERT_DIR=/etc/serviceradar/certs
+      - CNPG_CERT_FILE=/etc/serviceradar/certs/db-client.pem
+      - CNPG_KEY_FILE=/etc/serviceradar/certs/db-client-key.pem
+      # Pin the web repo pool explicitly so Compose does not inherit an oversized global
+      # POOL_SIZE intended for core-elx.
+      - POOL_SIZE=${WEB_NG_POOL_SIZE:-6}
+      - DATABASE_QUEUE_TARGET_MS=${WEB_NG_DATABASE_QUEUE_TARGET_MS:-2000}
+      - DATABASE_QUEUE_INTERVAL_MS=${WEB_NG_DATABASE_QUEUE_INTERVAL_MS:-2000}
+      - DATABASE_TIMEOUT_MS=${WEB_NG_DATABASE_TIMEOUT_MS:-120000}
+      - DATABASE_POOL_TIMEOUT_MS=${WEB_NG_DATABASE_POOL_TIMEOUT_MS:-120000}
+      # Datasvc gRPC client configuration
+      - DATASVC_ADDRESS=datasvc:50057
+      - DATASVC_HOST=datasvc
+      - DATASVC_PORT=50057
+      - DATASVC_SSL=true
+      - DATASVC_CERT_DIR=/etc/serviceradar/certs
+      - DATASVC_CERT_NAME=web
+      - DATASVC_SERVER_NAME=datasvc.serviceradar
+      # OpenTelemetry
+      - OTEL_EXPORTER_OTLP_ENDPOINT=https://log-collector:4317
+      - OTEL_EXPORTER_OTLP_TIMEOUT_MS=${OTEL_EXPORTER_OTLP_TIMEOUT_MS:-30000}
+      - OTEL_EXPORTER_OTLP_RETRY_MAX_ATTEMPTS=${OTEL_EXPORTER_OTLP_RETRY_MAX_ATTEMPTS:-3}
+      - OTEL_BSP_EXPORT_TIMEOUT_MILLIS=${OTEL_BSP_EXPORT_TIMEOUT_MILLIS:-60000}
+      - OTEL_CERT_DIR=/etc/serviceradar/certs
+      - OTEL_CERT_NAME=web
+      - OTEL_SERVICE_NAME=serviceradar-web-ng
+    volumes:
+      - cert-data:/etc/serviceradar/certs:ro
+      - admin-creds:/etc/serviceradar/admin:ro
+      - ./docker/compose/ssl_dist.web.conf:/etc/serviceradar/ssl_dist.conf:ro
+      - cloak-key:/etc/serviceradar/cloak:ro
+      - cnpg-credentials:/etc/serviceradar/cnpg:ro
+      - migrations-data:/var/lib/serviceradar/migrations:ro
+      - plugin-packages:/var/lib/serviceradar/plugin-packages
+      - ${DEVICE_ENRICHMENT_RULES_DIR_HOST:-./docker/compose/rules/device-enrichment}:/var/lib/serviceradar/rules/device-enrichment
+    depends_on:
+      config-updater:
+        condition: service_completed_successfully
+      plugin-packages-permissions-fixer:
+        condition: service_completed_successfully
+      cnpg:
+        condition: service_healthy
+      core-elx:
+        condition: service_healthy
+      log-collector:
+        condition: service_started
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "/app/bin/serviceradar_web_ng eval 'case :gen_tcp.connect(~c\"127.0.0.1\", 4000, [:binary, active: false], 2000) do {:ok, socket} -> :gen_tcp.close(socket); System.halt(0); other -> IO.inspect(other); System.halt(1) end'"
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - serviceradar-net
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2.8.4-alpine
+    container_name: serviceradar-caddy-mtls
+    user: "0:0"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - cert-data:/etc/serviceradar/certs:ro
+      - ./docker/compose/Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      web-ng:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1/health/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - serviceradar-net
+    restart: unless-stopped
+
+volumes:
+  agent-data:
+    name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_agent-data"
+  agent-checkers:
+    name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_agent-checkers"
+  cert-data:
+    name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_cert-data"
+  cnpg-credentials:
+    name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_cnpg-credentials"
+  cnpg-data:
+    name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_cnpg-data"
+  datasvc-data:
+  nats-data:
+    name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_nats-data"
+  nats-creds:
+    name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_nats-creds"
+  cloak-key:
+    name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_cloak-key"
+  admin-creds:
+    name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_admin-creds"
+  migrations-data:
+    name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_migrations-data"
+  serviceradar-advisory-feeds:
+    name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_advisory-feeds"
+  plugin-packages:
+    name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_plugin-packages"
+  logs:
+  log-collector-data:
+  trapd-data:
+  flow-data:
+  bmp-data:
+  coldtier-minio-data:
+    name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_coldtier-minio-data"
+  coldtier-head-data:
+    name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_coldtier-head-data"
+
+networks:
+  serviceradar-net:
+    driver: bridge

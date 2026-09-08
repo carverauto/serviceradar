@@ -1,0 +1,195 @@
+// ServiceRadar configuration rule set.
+//
+// Validation is DATA, not per-language code. A rule names a field, a predicate, an
+// evaluation phase, an environment scope, and a stable violation code. Three
+// implementations read this same committed file, so a constraint is added once and
+// enforced everywhere without any implementation changing.
+//
+// The scaling argument, from the audit that motivated this: hand-written checks scale as
+// (fields x languages) -- ~58 x 3 today. A rule set scales as (predicates x languages),
+// ~8 x 3, and eight predicates can be tested exhaustively where 58 fields cannot.
+//
+// THE VOCABULARY IS CLOSED. A rule cannot express arbitrary logic; it selects one of the
+// predicates below. That is deliberate. A general expression language (CEL) would need a
+// mature interpreter in all three languages, and none exists for Elixir -- protovalidate
+// has no Elixir implementation, and the only BEAM-reachable CEL is a pre-1.0 Gleam library
+// last released in 2024 with zero recent downloads. Adding a predicate is an explicit,
+// reviewed change to this file plus conformance vectors, which is the intended friction.
+//
+// Semantics -- totality, cascading, ordering, phase and scope interaction -- are specified
+// in config/SEMANTICS.md. That document is normative; this file only carries the shapes.
+syntax = "proto3";
+
+package serviceradar.config.v1;
+
+// Scope selects environments by kind, so the rule set depends on the schema it validates.
+import "config/proto/config.proto";
+
+option go_package = "github.com/carverauto/serviceradar/config/proto;configpb";
+
+// When a rule can be evaluated.
+//
+// Some constraints are checkable against the committed file alone; others need secrets
+// resolved and therefore cannot run at build time. Without this distinction the build-time
+// validator would fail on rules it structurally cannot evaluate.
+enum Phase {
+  PHASE_UNSPECIFIED = 0;
+  // Evaluated against the configuration file alone. Build time and runtime.
+  PHASE_CONFIG = 1;
+  // Evaluated only against configuration resolved together with secrets. Runtime only.
+  PHASE_RESOLVED = 2;
+  // Evaluated in both, against whatever is available in that phase.
+  PHASE_BOTH = 3;
+}
+
+// Which environments a rule applies to.
+//
+// Needed because on-prem is multi-instance: an invariant such as "verified TLS everywhere
+// except localhost" must state whether it ranges over kinds or over every instance. A rule
+// with no scope would be ambiguous the moment a second customer instance exists.
+message Scope {
+  // Empty means every environment. Otherwise the rule applies only to these kinds.
+  repeated EnvironmentKind kinds = 1;
+  // Kinds explicitly exempted, applied after `kinds`.
+  repeated EnvironmentKind except_kinds = 2;
+}
+
+// A field must be present. Explicit presence, not a non-zero value.
+message Required {}
+
+// A present string, bytes or repeated field must have non-zero length.
+//
+// Absence is NOT a violation of this predicate -- see the cascading rule in SEMANTICS.md.
+// Pair with `Required` when both matter.
+message NonEmpty {}
+
+// A present numeric field must lie within [min, max], inclusive at both ends.
+message IntRange {
+  optional int64 min = 1;
+  optional int64 max = 2;
+}
+
+// A present field's value must be a member of the permitted set.
+//
+// `enum_values` names enum value identifiers; `string_values` names string literals.
+// Exactly one list is populated, determined by the field's type.
+message OneOf {
+  repeated string enum_values = 1;
+  repeated string string_values = 2;
+}
+
+// A present string field must match the regular expression.
+//
+// The pattern is RE2 syntax, which all three implementations support without backtracking
+// and therefore without a pathological-input class.
+message Matches {
+  optional string pattern = 1;
+}
+
+// A field is required when another field holds a given value.
+//
+// The motivating case: `tls_server_name` is required when `tls_mode` is VERIFY_FULL,
+// because the fixture certificate carries DNS SANs and no IP SANs.
+message RequiredIf {
+  optional string other_field_path = 1;
+  optional string other_enum_value = 2;
+  optional string other_string_value = 3;
+}
+
+// A present field must NOT hold the given value.
+//
+// The motivating case: rejecting an `*_UNSPECIFIED` enum sentinel, so an unset enum is an
+// error rather than accidentally the first defined value.
+message ForbiddenValue {
+  optional string enum_value = 1;
+  optional string string_value = 2;
+}
+
+// A field must be ABSENT when another field holds one of the given values.
+//
+// The trigger is a SET, unlike RequiredIf's single value. The forbidding side almost always
+// enumerates the COMPLEMENT of one permitted value, and writing one rule per excluded value
+// is precisely how a newly added enum value silently becomes permitted. The meta-rule checks
+// that a RequiredIf/ForbiddenIf pair keyed on the same enum covers every value of it.
+//
+// The motivating case: `instance` names an on-prem deployment, so it is required when the
+// kind is ONPREM and must be absent otherwise -- the half that previously had no predicate,
+// leaving the proto's "must be absent otherwise" unenforceable.
+message ForbiddenIf {
+  optional string other_field_path = 1;
+  repeated string other_enum_values = 2;
+  repeated string other_string_values = 3;
+}
+
+// The field must hold the same value in every environment within scope.
+//
+// Evaluated across instances rather than within one, so it runs only in the build-time
+// validator, which sees them all.
+message EqualAcrossEnvs {}
+
+// One rule.
+//
+// The predicate is a oneof rather than an enum plus a separate parameter message, so a
+// predicate and its parameters cannot disagree -- an entire class of malformed rule is
+// unrepresentable.
+message Rule {
+  // Dotted path from the root message, e.g. "database.tls_server_name".
+  optional string field_path = 1;
+
+  // Stable identifier for this violation, e.g. "DATABASE_TLS_SERVER_NAME_REQUIRED".
+  // Conformance vectors assert this code, not merely that validation rejected the input,
+  // so three implementations cannot agree on rejection while disagreeing on why.
+  optional string code = 2;
+
+  optional Phase phase = 3;
+  optional Scope scope = 4;
+
+  // Human-readable explanation, surfaced with the violation.
+  optional string description = 5;
+
+  oneof predicate {
+    Required required = 10;
+    NonEmpty non_empty = 11;
+    IntRange int_range = 12;
+    OneOf one_of = 13;
+    Matches matches = 14;
+    RequiredIf required_if = 15;
+    ForbiddenValue forbidden_value = 16;
+    EqualAcrossEnvs equal_across_envs = 17;
+    ForbiddenIf forbidden_if = 18;
+  }
+}
+
+// The committed rule set.
+message RuleSet {
+  repeated Rule rules = 1;
+}
+
+// A violation a fixture is expected to produce.
+//
+// Identity, not merely rejection: three implementations can reject the same input for three
+// different reasons and a bare accept/reject assertion would stay green. Vectors compare
+// (code, field_path).
+message ExpectedViolation {
+  optional string code = 1;
+  optional string field_path = 2;
+}
+
+// One conformance case.
+//
+// Serves both roles in this design: the NEGATIVE FIXTURE that makes deleting a rule fail a
+// test (SEMANTICS.md section 8), and the CONFORMANCE VECTOR that all three implementations
+// must reproduce (section 10). They are the same artifact, so a rule cannot gain a fixture
+// without gaining a vector.
+message Fixture {
+  optional string name = 1;
+  optional string description = 2;
+  optional Phase phase = 3;
+  optional EnvironmentConfig instance = 4;
+  // Empty means the instance must validate cleanly.
+  repeated ExpectedViolation expected_violations = 5;
+}
+
+message FixtureSet {
+  repeated Fixture fixtures = 1;
+}

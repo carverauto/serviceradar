@@ -1,0 +1,333 @@
+id: unifi-protect-camera
+name: UniFi Protect Camera
+version: 0.1.4
+description: Collects UniFi Protect camera inventory and stream metadata
+entrypoint: run_check
+runtime: wasi-preview1
+outputs: serviceradar.plugin_result.v1
+capabilities:
+  - get_config
+  - log
+  - submit_result
+  - emit_telemetry
+  - http_request
+  - websocket_connect
+  - websocket_recv
+  - websocket_close
+permissions:
+  allowed_domains:
+    - "*"
+  # Domain wildcards never match literal-IP destinations; these ranges cover
+  # Protect controllers addressed by private or carrier-grade NAT IP. Link-local
+  # (169.254.0.0/16) is excluded: no controller is deliberately addressed there.
+  allowed_networks:
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
+    - "192.168.0.0/16"
+    - "100.64.0.0/10"
+  allowed_ports:
+    - 80
+    - 443
+    - 7447
+    - 7441
+resources:
+  requested_memory_mb: 64
+  requested_cpu_ms: 2000
+  max_open_connections: 2
+signal_schemas:
+  - id: com.carverauto.unifi_protect.camera_event
+    version: 1.0.0
+    signal_type: event
+    payload_kind: ocsf_event
+    payload_schema: schemas/ocsf_event_log_activity.schema.json
+    display_contract: display/camera_event.display.json
+    display_contract_id: com.carverauto.unifi_protect.camera_event.display
+    display_contract_version: 1.1.0
+    ocsf_schema_version: 1.5.0
+    class_uid: 1008
+    type_uid: 100801
+integrations:
+  credential_profiles:
+    - provider: unifi-protect
+      label: UniFi Protect
+      description: Camera inventory and streams from a UniFi Protect controller.
+      supports_rules: true
+      auth_methods:
+        - id: api_key
+          label: API key
+          credential_kind: api_token
+          fields:
+            - id: api_key
+              label: API key
+              control: password
+              required: true
+              secret: true
+              public: false
+          payload:
+            format: scalar
+            field: api_key
+        - id: username_password
+          label: Username and password
+          credential_kind: username_password
+          fields:
+            - id: username
+              label: Username
+              control: text
+              required: true
+              secret: false
+              public: true
+            - id: password
+              label: Password
+              control: password
+              required: true
+              secret: true
+              public: false
+          payload:
+            format: scalar
+            field: password
+            username_field: username
+      purposes:
+        - camera_inventory
+        - camera_stream
+      scope_types:
+        - agent
+        - gateway
+        - partition
+      rule_defaults:
+        auth_method: api_key
+        purposes:
+          - camera_inventory
+          - camera_stream
+        target_query: 'in:devices vendor:"Ubiquiti"'
+        scope_type: agent
+        allowed_ports: "443, 7447"
+        tls_policy: verify
+        ssh_host_key_policy: known_hosts
+      rule_controls:
+        allowed_ports: true
+        controller_host: true
+        target_query: true
+        transport: true
+      provisioning:
+        mode: target_policy
+        consumers:
+          - purpose: camera_inventory
+            plugin_id: unifi-protect-camera
+            auth_methods:
+              - api_key
+            constraints: {}
+            grant:
+              grant_type: unifi_protect_api
+              resolution_location: control_plane
+              ttl_seconds: 300
+            params:
+              credential_broker:
+                $source: grant
+              scheme:
+                $source: metadata
+                key: scheme
+                type: string
+                default: https
+              timeout_ms:
+                $source: metadata
+                key: timeout_ms
+                type: integer
+                default: 30000
+              insecure_skip_verify:
+                $source: rule
+                field: tls_policy
+                equals: skip_verify
+              rtsp_port:
+                $source: metadata
+                key: rtsp_port
+                type: integer
+                default: 7447
+              bootstrap_path:
+                $source: metadata
+                key: bootstrap_path
+                type: string
+                default: /proxy/protect/api/bootstrap
+              login_path:
+                $source: metadata
+                key: login_path
+                type: string
+                default: /api/auth/login
+              credential_rule_id:
+                $source: rule
+                field: id
+              host:
+                $source: metadata_first
+                keys:
+                  - host
+                  - controller_host
+                  - static_host
+                normalize: hostname
+                omit_if_blank: true
+              api_key_secret_ref:
+                $source: secret_ref
+          - purpose: camera_stream
+            plugin_id: unifi-protect-camera-stream
+            auth_methods:
+              - api_key
+            constraints: {}
+            grant:
+              grant_type: unifi_protect_api
+              resolution_location: control_plane
+              ttl_seconds: 300
+            params:
+              credential_broker:
+                $source: grant
+              scheme:
+                $source: metadata
+                key: scheme
+                type: string
+                default: https
+              timeout_ms:
+                $source: metadata
+                key: timeout_ms
+                type: integer
+                default: 30000
+              insecure_skip_verify:
+                $source: rule
+                field: tls_policy
+                equals: skip_verify
+              rtsp_port:
+                $source: metadata
+                key: rtsp_port
+                type: integer
+                default: 7447
+              bootstrap_path:
+                $source: metadata
+                key: bootstrap_path
+                type: string
+                default: /proxy/protect/api/bootstrap
+              login_path:
+                $source: metadata
+                key: login_path
+                type: string
+                default: /api/auth/login
+              credential_rule_id:
+                $source: rule
+                field: id
+              host:
+                $source: metadata_first
+                keys:
+                  - host
+                  - controller_host
+                  - static_host
+                normalize: hostname
+                omit_if_blank: true
+              api_key_secret_ref:
+                $source: secret_ref
+          - purpose: camera_inventory
+            plugin_id: unifi-protect-camera
+            auth_methods:
+              - username_password
+            constraints: {}
+            grant:
+              grant_type: unifi_protect_api
+              resolution_location: control_plane
+              ttl_seconds: 300
+            params:
+              credential_broker:
+                $source: grant
+              scheme:
+                $source: metadata
+                key: scheme
+                type: string
+                default: https
+              timeout_ms:
+                $source: metadata
+                key: timeout_ms
+                type: integer
+                default: 30000
+              insecure_skip_verify:
+                $source: rule
+                field: tls_policy
+                equals: skip_verify
+              rtsp_port:
+                $source: metadata
+                key: rtsp_port
+                type: integer
+                default: 7447
+              bootstrap_path:
+                $source: metadata
+                key: bootstrap_path
+                type: string
+                default: /proxy/protect/api/bootstrap
+              login_path:
+                $source: metadata
+                key: login_path
+                type: string
+                default: /api/auth/login
+              credential_rule_id:
+                $source: rule
+                field: id
+              host:
+                $source: metadata_first
+                keys:
+                  - host
+                  - controller_host
+                  - static_host
+                normalize: hostname
+                omit_if_blank: true
+              password_secret_ref:
+                $source: secret_ref
+              username:
+                $source: public_username
+          - purpose: camera_stream
+            plugin_id: unifi-protect-camera-stream
+            auth_methods:
+              - username_password
+            constraints: {}
+            grant:
+              grant_type: unifi_protect_api
+              resolution_location: control_plane
+              ttl_seconds: 300
+            params:
+              credential_broker:
+                $source: grant
+              scheme:
+                $source: metadata
+                key: scheme
+                type: string
+                default: https
+              timeout_ms:
+                $source: metadata
+                key: timeout_ms
+                type: integer
+                default: 30000
+              insecure_skip_verify:
+                $source: rule
+                field: tls_policy
+                equals: skip_verify
+              rtsp_port:
+                $source: metadata
+                key: rtsp_port
+                type: integer
+                default: 7447
+              bootstrap_path:
+                $source: metadata
+                key: bootstrap_path
+                type: string
+                default: /proxy/protect/api/bootstrap
+              login_path:
+                $source: metadata
+                key: login_path
+                type: string
+                default: /api/auth/login
+              credential_rule_id:
+                $source: rule
+                field: id
+              host:
+                $source: metadata_first
+                keys:
+                  - host
+                  - controller_host
+                  - static_host
+                normalize: hostname
+                omit_if_blank: true
+              password_secret_ref:
+                $source: secret_ref
+              username:
+                $source: public_username

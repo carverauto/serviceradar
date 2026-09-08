@@ -1,0 +1,183 @@
+{{- /* Component gate (issue #3859). ABSENT MEANS ENABLED: hasKey is used rather than a
+     truthiness test so that a chart or values file which never mentions `enabled`
+     renders exactly as before, and only an explicit `trivySidecar.enabled: false` removes
+     this component. `default true` cannot be used here -- Helm treats false as empty,
+     so it would resurrect anything explicitly disabled. */ -}}
+{{- $gate11 := default (dict) .Values.trivySidecar -}}
+{{- if or (not (hasKey $gate11 "enabled")) $gate11.enabled }}
+{{- $trivy := default (dict) .Values.trivySidecar -}}
+{{- if $trivy.enabled }}
+{{- $metrics := default (dict) $trivy.metrics -}}
+{{- $nats := default (dict) $trivy.nats -}}
+{{- $publish := default (dict) $trivy.publish -}}
+{{- $informer := default (dict) $trivy.informer -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: serviceradar-trivy-sidecar
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: trivy-sidecar
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: serviceradar-trivy-sidecar
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: trivy-sidecar
+rules:
+  - apiGroups: ["aquasecurity.github.io"]
+    resources:
+      - vulnerabilityreports
+      - configauditreports
+      - exposedsecretreports
+      - rbacassessmentreports
+      - infraassessmentreports
+      - clustervulnerabilityreports
+      - clusterconfigauditreports
+      - clusterexposedsecretreports
+      - clusterrbacassessmentreports
+      - clusterinfraassessmentreports
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources:
+      - pods
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: serviceradar-trivy-sidecar
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: trivy-sidecar
+subjects:
+  - kind: ServiceAccount
+    name: serviceradar-trivy-sidecar
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: serviceradar-trivy-sidecar
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-trivy-sidecar
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: serviceradar-trivy-sidecar
+    app.kubernetes.io/name: serviceradar-trivy-sidecar
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: trivy-sidecar
+spec:
+  replicas: {{ default 1 $trivy.replicaCount }}
+  selector:
+    matchLabels:
+      app: serviceradar-trivy-sidecar
+      app.kubernetes.io/part-of: serviceradar
+  template:
+    metadata:
+      labels:
+        app: serviceradar-trivy-sidecar
+        app.kubernetes.io/name: serviceradar-trivy-sidecar
+        app.kubernetes.io/part-of: serviceradar
+        app.kubernetes.io/component: trivy-sidecar
+      annotations:
+        {{- include "serviceradar.runtimeCertRollAnnotations" . | nindent 8 }}
+        {{- if .Values.global.forceRolloutOnUpgrade }}
+        serviceradar.io/release-revision: {{ .Release.Revision | quote }}
+        {{- end }}
+    spec:
+      {{- include "serviceradar.topologySpread" (dict "root" . "app" "serviceradar-trivy-sidecar") | nindent 6 }}
+      serviceAccountName: serviceradar-trivy-sidecar
+      {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
+      containers:
+        - name: trivy-sidecar
+          image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-trivy-sidecar" "service" "trivySidecar") }}
+          imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+          {{- include "serviceradar.containerSecurityContext" . | nindent 10 }}
+          env:
+            - name: CLUSTER_ID
+              value: {{ default .Release.Namespace $trivy.clusterId | quote }}
+            - name: NATS_HOSTPORT
+              value: {{ default "tls://serviceradar-nats:4222" $nats.hostPort | quote }}
+            - name: NATS_SUBJECT_PREFIX
+              value: {{ default "trivy.report" $nats.subjectPrefix | quote }}
+            - name: NATS_STREAM
+              value: {{ default "trivy_reports" $nats.stream | quote }}
+            - name: NATS_CACERTFILE
+              value: {{ default "/etc/serviceradar/certs/ca.crt" $nats.caCertFile | quote }}
+            - name: NATS_CERTFILE
+              value: {{ default "/etc/serviceradar/certs/trivy-sidecar.pem" $nats.certFile | quote }}
+            - name: NATS_KEYFILE
+              value: {{ default "/etc/serviceradar/certs/trivy-sidecar-key.pem" $nats.keyFile | quote }}
+            - name: NATS_SERVER_NAME
+              value: {{ default "serviceradar-nats" $nats.serverName | quote }}
+            - name: TRIVY_METRICS_ADDR
+              value: {{ default ":9108" $metrics.addr | quote }}
+            - name: TRIVY_PUBLISH_MAX_RETRIES
+              value: {{ default 5 $publish.maxRetries | quote }}
+            - name: TRIVY_PUBLISH_TIMEOUT
+              value: {{ default "5s" $publish.timeout | quote }}
+            - name: TRIVY_PUBLISH_RETRY_DELAY
+              value: {{ default "500ms" $publish.retryDelay | quote }}
+            - name: TRIVY_INFORMER_RESYNC
+              value: {{ default "5m" $informer.resync | quote }}
+            - name: TRIVY_REPORT_GROUP_VERSION
+              value: {{ default "aquasecurity.github.io/v1alpha1" $trivy.reportGroupVersion | quote }}
+          ports:
+            - name: metrics
+              containerPort: {{ default 9108 $metrics.port }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+{{ toYaml $trivy.resources | indent 12 }}
+          volumeMounts:
+            - name: cert-data
+              mountPath: /etc/serviceradar/certs
+              readOnly: true
+      volumes:
+        - name: cert-data
+          secret:
+            secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
+            items:
+{{ include "serviceradar.runtimeCertItems" (list "root.pem" "ca.crt" "trivy-sidecar.pem" "trivy-sidecar-key.pem") | indent 14 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-trivy-sidecar
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: serviceradar-trivy-sidecar
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: trivy-sidecar
+spec:
+  selector:
+    app: serviceradar-trivy-sidecar
+  ports:
+    - name: metrics
+      port: {{ default 9108 $metrics.port }}
+      targetPort: metrics
+      protocol: TCP
+{{- end }}
+{{- end }}

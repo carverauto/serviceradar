@@ -1,0 +1,129 @@
+defmodule ServiceRadar.Events.OnboardingWriter do
+  @moduledoc """
+  Publishes edge onboarding lifecycle logs to NATS for downstream promotion.
+  """
+
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Edge.OnboardingEvent
+  alias ServiceRadar.Edge.OnboardingPackage
+  alias ServiceRadar.Events.InternalLogPublisher
+  alias ServiceRadar.EventWriter.OCSF
+
+  require Logger
+
+  @spec write(OnboardingEvent.t()) :: :ok | {:error, term()}
+  def write(%OnboardingEvent{} = event) do
+    with {:ok, package} <- load_package(event) do
+      payload = build_event_attrs(event, package)
+      InternalLogPublisher.publish("onboarding", payload)
+    end
+  rescue
+    e ->
+      Logger.warning("Failed to publish onboarding log: #{inspect(e)}")
+      {:error, e}
+  end
+
+  defp load_package(event) do
+    actor = SystemActor.system(:onboarding_writer)
+
+    case Ash.get(OnboardingPackage, event.package_id, actor: actor) do
+      {:ok, package} -> {:ok, package}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp build_event_attrs(event, package) do
+    activity_id = OCSF.activity_log_update()
+    {status_id, severity_id, log_name} = classify_event(event.event_type)
+    message = build_message(event, package)
+
+    %{
+      time: event.event_time || DateTime.utc_now(),
+      class_uid: OCSF.class_event_log_activity(),
+      category_uid: OCSF.category_system_activity(),
+      type_uid: OCSF.type_uid(OCSF.class_event_log_activity(), activity_id),
+      activity_id: activity_id,
+      activity_name: OCSF.log_activity_name(activity_id),
+      severity_id: severity_id,
+      severity: OCSF.severity_name(severity_id),
+      message: message,
+      status_id: status_id,
+      status: OCSF.status_name(status_id),
+      metadata:
+        OCSF.build_metadata(
+          product_name: "ServiceRadar Core",
+          correlation_uid: "edge_onboarding:#{event.package_id}"
+        ),
+      observables: build_observables(event, package),
+      actor: build_actor(event.actor),
+      src_endpoint: build_endpoint(event.source_ip),
+      log_name: log_name,
+      log_provider: "serviceradar.core",
+      log_level: log_level_for_severity(severity_id),
+      unmapped: build_unmapped(event, package)
+    }
+  end
+
+  defp classify_event(event_type) do
+    case event_type do
+      type when type in [:revoked, :deleted, :expired] ->
+        {OCSF.status_failure(), OCSF.severity_medium(), "edge.onboarding.failed"}
+
+      _ ->
+        {OCSF.status_success(), OCSF.severity_informational(), "edge.onboarding.activity"}
+    end
+  end
+
+  defp build_message(event, package) do
+    "Edge onboarding package #{package.label || package.id} #{event.event_type}"
+  end
+
+  defp build_observables(event, package) do
+    [
+      OCSF.build_observable(to_string(event.package_id), "Onboarding Package ID", 99),
+      OCSF.build_observable(
+        package.label || to_string(event.package_id),
+        "Onboarding Package",
+        99
+      )
+    ]
+  end
+
+  defp build_actor(nil) do
+    OCSF.build_actor(app_name: "serviceradar.core", process: "edge_onboarding")
+  end
+
+  defp build_actor(actor) do
+    OCSF.build_actor(
+      app_name: "serviceradar.core",
+      process: "edge_onboarding",
+      user: %{email_addr: actor, name: actor}
+    )
+  end
+
+  defp build_endpoint(nil), do: %{}
+  defp build_endpoint(ip), do: OCSF.build_endpoint(ip: ip)
+
+  defp build_unmapped(event, package) do
+    %{
+      "package_id" => to_string(event.package_id),
+      "package_label" => package.label,
+      "event_type" => to_string(event.event_type),
+      "actor" => event.actor,
+      "source_ip" => event.source_ip,
+      "details" => event.details_json || %{}
+    }
+  end
+
+  defp log_level_for_severity(severity_id) do
+    case severity_id do
+      6 -> "fatal"
+      5 -> "critical"
+      4 -> "error"
+      3 -> "warning"
+      2 -> "notice"
+      1 -> "info"
+      _ -> "unknown"
+    end
+  end
+end

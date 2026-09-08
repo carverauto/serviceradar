@@ -1,0 +1,27 @@
+{{- $pdb := default (dict) .Values.podDisruptionBudgets -}}
+{{- if default true $pdb.enabled -}}
+{{- $minAvailable := default 1 $pdb.minAvailable -}}
+{{- $gateway := default (dict) .Values.agentGateway -}}
+{{- $components := list
+  (dict "name" "serviceradar-core" "app" "serviceradar-core" "enabled" true)
+  (dict "name" "serviceradar-web-ng" "app" "serviceradar-web-ng" "enabled" true)
+  (dict "name" "serviceradar-datasvc" "app" "serviceradar-datasvc" "enabled" true)
+  (dict "name" "serviceradar-agent-gateway" "app" "serviceradar-agent-gateway" "enabled" (default false $gateway.enabled))
+-}}
+{{- range $component := $components }}
+{{- if $component.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ printf "%s-pdb" $component.name }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  minAvailable: {{ $minAvailable }}
+  selector:
+    matchLabels:
+      app: {{ $component.app }}
+{{- end }}
+{{- end }}
+{{- end }}

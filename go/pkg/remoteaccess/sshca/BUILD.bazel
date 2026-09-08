@@ -1,0 +1,18 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "sshca",
+    srcs = ["sshca.go"],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/remoteaccess/sshca",
+    visibility = ["//visibility:public"],
+    deps = ["@org_golang_x_crypto//ssh"],
+)
+
+go_test(
+    name = "sshca_test",
+    srcs = ["sshca_test.go"],
+    deps = [
+        ":sshca",
+        "@org_golang_x_crypto//ssh",
+    ],
+)

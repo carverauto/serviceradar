@@ -1,0 +1,17 @@
+{
+  "enabled": false,
+  "agent_id": "default-agent",
+  "catalog_path": "/var/lib/serviceradar/bumblebee/catalog/current",
+  "catalog_snapshot_ref": "",
+  "profile_path": "/var/lib/serviceradar/bumblebee/profile/runtime.json",
+  "spool_dir": "/var/lib/serviceradar/bumblebee/spool",
+  "tmp_dir": "/var/lib/serviceradar/bumblebee/tmp",
+  "scan_timeout": "10m",
+  "include_home_roots": true,
+  "include_root": true,
+  "explicit_roots": [],
+  "exclude_roots": [],
+  "ecosystems": [],
+  "max_findings": 1000,
+  "max_output_bytes": 33554432
+}

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Rust Sample Add-on Configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "message": {
+      "type": "string",
+      "title": "Message",
+      "description": "An example string the Rust sample add-on accepts; it is echoed back as a SHA-256 config hash to exercise the Configure RPC.",
+      "default": "hello"
+    }
+  }
+}

@@ -1,0 +1,24 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "manifestschema",
+    srcs = ["validator.go"],
+    embedsrcs = ["native-addon-manifest.schema.json"],
+    importpath = "github.com/carverauto/serviceradar/go/tools/addon-manifest-validator/internal/manifestschema",
+    visibility = ["//go/tools/addon-manifest-validator:__subpackages__"],
+    deps = ["@in_gopkg_yaml_v3//:yaml_v3"],
+)
+
+go_test(
+    name = "manifestschema_test",
+    srcs = ["validator_test.go"],
+    # testdata fixtures travel with the package. The canonical schema and the shipped
+    # sample manifest do NOT -- they live under //addons -- so they are declared here.
+    # These are plain file reads, so this stays a unit test: no tag, no fixture, selected
+    # by the normal -integration_test,-acceptance_test sweep.
+    data = glob(["testdata/**"]) + [
+        "//addons:native-addon-manifest.schema.json",
+        "//addons/sample-addon:addon.yaml",
+    ],
+    deps = [":manifestschema"],
+)

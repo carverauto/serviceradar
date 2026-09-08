@@ -1,0 +1,27 @@
+{{- /* Component gate (issue #3859). ABSENT MEANS ENABLED: hasKey is used rather than a
+     truthiness test so that a chart or values file which never mentions `enabled`
+     renders exactly as before, and only an explicit `geoipMmdb.enabled: false` removes
+     this component. `default true` cannot be used here -- Helm treats false as empty,
+     so it would resurrect anything explicitly disabled. */ -}}
+{{- $gate17 := default (dict) .Values.geoipMmdb -}}
+{{- if or (not (hasKey $gate17 "enabled")) $gate17.enabled }}
+{{- $geoipMmdb := default (dict) .Values.geoipMmdb -}}
+{{- if and ($geoipMmdb.enabled) (not $geoipMmdb.existingClaim) (not $geoipMmdb.emptyDir) }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: serviceradar-geoip-mmdb
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  accessModes:
+{{ toYaml (default (list "ReadWriteOnce") $geoipMmdb.accessModes) | indent 4 }}
+  resources:
+    requests:
+      storage: {{ default "1Gi" $geoipMmdb.size | quote }}
+  {{- if $geoipMmdb.storageClassName }}
+  storageClassName: {{ $geoipMmdb.storageClassName | quote }}
+  {{- end }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,191 @@
+defmodule ServiceRadar.SNMPProfiles.SNMPOIDTemplate do
+  @moduledoc """
+  Reusable OID template definitions.
+
+  SNMPOIDTemplate provides predefined sets of OIDs for common monitoring scenarios.
+  Templates are organized by vendor and can be either built-in (shipped with the
+  product) or custom (created by admins).
+
+  ## Attributes
+
+  - `name`: Template name (e.g., "Interface Statistics")
+  - `description`: Description of what the template monitors
+  - `vendor`: Vendor category (standard, cisco, juniper, arista, custom)
+  - `category`: Functional category (interface, cpu-memory, environment, bgp, etc.)
+  - `oids`: List of OID configurations
+  - `is_builtin`: Whether this is a built-in template (read-only)
+
+  ## Vendor Categories
+
+  - `standard`: MIB-II / RFC standard OIDs (work with most devices)
+  - `cisco`: Cisco-specific OIDs
+  - `juniper`: Juniper-specific OIDs
+  - `arista`: Arista-specific OIDs
+  - `custom`: User-created templates
+
+  ## OID List Format
+
+  The `oids` attribute is a list of maps with the following structure:
+
+      [
+        %{
+          "oid" => ".1.3.6.1.2.1.2.2.1.10",
+          "name" => "ifInOctets",
+          "data_type" => "counter",
+          "scale" => 1.0,
+          "delta" => true
+        },
+        ...
+      ]
+
+  ## Usage
+
+      # Create a custom template
+      SNMPOIDTemplate
+      |> Ash.Changeset.for_create(:create, %{
+        name: "My Router Monitoring",
+        description: "Custom OIDs for our router model",
+        vendor: "custom",
+        category: "interface",
+        oids: [
+          %{oid: ".1.3.6.1.4.1.9.2.1.56.0", name: "avgBusy1", data_type: "gauge"}
+        ]
+      })
+      |> Ash.create!()
+  """
+
+  use Ash.Resource,
+    domain: ServiceRadar.SNMPProfiles,
+    data_layer: AshPostgres.DataLayer,
+    notifiers: [ServiceRadar.AgentConfig.DependencyNotifier],
+    authorizers: [Ash.Policy.Authorizer]
+
+  @template_fields [:name, :description, :vendor, :category, :oids]
+
+  postgres do
+    table "snmp_oid_templates"
+    repo ServiceRadar.Repo
+    schema "platform"
+  end
+
+  actions do
+    defaults [:read, :destroy]
+
+    create :create do
+      accept @template_fields
+
+      change fn changeset, _context ->
+        # Custom templates are never builtin
+        Ash.Changeset.force_change_attribute(changeset, :is_builtin, false)
+      end
+    end
+
+    update :update do
+      accept @template_fields
+
+      require_atomic? false
+
+      # Cannot modify builtin templates
+      validate fn changeset, _context ->
+        if Ash.Changeset.get_data(changeset, :is_builtin) do
+          {:error, "Cannot modify built-in templates"}
+        else
+          :ok
+        end
+      end
+    end
+
+    read :list_by_vendor do
+      description "List templates filtered by vendor"
+      argument :vendor, :string, allow_nil?: false
+      filter expr(vendor == ^arg(:vendor))
+    end
+
+    read :list_custom do
+      description "List custom (non-builtin) templates"
+      filter expr(is_builtin == false)
+    end
+
+    read :list_builtin do
+      description "List built-in templates"
+      filter expr(is_builtin == true)
+    end
+  end
+
+  policies do
+    import ServiceRadar.Policies
+
+    system_bypass()
+    admin_action_type(:create)
+
+    # Can only update/delete non-builtin templates
+    policy action_type(:update) do
+      forbid_if expr(is_builtin == true)
+      authorize_if is_admin()
+    end
+
+    policy action_type(:destroy) do
+      forbid_if expr(is_builtin == true)
+      authorize_if is_admin()
+    end
+
+    read_all()
+  end
+
+  attributes do
+    uuid_v7_primary_key :id
+
+    attribute :name, :string do
+      allow_nil? false
+      public? true
+      description "Template name"
+    end
+
+    attribute :description, :string do
+      allow_nil? true
+      public? true
+      description "Description of what the template monitors"
+    end
+
+    attribute :vendor, :string do
+      allow_nil? false
+      public? true
+      description "Vendor category: standard, cisco, juniper, arista, custom"
+    end
+
+    attribute :category, :string do
+      allow_nil? true
+      public? true
+      description "Functional category: interface, cpu-memory, environment, bgp, etc."
+    end
+
+    attribute :oids, {:array, :map} do
+      allow_nil? false
+      default []
+      public? true
+      description "List of OID configurations"
+    end
+
+    attribute :is_builtin, :boolean do
+      allow_nil? false
+      default false
+      public? true
+      description "Whether this is a built-in template (read-only)"
+    end
+
+    # Provenance, so an operator can tell plugin-contributed configuration from
+    # their own. Nullable: every template authored before this existed keeps a
+    # NULL, and a template outlives the package that contributed it.
+    attribute :plugin_package_id, :uuid do
+      allow_nil? true
+      public? true
+      description "Plugin package that contributed this template, when any"
+    end
+
+    timestamps()
+  end
+
+  identities do
+    identity :unique_name_per_vendor, [:vendor, :name]
+  end
+end

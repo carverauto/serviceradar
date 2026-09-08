@@ -1,0 +1,61 @@
+defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Categories do
+  @moduledoc false
+
+  @behaviour ServiceRadarWebNGWeb.Dashboard.Plugin
+
+  use Phoenix.LiveComponent
+
+  import ServiceRadarWebNGWeb.SRQLComponents, only: [srql_auto_viz: 1]
+
+  alias ServiceRadarWebNGWeb.SRQL.Viz
+
+  @impl true
+  def id, do: "categories"
+
+  @impl true
+  def title, do: "Categories"
+
+  @impl true
+  def supports?(%{"results" => results}) when is_list(results) do
+    match?({:categories, _}, Viz.infer(results))
+  end
+
+  def supports?(_), do: false
+
+  @impl true
+  def build(%{"results" => results}) when is_list(results) do
+    case Viz.infer(results) do
+      {:categories, _} = viz -> {:ok, %{viz: viz}}
+      _ -> {:error, :not_categories}
+    end
+  end
+
+  def build(_), do: {:error, :invalid_response}
+
+  @impl true
+  def update(%{panel_assigns: panel_assigns} = assigns, socket) do
+    panel_assigns = panel_assigns || %{}
+    timezone = Map.get(panel_assigns, :timezone) || Map.get(panel_assigns, "timezone")
+
+    if not is_binary(timezone) or timezone == "" do
+      raise ArgumentError, "categories visualization requires an explicit timezone"
+    end
+
+    socket =
+      socket
+      |> assign(Map.delete(assigns, :panel_assigns))
+      |> assign(panel_assigns)
+      |> assign(:timezone, timezone)
+
+    {:ok, socket}
+  end
+
+  @impl true
+  def render(assigns) do
+    ~H"""
+    <div id={"panel-#{@id}"}>
+      <.srql_auto_viz id={"#{@id}-categories"} viz={@viz} timezone={@timezone} />
+    </div>
+    """
+  end
+end

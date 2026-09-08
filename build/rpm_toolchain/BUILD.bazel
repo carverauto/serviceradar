@@ -1,0 +1,31 @@
+load("@rules_pkg//toolchains/rpm:rpmbuild.bzl", "rpmbuild_toolchain")
+
+package(default_visibility = ["//visibility:public"])
+
+# Explicit rpmbuild toolchain for Linux exec platforms (e.g., RBE). This avoids
+# host autodetection on macOS pointing to Homebrew paths that don't exist on
+# remote Linux workers.
+rpmbuild_toolchain(
+    name = "rpmbuild_linux",
+    debuginfo_type = "none",
+    path = "/usr/bin/rpmbuild",
+    version = "system",
+)
+
+toolchain(
+    name = "rpmbuild_linux_toolchain",
+    exec_compatible_with = [
+        "@platforms//os:linux",
+    ],
+    toolchain = ":rpmbuild_linux",
+    toolchain_type = "@rules_pkg//toolchains/rpm:rpmbuild_toolchain_type",
+)
+
+toolchain(
+    name = "rpmbuild_linux_only",
+    exec_compatible_with = [
+        "@platforms//os:linux",
+    ],
+    toolchain = ":rpmbuild_linux",
+    toolchain_type = "@rules_pkg//toolchains/rpm:rpmbuild_toolchain_type",
+)

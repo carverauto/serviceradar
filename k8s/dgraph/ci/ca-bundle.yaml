@@ -1,0 +1,181 @@
+# Publishes only the Dgraph CI CA certificate (ca.crt) on an in-cluster ClusterIP Service.
+# Clients do not dial this Service. They dial the LAN HTTPS route:
+#
+#   https://dgraph-ci-ca.carverauto.dev/ca.crt
+#
+# WHY THIS EXISTS: config/environments/ci.textproto sets dgraph.tls_mode to VERIFY_CA against a
+# certificate issued by the in-cluster `dgraph-ci-ca`. No public authority signs a
+# *.svc.cluster.local name, so clients need that CA -- and cert-manager rotates it, which makes
+# any stored copy correct only until it silently is not. Naming the endpoint in the config means
+# every client reads the CURRENT bundle and nobody rotates a secret by hand.
+#
+# Caddy stays HTTP. Envoy on lan-shared-gateway terminates TLS with the Let's Encrypt wildcard
+# already trusted by scratch images. The custom CA is the document being served, not the
+# certificate that terminates the fetch. Wrapping this hop in a cert issued by dgraph-ci-ca
+# is the circular case; wrapping it in a public CA is not. Do not put nginx on this path.
+#
+# The CA PRIVATE KEY IS NOT IN ANY VOLUME HERE: the secret carries ca.crt, tls.crt and tls.key,
+# and the volume projects ca.crt alone. That projection is the guarantee, not the Caddyfile route.
+#
+# A near-copy of //k8s/srql-fixtures/ca-bundle.yaml, which does the same job for the CNPG
+# fixture. Kept as a separate deployment rather than generalised: two CAs with two rotation
+# schedules in two namespaces, and a shared publisher would couple their availability.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dgraph-ca-bundle-caddy
+  namespace: dgraph-ci
+  labels:
+    app: dgraph
+    app.kubernetes.io/component: fixture-ca-bundle
+data:
+  Caddyfile: |
+    {
+      admin off
+      auto_https off
+      persist_config off
+    }
+
+    :8080 {
+      header {
+        -Server
+        X-Content-Type-Options nosniff
+      }
+
+      handle /ca.crt {
+        root * /var/lib/dgraph-ca
+        file_server
+        header Content-Type application/x-pem-file
+        header Cache-Control "public, max-age=300"
+      }
+
+      handle {
+        respond 404
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dgraph-ca-bundle
+  namespace: dgraph-ci
+  labels:
+    app: dgraph
+    app.kubernetes.io/component: fixture-ca-bundle
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dgraph-ca-bundle
+  template:
+    metadata:
+      labels:
+        app: dgraph-ca-bundle
+        app.kubernetes.io/component: fixture-ca-bundle
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: NotIn
+                    values:
+                      - k8s-cp3-worker3
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: caddy
+          image: docker.io/library/caddy:2.11.4-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
+          imagePullPolicy: IfNotPresent
+          args:
+            - caddy
+            - run
+            - --config
+            - /etc/caddy/Caddyfile
+            - --adapter
+            - caddyfile
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /ca.crt
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /ca.crt
+              port: http
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+              # Binary is file-capped with cap_net_bind_service. Drop-only
+              # makes `exec /usr/bin/caddy` fail with EPERM (same as
+              # forgejo / powerdns-admin / plausible).
+              add:
+                - NET_BIND_SERVICE
+          volumeMounts:
+            - name: caddy-config
+              mountPath: /etc/caddy/Caddyfile
+              subPath: Caddyfile
+              readOnly: true
+            - name: fixture-ca
+              mountPath: /var/lib/dgraph-ca
+              readOnly: true
+            - name: caddy-data
+              mountPath: /data
+            - name: caddy-config-dir
+              mountPath: /config
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: caddy-config
+          configMap:
+            name: dgraph-ca-bundle-caddy
+        - name: fixture-ca
+          secret:
+            secretName: dgraph-ci-ca
+            items:
+              - key: ca.crt
+                path: ca.crt
+        - name: caddy-data
+          emptyDir: {}
+        - name: caddy-config-dir
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+---
+# Envoy backend only. Clients fetch https://dgraph-ci-ca.carverauto.dev/ca.crt.
+apiVersion: v1
+kind: Service
+metadata:
+  name: dgraph-ca-incluster
+  namespace: dgraph-ci
+  labels:
+    app: dgraph
+    app.kubernetes.io/component: fixture-ca-bundle
+spec:
+  type: ClusterIP
+  selector:
+    app: dgraph-ca-bundle
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

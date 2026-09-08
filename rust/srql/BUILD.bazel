@@ -1,0 +1,73 @@
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:rust_binary.bzl", "rust_binary")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+
+# Only connection behavior participates in template construction, not SRQL queries.
+filegroup(
+    name = "schema_template_connection_inputs",
+    srcs = [
+        "Cargo.toml",
+        "src/db.rs",
+        "src/tls.rs",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "target/**",
+            "bazel-*",
+        ],
+    ),
+    visibility = ["//visibility:public"],
+)
+
+rust_library(
+    name = "srql_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_name = "srql",
+    crate_root = "src/lib.rs",
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + [
+        "//rust/kvutil",
+        # Database TLS comes from the environment SERVICERADAR_ENV names, not from PGSSL*.
+        # `cargo_only = True` above deliberately excludes first-party members, so these are
+        # named here -- Bazel does not infer them from Cargo.toml.
+        "//config/manager_config/rust:manager",
+        "//config/manager_secret/rust:secret_manager",
+        "//config/proto_bindings/rust:config_schema",
+    ],
+)
+
+rust_binary(
+    name = "srql_bin",
+    srcs = ["src/main.rs"],
+    crate_name = "srql",
+    visibility = ["//visibility:public"],
+    deps = [
+        ":srql_lib",
+        "//rust/kvutil",
+    ] + all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ),
+)
+
+# NOTE: srql_api_test / srql_comprehensive_test moved to //integration_tests/srql.
+# They wire the CNPG Postgres image (heavy, Linux-only) and must not be reachable from
+# //rust/... — see integration_tests/srql/BUILD.bazel.
+rust_test(
+    name = "srql_lib_test",
+    crate = ":srql_lib",
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal_dev = True,
+    ),
+)

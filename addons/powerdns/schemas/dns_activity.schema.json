@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "com.carverauto.powerdns.dns_activity/1.0.0",
+  "title": "PowerDNS DNS Activity",
+  "type": "object",
+  "required": ["id", "time", "class_uid", "category_uid", "type_uid", "activity_id", "query"],
+  "properties": {
+    "id": {"type": "string"},
+    "time": {"oneOf": [{"type": "integer"}, {"type": "string"}]},
+    "class_uid": {"const": 4003},
+    "category_uid": {"const": 4},
+    "type_uid": {"type": "integer"},
+    "activity_id": {"type": "integer"},
+    "activity_name": {"type": "string"},
+    "severity_id": {"type": "integer"},
+    "severity": {"type": "string"},
+    "message": {"type": "string"},
+    "status_id": {"type": "integer"},
+    "status": {"type": "string"},
+    "log_name": {"type": "string"},
+    "log_provider": {"type": "string"},
+    "query": {
+      "type": "object",
+      "properties": {
+        "hostname": {"type": "string"},
+        "type": {"type": "string"},
+        "class": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "src_endpoint": {"type": "object", "additionalProperties": true},
+    "dst_endpoint": {"type": "object", "additionalProperties": true},
+    "metadata": {"type": "object", "additionalProperties": true},
+    "unmapped": {"type": "object", "additionalProperties": true}
+  },
+  "additionalProperties": true
+}

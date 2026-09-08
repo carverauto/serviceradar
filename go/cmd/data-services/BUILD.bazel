@@ -1,0 +1,25 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library")
+
+go_library(
+    name = "data_services_lib",
+    srcs = ["main.go"],
+    embedsrcs = ["config.json"],
+    importpath = "github.com/carverauto/serviceradar/go/cmd/data-services",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//go/pkg/config",
+        "//go/pkg/config/bootstrap",
+        "//go/pkg/datasvc",
+        "//go/pkg/lifecycle",
+        "//go/pkg/nats/accounts",
+        "//proto",
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//stats",
+    ],
+)
+
+go_binary(
+    name = "data_services",
+    embed = [":data_services_lib"],
+    visibility = ["//visibility:public"],
+)

@@ -1,0 +1,28 @@
+- generic [ref=e4]:
+  - banner [ref=e5]:
+    - generic [ref=e8]:
+      - generic [ref=e9]:
+        - button [ref=e11] [cursor=pointer]
+        - button [ref=e13] [cursor=pointer]
+        - button [ref=e15] [cursor=pointer]
+      - link "Log in" [ref=e17] [cursor=pointer]:
+        - /url: /users/log-in
+  - main [ref=e18]:
+    - generic [ref=e19]:
+      - generic [ref=e20]:
+        - generic [ref=e21]:
+          - img "ServiceRadar" [ref=e22]
+          - generic [ref=e23]: ServiceRadar
+        - heading "Sign in to your account" [level=1] [ref=e24]
+      - generic [ref=e25]:
+        - generic [ref=e26]:
+          - generic [ref=e28]: Email
+          - textbox "Email" [active] [ref=e29]:
+            - /placeholder: you@example.com
+        - generic [ref=e30]:
+          - generic [ref=e32]: Password
+          - textbox "Password" [ref=e33]:
+            - /placeholder: Enter your password
+        - button "Sign in" [ref=e35] [cursor=pointer]
+        - link "Forgot your password?" [ref=e37] [cursor=pointer]:
+          - /url: /auth/password-reset

@@ -1,0 +1,619 @@
+# srql Specification
+
+## Purpose
+ServiceRadar Query Language (SRQL) provides a unified text-based query interface for searching across devices, logs, traces, metrics, and services. Queries use space-separated filter clauses with implicit AND semantics.
+
+## Core Semantics
+
+### Filter Stacking (Implicit AND)
+When multiple filter clauses are specified in a query, they are combined using AND logic. This enables building complex queries by stacking conditions:
+
+```
+in:devices discovery_sources:armis hostname:server
+```
+
+This query returns devices where:
+- discovery_sources contains "armis" **AND**
+- hostname contains "server"
+
+### Query Builder Integration
+The SRQL query builder UI allows users to add multiple filter rows. Each row becomes one clause in the final query. All rows are joined with whitespace (implicit AND).
+
+Example UI configuration:
+- Field: discovery_sources, Operator: contains, Value: armis
+- Field: hostname, Operator: starts_with, Value: srv-
+
+Produces: `in:devices discovery_sources:armis hostname:srv-%`
+## Requirements
+### Requirement: rollup_stats keyword pattern
+The SRQL service SHALL support a `rollup_stats:<type>` keyword pattern that queries pre-computed continuous aggregates instead of raw hypertables, returning standardized aggregate statistics for dashboard KPIs.
+
+#### Scenario: Keyword parsed and routed correctly
+- **GIVEN** a valid entity with rollup_stats support
+- **WHEN** a client sends a query with `rollup_stats:<type>`
+- **THEN** SRQL routes to the CAGG query handler instead of normal query execution.
+
+#### Scenario: Unknown rollup_stats type returns error
+- **GIVEN** a valid entity
+- **WHEN** a client sends `rollup_stats:unknown_type`
+- **THEN** SRQL returns an error indicating the unknown rollup_stats type.
+
+#### Scenario: Response format is standardized
+- **GIVEN** any rollup_stats query
+- **WHEN** the query executes successfully
+- **THEN** the response contains `{"results": [{"payload": {...}}]}` with stat values as integers or floats.
+
+### Requirement: Logs severity rollup stats
+The SRQL service SHALL support `rollup_stats:severity` for the logs entity that returns pre-aggregated severity counts from `logs_severity_stats_5m`.
+
+#### Scenario: Basic severity stats query
+- **GIVEN** the `logs_severity_stats_5m` CAGG exists and has been refreshed
+- **WHEN** a client sends `in:logs time:last_24h rollup_stats:severity`
+- **THEN** SRQL returns `{"results": [{"payload": {"total": N, "fatal": N, "error": N, "warning": N, "info": N, "debug": N}}]}`.
+
+#### Scenario: Severity stats with service filter
+- **GIVEN** the CAGG has data from multiple services
+- **WHEN** a client sends `in:logs service_name:core rollup_stats:severity`
+- **THEN** SRQL returns counts only for logs from the `core` service.
+
+#### Scenario: Empty CAGG returns zeros
+- **GIVEN** the CAGG exists but has no data for the time range
+- **WHEN** a client sends `in:logs time:last_24h rollup_stats:severity`
+- **THEN** SRQL returns all counts as zero.
+
+### Requirement: Traces summary rollup stats
+The SRQL service SHALL support `rollup_stats:summary` for the otel_traces entity that returns pre-aggregated trace statistics from `traces_stats_5m`.
+
+#### Scenario: Basic trace summary query
+- **GIVEN** the `traces_stats_5m` CAGG exists
+- **WHEN** a client sends `in:otel_traces time:last_24h rollup_stats:summary`
+- **THEN** SRQL returns `{"results": [{"payload": {"total": N, "errors": N, "avg_duration_ms": F, "p95_duration_ms": F}}]}`.
+
+#### Scenario: Trace summary with service filter
+- **GIVEN** the CAGG has data from multiple services
+- **WHEN** a client sends `in:otel_traces service_name:api rollup_stats:summary`
+- **THEN** SRQL returns stats only for traces from the `api` service.
+
+### Requirement: OTel metrics summary rollup stats
+The SRQL service SHALL support `rollup_stats:summary` for the otel_metrics entity that returns pre-aggregated metrics statistics from `otel_metrics_hourly_stats`.
+
+#### Scenario: Basic metrics summary query
+- **GIVEN** the `otel_metrics_hourly_stats` CAGG exists
+- **WHEN** a client sends `in:otel_metrics time:last_24h rollup_stats:summary`
+- **THEN** SRQL returns `{"results": [{"payload": {"total": N, "errors": N, "slow": N, "avg_duration_ms": F, "p95_duration_ms": F}}]}`.
+
+#### Scenario: Metrics summary computes error rate
+- **GIVEN** the CAGG has total and error counts
+- **WHEN** a client sends `in:otel_metrics rollup_stats:summary`
+- **THEN** the response includes `error_rate` as a percentage (errors/total * 100).
+
+### Requirement: Services availability rollup stats
+The SRQL service SHALL support `rollup_stats:availability` for the services entity that returns pre-aggregated availability statistics from `services_availability_5m`.
+
+#### Scenario: Basic availability query
+- **GIVEN** the `services_availability_5m` CAGG exists
+- **WHEN** a client sends `in:services time:last_1h rollup_stats:availability`
+- **THEN** SRQL returns `{"results": [{"payload": {"total": N, "available": N, "unavailable": N, "availability_pct": F}}]}`.
+
+#### Scenario: Availability with service type filter
+- **GIVEN** the CAGG has data for multiple service types
+- **WHEN** a client sends `in:services service_type:http rollup_stats:availability`
+- **THEN** SRQL returns availability stats only for HTTP services.
+
+### Requirement: Time filter support for rollup stats
+All rollup_stats queries SHALL respect the `time:` filter to constrain which CAGG buckets are included in the aggregation.
+
+#### Scenario: Time filter restricts bucket range
+- **GIVEN** the CAGG has data spanning multiple days
+- **WHEN** a client sends `in:logs time:last_1h rollup_stats:severity`
+- **THEN** SRQL only sums buckets within the last hour.
+
+#### Scenario: Default time filter when not specified
+- **GIVEN** a rollup_stats query without explicit time filter
+- **WHEN** the query is executed
+- **THEN** SRQL applies a default time window (e.g., last_24h).
+
+### Requirement: SweepCompiler uses SRQL for target extraction
+The SweepCompiler SHALL use SRQL queries stored on sweep groups to extract target IP addresses, ensuring consistency between preview counts and compiled target lists.
+
+#### Scenario: SRQL target_query used for target extraction
+- **GIVEN** a SweepGroup with `target_query = "in:devices discovery_sources:armis"`
+- **WHEN** the SweepCompiler compiles the group
+- **THEN** it executes the SRQL query and returns matching IPs as targets.
+
+#### Scenario: Multiple SRQL clauses combined with AND
+- **GIVEN** a SweepGroup with `target_query = "in:devices discovery_sources:armis partition:datacenter-1"`
+- **WHEN** the SweepCompiler compiles the group
+- **THEN** it executes the SRQL query with space-separated clauses (implicit AND).
+
+---
+
+### Requirement: SRQL operators are exposed in the targeting rules UI
+The sweep targeting UI SHALL expose SRQL operators and a query builder that map to SRQL device filters including list membership, numeric comparisons, IP CIDR/range matching, and tag matching.
+
+#### Scenario: IP CIDR operator
+- **GIVEN** a user building a sweep target query for field `ip`
+- **WHEN** they select the CIDR operator and enter a CIDR
+- **THEN** the UI emits `ip:<cidr>` with proper SRQL escaping.
+
+#### Scenario: Discovery sources operator
+- **GIVEN** a user building a sweep target query for `discovery_sources`
+- **WHEN** they enter value `armis`
+- **THEN** the UI emits `discovery_sources:armis` in the SRQL query.
+
+---
+
+### Requirement: Preview counts use SRQL queries
+The sweep targeting UI SHALL show accurate device preview counts by executing the stored SRQL query against the device inventory.
+
+#### Scenario: Preview count matches compiled targets
+- **GIVEN** a sweep target query `in:devices discovery_sources:armis`
+- **WHEN** the UI shows a preview count of 47 devices
+- **THEN** the compiled target list from SweepCompiler contains exactly 47 IPs.
+
+### Requirement: Config refresh on device inventory changes
+The system SHALL periodically refresh sweep configs when the SRQL result set changes due to device inventory updates.
+
+#### Scenario: New device matches criteria
+- **GIVEN** a SweepGroup with criteria `discovery_sources contains armis`
+- **AND** a new device is discovered with `discovery_sources = ["armis"]`
+- **WHEN** the `SweepConfigRefreshWorker` runs
+- **THEN** it detects the target hash changed and invalidates the config cache.
+
+#### Scenario: Device attribute changes to match criteria
+- **GIVEN** a SweepGroup with criteria `partition eq datacenter-1`
+- **AND** a device's partition is updated from `datacenter-2` to `datacenter-1`
+- **WHEN** the `SweepConfigRefreshWorker` runs
+- **THEN** the device is now included in the compiled target list.
+
+### Requirement: Interface error counters are projected in SRQL results
+SRQL `in:interfaces` queries SHALL project interface error counter fields (`in_errors`, `out_errors`) when present, and SHALL return nulls when the fields are not available.
+
+#### Scenario: Latest interface query includes error counters
+- **GIVEN** interface metrics contain `in_errors` and `out_errors` values
+- **WHEN** a client queries `in:interfaces device_id:"sr:<uuid>" interface_uid:"ifindex:3" latest:true limit:1`
+- **THEN** the result payload includes `in_errors` and `out_errors` with the latest values
+
+#### Scenario: Missing fields return nulls
+- **GIVEN** interface metrics do not include error counter values for an interface
+- **WHEN** a client queries `in:interfaces device_id:"sr:<uuid>" interface_uid:"ifindex:3" latest:true limit:1`
+- **THEN** the result payload includes `in_errors: null` and `out_errors: null`
+
+### Requirement: Interface MAC filters support normalization and wildcards
+The SRQL service SHALL support `mac` filters for `in:interfaces` queries with case-insensitive, separator-insensitive matching and `%` wildcard patterns.
+
+#### Scenario: Exact MAC match with mixed separators
+- **GIVEN** an interface stored with MAC address `0e:ea:14:32:d2:78`
+- **WHEN** a client sends `in:interfaces mac:0E-EA-14-32-D2-78`
+- **THEN** SRQL returns the interface in the results
+
+#### Scenario: Wildcard MAC match in interface search
+- **GIVEN** an interface stored with MAC address `0e:ea:14:32:d2:78`
+- **WHEN** a client sends `in:interfaces mac:%0e:ea:14:32:d2:78%`
+- **THEN** SRQL executes successfully and returns the interface in the results
+
+### Requirement: SRQL builder query assembly
+The SRQL builder SHALL generate a valid SRQL query string for supported entities without raising runtime errors while applying filters, sort, and limit tokens.
+
+#### Scenario: Devices default query includes sort and limit
+- **GIVEN** the SRQL builder default state for the devices entity
+- **WHEN** the builder generates the query string
+- **THEN** the query string includes `in:devices`
+- **AND** the query string includes a `sort:last_seen:desc` token
+- **AND** the query string includes a `limit:<n>` token
+
+#### Scenario: Logs default query includes sort and limit
+- **GIVEN** the SRQL builder default state for the logs entity
+- **WHEN** the builder generates the query string
+- **THEN** the query string includes `in:logs`
+- **AND** the query string includes a `sort:timestamp:desc` token
+- **AND** the query string includes a `limit:<n>` token
+
+#### Scenario: Filters preserve sort assembly
+- **GIVEN** the SRQL builder state includes a filter row
+- **WHEN** the builder generates the query string
+- **THEN** the query string includes the filter token
+- **AND** the query string includes the configured sort token
+- **AND** the query string includes the configured limit token
+
+### Requirement: Device Stats GROUP BY Support
+
+The SRQL service SHALL support GROUP BY aggregations for the devices entity using the syntax `stats:<agg>() as <alias> by <field>`.
+
+Supported grouping fields:
+- `type` / `device_type`: Device type classification
+- `vendor_name` / `vendor`: Device vendor/manufacturer
+- `risk_level`: Risk level classification
+- `is_available` / `available`: Availability status (boolean)
+- `gateway_id`: Gateway assignment
+
+The response SHALL return a JSONB array of objects, each containing the group field value and the aggregated count, ordered by count descending with a default limit of 20 results.
+
+#### Scenario: Group devices by type
+- **GIVEN** devices exist with various type values
+- **WHEN** a client sends `in:devices stats:count() as count by type`
+- **THEN** SRQL returns `{"results": [{"type": "Server", "count": 45}, {"type": "Router", "count": 23}, ...]}`
+- **AND** results are ordered by count descending
+
+#### Scenario: Group devices by vendor
+- **GIVEN** devices exist with various vendor_name values
+- **WHEN** a client sends `in:devices stats:count() as count by vendor_name`
+- **THEN** SRQL returns `{"results": [{"vendor_name": "Cisco", "count": 200}, {"vendor_name": "Dell", "count": 150}, ...]}`
+- **AND** results are limited to top 20 vendors
+
+#### Scenario: Group devices by availability
+- **GIVEN** devices exist with is_available true and false
+- **WHEN** a client sends `in:devices stats:count() as count by is_available`
+- **THEN** SRQL returns `{"results": [{"is_available": true, "count": 950}, {"is_available": false, "count": 50}]}`
+
+#### Scenario: Group devices by risk level
+- **GIVEN** devices exist with various risk_level values
+- **WHEN** a client sends `in:devices stats:count() as count by risk_level`
+- **THEN** SRQL returns `{"results": [{"risk_level": "Low", "count": 800}, {"risk_level": "High", "count": 50}, ...]}`
+
+#### Scenario: Combined filter with grouping
+- **GIVEN** devices exist from multiple vendors with various types
+- **WHEN** a client sends `in:devices vendor_name:Cisco stats:count() as count by type`
+- **THEN** SRQL returns only Cisco devices grouped by type
+
+#### Scenario: Null values handled as Unknown
+- **GIVEN** devices exist with NULL vendor_name values
+- **WHEN** a client sends `in:devices stats:count() as count by vendor_name`
+- **THEN** devices with NULL vendor_name SHALL be grouped under "Unknown"
+
+#### Scenario: Unsupported group field returns error
+- **GIVEN** a client wants to group by an unsupported field
+- **WHEN** they send `in:devices stats:count() as count by hostname`
+- **THEN** SRQL returns an error indicating the field does not support grouping
+
+### Requirement: Interfaces entity reads time-series observations
+SRQL SHALL query interface observations from the interface time-series table for `in:interfaces`.
+
+#### Scenario: Query interfaces by device
+- **GIVEN** a device UID with interface observations in the last 3 days
+- **WHEN** a client sends `in:interfaces device_id:"sr:..." time:last_3d`
+- **THEN** SRQL SHALL return interface rows for that device
+
+### Requirement: Interface filters include rich fields
+SRQL SHALL support filters for interface fields including:
+- `if_type`, `if_type_name`, `interface_kind`
+- `if_name`, `if_descr`, `if_alias`
+- `speed_bps`, `mtu`, `admin_status`, `oper_status`, `duplex`
+- `mac`, `ip_addresses`
+
+#### Scenario: Filter by interface type
+- **GIVEN** interface observations with `if_type_name = ethernetCsmacd`
+- **WHEN** a client queries `in:interfaces if_type_name:ethernetCsmacd`
+- **THEN** SRQL returns only matching interfaces
+
+### Requirement: Latest snapshot per interface
+SRQL SHALL provide a “latest snapshot per interface” result shape for UI queries, returning the most recent row per device/interface key.
+
+#### Scenario: UI requests latest interface snapshot
+- **GIVEN** multiple observations per interface in the last 3 days
+- **WHEN** the UI queries `in:interfaces device_id:"sr:..."`
+- **THEN** SRQL returns the latest observation per interface
+
+### Requirement: Automatic time-based CAGG routing
+The SRQL service SHALL automatically route `stats:` and `bucket:` queries to hourly Continuous Aggregate views when the requested time window spans 6 hours or more. Queries with time windows under 6 hours SHALL continue to query the raw hypertable. The response shape SHALL be identical regardless of which backend serves the query.
+
+#### Scenario: Stats query with large time window routes to CAGG
+- **GIVEN** the `cpu_metrics_hourly` CAGG exists and has been refreshed
+- **WHEN** a client sends `in:cpu_metrics time:last_7d stats:avg(usage_percent) as avg_usage`
+- **THEN** SRQL transparently queries the `cpu_metrics_hourly` CAGG
+- **AND** the response shape is identical to a raw-table stats query
+
+#### Scenario: Stats query with small time window hits raw table
+- **GIVEN** the `cpu_metrics_hourly` CAGG exists
+- **WHEN** a client sends `in:cpu_metrics time:last_1h stats:avg(usage_percent) as avg_usage`
+- **THEN** SRQL queries the raw `cpu_metrics` hypertable (time window < 6h threshold)
+
+#### Scenario: Bucket query with large time window routes to CAGG
+- **GIVEN** the `memory_metrics_hourly` CAGG exists and has been refreshed
+- **WHEN** a client sends `in:memory_metrics time:last_30d bucket:1h field:usage_percent agg:avg`
+- **THEN** SRQL transparently queries the `memory_metrics_hourly` CAGG
+
+#### Scenario: Non-aggregate query always hits raw table
+- **GIVEN** the `cpu_metrics_hourly` CAGG exists
+- **WHEN** a client sends `in:cpu_metrics time:last_7d` (no stats or bucket)
+- **THEN** SRQL queries the raw `cpu_metrics` hypertable regardless of time window
+
+#### Scenario: Routing is transparent to the caller
+- **GIVEN** a CAGG-routed query
+- **WHEN** the response is returned
+- **THEN** the response JSON structure is identical to a raw-table query response
+
+### Requirement: Extended time range for CAGG-eligible queries
+The SRQL service SHALL allow time ranges exceeding 90 days for queries that are eligible for CAGG routing (i.e., `stats:` or `bucket:` queries on entities with hourly CAGGs). The maximum time range for CAGG-eligible queries SHALL be 395 days.
+
+#### Scenario: One-year stats query succeeds via CAGG
+- **GIVEN** the `cpu_metrics_hourly` CAGG has 1 year of data
+- **WHEN** a client sends `in:cpu_metrics time:last_1y stats:avg(usage_percent) as avg_usage`
+- **THEN** SRQL routes to the CAGG and returns aggregated results for the full year
+
+#### Scenario: Non-CAGG query retains 90-day limit
+- **GIVEN** a raw-table query without stats or bucket
+- **WHEN** a client sends `in:cpu_metrics time:last_1y`
+- **THEN** SRQL rejects the query with a time range exceeded error (90-day limit)
+
+### Requirement: CPU metrics hourly CAGG
+The system SHALL maintain a `cpu_metrics_hourly` Continuous Aggregate view over the `cpu_metrics` hypertable with 1-hour time buckets, grouped by `device_id` and `host_id`, pre-computing AVG and MAX of `usage_percent`.
+
+#### Scenario: CAGG is created and refreshed
+- **GIVEN** the `cpu_metrics` hypertable exists with data
+- **WHEN** the TimescaleDB refresh policy runs
+- **THEN** the `cpu_metrics_hourly` CAGG contains bucketed aggregations with `avg_usage_percent`, `max_usage_percent`, and `sample_count`
+
+#### Scenario: CAGG respects retention policy
+- **GIVEN** the `cpu_metrics_hourly` CAGG has data older than 395 days
+- **WHEN** the retention policy runs
+- **THEN** data older than 395 days is removed from the CAGG
+
+### Requirement: Memory metrics hourly CAGG
+The system SHALL maintain a `memory_metrics_hourly` Continuous Aggregate view over the `memory_metrics` hypertable with 1-hour time buckets, grouped by `device_id` and `host_id`, pre-computing AVG and MAX of `usage_percent`, and AVG of `used_bytes` and `available_bytes`.
+
+#### Scenario: CAGG is created and refreshed
+- **GIVEN** the `memory_metrics` hypertable exists with data
+- **WHEN** the TimescaleDB refresh policy runs
+- **THEN** the `memory_metrics_hourly` CAGG contains bucketed aggregations with `avg_usage_percent`, `max_usage_percent`, `avg_used_bytes`, `avg_available_bytes`, and `sample_count`
+
+### Requirement: Disk metrics hourly CAGG
+The system SHALL maintain a `disk_metrics_hourly` Continuous Aggregate view over the `disk_metrics` hypertable with 1-hour time buckets, grouped by `device_id`, `host_id`, and `mount_point`, pre-computing AVG and MAX of `usage_percent`, and AVG of `used_bytes` and `available_bytes`.
+
+#### Scenario: CAGG is created and refreshed
+- **GIVEN** the `disk_metrics` hypertable exists with data
+- **WHEN** the TimescaleDB refresh policy runs
+- **THEN** the `disk_metrics_hourly` CAGG contains bucketed aggregations with `avg_usage_percent`, `max_usage_percent`, `avg_used_bytes`, `avg_available_bytes`, and `sample_count`
+
+### Requirement: Process metrics hourly CAGG
+The system SHALL maintain a `process_metrics_hourly` Continuous Aggregate view over the `process_metrics` hypertable with 1-hour time buckets, grouped by `device_id`, `host_id`, and `process_name`, pre-computing AVG and MAX of `cpu_usage` and `memory_usage`.
+
+#### Scenario: CAGG is created and refreshed
+- **GIVEN** the `process_metrics` hypertable exists with data
+- **WHEN** the TimescaleDB refresh policy runs
+- **THEN** the `process_metrics_hourly` CAGG contains bucketed aggregations with `avg_cpu_usage`, `max_cpu_usage`, `avg_memory_usage`, `max_memory_usage`, and `sample_count`
+
+### Requirement: Timeseries metrics hourly CAGG
+The system SHALL maintain a `timeseries_metrics_hourly` Continuous Aggregate view over the `timeseries_metrics` hypertable with 1-hour time buckets, grouped by `device_id`, `metric_type`, and `metric_name`, pre-computing AVG, MIN, and MAX of `value`.
+
+#### Scenario: CAGG is created and refreshed
+- **GIVEN** the `timeseries_metrics` hypertable exists with data
+- **WHEN** the TimescaleDB refresh policy runs
+- **THEN** the `timeseries_metrics_hourly` CAGG contains bucketed aggregations with `avg_value`, `min_value`, `max_value`, and `sample_count`
+
+#### Scenario: CAGG preserves metric_type grouping
+- **GIVEN** timeseries_metrics with metric_type = 'snmp' and metric_type = 'rperf'
+- **WHEN** the CAGG is queried with `metric_type:snmp`
+- **THEN** only SNMP metric aggregations are returned
+
+### Requirement: CAGG refresh and retention policies
+Each hourly CAGG SHALL have a TimescaleDB continuous aggregate refresh policy (schedule_interval = 10 minutes, end_offset = 10 minutes, start_offset = 32 days) and a retention policy removing data older than 395 days.
+
+#### Scenario: Refresh policy keeps CAGG current
+- **GIVEN** new raw metric data has been ingested
+- **WHEN** 10 minutes elapse
+- **THEN** the CAGG refresh policy materializes the new data (excluding the most recent 10 minutes)
+
+#### Scenario: Retention policy bounds storage
+- **GIVEN** CAGG data older than 395 days exists
+- **WHEN** the retention policy runs
+- **THEN** data older than 395 days is dropped from the CAGG
+
+### Requirement: Logs queries use effective timestamps for time filters and ordering
+For the logs entity, SRQL SHALL apply time filters and default ordering against an effective timestamp that coalesces `observed_timestamp` with the event `timestamp`.
+
+#### Scenario: Time filter uses observed timestamp fallback
+- **GIVEN** a log record with `observed_timestamp` set later than `timestamp`
+- **WHEN** a client queries `in:logs time:last_1h`
+- **THEN** SRQL SHALL evaluate the time range against the observed timestamp
+
+#### Scenario: Default ordering uses effective timestamp
+- **GIVEN** logs with mixed observed timestamps and event timestamps
+- **WHEN** a client queries `in:logs sort:timestamp:desc`
+- **THEN** SRQL SHALL order by the effective timestamp first
+
+### Requirement: SRQL Is The Only Data Source For NetFlow Visualize Widgets
+All NetFlow Visualize charts and tables SHALL be backed by SRQL queries. The UI SHALL NOT execute Ecto queries to generate chart datasets.
+
+#### Scenario: Visualize page executes SRQL for flow time-series
+- **WHEN** the Visualize page needs data for a chart or table
+- **THEN** it executes SRQL queries (for example `in:flows ...`)
+- **AND** it does not run Ecto queries to generate chart datasets
+
+### Requirement: Visualize UI State Does Not Overwrite Unsupported SRQL Queries
+When a user provides an SRQL query that cannot be fully represented by the Visualize builder/state model, the UI SHALL preserve the raw query string and avoid overwriting it unless the user explicitly requests replacement.
+
+#### Scenario: Builder preserves unsupported query
+- **GIVEN** a user enters an SRQL query containing tokens not yet supported by the builder
+- **WHEN** the Visualize page parses URL state or builder selections change
+- **THEN** the raw query string is preserved and not overwritten automatically
+
+### Requirement: Flow exporter/interface dimensions
+
+The SRQL service SHALL expose exporter and interface metadata dimensions for `in:flows` queries, derived from cached inventory data.
+
+#### Scenario: Group flows by exporter name
+- **GIVEN** exporter cache rows exist for one or more `sampler_address` values
+- **WHEN** the user queries `in:flows stats:sum(bytes_total) as bytes by exporter_name`
+- **THEN** SRQL returns grouped rows keyed by `exporter_name`
+
+#### Scenario: Downsample flows by inbound interface name
+- **GIVEN** interface cache rows exist for one or more `(sampler_address, if_index)` pairs
+- **WHEN** the user queries `in:flows downsample series:in_if_name value_field:bytes_total`
+- **THEN** SRQL returns time-series grouped by `in_if_name`
+
+#### Scenario: Missing cache entries do not break queries
+- **GIVEN** flow rows exist with `sampler_address`/`if_index` values not present in the cache tables
+- **WHEN** the user queries `in:flows exporter_name:*` or `in:flows stats:count() by in_if_name`
+- **THEN** SRQL executes successfully and treats missing metadata as null/unknown
+
+### Requirement: SRQL-Driven Top-N With "Other" Bucket
+The system SHALL construct top-N datasets from SRQL results and bucket remaining series into an `Other` category.
+
+#### Scenario: Top-N buckets remaining series
+- **GIVEN** a time-series SRQL downsample result contains more than N series
+- **WHEN** the Visualize page renders a top-N chart
+- **THEN** it shows the top N series and aggregates the remaining series into `Other`
+
+### Requirement: SRQL Merge Audit Entity
+SRQL SHALL provide `in:merge_audit` as a queryable device-merge audit entity backed by `platform.merge_audit`. Parser aliases SHALL include `device_merges` and `merges`. Results SHALL expose `event_id`, `from_device_id`, `to_device_id`, `reason`, `confidence_score`, `source`, `created_at`, and a key-allowlisted projection of `details`. The `time:` predicate SHALL filter `created_at`, and the default sort SHALL be `created_at desc`. Rows whose `reason` is `unmerge` SHALL be excluded unless the caller passes `include_unmerge:true`. Every predicate SHALL be parameterized.
+
+#### Scenario: Find what a device was merged into
+- **GIVEN** `merge_audit` records a merge from `sr:aaa` to `sr:bbb` with reason `duplicate_mac`
+- **WHEN** a client queries `in:merge_audit from_device_id:sr:aaa`
+- **THEN** SRQL SHALL return that merge row
+- **AND** the row SHALL include `to_device_id`, `reason`, `source`, and `created_at`
+
+#### Scenario: Unmerge rows are hidden by default
+- **GIVEN** an `unmerge` row and a `duplicate_mac` row both reference `sr:aaa`
+- **WHEN** a client queries `in:merge_audit from_device_id:sr:aaa`
+- **THEN** SRQL SHALL return only the `duplicate_mac` row
+- **AND** `in:merge_audit from_device_id:sr:aaa include_unmerge:true` SHALL return both
+
+#### Scenario: Details are key-allowlisted
+- **GIVEN** a merge row whose `details` jsonb carries both allowlisted keys and an unrecognized key
+- **WHEN** a client queries `in:merge_audit`
+- **THEN** the projected `details` SHALL contain only allowlisted keys
+- **AND** the unrecognized key SHALL be absent from the result
+
+### Requirement: SRQL Merge Chain Resolution
+SRQL SHALL resolve the complete canonical merge chain for a device through `in:merge_audit chain:<device_uid>`. The walk SHALL traverse both directions from the seed: forward through `from_device_id` to `to_device_id`, and backward through `to_device_id` to `from_device_id`. Each row SHALL project `depth` as the number of hops from the seed and `direction` as `merged_into` or `merged_from`. The walk SHALL terminate on already-visited device ids and SHALL enforce a configurable depth cap defaulting to 32. When the depth cap truncates the walk, the response SHALL set `truncated` to true.
+
+#### Scenario: Multi-hop chain resolves to the survivor
+- **GIVEN** `sr:aaa` merged into `sr:bbb`, and `sr:bbb` merged into `sr:ccc`
+- **WHEN** a client queries `in:merge_audit chain:sr:aaa`
+- **THEN** SRQL SHALL return both merge edges
+- **AND** the `sr:aaa` to `sr:bbb` edge SHALL have `depth` 1 and `direction` `merged_into`
+- **AND** the `sr:bbb` to `sr:ccc` edge SHALL have `depth` 2 and `direction` `merged_into`
+
+#### Scenario: Chain resolves ancestors as well as descendants
+- **GIVEN** `sr:aaa` merged into `sr:bbb`
+- **WHEN** a client queries `in:merge_audit chain:sr:bbb`
+- **THEN** SRQL SHALL return the edge with `direction` `merged_from`
+
+#### Scenario: Oscillating merge pair terminates
+- **GIVEN** `sr:aaa` and `sr:bbb` have merge rows in both directions recorded repeatedly
+- **WHEN** a client queries `in:merge_audit chain:sr:aaa`
+- **THEN** the walk SHALL terminate rather than recurse indefinitely
+- **AND** each distinct device SHALL be visited at most once
+
+#### Scenario: Depth cap is reported, not hidden
+- **GIVEN** a merge chain longer than the configured depth cap
+- **WHEN** a client queries `in:merge_audit chain:<seed>`
+- **THEN** SRQL SHALL return the chain up to the cap
+- **AND** the response SHALL indicate `truncated` is true
+
+### Requirement: SRQL Device Revival Audit Entity
+SRQL SHALL provide `in:device_revival_audit` as a queryable entity backed by `platform.device_revival_audit`. Parser aliases SHALL include `device_revivals` and `revivals`. Results SHALL expose `event_id`, `device_uid`, `previous_deleted_at`, `previous_deleted_by`, `previous_deleted_reason`, `revived_at`, and `revived_by_application`. The `time:` predicate SHALL filter `revived_at`, and the default sort SHALL be `revived_at desc`.
+
+#### Scenario: Inspect revivals for a device
+- **GIVEN** a device `sr:aaa` was soft-deleted with reason `phantom apipa address` and later revived
+- **WHEN** a client queries `in:device_revival_audit device_uid:sr:aaa`
+- **THEN** SRQL SHALL return the revival row
+- **AND** the row SHALL include `previous_deleted_by`, `previous_deleted_reason`, and `revived_by_application`
+
+#### Scenario: Recent revivals across the fleet
+- **GIVEN** revival rows exist inside and outside the last 24 hours
+- **WHEN** a client queries `in:revivals time:last_24h`
+- **THEN** SRQL SHALL return only rows whose `revived_at` falls in the window
+
+### Requirement: SRQL Device Identifiers Entity
+SRQL SHALL provide `in:device_identifiers` as a queryable identifier-ownership entity backed by `platform.device_identifiers`. Parser aliases SHALL include `identifiers` and `device_identity`. Results SHALL expose `id`, `device_id`, `identifier_type`, `identifier_value`, `partition`, `confidence`, `source`, `first_seen`, `last_seen`, `verified`, a key-allowlisted projection of `metadata`, and the joined owner fields `owner_hostname`, `owner_ip`, `owner_partition`, `owner_deleted`, `owner_deleted_at`, `owner_deleted_by`, and `owner_deleted_reason`. The `time:` predicate SHALL filter `last_seen`, and the default sort SHALL be `last_seen desc`.
+
+#### Scenario: Identifier ownership for a device
+- **GIVEN** device `sr:aaa` owns a `mac` identifier and an `agent_id` identifier
+- **WHEN** a client queries `in:device_identifiers device_id:sr:aaa`
+- **THEN** SRQL SHALL return both identifier rows with type, value, partition, and confidence
+
+#### Scenario: Value lookup without a type stays index-backed
+- **GIVEN** a `mac` identifier with value `001122334455`
+- **WHEN** a client queries `in:identifiers value:001122334455`
+- **THEN** SRQL SHALL constrain `identifier_type` to the complete closed set of declared identifier types
+- **AND** the set SHALL include every type `DeviceIdentifier` declares, so a lookup for any type finds its rows
+- **AND** the plan SHALL be able to use the leading column of the unique identifier index
+- **AND** SRQL SHALL NOT emit a predicate on `identifier_value` alone
+
+#### Scenario: Tombstoned owner is visible
+- **GIVEN** an identifier whose owning device has been soft-deleted
+- **WHEN** a client queries `in:device_identifiers value:<value>`
+- **THEN** the row SHALL report `owner_deleted` as true
+- **AND** the row SHALL include the owner `deleted_at`, `deleted_by`, and `deleted_reason`
+
+### Requirement: SRQL Identifier Currency Projection
+SRQL SHALL project `matches_current_facts` on `in:device_identifiers`, computed by comparing the identifier value against the owning device's current facts for the corresponding identifier type. A `mac` identifier SHALL match when it equals the owner's current `mac` or appears among the owner's interface MACs. An `agent_id`, `hostname`, or `ip` identifier SHALL match when it equals the corresponding current device column. The projection SHALL distinguish an identifier that reflects current corroborated ownership from one that is only historical.
+
+The projection SHALL be three-valued. It SHALL be null for an identifier type that has no corresponding current fact on the device, and SHALL NOT report such an identifier as false. External-system keys (`armis_device_id`, `netbox_device_id`, `integration_id`), `hardware_serial`, and `passive_fingerprint` have no comparable device column, and reporting them as false would assert that they are stale.
+
+#### Scenario: Current MAC is corroborated
+- **GIVEN** device `sr:aaa` has current `mac` `001122334455` and an identifier row with the same value
+- **WHEN** a client queries `in:device_identifiers device_id:sr:aaa identifier_type:mac`
+- **THEN** the row SHALL report `matches_current_facts` as true
+
+#### Scenario: Historical MAC is not corroborated
+- **GIVEN** device `sr:aaa` owns an identifier for a MAC it no longer reports on any current fact or interface
+- **WHEN** a client queries `in:device_identifiers device_id:sr:aaa identifier_type:mac`
+- **THEN** that row SHALL report `matches_current_facts` as false
+- **AND** the row SHALL still be returned rather than filtered out
+
+#### Scenario: An external-system key is not reported as stale
+- **GIVEN** device `sr:aaa` owns an `armis_device_id` identifier
+- **WHEN** a client queries `in:device_identifiers device_id:sr:aaa identifier_type:armis_device_id`
+- **THEN** the row SHALL report `matches_current_facts` as null
+- **AND** the row SHALL NOT report `matches_current_facts` as false
+
+### Requirement: SRQL Identity Evidence Edge Entity
+SRQL SHALL provide `in:identity_evidence_edges` as a derived entity returning the connected component of devices joined by shared `(identifier_type, identifier_value, partition)` tuples in `platform.device_identifiers`. Parser aliases SHALL include `identity_evidence` and `evidence_edges`. Each row SHALL represent one edge and SHALL project `device_a`, `device_b`, `identifier_type`, `identifier_value`, `partition_a`, `partition_b`, `confidence`, `depth`, `direct`, and `cross_partition`. `direct` SHALL be true when the edge is incident to the seed device. `cross_partition` SHALL be true when the two endpoint devices have different partitions. The walk SHALL terminate on already-visited device ids and SHALL enforce the same configurable depth cap as merge chain resolution.
+
+#### Scenario: Direct evidence is distinguished from transitive connectivity
+- **GIVEN** device A and device B share a MAC identifier, and device B and device C share a different MAC identifier, while A and C share nothing
+- **WHEN** a client queries `in:identity_evidence_edges device:A`
+- **THEN** SRQL SHALL return the A-B edge with `direct` true and `depth` 1
+- **AND** SRQL SHALL return the B-C edge with `direct` false and `depth` 2
+- **AND** SRQL SHALL NOT emit an A-C edge
+
+#### Scenario: Cross-partition evidence is flagged
+- **GIVEN** two devices in different partitions are joined by a shared identifier value
+- **WHEN** a client queries `in:identity_evidence_edges device:<seed>`
+- **THEN** the edge SHALL report `cross_partition` as true
+- **AND** the edge SHALL include both `partition_a` and `partition_b`
+
+#### Scenario: Unseeded evidence query is refused
+- **WHEN** a client queries `in:identity_evidence_edges` with no `device` or component seed filter
+- **THEN** SRQL SHALL return a typed invalid-request error
+- **AND** SRQL SHALL NOT execute a self-join across the identifier table
+
+### Requirement: SRQL Identity Reconciliation Runs Entity
+SRQL SHALL provide `in:identity_reconciliation_runs` as a queryable entity backed by `platform.identity_reconciliation_runs`. Parser aliases SHALL include `reconciliation_runs` and `dire_runs`. Results SHALL expose `run_id`, `started_at`, `completed_at`, `duration_ms`, `status`, `error_summary`, `duplicate_identifier_count`, `duplicate_components`, `mergeable_components`, `blocked_components`, `blocked_devices`, `largest_blocked_component`, `merges`, `errors`, `max_merges_configured`, `merge_cap_reached`, `blocked_component_devices`, `trigger`, and `job_schedule_id`. The `time:` predicate SHALL filter `started_at`, and the default sort SHALL be `started_at desc`.
+
+#### Scenario: Detect a run that stopped at its work cap
+- **GIVEN** a reconciliation run performed merges equal to its configured cap
+- **WHEN** a client queries `in:identity_reconciliation_runs time:last_24h`
+- **THEN** the run row SHALL report `merge_cap_reached` as true
+- **AND** the row SHALL include `max_merges_configured` and the number of `merges` performed
+
+#### Scenario: Failed runs are queryable
+- **GIVEN** a reconciliation run raised and was rescued
+- **WHEN** a client queries `in:reconciliation_runs status:failed`
+- **THEN** SRQL SHALL return the run row with `status` `failed`
+- **AND** the row SHALL include `error_summary`
+
+#### Scenario: Blocked component membership is available
+- **GIVEN** a run classified an ambiguous component of five devices as blocked
+- **WHEN** a client queries `in:identity_reconciliation_runs run_id:<id>`
+- **THEN** the row SHALL report `blocked_components` and `largest_blocked_component`
+- **AND** `blocked_component_devices` SHALL list the device uids of each blocked component
+
+### Requirement: Identity Diagnostic Entities Are Permission Gated
+Every parser alias for `merge_audit`, `device_revival_audit`, `device_identifiers`, `identity_reconciliation_runs`, and `identity_evidence_edges` SHALL be registered under the `devices.view` permission in the SRQL entity access map. No identity diagnostic alias SHALL rely on the unknown-entity passthrough.
+
+#### Scenario: Every alias resolves to a permission
+- **WHEN** each canonical name and alias for the five identity diagnostic entities is resolved through the entity access map
+- **THEN** each SHALL resolve to `devices.view`
+- **AND** none SHALL resolve to the unknown-entity passthrough
+
+#### Scenario: Caller without devices.view is refused
+- **GIVEN** a caller whose permission set does not include `devices.view`
+- **WHEN** that caller submits `in:merge_audit` over HTTP or MCP
+- **THEN** the request SHALL be rejected as forbidden
+- **AND** no query SHALL be executed
+

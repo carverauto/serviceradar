@@ -1,0 +1,34 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "armis",
+    srcs = [
+        "asset_enrichment.go",
+        "client.go",
+        "device.go",
+        "driver.go",
+        "metadata_fields.go",
+        "update.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/agent/syncsources/armis",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//go/pkg/agent/syncsources",
+        "//go/pkg/models",
+    ],
+)
+
+go_test(
+    name = "armis_test",
+    srcs = [
+        "client_test.go",
+        "driver_test.go",
+        "update_test.go",
+    ],
+    embed = [":armis"],
+    deps = [
+        "//go/pkg/agent/syncsources",
+        "//go/pkg/logger",
+        "//go/pkg/models",
+    ],
+)

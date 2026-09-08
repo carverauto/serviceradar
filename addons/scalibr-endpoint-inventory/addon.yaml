@@ -1,0 +1,42 @@
+# ScaLibr endpoint software inventory scanner add-on.
+#
+# Delivers an OSV ScaLibr-backed scanner implementation of the generic
+# ServiceRadar scanner contract. The non-root agent ingests the sanitized
+# endpoint inventory spool payload from /var/lib/serviceradar/endpoint-inventory.
+id: scalibr-endpoint-inventory
+name: ScaLibr Endpoint Software Inventory
+version: 0.1.6
+description: >-
+  OSV ScaLibr-backed endpoint software inventory scanner that emits ServiceRadar
+  endpoint inventory SBOM and generic scanner contract metadata.
+
+kind: native
+delivery: pushed-artifact
+supervision: systemd-timer
+language: go
+
+capabilities:
+  - endpoint-inventory
+  - software-sbom
+  - scanner:v1
+
+requires:
+  base_agent: ">=1.4.12"
+  platforms: [linux]
+  os_capabilities: []
+  run_as: root
+
+exec:
+  binary: serviceradar-scalibr-endpoint-inventory
+  install_path: /usr/local/lib/serviceradar/bin
+
+state_dirs:
+  - /var/lib/serviceradar/endpoint-inventory
+  - /var/lib/serviceradar/endpoint-inventory/profile
+  - /var/lib/serviceradar/endpoint-inventory/spool
+  - /var/lib/serviceradar/endpoint-inventory/spool/runs
+  - /var/lib/serviceradar/endpoint-inventory/tmp
+
+# artifacts[] are populated by build/native_addons signing/publish/import.
+
+config_schema: config.schema.json

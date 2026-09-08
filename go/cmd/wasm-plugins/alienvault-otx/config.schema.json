@@ -1,0 +1,83 @@
+{
+  "type": "object",
+  "properties": {
+    "base_url": {
+      "type": "string",
+      "description": "AlienVault OTX base URL",
+      "default": "https://otx.alienvault.com"
+    },
+    "api_key_secret_ref": {
+      "type": "string",
+      "description": "AlienVault OTX API key. Stored as a credential rule, not on the assignment form.",
+      "secretRef": true,
+      "credentialKind": "api_token",
+      "x-serviceradar-ui-hidden": true,
+      "x-serviceradar-credential-materialized": true
+    },
+    "modified_since": {
+      "type": "string",
+      "description": "Optional OTX modified_since cursor"
+    },
+    "bootstrap_lookback_days": {
+      "type": "integer",
+      "description": "When modified_since is empty, start or recover the walk from this many days ago instead of using the unreliable full-corpus deep-page export. Set 0 explicitly to request full history.",
+      "minimum": 0,
+      "maximum": 3650,
+      "default": 30
+    },
+    "types": {
+      "type": "string",
+      "description": "Comma-delimited OTX indicator types to fetch",
+      "default": "IPv4,IPv6,CIDR"
+    },
+    "limit": {
+      "type": "integer",
+      "description": "OTX page size",
+      "minimum": 1,
+      "maximum": 1000,
+      "default": 100
+    },
+    "page": {
+      "type": "integer",
+      "description": "OTX page number",
+      "minimum": 1,
+      "default": 1
+    },
+    "timeout_ms": {
+      "type": "integer",
+      "description": "Request timeout in milliseconds",
+      "minimum": 1000,
+      "maximum": 600000,
+      "default": 120000
+    },
+    "max_pages": {
+      "type": "integer",
+      "description": "Maximum OTX pages fetched in one plugin run. Incomplete cursors resume on the next scheduled invocation.",
+      "minimum": 1,
+      "maximum": 100,
+      "default": 25
+    },
+    "max_retries": {
+      "type": "integer",
+      "description": "Transient-failure retry budget for one emitted page. Moving to an equivalent smaller page does not consume retries. Auth and other non-retryable 4xx errors fail fast.",
+      "minimum": 0,
+      "maximum": 7,
+      "default": 5
+    },
+    "backoff_ms": {
+      "type": "integer",
+      "description": "Base retry backoff in milliseconds; bounded exponential (factor 2) with equal jitter, capped at 30000ms",
+      "minimum": 100,
+      "maximum": 30000,
+      "default": 2000
+    },
+    "min_pull_interval_ms": {
+      "type": "integer",
+      "description": "Self-throttle window: a fresh OTX pull runs at most once per this interval (default ~24h) even if the agent runs the check more often. Set 0 to disable throttling. Partial (paged) walks always resume regardless of this window.",
+      "minimum": 0,
+      "maximum": 604800000,
+      "default": 86400000
+    }
+  },
+  "required": ["api_key_secret_ref"]
+}

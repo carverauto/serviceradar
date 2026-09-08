@@ -1,0 +1,48 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  enable:
+    - asciicheck
+    - bodyclose
+    - dupl
+    - err113
+    - errcheck
+    - errorlint
+    - exhaustive
+    - copyloopvar
+    # - funlen
+    - gochecknoglobals
+    - gochecknoinits
+    # - gocognit
+    - goconst
+    - gocritic
+    - gocyclo
+    - goprintffuncname
+    # - gosec
+    - govet
+    - ineffassign
+    # - lll
+    - mirror
+    - misspell
+    # - mnd
+    - nakedret
+    # - nestif
+    - noctx
+    - nolintlint
+    - prealloc
+    # - revive
+    - rowserrcheck
+    - staticcheck
+    - testifylint
+    - thelper
+    - unconvert
+    - unparam
+    - unused
+    - usestdlibvars
+    - whitespace
+  exclusions:
+    paths:
+      - go/pkg/bumblebee/upstream/.*

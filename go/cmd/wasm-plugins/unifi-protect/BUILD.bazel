@@ -1,0 +1,39 @@
+# gazelle:ignore
+#
+# This is a TinyGo plugin in its own Go module. Production is compiled to wasip1
+# by //build/wasm_plugins, not rules_go; the focused rules_go target below only
+# guards the emitted signal-schema contract. See go.mod for the SDK pin.
+load("@io_bazel_rules_go//go:def.bzl", "go_test")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "config.schema.json",
+    "config.stream.schema.json",
+    "display/camera_event.display.json",
+    "main.go",
+    "plugin.stream.yaml",
+    "plugin.yaml",
+    "schemas/ocsf_event_log_activity.schema.json",
+])
+
+filegroup(
+    name = "srcs",
+    srcs = glob(
+        ["**"],
+        exclude = ["dist/**"],
+    ),
+)
+
+go_test(
+    name = "signal_schema_test",
+    srcs = [
+        "signal_schema.go",
+        "signal_schema_test.go",
+    ],
+    data = [
+        "display/camera_event.display.json",
+        "plugin.yaml",
+    ],
+    deps = ["//build/wasm_plugins/testsdk:sdk"],
+)

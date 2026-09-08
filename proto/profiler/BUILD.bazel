@@ -1,0 +1,38 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("@io_bazel_rules_go//proto:def.bzl", "go_proto_library")
+load("@rules_proto//proto:defs.bzl", "proto_library")
+
+proto_library(
+    name = "profiler_proto",
+    srcs = ["profiler.proto"],
+    visibility = ["//visibility:public"],
+)
+
+go_proto_library(
+    name = "profiler_go_proto",
+    # keep
+    #
+    # BOTH compilers, and Gazelle is wrong to collapse this to go_grpc_v2 alone. go_grpc_v2
+    # emits only profiler_grpc.pb.go, the service stubs; go_proto emits profiler.pb.go, the
+    # message types. Drop go_proto and the stubs reference types nothing generated:
+    #
+    #   profiler_grpc.pb.go:31:42: undefined: StartProfilingRequest
+    #   profiler_grpc.pb.go:31:92: undefined: StartProfilingResponse
+    #
+    # Analysis still passes, so this only surfaces at compile time. //proto/rperf carries the
+    # same pair for the same reason.
+    compilers = [
+        "@io_bazel_rules_go//proto:go_proto",
+        "@io_bazel_rules_go//proto:go_grpc_v2",
+    ],
+    importpath = "github.com/carverauto/serviceradar/proto/profiler",
+    proto = ":profiler_proto",
+    visibility = ["//visibility:public"],
+)
+
+go_library(
+    name = "profiler",
+    embed = [":profiler_go_proto"],
+    importpath = "github.com/carverauto/serviceradar/proto/profiler",
+    visibility = ["//visibility:public"],
+)

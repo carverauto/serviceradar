@@ -1,0 +1,134 @@
+netauto:
+    label: Network Automation
+    permalink: /netauto
+    description: Network Automation tag description
+
+nms:
+    label: Network Management Systems
+    permalink: /nms
+    description: Network Management System tag description
+
+observability:
+    label: Observability
+    permalink: /observability
+    description: Observability tag description
+
+performance:
+    label: Performance
+    permalink: /performance
+    description: Performance tag description
+
+monitoring:
+    label: Monitoring
+    permalink: /monitoring
+    description: Monitoring tag description
+
+network-scanning:
+    label: Network Scanning
+    permalink: /network-scanning
+    description: Network Scanning tag description
+
+security:
+    label: Security
+    permalink: /security
+    description: Security tag description
+
+cloud:
+    label: Cloud
+    permalink: /cloud
+    description: Cloud tag description
+
+zero-touch:
+    label: Zero Touch Provisioning
+    permalink: /zero-touch
+    description: Zero Touch Provisioning tag description
+
+zero-trust:
+    label: Zero Trust
+    permalink: /zero-trust
+    description: Zero Trust tag description
+
+welcome:
+    label: Welcome
+    permalink: /welcome
+    description: Welcome tag description
+
+serviceradar:
+    label: Service Radar
+    permalink: /serviceradar
+    description: Service Radar tag description
+
+network-monitoring:
+    label: Network Monitoring
+    permalink: /network-monitoring
+    description: Network Monitoring tag description
+
+go:
+    label: Go
+    permalink: /go
+    description: Go programming language
+
+linux:
+    label: Linux
+    permalink: /linux
+    description: Linux platform
+
+cbpf:
+    label: cBPF
+    permalink: /cbpf
+    description: Classic Berkeley Packet Filter
+
+elixir:
+    label: Elixir
+    permalink: /elixir
+    description: Elixir programming language
+
+phoenix:
+    label: Phoenix
+    permalink: /phoenix
+    description: Phoenix web framework
+
+rust:
+    label: Rust
+    permalink: /rust
+    description: Rust programming language
+
+rustler:
+    label: Rustler
+    permalink: /rustler
+    description: Rustler NIFs for Elixir
+
+postgres:
+    label: PostgreSQL
+    permalink: /postgres
+    description: PostgreSQL database
+
+timescaledb:
+    label: TimescaleDB
+    permalink: /timescaledb
+    description: TimescaleDB time-series database
+
+age:
+    label: AGE
+    permalink: /age
+    description: Apache AGE graph database
+
+architecture:
+    label: Architecture
+    permalink: /architecture
+    description: System architecture
+
+wasm:
+    label: WebAssembly
+    permalink: /wasm
+    description: WebAssembly runtime
+
+wazero:
+    label: wazero
+    permalink: /wazero
+    description: Pure Go WebAssembly runtime
+
+agent:
+    label: Agent
+    permalink: /agent
+    description: ServiceRadar agent

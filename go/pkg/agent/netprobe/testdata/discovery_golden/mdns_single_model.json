@@ -1,0 +1,32 @@
+{
+  "devices": [
+    {
+      "ip": "",
+      "mac": "a8:bb:cc:00:01:01",
+      "metadata": {
+        "agent_id": "agent-1",
+        "discovery_source": "netprobe-mdns",
+        "gateway_id": "gw-1",
+        "identity_source": "netprobe_mdns",
+        "mac": "a8:bb:cc:00:01:01",
+        "mdns.ambiguous_model": "false",
+        "mdns.interface": "ens18",
+        "mdns.last_seen": "2023-11-14T22:14:20Z",
+        "mdns.model": "SyntheticTV1,1",
+        "mdns.models": "SyntheticTV1,1",
+        "mdns.service_types": "_airplay._tcp,_raop._tcp",
+        "mdns.snapshot_id": "ens18-1700000000-7",
+        "mdns.truncated": "false",
+        "source": "netprobe-mdns"
+      }
+    }
+  ],
+  "stats": {
+    "ambiguous": 0,
+    "devices": 1,
+    "emitted": 1,
+    "skipped_no_evidence": 0,
+    "skipped_no_mac": 0,
+    "truncated": 0
+  }
+}

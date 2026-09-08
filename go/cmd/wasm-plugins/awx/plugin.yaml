@@ -1,0 +1,73 @@
+id: awx
+name: AWX / AAP Bridge
+version: 0.1.12
+description: >
+  Network bridge between ServiceRadar core and an AWX/AAP controller in the
+  customer's network. Dispatches per-call REST verbs (ping, list inventories /
+  hosts / inventory groups / projects / templates, current-user, exact launch,
+  reviewed live-launch preflight,
+  bounded ephemeral callback-credential create/verify/reconcile/delete, recent-job and
+  job-host-summary reconciliation, cancel, and event fetch)
+  for Elixir's AwxClient via AgentCommandBus, and emits a DeviceDiscovery
+  aggregate from a scheduled `inventory_sync` invocation. Holds no per-controller
+  state; each request carries its own credential broker grant.
+entrypoint: run_check
+runtime: wasi-preview1
+outputs: serviceradar.plugin_result.v1
+capabilities:
+  - get_config
+  - log
+  - submit_result
+  - http_request
+  # Every verb carries its own credential broker grant, so a periodic run_check
+  # has no token and can only report `api_token is required`. action-only:v1
+  # keeps the bridge addressable through AgentCommandBus without a runner.
+  - action-only:v1
+permissions:
+  allowed_domains:
+    - "*"
+  # Domain wildcards never match literal-IP destinations; these ranges cover
+  # AWX/AAP controllers hosted inside the customer's network. Link-local
+  # (169.254.0.0/16) is excluded: no controller is deliberately addressed there.
+  allowed_networks:
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
+    - "192.168.0.0/16"
+    - "100.64.0.0/10"
+  allowed_ports:
+    - 80
+    - 443
+    - 8080
+    - 8443
+resources:
+  requested_memory_mb: 64
+  requested_cpu_ms: 10000
+  max_open_connections: 4
+integrations:
+  credential_profiles:
+    - provider: awx
+      label: AWX / AAP
+      description: OAuth2 bearer tokens used by approved AWX and Ansible controller operations.
+      supports_rules: false
+      auth_methods:
+        - id: bearer_token
+          label: API token
+          credential_kind: api_token
+          fields:
+            - id: api_token
+              label: API token
+              control: password
+              required: true
+              secret: true
+              public: false
+          payload:
+            format: scalar
+            field: api_token
+      purposes:
+        - automation_execution
+      scope_types:
+        - agent
+      rule_defaults: {}
+      rule_controls: {}
+      provisioning:
+        mode: credential_only

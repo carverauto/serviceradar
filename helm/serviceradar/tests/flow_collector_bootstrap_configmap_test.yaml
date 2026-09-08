@@ -1,0 +1,50 @@
+suite: flow collector bootstrap configmap
+templates:
+  - flow-collector-bootstrap-configmap.yaml
+  - flow-collector-bootstrap-job.yaml
+tests:
+  # F1: on a fresh `helm install`, pre-install hooks run before ANY ordinary
+  # resource exists, so the bootstrap Job cannot mount the ordinary
+  # serviceradar-flow-collector-config ConfigMap (flow-collector.yaml). This
+  # dedicated, hook-scoped copy must exist first -- its hook-weight must sort
+  # strictly before the Job's (-5), and the Job must actually reference it
+  # by name.
+  - it: fires before the bootstrap Job so the Job's ConfigMap dependency exists
+    set:
+      flowCollector.enabled: true
+    template: templates/flow-collector-bootstrap-configmap.yaml
+    asserts:
+      - equal:
+          path: metadata.name
+          value: serviceradar-flow-collector-bootstrap-config
+      - equal:
+          path: metadata.annotations["helm.sh/hook"]
+          value: pre-install,pre-upgrade
+      - equal:
+          path: metadata.annotations["helm.sh/hook-weight"]
+          value: "-6"
+      - equal:
+          path: metadata.annotations["helm.sh/hook-delete-policy"]
+          value: before-hook-creation
+      - isNotNull:
+          path: data["flow-collector.json"]
+  - it: is what the bootstrap Job actually mounts, not the ordinary ConfigMap
+    set:
+      flowCollector.enabled: true
+    template: templates/flow-collector-bootstrap-job.yaml
+    asserts:
+      - equal:
+          path: metadata.annotations["helm.sh/hook-weight"]
+          value: "-5"
+      - equal:
+          path: spec.template.spec.volumes[0].name
+          value: flow-collector-config
+      - equal:
+          path: spec.template.spec.volumes[0].configMap.name
+          value: serviceradar-flow-collector-bootstrap-config
+  - it: is absent when the collector is disabled
+    set:
+      flowCollector.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0

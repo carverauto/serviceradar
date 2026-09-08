@@ -1,0 +1,191 @@
+name: Image Security Scan
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag to scan."
+        required: true
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  image-security:
+    runs-on: arc-runner-set
+    env:
+      OCI_REGISTRY: registry.carverauto.dev
+      OCI_USERNAME: ${{ secrets.HARBOR_ROBOT_USERNAME }}
+      OCI_TOKEN: ${{ secrets.HARBOR_ROBOT_SECRET }}
+      GH_TOKEN: ${{ github.token }}
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+
+      - name: Install ORAS
+        run: ./scripts/install-oras.sh
+
+      - name: Install Syft
+        run: ./scripts/install-syft.sh
+
+      - name: Install OSV-Scanner
+        run: ./scripts/install-osv-scanner.sh
+
+      - name: Resolve image tag
+        id: release
+        env:
+          INPUT_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || '' }}
+        run: |
+          set -euo pipefail
+          tag="${INPUT_TAG}"
+          if [[ -z "${tag}" && "${GITHUB_REF}" == refs/tags/* ]]; then
+            tag="${GITHUB_REF#refs/tags/}"
+          fi
+          if [[ -z "${tag}" ]]; then
+            echo "Unable to determine image tag" >&2
+            exit 1
+          fi
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+
+      - name: Authenticate Docker for Harbor
+        run: |
+          set -euo pipefail
+          if [[ -z "${OCI_USERNAME:-}" || -z "${OCI_TOKEN:-}" ]]; then
+            echo "Missing Harbor robot credentials." >&2
+            exit 1
+          fi
+          echo "${OCI_TOKEN}" | oras login "${OCI_REGISTRY}" -u "${OCI_USERNAME}" --password-stdin
+
+      - name: Wait for release images
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mapfile -t repositories < <(./scripts/list-publishable-oci-repositories.sh)
+          for attempt in $(seq 1 180); do
+            missing=()
+            for repository in "${repositories[@]}"; do
+              image_ref="${repository}:${RELEASE_TAG}"
+              if ! oras manifest fetch "${image_ref}" >/dev/null 2>&1; then
+                missing+=("${image_ref}")
+              fi
+            done
+            if [[ "${#missing[@]}" -eq 0 ]]; then
+              exit 0
+            fi
+            echo "Waiting for ${#missing[@]} release image(s) for ${RELEASE_TAG}; attempt ${attempt}/180"
+            printf '  missing %s\n' "${missing[@]:0:5}"
+            sleep 20
+          done
+          echo "Timed out waiting for release images for ${RELEASE_TAG}" >&2
+          exit 1
+
+      - name: Generate image SBOMs and OSV reports
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p out/security/images
+          findings=0
+          while IFS= read -r repository; do
+            image_ref="${repository}:${RELEASE_TAG}"
+            image_name="$(basename "${repository}")"
+            echo "Scanning ${image_ref}"
+
+            syft scan "registry:${image_ref}" \
+              -o "spdx-json=out/security/images/${image_name}.spdx.json" \
+              -o "syft-text=out/security/images/${image_name}.sbom.txt"
+
+            image_osv_exit=0
+            osv-scanner scan image "${image_ref}" \
+              --format json \
+              --output-file "out/security/images/${image_name}.osv.json" || image_osv_exit=$?
+            if [[ "${image_osv_exit}" -ne 0 ]]; then
+              findings=1
+            fi
+          done < <(./scripts/list-publishable-oci-repositories.sh)
+          echo "OSV_EXIT=${findings}" >> "${GITHUB_ENV}"
+
+      - name: Bundle image security artifacts
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          tar -C out/security/images -czf "out/security/serviceradar-image-security-${RELEASE_TAG}.tar.gz" .
+
+      - name: Wait for release to exist
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          api_url="https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}"
+          releases_url="https://api.github.com/repos/${GITHUB_REPOSITORY}/releases?per_page=100"
+          release_exists() {
+            if curl -fsS --connect-timeout 5 --max-time 10 \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              "${api_url}" >/dev/null 2>&1; then
+              return 0
+            fi
+            curl -fsS --connect-timeout 5 --max-time 10 \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              "${releases_url}" 2>/dev/null \
+              | jq -e --arg tag "${RELEASE_TAG}" 'any(.[]; .tag_name == $tag)' >/dev/null
+          }
+          for _ in $(seq 1 360); do
+            if release_exists; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Timed out waiting for release ${RELEASE_TAG} to exist" >&2
+          exit 1
+
+      - name: Upload image security bundle to release
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          ./scripts/upload-forgejo-release-asset.sh \
+            "${RELEASE_TAG}" \
+            "out/security/serviceradar-image-security-${RELEASE_TAG}.tar.gz"
+
+      - name: Summarize image security outputs
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          count="$(find out/security/images -name '*.osv.json' | wc -l | tr -d ' ')"
+          {
+            echo "## Image Security Scan"
+            echo
+            echo "Scanned tag: \`${RELEASE_TAG}\`"
+            echo
+            echo "Generated per-image artifacts:"
+            echo "- SPDX JSON SBOM"
+            echo "- Text SBOM"
+            echo "- OSV JSON vulnerability report"
+            echo
+            echo "Images scanned: ${count}"
+            echo
+            if [[ "${OSV_EXIT:-0}" -eq 0 ]]; then
+              echo "OSV findings: none detected"
+            else
+              echo "OSV findings: vulnerabilities detected in one or more images (see JSON artifacts)"
+            fi
+            echo
+            echo "Uploaded release asset:"
+            echo "- \`serviceradar-image-security-${RELEASE_TAG}.tar.gz\`"
+          } >> "${GITHUB_STEP_SUMMARY}"

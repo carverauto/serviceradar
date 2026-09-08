@@ -1,0 +1,11 @@
+include!("tests/plan_and_preflight/plan.rs");
+include!("tests/plan_and_preflight/runtime_and_credentials.rs");
+include!("tests/plan_and_preflight/connector_opening.rs");
+include!("tests/connector_handshake/finalize_and_kdc.rs");
+include!("tests/connector_handshake/open_and_begin.rs");
+include!("tests/connector_handshake/handshake_boundaries.rs");
+include!("tests/active_stage/handoff.rs");
+include!("tests/active_stage/tls_and_open.rs");
+include!("tests/active_stage/io.rs");
+include!("tests/fixtures/support.rs");
+include!("tests/fixtures/active_io.rs");

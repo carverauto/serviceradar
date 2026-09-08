@@ -1,0 +1,329 @@
+load("@bazel_gazelle//:def.bzl", "gazelle")
+load("@platforms//host:extension.bzl", "host_platform")
+load("@rules_python//python:py_binary.bzl", "py_binary")
+load("@rules_python//python:py_test.bzl", "py_test")
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+
+###############################################################################
+# Gazelle
+###############################################################################
+# gazelle:prefix github.com/carverauto/serviceradar
+# gazelle:exclude .claude
+# gazelle:exclude .gomodcache
+# gazelle:exclude _build
+# gazelle:exclude dist
+# gazelle:exclude elixir
+# gazelle:exclude js
+# gazelle:exclude release-artifacts
+# gazelle:exclude target
+# gazelle:exclude rust
+# gazelle:exclude rust/rperf-client
+# gazelle:exclude cmd/ebpf
+# gazelle:exclude go/pkg/agent/testdata
+#
+# third_party is generated and vendored, never hand-authored, so Gazelle has no business
+# rewriting it. It historically walked into the vendored crate tree and tried to generate
+# proto_library rules for .proto files shipped inside crates, some of which hold more than
+# one proto package -- which Gazelle cannot express, making a repo-wide `-mode=diff`
+# non-zero for reasons no first-party change could fix.
+# gazelle:exclude third_party
+#
+# Two proto directories that hold UPSTREAM schemas, not Go packages of ours. Gazelle's
+# proto language wants to own them and gets both wrong:
+#
+#   proto/cri          generates rules with importpath k8s.io/cri-api/pkg/apis/runtime/v1
+#   google/protobuf    generates a second google.golang.org/protobuf/.../wrapperspb, which
+#                      collides with the real well-known type
+# gazelle:exclude proto/cri
+# gazelle:exclude google/protobuf
+
+gazelle(
+    name = "gazelle",
+)
+
+###############################################################################
+# exports_files
+###############################################################################
+exports_files([
+    ".github/workflows/external-wasm-plugin.yml",
+    ".github/workflows/image-security.yml",
+    ".github/workflows/native-addons.yml",
+    ".github/workflows/release.yml",
+    ".github/workflows/source-security.yml",
+    ".github/workflows/wasm-plugins.yml",
+    "VERSION",
+    "Cargo.toml",
+    "Cargo.lock",
+    ".cargo/config.toml",
+    ".tool-versions",
+    "elixir/.credo.base.exs",
+    "elixir/.credo.ex_dna.exs",
+    "elixir/.credo.jump_checks.exs",
+    "elixir/.credo.ex_slop.exs",
+    "k8s/argocd/applications/demo-prod.yaml",
+    "buildbuddy.yaml",
+    "buildbuddy_setup_fixture_env.sh",
+])
+
+###############################################################################
+# Agent release trust anchor consistency test
+###############################################################################
+# The release-signing PUBLIC key is committed in three places -- the file embedded in the agent
+# binary and the two chart values the control plane reads. Nothing else compares them:
+# scripts/verify-agent-release-key-stamp.sh checks the agent's copy against the signing SECRET,
+# which says nothing about the charts. A drift there publishes releases that agents refuse to
+# install while every gate stays green.
+#
+# `data` must list every file the test reads; a missing entry fails under the sandbox only, which
+# is exactly the environment CI uses.
+# Same class of bug as the agent release key below, caught the hard way: the Cosign public key
+# that verifies first-party Wasm plugins was set only in the demo overlay, so every other Helm
+# install rendered no key env var and could not import a single plugin. This asserts the key is
+# present -- not merely consistent -- everywhere it is embedded.
+py_test(
+    name = "first_party_plugin_cosign_key_consistency_test",
+    size = "small",
+    srcs = ["first_party_plugin_cosign_key_consistency_test.py"],
+    data = [
+        "//docs:cosign.pub",
+        "//elixir/web-ng:config/config.exs",
+        "//helm/serviceradar:values.yaml",
+        "//helm/serviceradar:values-demo.yaml",
+    ],
+)
+
+# Fails when the committed schema baseline falls too far behind the migrations on disk, or when
+# its recorded checksum no longer matches its own SQL file. Nothing detected either before: the
+# only consumer of `included_through` / `schema_sha256` was startup_migrations.ex, so the
+# baseline sat 118 migrations behind silently. That matters more now that the fixture template
+# and the developer migrate task bootstrap from it, not just service startup.
+#
+# A DRIFT check, not schema-diff validation. It does not prove the baseline reproduces what a
+# full migration replay produces -- see the module docstring.
+py_test(
+    name = "schema_baseline_freshness_test",
+    size = "small",
+    srcs = ["schema_baseline_freshness_test.py"],
+    data = [
+        "//elixir/serviceradar_core:migrations",
+        "//elixir/serviceradar_core:priv/repo/baseline/metadata.json",
+        "//elixir/serviceradar_core:priv/repo/baseline/platform_schema.sql",
+    ],
+)
+
+py_test(
+    name = "ci_heavy_gate_contract_test",
+    size = "small",
+    srcs = ["ci_heavy_gate_contract_test.py"],
+    data = [
+        ".bazelrc",
+        ".github/workflows/release.yml",
+        "BUILD.bazel",
+        "MODULE.bazel",
+        "buildbuddy.yaml",
+        "openspec/changes/parallelize-core-integration-tests/benchmark.md",
+        # //build:BUILD.bazel declares the shared-template write flag and
+        # template_authority.bzl the marker it writes; test/db/template_env.exs is the Elixir
+        # consumer that must agree with both. Declared rather than read from the workspace:
+        # this test runs remotely, where an undeclared file is simply absent -- which is how
+        # a green local run and a red remote one come apart.
+        "//build:BUILD.bazel",
+        "//build:integration_shards.bzl",
+        "//build:integration_test_dispositions.bzl",
+        "//build:integration_tests.bzl",
+        "//build:template_authority.bzl",
+        "//build/schema_template:BUILD.bazel",
+        "//build/schema_template:replay_env.bzl",
+        "//build/ci:BUILD.bazel",
+        "//build/ci:large_ingestion_gate",
+        "//build/ci:large_ingestion_gate_contract.v1",
+        "//build/ci:wait_for_large_ingestion_gate",
+        "//build/ci:wait_for_large_ingestion_gate_test",
+        "//config/environments:ci.textproto",
+        "//elixir/serviceradar_core:BUILD.bazel",
+        "//elixir/serviceradar_core:config/test.exs",
+        "//elixir/serviceradar_core:config/test_database_guard.exs",
+        "//elixir/serviceradar_core:integration_contract_test_inputs",
+        "//elixir/serviceradar_core:lib/serviceradar/cluster/startup_migrations.ex",
+        "//elixir/serviceradar_core:priv/repo/baseline/platform_schema.sql",
+        "//elixir/serviceradar_core:test/db/integration_env.exs",
+        "//elixir/serviceradar_core:test/db/integration_env_config.exs",
+        "//elixir/serviceradar_core:test/db/template_env.exs",
+        "//elixir/serviceradar_core:test/integration/advisory_feed_loader_integration_test.exs",
+        "//elixir/serviceradar_core:test/integration/netflow_ingestion_integration_test.exs",
+        "//elixir/serviceradar_core:test/integration/proxmox_api_smoke_integration_test.exs",
+        "//elixir/serviceradar_core:test/integration/secret_broker_audit_integration_test.exs",
+        "//elixir/serviceradar_core:test/release_gates/large_ingestion/identifier_cardinality_release_gate_test.exs",
+        "//elixir/serviceradar_core:test/release_gates/large_ingestion/results_router_release_gate_test.exs",
+        "//elixir/serviceradar_core:test/serviceradar/cluster/database_bootstrap_integration_test.exs",
+        "//elixir/serviceradar_core:test/serviceradar/composite_checks/composite_check_input_test.exs",
+        "//elixir/serviceradar_core:test/serviceradar/composite_checks/composite_check_rule_test.exs",
+        "//elixir/serviceradar_core:test/serviceradar/composite_checks/composite_check_test.exs",
+        "//elixir/serviceradar_core:test/serviceradar/composite_checks/device_composite_check_result_test.exs",
+        "//elixir/serviceradar_core:test/serviceradar/results_router_integration_test.exs",
+        "//elixir/serviceradar_core:test/serviceradar/scans/adhoc_scan_nats_e2e_test.exs",
+        "//elixir/serviceradar_core:test/support/data_case.ex",
+        "//elixir/serviceradar_core:test/support/test_support.ex",
+        "//elixir/serviceradar_core:test/test_helper.exs",
+        "//elixir/web-ng/test/playwright:BUILD.bazel",
+        "//integration_tests/srql:integration_benchmark_input_files",
+        "//integration_tests/srql:integration_capacity_contract_inputs",
+        "//rust/integration-db:BUILD.bazel",
+        "//rust/integration-db:src/bin/observe_connections.rs",
+        "//rust/integration-db:src/connection_observer.rs",
+        "//rust/integration-db:srcs",
+    ],
+)
+
+py_test(
+    name = "web_ng_db_runner_contract_test",
+    size = "small",
+    srcs = ["web_ng_db_runner_contract_test.py"],
+    data = [
+        "buildbuddy.yaml",
+        "//elixir/web-ng:BUILD.bazel",
+        "//elixir/web-ng:config/test.exs",
+    ],
+)
+
+py_test(
+    name = "publish_oci_workflow_contract_test",
+    size = "small",
+    srcs = ["publish_oci_workflow_contract_test.py"],
+    data = [".github/workflows/publish-oci.yml"],
+)
+
+py_binary(
+    name = "integration_benchmark_harness_hash",
+    srcs = ["ci_heavy_gate_contract_test.py"],
+    args = ["--hash-integration-benchmark"],
+    data = [
+        "buildbuddy.yaml",
+        "//rust/integration-db:BUILD.bazel",
+        "//rust/integration-db:src/bin/observe_connections.rs",
+        "//rust/integration-db:src/connection_observer.rs",
+    ],
+    main = "ci_heavy_gate_contract_test.py",
+    # This target shares its source with the remotely executed contract test. Disabling
+    # bytecode output keeps its no-remote execution requirement from claiming the same .pyc.
+    precompile = "disabled",
+    tags = ["no-remote"],
+)
+
+py_binary(
+    name = "integration_cpu_diagnostic_input_hash",
+    srcs = ["ci_heavy_gate_contract_test.py"],
+    args = ["--hash-integration-cpu-diagnostic-inputs"],
+    data = [
+        ".bazelrc",
+        "buildbuddy.yaml",
+        "//build:integration_shards.bzl",
+        "//build:integration_test_dispositions.bzl",
+        "//build:integration_tests.bzl",
+        "//config/environments:ci.textproto",
+        "//elixir/serviceradar_core:BUILD.bazel",
+        "//elixir/serviceradar_core:config/test.exs",
+        "//elixir/serviceradar_core:config/test_database_guard.exs",
+        "//elixir/serviceradar_core:integration_contract_test_inputs",
+        "//elixir/serviceradar_core:priv/repo/baseline/platform_schema.sql",
+        "//elixir/serviceradar_core:test/db/integration_env.exs",
+        "//elixir/serviceradar_core:test/db/integration_env_config.exs",
+        "//elixir/serviceradar_core:test/support/data_case.ex",
+        "//elixir/serviceradar_core:test/support/test_support.ex",
+        "//elixir/serviceradar_core:test/test_helper.exs",
+        "//integration_tests/srql:integration_benchmark_input_files",
+        "//rust/integration-db:srcs",
+    ],
+    main = "ci_heavy_gate_contract_test.py",
+    precompile = "disabled",
+    tags = ["no-remote"],
+)
+
+py_test(
+    name = "agent_release_key_consistency_test",
+    size = "small",
+    srcs = ["agent_release_key_consistency_test.py"],
+    # Proper labels, not paths: both directories are their own packages, so
+    # "go/pkg/agent/release_signing_key.txt" is rejected as a label in THIS package. The
+    # cache-proxy test above can use bare paths only because k8s/buildbuddy has no BUILD file.
+    data = [
+        "//go/pkg/agent:release_signing_key.txt",
+        "//helm/serviceradar:values.yaml",
+        "//helm/serviceradar:values-demo.yaml",
+    ],
+)
+
+###############################################################################
+# RUST RELEASE MODE OPTIMIZATION
+###############################################################################
+config_setting(
+    name = "release",
+    values = {
+        "compilation_mode": "opt",
+    },
+)
+
+###############################################################################
+# CI DOCKER AUTHENTICATION
+###############################################################################
+sh_binary(
+    name = "buildbuddy_setup_docker_auth",
+    srcs = ["buildbuddy_setup_docker_auth.sh"],
+)
+
+###############################################################################
+# CI INTEGRATION-FIXTURE CREDENTIALS
+#
+# Same credential carve-out as the docker auth target above: a sandboxed test action must not
+# fetch cluster secrets itself, so they reach the Bazel CLIENT's environment before `bazel test`
+# starts. Reads DSNs from the srql-fixtures K8s secrets when the caller has cluster access,
+# otherwise from pre-set workflow DSN secrets. The CA is always fetched live (cert-manager
+# Secret or SRQL_FIXTURE_CA_URL), never from a stored PEM.
+###############################################################################
+sh_binary(
+    name = "buildbuddy_setup_fixture_env",
+    srcs = ["buildbuddy_setup_fixture_env.sh"],
+)
+
+# NOTE: there is deliberately no `rbe_platform` here. The RBE platform is
+# //build/rbe:rbe_platform, which is what //.bazelrc names for --host_platform,
+# --platforms and --extra_execution_platforms.
+#
+# A second definition used to sit here with the same executor image but the
+# OPPOSITE compiler constraint (@bazel_tools//tools/cpp:clang, against gcc in
+# //build/rbe:BUILD). Nothing referenced it -- every reference in the repo,
+# including .bazelrc, points at //build/rbe -- and `rdeps` returned only the
+# target itself. It was removed rather than reconciled, because a platform that
+# claims clang for an image whose toolchain is /usr/bin/gcc is worse than absent:
+# it is the first thing you would reach for when making the toolchain hermetic,
+# and it lies about what the executor has.
+
+alias(
+    name = "cwalk",
+    actual = "//third_party/cwalk:cwalk",
+    visibility = ["//visibility:public"],
+)
+
+sh_binary(
+    name = "swiftlint_lint",
+    srcs = ["//scripts:swiftlint_bazel.sh"],
+    args = [
+        "$(location .swiftlint.yml)",
+    ],
+    data = [
+        ".swiftlint.yml",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "images",
+    actual = "//docker/images:images",
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "push",
+    actual = "//docker/images:push_all",
+    visibility = ["//visibility:public"],
+)

@@ -1,0 +1,44 @@
+load("@rules_rust//rust:defs.bzl", "rust_library_group")
+load("@rules_rust_prost//:defs.bzl", "rust_prost_toolchain")
+
+rust_library_group(
+    name = "prost_runtime",
+    deps = [
+        "@crates//:prost",
+    ],
+)
+
+# tonic 0.14 moved the prost codec out of the `tonic` crate into `tonic-prost`, and
+# protoc-gen-tonic emits `tonic_prost::ProstCodec::default()` for every method. Without
+# tonic-prost here the generated service code fails with E0433 (unresolved crate
+# `tonic_prost`) even though the plugin and prost runtime resolve fine.
+rust_library_group(
+    name = "tonic_runtime",
+    deps = [
+        ":prost_runtime",
+        "@crates//:tonic",
+        "@crates//:tonic-prost",
+    ],
+)
+
+# https://github.com/bazelbuild/rules_rust/blob/main/examples/bzlmod/proto_with_toolchain/build/prost_toolchain/BUILD.bazel
+#
+# The two plugin labels come from the `gen_binaries` annotations on protoc-gen-prost and
+# protoc-gen-tonic in //MODULE.bazel; the crates themselves are pinned by
+# //rust/protoc-plugins, which exists for exactly that reason.
+rust_prost_toolchain(
+    name = "prost_toolchain_impl",
+    prost_plugin = "@crates//:protoc-gen-prost__protoc-gen-prost",
+    prost_runtime = ":prost_runtime",
+    prost_types = "@crates//:prost-types",
+    tonic_plugin = "@crates//:protoc-gen-tonic__protoc-gen-tonic",
+    tonic_runtime = ":tonic_runtime",
+    visibility = ["//visibility:public"],
+)
+
+toolchain(
+    name = "prost_toolchain",
+    toolchain = "prost_toolchain_impl",
+    toolchain_type = "@rules_rust_prost//:toolchain_type",
+    visibility = ["//visibility:public"],
+)

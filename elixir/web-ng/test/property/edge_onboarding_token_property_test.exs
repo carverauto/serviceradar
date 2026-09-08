@@ -1,0 +1,56 @@
+defmodule ServiceRadarWebNG.EdgeOnboardingTokenPropertyTest do
+  use ExUnit.Case, async: true
+  use ExUnitProperties
+
+  alias ServiceRadarWebNG.Edge.OnboardingToken
+  alias ServiceRadarWebNG.Generators.EdgeOnboardingGenerators
+  alias ServiceRadarWebNG.TestSupport.PropertyOpts
+
+  @private_key "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+  @public_key "A6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg="
+
+  property "edge onboarding tokens round-trip and are base64url (no padding)" do
+    check all(
+            package_id <- EdgeOnboardingGenerators.package_id(),
+            download_token <- EdgeOnboardingGenerators.download_token(),
+            api <- EdgeOnboardingGenerators.core_api_url(),
+            partition_id <- EdgeOnboardingGenerators.package_id(),
+            max_runs: PropertyOpts.max_runs()
+          ) do
+      assert {:ok, token} =
+               OnboardingToken.encode(
+                 package_id,
+                 download_token,
+                 api,
+                 partition_id: partition_id,
+                 private_key: @private_key
+               )
+
+      assert String.starts_with?(token, "edgepkg-v3:")
+      assert token =~ ~r/^edgepkg-v3:[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/
+
+      assert {:ok, payload} = OnboardingToken.decode(token, public_key: @public_key)
+
+      expected = maybe_put_api(%{pkg: package_id, dl: download_token, partition_id: partition_id}, api)
+
+      assert payload == expected
+    end
+  end
+
+  property "edge onboarding token decode never crashes for random strings" do
+    check all(
+            raw <- EdgeOnboardingGenerators.random_token_string(),
+            max_runs: PropertyOpts.max_runs(:slow_property)
+          ) do
+      result = OnboardingToken.decode(raw)
+      assert match?({:ok, _}, result) or match?({:error, _}, result)
+    end
+  end
+
+  defp maybe_put_api(payload, nil), do: payload
+
+  defp maybe_put_api(payload, api) when is_binary(api) do
+    api = String.trim(api)
+    if api == "", do: payload, else: Map.put(payload, :api, api)
+  end
+end

@@ -1,0 +1,62 @@
+# Tasks — restore-anomaly-alerting-and-surfacing
+
+## 1. P0: Production scheduling parity (D1)
+
+- [x] 1.1 Extract observability/anomaly cron construction into a shared builder in `serviceradar_core` (env-gated entries for SeasonalDisposition.Worker "47 * * * *", SeasonalDisposition.EdgeBaselineProducer "53 * * * *", AnomalyAddonConfigProjector "57 * * * *", AnomalyEpisodeStaleCloseWorker "*/5", ResolveStaleAnomaliesWorker "*/30") and call it from `serviceradar_core/config/runtime.exs`. — DONE 2026-07-12: `ServiceRadar.Observability.ProductionSchedule` (cron entries + worker config + app_env), wired into serviceradar_core runtime.exs.
+- [x] 1.2 Call the shared builder from `serviceradar_core_elx/config/runtime.exs` (release config). Gate the ResolveStaleAnomaliesWorker entry on task 5.1 having merged (do not schedule the 6h sweep before episode-liveness resolve exists). — DONE 2026-07-12: core_elx runtime.exs calls the shared builder (crontab + config blocks + app_env); resolve-stale cron ships together with 5.1 in this change.
+- [x] 1.3 Add a core_elx test that evaluates the release runtime config and asserts the Oban crontab contains every production-required worker (the five above + capacity forecasting + retention workers) — the anti-drift guard. — DONE 2026-07-12: `production_runtime_config_test.exs` evaluates the real prod runtime.exs via Config.Reader and asserts the required worker set (incl. tripwires).
+- [x] 1.4 VERIFIED on demo 2026-07-13 (v1.4.14 + hand-run migrations): live crontab has all 9 entries; seasonal_disposition_states updating; baselines delivered by the :53 producer with healthy heartbeat; freshness tripwire correctly caught the pre-roll outage. Original text: live `Oban.config()` crontab contains the entries; `seasonal_disposition_states` starts receiving rows; `seasonal_baselines` key appears on the enabled anomaly profile within one producer run.
+
+## 2. P0: Alert rule contract repair (D2)
+
+- [x] 2.1 Migration: idempotent `jsonb_set` rewriting `match`/`recovery` `subject_prefix` `"signals.causal.predictions"` → `"signals.analytics.predictions"` on `stateful_alert_rules` (clone the `20260628224553` style). — DONE 2026-07-12: migration 20260712110000 (also stamps managed/template_version/fingerprint).
+- [x] 2.2 Add `managed` marker + `template_version` to seeded rules; upgrade `RuleSeeder` to reconcile managed rules whose version is behind (pattern: `ZenRuleSeeder.reconcile_or_create`); never touch rules that diverged from the previous template or lost the marker; log skipped reconciles. — DONE 2026-07-12: fingerprint-gated reconcile; operator knobs (enabled/priority/threshold/windows) outside both reconcile set and fingerprint.
+- [x] 2.3 Test: a stored rule with the legacy subject_prefix is repaired at boot; an operator-modified rule is left alone; `RuleMatcher.rule_matches_event?` passes against a real v2 finding fixture for both anomaly and capacity rules. — DONE 2026-07-12: rule_matcher_test (6 pure) + rule_seeder_test (5 DB) — all green on scratch DB.
+- [x] 2.4 VERIFIED on demo 2026-07-13: migration + boot reconcile repaired both rules (managed v1, analytics subject, full matchers); synthetic liveness check passed end-to-end (alert cba87827 created + resolved); rule_state last_seen advanced 2026-06-30 -> 2026-07-13 08:23. Original text: `stateful_alert_rule_states.last_seen_at` advances past 2026-06-30 for the anomaly rule; an anomaly open produces a `Monitoring.Alert`.
+
+## 3. P0: Alert engine placement (D3)
+
+- [x] 3.1 Set `host_distributed_processes: false` in `serviceradar_agent_gateway` config; audit whether `join_process_registry: false` is also safe (what does the gateway register?) and apply if so. — DONE 2026-07-12: host_distributed_processes: false; join_process_registry left TRUE (gateway registers/looks up its own processes; only hosting is opted out — start_child there returns {:error, :not_a_process_host}).
+- [x] 3.2 `StatefulAlertEngine.load_rules`: once-per-shard `Logger.warning` + telemetry event when `repo_available?()` is false; export per-shard `rules_count` gauge. — DONE 2026-07-12: once-per-shard warning + [:serviceradar, :stateful_alert_engine, :repo_unavailable] + rules_loaded count telemetry.
+- [x] 3.3 Test: cluster with a repo-less member never places engine shards there (or shards there loudly report zero rules); telemetry emitted. — DONE 2026-07-12: gateway placement test (3) + repo-unavailable unit test (2) + rules-loaded telemetry DB test — green.
+- [x] 3.4 VERIFIED on demo 2026-07-13 (post-migration restart): all 8 shards on serviceradar_core nodes, owning shards rules_count>0 (5 rules distributed); one restart observed — re-confirm on the v1.4.15 roll for the two-consecutive-restarts criterion. Original text: all 8 shards on core nodes; `rules_count > 0` on the shards owning the anomaly/capacity/falco rules across two consecutive restarts.
+
+## 4. P0: Episodes on by default + surfacing (D4)
+
+- [x] 4.1 Raise `AnomalyEpisodeStaleCloseWorker` default stale threshold to ≥2× the configured episode heartbeat (default 1800s → 65 min threshold) or derive it from emission config; test the margin. — DONE 2026-07-12: threshold = max(2 x episode_update_interval from the AnomalyDetectionConfig singleton, 30 min) with app-env override; default heartbeat -> 60 min window.
+- [x] 4.2 Flip `AnomalyEpisodeRegistry.enabled?` default to true (env/app-env become kill switches); update docs (`docs/docs/anomaly-engine.md` kill-switch section). — DONE 2026-07-12: default true; EVENT_WRITER_ANOMALY_EPISODES=false/0/no/off is the kill switch; docs updated.
+- [x] 4.3 web-ng legacy events path: synthesize the same default `anomaly_disposition` the episode path uses so cpu-class rows are not unconditionally hidden (`anomaly_capacity_data.ex:954-968`); keep `:legacy_srql` documented as escape hatch. — DONE 2026-07-12: absent disposition now visible (also fixed a latent nil->"nil" normalize bug that would have defeated the check); explicit non-escalate still hidden.
+- [ ] 4.4 PARTIAL 2026-07-13: platform.anomaly_episodes populating (7 open, first rows ever) and no stale_close flapping; device-page panel display blocked by the last_payload encoding bug until the v1.4.15 fix + repair migration 20260713020000 roll. Original text: `platform.anomaly_episodes` populates; device page anomaly panel shows open/recent episodes; no stale_closed flapping of live episodes over 24h.
+
+## 5. P1: Stale-resolve consults episode liveness (D5)
+
+- [x] 5.1 `ResolveStaleAnomaliesWorker`: skip alerts whose finding has an open episode with fresh `last_seen_at`; resolve only when cleared/stale_closed/absent. Tests for open-episode, cleared, and no-episode cases. — DONE 2026-07-12: worker prefetches open+fresh episode series_keys and the shard sweep skips them (fail-open with warning; kill switch app env).
+- [x] 5.2 Enable the ResolveStaleAnomaliesWorker cron entry (1.2 dependency). — DONE 2026-07-12: scheduled via ProductionSchedule in the same release as 5.1.
+
+## 6. P1: Liveness tripwires (D7)
+
+- [x] 6.1 Schedule `AnomalyAlertLivenessCheck` (cron, coordinator-only); failure emits an operational health event/alert; keep the mix task as the deploy gate entry point. — DONE 2026-07-12: AnomalyAlertLivenessWorker (cron 23 */6) wrapping the check with deterministic synthetic series + best-effort clear; failure -> core health event via HealthTracker.
+- [x] 6.2 Zero-ingest tripwire: health event when anomaly-detection upserts are 0 for N hours while timeseries ingest is alive (default N=6, env-tunable). — DONE 2026-07-12: AnomalyIngestSilenceWorker (cron 7 * * * *, 6h window), metrics-alive gated, fail-open.
+- [x] 6.3 Baseline-delivery tripwire: producer records a per-run heartbeat; health event when the producer has no fresh successful run; surface `drift_inactive_no_baseline` counts on the Observability→Health page. — DONE 2026-07-12: producer records a `seasonal-baseline-producer` health event per successful run (no params meta key — the DB-stored addon schema's root `additionalProperties: false` would reject an undeclared key on existing deployments) and skips byte-equal no-op params writes; SeasonalBaselineFreshnessWorker (cron 37 * * * *, 26h) reads heartbeat recency via HealthTracker.timeline; producer-gate inherited at schedule time.
+- [x] 6.4 Verify on demo: intentionally break one leg in a scratch namespace (or dry-run harness) and confirm each tripwire fires. — DONE 2026-07-12: fire paths exercised in tests — silence tripwire fired against the scratch DB (integration test), liveness/baseline fire+no-fire paths via injected stubs; live demo confirmation folded into runbook section 6.
+
+## 7. P1: Capacity opt-in + skip visibility (D8)
+
+- [x] 7.1 Wire `SERVICERADAR_CAPACITY_FORECASTING_SOURCE_OPT_INS` (comma list, validated against `Source.all/0`) in both runtime.exs trees → worker `:default_source_opt_ins`. — DONE 2026-07-12: SERVICERADAR_CAPACITY_FORECASTING_SOURCE_OPT_INS in both runtime.exs trees.
+- [x] 7.2 Add `default_source_opt_ins` to `CapacityForecastConfig` + `AnomalyConfigRuntime` mapping + Settings→Anomaly Detection UI multi-select (DB overrides env, consistent precedence). — DONE 2026-07-12: default_source_opt_ins on CapacityForecastConfig (migration 20260712113000, subset-validated) + AnomalyConfigRuntime forwarding only-when-non-empty (DB wins when set, else env) + Settings checkbox group.
+- [x] 7.3 Remove phantom `at_risk,exhaustion_projected` tokens from shipped SRQL queries (health page, device panel); add a skipped-series summary (count + top skip reasons) to the health page capacity card. — DONE 2026-07-12: shipped queries use status:projected; health page shows "N series skipped (top reasons)" from a bounded status:skipped sample.
+- [x] 7.4 Test: opting in `interface_rate` produces interface forecasts in a fixture run; default set unchanged when env/DB unset. — DONE 2026-07-12: precedence/unknown-name/seeder tests green; settings round-trip green on scratch DB.
+
+## 8. P2: Hardening
+
+- [x] 8.1 Seeder: treat empty/absent `metric_class_overrides` env as "apply code defaults" at first seed; docs note that singletons are operator-owned after first boot. — DONE 2026-07-12: empty/absent JSON map env -> code defaults for all three map envs (anomaly overrides, emission, capacity overrides).
+- [x] 8.2 Enforce single enabled anomaly addon profile per fleet (validation or deterministic precedence + surfaced warning on duplicates). — DONE 2026-07-12: SingleEnabledAddonProfile validation (anomaly-scoped, blocks enabling a second profile; legacy duplicates stay editable/disable-able) + deterministic delivery precedence with shadowed-profile warning.
+- [x] 8.3 NATS: move/extend retention for `signals.analytics.predictions.>` (≥24h, bounded bytes) and realign `falco_events` to the provisioned `events` / `falco.logs` path. — DONE 2026-07-12: dedicated analytics_predictions stream (limits/file/discard-old, 1 GiB, 24h) in config.ex + both runtime.exs; scoped_stream_opts guard prevents retention-clobbering a discovered fallback stream; FALCO consumer realigned to events/falco.logs; SFLOW/NETFLOW/ATTRIBUTED_FLOW left as-is; one-time subject-release migration in runbook 7.1. `NETFLOW_RAW` and `SFLOW_RAW` are now explicitly owned by `scale-netflow-ingest-isolation`, not this cleanup.
+- [ ] 8.3a Remove the legacy `ATTRIBUTED_FLOW` registration from release configuration, add a guard proving default/release configs never provision or consume `flow.attributed.>`, and remove any verified-empty orphan attributed-flow durable/stream after rollout. Do not replace it with another NATS route: current attribution is agent-up state plus core-side CNPG correlation and in-place OCSF stamping.
+- [ ] 8.4 Demo runbook: refresh 2026-06-13-era config singletons via Settings (incl. `minimum_history_points` 24→72, per-class drift modes); dedupe the duplicate enabled anomaly profile after overhaul task 0.3 decides the params.
+
+## 9. P2: Spec debt
+
+- [x] 9.1 Apply the anomaly-detection REMOVED deltas (10 dead central-reasoner requirements) and MODIFIED operator-config requirement. — DONE 2026-07-12 (deltas authored with the proposal).
+- [x] 9.2 Apply the capacity-forecasting MODIFIED deltas (monotone defaults + reachable opt-in; de-causal naming); update the spec Purpose. — DONE 2026-07-12 (deltas authored with the proposal).
+- [ ] 9.3 `openspec validate --strict` passes; archive per convention after deploy.

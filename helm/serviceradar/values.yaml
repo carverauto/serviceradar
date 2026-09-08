@@ -1,0 +1,2453 @@
+namespace: demo
+
+# Pod topology spread constraints.
+# When enabled, the scheduler distributes replicas of each workload across nodes.
+topologySpread:
+  enabled: false
+  # maxSkew: 1
+  # topologyKey: kubernetes.io/hostname
+  # whenUnsatisfiable: ScheduleAnyway
+
+podDisruptionBudgets:
+  # Protect the remote-access control plane during voluntary disruptions such
+  # as node drains. Disable only for tiny lab clusters where PDBs would block
+  # maintenance.
+  enabled: true
+  minAvailable: 1
+
+# Global settings that apply across all services
+global:
+  # Override all ServiceRadar image tags at once. Leave empty to track the
+  # chart appVersion, which is almost always what you want -- the chart and the
+  # application it deploys are released together. Set a sha-* tag or use
+  # image.digests.* for production rollouts needing immutable references.
+  imageTag: ""
+  # The ServiceRadar RELEASE this deployment corresponds to, as a `v<semver>`
+  # tag. Distinct from imageTag on purpose: web-ng resolves plugin and native
+  # add-on assets from the GitHub release with this name, and shows it in the
+  # product status UI. Immutable rollouts set imageTag to a `sha-<gitsha>`, and
+  # no release is ever named that, so the two cannot share one value.
+  # Empty means "use the chart appVersion", which is what you want unless you are
+  # deliberately pulling add-ons from a different release than the chart.
+  releaseVersion: ""
+  # Image pull policy: IfNotPresent (default), Always (for staging/mutable tags), Never
+  imagePullPolicy: IfNotPresent
+  # When true, stamp the pod template with a Helm-managed revision so a normal
+  # `helm upgrade` rolls mutable-tag workloads and pulls fresh images.
+  forceRolloutOnUpgrade: false
+  storage:
+    # StorageClass used for durable data that may contain remote-access
+    # recordings, object-store payloads, database rows, credentials, or audit
+    # material. Production clusters should provide this class with encryption
+    # at rest enabled by the underlying CSI/storage backend.
+    encryptedStorageClassName: "encrypted"
+    # Set true only for local/lab clusters where the encrypted class does not
+    # exist. When false, durable storage templates default to
+    # encryptedStorageClassName instead of silently inheriting the cluster
+    # default StorageClass.
+    allowInsecureStorage: false
+
+image:
+  # Base registry/repository prefix for first-party ServiceRadar images.
+  # Override with ghcr.io/carverauto to pull published GHCR images.
+  registry: registry.carverauto.dev/serviceradar
+  registryPullSecret: registry-carverauto-dev-cred
+  tags:
+    # Default tag for first-party ServiceRadar images. Empty means "use the
+    # chart appVersion" (see serviceradar.imageTag). Do not hardcode a version
+    # here: it silently decouples the images from the chart that ships them.
+    appTag: &appTag ""
+    core: *appTag
+    webNg: *appTag
+    nats: "2.14.0-alpine"
+    datasvc: *appTag
+    agent: *appTag
+    agentGateway: *appTag
+    logCollector: *appTag
+    # Deprecated: otel and flowgger are now merged into logCollector
+    otel: *appTag
+    trapd: *appTag
+    flowgger: *appTag
+    flowCollector: *appTag
+    bmpCollector: *appTag
+    rperfClient: *appTag
+    faker: *appTag
+    rperfChecker: *appTag
+    tools: *appTag
+    trivySidecar: *appTag
+    k8sInventory: *appTag
+  # Optional per-service digest pins. Keys match image.tags service names
+  # (core, webNg, agent, agentGateway, datasvc, tools, etc.). Values can be
+  # either "sha256:..." or "@sha256:..."; when set they override tags.
+  digests: {}
+
+argocdImageUpdater:
+  pullSecretReader:
+    enabled: false
+    namespace: argocd
+    serviceAccountName: argocd-image-updater-controller
+
+tools:
+  enabled: true
+
+trivySidecar:
+  enabled: false
+  replicaCount: 1
+  clusterId: ""
+  nats:
+    hostPort: "tls://serviceradar-nats:4222"
+    subjectPrefix: "trivy.report"
+    stream: "trivy_reports"
+    caCertFile: "/etc/serviceradar/certs/ca.crt"
+    certFile: "/etc/serviceradar/certs/trivy-sidecar.pem"
+    keyFile: "/etc/serviceradar/certs/trivy-sidecar-key.pem"
+    serverName: "serviceradar-nats"
+  metrics:
+    addr: ":9108"
+    port: 9108
+  publish:
+    maxRetries: 5
+    timeout: "5s"
+    retryDelay: "500ms"
+  informer:
+    resync: "5m"
+  reportGroupVersion: "aquasecurity.github.io/v1alpha1"
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Optional cluster-plane public endpoint / VIP ownership inventory.
+# Does NOT grant kube API access to host agents. See openspec change
+# add-k8s-public-endpoint-inventory and go/pkg/k8sinventory.
+k8sInventory:
+  enabled: false
+  replicaCount: 1
+  clusterId: ""
+  # nats | stdout | none — use stdout for local debug without JetStream
+  publishMode: nats
+  namespaces: []
+  gatewayAPI:
+    enabled: true
+  nodes:
+    # Watch Kubernetes Nodes (Ready condition) and publish inventory.k8s.nodes.
+    # Absent means enabled. Set enabled: false to drop Nodes RBAC.
+    enabled: true
+  envoyProxyCRD:
+    enabled: false
+  nats:
+    hostPort: "tls://serviceradar-nats:4222"
+    subject: "inventory.k8s.public_endpoints"
+    stream: "k8s_inventory"
+    caCertFile: "/etc/serviceradar/certs/ca.crt"
+    certFile: "/etc/serviceradar/certs/k8s-inventory.pem"
+    keyFile: "/etc/serviceradar/certs/k8s-inventory-key.pem"
+    serverName: "serviceradar-nats"
+  metrics:
+    addr: ":9109"
+    port: 9109
+  publish:
+    maxRetries: 5
+    timeout: "5s"
+    retryDelay: "500ms"
+  resync:
+    period: "5m"
+    debounce: "2s"
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+kv:
+  enabled: true
+  configSource: file
+  bucket: serviceradar-datasvc
+  address: serviceradar-datasvc:50057
+  secMode: mtls
+  trustDomain: ""
+  serverSPIFFEID: ""
+  workloadSocket: unix:/run/spire/sockets/agent.sock
+  certDir: /etc/serviceradar/certs
+natsCreds:
+  # Inline NATS .creds files for platform/system accounts.
+  # When set, these are stored in the serviceradar-nats-creds Secret.
+  autoGenerate: true
+  platform: ""
+  system: ""
+  operator: ""
+# Partition identity for this ServiceRadar deployment (B-5 sub-issue 2).
+#
+# ServiceRadar is one deployment per partition (see
+# elixir/serviceradar_core/CLAUDE.md "Instance Isolation Model"). The
+# value below is rendered into:
+#   * the NATS authorization block (templates/nats.yaml) — the
+#     core/datasvc/agent roles get the deployment partition context used by
+#     runtime services and ACL comments. Attributed-flow DB writes no longer
+#     depend on a `flow.attributed.*` NATS read-back stream.
+#   * `SERVICERADAR_OTX_PARTITION` env on core/datasvc workloads so the
+#     runtime side (elixir/serviceradar_core/config/runtime.exs) stays
+#     consistent with what the NATS ACL was rendered against.
+#
+# Precedence (resolved in nats.yaml / core.yaml via `coalesce`):
+#   1. .Values.partitionId (this field)
+#   2. .Values.agent.partitionId
+#   3. literal "default"
+# Leaving this empty falls through to agent.partitionId, preserving the
+# established `--set agent.partitionId=prod-east` release API. Set this
+# field explicitly when deploying multiple partitions to the same
+# Kubernetes cluster.
+partitionId: ""
+
+nats:
+  replicas: 3
+  clusterName: "serviceradar"
+  jetstream:
+    maxMemoryStore: 1G
+    # Decimal G (10^9). 30G ≈ 27.9 GiB usable for JetStream file store on the
+    # default 30Gi PVC (binary). volumeClaimTemplates are immutable — do not
+    # raise persistence.size via Helm on a live StatefulSet; expand PVCs
+    # out-of-band first if you need larger stream reservations.
+    # Capacity-safe R=3 budget (binary GiB): KV 4 + objects 10 + events 2 + flows 10
+    # = 26 GiB < 30G maxFileStore. Raising flows above 10 GiB requires PVC expand.
+    maxFileStore: 30G
+  persistence:
+    # Immutable after first install for this StatefulSet. Keep stable defaults.
+    size: 30Gi
+    storageClassName: ""
+certs:
+  runtimeSecretName: serviceradar-runtime-certs
+  # Empty preserves the self-managed single-Secret bootstrap. Hosted values
+  # set distinct pre-created Secrets so CA signing keys never enter the general
+  # runtime Secret.
+  issuerSecretName: ""
+  cnpgIssuerSecretName: ""
+  runtimeLayoutVersion: "4"
+  # Non-secret rollout token. Hosted rotation supplies a SHA-256 revision so
+  # all certificate consumers restart onto the reconciled Secret generation.
+  runtimeRevision: initial
+  generator:
+    # Self-managed installs bootstrap their runtime Secret in-cluster. Hosted
+    # runtimes always disable this path and receive a control-plane-managed
+    # Secret before Helm installs the workloads.
+    enabled: true
+  regenerator:
+    # Disable by default to avoid unexpected cert rotation.
+    enabled: false
+checkerTemplates:
+  # KV-backed checker template seeding is deprecated; leave disabled.
+  enabled: false
+# OpenTelemetry exporter configuration for Elixir services (core-elx, web-ng, agent-gateway).
+# Points to the OTEL collector deployed in the same namespace.
+otelExporter:
+  enabled: true
+  # OTLP/gRPC endpoint (uses the unified log-collector service)
+  endpoint: "https://serviceradar-log-collector:4317"
+  # TLS certificate directory (SPIFFE-issued certs)
+  certDir: "/etc/serviceradar/certs"
+  # Trace sampling ratio (0.0 - 1.0). 1.0 = sample everything.
+  samplingRatio: "1.0"
+
+prometheusRules:
+  cnpg:
+    enabled: false
+    clusterName: cnpg
+    labels: {}
+    backendsWaitingWarning: 5
+    slowQueryLogThresholdMs: 500
+
+observability:
+  enabled: false
+  prometheus:
+    serviceMonitors:
+      enabled: true
+      interval: 30s
+      scrapeTimeout: 10s
+      labels: {}
+      targets:
+        webNg:
+          enabled: true
+          path: /metrics
+        core:
+          enabled: true
+          path: /metrics
+        agentGateway:
+          enabled: true
+          path: /metrics
+        flowCollector:
+          enabled: true
+          path: /metrics
+    rules:
+      enabled: true
+      labels: {}
+      pgbouncer:
+        clientsWaitingWarning: 1
+        maxWaitSecondsWarning: 5
+      webNg:
+        scrapeDownFor: 5m
+        restartWindow: 15m
+        restartWarning: 1
+      core:
+        scrapeDownFor: 5m
+      agentGateway:
+        scrapeDownFor: 5m
+        resultsBufferDroppedWindow: 5m
+        resultsBufferDroppedFor: 1m
+  grafana:
+    dashboards:
+      enabled: true
+      labels:
+        grafana_dashboard: "1"
+      annotations: {}
+      folder: ServiceRadar
+
+core:
+  replicas: 3
+  # KV watch/reload is no longer supported for service configuration.
+  configWatchEnabled: false
+  clusterStrategy: "dns"
+  clusterWebService: "serviceradar-web-ng-headless"
+  clusterWebDnsQuery: ""
+  clusterWebNodeBasename: "serviceradar_web_ng"
+  clusterGatewayService: "serviceradar-agent-gateway-headless"
+  clusterGatewayDnsQuery: ""
+  clusterGatewayNodeBasename: "serviceradar_agent_gateway"
+  kubernetesSelector: "app=serviceradar-core"
+  kubernetesNodeBasename: "serviceradar_core"
+  ashObanSchedulerEnabled: true
+  logPromotionConsumerEnabled: true
+  # Outbound mail for the native email notification transport and the auth
+  # senders (confirmation, password reset).
+  #
+  # Left empty the mailer resolves to Swoosh.Adapters.Test, which accepts every
+  # message, reports success, and delivers nothing. That is deliberately NOT a
+  # working default: an email notification channel refuses to validate while it
+  # is in that state, so the failure surfaces when an operator saves the channel
+  # instead of during the incident the channel was supposed to page for.
+  #
+  # Setting `relay` is enough - a relay host selects the SMTP adapter.
+  mailer:
+    # "smtp", "local", "sendgrid", ... Leave empty to infer SMTP from `relay`.
+    adapter: ""
+    relay: ""
+    port: 587
+    # HELO/EHLO name this deployment announces; empty lets the relay decide.
+    hostname: ""
+    # always | never | if_available
+    auth: "if_available"
+    tls: "if_available"
+    # Implicit TLS (port 465). STARTTLS is `tls`, above.
+    ssl: false
+    from:
+      name: "ServiceRadar"
+      email: "noreply@serviceradar.cloud"
+    # Relay credentials are read from an existing Secret and are never values:
+    # a password here ends up in the rendered manifest, in `helm get values`,
+    # and in whatever GitOps repository holds this file. Create the Secret with
+    # the two keys below and name it here.
+    existingSecret: ""
+    usernameKey: "smtp-username"
+    passwordKey: "smtp-password"
+  # Core-owned advisory vulnerability feed ingestion (CISA KEV, VulnCheck KEV,
+  # VulnCheck nist-nvd2, NVD CVE 2.0, Ubuntu OSV + OpenVEX). Feeds are AshOban-scheduled in core,
+  # disk-staged on a PVC, and bulk-loaded into CNPG — no agent involvement.
+  # See openspec/changes/refactor-advisory-feeds-into-core.
+  advisoryFeeds:
+    # Master switch: mounts the staging PVC and enables the feed scheduler.
+    # Off by default until the PVC exists; on in demo (see values-demo.yaml).
+    enabled: false
+    # Sub-gate for the large nist-nvd2 (full NVD CPE) load; KEV enrichment runs
+    # independently when this is false.
+    nistNvd2Enabled: false
+    # Persistent staging volume (download.zip + extracted *.json.gz shards).
+    # Set emptyDir: true on multi-replica cores that cannot share an RWO PVC.
+    emptyDir: false
+    stagingDir: "/var/lib/serviceradar/advisory-feeds"
+    size: "5Gi"
+    accessModes:
+      - ReadWriteOnce
+    storageClassName: ""
+    existingClaim: ""
+  mtrAutomation:
+    enabled: false
+    baselineEnabled: false
+    triggerEnabled: false
+    consensusEnabled: false
+    baselineTickMs: 60000
+    consensusCohortRetentionMs: 300000
+  # Initial MTR history retention in days (1-395) for a fresh database. After
+  # bootstrap, change the persisted policy in Settings -> Networks -> MTR.
+  mtrRetentionDays: 30
+  observabilityRetention:
+    # High-volume raw tables. Retention is reconciled at runtime and by the
+    # migration job on upgrade; chunk intervals affect newly-created Timescale
+    # chunks and should stay smaller than the retention window.
+    traceSummaryDays: 3
+    otelTracesDays: 3
+    logsDays: 30
+    ocsfNetworkActivityDays: 90
+    # Raw netprobe-to-process attribution observations are hot staging data used
+    # to correlate delayed NetFlow/IPFIX rows. Lower this to discard unmatched
+    # raw observations quickly; keep it at least 15 minutes.
+    flowAttributionMinutes: 60
+    otelTracesChunkIntervalHours: 6
+    logsChunkIntervalHours: 24
+    ocsfNetworkActivityChunkIntervalHours: 24
+    batchSize: 50000
+    cron: "17 3 * * *"
+    sweepHostResultDays: 7
+    sweepExecutionDays: 30
+    trivyDays: 30
+    endpointInventoryDays: 30
+    # Provider CIDR snapshots are ~410k rows. Keep the active copy plus one
+    # inactive rollback; drop the rest instead of accumulating two weeks.
+    datasetSnapshotDays: 2
+    datasetSnapshotKeepLast: 1
+    topologyLinkDays: 30
+  # Ansible integration: AWX/AAP playbook execution + observability.
+  # Per-controller / per-repository / per-schedule overrides are stored
+  # on the Ash resources themselves (e.g. AnsibleController.run_pulse_interval_ms);
+  # the values below are the deployment-wide defaults.
+  ansible:
+    # Days of run-detail retention (PlaybookPlay / PlaybookTask /
+    # PlaybookTaskResult rows). Set to 0 to disable detail pruning.
+    runDetailDays: 90
+    # Days of run-summary retention. Empty / 0 means keep forever.
+    runSummaryDays: ""
+    # How often RetentionWorker scans for prunable runs.
+    retentionIntervalSeconds: 86400
+    # AWX controller health probe cadence.
+    controllerHealthIntervalSeconds: 30
+    # RunWatchdog interval (flags stuck non-terminal runs).
+    runWatchdogIntervalSeconds: 60
+    # ScheduleEvaluatorWorker cron evaluation cadence.
+    scheduleEvaluatorIntervalSeconds: 60
+    # Base directory for GitCatalogSyncWorker repo clones.
+    # Mount a PVC at this path if you want survival across pod restarts.
+    catalogBaseDir: "/var/lib/serviceradar/ansible_catalog"
+  # EventWriter persists NATS JetStream records (incl. edge anomaly verdicts on
+  # signals.analytics.predictions.*) into CNPG. On by default so anomaly findings
+  # and alerts surface; set enabled=false only to disable verdict persistence.
+  eventWriter:
+    enabled: true
+  # First-boot defaults for CNPG-backed anomaly detection settings (seed the
+  # singleton config row when missing; do not overwrite operator edits).
+  anomalyDetectionConfig:
+    nSigma: 3.0
+    windowSize: 300
+    windowDurationSeconds: 900
+    confirmSlots: 5
+    minSamples: 30
+    metricDenylist:
+      - cpu.frequency_hz
+    emission:
+      cooldown_secs: 300
+      budget_per_tick: 100
+      episode_update_interval_secs: 1800
+      reopen_cooldown_secs: 600
+    metricClassOverrides:
+      cpu:
+        drift_mode: deseasonalized_only
+      memory:
+        drift_mode: deseasonalized_only
+      interface:
+        drift_mode: deseasonalized_only
+      disk:
+        # Keep "off" quoted: drift_mode is a schema string, while YAML 1.1
+        # parses an unquoted off as boolean false.
+        drift_mode: "off"
+      icmp:
+        drift_mode: "off"
+      other:
+        drift_mode: "off"
+      red: {}
+  # First-boot defaults for CNPG-backed capacity forecast settings. These seed
+  # the singleton config row when missing and do not overwrite operator edits.
+  capacityForecasting:
+    enabled: true
+    cron: "41 * * * *"
+    emitVerdicts: true
+    horizonSeconds: 7776000
+    warningHorizonSeconds: 2592000
+    minPoints: 72
+    seasonalPeriod: 24
+  capacityForecastConfig:
+    forecastHorizonSeconds: 7776000
+    warningHorizonSeconds: 2592000
+    warningThresholdPercent: 80.0
+    model: "linear"
+    minimumHistoryPoints: 72
+    metricClassOverrides:
+      interface: {}
+      cpu: {}
+      memory: {}
+      disk: {}
+      flow: {}
+  # Optional first-party native add-on package seed refs. The release/native
+  # add-on import path populates these with per-platform signed artifact refs.
+  # Without artifacts, the package seeder stages the manifest version but does
+  # not approve assignment.
+  netprobeAddon:
+    version: ""
+    ociRef: ""
+    ociDigest: ""
+    artifacts: {}
+  workloadIdentityAddon:
+    version: ""
+    ociRef: ""
+    ociDigest: ""
+    artifacts: {}
+  endpointInventoryAddon:
+    version: ""
+    ociRef: ""
+    ociDigest: ""
+    artifacts: {}
+  # Resource requests/limits for core-elx.
+  # Demo steady-state is ~1.4–1.5Gi RSS; the previous template-only default of
+  # 4Gi limit OOMKills under load (demo runs 2Gi/16Gi). 8Gi is a safer chart
+  # default for single-tenant installs; use values-demo for full demo headroom.
+  resources:
+    limits:
+      cpu: "4"
+      memory: "8Gi"
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+  # Extra environment variables for the core-elx pod.
+  # Prefix-tag flow enrichment (requires migration 20260718010000 first):
+  #   SERVICERADAR_PREFIX_TAG_ENRICHMENT_ENABLED: "true"
+  #   SERVICERADAR_PREFIX_TAG_PROVIDER_TRIE_ENABLED: "true"
+  #   SERVICERADAR_THREAT_INTEL_ENGINE_MATCH_ENABLED: "true"
+  #   SERVICERADAR_GEO_TAG_DERIVATION_ENABLED: "false"
+  #   SERVICERADAR_PREFIX_TAGS_LOADER_ENABLED: "true"
+  # FQDN-allowlist CONNECT proxy (Smokescreen). Finch uses this for every
+  # outbound HTTPS fetch (advisory feeds, GeoLite, OTX, …). Pair it with a
+  # default-deny egress NetworkPolicy that admits only that Service:
+  #   SERVICERADAR_EGRESS_PROXY: "http://smokescreen.egress.svc.cluster.local:4750"
+  extraEnv: {}
+  # Extra environment variables sourced from Kubernetes secrets/configmaps.
+  # OpenBao providers can also use Kubernetes auth with the pod service account
+  # token, so a static OPENBAO_TOKEN secret is optional when that auth mode is
+  # configured in the provider metadata and pre-authorized by the OpenBao
+  # operators.
+  # Example:
+  # extraEnvValueFrom:
+  #   OPENBAO_TOKEN:
+  #     secretKeyRef:
+  #       name: openbao-serviceradar-token
+  #       key: token
+  #       optional: true
+  extraEnvValueFrom: {}
+  database:
+    poolSize: 40
+    queueTargetMs: 2000
+    queueIntervalMs: 2000
+    timeoutMs: 120000
+    poolTimeoutMs: 120000
+  controlDatabase:
+    enabled: true
+    poolSize: 10
+    queueTargetMs: 2000
+    queueIntervalMs: 2000
+    timeoutMs: 120000
+    poolTimeoutMs: 120000
+  # Notification platform (openspec add-notification-platform).
+  notifications:
+    # Which serviceradar-agent runs `:control_plane` wasm notification plugins.
+    # There is exactly one Wasm host in the product - wazero inside the agent -
+    # so a platform-egress plugin notification is dispatched to the agent this
+    # chart already deploys, through the same plugin.run_action command an edge
+    # dispatch uses. Left empty, both fields fall back to `agent.agentId` and
+    # the deployment partition. Set them only when the platform-resident agent
+    # lives outside this release; with `agent.enabled: false` and no override,
+    # nothing is configured and a :control_plane plugin channel fails with
+    # `platform_agent_unconfigured` rather than dispatching somewhere arbitrary.
+    platformAgent:
+      agentId: ""
+      partitionId: ""
+    # The bounded sweep that closes out an agent-routed delivery whose command
+    # result never came back. It reads only what core itself wrote, so it does
+    # not depend on STATUS_HANDLER_ENABLED. Disabling it leaves those rows to
+    # the blind stall sweep, which re-sends rather than settling.
+    receiptSweep:
+      enabled: true
+  obanQueues:
+    default: 10
+    maintenance: 5
+    monitoring: 5
+    alerts: 5
+    serviceChecks: 10
+    notifications: 5
+    onboarding: 3
+    events: 10
+    sweeps: 20
+    edge: 10
+    integrations: 5
+    natsAccounts: 3
+  syncIngestor:
+    batchConcurrency: 2
+    coalesceMs: 250
+    maxInflight: 2
+    queueMaxChunks: 10
+    async: true
+  deviceEnrichment:
+    rulesDir: "/var/lib/serviceradar/rules/device-enrichment"
+    filesystemOverrides:
+      enabled: false
+      existingConfigMap: ""
+      existingSecret: ""
+      existingClaim: ""
+  migrations:
+    enabled: true
+    # Defaults to global.imagePullPolicy when unset.
+    imagePullPolicy: ""
+    podAnnotations: {}
+    markerPath: /var/lib/serviceradar/migrations/complete
+    # Newest migration timestamp this chart revision ships, used by the
+    # `wait-migrations` init container to prove the schema is CURRENT rather
+    # than merely present. Kept in sync with
+    # elixir/serviceradar_core/priv/repo/migrations by
+    # //helm/serviceradar:migrations_expected_version_test -- do not hand-edit;
+    # the gate will tell you the value to use.
+    #
+    # Set to "" to fall back to the old existence-only check (for operators
+    # running the chart against a deliberately pinned schema).
+    expectedVersion: "20260907090000"
+  # Stale device reaper settings - controls cleanup of IP-only "ghost" devices
+  reaper:
+    # How often to run the reaper job
+    interval: "1h"
+    # How long a device without strong identity (IP-only) must be unseen before deletion
+    ttl: "24h"
+  identity:
+    enabled: true
+    # Enable promotion so sightings are turned into devices automatically.
+    sightingsOnlyMode: true
+    promotion:
+      enabled: false
+      shadowMode: false
+      minPersistence: "1h"
+      requireHostname: true
+      requireFingerprint: false
+    fingerprinting:
+      enabled: false
+      portBudget: 32
+      timeout: "2s"
+    reaper:
+      interval: "1m"
+      profiles:
+        default:
+          ttl: "24h"
+        dynamic:
+          ttl: "6h"
+        guest:
+          ttl: "1h"
+        static:
+          ttl: "72h"
+          allowIPAsID: false
+    drift:
+      baselineDevices: 50000
+      tolerancePercent: 2
+      pauseOnDrift: true
+      alertOnDrift: true
+faker:
+  enabled: false
+  gobgp:
+    # When enabled, an initContainer copies gobgpd/gobgp binaries into a shared volume
+    # mounted into the faker container.
+    enabled: false
+    image:
+      repository: docker.io/osrg/gobgp
+      tag: latest
+      pullPolicy: IfNotPresent
+    binDir: /opt/gobgp
+  simulation:
+    totalDevices: 50000
+    ipShuffle:
+      enabled: true
+      interval: "10m"
+      percentage: 5
+      warmupCycles: 2
+      allowExpansion: false
+      poolHeadroomPercent: 0
+    bgp:
+      enabled: false
+      seed: 40164200
+      publishInterval: "15s"
+      outageInterval: "2m"
+      outageDurationMin: "20s"
+      outageDurationMax: "45s"
+      manageDaemon: true
+      gobgpApiAddress: "127.0.0.1:50051"
+      gobgpBinary: "gobgpd"
+      gobgpCliBinary: "gobgp"
+      bmpCollectorAddress: "serviceradar-bmp-collector:11019"
+      routerId: "204.209.51.59"
+      maxPrefixesPerTick: 3
+      localAsn: 401642
+      advertisedPrefixes:
+        - "23.138.124.0/24"
+        - "2602:f678::/48"
+      peers:
+        - name: "k8s-cp1-control"
+          ip: "10.0.2.2"
+          peer_asn: 401642
+          description: "k8s-cp1-control"
+        - name: "k8s-cp2-control"
+          ip: "10.0.2.3"
+          peer_asn: 401642
+          description: "k8s-cp2-control"
+        - name: "k8s-cp3-control"
+          ip: "10.0.2.4"
+          peer_asn: 401642
+          description: "k8s-cp3-control"
+        - name: "k8s-cp1-worker1"
+          ip: "10.0.2.5"
+          peer_asn: 401642
+          description: "k8s-cp1-worker1"
+        - name: "k8s-cp1-worker2"
+          ip: "10.0.2.6"
+          peer_asn: 401642
+          description: "k8s-cp1-worker2"
+        - name: "k8s-cp1-worker3"
+          ip: "10.0.2.7"
+          peer_asn: 401642
+          description: "k8s-cp1-worker3"
+        - name: "k8s-cp2-worker1"
+          ip: "10.0.2.8"
+          peer_asn: 401642
+          description: "k8s-cp2-worker1"
+        - name: "k8s-cp2-worker2"
+          ip: "10.0.2.9"
+          peer_asn: 401642
+          description: "k8s-cp2-worker2"
+        - name: "k8s-cp2-worker3"
+          ip: "10.0.2.10"
+          peer_asn: 401642
+          description: "k8s-cp2-worker3"
+        - name: "k8s-cp3-worker1"
+          ip: "10.0.2.11"
+          peer_asn: 401642
+          description: "k8s-cp3-worker1"
+        - name: "k8s-cp3-worker2"
+          ip: "10.0.2.12"
+          peer_asn: 401642
+          description: "k8s-cp3-worker2"
+        - name: "k8s-cp3-worker3"
+          ip: "10.0.2.13"
+          peer_asn: 401642
+          description: "k8s-cp3-worker3"
+        - name: "isp-ipv4"
+          ip: "204.209.51.58"
+          peer_asn: 10242
+          description: "ISP-IPv4"
+        - name: "k8s-cp1-control-ipv6"
+          ip: "2602:f678:0:ff::2"
+          peer_asn: 401642
+          description: "k8s-cp1-control-ipv6"
+        - name: "k8s-cp2-control-ipv6"
+          ip: "2602:f678:0:ff::3"
+          peer_asn: 401642
+          description: "k8s-cp2-control-ipv6"
+        - name: "k8s-cp3-control-ipv6"
+          ip: "2602:f678:0:ff::4"
+          peer_asn: 401642
+          description: "k8s-cp3-control-ipv6"
+        - name: "k8s-cp1-worker1-ipv6"
+          ip: "2602:f678:0:ff::5"
+          peer_asn: 401642
+          description: "k8s-cp1-worker1-ipv6"
+        - name: "k8s-cp1-worker2-ipv6"
+          ip: "2602:f678:0:ff::6"
+          peer_asn: 401642
+          description: "k8s-cp1-worker2-ipv6"
+        - name: "k8s-cp1-worker3-ipv6"
+          ip: "2602:f678:0:ff::7"
+          peer_asn: 401642
+          description: "k8s-cp1-worker3-ipv6"
+        - name: "k8s-cp2-worker1-ipv6"
+          ip: "2602:f678:0:ff::8"
+          peer_asn: 401642
+          description: "k8s-cp2-worker1-ipv6"
+        - name: "k8s-cp2-worker2-ipv6"
+          ip: "2602:f678:0:ff::9"
+          peer_asn: 401642
+          description: "k8s-cp2-worker2-ipv6"
+        - name: "k8s-cp2-worker3-ipv6"
+          ip: "2602:f678:0:ff::10"
+          peer_asn: 401642
+          description: "k8s-cp2-worker3-ipv6"
+        - name: "k8s-cp3-worker1-ipv6"
+          ip: "2602:f678:0:ff::11"
+          peer_asn: 401642
+          description: "k8s-cp3-worker1-ipv6"
+        - name: "k8s-cp3-worker2-ipv6"
+          ip: "2602:f678:0:ff::12"
+          peer_asn: 401642
+          description: "k8s-cp3-worker2-ipv6"
+        - name: "k8s-cp3-worker3-ipv6"
+          ip: "2602:f678:0:ff::13"
+          peer_asn: 401642
+          description: "k8s-cp3-worker3-ipv6"
+        - name: "isp-ipv6"
+          ip: "2605:8400:ff:142::"
+          peer_asn: 10242
+          description: "ISP-IPv6"
+gobgp:
+  enabled: false
+  image:
+    repository: docker.io/osrg/gobgp
+    tag: latest
+    pullPolicy: IfNotPresent
+  api:
+    host: "0.0.0.0"
+    port: 50051
+  bgp:
+    localAsn: 401642
+    routerId: "204.209.51.59"
+    listenPort: 179
+  bmp:
+    address: "serviceradar-bmp-collector"
+    port: 11019
+  # By default we reuse faker BGP peers to keep topology aligned.
+  peers: []
+  podAnnotations: {}
+  nodeSelector: {}
+  resources:
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+  service:
+    type: ClusterIP
+    annotations: {}
+    bgp:
+      enabled: false
+      port: 179
+  externalService:
+    enabled: false
+    type: LoadBalancer
+    annotations: {}
+    loadBalancerIP: ""
+    externalTrafficPolicy: Local
+    port: 179
+coreClient:
+  address: "" # auto-derived to serviceradar-core.<namespace>.svc.cluster.local:50052
+  secMode: mtls
+  trustDomain: ""
+  serverSPIFFEID: ""
+  workloadSocket: unix:/run/spire/sockets/agent.sock
+  certDir: /etc/serviceradar/certs
+cnpg:
+  enabled: true
+  clusterName: cnpg
+  instances: 3
+  storageClass: ""
+  storageSize: 100Gi
+  # Optional CNPG instance placement controls. Use these for dedicated database
+  # nodes with labels/taints such as cnpg.io/dedicated=true.
+  affinity:
+    podAntiAffinityType: preferred
+    nodeSelector: {}
+    nodeAffinity: {}
+    tolerations: []
+  # WAL retention safety cap (max_slot_wal_keep_size). Blank = auto-derive ~30% of
+  # storageSize (min 10GB) so a stuck/lagging replication slot can never fill the
+  # volume and crash the primary (the 2026-06-17 outage). Set an explicit size
+  # using PostgreSQL units (e.g. "250GB"), not Kubernetes resource units. Use
+  # an explicit size when the real volume is larger than the declared storageSize.
+  maxSlotWalKeepSize: ""
+  # WAL sizing. pg_wal shares the data PVC (this chart declares no CNPG walStorage),
+  # so both auto-derive from storageSize and are bounded relative to the volume:
+  #   max_wal_size = 7% of storageSize, clamped to [1GB, 8GB]
+  #   min_wal_size = max_wal_size / 8, clamped to [256MB, 1024MB]
+  # PostgreSQL forces a checkpoint every max_wal_size/(2 + checkpoint_completion_target),
+  # so the 1GB default fires one every 353MB -- roughly every 14 seconds at this
+  # product's baseline ingest, and every 10 seconds under heavy write load, which parks
+  # every backend on LWLock:WALWrite. The 1GB floor is deliberate: an install of ~28Gi
+  # or less keeps PostgreSQL's own default and spends no additional WAL disk.
+  #
+  # Raising max_wal_size costs roughly 2x that value in worst-case volume use, on top of
+  # maxSlotWalKeepSize. Set these with PostgreSQL units (e.g. "8GB", "1024MB"), not
+  # Kubernetes resource units. Because these derive from storageSize, storageSize MUST
+  # track the real provisioned volume.
+  maxWalSize: ""
+  minWalSize: ""
+  # Optional full CNPG image reference. When blank, image.registry is used with
+  # the default ServiceRadar CNPG tag.
+  imageName: ""
+  # Pre-upgrade convergence of extension catalogs to the version the incoming CNPG
+  # image ships. Leave enabled: a `helm upgrade` that changes the CNPG image needs no
+  # manual ALTER EXTENSION steps with this on, and the job refuses to let an image
+  # through that would strand a database it cannot open. See
+  # templates/cnpg-extension-update-job.yaml for the invariant it enforces.
+  #
+  # Disabling it does not make an upgrade safer -- it only moves the failure from a
+  # hook (Cluster untouched, database still serving) to the rollout itself.
+  extensionUpdate:
+    enabled: true
+    # Extensions to converge. Defaults to the set this chart installs; the job skips
+    # any that are not present in a given database.
+    extensions: []
+  sharedPreloadLibraries:
+    - timescaledb
+    - age
+    - pg_stat_statements
+  postgresqlParameters:
+    max_connections: "500"
+    shared_buffers: "1GB"
+    work_mem: "16MB"
+    log_min_duration_statement: "500ms"
+    # Bind parameters are NOT logged with the slow statement above. Postgres truncates
+    # this PER PARAMETER with no per-statement cap, so a positive value does not bound
+    # the log: a 1000-row x 10-column bulk insert at 1kB each still emits ~10MB for one
+    # statement. A 2000-row insert on this product logged ~742KB of parameters per
+    # statement. The normalised query text and timings come from pg_stat_statements,
+    # which is enabled below.
+    log_parameter_max_length: "0"
+    log_lock_waits: "on"
+    deadlock_timeout: "1s"
+    # Checkpoint pacing. max_wal_size / min_wal_size are NOT set here -- they derive from
+    # storageSize (see cnpg.maxWalSize above). Setting either key here overrides the
+    # derivation for every install size, so prefer cnpg.maxWalSize.
+    checkpoint_timeout: "15min"
+    # Already the PostgreSQL 14+ default; pinned so a future upstream change cannot move
+    # it, and to match the compose stack. Note it sits in the DENOMINATOR of the
+    # checkpoint trigger, so raising it fires checkpoints sooner by volume, not later.
+    checkpoint_completion_target: "0.9"
+    # Compresses full-page images, which dominate WAL right after each checkpoint.
+    # Deliberately "on" (pglz) rather than lz4/zstd: those enum values exist only under a
+    # compile-time flag, and an unsupported value is merely logged on reload but is FATAL
+    # at postmaster start -- it would leave clusters running after upgrade and unable to
+    # restart. This is the first thing to turn off if a deployment regresses on CPU.
+    wal_compression: "on"
+    pg_stat_statements.max: "10000"
+    pg_stat_statements.track: "all"
+    pg_stat_statements.track_planning: "on"
+    track_io_timing: "on"
+  extensionsSQL:
+    - CREATE EXTENSION IF NOT EXISTS timescaledb;
+    - CREATE EXTENSION IF NOT EXISTS age;
+    - CREATE EXTENSION IF NOT EXISTS postgis;
+    - CREATE EXTENSION IF NOT EXISTS vector;
+    - CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+  superuserSecret: cnpg-superuser
+  superuserUsername: postgres
+  superuserPassword: ""
+  host: ""
+  port: 5432
+  database: serviceradar
+  username: serviceradar
+  password: ""
+  # Schema for application data. The app user's search_path is set to this schema.
+  # For OSS single-deployment mode, use "platform" (default).
+  # The schema is created automatically during bootstrap.
+  schema: platform
+  runtimeParams:
+    # search_path is set automatically based on cnpg.schema
+    search_path: ""
+  credentialsSecret: serviceradar-db-credentials
+  # Helm reuses existing secrets (lookup) or cnpg.password / cnpg.superuserPassword
+  # and does not mint a random password when lookup is empty. Argo CD's repo-server
+  # cannot read Secrets, so a random fallback rotated credentials and rolled core
+  # and web-ng on every sync. First-install create-if-missing lives in the
+  # secret-generator PreSync job (HTTP 409 leaves the password unchanged).
+  # Delete/recreate cnpg-superuser or serviceradar-db-credentials to rotate.
+  sslmode: verify-full
+  backup:
+    # Enables CNPG native Barman object-store backup configuration. Keep disabled
+    # for single-node/dev installs; hosted tenant values turn this on with a
+    # per-tenant bucket and per-tenant credential secret.
+    enabled: false
+    retentionPolicy: "30d"
+    target: prefer-standby
+    barmanObjectStore:
+      destinationPath: ""
+      endpointURL: ""
+      serverName: ""
+      endpointCA:
+        name: ""
+        key: ca.crt
+      s3Credentials:
+        secretName: ""
+        accessKeyIdKey: ACCESS_KEY_ID
+        secretAccessKeyKey: ACCESS_SECRET_KEY
+        sessionTokenKey: ""
+      wal:
+        compression: gzip
+        maxParallel: 8
+      data:
+        compression: gzip
+    scheduledBackup:
+      enabled: true
+      name: ""
+      schedule: "0 0 0 * * *"
+      immediate: true
+      suspend: false
+      backupOwnerReference: cluster
+      # Leave blank to let CNPG default to barmanObjectStore on older CRDs.
+      method: ""
+  localDevAccess:
+    # Optional CNPG ingress NetworkPolicy for local developer workstations.
+    # Keep disabled by default; demo can opt in with explicit LAN CIDRs.
+    enabled: false
+    policyName: cnpg-allow-local-dev-postgres
+    allowedCIDRs: []
+  applicationAccess:
+    # CNPG NetworkPolicy allowing ServiceRadar workloads in the release namespace
+    # to reach the primary on PostgreSQL. Keep this enabled when Helm manages
+    # CNPG; otherwise any other ingress policy selecting the primary can
+    # unintentionally isolate the database from migrations and app pods.
+    enabled: true
+    policyName: ""
+  pooler:
+    # CNPG-managed PgBouncer pooler for web/core traffic.
+    # Set enabled=false to route all workloads directly to CNPG.
+    enabled: true
+    # Set false to route workloads through an existing/admin-managed Pooler
+    # service without Helm managing the Pooler custom resource.
+    create: true
+    # Defaults to <cnpg.clusterName>-pooler-rw when empty.
+    name: ""
+    # Override generated service DNS only when using an externally managed pooler.
+    host: ""
+    type: rw
+    poolMode: transaction
+    instances: 3
+    ha:
+      podAntiAffinity:
+        enabled: true
+        # Use "required" for strict multi-node spreading. The default remains
+        # preferred so single-node development clusters can still schedule.
+        type: preferred
+        weight: 100
+        topologyKey: kubernetes.io/hostname
+    monitoring:
+      podMonitor:
+        enabled: false
+        interval: 30s
+        scrapeTimeout: 10s
+        labels: {}
+    route:
+      core: true
+      webNg: true
+    parameters:
+      ignore_startup_parameters: "search_path"
+      max_client_conn: "1000"
+      default_pool_size: "25"
+      reserve_pool_size: "5"
+      reserve_pool_timeout: "5"
+  certDir: /etc/serviceradar/certs
+  caFile: /etc/serviceradar/cnpg/ca.crt
+  clientCertName: cnpg-client.pem
+  clientKeyName: cnpg-client-key.pem
+  clientCASecret: ""
+  clientCAFromCerts: false
+  requireClientCert: false
+
+# Tiered telemetry cold storage (OpenSpec add-tiered-telemetry-offload).
+# Everything below is DISABLED by default and renders nothing. Activation is a
+# deployment decision made by supplying complete cold-tier configuration
+# (object-store location/credentials + this analytics head); there is no
+# supported OSS enablement path.
+coldTier:
+  # The read-only role the analytics head uses to reach hot rows on the primary
+  # over postgres_fdw. Migration 20260716220000 always creates it NOLOGIN with
+  # SELECT-only grants; setting `enabled` here hands login + password to CNPG
+  # `managed.roles`, which is what actually makes it connectable. Leave it off
+  # unless you are running the cold tier: an off deployment carries the role as
+  # an inert grant set that cannot authenticate.
+  exportRole:
+    enabled: false
+    name: cold_reader
+    # Name of a Secret of type kubernetes.io/basic-auth whose `username`
+    # matches `name` above and whose `password` CNPG will set. Required when
+    # enabled; there is no default, because a defaulted database password is
+    # worse than a failed render.
+    passwordSecret: ""
+    # Bounds concurrent cold_reader sessions so a runaway cannot exhaust the
+    # primary's connection slots. Sized for the exporter's export/verify
+    # sessions plus concurrent stitched-view reads; raise alongside
+    # analyticsHead.poolSize.
+    connectionLimit: 10
+  analyticsHead:
+    enabled: false
+    # Dedicated analytics image: PostgreSQL 18 + pg_duckdb, WITHOUT
+    # TimescaleDB/AGE/PostGIS (pg_duckdb is structurally incompatible with a
+    # TimescaleDB-loaded instance — never point this at the primary image).
+    imageName: ""
+    # The analytics image is based on the official pgduckdb image, whose
+    # postgres user is UID/GID 999 — not CloudNativePG's default 26. These
+    # MUST match the image or the instance dies during initdb. Override only
+    # if you build the image on a base with a different postgres UID.
+    postgresUID: 999
+    postgresGID: 999
+    # Defaults to image.registryPullSecret; set only to use a dedicated secret.
+    registryPullSecret: ""
+    clusterName: cnpg-analytics
+    instances: 1
+    storageSize: 20Gi
+    storageClass: ""
+    # ColdRepo pool size drives the memory request:
+    # request = poolSize * duckdb.maxMemoryMb + overheadMb (per-connection
+    # DuckDB memory is NOT accounted inside PostgreSQL's own limits).
+    poolSize: 4
+    overheadMb: 1536
+    duckdb:
+      maxMemoryMb: 1536
+      threads: 2
+      # Spill lives under PGDATA (pg_duckdb default); the cap prevents a
+      # runaway query from filling the volume.
+      maxTempDirectorySize: 10GB
+    # Extra postgresql.parameters merged into the Cluster spec.
+    postgresqlParameters: {}
+    resources: {}
+
+# Shared storage for GeoLite2 MMDB files used by GeoIP/ASN enrichment.
+# This must be mounted wherever enrichment jobs run (core) and anywhere that
+# might need local lookups (web-ng). Enrichment should never do external API calls
+# at query time.
+geoipMmdb:
+  # Disabled by default because the bundled claim is ReadWriteOnce. Enable only
+  # with a single web-ng replica, an existing RWX claim, or an external updater.
+  # Multi-replica cores (farm01) should set emptyDir: true so each pod downloads
+  # its own MMDB without a shared PVC.
+  enabled: false
+  emptyDir: false
+  basePath: "/var/lib/serviceradar/geoip"
+  existingClaim: ""
+  accessModes:
+    - ReadWriteOnce
+  size: 1Gi
+  storageClassName: ""
+webNg:
+  replicas: 3
+  database:
+    poolSize: 10
+    queueTargetMs: 2000
+    queueIntervalMs: 2000
+    timeoutMs: 120000
+    poolTimeoutMs: 120000
+  obanEnabled: true
+  obanQueues:
+    default: 2
+    alerts: 1
+    serviceChecks: 1
+    notifications: 1
+    onboarding: 1
+    events: 1
+    sweeps: 1
+    edge: 1
+    # Heavy integration jobs run on core; keeping this disabled avoids UI pod OOMs
+    # and orphaned executing Oban jobs when web-ng restarts.
+    integrations: 0
+    maintenance: 0
+    webMaintenance: 2
+  godView:
+    runtimeGraphRefreshMs: 30000
+    runtimeGraphAutoRefresh: true
+    snapshotBudgetMs: 2000
+    snapshotCoalesceMs: 0
+  firstPartyPluginImport:
+    repoUrl: "https://github.com/carverauto/serviceradar"
+    indexAssetName: "serviceradar-wasm-plugin-index.json"
+    autoSyncEnabled: false
+    syncReleaseLimit: 10
+    syncIntervalSeconds: 3600
+    cosignBinary: "/usr/local/bin/cosign"
+    # Cosign public key used to verify first-party Wasm plugin OCI artifacts
+    # published alongside each ServiceRadar release. This is the public release
+    # key committed at docs/cosign.pub -- it is not a secret, and the registry
+    # serves these artifacts anonymously, so no pull credential is needed to
+    # verify them. Shipping it empty is what made "Import All" fail with
+    # cosign_public_key_not_configured on every install that was not the demo
+    # overlay: the template below omits the env var when this is empty, and the
+    # verifier fails closed rather than importing an unverified artifact.
+    # Override only when serving first-party plugins signed with your own key.
+    # Kept in step with docs/cosign.pub and the web-ng compiled-in default by
+    # //:first_party_plugin_cosign_key_consistency_test.
+    cosignPublicKey: |
+      -----BEGIN PUBLIC KEY-----
+      MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEhJcdPbybyipSl8sNHSKStAYiqhP7
+      cp6jIdZ3L4AkL/WI9oFn5xqJSnwTC29cz+JN/bXzWE807+iPS/DOl3C9EQ==
+      -----END PUBLIC KEY-----
+    cosignPublicKeyFile: ""
+    registryDockerConfigSecret: ""
+    registryDockerConfigSecretKey: ".dockerconfigjson"
+    registryDockerConfigJson: ""
+    registryDockerConfigFile: ""
+  nativeAddonImport:
+    repoUrl: "https://github.com/carverauto/serviceradar"
+    indexAssetName: "serviceradar-native-addon-index.json"
+    autoSyncEnabled: false
+    syncReleaseLimit: 10
+    syncIntervalSeconds: 3600
+    # Official native add-ons discovered in the release index are imported as
+    # staged packages. Approval and assignment remain operator-controlled.
+    autoApproveAddonIds: []
+  host: ""
+  # Canonical externally reachable HTTPS origin for web-ng (for example,
+  # https://serviceradar.example.com). A trailing root slash is accepted and
+  # canonicalized away; explicit ports other than 443 are rejected. Edge
+  # onboarding tokens, generated install commands, and notification action /
+  # alert deep links (SERVICERADAR_NOTIFICATION_ACTION_BASE_URL) embed this
+  # origin. Set it for every deployment exposed through Ingress or Gateway API;
+  # do not use an in-cluster Service name.
+  publicUrl: ""
+  godViewEnabled: "true"
+  # MCP server at /mcp. Off by default. extraEnv.SERVICERADAR_MCP_ENABLED is ignored.
+  mcpEnabled: "false"
+  # When false, grant_type=client_credentials cannot mint mcp-scoped tokens.
+  # SSO-mandated deployments should set this to "false" and use /oauth/authorize.
+  mcpClientCredentialsEnabled: "true"
+  # Refresh-token backstop TTL in seconds. SSO grants also require a live IdP session.
+  mcpRefreshTtlSeconds: "28800"
+  # Keep Phoenix/LiveView WebSocket origin checks enabled by default.
+  # Set to "false" only for local/lab reverse-proxy debugging.
+  checkOrigin: "true"
+  devRoutes: "false"
+  localMailer: "false"
+  # Bootstrap admin identity. The generated admin password is stored in
+  # secrets.existingSecretName under admin-password.
+  adminEmail: "root@localhost"
+  # When true, the bootstrap step resets the stored admin password hash to
+  # match SERVICERADAR_ADMIN_PASSWORD on every restart. Use this in
+  # environments where the secret is the source of truth (e.g. demo, where
+  # rotating admin-password should re-grant login). Leave false for tenants
+  # that rely on UI-driven password changes — otherwise restarts overwrite
+  # them.
+  adminPasswordForceSync: false
+  # Local-login break-glass + SSO toggle (server-side LoginPolicy).
+  # forceLocalLogin permits local password login regardless of SSO enforcement —
+  # the break-glass recovery hatch for broken AuthSettings/IdP (a valid password is
+  # still required; not a bypass). Normal SSO deployments should leave it false
+  # and use the per-account Local password login toggle in Settings -> Auth -> Users.
+  # disableSso hides the SSO button. Both default off.
+  auth:
+    forceLocalLogin: false
+    disableSso: false
+  # Trusted Ed25519 public key used to verify signed agent release manifests.
+  agentReleasePublicKey: "ZY2//cpkD3oVdC6q4Cg6lN1I2M6SgmDMzL4QyQjptH8="
+  # Extra environment variables for the web-ng pod.
+  # SERVICERADAR_EGRESS_PROXY: same CONNECT proxy as core.extraEnv. web-ng
+  # starts serviceradar_core, so Finch picks it up from this env.
+  extraEnv: {}
+  # Extra environment variables sourced from Kubernetes secrets/configmaps.
+  # Keep credentials out of extraEnv so Helm release values and rendered
+  # manifests contain only references to the existing Secret or ConfigMap.
+  # Example:
+  # extraEnvValueFrom:
+  #   SMTP_PASSWORD:
+  #     secretKeyRef:
+  #       name: serviceradar-smtp-relay
+  #       key: password
+  extraEnvValueFrom: {}
+  # Dedicated pod-only listener for authenticated hosted-control-plane
+  # operations. Enabling this adds a container port and reads its bearer token
+  # from the named Secret; it never adds the port to a Service, Gateway,
+  # HTTPRoute, or other public route.
+  controlPlaneRuntime:
+    enabled: false
+    port: 4001
+    existingSecretName: serviceradar-control-plane-runtime-access
+    tokenSecretKey: token
+  # Resource requests/limits for web-ng.
+  # Steady-state ~1.3–1.7Gi RSS; a 2Gi *limit* still OOMKilled hosted tenants
+  # under cold-start spikes, so limit matches demo (4Gi). Keep the *request*
+  # at 1Gi so 3 replicas still schedule on modest ~8Gi worker nodes (demo
+  # overrides request to 2Gi where nodes have headroom).
+  resources:
+    limits:
+      cpu: "2"
+      memory: "4Gi"
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+  gatewayAddress: ""
+  natsUrl: ""
+  natsCertName: "web"
+  coreAddress: ""
+  clusterEnabled: "true"
+  clusterStrategy: "dns"
+  clusterDnsQuery: ""
+  clusterCoreDnsQuery: ""
+  clusterGatewayDnsQuery: ""
+  # Optional override for the Erlang cluster cookie. Leave empty to auto-generate
+  # a unique install-scoped value in the shared secrets secret.
+  clusterCookie: ""
+  kubernetesNodeBasename: "serviceradar_web_ng"
+  datasvc:
+    host: "serviceradar-datasvc"
+    port: 50057
+    secMode: "mtls"
+    certDir: "/etc/serviceradar/certs"
+    certName: "web"
+    serverName: "datasvc.serviceradar"
+  pluginStorage:
+    enabled: true
+    backend: "jetstream"
+    basePath: "/var/lib/serviceradar/plugin-packages"
+    existingClaim: ""
+    accessModes:
+      - ReadWriteOnce
+    size: 10Gi
+    storageClassName: ""
+    downloadTtlSeconds: 86400
+    jetstreamBucket: "serviceradar_plugins"
+    jetstreamReplicas: 3
+
+objectStoreRetention:
+  enabled: true
+  dryRun: false
+  cron: "0 3 * * *"
+  agentReleaseKeepLatest: 1
+  nativeAddonOrphanGraceSeconds: 604800
+  pluginOrphanGraceSeconds: 604800
+  datasvcTimeoutMs: 30000
+  webNgMaintenanceQueueLimit: 1
+agent:
+  enabled: true
+  agentId: "k8s-agent"
+  hostNetwork: true
+  allowNetRaw: true
+  ebpf:
+    # eBPF access is a separate opt-in profile. Do not infer this from
+    # allowNetRaw; NET_RAW is for ICMP/MTR-style sockets, not BPF loading.
+    enabled: false
+    privileged: false
+    capabilities:
+      - BPF
+      - PERFMON
+      - SYS_RESOURCE
+    bpffsPath: /sys/fs/bpf
+    btfMountPath: /sys/kernel/btf
+    btfPath: /sys/kernel/btf/vmlinux
+    cgroupPath: /sys/fs/cgroup
+    cgroupReadOnly: false
+  netprobe:
+    enabled: false
+  gatewayAddress: ""
+  partitionId: "default"
+  pushInterval: "30s"
+  statusDebounceInterval: "30s"
+  statusHeartbeatInterval: "5m"
+  remoteAccessKnownHostsFile: "/var/lib/serviceradar/checkers/remote-access-known_hosts"
+  # Public CA bundles trusted by the host-owned Wasm HTTP transport in addition
+  # to the operating-system roots. Wasm modules cannot read or replace them.
+  # Use absolute paths mounted into the agent; invalid bundles fail plugin HTTP
+  # closed. The platform runtime CA permits verified internal integrations.
+  pluginHTTPTrustedCAFiles:
+    - /etc/serviceradar/certs/root.pem
+  checkersStorage:
+    enabled: true
+    basePath: "/var/lib/serviceradar/checkers"
+    existingClaim: ""
+    size: 2Gi
+    storageClassName: ""
+  cacheStorage:
+    enabled: true
+    existingClaim: ""
+    size: 1Gi
+    storageClassName: ""
+  runtimeStorage:
+    enabled: true
+    basePath: "/var/lib/serviceradar/agent"
+    existingClaim: ""
+    size: 5Gi
+    storageClassName: ""
+  resources:
+    limits:
+      cpu: 500m
+      memory: 2Gi
+    requests:
+      cpu: 200m
+      memory: 512Mi
+agentGateway:
+  enabled: true
+  replicas: 3
+  gatewayId: "gateway-platform"
+  partitionId: "default"
+  domain: "default"
+  publicHostname: ""
+  capabilities: "icmp,tcp,http,grpc"
+  clusterStrategy: "dns"
+  clusterCoreService: "serviceradar-core-elx-headless"
+  clusterCoreNodeBasename: "serviceradar_core"
+  kubernetesSelector: "app.kubernetes.io/part-of=serviceradar"
+  kubernetesNodeBasename: "serviceradar_agent_gateway"
+  sysmonMetricsEnabled: true
+  sysmonMetricsSubjectPrefix: "metrics.sysmon"
+  snmpMetricsEnabled: true
+  snmpMetricsSubjectPrefix: "metrics.snmp"
+  # SNMP interface-metric allowlist (fj #3788 REC7e). Unset keeps the built-in
+  # default (ifHCInOctets, ifHCOutOctets). Set "all" to publish every collected
+  # interface OID, or a comma-separated list of metric names to restrict it.
+  # snmpInterfaceMetrics: "all"
+  pluginMetricsEnabled: true
+  pluginMetricsSubjectPrefix: "metrics.timeseries"
+  otlpRelayPublishEnabled: true
+  otlpRelayTracesSubject: "otel.traces.raw"
+  otlpRelayLogsSubject: "logs.otel"
+  otlpRelayMetricsSubject: "otel.metrics.raw"
+  otlpRelayDerivedMetricsSubject: "otel.metrics.derived"
+  service:
+    port: 50052
+    artifactPort: 50053
+    metricsPort: 9090
+    type: LoadBalancer
+    nodePort: null
+    artifactNodePort: null
+    loadBalancerIP: ""
+    externalTrafficPolicy: Cluster
+    annotations: {}
+  # Steady-state demo usage is ~850–900Mi; the previous 512Mi/1Gi pair OOMKills
+  # under reconnect storms. Demo still overrides to 1Gi/3Gi for HA spikes.
+  resources:
+    limits:
+      cpu: "1"
+      memory: "2Gi"
+    requests:
+      cpu: "200m"
+      memory: "1Gi"
+datasvc:
+  replicaCount: 3
+  # Replica count for datasvc-owned JetStream streams (KV/object metadata).
+  jetstreamReplicas: 3
+  # Reserved capacity for the KV bucket stream ($KV.serviceradar-datasvc.>).
+  # 4 GiB — capacity-safe with R=3 flows@10GiB under 30G maxFileStore.
+  bucketMaxBytes: "4294967296"
+  # Maximum size for one uploaded object payload.
+  objectMaxBytes: "536870912"
+  # Reserved capacity for the object stream (OBJ_serviceradar-objects).
+  # 10 GiB (down from 16 GiB) so KV+objects+events+flows fit the default
+  # 30Gi PVC / 30G maxFileStore. Expand PVC out-of-band before raising this
+  # back for large multi-arch agent release retention.
+  objectStoreBytes: "10737418240"
+  data:
+    enabled: false
+    accessModes:
+      - ReadWriteOnce
+    size: 5Gi
+    storageClassName: ""
+logCollector:
+  replicaCount: 3
+  # Shared "events" stream replica count for OTEL/syslog writers.
+  streamReplicas: 3
+  # Reserved capacity for the shared "events" stream.
+  streamMaxBytes: 2147483648
+  data:
+    enabled: false
+    existingClaim: ""
+    accessModes:
+      - ReadWriteOnce
+    size: 1Gi
+    storageClassName: ""
+  probes:
+    liveness:
+      initialDelaySeconds: 30
+      periodSeconds: 30
+      timeoutSeconds: 5
+      failureThreshold: 3
+    readiness:
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  # External service configuration for syslog/NetFlow ingestion from outside the cluster.
+  # When enabled, creates a LoadBalancer service separate from the internal ClusterIP.
+  externalService:
+    enabled: false
+    # Service type: LoadBalancer, NodePort, or ClusterIP
+    type: LoadBalancer
+    # Only advertise from nodes with local endpoints (required for Calico BGP)
+    externalTrafficPolicy: Cluster
+    # Annotations for load balancer configuration (MetalLB, cloud providers, etc.)
+    # Example for MetalLB: metallb.universe.tf/address-pool: k3s-pool
+    # Example for AWS NLB: service.beta.kubernetes.io/aws-load-balancer-type: nlb
+    annotations: {}
+    # Optional static IP for the load balancer (if supported by provider)
+    loadBalancerIP: ""
+    # Port configuration for external access
+    ports:
+      syslog:
+        enabled: true
+        port: 514          # External port
+        targetPort: 514    # Container port
+        protocol: UDP
+      netflow:
+        enabled: false
+        port: 2055
+        targetPort: 2055
+        protocol: UDP
+  # Dedicated Service (serviceradar-otlp) for external OTLP ingest.
+  #
+  # Two exposure modes:
+  #   1. Gateway (preferred, default-friendly): keep service.type ClusterIP
+  #      and set otlp.gateway.enabled=true to attach routes to an existing
+  #      shared Gateway API gateway. No dedicated public IP is consumed.
+  #   2. LoadBalancer (opt-in): set service.type=LoadBalancer to allocate a
+  #      dedicated public IP for direct OTLP ingest. Pair with the
+  #      networkPolicy.ingress.otlpExternal CIDR allowlist.
+  #
+  # TLS: the OTLP/gRPC listener (4317) always presents the collector's
+  # [grpc_tls] certificate issued by the ServiceRadar private CA, so external
+  # senders must either trust the ServiceRadar root CA bundle or disable
+  # certificate verification (e.g. OTLP exporter `tls.insecure_skip_verify:
+  # true`). The OTLP/HTTP listener (4318) reuses the same certificate unless
+  # otlp.http.tlsEnabled=false (plaintext, for TLS-terminating gateways).
+  otlp:
+    # Collector-side OTLP/HTTP (4318) listener settings rendered into
+    # otel.toml ([server.http]). Independent from service.http below, which
+    # only controls whether the Service exposes the 4318 port.
+    http:
+      # Serve TLS on 4318 using the [grpc_tls] certificate (default). Set to
+      # false to serve plaintext HTTP — use when a TLS-terminating gateway
+      # (otlp.gateway) fronts the listener inside the cluster; envoy then
+      # forwards plain HTTP to the pod and no BackendTLSPolicy is needed.
+      tlsEnabled: true
+    # SigNoz-style ingestion-key authentication for BOTH OTLP listeners
+    # (gRPC 4317 and HTTP 4318). Default disabled: in-cluster / trusted
+    # network senders keep exporting anonymously. When enabled, every
+    # external export must present the ingestion key on each request:
+    #   x-serviceradar-ingestion-key: <key>      (preferred)
+    #   authorization: Bearer <key>              (alias)
+    # Requests without a valid key are rejected (gRPC UNAUTHENTICATED /
+    # HTTP 401); CORS preflight (OPTIONS) stays open. The key value is read
+    # from an existing Kubernetes Secret mounted into the pod (never inlined
+    # in values/ConfigMaps), and the Secret key name doubles as the sender
+    # identity stamped on every ingested message (NATS header
+    # Sr-Ingest-Identity) for downstream attribution.
+    #
+    # Issue a key:
+    #   kubectl create secret generic otlp-ingestion-key \
+    #     --from-literal=tenant-a="$(openssl rand -hex 32)"
+    #   then set: enabled: true, secretName: otlp-ingestion-key,
+    #   secretKey: tenant-a
+    auth:
+      enabled: false
+      # Name of an existing Secret in the release namespace holding the
+      # ingestion key. Required when enabled.
+      secretName: ""
+      # Key within the Secret whose value is the ingestion token. Also used
+      # as the authenticated sender identity for attribution.
+      secretKey: "ingestion-key"
+    service:
+      enabled: true
+      # Service type: ClusterIP (default), LoadBalancer, or NodePort.
+      # ClusterIP consumes no public IP; expose externally via otlp.gateway.
+      # LoadBalancer is the opt-in dedicated-public-IP mode.
+      type: ClusterIP
+      # Only advertise from nodes with local endpoints (set Local to preserve
+      # client source IPs; required for Calico BGP / MetalLB L2 setups).
+      # Ignored when type=ClusterIP.
+      externalTrafficPolicy: Cluster
+      # Annotations for load balancer configuration (MetalLB, cloud providers, etc.)
+      # Example for MetalLB: metallb.universe.tf/address-pool: k3s-pool
+      # Example for AWS NLB: service.beta.kubernetes.io/aws-load-balancer-type: nlb
+      annotations: {}
+      # Optional static IP for the load balancer (if supported by provider)
+      loadBalancerIP: ""
+      # Optional load balancer implementation class (if supported by provider)
+      loadBalancerClass: ""
+      # OTLP/gRPC port. targetPort must match the log-collector container port.
+      port: 4317
+      targetPort: 4317
+      http:
+        # Expose the OTLP/HTTP listener (4318) on the Service. Required when
+        # otlp.gateway.httpHostname is set (the HTTPRoute backend is this port).
+        enabled: false
+        port: 4318
+        targetPort: 4318
+    # Attach OTLP ingest to an existing shared Gateway API gateway instead of
+    # allocating a dedicated LoadBalancer IP. Renders an HTTPRoute (OTLP/HTTP)
+    # and/or a TLSRoute (OTLP/gRPC passthrough) in the release namespace; the
+    # target gateway must admit routes from this namespace (e.g. via its
+    # allowedRoutes namespace selector).
+    gateway:
+      enabled: false
+      gatewayName: "serviceradar-shared-gateway"
+      gatewayNamespace: "serviceradar-system"
+      # Emit external-dns annotations on the OTLP Gateway routes. Disable this
+      # when DNS is managed outside the tenant cluster, such as hosted
+      # ServiceRadar control-plane provisioning.
+      dns:
+        enabled: true
+      # Hostname for OTLP/HTTP behind the gateway's HTTPS listener.
+      # WILDCARD CONSTRAINT: a listener hostname like *.serviceradar.cloud
+      # matches exactly ONE label — use otlp-demo.serviceradar.cloud, NOT
+      # otlp.demo.serviceradar.cloud. Empty disables the HTTPRoute.
+      httpHostname: ""
+      # Gateway listener (sectionName) the HTTPRoute attaches to. Must be an
+      # HTTPS (Terminate) or HTTP listener whose hostname matches httpHostname.
+      httpSectionName: "https-web"
+      # Hostname for OTLP/gRPC via the gateway's TLS passthrough listener,
+      # e.g. <name>.grpc.serviceradar.cloud (external port 50052). With
+      # passthrough, envoy does NOT terminate TLS: the collector's [grpc_tls]
+      # certificate (ServiceRadar private CA) is what senders see, so they
+      # need the root CA bundle or insecure skip-verify. Empty disables the
+      # TLSRoute. The single-label wildcard constraint applies here too.
+      grpcHostname: ""
+      grpcSectionName: "tls-grpc"
+      # Namespace where the gateway's envoy proxy pods run (Envoy Gateway
+      # deploys them in its own system namespace, not the Gateway's
+      # namespace). Used by the otlp-gateway NetworkPolicy to admit gateway
+      # traffic to 4317/4318 without opening 0.0.0.0/0.
+      envoyGatewayNamespace: "envoy-gateway-system"
+  tcpCollector:
+    enabled: true
+    replicaCount: 3
+    # TCP syslog also publishes into the shared "events" stream.
+    streamReplicas: 3
+    listen: "0.0.0.0:514"
+    format: "auto"
+    framing: "line"
+    subject: "logs.syslog"
+    service:
+      type: ClusterIP
+      annotations: {}
+      loadBalancerIP: ""
+      externalTrafficPolicy: Cluster
+      ports:
+        syslog:
+          enabled: true
+          port: 514
+          targetPort: 514
+          protocol: TCP
+    externalService:
+      enabled: false
+      type: LoadBalancer
+      externalTrafficPolicy: Cluster
+      annotations: {}
+      loadBalancerIP: ""
+      ports:
+        syslog:
+          enabled: true
+          port: 514
+          targetPort: 514
+          protocol: TCP
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "100m"
+      limits:
+        memory: "512Mi"
+        cpu: "500m"
+trapd:
+  replicaCount: 3
+  # trapd publishes into the shared "events" stream.
+  streamReplicas: 3
+  # External service configuration for SNMP trap ingestion from outside the cluster.
+  # When enabled, creates a LoadBalancer service separate from the internal ClusterIP.
+  externalService:
+    enabled: false
+    type: LoadBalancer
+    externalTrafficPolicy: Cluster
+    annotations: {}
+    loadBalancerIP: ""
+    ports:
+      snmp:
+        enabled: true
+        port: 162
+        targetPort: 162
+        protocol: UDP
+flowCollector:
+  enabled: false
+  replicaCount: 1
+  # Must match FLOW_COLLECTOR_READY_PATH / readinessProbe (default path).
+  readyPath: "/var/lib/serviceradar/flow-collector.ready"
+  terminationGracePeriodSeconds: 45
+  # flow-collector publishes raw flow subjects into the dedicated "flows" stream
+  # (isolated from the shared multi-signal "events" bus). Stream HA is only
+  # config.stream_replicas (serialized into flow-collector.json); there is no
+  # top-level flowCollector.streamReplicas key.
+  config:
+    nats_url: "tls://serviceradar-nats:4222"
+    nats_creds_file: "/etc/serviceradar/creds/platform.creds"
+    stream_name: "flows"
+    # 10 GiB / 6h / R=3 — order-of-magnitude above the historical 1 GiB shared
+    # pin. Fits default 30G maxFileStore with KV 4 + objects 10 + events 2.
+    # Raise further only after out-of-band PVC expand + maxFileStore bump.
+    stream_max_bytes: 10737418240
+    stream_max_age_secs: 21600
+    stream_replicas: 3
+    rehome_state_path: "/var/lib/serviceradar/flow-collector-rehome.json"
+    ready_state_path: "/var/lib/serviceradar/flow-collector.ready"
+    # Serves the Prometheus exposition on /metrics. Must agree with
+    # service.ports.metrics.targetPort below. Unset it to disable the
+    # in-process HTTP server entirely.
+    metrics_addr: "0.0.0.0:50046"
+    # Shared NetFlow/IPFIX template store, persisted in a NATS JetStream KV
+    # bucket. Lets a restarted pod restore learned templates instead of
+    # dropping flows until each exporter re-announces (~60s, RFC 3954).
+    # Omit this block to fall back to in-process-only template caching.
+    # The platform creds must allow create-or-update on KV buckets, or
+    # pre-create the bucket with: nats kv add flow_templates --history=1
+    template_store:
+      kv_bucket: "flow_templates"
+      kv_history: 1
+      kv_ttl_secs: 0
+    channel_size: 10000
+    batch_size: 100
+    publish_timeout_ms: 5000
+    listeners:
+      - protocol: "sflow"
+        listen_addr: "0.0.0.0:6343"
+        subject: "flows.raw.sflow"
+      - protocol: "netflow"
+        listen_addr: "0.0.0.0:2055"
+        subject: "flows.raw.netflow"
+        # Distinct exporters this listener tracks. netflow_parser defaults to
+        # 10000 and evicts past it, so a larger fleet thrashes. Unset = library
+        # default. Watch flow_collector_sources against this number.
+        max_sources: 10000
+    security:
+      mode: "mtls"
+      cert_dir: "/etc/serviceradar/certs"
+      tls:
+        cert_file: "flow-collector.pem"
+        key_file: "flow-collector-key.pem"
+        ca_file: "ca.crt"
+  data:
+    enabled: true
+    existingClaim: ""
+    size: 1Gi
+    storageClassName: ""
+  service:
+    type: ClusterIP
+    annotations: {}
+    loadBalancerIP: ""
+    externalTrafficPolicy: Cluster
+    sessionAffinity: None
+    ports:
+      netflow:
+        enabled: true
+        port: 2055
+        targetPort: 2055
+        protocol: UDP
+      sflow:
+        enabled: true
+        port: 6343
+        targetPort: 6343
+        protocol: UDP
+      ipfix:
+        enabled: false
+        port: 4739
+        targetPort: 4739
+        protocol: UDP
+      metrics:
+        enabled: true
+        port: 50046
+        targetPort: 50046
+        protocol: TCP
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+bmpCollector:
+  enabled: false
+  replicaCount: 1
+  image:
+    # Optional full repository override. When blank, image.registry/arancini is used.
+    repository: ""
+    pullPolicy: IfNotPresent
+  config:
+    listenAddr: "0.0.0.0:11019"
+    readBufferBytes: 65536
+    maxFrameSizeBytes: 16777216
+    natsUrl: "nats://serviceradar-nats:4222"
+    natsDomain: ""
+    natsCredsFile: ""
+    natsTlsRequired: true
+    natsTlsFirst: false
+    natsTlsCaCertPath: "/etc/serviceradar/certs/root.pem"
+    natsTlsClientCertPath: "/etc/serviceradar/certs/bmp-collector.pem"
+    natsTlsClientKeyPath: "/etc/serviceradar/certs/bmp-collector-key.pem"
+    streamName: "ARANCINI_CAUSAL"
+    subjectPrefix: "arancini.updates"
+    streamSubjects: []
+    # Dedicated BMP/Arancini stream reservation.
+    streamMaxBytes: 10737418240
+    # Replica count for the dedicated ARANCINI_CAUSAL stream.
+    streamReplicas: 1
+    publishTimeoutMs: 5000
+  data:
+    enabled: true
+    existingClaim: ""
+    size: 1Gi
+    storageClassName: ""
+  service:
+    type: ClusterIP
+    annotations: {}
+    loadBalancerIP: ""
+    externalTrafficPolicy: Cluster
+    ports:
+      bmp:
+        enabled: true
+        port: 11019
+        targetPort: 11019
+        protocol: TCP
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+rperfChecker:
+  enabled: true
+  replicaCount: 1
+configSync:
+  logCollector:
+    enabled: true
+    seed: true
+    watch: false
+    kvKey: ""
+    role: ""
+    extraArgs: ""
+    extraEnv: {}
+  trapd:
+    enabled: true
+    seed: true
+    watch: false
+    kvKey: ""
+    role: ""
+    extraArgs: ""
+    extraEnv: {}
+spire:
+  enabled: false
+  namespace: ""
+  serverSelector: app=spire-server
+  trustDomain: carverauto.dev
+  clusterName: carverauto-cluster
+  agentServiceAccount: spire-agent
+  coreServiceAccount: serviceradar-core
+  webNgServiceAccount: serviceradar-web-ng
+  datasvcServiceAccount: serviceradar-datasvc
+  serviceradarAgentServiceAccount: serviceradar-agent
+  socketHostPath: ""
+  joinTokenTTL: 15m
+  logCollectorServiceAccount: serviceradar-log-collector
+  # Deprecated: otel and flowgger are now merged into logCollector
+  otelServiceAccount: serviceradar-otel
+  rperfCheckerServiceAccount: serviceradar-rperf-checker
+  flowggerServiceAccount: serviceradar-flowgger
+  trapdServiceAccount: serviceradar-trapd
+  flowCollectorServiceAccount: serviceradar-flow-collector
+  bmpCollectorServiceAccount: serviceradar-bmp-collector
+  bundleConfigMap: spire-bundle
+  server:
+    image: ghcr.io/spiffe/spire-server:1.11.2
+    logLevel: DEBUG
+    adminIDs: []
+    initConfigImage: busybox
+    serviceName: spire-server
+    serviceType: ClusterIP
+    exposeHealthPort: false
+    dataPVC:
+      size: 1Gi
+      storageClass: ""
+  agent:
+    image: ghcr.io/spiffe/spire-agent:1.11.2
+    logLevel: DEBUG
+    waitForImage: cgr.dev/chainguard/wait-for-it
+    hostNetwork: true
+    skipKubeletVerification: false
+  tokenAudience: spire-server
+  additionalAgentNamespaces: []
+  postgres:
+    enabled: true
+    clusterName: cnpg
+    database: spire
+    instances: 3
+    storageClass: local-path
+    storageSize: 100Gi
+    # Same WAL budget as cnpg.* above; all three derive from storageSize when blank.
+    maxSlotWalKeepSize: ""
+    maxWalSize: ""
+    minWalSize: ""
+    secretName: spire-db-credentials
+    username: spire
+    password: ""
+    # If blank, Helm generates a random password and stores it in spire-db-credentials.
+    # Existing secrets are reused; delete the secret to rotate.
+    image: ""
+    imageTag: ""
+    imageName: ""
+    imagePullSecrets: []
+    sharedPreloadLibraries:
+      - timescaledb
+      - age
+      - pg_stat_statements
+    postgresqlParameters:
+      log_min_duration_statement: "500ms"
+      # See cnpg.postgresqlParameters.log_parameter_max_length -- must be 0, since the
+      # truncation is per parameter and does not bound a bulk insert.
+      log_parameter_max_length: "0"
+      log_lock_waits: "on"
+      deadlock_timeout: "1s"
+      # max_wal_size / min_wal_size derive from storageSize; see spire.postgres.maxWalSize.
+      checkpoint_timeout: "15min"
+      checkpoint_completion_target: "0.9"
+      wal_compression: "on"
+      pg_stat_statements.max: "10000"
+      pg_stat_statements.track: "all"
+      pg_stat_statements.track_planning: "on"
+      track_io_timing: "on"
+    extensionsSQL:
+      - CREATE EXTENSION IF NOT EXISTS timescaledb;
+      - CREATE EXTENSION IF NOT EXISTS age;
+      - CREATE EXTENSION IF NOT EXISTS postgis;
+      - CREATE EXTENSION IF NOT EXISTS vector;
+      - CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+  controllerManager:
+    enabled: true
+    image: ghcr.io/spiffe/spire-controller-manager
+    tag: 0.6.3
+    configMapName: spire-controller-manager-config
+    spireServerSocketPath: /spire-server/api.sock
+    metricsBindAddress: 127.0.0.1:8082
+    healthProbeBindAddress: 0.0.0.0:8083
+    logLevel: info
+    leaderElectionResourceName: spire-controller-manager
+    ignoreNamespaces:
+      - kube-system
+      - kube-public
+      - local-path-storage
+      - kube-node-lease
+    validatingWebhookConfigurationName: spire-controller-manager-webhook
+    enableWebhooks: false
+    resources:
+      limits:
+        cpu: 200m
+        memory: 512Mi
+      requests:
+        cpu: 50m
+        memory: 256Mi
+ingress:
+  enabled: false
+  host: ""
+  className: ""
+  websocketPaths:
+    - /live/websocket
+    - /socket/websocket
+  annotations: {}
+  tls:
+    enabled: false
+    secretName: ""
+    clusterIssuer: ""
+gatewayApi:
+  enabled: false
+  mode: managed
+  host: ""
+  # Default namespace for Gateway API envoy data-plane pods. Per-route blocks can
+  # override this when an attached Gateway lives in a different namespace.
+  envoyGatewayNamespace: envoy-gateway-system
+  dns:
+    enabled: true
+    hostname: ""
+  parentRefs: []
+  redirectParentRefs: []
+  service:
+    name: serviceradar-web-ng
+    port: 4000
+  http:
+    enabled: true
+    redirectToHttps: false
+  tls:
+    enabled: false
+    secretName: ""
+    clusterIssuer: ""
+    certificateName: ""
+  envoyProxy:
+    loggingLevel: warn
+    # Optional Envoy Gateway Kubernetes provider overrides. Hosted control-plane
+    # values use these to run one edge proxy per worker and protect quorum
+    # during voluntary disruptions; chart defaults remain suitable for labs.
+    deployment: {}
+    pdb: {}
+    service:
+      type: LoadBalancer
+      externalTrafficPolicy: Local
+      loadBalancerIP: ""
+      annotations: {}
+      ipFamilies:
+        - IPv4
+      ipFamilyPolicy: SingleStack
+  route:
+    pathPrefixes:
+      - /api/query
+      - /api
+      - /
+    # Streaming endpoints must not inherit BackendTrafficPolicy request buffering.
+    streamingPathPrefixes:
+      - /live/websocket
+      - /socket/websocket
+      - /v1/stream
+      - /v1/camera-relay-sessions
+      - /v1/field-survey
+      # Remote-access (SSH/desktop) and Proxmox console terminal streams are
+      # WebSocket upgrades served by web-ng. Without a streaming-route match
+      # they fall through to the generic route, whose BackendTrafficPolicy has
+      # no httpUpgrade websocket entry, and Envoy holds the handshake open
+      # indefinitely (browser stuck at "connecting", no backend hit).
+      - /v1/remote-access/sessions
+      - /v1/proxmox/console-sessions
+    streamingTimeouts:
+      request: 0s
+      backendRequest: 0s
+  syslog:
+    enabled: false
+    port: 514
+    routeName: ""
+    parentRefs: []
+    service:
+      name: serviceradar-log-collector
+      port: 514
+  flowCollector:
+    # Route NetFlow/sFlow/IPFIX UDP traffic through the managed/attached Gateway
+    # instead of allocating a dedicated flow-collector LoadBalancer.
+    enabled: false
+    envoyGatewayNamespace: ""
+    service:
+      name: serviceradar-flow-collector
+    netflow:
+      enabled: true
+      listenerName: netflow
+      port: 2055
+      servicePort: 2055
+      routeName: ""
+      parentRefs: []
+    sflow:
+      enabled: true
+      listenerName: sflow
+      port: 6343
+      servicePort: 6343
+      routeName: ""
+      parentRefs: []
+    ipfix:
+      enabled: false
+      listenerName: ipfix
+      port: 4739
+      servicePort: 4739
+      routeName: ""
+      parentRefs: []
+  trapd:
+    # Route SNMP trap UDP traffic through Gateway API instead of allocating a
+    # dedicated trapd LoadBalancer.
+    enabled: false
+    envoyGatewayNamespace: ""
+    listenerName: snmp-traps
+    port: 162
+    servicePort: 162
+    routeName: ""
+    parentRefs: []
+    service:
+      name: serviceradar-trapd
+  bmpCollector:
+    # Route BMP TCP traffic through Gateway API instead of allocating a dedicated
+    # bmp-collector LoadBalancer.
+    enabled: false
+    envoyGatewayNamespace: ""
+    listenerName: bmp
+    port: 11019
+    servicePort: 11019
+    routeName: ""
+    parentRefs: []
+    service:
+      name: serviceradar-bmp-collector
+  agentGateway:
+    # Route edge-agent TCP traffic through the managed/attached Gateway API
+    # gateway instead of allocating a separate agent-gateway LoadBalancer.
+    enabled: false
+    # Namespace where the gateway's envoy proxy pods run. Used only by the
+    # NetworkPolicy template when networkPolicy.enabled=true.
+    envoyGatewayNamespace: envoy-gateway-system
+    service:
+      name: serviceradar-agent-gateway
+    grpc:
+      listenerName: agent-grpc
+      port: 50052
+      servicePort: 50052
+      routeName: ""
+      parentRefs: []
+    artifacts:
+      enabled: true
+      listenerName: agent-artifacts
+      port: 50053
+      servicePort: 50053
+      routeName: ""
+      parentRefs: []
+  backendTrafficPolicy:
+    enabled: false
+    requestTimeout: ""
+    requestBufferLimit: ""
+    streaming:
+      requestTimeout: 0s
+      maxStreamDuration: 0s
+networkPolicy:
+  enabled: false
+  podSelectorMatchAll: false
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: serviceradar
+  ingress:
+    # When network policies are enabled, restrict inbound traffic to the
+    # release namespace by default. Add explicit namespaces or CIDRs for
+    # external ingress controllers / load balancers that run elsewhere.
+    allowSameNamespace: true
+    allowedNamespaces: []
+    allowedCIDRs: []
+    monitoring:
+      enabled: false
+      namespace: monitoring
+      cnpgMetricsPort: 9187
+      pgbouncerMetricsPort: 9127
+    # Ordinary application ingress ports. ERTS distribution is intentionally
+    # excluded and handled by ingress.erts below so the BEAM cookie cannot be
+    # abused by arbitrary same-namespace pods.
+    allowedPorts:
+      - protocol: TCP
+        port: 4000
+      - protocol: TCP
+        port: 4222
+      - protocol: TCP
+        port: 4317
+      # Falcosidekick HTTP receiver. Kept in the ordinary allowlist so Falco
+      # DaemonSets in explicitly allowed namespaces can deliver runtime events.
+      - protocol: TCP
+        port: 2801
+      - protocol: TCP
+        port: 9090
+      - protocol: TCP
+        port: 50040
+      - protocol: TCP
+        port: 50041
+      - protocol: TCP
+        port: 50043
+      - protocol: TCP
+        port: 50044
+      - protocol: TCP
+        port: 50046
+      - protocol: TCP
+        port: 50051
+      - protocol: TCP
+        port: 50052
+      - protocol: TCP
+        port: 50053
+      - protocol: TCP
+        port: 50057
+      - protocol: TCP
+        port: 50081
+      - protocol: TCP
+        port: 5432
+      - protocol: TCP
+        port: 6222
+      - protocol: TCP
+        port: 8080
+      - protocol: TCP
+        port: 8081
+      - protocol: TCP
+        port: 8090
+      - protocol: TCP
+        port: 8222
+      - protocol: TCP
+        port: 9090
+      - protocol: TCP
+        port: 11019
+      - protocol: UDP
+        port: 162
+      - protocol: UDP
+        port: 514
+      - protocol: UDP
+        port: 2055
+      - protocol: UDP
+        port: 4739
+      - protocol: UDP
+        port: 6343
+    erts:
+      enabled: true
+      podSelector:
+        matchExpressions:
+          - key: app
+            operator: In
+            values:
+              - serviceradar-core
+              - serviceradar-web-ng
+              - serviceradar-agent-gateway
+      ports:
+        - protocol: TCP
+          port: 4369
+        - protocol: TCP
+          port: 9100
+          endPort: 9155
+    agentGatewayExternal:
+      # The agent-gateway is intentionally exposed for edge agents. Keep this
+      # as a separate pod-scoped policy so external access to port 50052 does
+      # not also expose core's gRPC listener.
+      enabled: true
+      allowedCIDRs:
+        - "0.0.0.0/0"
+    flowCollectorExternal:
+      # The flow collector receives NetFlow/IPFIX/sFlow from external network
+      # devices. Keep this separate from the namespace-wide ingress policy so
+      # opening UDP collection ports does not also expose unrelated workloads.
+      enabled: true
+      allowedCIDRs:
+        - "0.0.0.0/0"
+    logCollectorExternal:
+      # External syslog collectors receive log traffic from network devices.
+      # This only renders policies for enabled non-ClusterIP log collector
+      # external services.
+      enabled: true
+      allowedCIDRs:
+        - "0.0.0.0/0"
+    otlpExternal:
+      # The serviceradar-otlp LoadBalancer receives OTLP/gRPC telemetry from
+      # external senders. Keep this separate from the namespace-wide ingress
+      # policy so opening TCP/4317 does not also expose unrelated workloads.
+      # Only renders when logCollector.otlp.service is enabled and non-ClusterIP
+      # (i.e. the opt-in LoadBalancer mode). In gateway mode
+      # (logCollector.otlp.gateway.enabled) a separate otlp-gateway policy is
+      # rendered instead, admitting only the envoy proxy namespace.
+      enabled: true
+      allowedCIDRs:
+        - "0.0.0.0/0"
+    trapdExternal:
+      # The SNMP trap collector receives traps from external network devices.
+      # Keep this separate from the namespace-wide ingress policy so opening
+      # UDP/162 does not also expose unrelated workloads.
+      enabled: true
+      allowedCIDRs:
+        - "0.0.0.0/0"
+    bmpCollectorExternal:
+      # BMP collectors receive external router sessions. Keep this separate
+      # from namespace-wide ingress so TCP/11019 exposure is scoped only to
+      # the BMP collector pods.
+      enabled: true
+      allowedCIDRs:
+        - "0.0.0.0/0"
+    gobgpExternal:
+      # GoBGP receives BGP sessions from routers. Keep this
+      # separate from namespace-wide ingress so TCP/179 exposure is scoped
+      # only to the GoBGP pod.
+      enabled: true
+      allowedCIDRs:
+        - "0.0.0.0/0"
+    cnpgOperator:
+      # CloudNativePG operators call each instance manager on port 8000 to
+      # extract cluster status. Keep this pod-scoped so operator access does
+      # not broaden application ingress.
+      enabled: true
+      namespace: cnpg-system
+      port: 8000
+    cnpgInstanceManager:
+      # CNPG instances call peer instance managers on port 8000 for health,
+      # failsafe, and coordination checks. This must stay open between pods in
+      # the same CNPG cluster when any ingress NetworkPolicy selects them.
+      enabled: true
+      port: 8000
+  egress:
+    allowDNS: true
+    allowKubeAPIServer: true
+    allowDefaultNamespace: true
+    allowSameNamespace: true
+    # Additional namespaces ServiceRadar workloads may call. Useful for
+    # in-cluster secret providers such as OpenBao/Vault.
+    allowedNamespaces: []
+    allowedCIDRs: []
+    # Core advisory feed ingestion needs egress to the following external
+    # endpoints (refactor-advisory-feeds-into-core). The base NetworkPolicy here
+    # is CIDR-only; when core.advisoryFeeds.enabled is true and a default-deny
+    # egress policy is in place, allow these FQDNs via your FQDN-aware egress
+    # layer (Cilium/Calico DNS policy) or pin their resolved CIDRs above:
+    #   - www.cisa.gov                 (CISA KEV JSON)
+    #   - api.vulncheck.com            (VulnCheck backup index, Bearer)
+    #   - *.amazonaws.com              (VulnCheck presigned S3 archive download)
+    #   - services.nvd.nist.gov        (NVD CVE 2.0 API fallback)
+    #   - security-metadata.canonical.com (Ubuntu OSV + OpenVEX tar.xz)
+    advisoryFeedsFQDNs:
+      - www.cisa.gov
+      - api.vulncheck.com
+      - "*.amazonaws.com"
+      - services.nvd.nist.gov
+      - security-metadata.canonical.com
+  calicoLogDenied:
+    enabled: false
+    selector: "app.kubernetes.io/part-of == 'serviceradar'"
+    order: 1000
+secrets:
+  autoGenerate: true
+  existingSecretName: serviceradar-secrets
+  # Provide adminBcryptHash to avoid in-cluster generation.
+  adminBcryptHash: ""
+  # Optional base64-encoded 32-byte key for edge onboarding. Leave empty to
+  # auto-generate a unique install-scoped value in the shared secrets secret.
+  edgeOnboardingKey: ""
+  # Base64-encoded 32-byte key for AshCloak (optional override).
+  cloakKey: ""
+
+# Exact reviewed AWX custom-credential contract used by callback-enabled
+# template bindings. Callback execution remains off until every field and an
+# operator-owned response-policy Secret are configured. When enabled, the chart
+# rejects zero IDs, malformed digests, and missing policy mounts.
+automationCallbacks:
+  enabled: false
+  # Server-owned bare HTTPS origin used to derive every callback URL. Empty
+  # inherits webNg.publicUrl. Paths, query strings, userinfo, and HTTP are
+  # rejected at runtime; playbook/catalog/survey data cannot override it.
+  canonicalOrigin: ""
+  # Non-secret identifier for the single active launch-envelope key. Changing
+  # it invalidates outstanding envelopes, whose lifetime is capped at 10m.
+  envelopeKeyId: "current"
+  awxCredentialTypeId: 0
+  awxOrganizationId: 0
+  # Lowercase SHA-256 of the exact AWX custom credential injector definition.
+  awxInjectorDigest: ""
+  responsePolicy:
+    # Existing Secret containing the reviewed, target-scoped public SSH CA
+    # response policy. The chart never generates this policy or CA material.
+    existingSecretName: ""
+    secretKey: "response-policy.json"
+  # The HMAC keyring itself lives in secrets.existingSecretName. For zero-gap
+  # rotation, first add the next key as inactive and roll both core and web;
+  # then make it active and roll both workloads again. Retain every retired key
+  # for at least the maximum outstanding callback-grant TTL before removing it.
+  # The chart validates but never silently replaces an existing keyring.
+
+# External-command SSH user-certificate signer. The chart mounts only one key
+# from an operator-created Secret and never accepts private CA material in
+# values. Keep the default workload scope to web-ng, which owns interactive
+# remote-access sessions; enable core only in deployments that route issuance
+# through core-elx instead.
+remoteAccess:
+  desktop:
+    rdp:
+      enabled: false
+      webRTC:
+        # Public ICE endpoint metadata only. Each entry may contain only urls;
+        # inline usernames, credentials, and shared secrets are rejected.
+        iceServers: []
+        # Optional additive egress policy for the core-elx pods that originate
+        # WebRTC ICE traffic. This requires the chart-wide NetworkPolicy and
+        # accepts only explicit IPv4/IPv6 CIDRs plus numeric UDP/TCP ports.
+        # DNS names and catch-all destination CIDRs are rejected.
+        networkPolicy:
+          enabled: false
+          allowedCIDRs: []
+          allowedUDPPorts: []
+          allowedTCPPorts: []
+        turn:
+          # Required only when iceServers contains turn:/turns: URLs. The chart
+          # mounts one operator-created Secret key into web-ng and never accepts
+          # the TURN REST shared secret in values or a plain environment value.
+          existingSecretName: ""
+          secretKey: "shared-secret"
+          credentialTtlSeconds: 600
+  ssh:
+    enabled: false
+    # Browser-side remembered SSH private keys (the "remember key" checkbox in
+    # the SSH console, user-present key mode only). Keep this disabled unless
+    # operators explicitly accept the tradeoff: keys remain in page memory
+    # beyond the current console, readable by scripts with page access.
+    # Reloading or closing clears remembered keys.
+    browserKeyRemember:
+      enabled: false
+  # Target-scoped account-to-principal authorization policy. This is internal
+  # authorization data, so the chart accepts only an operator-created Secret
+  # reference and never renders policy content from values.
+  sshCertificatePolicy:
+    enabled: false
+    existingSecretName: ""
+    secretKey: "certificate-policy.json"
+    workloads:
+      web: true
+      core: false
+  sshCaSigner:
+    enabled: false
+    command: "/usr/local/bin/serviceradar-sshca-signer"
+    keyId: ""
+    existingSecretName: ""
+    secretKey: "ca-key"
+    mountPath: "/run/secrets/serviceradar_ssh_ca"
+    args:
+      - "--ca-key-file"
+      - "/run/secrets/serviceradar_ssh_ca"
+      - "--max-ttl"
+      - "8h"
+    workloads:
+      web: true
+      core: false
+# Network sweep defaults (can be tuned per-deploy)
+sweep:
+  # Target networks and ports to scan
+  networks:
+    - 192.168.2.0/24
+    - 192.168.3.1/32
+  ports:
+    - 22
+    - 80
+    - 443
+    - 3306
+    - 5432
+    - 6379
+    - 8080
+    - 8443
+  # Sweep modes and pacing
+  modes:
+    - icmp
+    - tcp
+  interval: 5m
+  concurrency: 100
+  timeout: 10s
+  tcp:
+    # SYN packets per second; keep conservative by default
+    rateLimit: 20000
+    rateLimitBurst: 20000
+    # Per-scanner tuning
+    maxBatch: 32
+    concurrency: 256
+    timeout: 3s
+    # Route discovery and ring buffer tuning
+    routeDiscoveryHost: 8.8.8.8:80
+    ringBlockSize: 0
+    ringBlockCount: 0
+    interface: ""
+    suppressRSTReply: false
+    globalRingMemoryMB: 0
+    ringReaders: 0
+    ringPollTimeoutMs: 0
+  icmp:
+    # Enable high performance ICMP (raw sockets) where permitted
+    highPerf: true
+    # Global ICMP rate limit (scanner-level)
+    rateLimit: 5000
+    settings:
+      # Per-batch ICMP settings for fine tuning
+      rateLimit: 1000
+      timeout: 5s
+      maxBatch: 64
+
+# =============================================================================
+# SPIFFE Configuration (shared by all Elixir components)
+# =============================================================================
+
+spiffe:
+  mode: "filesystem"
+  trustDomain: "serviceradar.local"

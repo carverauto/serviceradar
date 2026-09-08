@@ -1,0 +1,63 @@
+defmodule Connection.Mixfile do
+  use Mix.Project
+
+  @version "1.1.0"
+
+  def project do
+    [
+      app: :connection,
+      version: @version,
+      elixir: "~> 1.7",
+      compilers: boundary_compilers() ++ Mix.compilers(),
+      build_embedded: Mix.env() == :prod,
+      start_permanent: Mix.env() == :prod,
+      description: description(),
+      package: package(),
+      docs: docs(),
+      deps: deps()
+    ]
+  end
+
+  def application do
+    []
+  end
+
+  defp boundary_compilers do
+    if Mix.env() in [:dev, :test], do: [:boundary], else: []
+  end
+
+  defp deps do
+    [
+      {:ex_doc, "~> 0.22", only: :dev},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:boundary, "~> 0.10.4", runtime: false},
+      {:ex_dna, "~> 1.3", only: [:dev, :test], runtime: false},
+      {:ex_slop, "~> 0.2.0", only: [:dev, :test], runtime: false},
+      {:styler, "~> 1.11", only: [:dev, :test], runtime: false},
+      {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false},
+      {:dialyxir, "~> 1.4", only: [:dev, :test]},
+      {:jump_credo_checks, "~> 0.1", only: [:dev], runtime: false}
+    ]
+  end
+
+  defp docs do
+    [
+      source_url: "https://github.com/elixir-ecto/connection",
+      source_ref: "v#{@version}",
+      main: Connection
+    ]
+  end
+
+  defp description do
+    """
+    Connection behaviour for connection processes
+    """
+  end
+
+  defp package do
+    %{
+      licenses: ["Apache 2.0"],
+      links: %{"Github" => "https://github.com/elixir-ecto/connection"}
+    }
+  end
+end

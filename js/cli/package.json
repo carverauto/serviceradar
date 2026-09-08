@@ -1,0 +1,51 @@
+{
+  "name": "@carverauto/serviceradar-cli",
+  "version": "0.1.6",
+  "description": "ServiceRadar developer CLI: dashboard authoring loop, auth, and tooling. Companion to @carverauto/serviceradar-dashboard-sdk.",
+  "type": "module",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/carverauto/serviceradar.git",
+    "directory": "js/cli"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "bin": {
+    "serviceradar-cli": "bin/serviceradar-cli.js",
+    "serviceradar-dashboard": "bin/serviceradar-dashboard.js"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "harness",
+    "schemas",
+    "templates",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "npm run build && node --test tests/*.test.mjs",
+    "typecheck": "tsc --noEmit",
+    "pack:check": "npm pack --dry-run .",
+    "prepublishOnly": "npm run build",
+    "ci": "npm run typecheck && npm run build && node --test tests/*.test.mjs && npm run pack:check"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@deck.gl/layers": "^9.3.2",
+    "@deck.gl/mapbox": "^9.3.2",
+    "@vitejs/plugin-react": "^5.0.4",
+    "ajv": "^8.17.1",
+    "mapbox-gl": "^3.10.0",
+    "vite": "^7.1.12",
+    "yaml": "^2.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.4.0"
+  }
+}

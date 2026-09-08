@@ -1,0 +1,102 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+load("@rules_python//python:py_test.bzl", "py_test")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("//build/wasm_plugins:defs.bzl", "declare_wasm_targets")
+load("//build/wasm_plugins:plugin_inventory.bzl", "WASM_BUILD_TARGETS", "WASM_PLUGIN_BUNDLES")
+
+package(default_visibility = ["//visibility:public"])
+
+# TINYGO SELECTION, RESOLVED IN THE EXEC CONFIGURATION.
+#
+# genrule `tools` are exec-configured, and the exec configuration's target platform IS the exec
+# platform -- so these selects pick the toolchain that will actually RUN the action, which is
+# not necessarily the one the repo rule's host would pick. That distinction is the whole reason
+# the old single repo fetched every platform: a macOS client driving RBE needs the Linux
+# toolchain, and a repo rule cannot see the exec platform.
+#
+# Selecting here instead means bzlmod only ever fetches the one repo a build demands.
+[
+    config_setting(
+        name = "exec_" + os_name + "_" + cpu_name,
+        constraint_values = [
+            "@platforms//os:" + os_constraint,
+            "@platforms//cpu:" + cpu_constraint,
+        ],
+    )
+    for os_name, os_constraint in [("darwin", "macos"), ("linux", "linux")]
+    for cpu_name, cpu_constraint in [("amd64", "x86_64"), ("arm64", "arm64")]
+]
+
+[
+    alias(
+        name = alias_name,
+        actual = select({
+            ":exec_darwin_amd64": "@tinygo_darwin_amd64//:" + target,
+            ":exec_darwin_arm64": "@tinygo_darwin_arm64//:" + target,
+            ":exec_linux_amd64": "@tinygo_linux_amd64//:" + target,
+            ":exec_linux_arm64": "@tinygo_linux_arm64//:" + target,
+        }),
+    )
+    # "files" is the whole toolchain tree: TinyGo resolves its own lib/ and targets/ relative
+    # to the binary, so the binary alone is not a runnable action input.
+    for alias_name, target in [
+        ("selected_tinygo", "tinygo_bin"),
+        ("selected_go", "go_bin"),
+        ("selected_tinygo_tree", "files"),
+    ]
+]
+
+exports_files([
+    "assemble_bundle.py",
+    "build_wasm_binary.sh",
+    "publish_plugin.sh",
+])
+
+go_binary(
+    name = "upload_signature_tool",
+    embed = [":wasm_plugins_lib"],
+    importpath = "github.com/carverauto/serviceradar/build/wasm_plugins/upload_signature_tool",
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "upload_signature_tool_test",
+    srcs = [
+        "upload_signature_tool.go",
+        "upload_signature_tool_test.go",
+    ],
+    deps = [
+        "@in_gopkg_yaml_v3//:go_default_library",
+    ],
+)
+
+declare_wasm_targets(
+    build_targets = WASM_BUILD_TARGETS,
+    plugin_bundles = WASM_PLUGIN_BUNDLES,
+)
+
+py_test(
+    name = "assemble_bundle_test",
+    srcs = ["assemble_bundle_test.py"],
+    data = [":assemble_bundle.py"],
+)
+
+sh_test(
+    name = "publish_plugin_test",
+    timeout = "short",
+    srcs = ["publish_plugin_test.sh"],
+    data = [":publish_plugin.sh"],
+)
+
+go_library(
+    name = "wasm_plugins_lib",
+    srcs = ["upload_signature_tool.go"],
+    importpath = "github.com/carverauto/serviceradar/build/wasm_plugins",
+    deps = ["@in_gopkg_yaml_v3//:yaml_v3"],
+)
+
+go_test(
+    name = "wasm_plugins_test",
+    srcs = ["upload_signature_tool_test.go"],
+    embed = [":wasm_plugins_lib"],
+)

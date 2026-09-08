@@ -1,0 +1,4 @@
+# ServiceRadar demo is not an indexable product site.
+# Operators use it for evaluation; search engines should stay out.
+User-agent: *
+Disallow: /

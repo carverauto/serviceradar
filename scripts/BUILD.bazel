@@ -1,0 +1,111 @@
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "check-addon-binary-size.sh",
+    "check-oci-chart-version-available.sh",
+    "check-native-addon-version-bumps.sh",
+    "prepare-flow-collector-rollback.sh",
+    "check-rust-vendor-tracked.py",
+    "ci/configure-srql-fixture.sh",
+    "push_all_images.sh",
+    "swiftlint_bazel.sh",
+    "test-native-addon-version-bumps.sh",
+    "test-prepare-flow-collector-rollback.sh",
+    "test-release-publish-contracts.sh",
+    "test-external-wasm-plugin-release-workflow.sh",
+    "test-verify-native-addon-publish-negative.sh",
+    "test-wasm-plugin-publish-context.sh",
+    "validate-release-tag.sh",
+    "validate-release-metadata.sh",
+    "verify-oci-publish.sh",
+    "verify-native-addon-publish.sh",
+])
+
+sh_test(
+    name = "prepare_flow_collector_rollback_test",
+    timeout = "short",
+    srcs = ["test-prepare-flow-collector-rollback.sh"],
+    args = ["$(rootpath :prepare-flow-collector-rollback.sh)"],
+    data = ["prepare-flow-collector-rollback.sh"],
+)
+
+sh_test(
+    name = "release_publish_contracts_test",
+    timeout = "short",
+    srcs = ["test-release-publish-contracts.sh"],
+    data = [
+        "check-oci-chart-version-available.sh",
+        "cosign_common.sh",
+        "cut-release.sh",
+        "prune-forgejo-releases.sh",
+        "sign-oci-publish.sh",
+        "upload-forgejo-release-asset.sh",
+        "validate-release-metadata.sh",
+        "validate-release-tag.sh",
+        "verify-oci-publish.sh",
+        "//:.github/workflows/image-security.yml",
+        "//:.github/workflows/native-addons.yml",
+        "//:.github/workflows/release.yml",
+        "//:.github/workflows/source-security.yml",
+        "//:.github/workflows/wasm-plugins.yml",
+        "//docker/images:image_inventory.bzl",
+        "//:k8s/argocd/applications/demo-prod.yaml",
+        # Read by the RELEASE_PACKAGES assertions added in 3fd5eac58. The script resolves
+        # them through runfiles, so a test only sees them if they are declared here.
+        "//build/packaging:packages.bzl",
+        "//build/packaging:release_targets.bzl",
+    ],
+    # `manual` keeps this out of the //... unit sweep. It is not a unit test: it makes
+    # literal substring assertions over CI configuration (5 GitHub workflow YAMLs, 9
+    # release shell scripts, the image inventory, the ArgoCD app) and exercises no shipped
+    # code path. Keep it `manual` after changing a publish workflow. Run it explicitly:
+    #
+    #   bazel test //scripts:release_publish_contracts_test --test_tag_filters=
+    tags = ["manual"],
+)
+
+sh_test(
+    name = "external_wasm_plugin_release_workflow_test",
+    timeout = "short",
+    srcs = ["test-external-wasm-plugin-release-workflow.sh"],
+    data = [
+        "install-external-wasm-tinygo.sh",
+        "publish-external-wasm-plugin-release.sh",
+        "test-publish-external-wasm-plugin-release.py",
+        "test-validate-external-wasm-plugin-bundle.py",
+        "validate-external-wasm-plugin-bundle.py",
+        "//:.github/workflows/external-wasm-plugin.yml",
+        "@jq_linux_amd64//file",
+        "@jq_linux_arm64//file",
+    ],
+)
+
+sh_test(
+    name = "native_addon_version_bumps_test",
+    timeout = "short",
+    srcs = ["test-native-addon-version-bumps.sh"],
+    args = ["$(rootpath :check-native-addon-version-bumps.sh)"],
+    data = ["check-native-addon-version-bumps.sh"],
+)
+
+sh_test(
+    name = "verify_native_addon_publish_negative_test",
+    timeout = "short",
+    srcs = ["test-verify-native-addon-publish-negative.sh"],
+    data = ["verify-native-addon-publish.sh"],
+)
+
+sh_test(
+    name = "wasm_plugin_publish_context_test",
+    timeout = "short",
+    srcs = ["test-wasm-plugin-publish-context.sh"],
+    data = ["wasm-plugin-publish-context.sh"],
+)
+
+# test_integration_database_guard_test was removed along with the shell integration-database
+# lifecycle. The disposable-database guard it enforced now lives in //rust/integration-db
+# (`assert_disposable/1`, `like_prefix/1`, and the template's deliberate lack of the
+# disposable prefix) and is covered by //rust/integration-db:serviceradar_integration_db_test,
+# which needs no fixture. See the tombstone in test-integration-database-guard.sh.

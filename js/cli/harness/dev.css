@@ -1,0 +1,202 @@
+/*
+ * ServiceRadar dashboard dev harness shell.
+ * Renders the customer's dashboard full-bleed with a collapsible side panel
+ * for theme, Mapbox token, fixture selection, status, and an error overlay.
+ */
+
+:root {
+  color-scheme: light dark;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --sr-panel-bg: color-mix(in srgb, Canvas 96%, CanvasText 4%);
+  --sr-panel-border: color-mix(in srgb, CanvasText 12%, transparent);
+  --sr-accent: #2563eb;
+  --sr-error: #dc2626;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  background: Canvas;
+  color: CanvasText;
+}
+
+#sr-app {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  grid-template-rows: 1fr auto;
+  width: 100vw;
+  height: 100vh;
+}
+
+#sr-app[data-sidepanel-collapsed="true"] {
+  grid-template-columns: 1fr;
+}
+
+#sr-renderer {
+  position: relative;
+  grid-row: 1 / 2;
+  grid-column: 1 / 2;
+  overflow: hidden;
+  background: Canvas;
+}
+
+#sr-sidepanel {
+  grid-row: 1 / 2;
+  grid-column: 2 / 3;
+  border-left: 1px solid var(--sr-panel-border);
+  background: var(--sr-panel-bg);
+  padding: 18px;
+  overflow-y: auto;
+  font-size: 13px;
+  display: grid;
+  gap: 16px;
+  align-content: start;
+}
+
+#sr-app[data-sidepanel-collapsed="true"] #sr-sidepanel {
+  display: none;
+}
+
+#sr-sidepanel header {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: center;
+}
+
+#sr-sidepanel h2 {
+  margin: 0;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: color-mix(in srgb, CanvasText 60%, transparent);
+}
+
+#sr-sidepanel header button {
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--sr-panel-border);
+  background: Canvas;
+  color: CanvasText;
+  font-size: 12px;
+}
+
+#sr-sidepanel section {
+  display: grid;
+  gap: 6px;
+}
+
+#sr-sidepanel label {
+  display: grid;
+  gap: 6px;
+  font-weight: 600;
+  font-size: 12px;
+}
+
+#sr-sidepanel input,
+#sr-sidepanel select {
+  min-height: 32px;
+  border: 1px solid var(--sr-panel-border);
+  border-radius: 6px;
+  padding: 0 8px;
+  background: Canvas;
+  color: CanvasText;
+  font-size: 13px;
+}
+
+#sr-sidepanel button {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  font-weight: 700;
+  background: var(--sr-accent);
+  color: white;
+  cursor: pointer;
+}
+
+#sr-sidepanel-restore {
+  display: none;
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 80;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--sr-panel-border);
+  border-radius: 6px;
+  background: var(--sr-panel-bg);
+  color: CanvasText;
+  font-size: 12px;
+  font-weight: 700;
+  box-shadow: 0 6px 18px color-mix(in srgb, CanvasText 14%, transparent);
+  cursor: pointer;
+}
+
+#sr-app[data-sidepanel-collapsed="true"] #sr-sidepanel-restore {
+  display: inline-flex;
+  align-items: center;
+}
+
+#sr-status-bar {
+  grid-row: 2 / 3;
+  grid-column: 1 / 3;
+  border-top: 1px solid var(--sr-panel-border);
+  background: var(--sr-panel-bg);
+  padding: 6px 14px;
+  font-size: 12px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  align-items: center;
+}
+
+#sr-app[data-sidepanel-collapsed="true"] #sr-status-bar {
+  grid-column: 1 / 2;
+}
+
+#sr-status-bar [data-status] {
+  font-weight: 600;
+}
+
+#sr-status-bar [data-call-log] {
+  text-align: right;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  color: color-mix(in srgb, CanvasText 70%, transparent);
+}
+
+[data-error-overlay] {
+  position: absolute;
+  inset: 0;
+  display: none;
+  background: color-mix(in srgb, Canvas 92%, transparent);
+  padding: 24px;
+  overflow: auto;
+  z-index: 100;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 13px;
+}
+
+[data-error-overlay][data-visible="true"] {
+  display: block;
+}
+
+[data-error-overlay] header {
+  font-family: Inter, system-ui, sans-serif;
+  font-weight: 700;
+  color: var(--sr-error);
+  margin-bottom: 12px;
+}
+
+[data-error-body] {
+  white-space: pre-wrap;
+  background: color-mix(in srgb, var(--sr-error) 6%, Canvas);
+  border: 1px solid color-mix(in srgb, var(--sr-error) 24%, transparent);
+  border-radius: 6px;
+  padding: 12px;
+}

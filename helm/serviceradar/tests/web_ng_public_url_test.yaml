@@ -1,0 +1,96 @@
+suite: web-ng public URL runtime contract
+templates:
+  - templates/web.yaml
+tests:
+  - it: uses the canonical public URL host for Phoenix-generated onboarding URLs
+    set:
+      ingress.host: internal-ingress.example
+      gatewayApi.host: internal-gateway.example
+      webNg.host: internal-web.example
+      webNg.publicUrl: https://serviceradar.example.com/
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PHX_HOST
+            value: serviceradar.example.com
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_NOTIFICATION_ACTION_BASE_URL
+            value: https://serviceradar.example.com
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: canonicalizes the public URL used by automation callbacks
+    set:
+      webNg.publicUrl: https://serviceradar.example.com/
+      automationCallbacks.enabled: true
+      automationCallbacks.awxCredentialTypeId: 1
+      automationCallbacks.awxOrganizationId: 1
+      automationCallbacks.awxInjectorDigest: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      automationCallbacks.responsePolicy.existingSecretName: callback-policy
+      automationCallbacks.responsePolicy.secretKey: policy.json
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_AUTOMATION_CALLBACK_ORIGIN
+            value: https://serviceradar.example.com
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PLUGIN_STORAGE_PUBLIC_URL
+            value: https://serviceradar.example.com
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: falls back to the Gateway API hostname when no public URL is set
+    set:
+      ingress.host: ""
+      gatewayApi.host: serviceradar.gateway.example.com
+      webNg.host: ""
+      webNg.publicUrl: ""
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PHX_HOST
+            value: serviceradar.gateway.example.com
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: rejects a public URL with a path
+    set:
+      webNg.publicUrl: https://serviceradar.example.com/control
+    asserts:
+      - failedTemplate:
+          errorMessage: webNg.publicUrl must be a bare HTTPS origin on port 443 (for example, https://serviceradar.example.com)
+
+  - it: rejects an insecure public URL
+    set:
+      webNg.publicUrl: http://serviceradar.example.com
+    asserts:
+      - failedTemplate:
+          errorMessage: webNg.publicUrl must be a bare HTTPS origin on port 443 (for example, https://serviceradar.example.com)
+
+  - it: rejects a non-standard public URL port
+    set:
+      webNg.publicUrl: https://serviceradar.example.com:8443
+    asserts:
+      - failedTemplate:
+          errorMessage: webNg.publicUrl must be a bare HTTPS origin on port 443 (for example, https://serviceradar.example.com)

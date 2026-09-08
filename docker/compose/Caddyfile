@@ -1,0 +1,28 @@
+# ServiceRadar Web-NG Interface - Caddy Configuration for Docker Compose
+
+{
+  auto_https off
+}
+
+:80 {
+  @api path /api/*
+
+  handle @api {
+    reverse_proxy web-ng:4000
+  }
+  handle {
+    reverse_proxy web-ng:4000
+  }
+}
+
+:443 {
+  tls /etc/serviceradar/certs/web.pem /etc/serviceradar/certs/web-key.pem
+  @api path /api/*
+
+  handle @api {
+    reverse_proxy web-ng:4000
+  }
+  handle {
+    reverse_proxy web-ng:4000
+  }
+}

@@ -1,0 +1,68 @@
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:rust_binary.bzl", "rust_binary")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+
+package(default_visibility = ["//visibility:public"])
+
+# Edge anomaly add-on (agent-sidecar, metric-feed:v1 + native-telemetry:v1).
+# addon-sdk and anomaly-core are path deps, so they are bazel labels rather than
+# crate_universe deps.
+rust_library(
+    name = "serviceradar_anomaly_addon",
+    srcs = glob(
+        ["src/**/*.rs"],
+        exclude = ["src/main.rs"],
+    ),
+    crate_name = "serviceradar_anomaly_addon",
+    crate_root = "src/lib.rs",
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + [
+        "//rust/addon-sdk:addon_sdk",
+        "//rust/anomaly-core:serviceradar_anomaly_core",
+    ],
+)
+
+rust_binary(
+    name = "serviceradar-anomaly-addon",
+    srcs = ["src/main.rs"],
+    crate_root = "src/main.rs",
+    deps = [":serviceradar_anomaly_addon"] + all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + [
+        "//rust/addon-sdk:addon_sdk",
+    ],
+)
+
+# Edge resource benchmark (§6.2). Standalone binary so it can be cross-built for
+# linux and run on a real host under /usr/bin/time -v to capture CPU + max RSS.
+rust_binary(
+    name = "edge_bench",
+    srcs = ["examples/edge_bench.rs"],
+    crate_root = "examples/edge_bench.rs",
+    edition = "2024",
+    deps = [":serviceradar_anomaly_addon"],
+)
+
+rust_test(
+    name = "anomaly_addon_test",
+    # fj#4383: core-emitted config_json contract fixture, include_str!'d by
+    # src/config.rs's contract test (regenerated via
+    # `mix serviceradar.gen.addon_contract_fixtures`).
+    compile_data = [
+        "//addons/anomaly-addon:anomaly_manifest",
+        "//go/pkg/agent:addonconfig_contract_fixtures",
+    ],
+    crate = ":serviceradar_anomaly_addon",
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+        normal_dev = True,
+    ) + [
+        "//rust/addon-sdk:addon_sdk",
+        "//rust/anomaly-core:serviceradar_anomaly_core",
+    ],
+)

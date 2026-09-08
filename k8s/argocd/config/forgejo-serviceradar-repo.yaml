@@ -1,0 +1,33 @@
+# ArgoCD repository credentials for the ServiceRadar source repo in Forgejo.
+# Apply with: kubectl apply -f forgejo-serviceradar-repo.yaml
+#
+# Create the secret manually or via your secret management workflow:
+#
+#   kubectl create secret generic argocd-repo-serviceradar-forgejo \
+#     --namespace argocd \
+#     --from-literal=type=git \
+#     --from-literal=name=serviceradar \
+#     --from-literal=url=https://git.carverauto.dev/carverauto/serviceradar.git \
+#     --from-literal=username=<forgejo-username> \
+#     --from-literal=password=<forgejo-token-or-password>
+#
+#   kubectl label secret argocd-repo-serviceradar-forgejo -n argocd \
+#     argocd.argoproj.io/secret-type=repository
+#
+# Or apply this template after filling in credentials:
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: argocd-repo-serviceradar-forgejo
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: repository
+type: Opaque
+stringData:
+  type: git
+  name: serviceradar
+  url: https://git.carverauto.dev/carverauto/serviceradar.git
+  # Replace with actual credentials - do not commit real values
+  username: "${FORGEJO_USERNAME}"
+  password: "${FORGEJO_TOKEN}"

@@ -1,0 +1,49 @@
+[Unit]
+Description=ServiceRadar Bumblebee exposure scanner
+Documentation=https://docs.serviceradar.cloud/
+After=local-fs.target
+
+[Service]
+Type=oneshot
+User=root
+Group=serviceradar
+UMask=0027
+# Share cgroup accounting with the host agent while preserving independent
+# systemd supervision, restart policy, privileges, and hardening.
+Slice=serviceradar.slice
+WorkingDirectory=/var/lib/serviceradar/bumblebee
+Environment="HOME=/var/lib/serviceradar/bumblebee"
+Environment="XDG_CACHE_HOME=/var/lib/serviceradar/bumblebee/cache"
+# Staged binaries inherit SELinux var_lib_t. systemd (init_t) cannot exec that
+# label (status=203/EXEC). Relabel immediately before start.
+ExecStartPre=+/bin/sh -c '/usr/bin/chcon -t bin_t /var/lib/serviceradar/agent/addons/bumblebee/current/serviceradar-bumblebee-scan >/dev/null 2>&1 || true'
+ExecStart=/var/lib/serviceradar/agent/addons/bumblebee/current/serviceradar-bumblebee-scan -config /var/lib/serviceradar/agent/addons/bumblebee/current/bumblebee-scan.json
+Nice=10
+IOSchedulingClass=best-effort
+PrivateTmp=true
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateNetwork=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+StateDirectory=serviceradar/bumblebee serviceradar/bumblebee/cache serviceradar/bumblebee/catalog serviceradar/bumblebee/profile serviceradar/bumblebee/spool serviceradar/bumblebee/spool/runs serviceradar/bumblebee/tmp
+StateDirectoryMode=0750
+# The staged binary path must be writable so ExecStartPre=+ chcon can set
+# bin_t under ProtectSystem=strict. Without it, chcon fails silently (|| true)
+# and systemd still hits 203/EXEC on Enforcing hosts.
+ReadWritePaths=/var/lib/serviceradar/bumblebee /var/lib/serviceradar/agent/addons/bumblebee

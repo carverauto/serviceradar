@@ -1,0 +1,157 @@
+# Demo-Staging Environment Values
+# Consumed by ArgoCD via Helm `valueFiles`.
+
+namespace: demo-staging
+
+global:
+  imageTag: "sha-ac23dc0ebcbee0d6a964dc8307826bf2a063536c"
+  imagePullPolicy: Always
+  storage:
+    # demo-staging currently rides the lab cluster default/local-path storage.
+    # Production values should leave this false and provide an encrypted class.
+    allowInsecureStorage: true
+
+image:
+  registryPullSecret: registry-carverauto-dev-cred
+
+bmpCollector:
+  image:
+    repository: ""
+    tag: "sha-ac23dc0ebcbee0d6a964dc8307826bf2a063536c"
+
+agentGateway:
+  enabled: true
+
+agent:
+  pushInterval: "30s"
+  statusDebounceInterval: "30s"
+  statusHeartbeatInterval: "5m"
+  remoteAccessKnownHostsFile: "/var/lib/serviceradar/checkers/remote-access-known_hosts"
+  checkersStorage:
+    enabled: true
+    basePath: "/var/lib/serviceradar/checkers"
+    existingClaim: ""
+    size: 2Gi
+    storageClassName: ""
+
+ingress:
+  enabled: false
+gatewayApi:
+  enabled: true
+  host: staging.serviceradar.cloud
+  http:
+    enabled: true
+    redirectToHttps: true
+  tls:
+    enabled: true
+    secretName: serviceradar-staging-tls
+    clusterIssuer: carverauto-issuer
+  envoyProxy:
+    service:
+      annotations:
+        metallb.universe.tf/address-pool: k3s-pool
+  backendTrafficPolicy:
+    enabled: true
+    requestTimeout: 86400s
+    requestBufferLimit: 100Mi
+
+webNg:
+  devRoutes: "true"
+  localMailer: "true"
+  publicUrl: "https://staging.serviceradar.cloud"
+  pluginStorage:
+    enabled: true
+    basePath: "/var/lib/serviceradar/plugin-packages/data"
+    existingClaim: ""
+    size: 10Gi
+    storageClassName: ""
+    downloadTtlSeconds: 86400
+
+faker:
+  simulation:
+    totalDevices: 1000
+    ipShuffle:
+      enabled: true
+      interval: "10m"
+      percentage: 5
+      warmupCycles: 2
+      allowExpansion: false
+      poolHeadroomPercent: 0
+
+core:
+  # MTR automation rollout profiles (copy/paste into mtrAutomation):
+  # baseline_only:
+  #   enabled: true
+  #   baselineEnabled: true
+  #   triggerEnabled: false
+  #   consensusEnabled: false
+  #   baselineTickMs: 60000
+  #   consensusCohortRetentionMs: 300000
+  # trigger_capture:
+  #   enabled: true
+  #   baselineEnabled: true
+  #   triggerEnabled: true
+  #   consensusEnabled: false
+  #   baselineTickMs: 60000
+  #   consensusCohortRetentionMs: 300000
+  # full_consensus:
+  #   enabled: true
+  #   baselineEnabled: true
+  #   triggerEnabled: true
+  #   consensusEnabled: true
+  #   baselineTickMs: 60000
+  #   consensusCohortRetentionMs: 300000
+  mtrAutomation:
+    enabled: true
+    baselineEnabled: true
+    triggerEnabled: true
+    consensusEnabled: true
+    baselineTickMs: 60000
+    consensusCohortRetentionMs: 300000
+
+# Temporarily disabled client CA for initial testing - there's a circular dependency
+# where CNPG needs the client CA secret, but the job that creates it
+# runs post-install and needs CNPG to be running first.
+# cnpg:
+#   clientCASecret: serviceradar-cnpg-client-ca
+#   clientCAFromCerts: true
+#   requireClientCert: true
+
+spire:
+  enabled: true
+  trustDomain: carverauto.dev
+  clusterName: carverauto-cluster
+  postgres:
+    enabled: true
+    clusterName: cnpg-staging
+    instances: 3
+    storageSize: 10Gi
+
+trapd:
+  externalService:
+    enabled: true
+    annotations:
+      metallb.universe.tf/address-pool: k3s-pool
+
+flowgger:
+  externalService:
+    enabled: true
+    annotations:
+      metallb.universe.tf/address-pool: k3s-pool
+
+logCollector:
+  otlp:
+    http:
+      tlsEnabled: false
+    service:
+      enabled: true
+      type: ClusterIP
+      http:
+        enabled: true
+    gateway:
+      # Prerequisite: the demo-staging namespace needs the
+      # serviceradar.com/gateway-access=true label before these routes
+      # attach to the shared gateway (no public IP consumed either way).
+      enabled: true
+      httpHostname: "otlp-staging.serviceradar.cloud"
+      grpcHostname: "otlp-staging.grpc.serviceradar.cloud"

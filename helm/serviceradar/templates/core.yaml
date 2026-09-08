@@ -1,0 +1,1011 @@
+{{- /* Component gate (issue #3859). ABSENT MEANS ENABLED: hasKey is used rather than a
+     truthiness test so that a chart or values file which never mentions `enabled`
+     renders exactly as before, and only an explicit `core.enabled: false` removes
+     this component. `default true` cannot be used here -- Helm treats false as empty,
+     so it would resurrect anything explicitly disabled. */ -}}
+{{- $gate4 := default (dict) .Values.core -}}
+{{- if or (not (hasKey $gate4 "enabled")) $gate4.enabled }}
+{{- $trustDomain := .Values.spire.trustDomain | default "carverauto.dev" -}}
+{{- $spireNamespace := default .Release.Namespace .Values.spire.namespace -}}
+{{- $spireBundle := default "spire-bundle" .Values.spire.bundleConfigMap -}}
+{{- $coreSA := .Values.spire.coreServiceAccount | default "serviceradar-core" -}}
+{{- $cnpg := default (dict) .Values.cnpg -}}
+{{- $cnpgClusterName := include "serviceradar.cnpgClusterName" . -}}
+{{- $cnpgPooler := default (dict) $cnpg.pooler -}}
+{{- $cnpgPoolerRoute := default (dict) $cnpgPooler.route -}}
+{{- $coreVals := default (dict) .Values.core -}}
+{{- $migrationVals := default (dict) $coreVals.migrations -}}
+{{- $migrationsEnabled := default true $migrationVals.enabled -}}
+{{- $webNg := default (dict) .Values.webNg -}}
+{{- $pluginStorage := default (dict) $webNg.pluginStorage -}}
+{{- $gateway := default (dict) .Values.agentGateway -}}
+{{- $gatewayService := default (dict) $gateway.service -}}
+{{- $objectStoreRetention := default (dict) .Values.objectStoreRetention -}}
+{{- $objectStoreRetentionEnabled := true -}}
+{{- if hasKey $objectStoreRetention "enabled" -}}{{- $objectStoreRetentionEnabled = get $objectStoreRetention "enabled" -}}{{- end -}}
+{{- $objectStoreRetentionDryRun := false -}}
+{{- if hasKey $objectStoreRetention "dryRun" -}}{{- $objectStoreRetentionDryRun = get $objectStoreRetention "dryRun" -}}{{- end -}}
+{{- $geoipMmdb := default (dict) .Values.geoipMmdb -}}
+{{- $advisoryFeeds := default (dict) (get (default (dict) .Values.core) "advisoryFeeds") -}}
+{{- $advisoryFeedsEnabled := default false $advisoryFeeds.enabled -}}
+{{- $advisoryFeedsDir := default "/var/lib/serviceradar/advisory-feeds" $advisoryFeeds.stagingDir -}}
+{{- $webNgPublicUrl := include "serviceradar.webNgPublicUrl" . -}}
+{{- $gatewayArtifactPublicUrl := "" -}}
+{{- if $gateway.publicHostname -}}
+{{- $gatewayArtifactPublicUrl = printf "https://%s:%v" $gateway.publicHostname (default 50053 $gatewayService.artifactPort) -}}
+{{- end -}}
+{{- $agentArtifactPublicUrl := default $webNgPublicUrl $gatewayArtifactPublicUrl -}}
+{{- $coreClusterSelector := default "app=serviceradar-core" $coreVals.kubernetesSelector -}}
+{{- $coreClusterNodeBasename := default "serviceradar_core" $coreVals.kubernetesNodeBasename -}}
+{{- $database := default (dict) $coreVals.database -}}
+{{- $controlDatabase := default (dict) $coreVals.controlDatabase -}}
+{{- $obanQueues := default (dict) $coreVals.obanQueues -}}
+{{- $syncIngestor := default (dict) $coreVals.syncIngestor -}}
+{{- $mtrAutomation := default (dict) $coreVals.mtrAutomation -}}
+{{- $observabilityRetention := default (dict) $coreVals.observabilityRetention -}}
+{{- $ansibleVals := default (dict) $coreVals.ansible -}}
+{{- $eventWriter := default (dict) $coreVals.eventWriter -}}
+{{- $anomalyConfig := default (dict) $coreVals.anomalyDetectionConfig -}}
+{{- $capacityForecasting := default (dict) $coreVals.capacityForecasting -}}
+{{- $coreResources := default (dict) $coreVals.resources -}}
+{{- $coreResourceLimits := default (dict) $coreResources.limits -}}
+{{- $coreResourceRequests := default (dict) $coreResources.requests -}}
+{{- $capacityForecastConfig := default (dict) $coreVals.capacityForecastConfig -}}
+{{- $deviceEnrichment := default (dict) $coreVals.deviceEnrichment -}}
+{{- $deviceEnrichmentRulesDir := default "/var/lib/serviceradar/rules/device-enrichment" $deviceEnrichment.rulesDir -}}
+{{- $deviceEnrichmentFsOverrides := default (dict) $deviceEnrichment.filesystemOverrides -}}
+{{- $deviceEnrichmentFsEnabled := default false $deviceEnrichmentFsOverrides.enabled -}}
+{{- $deviceEnrichmentFsConfigMap := default "" $deviceEnrichmentFsOverrides.existingConfigMap -}}
+{{- $deviceEnrichmentFsSecret := default "" $deviceEnrichmentFsOverrides.existingSecret -}}
+{{- $deviceEnrichmentFsClaim := default "" $deviceEnrichmentFsOverrides.existingClaim -}}
+{{- $secrets := default "serviceradar-secrets" .Values.secrets.existingSecretName -}}
+{{- $mailer := default (dict) $coreVals.mailer -}}
+{{- /*
+  Notification platform (openspec add-notification-platform, tasks 3.4.6).
+
+  `:control_plane` wasm notification plugins execute on the platform-resident
+  serviceradar-agent this chart already deploys, through the same
+  plugin.run_action command an edge dispatch uses - which is why there is
+  exactly one Wasm host in the product. Core has to be told which agent that
+  is; there is deliberately no default in the application, because guessing an
+  agent id would dispatch a customer's notifications to whichever agent
+  happened to match. The chart knows the answer, so it supplies it.
+
+  With agent.enabled=false and no explicit override, nothing is set and a
+  :control_plane plugin channel fails with `platform_agent_unconfigured`
+  instead of dispatching somewhere arbitrary.
+*/ -}}
+{{- $notificationAgentVals := default (dict) .Values.agent -}}
+{{- $notificationAgentEnabled := true -}}
+{{- if hasKey $notificationAgentVals "enabled" -}}
+{{- $notificationAgentEnabled = $notificationAgentVals.enabled -}}
+{{- end -}}
+{{- $notificationVals := default (dict) $coreVals.notifications -}}
+{{- $notificationPlatformAgent := default (dict) $notificationVals.platformAgent -}}
+{{- $notificationAgentId := default "" $notificationPlatformAgent.agentId -}}
+{{- if and (eq $notificationAgentId "") $notificationAgentEnabled -}}
+{{- $notificationAgentId = default "k8s-agent" $notificationAgentVals.agentId -}}
+{{- end -}}
+{{- $notificationAgentPartition := default (coalesce .Values.partitionId $notificationAgentVals.partitionId "default") $notificationPlatformAgent.partitionId -}}
+{{- $notificationReceiptSweep := default (dict) $notificationVals.receiptSweep -}}
+{{- $notificationReceiptSweepEnabled := true -}}
+{{- if hasKey $notificationReceiptSweep "enabled" -}}
+{{- $notificationReceiptSweepEnabled = $notificationReceiptSweep.enabled -}}
+{{- end -}}
+{{- $mailerFrom := default (dict) $mailer.from -}}
+{{- $mailerSecret := default "" $mailer.existingSecret -}}
+{{- $automationCallbacks := default (dict) .Values.automationCallbacks -}}
+{{- include "serviceradar.validateAutomationCallbacks" . -}}
+{{- $automationCallbacksEnabled := false -}}
+{{- if hasKey $automationCallbacks "enabled" -}}{{- $automationCallbacksEnabled = get $automationCallbacks "enabled" -}}{{- end -}}
+{{- $automationCallbackResponsePolicy := default (dict) $automationCallbacks.responsePolicy -}}
+{{- $remoteAccess := default (dict) .Values.remoteAccess -}}
+{{- $remoteAccessDesktop := default (dict) $remoteAccess.desktop -}}
+{{- $remoteAccessDesktopRdp := default (dict) $remoteAccessDesktop.rdp -}}
+{{- $remoteAccessDesktopRdpEnabled := false -}}
+{{- if hasKey $remoteAccessDesktopRdp "enabled" -}}{{- $remoteAccessDesktopRdpEnabled = get $remoteAccessDesktopRdp "enabled" -}}{{- end -}}
+{{- $remoteAccessSsh := default (dict) $remoteAccess.ssh -}}
+{{- $remoteAccessSshEnabled := false -}}
+{{- if hasKey $remoteAccessSsh "enabled" -}}{{- $remoteAccessSshEnabled = get $remoteAccessSsh "enabled" -}}{{- end -}}
+{{- $sshCertificatePolicy := default (dict) $remoteAccess.sshCertificatePolicy -}}
+{{- include "serviceradar.validateRemoteAccessSSHCertificatePolicy" . -}}
+{{- $sshCertificatePolicyEnabled := false -}}
+{{- if hasKey $sshCertificatePolicy "enabled" -}}{{- $sshCertificatePolicyEnabled = get $sshCertificatePolicy "enabled" -}}{{- end -}}
+{{- $sshCertificatePolicyWorkloads := default (dict) $sshCertificatePolicy.workloads -}}
+{{- $sshCertificatePolicyCore := false -}}
+{{- if hasKey $sshCertificatePolicyWorkloads "core" -}}{{- $sshCertificatePolicyCore = get $sshCertificatePolicyWorkloads "core" -}}{{- end -}}
+{{- $sshCertificatePolicyCoreEnabled := and $sshCertificatePolicyEnabled $sshCertificatePolicyCore -}}
+{{- $sshCaSigner := default (dict) $remoteAccess.sshCaSigner -}}
+{{- include "serviceradar.validateRemoteAccessSSHCaSigner" . -}}
+{{- $sshCaSignerEnabled := false -}}
+{{- if hasKey $sshCaSigner "enabled" -}}{{- $sshCaSignerEnabled = get $sshCaSigner "enabled" -}}{{- end -}}
+{{- $sshCaSignerWorkloads := default (dict) $sshCaSigner.workloads -}}
+{{- $sshCaSignerCore := false -}}
+{{- if hasKey $sshCaSignerWorkloads "core" -}}{{- $sshCaSignerCore = get $sshCaSignerWorkloads "core" -}}{{- end -}}
+{{- $sshCaSignerCoreEnabled := and $sshCaSignerEnabled $sshCaSignerCore -}}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $coreSA }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-core
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  replicas: {{ default 1 $coreVals.replicas }}
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: serviceradar-core
+  template:
+    metadata:
+      labels:
+        app: serviceradar-core
+        app.kubernetes.io/part-of: serviceradar
+      annotations:
+        {{- include "serviceradar.runtimeCertRollAnnotations" . | nindent 8 }}
+        checksum/db-credentials: {{ include "serviceradar.dbCredentialsChecksum" . }}
+        {{- if .Values.global.forceRolloutOnUpgrade }}
+        serviceradar.io/release-revision: {{ .Release.Revision | quote }}
+        {{- end }}
+    spec:
+      {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      {{- include "serviceradar.topologySpread" (dict "root" . "app" "serviceradar-core") | nindent 6 }}
+      serviceAccountName: {{ $coreSA }}
+      {{- include "serviceradar.elixirReleasePodSecurityContext" . | nindent 6 }}
+      containers:
+      - name: core-elx
+        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-core-elx" "service" "core") }}
+        imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+        {{- include "serviceradar.containerSecurityContext" . | nindent 8 }}
+        ports:
+        - name: epmd
+          containerPort: 4369
+        - name: dist
+          containerPort: 9100
+        - name: metrics
+          containerPort: 9090
+        env:
+        - name: LANG
+          value: "C.UTF-8"
+        - name: LC_ALL
+          value: "C.UTF-8"
+        {{- with (default (dict) $coreVals.netprobeAddon) }}
+        {{- if .artifacts }}
+        # Per-arch signed artifact refs for the netprobe native add-on, from the published
+        # serviceradar-native-addon-index.json. Supplying them lets NetprobeAddonPackageSeeder
+        # approve an assignable package; absent, it stages the manifest version.
+        - name: SERVICERADAR_NETPROBE_ADDON_ARTIFACTS
+          value: {{ .artifacts | toJson | quote }}
+        {{- end }}
+        {{- if .version }}
+        - name: SERVICERADAR_NETPROBE_ADDON_VERSION
+          value: {{ .version | quote }}
+        {{- end }}
+        {{- if .ociRef }}
+        - name: SERVICERADAR_NETPROBE_ADDON_OCI_REF
+          value: {{ .ociRef | quote }}
+        {{- end }}
+        {{- if .ociDigest }}
+        - name: SERVICERADAR_NETPROBE_ADDON_OCI_DIGEST
+          value: {{ .ociDigest | quote }}
+        {{- end }}
+        {{- end }}
+        {{- with (default (dict) $coreVals.workloadIdentityAddon) }}
+        {{- if .artifacts }}
+        # Per-arch signed artifact refs for the workload-identity native add-on,
+        # from the published serviceradar-native-addon-index.json. Supplying them
+        # lets WorkloadIdentityAddonPackageSeeder approve an assignable package;
+        # absent, it stages the manifest version.
+        - name: SERVICERADAR_WORKLOAD_IDENTITY_ADDON_ARTIFACTS
+          value: {{ .artifacts | toJson | quote }}
+        {{- end }}
+        {{- if .version }}
+        - name: SERVICERADAR_WORKLOAD_IDENTITY_ADDON_VERSION
+          value: {{ .version | quote }}
+        {{- end }}
+        {{- if .ociRef }}
+        - name: SERVICERADAR_WORKLOAD_IDENTITY_ADDON_OCI_REF
+          value: {{ .ociRef | quote }}
+        {{- end }}
+        {{- if .ociDigest }}
+        - name: SERVICERADAR_WORKLOAD_IDENTITY_ADDON_OCI_DIGEST
+          value: {{ .ociDigest | quote }}
+        {{- end }}
+        {{- end }}
+        {{- with (default (dict) $coreVals.endpointInventoryAddon) }}
+        {{- if .artifacts }}
+        # Per-arch signed artifact refs for the endpoint-inventory native add-on,
+        # from the published serviceradar-native-addon-index.json. Supplying them
+        # lets EndpointInventoryAddonPackageSeeder approve an assignable package;
+        # absent, it stages the manifest version.
+        - name: SERVICERADAR_ENDPOINT_INVENTORY_ADDON_ARTIFACTS
+          value: {{ .artifacts | toJson | quote }}
+        {{- end }}
+        {{- if .version }}
+        - name: SERVICERADAR_ENDPOINT_INVENTORY_ADDON_VERSION
+          value: {{ .version | quote }}
+        {{- end }}
+        {{- if .ociRef }}
+        - name: SERVICERADAR_ENDPOINT_INVENTORY_ADDON_OCI_REF
+          value: {{ .ociRef | quote }}
+        {{- end }}
+        {{- if .ociDigest }}
+        - name: SERVICERADAR_ENDPOINT_INVENTORY_ADDON_OCI_DIGEST
+          value: {{ .ociDigest | quote }}
+        {{- end }}
+        {{- end }}
+        - name: CLUSTER_ENABLED
+          value: "true"
+        - name: CLUSTER_STRATEGY
+          value: {{ default "dns" $coreVals.clusterStrategy | quote }}
+        - name: CLUSTER_DNS_QUERY
+          value: {{ printf "serviceradar-core-elx-headless.%s.svc.cluster.local" .Release.Namespace | quote }}
+        - name: CLUSTER_NODE_BASENAME
+          value: {{ $coreClusterNodeBasename | quote }}
+        - name: CLUSTER_WEB_DNS_QUERY
+          value: {{ default (printf "serviceradar-web-ng-headless.%s.svc.cluster.local" .Release.Namespace) $coreVals.clusterWebDnsQuery | quote }}
+        - name: CLUSTER_WEB_NODE_BASENAME
+          value: {{ default "serviceradar_web_ng" $coreVals.clusterWebNodeBasename | quote }}
+        - name: CLUSTER_GATEWAY_DNS_QUERY
+          value: {{ default (printf "serviceradar-agent-gateway-headless.%s.svc.cluster.local" .Release.Namespace) $coreVals.clusterGatewayDnsQuery | quote }}
+        - name: CLUSTER_GATEWAY_NODE_BASENAME
+          value: {{ default "serviceradar_agent_gateway" $coreVals.clusterGatewayNodeBasename | quote }}
+        - name: NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: KUBERNETES_SELECTOR
+          value: {{ $coreClusterSelector | quote }}
+        - name: KUBERNETES_NODE_BASENAME
+          value: {{ $coreClusterNodeBasename | quote }}
+        - name: CLUSTER_WEB_SERVICE
+          value: {{ default "serviceradar-web-ng-headless" $coreVals.clusterWebService | quote }}
+        - name: CLUSTER_GATEWAY_SERVICE
+          value: {{ default "serviceradar-agent-gateway-headless" $coreVals.clusterGatewayService | quote }}
+        - name: RELEASE_NODE
+          value: "serviceradar_core@$(POD_IP)"
+        - name: RELEASE_DISTRIBUTION
+          value: "name"
+        - name: RELEASE_COOKIE
+          valueFrom:
+            secretKeyRef:
+              name: {{ $secrets | quote }}
+              key: cluster-cookie
+        - name: EDGE_ONBOARDING_ENCRYPTION_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ $secrets | quote }}
+              key: edge-onboarding-key
+        - name: SERVICERADAR_EDGE_CRYPTO_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: {{ $secrets | quote }}
+              key: web-ng-secret-key-base
+        - name: ELIXIR_ERL_OPTIONS
+          value: "+fnu"
+        - name: ERL_FLAGS
+          value: "-kernel inet_dist_listen_min 9100 -kernel inet_dist_listen_max 9155"
+        {{- if .Values.spire.enabled }}
+        - name: SPIFFE_TRUST_DOMAIN
+          value: {{ $trustDomain | quote }}
+        - name: SPIFFE_MODE
+          value: {{ default "filesystem" .Values.spiffe.mode | quote }}
+        - name: SPIFFE_CERT_DIR
+          value: "/etc/serviceradar/certs"
+        - name: SPIFFE_WORKLOAD_API_SOCKET
+          value: "unix:///run/spire/sockets/agent.sock"
+        - name: SPIFFE_TRUST_BUNDLE_PATH
+          value: "/run/spire/bundle/bundle.crt"
+        {{- end }}
+        - name: SERVICERADAR_CLUSTER_COORDINATOR
+          value: "true"
+        - name: SERVICERADAR_COORDINATOR_DB_HOST
+          value: {{ include "serviceradar.cnpgDirectHost" . | quote }}
+        - name: SERVICERADAR_CORE_RUN_MIGRATIONS
+          value: "false"
+        # B-5 sub-issue 2: partition identity for this deployment. MUST
+        # match the value rendered into the NATS authorization block
+        # (templates/nats.yaml) so runtime services share one deployment
+        # partition context.
+        - name: SERVICERADAR_OTX_PARTITION
+          value: {{ coalesce .Values.partitionId (default (dict) .Values.agent).partitionId "default" | quote }}
+        - name: SERVICERADAR_CORE_OBAN_ENABLED
+          value: "true"
+        - name: SERVICERADAR_ASH_OBAN_SCHEDULER_ENABLED
+          value: {{ default true $coreVals.ashObanSchedulerEnabled | quote }}
+        - name: SERVICERADAR_CORE_REPO_ENABLED
+          value: "true"
+        - name: SERVICERADAR_CORE_REGISTRIES_ENABLED
+          value: "true"
+        - name: SERVICERADAR_CORE_VAULT_ENABLED
+          value: "true"
+        {{- if not (hasKey (default (dict) $coreVals.extraEnv) "SERVICERADAR_LOCAL_MAILER") }}
+        - name: SERVICERADAR_LOCAL_MAILER
+          value: "false"
+        {{- end }}
+        # Outbound mail. With none of this set the mailer resolves to
+        # Swoosh.Adapters.Test, which reports every send as successful and
+        # delivers nothing - so an email notification channel refuses to
+        # validate until a relay is configured here (or in Settings > Mail)
+        # rather than looking healthy and paging nobody.
+        {{- if $mailer.adapter }}
+        - name: SERVICERADAR_MAILER_ADAPTER
+          value: {{ $mailer.adapter | quote }}
+        {{- end }}
+        {{- if $mailer.relay }}
+        - name: SMTP_RELAY_HOST
+          value: {{ $mailer.relay | quote }}
+        - name: SMTP_RELAY_PORT
+          value: {{ default 587 $mailer.port | quote }}
+        {{- if $mailer.hostname }}
+        - name: SMTP_RELAY_HOSTNAME
+          value: {{ $mailer.hostname | quote }}
+        {{- end }}
+        - name: SMTP_RELAY_AUTH
+          value: {{ default "if_available" $mailer.auth | quote }}
+        - name: SMTP_RELAY_TLS
+          value: {{ default "if_available" $mailer.tls | quote }}
+        - name: SMTP_RELAY_SSL
+          value: {{ default false $mailer.ssl | quote }}
+        {{- end }}
+        {{- if $mailerSecret }}
+        # Relay credentials come from an existing Secret, never from values.
+        # A password in values.yaml is a password in the release manifest, in
+        # `helm get values`, and in whatever GitOps repository holds it.
+        - name: SMTP_RELAY_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: {{ $mailerSecret | quote }}
+              key: {{ default "smtp-username" $mailer.usernameKey | quote }}
+              optional: true
+        - name: SMTP_RELAY_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ $mailerSecret | quote }}
+              key: {{ default "smtp-password" $mailer.passwordKey | quote }}
+              optional: true
+        {{- end }}
+        {{- if $mailerFrom.name }}
+        - name: SERVICERADAR_MAIL_FROM_NAME
+          value: {{ $mailerFrom.name | quote }}
+        {{- end }}
+        {{- if $mailerFrom.email }}
+        - name: SERVICERADAR_MAIL_FROM_EMAIL
+          value: {{ $mailerFrom.email | quote }}
+        {{- end }}
+        - name: POOL_SIZE
+          value: {{ default 40 $database.poolSize | quote }}
+        - name: DATABASE_QUEUE_TARGET_MS
+          value: {{ default 2000 $database.queueTargetMs | quote }}
+        - name: DATABASE_QUEUE_INTERVAL_MS
+          value: {{ default 2000 $database.queueIntervalMs | quote }}
+        - name: DATABASE_TIMEOUT_MS
+          value: {{ default 120000 $database.timeoutMs | quote }}
+        - name: DATABASE_POOL_TIMEOUT_MS
+          value: {{ default 120000 $database.poolTimeoutMs | quote }}
+        - name: CONTROL_REPO_ENABLED
+          value: {{ default true $controlDatabase.enabled | quote }}
+        - name: CONTROL_REPO_POOL_SIZE
+          value: {{ default 5 $controlDatabase.poolSize | quote }}
+        - name: CONTROL_DATABASE_QUEUE_TARGET_MS
+          value: {{ default 2000 $controlDatabase.queueTargetMs | quote }}
+        - name: CONTROL_DATABASE_QUEUE_INTERVAL_MS
+          value: {{ default 2000 $controlDatabase.queueIntervalMs | quote }}
+        - name: CONTROL_DATABASE_TIMEOUT_MS
+          value: {{ default 120000 $controlDatabase.timeoutMs | quote }}
+        - name: CONTROL_DATABASE_POOL_TIMEOUT_MS
+          value: {{ default 120000 $controlDatabase.poolTimeoutMs | quote }}
+        - name: OBAN_QUEUE_DEFAULT
+          value: {{ default 10 $obanQueues.default | quote }}
+        - name: OBAN_QUEUE_MAINTENANCE
+          value: {{ default 5 $obanQueues.maintenance | quote }}
+        - name: OBAN_QUEUE_MONITORING
+          value: {{ default 5 $obanQueues.monitoring | quote }}
+        - name: OBAN_QUEUE_ALERTS
+          value: {{ default 5 $obanQueues.alerts | quote }}
+        - name: OBAN_QUEUE_SERVICE_CHECKS
+          value: {{ default 10 $obanQueues.serviceChecks | quote }}
+        {{- if ne $notificationAgentId "" }}
+        - name: SERVICERADAR_NOTIFICATION_PLATFORM_AGENT_ID
+          value: {{ $notificationAgentId | quote }}
+        - name: SERVICERADAR_NOTIFICATION_PLATFORM_AGENT_PARTITION
+          value: {{ $notificationAgentPartition | quote }}
+        {{- end }}
+        {{- if $webNgPublicUrl }}
+        - name: SERVICERADAR_NOTIFICATION_ACTION_BASE_URL
+          value: {{ $webNgPublicUrl | quote }}
+        {{- end }}
+        {{- if not $notificationReceiptSweepEnabled }}
+        # The receipt sweep is what closes out an agent-routed delivery whose
+        # command result never came back, without depending on
+        # STATUS_HANDLER_ENABLED. Turning it off leaves those rows to the blind
+        # stall sweep, which re-sends rather than settling from the command row.
+        - name: SERVICERADAR_NOTIFICATION_RECEIPT_SWEEP_ENABLED
+          value: "false"
+        {{- end }}
+        - name: OBAN_QUEUE_NOTIFICATIONS
+          value: {{ default 5 $obanQueues.notifications | quote }}
+        - name: OBAN_QUEUE_ONBOARDING
+          value: {{ default 3 $obanQueues.onboarding | quote }}
+        - name: OBAN_QUEUE_EVENTS
+          value: {{ default 10 $obanQueues.events | quote }}
+        - name: OBAN_QUEUE_SWEEPS
+          value: {{ default 20 $obanQueues.sweeps | quote }}
+        - name: OBAN_QUEUE_EDGE
+          value: {{ default 10 $obanQueues.edge | quote }}
+        - name: OBAN_QUEUE_INTEGRATIONS
+          value: {{ default 5 $obanQueues.integrations | quote }}
+        - name: OBAN_QUEUE_NATS_ACCOUNTS
+          value: {{ default 3 $obanQueues.natsAccounts | quote }}
+        - name: SERVICERADAR_ANOMALY_N_SIGMA
+          value: {{ default 3.0 $anomalyConfig.nSigma | quote }}
+        - name: SERVICERADAR_ANOMALY_WINDOW_SIZE
+          value: {{ default 300 $anomalyConfig.windowSize | quote }}
+        - name: SERVICERADAR_ANOMALY_WINDOW_DURATION_SECONDS
+          value: {{ default 900 $anomalyConfig.windowDurationSeconds | quote }}
+        - name: SERVICERADAR_ANOMALY_CONFIRM_SLOTS
+          value: {{ default 5 $anomalyConfig.confirmSlots | quote }}
+        - name: SERVICERADAR_ANOMALY_MIN_SAMPLES
+          value: {{ default 30 $anomalyConfig.minSamples | quote }}
+        - name: SERVICERADAR_ANOMALY_METRIC_DENYLIST_JSON
+          value: {{ default (list "cpu.frequency_hz") $anomalyConfig.metricDenylist | toJson | quote }}
+        - name: SERVICERADAR_ANOMALY_EMISSION_JSON
+          value: {{ default (dict "cooldown_secs" 300 "budget_per_tick" 100 "episode_update_interval_secs" 1800 "reopen_cooldown_secs" 600) $anomalyConfig.emission | toJson | quote }}
+        - name: SERVICERADAR_ANOMALY_METRIC_CLASS_OVERRIDES_JSON
+          value: {{ default (dict) $anomalyConfig.metricClassOverrides | toJson | quote }}
+        # EventWriter consumes NATS JetStream and persists records (incl. edge
+        # anomaly verdicts on signals.analytics.predictions.*) into CNPG. Default on
+        # so anomaly findings/alerts surface without per-deployment extraEnv.
+        - name: EVENT_WRITER_ENABLED
+          value: {{ default true $eventWriter.enabled | quote }}
+
+        {{- /* Exact EventWriter flow consumer subjects: concrete flows.raw.* only. */ -}}
+        {{- /* flow.host-slice.* is attribution intermediate (joiner), not ocsf consumers. */ -}}
+        {{- /* Whole-token wildcards that cover the raw-flow namespace fail closed. */ -}}
+        {{- $extraFlowSubjects := list -}}
+        {{- $fcConfig := dict -}}
+        {{- if and .Values.flowCollector .Values.flowCollector.config }}
+          {{- $fcConfig = .Values.flowCollector.config -}}
+        {{- end }}
+        {{- range (default list (get $fcConfig "stream_subjects")) }}
+          {{- $subj := . | toString -}}
+          {{- if $subj }}
+            {{- /* Reject any whole-token wildcard filter: *.>, *.raw.>, flows.>, > all cover flows.raw.*. Binary Config::validate is the source of truth for NATS-pattern overlap. */ -}}
+            {{- if regexMatch "(^|\\.)(\\*|\\>)(\\.|$)" $subj }}
+              {{- fail (printf "flowCollector.config.stream_subjects entry %q uses a whole-token NATS wildcard. Use concrete flows.raw.<name> leaves; ownership filters (including *.> / flows.>) leave extensions unconsumed and can overlap events." $subj) -}}
+            {{- end }}
+            {{- if and (ne $subj "flows.raw.netflow") (ne $subj "flows.raw.sflow") (hasPrefix "flows.raw." $subj) }}
+              {{- $extraFlowSubjects = append $extraFlowSubjects $subj -}}
+            {{- end }}
+          {{- end }}
+        {{- end }}
+        {{- range (default list (get $fcConfig "listeners")) }}
+          {{- $subj := default "" .subject -}}
+          {{- if $subj }}
+            {{- /* Publish subjects must always be concrete — unconditional wildcard reject. */ -}}
+            {{- if regexMatch "(^|\\.)(\\*|\\>)(\\.|$)" $subj }}
+              {{- fail (printf "flowCollector.config.listeners subject %q uses a whole-token NATS wildcard. Listener publish subjects must be concrete." $subj) -}}
+            {{- end }}
+            {{- if and (ne $subj "flows.raw.netflow") (ne $subj "flows.raw.sflow") (hasPrefix "flows.raw." $subj) }}
+              {{- $extraFlowSubjects = append $extraFlowSubjects $subj -}}
+            {{- end }}
+          {{- end }}
+        {{- end }}
+        {{- if $extraFlowSubjects }}
+        - name: EVENT_WRITER_FLOW_EXTRA_SUBJECTS
+          value: {{ $extraFlowSubjects | uniq | join "," | quote }}
+        {{- end }}
+        - name: SERVICERADAR_CAPACITY_FORECAST_CONFIG_HORIZON_SECONDS
+          value: {{ default 7776000 $capacityForecastConfig.forecastHorizonSeconds | int64 | quote }}
+        - name: SERVICERADAR_CAPACITY_FORECAST_CONFIG_WARNING_HORIZON_SECONDS
+          value: {{ default 2592000 $capacityForecastConfig.warningHorizonSeconds | int64 | quote }}
+        - name: SERVICERADAR_CAPACITY_FORECAST_CONFIG_WARNING_THRESHOLD_PERCENT
+          value: {{ default 80.0 $capacityForecastConfig.warningThresholdPercent | quote }}
+        - name: SERVICERADAR_CAPACITY_FORECAST_CONFIG_MODEL
+          value: {{ default "linear" $capacityForecastConfig.model | quote }}
+        - name: SERVICERADAR_CAPACITY_FORECAST_CONFIG_MINIMUM_HISTORY_POINTS
+          value: {{ default 72 $capacityForecastConfig.minimumHistoryPoints | int | quote }}
+        - name: SERVICERADAR_CAPACITY_FORECAST_CONFIG_METRIC_CLASS_OVERRIDES_JSON
+          value: {{ default (dict) $capacityForecastConfig.metricClassOverrides | toJson | quote }}
+        - name: SERVICERADAR_CAPACITY_FORECASTING_ENABLED
+          value: {{ default true $capacityForecasting.enabled | quote }}
+        - name: SERVICERADAR_CAPACITY_FORECASTING_CRON
+          value: {{ default "41 * * * *" $capacityForecasting.cron | quote }}
+        - name: SERVICERADAR_CAPACITY_FORECASTING_EMIT_VERDICTS
+          value: {{ default true $capacityForecasting.emitVerdicts | quote }}
+        - name: SERVICERADAR_CAPACITY_FORECASTING_HORIZON_SECONDS
+          value: {{ coalesce $capacityForecasting.horizonSeconds $capacityForecastConfig.forecastHorizonSeconds 7776000 | int64 | quote }}
+        - name: SERVICERADAR_CAPACITY_FORECASTING_WARNING_HORIZON_SECONDS
+          value: {{ coalesce $capacityForecasting.warningHorizonSeconds $capacityForecastConfig.warningHorizonSeconds 2592000 | int64 | quote }}
+        - name: SERVICERADAR_CAPACITY_FORECASTING_MIN_POINTS
+          value: {{ coalesce $capacityForecasting.minPoints $capacityForecastConfig.minimumHistoryPoints 72 | int | quote }}
+        - name: SERVICERADAR_CAPACITY_FORECASTING_SEASONAL_PERIOD
+          value: {{ default 24 $capacityForecasting.seasonalPeriod | int | quote }}
+        - name: SYNC_INGESTOR_BATCH_CONCURRENCY
+          value: {{ default 2 $syncIngestor.batchConcurrency | quote }}
+        - name: SYNC_INGESTOR_COALESCE_MS
+          value: {{ default 250 $syncIngestor.coalesceMs | quote }}
+        - name: SYNC_INGESTOR_MAX_INFLIGHT
+          value: {{ default 2 $syncIngestor.maxInflight | quote }}
+        - name: SYNC_INGESTOR_QUEUE_MAX_CHUNKS
+          value: {{ default 10 $syncIngestor.queueMaxChunks | quote }}
+        - name: PLUGIN_STORAGE_SIGNING_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: {{ $secrets | quote }}
+              key: plugin-storage-signing-secret
+        {{- if $agentArtifactPublicUrl }}
+        - name: PLUGIN_STORAGE_PUBLIC_URL
+          value: {{ $agentArtifactPublicUrl | quote }}
+        {{- end }}
+        {{- if $pluginStorage.downloadTtlSeconds }}
+        - name: PLUGIN_STORAGE_DOWNLOAD_TTL_SECONDS
+          value: {{ $pluginStorage.downloadTtlSeconds | quote }}
+        {{- end }}
+        - name: OBJECT_STORE_RETENTION_ENABLED
+          value: {{ $objectStoreRetentionEnabled | quote }}
+        - name: OBJECT_STORE_RETENTION_DRY_RUN
+          value: {{ $objectStoreRetentionDryRun | quote }}
+        - name: OBJECT_STORE_RETENTION_CRON
+          value: {{ default "0 3 * * *" $objectStoreRetention.cron | quote }}
+        - name: OBJECT_STORE_RETENTION_AGENT_RELEASE_KEEP_LATEST
+          value: {{ default 1 $objectStoreRetention.agentReleaseKeepLatest | quote }}
+        - name: OBJECT_STORE_RETENTION_DATASVC_TIMEOUT_MS
+          value: {{ default 30000 $objectStoreRetention.datasvcTimeoutMs | quote }}
+        - name: OBJECT_STORE_RETENTION_NATIVE_ADDON_ORPHAN_GRACE_SECONDS
+          value: {{ default 604800 $objectStoreRetention.nativeAddonOrphanGraceSeconds | quote }}
+        - name: SYNC_INGESTOR_ASYNC
+          value: {{ default true $syncIngestor.async | quote }}
+        - name: DEVICE_ENRICHMENT_RULES_DIR
+          value: {{ $deviceEnrichmentRulesDir | quote }}
+        - name: CNPG_HOST
+          value: {{ include "serviceradar.cnpgWorkloadHost" (dict "root" . "workload" "core") | quote }}
+        - name: CNPG_PORT
+          value: {{ default 5432 $cnpg.port | quote }}
+        {{- if and (default false $cnpgPooler.enabled) (default false (get $cnpgPoolerRoute "core")) }}
+        - name: CNPG_TLS_SERVER_NAME
+          value: {{ include "serviceradar.cnpgDirectHost" . | quote }}
+        - name: DATABASE_PREPARE
+          value: "unnamed"
+        - name: OBAN_NOTIFIER
+          value: "pg"
+        {{- end }}
+        - name: CNPG_DATABASE
+          value: {{ default "serviceradar" $cnpg.database | quote }}
+        - name: CNPG_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: {{ default "serviceradar-db-credentials" $cnpg.credentialsSecret | quote }}
+              key: username
+        - name: CNPG_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ default "serviceradar-db-credentials" $cnpg.credentialsSecret | quote }}
+              key: password
+        - name: CNPG_SSL_MODE
+          value: {{ default "verify-full" $cnpg.sslmode | quote }}
+        - name: CNPG_CA_FILE
+          value: {{ default "/etc/serviceradar/cnpg/ca.crt" $cnpg.caFile | quote }}
+        {{- if $cnpg.requireClientCert }}
+        - name: CNPG_CERT_FILE
+          value: {{ printf "%s/%s" (default "/etc/serviceradar/certs" $cnpg.certDir) (default "cnpg-client.pem" $cnpg.clientCertName) | quote }}
+        - name: CNPG_KEY_FILE
+          value: {{ printf "%s/%s" (default "/etc/serviceradar/certs" $cnpg.certDir) (default "cnpg-client-key.pem" $cnpg.clientKeyName) | quote }}
+        {{- end }}
+        - name: DATASVC_HOST
+          value: "serviceradar-datasvc"
+        - name: DATASVC_PORT
+          value: "50057"
+        - name: DATASVC_SEC_MODE
+          value: {{ default "spiffe" .Values.kv.secMode | quote }}
+        - name: DATASVC_SSL
+          value: "true"
+        - name: DATASVC_CERT_DIR
+          value: "/etc/serviceradar/certs"
+        - name: DATASVC_CERT_NAME
+          value: "core"
+        - name: NATS_ENABLED
+          value: "true"
+        - name: NATS_URL
+          value: "tls://serviceradar-nats:4222"
+        - name: NATS_TLS
+          value: "true"
+        - name: NATS_SERVER_NAME
+          value: "serviceradar-nats"
+        {{- if or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.autoGenerate }}
+        - name: NATS_CREDS_FILE
+          value: "/etc/serviceradar/creds/platform.creds"
+        {{- end }}
+        - name: LOG_PROMOTION_CONSUMER_ENABLED
+          value: {{ default false $coreVals.logPromotionConsumerEnabled | quote }}
+        - name: MTR_AUTOMATION_ENABLED
+          value: {{ default false $mtrAutomation.enabled | quote }}
+        - name: MTR_AUTOMATION_BASELINE_ENABLED
+          value: {{ default false $mtrAutomation.baselineEnabled | quote }}
+        - name: MTR_AUTOMATION_TRIGGER_ENABLED
+          value: {{ default false $mtrAutomation.triggerEnabled | quote }}
+        - name: MTR_AUTOMATION_CONSENSUS_ENABLED
+          value: {{ default false $mtrAutomation.consensusEnabled | quote }}
+        - name: MTR_BASELINE_TICK_MS
+          value: {{ default 60000 $mtrAutomation.baselineTickMs | quote }}
+        - name: MTR_CONSENSUS_COHORT_RETENTION_MS
+          value: {{ default 300000 $mtrAutomation.consensusCohortRetentionMs | quote }}
+        - name: MTR_RETENTION_DAYS
+          value: {{ default 30 $coreVals.mtrRetentionDays | quote }}
+        {{- /* Authoritative primary volume capacity for the cold-tier pressure
+               monitor. Without it usage_pct is nil and the 70/85/95% disk
+               alerts — the safety net that stops a stalled exporter from
+               filling the primary — can never fire (review F34). Rendered
+               whenever CNPG is chart-managed so the value is always present. */}}
+        {{- /* Skip when the caller already supplies it through core.extraEnv:
+               two entries with the same name make the rendered Deployment
+               invalid, and a strategic-merge upgrade fails with "The order in
+               patch list ... doesn't match $setElementOrder list". Same guard
+               as SERVICERADAR_LOCAL_MAILER above. */}}
+        {{- if and (default true $cnpg.enabled) (not (hasKey (default (dict) $coreVals.extraEnv) "SERVICERADAR_CNPG_STORAGE_SIZE")) }}
+        - name: SERVICERADAR_CNPG_STORAGE_SIZE
+          value: {{ default "100Gi" $cnpg.storageSize | quote }}
+        {{- end }}
+        - name: SERVICERADAR_TRACE_SUMMARY_RETENTION_DAYS
+          value: {{ default 3 $observabilityRetention.traceSummaryDays | quote }}
+        - name: SERVICERADAR_OTEL_TRACES_RETENTION_DAYS
+          value: {{ default 3 $observabilityRetention.otelTracesDays | quote }}
+        - name: SERVICERADAR_LOGS_RETENTION_DAYS
+          value: {{ default 30 $observabilityRetention.logsDays | quote }}
+        - name: SERVICERADAR_OCSF_NETWORK_ACTIVITY_RETENTION_DAYS
+          value: {{ default 90 $observabilityRetention.ocsfNetworkActivityDays | quote }}
+        - name: SERVICERADAR_FLOW_ATTRIBUTION_RETENTION_MINUTES
+          value: {{ default 60 $observabilityRetention.flowAttributionMinutes | quote }}
+        - name: SERVICERADAR_OTEL_TRACES_CHUNK_INTERVAL_HOURS
+          value: {{ default 6 $observabilityRetention.otelTracesChunkIntervalHours | quote }}
+        - name: SERVICERADAR_LOGS_CHUNK_INTERVAL_HOURS
+          value: {{ default 24 $observabilityRetention.logsChunkIntervalHours | quote }}
+        - name: SERVICERADAR_OCSF_NETWORK_ACTIVITY_CHUNK_INTERVAL_HOURS
+          value: {{ default 24 $observabilityRetention.ocsfNetworkActivityChunkIntervalHours | quote }}
+        - name: SERVICERADAR_OBSERVABILITY_RETENTION_BATCH_SIZE
+          value: {{ default 50000 $observabilityRetention.batchSize | quote }}
+        - name: SERVICERADAR_OBSERVABILITY_RETENTION_CRON
+          value: {{ default "17 3 * * *" $observabilityRetention.cron | quote }}
+        - name: SERVICERADAR_SWEEP_HOST_RESULT_RETENTION_DAYS
+          value: {{ default 7 $observabilityRetention.sweepHostResultDays | quote }}
+        - name: SERVICERADAR_SWEEP_EXECUTION_RETENTION_DAYS
+          value: {{ default 30 $observabilityRetention.sweepExecutionDays | quote }}
+        - name: SERVICERADAR_TRIVY_RETENTION_DAYS
+          value: {{ default 30 $observabilityRetention.trivyDays | quote }}
+        - name: SERVICERADAR_ENDPOINT_INVENTORY_RETENTION_DAYS
+          value: {{ default 30 $observabilityRetention.endpointInventoryDays | quote }}
+        - name: SERVICERADAR_DATASET_SNAPSHOT_RETENTION_DAYS
+          value: {{ default 2 $observabilityRetention.datasetSnapshotDays | quote }}
+        - name: SERVICERADAR_DATASET_SNAPSHOT_KEEP_LAST
+          value: {{ default 1 $observabilityRetention.datasetSnapshotKeepLast | quote }}
+        - name: SERVICERADAR_TOPOLOGY_LINK_RETENTION_DAYS
+          value: {{ default 30 $observabilityRetention.topologyLinkDays | quote }}
+        - name: ANSIBLE_RETENTION_RUN_DETAIL_DAYS
+          value: {{ default 90 $ansibleVals.runDetailDays | quote }}
+        - name: ANSIBLE_RETENTION_RUN_SUMMARY_DAYS
+          value: {{ default "" $ansibleVals.runSummaryDays | quote }}
+        - name: ANSIBLE_RETENTION_INTERVAL_SECONDS
+          value: {{ default 86400 $ansibleVals.retentionIntervalSeconds | quote }}
+        - name: AWX_CONTROLLER_HEALTH_INTERVAL_SECONDS
+          value: {{ default 30 $ansibleVals.controllerHealthIntervalSeconds | quote }}
+        - name: AWX_RUN_WATCHDOG_INTERVAL_SECONDS
+          value: {{ default 60 $ansibleVals.runWatchdogIntervalSeconds | quote }}
+        - name: AWX_SCHEDULE_EVALUATOR_INTERVAL_SECONDS
+          value: {{ default 60 $ansibleVals.scheduleEvaluatorIntervalSeconds | quote }}
+        - name: ANSIBLE_CATALOG_BASE_DIR
+          value: {{ default "/var/lib/serviceradar/ansible_catalog" $ansibleVals.catalogBaseDir | quote }}
+        - name: CLOAK_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ $secrets | quote }}
+              key: cloak-key
+        - name: SERVICERADAR_AUTOMATION_CALLBACKS_ENABLED
+          value: {{ $automationCallbacksEnabled | quote }}
+        {{- if $automationCallbacksEnabled }}
+        - name: SERVICERADAR_AUTOMATION_CALLBACK_ENVELOPE_KEY_FILE
+          value: "/etc/serviceradar/automation-callback/envelope-key"
+        - name: SERVICERADAR_AUTOMATION_CALLBACK_ENVELOPE_KEY_ID
+          value: {{ default "current" $automationCallbacks.envelopeKeyId | quote }}
+        - name: SERVICERADAR_AUTOMATION_CALLBACK_AWX_CREDENTIAL_TYPE_ID
+          value: {{ $automationCallbacks.awxCredentialTypeId | quote }}
+        - name: SERVICERADAR_AUTOMATION_CALLBACK_AWX_ORGANIZATION_ID
+          value: {{ $automationCallbacks.awxOrganizationId | quote }}
+        - name: SERVICERADAR_AUTOMATION_CALLBACK_AWX_INJECTOR_DIGEST
+          value: {{ $automationCallbacks.awxInjectorDigest | quote }}
+        - name: SERVICERADAR_AUTOMATION_CALLBACK_RESPONSE_POLICY_FILE
+          value: "/etc/serviceradar/automation-callback-policy/response-policy.json"
+        {{- end }}
+        {{- if $sshCertificatePolicyCoreEnabled }}
+        - name: SERVICERADAR_REMOTE_ACCESS_SSH_CERTIFICATE_POLICY_FILE
+          value: "/etc/serviceradar/remote-access-ssh-policy/certificate-policy.json"
+        {{- end }}
+        {{- if $sshCaSignerCoreEnabled }}
+        - name: SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_ENABLED
+          value: "true"
+        - name: SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_COMMAND
+          value: {{ default "/usr/local/bin/serviceradar-sshca-signer" $sshCaSigner.command | quote }}
+        - name: SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_ARGS_JSON
+          value: {{ toJson $sshCaSigner.args | quote }}
+        - name: SERVICERADAR_REMOTE_ACCESS_SSH_CA_KEY_ID
+          value: {{ $sshCaSigner.keyId | quote }}
+        {{- end }}
+        - name: SERVICERADAR_REMOTE_ACCESS_DESKTOP_RDP_ENABLED
+          value: {{ $remoteAccessDesktopRdpEnabled | quote }}
+        - name: SERVICERADAR_REMOTE_ACCESS_SSH_ENABLED
+          value: {{ $remoteAccessSshEnabled | quote }}
+        - name: GEOLITE_MMDB_SCHEDULER_ENABLED
+          value: {{ default false $geoipMmdb.enabled | quote }}
+        - name: GEOLITE_MMDB_DOWNLOAD_ENABLED
+          value: {{ default false $geoipMmdb.enabled | quote }}
+        - name: IPINFO_MMDB_SCHEDULER_ENABLED
+          value: {{ default false $geoipMmdb.enabled | quote }}
+        - name: IPINFO_MMDB_DOWNLOAD_ENABLED
+          value: {{ default false $geoipMmdb.enabled | quote }}
+        {{- if $geoipMmdb.enabled }}
+        - name: GEOLITE_MMDB_DIR
+          value: {{ default "/var/lib/serviceradar/geoip" $geoipMmdb.basePath | quote }}
+        {{- end }}
+        - name: SERVICERADAR_ADVISORY_FEEDS_ENABLED
+          value: {{ $advisoryFeedsEnabled | quote }}
+        - name: ADVISORY_FEED_SCHEDULER_ENABLED
+          value: {{ $advisoryFeedsEnabled | quote }}
+        - name: SERVICERADAR_ADVISORY_STAGING_DIR
+          value: {{ $advisoryFeedsDir | quote }}
+        - name: SERVICERADAR_ADVISORY_NIST_NVD2_ENABLED
+          value: {{ $advisoryFeeds.nistNvd2Enabled | default false | quote }}
+        {{- with .Values.otelExporter }}
+        {{- if .enabled }}
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: {{ .endpoint | quote }}
+        - name: OTEL_CERT_DIR
+          value: {{ default "/etc/serviceradar/certs" .certDir | quote }}
+        - name: OTEL_CERT_NAME
+          value: "core"
+        - name: OTEL_SERVICE_NAME
+          value: "serviceradar-core-elx"
+        - name: OTEL_TRACES_SAMPLER_ARG
+          value: {{ default "1.0" .samplingRatio | quote }}
+        {{- end }}
+        {{- end }}
+        {{- with $coreVals.extraEnv }}
+        {{- range $name, $value := . }}
+        - name: {{ $name | quote }}
+          value: {{ $value | quote }}
+        {{- end }}
+        {{- end }}
+        {{- with $coreVals.extraEnvValueFrom }}
+        {{- range $name, $valueFrom := . }}
+        - name: {{ $name | quote }}
+          valueFrom:
+{{- toYaml $valueFrom | nindent 12 }}
+        {{- end }}
+        {{- end }}
+        volumeMounts:
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+        {{- if $automationCallbacksEnabled }}
+        - name: automation-callback-envelope
+          mountPath: /etc/serviceradar/automation-callback
+          readOnly: true
+        - name: automation-callback-response-policy
+          mountPath: /etc/serviceradar/automation-callback-policy
+          readOnly: true
+        {{- end }}
+        {{- if $sshCertificatePolicyCoreEnabled }}
+        - name: remote-access-ssh-certificate-policy
+          mountPath: /etc/serviceradar/remote-access-ssh-policy
+          readOnly: true
+        {{- end }}
+        {{- if $sshCaSignerCoreEnabled }}
+        - name: remote-access-ssh-ca
+          mountPath: {{ default "/run/secrets/serviceradar_ssh_ca" $sshCaSigner.mountPath | quote }}
+          subPath: ca-key
+          readOnly: true
+        {{- end }}
+        - name: {{ $cnpgClusterName }}-ca
+          mountPath: /etc/serviceradar/cnpg
+          readOnly: true
+        {{- if .Values.spire.enabled }}
+        - name: spire-agent-socket
+          mountPath: /run/spire/sockets
+          readOnly: true
+        - name: spire-bundle
+          mountPath: /run/spire/bundle
+          readOnly: true
+        {{- end }}
+        {{- if $geoipMmdb.enabled }}
+        - name: geoip-mmdb
+          mountPath: {{ default "/var/lib/serviceradar/geoip" $geoipMmdb.basePath | quote }}
+        {{- end }}
+        {{- if $advisoryFeedsEnabled }}
+        - name: advisory-feeds
+          mountPath: {{ $advisoryFeedsDir | quote }}
+        {{- end }}
+        {{- if or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.autoGenerate }}
+        - name: nats-creds
+          mountPath: /etc/serviceradar/creds
+          readOnly: true
+        {{- end }}
+        {{- if $deviceEnrichmentFsEnabled }}
+        - name: device-enrichment-rules
+          mountPath: {{ $deviceEnrichmentRulesDir | quote }}
+          readOnly: true
+        {{- end }}
+        resources:
+          limits:
+            cpu: {{ default "4" $coreResourceLimits.cpu | quote }}
+            memory: {{ default "8Gi" $coreResourceLimits.memory | quote }}
+          requests:
+            cpu: {{ default "500m" $coreResourceRequests.cpu | quote }}
+            memory: {{ default "1Gi" $coreResourceRequests.memory | quote }}
+        livenessProbe:
+          exec:
+            command:
+              - /app/bin/serviceradar_core_elx
+              - pid
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+              - /app/bin/serviceradar_core_elx
+              - pid
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+      volumes:
+      - name: cert-data
+        secret:
+          secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
+          items:
+{{ include "serviceradar.runtimeCertItems" (list "root.pem" "core.pem" "core-key.pem" "cnpg-client.pem" "cnpg-client-key.pem") | indent 12 }}
+      {{- if $automationCallbacksEnabled }}
+      - name: automation-callback-envelope
+        secret:
+          secretName: {{ $secrets | quote }}
+          defaultMode: 0440
+          items:
+          - key: automation-callback-envelope-key
+            path: envelope-key
+      - name: automation-callback-response-policy
+        secret:
+          secretName: {{ $automationCallbackResponsePolicy.existingSecretName | quote }}
+          defaultMode: 0440
+          items:
+          - key: {{ $automationCallbackResponsePolicy.secretKey | quote }}
+            path: response-policy.json
+      {{- end }}
+      {{- if $sshCertificatePolicyCoreEnabled }}
+      - name: remote-access-ssh-certificate-policy
+        secret:
+          secretName: {{ $sshCertificatePolicy.existingSecretName | quote }}
+          defaultMode: 0440
+          items:
+          - key: {{ $sshCertificatePolicy.secretKey | quote }}
+            path: certificate-policy.json
+      {{- end }}
+      {{- if $sshCaSignerCoreEnabled }}
+      - name: remote-access-ssh-ca
+        secret:
+          secretName: {{ $sshCaSigner.existingSecretName | quote }}
+          defaultMode: 0400
+          items:
+          - key: {{ $sshCaSigner.secretKey | quote }}
+            path: ca-key
+      {{- end }}
+      - name: {{ $cnpgClusterName }}-ca
+        secret:
+          secretName: {{ $cnpgClusterName }}-ca
+      {{- if .Values.spire.enabled }}
+      - name: spire-agent-socket
+        hostPath:
+          path: {{ include "serviceradar.spireSocketHostPath" . | quote }}
+          type: DirectoryOrCreate
+      - name: spire-bundle
+        configMap:
+          name: {{ $spireBundle | quote }}
+      {{- end }}
+      {{- if $geoipMmdb.enabled }}
+      - name: geoip-mmdb
+        {{- if $geoipMmdb.emptyDir }}
+        emptyDir: {}
+        {{- else }}
+        persistentVolumeClaim:
+          claimName: {{ default "serviceradar-geoip-mmdb" $geoipMmdb.existingClaim | quote }}
+        {{- end }}
+      {{- end }}
+      {{- if $advisoryFeedsEnabled }}
+      - name: advisory-feeds
+        {{- if $advisoryFeeds.emptyDir }}
+        emptyDir: {}
+        {{- else }}
+        persistentVolumeClaim:
+          claimName: {{ default "serviceradar-advisory-feeds" $advisoryFeeds.existingClaim | quote }}
+        {{- end }}
+      {{- end }}
+      {{- if or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.autoGenerate }}
+      - name: nats-creds
+        secret:
+          secretName: serviceradar-nats-creds
+          optional: true
+      {{- end }}
+      {{- if $deviceEnrichmentFsEnabled }}
+      - name: device-enrichment-rules
+        {{- if $deviceEnrichmentFsConfigMap }}
+        configMap:
+          name: {{ $deviceEnrichmentFsConfigMap | quote }}
+        {{- else if $deviceEnrichmentFsSecret }}
+        secret:
+          secretName: {{ $deviceEnrichmentFsSecret | quote }}
+        {{- else if $deviceEnrichmentFsClaim }}
+        persistentVolumeClaim:
+          claimName: {{ $deviceEnrichmentFsClaim | quote }}
+        {{- else }}
+        emptyDir: {}
+        {{- end }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-core
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/name: serviceradar-core
+    app.kubernetes.io/component: core
+spec:
+  selector:
+    app: serviceradar-core
+  ports:
+  - name: http
+    port: 8090
+    targetPort: 8090
+  - name: grpc
+    port: 50052
+    targetPort: 50052
+  - name: metrics
+    port: 9090
+    targetPort: 9090
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-core-elx-headless
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  clusterIP: None
+  selector:
+    app: serviceradar-core
+  ports:
+  - name: epmd
+    port: 4369
+    targetPort: 4369
+  - name: dist
+    port: 9100
+    targetPort: dist
+{{- end }}

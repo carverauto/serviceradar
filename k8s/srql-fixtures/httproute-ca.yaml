@@ -1,0 +1,40 @@
+# LAN HTTPS publisher for the SRQL fixture CA (ca.crt only).
+#
+# Clients dial https://srql-fixture-ca.carverauto.dev/ca.crt. Envoy terminates TLS with the
+# lan-shared-gateway Let's Encrypt wildcard. Scratch images already trust that issuer.
+# The fixture CA is the document being served, not the certificate that terminates this fetch.
+#
+# Caddy behind this route stays HTTP. Do not put nginx on this path. The CA private key
+# is not in any volume on the publisher.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: srql-fixture-ca
+  namespace: srql-fixtures
+  labels:
+    app: srql-fixture
+    app.kubernetes.io/component: fixture-ca-bundle
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: srql-fixture-ca.carverauto.dev
+    external-dns.alpha.kubernetes.io/cloudflare-proxied: "false"
+    external-dns.alpha.kubernetes.io/ttl: "60"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: lan-shared-gateway
+      namespace: lan-edge
+      sectionName: https-carverauto
+  hostnames:
+    - srql-fixture-ca.carverauto.dev
+  rules:
+    - matches:
+        - path:
+            type: Exact
+            value: /ca.crt
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: srql-fixture-ca-incluster
+          port: 80
+          weight: 1

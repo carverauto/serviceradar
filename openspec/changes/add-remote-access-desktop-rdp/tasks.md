@@ -1,0 +1,584 @@
+## 1. Design And Data Model
+- [x] 1.1 Define registered desktop/RDP target resources, including route, TLS/NLA, credential mode, screen policy, redirection policy, approval, and recording fields.
+- [x] 1.2 Define desktop session lifecycle, typed graphical frames, renderer control frames, cancellation semantics, and route binding shared by web-ng, core, agent-gateway, and agent.
+- [x] 1.3 Define credential modes for domain-backed delegation, smart-card/certificate auth, memory-only per-session user credentials, and brokered fallback secrets.
+- [x] 1.4 Record exact dependency choices for RDP protocol and browser rendering before implementation.
+- [x] 1.4.1 Record the IronRDP connector import gate, including `ironrdp-connector`, `sspi`, `picky`, disabled client/redirection crates, and no agent-local TOFU trust state.
+- [x] 1.4.2 Record the published `ironrdp-connector` root-lockfile conflict and require an isolated optional helper dependency graph before importing CredSSP/PKI crates.
+- [x] 1.4.3 Add a review-only isolated IronRDP connector probe workspace with its own lockfile so connector/CredSSP/PKI dependencies do not perturb the root Rust workspace.
+- [x] 1.4.4 Add a review-only ServiceRadar-to-IronRDP connector config mapping for NLA-required username/password sessions inside the isolated connector probe.
+- [x] 1.4.5 Add a review-only IronRDP connector state-machine smoke test that emits the initial X.224 negotiation PDU from a ServiceRadar-shaped open request.
+- [x] 1.4.6 Add a review-only full helper-open JSON parser in the isolated connector probe so unknown fields and unsupported policy are rejected before IronRDP config construction.
+- [x] 1.4.7 Decode the review-only initial X.224 negotiation PDU and assert it advertises CredSSP/NLA without plain TLS fallback.
+- [x] 1.4.8 Drive the review-only IronRDP connector through a HYBRID_EX server confirm to prove the TLS upgrade boundary is reached before CredSSP.
+- [x] 1.4.9 Add a review-only downgrade test proving TLS-only server selection is rejected after the client advertises NLA-only posture.
+- [x] 1.4.10 Add a review-only pre-TLS credential exposure test proving the initial X.224 request includes the mstshash username cookie but not the cleartext password.
+- [x] 1.4.11 Add review-only negotiation branch tests proving HYBRID is accepted into the TLS/CredSSP boundary and standard RDP security is rejected.
+- [x] 1.4.12 Add a review-only connector plan proving the registered upstream endpoint and effective TLS server name are derived from target policy before IronRDP config construction.
+- [x] 1.4.13 Re-validate the published IronRDP connector root-lockfile conflict against the real helper feature and keep connector/CredSSP dependencies isolated from the root workspace.
+- [x] 1.4.14 Add an isolated Bazel crate-universe target for the IronRDP connector probe so connector/CredSSP tests do not use the root Rust lockfile.
+- [x] 1.4.15 Add a review-only `ironrdp-blocking` connect-begin probe proving ServiceRadar-shaped requests can reuse the upstream connector loop through the TLS upgrade boundary.
+- [x] 1.4.16 Add a review-only TLS peer certificate public-key extraction probe proving the CredSSP binding input can be derived after verified TLS upgrade.
+- [x] 1.4.17 Add a review-only `ironrdp-blocking` connect-finalize probe proving the post-TLS boundary enters CredSSP and writes no cleartext password before server input.
+- [x] 1.4.18 Add a review-only TLS upgrade policy probe proving system roots, registered CA bundles, and pinned CA modes are selected explicitly while insecure modes fail closed.
+- [x] 1.4.19 Add a review-only lab-gated Rustls TLS upgrade smoke probe proving a live RDP stream can reach IronRDP's CredSSP state without recorded cleartext password exposure while production certificate verification remains unimplemented.
+- [x] 1.4.20 Add an opt-in live verified Rustls TLS upgrade probe requiring an explicit CA bundle file and server identity before advancing the live RDP stream to IronRDP's CredSSP state.
+- [x] 1.4.21 Add a Bazel-only adapter connector-link probe proving the future production helper can compile adapter code against the isolated IronRDP connector crate universe without using the root Rust lockfile.
+- [x] 1.4.22 Record the IronRDP active-stage import gate, including `ironrdp-session`, its protocol/render dependencies, disabled UI/client stacks, and ServiceRadar-owned SRDP mapping requirements.
+- [x] 1.4.23 Add `ironrdp-session` to the isolated connector probe workspace so active-stage dependencies are reviewed without perturbing the root Rust workspace.
+- [x] 1.4.24 Add an isolated active-stage construction probe proving a ServiceRadar-derived connector plan can initialize IronRDP session state without importing upstream UI/client stacks.
+- [x] 1.4.25 Add an isolated active-stage input encoding probe proving a ServiceRadar-shaped keyboard event can become an upstream RDP response frame without importing UI/client stacks.
+- [x] 1.4.26 Refresh the isolated connector universe to exact-pinned IronRDP blocking/connector 0.10.0, core 0.2.1, graphics/PDU 0.9.0, and session 0.11.0; adapt the probe to the maintained APIs and remove yanked `spin 0.9.8` plus the stale `paste` advisory from the locked graph.
+- [ ] 1.4.27 Remove the forced `sspi/scard -> winscard -> iso7816 -> heapless -> spin` build subtree when a maintained upstream IronRDP release feature-gates smart-card support; do not add a ServiceRadar-maintained fork, archived dependency vendor, version override, or audit ignore. Security follow-up: `harden-remote-access-security` task 6.G.7.
+
+## 2. Policy, RBAC, And API
+- [x] 2.1 Add desktop target RBAC and approval checks that bind actor, target, route, policy snapshot, credential mode, and redirection policy to one session.
+- [x] 2.1.1 Add the admin-only `devices.remote_access.rdp.open` RBAC catalog key for graphical desktop access.
+- [x] 2.1.2 Enforce selected-agent route membership and allowed desktop login principals in agent-side target/grant validation.
+- [x] 2.1.3 Require the RDP open permission, not the SSH open permission, before showing or closing existing RDP remote-access sessions.
+- [x] 2.1.4 Require the RDP open permission, not the SSH open permission, before showing RDP recording metadata and replay events.
+- [x] 2.1.5 Add RDP approval-request coverage that binds approved access to the selected target host/port, agent route, credential mode, and desktop policy metadata before session creation.
+- [x] 2.2 Add APIs for listing authorized desktop targets, creating sessions, exchanging graphical/control frames, toggling approved redirection features, and closing sessions.
+- [x] 2.2.1 Add web-ng WebRTC signaling endpoints for an existing RDP remote-access session: create offer, submit answer, add ICE candidates, and close viewer session.
+- [x] 2.2.2 Gate desktop WebRTC signaling behind `remote_access_desktop_rdp_enabled` and reject non-RDP remote-access sessions.
+- [x] 2.2.3 Include desktop WebRTC transport, signaling path, and ICE server metadata on RDP remote-access session responses.
+- [x] 2.2.4 Add a supervised core-elx desktop WebRTC signaling owner behind the web-ng ERTS RPC facade.
+- [x] 2.2.5 Index core-elx desktop WebRTC viewer sessions by signaling PID so Membrane signaling events avoid linear session scans.
+- [x] 2.2.6 Add a browser-facing authorized RDP desktop target listing API with feature flag gating, RDP RBAC enforcement, provider/static-config source seam, and secret-stripped policy posture.
+- [x] 2.2.7 Add RDP session creation through registered desktop target IDs only, rejecting browser-supplied host, port, route, credential, and policy overrides.
+- [x] 2.2.8 Route browser WebRTC desktop control frames through core-elx with viewer/session binding, separate from media acknowledgements, without retaining key/button tokens in manager state.
+- [x] 2.3 Add policy enforcement for frame rate, bitrate, resolution, idle timeout, session TTL, redirection features, clipboard direction, and content-recording mode.
+- [x] 2.3.1 Reject desktop clipboard frames unless an explicit redirection policy enables clipboard access.
+- [x] 2.3.2 Add policy-aware desktop frame encode/decode helpers so redirection gates apply consistently.
+- [x] 2.3.3 Enforce desktop clipboard frame direction against the configured clipboard redirection mode.
+- [x] 2.3.4 Deny desktop screen and clipboard content recording unless matching content-recording policy is explicitly enabled.
+- [x] 2.3.5 Add adapter-facing desktop frame-rate and bitrate quota enforcement for update frames.
+- [x] 2.3.6 Add adapter-facing desktop idle timeout and session TTL enforcement.
+- [x] 2.3.7 Bound desktop quality-control requests to the per-session screen policy.
+- [x] 2.3.8 Bind desktop content-recording checks to the adapter-facing session guard target policy.
+- [x] 2.4 Add audit/recording metadata events for session lifecycle, credential mode, target TLS/NLA posture, frame statistics, redirection decisions, and termination reason.
+- [x] 2.4.1 Add safe agent-side desktop audit metadata for route, target, TLS, credential mode, policy, redirection, recording, and grant binding posture.
+- [x] 2.4.2 Add safe desktop frame audit metadata for frame statistics and redirection decisions without retaining frame payload contents.
+- [x] 2.4.3 Add capped, normalized desktop termination audit metadata without retaining frame payload contents.
+- [x] 2.4.4 Add fixed-type desktop lifecycle audit metadata for open, ready, close, error, and revocation events.
+
+## 3. Agent Route And RDP Adapter
+- [x] 3.1 Add typed desktop control frames to the agent-gateway control route and a dedicated desktop media stream for screen updates, without reusing terminal byte frames blindly.
+- [x] 3.1.1 Reuse the camera media relay architecture where practical: agent gRPC, gateway admission/session tracking, ERTS RPC forwarding, core-elx/web-ng ingress, chunk limits, heartbeat, and close semantics.
+- [x] 3.1.2 Add desktop-specific bidirectional credits/acks, quality downgrade, pause/resume, and browser backpressure handling before advertising `remote_access.rdp`.
+- [x] 3.1.3 Model desktop media flow control on a channel-window pattern: initial credit, max chunk size, window adjustment, EOF, close, and stale-frame coalescing/drop behavior.
+- [x] 3.1.4 Add the Go-side SRDP binary desktop media frame envelope, ack validation, and credit-window helper that matches the browser parser contract.
+- [x] 3.1.5 Add browser-side desktop media acknowledgements over the WebRTC control DataChannel with session/media binding and fresh credit.
+- [x] 3.1.6 Add the Go-side browser control-message decoder for desktop media acknowledgements.
+- [x] 3.1.7 Add production-oriented low-copy desktop media helpers for reusable headers, vectored writes, and no-copy frame views.
+- [x] 3.1.8 Coalesce browser desktop media acknowledgements and return actual consumed byte credit instead of fixed per-frame credit.
+- [x] 3.1.9 Drop stale non-critical browser media frames under renderer backpressure before metadata parsing/render dispatch while still returning consumed credit.
+- [x] 3.1.10 Make renderer-owned raw metadata bytes the only browser media-frame contract; do not eagerly parse metadata JSON in the WebRTC receive loop.
+- [x] 3.1.11 Use a per-client desktop media parser cache for stable session/media/encoding strings so repeated frames avoid repeated `TextDecoder` work.
+- [x] 3.1.12 Track accepted desktop media ack sequence on the sender credit window and reject replayed/out-of-order acks before granting credit.
+- [x] 3.1.13 Cap per-ack desktop media credit grants on the sender credit window so one oversized browser ack cannot inflate the send window.
+- [x] 3.1.14 Keep browser desktop media acknowledgements binding-aware when pending acks cannot flush immediately.
+- [x] 3.1.15 Avoid full reused-header zeroing in the Go desktop media frame hot path while still resetting reserved bytes.
+- [x] 3.1.16 Piggyback browser pause/resume and quality hints on desktop media acknowledgements when renderer queues cross backpressure thresholds.
+- [x] 3.1.16.1 Treat a bounded browser render queue at capacity as backpressured so pause/quality-downshift acknowledgements can fire before the queue exceeds its hard cap.
+- [x] 3.1.16.2 Base browser media pause acknowledgements on post-enqueue renderer queue state so the frame that fills the bounded queue triggers backpressure immediately.
+- [x] 3.1.17 Preserve desktop media ack pause/resume, quality, and close hints in the Go sender credit window without granting duplicate credit.
+- [x] 3.1.18 Reject unsupported desktop media ack quality levels before adapter code consumes sender flow-control state.
+- [x] 3.1.19 Stop normal Go desktop media sends after a close ack while still allowing EOF delivery.
+- [x] 3.1.20 Send a final browser desktop media close acknowledgement before closing WebRTC DataChannels when a media binding is known.
+- [x] 3.1.21 Cap desktop media close-reason strings on browser emission and Go ack validation.
+- [x] 3.1.22 Enforce desktop media close-reason caps by UTF-8 byte length and store trimmed Go close reasons.
+- [x] 3.1.23 Treat Go desktop media close acknowledgements as terminal for subsequent sender credit-window updates.
+- [x] 3.1.24 Enforce Go desktop media max chunk limits against metadata plus payload credit cost, not payload bytes alone.
+- [x] 3.1.25 Bind SRDP media frame validation to the desktop session guard route and lifetime checks.
+- [x] 3.1.26 Bind SRDP media acknowledgement validation to the desktop session guard route and lifetime checks.
+- [x] 3.1.27 Apply SRDP media acknowledgements through the desktop session guard so route/lifetime validation and credit-window mutation stay on one path.
+- [x] 3.1.28 Add the desktop media gRPC service contract for route-bound open, bidirectional frame/control streaming, heartbeat, and close semantics.
+- [x] 3.1.29 Add agent gateway client methods for opening, streaming, heartbeating, and closing dedicated desktop media sessions.
+- [x] 3.1.30 Add Elixir protobuf bindings for the dedicated desktop media service so agent-gateway and core-elx can implement the stream API.
+- [x] 3.1.31 Add a supervised agent-gateway desktop media session tracker for route-bound lifecycle, counters, browser credit acknowledgement state, and close state.
+- [x] 3.1.32 Register the agent-gateway desktop media gRPC service with mTLS identity checks, fail-closed stream behavior, and tracker-backed open/heartbeat/close semantics.
+- [x] 3.1.33 Add session-bound desktop media stream handling for heartbeat/close control messages while rejecting frame payloads until the core/browser forwarder is implemented.
+- [x] 3.1.34 Add a configurable agent-gateway desktop media frame forwarder seam that records frame counters and applies downstream acknowledgements only after a forwarder accepts the frame.
+- [x] 3.1.35 Add an ERTS RPC desktop media forwarder and core-elx per-session ingress boundary for gateway-accepted frame chunks.
+- [x] 3.1.36 Add a core-elx desktop media session manager for viewer attachment state, payload-free frame accounting, and pause acknowledgements when no browser viewer is attached.
+- [x] 3.1.37 Bind core-elx desktop media credit grants to browser acknowledgements instead of granting fresh credit merely because a frame reached core memory.
+- [x] 3.1.38 Add a core-elx WebRTC signaling owner media-ack entry point that routes browser credit acknowledgements to the desktop media session manager without exposing an HTTP/WebSocket fallback.
+- [x] 3.1.39 Add a core-elx SRDP media-frame envelope encoder that matches the Go agent and browser parser contracts for WebRTC DataChannel handoff.
+- [x] 3.1.40 Add a supervised core-elx ExWebRTC DataChannel media provider for server-created desktop media/control channels, SRDP frame sends, and browser ack routing.
+- [x] 3.1.41 Make the supervised core-elx DataChannel provider the default desktop WebRTC offer provider so runtime sessions do not depend on an out-of-band app-env knob.
+- [x] 3.1.42 Wrap adapter-facing desktop media senders with the session guard so SRDP frames are validated before entering the dedicated media stream.
+- [x] 3.1.43 Add an agent-side desktop media gateway sender that opens the route-bound gRPC media session, maps SRDP frames to protobuf chunks, and routes gateway acknowledgements.
+- [x] 3.1.44 Route browser/gateway desktop media acknowledgements through the adapter-facing session guard before concrete RDP adapters can consume backpressure state.
+- [x] 3.1.45 Normalize and cap desktop media gateway close reasons on both outbound close requests and inbound gateway close notifications.
+- [x] 3.1.46 Validate desktop media gateway acknowledgements at the sender boundary before invoking registered handlers.
+- [x] 3.1.47 Normalize desktop media acknowledgement close reasons before storing sender credit-window terminal state.
+- [x] 3.1.48 Treat whitespace-only desktop media acknowledgement close reasons as empty before accepting same-sequence control acknowledgements.
+- [x] 3.1.49 Normalize desktop media gateway acknowledgement close reasons before registered handler callbacks receive them.
+- [x] 3.1.50 Reject desktop media gateway chunk negotiation above the absolute SRDP frame-data limit.
+- [x] 3.1.51 Validate SRDP media frame envelopes at the gateway sender boundary before protobuf conversion.
+- [x] 3.1.52 Close accepted desktop media gateway sessions when the stream-open phase fails.
+- [x] 3.1.53 Close accepted desktop media gateway sessions when accepted response validation fails with enough returned binding data.
+- [x] 3.1.54 Close accepted desktop media gateway sessions when stream-open returns a nil stream without an error.
+- [x] 3.1.55 Close accepted desktop media gateway sessions when accepted response validation fails before media-ingest binding is available.
+- [x] 3.1.56 Reject desktop media heartbeat and close control calls with mismatched media-ingest bindings.
+- [x] 3.1.57 Reject desktop media frame chunks with mismatched media-ingest bindings before forwarding.
+- [x] 3.1.58 Reject desktop media acknowledgement credit mutations with mismatched media-ingest bindings.
+- [x] 3.1.59 Reject frame, heartbeat, and acknowledgement mutations after a desktop media session starts closing.
+- [x] 3.1.60 Reject frame, heartbeat, and acknowledgement mutations after the desktop media session lease expires.
+- [x] 3.1.61 Reject desktop media frame counter mutations with mismatched media-ingest bindings.
+- [x] 3.1.62 Add a core-elx browser desktop control forwarder seam so keyboard, pointer, focus, resize, quality, and disconnect frames can leave the WebRTC media manager without retaining input tokens in manager state.
+- [x] 3.1.63 Route core-elx browser desktop control frames to the active remote-access broker so low-rate RDP input can use the selected agent control route.
+- [x] 3.1.64 Route agent-side typed desktop control frames from the selected-agent control stream into active desktop adapter sessions instead of the terminal PTY manager.
+- [x] 3.1.65 Preserve the desktop media gateway sender ownership contract by treating stream sends as synchronous consumption of frame metadata and payload buffers.
+- [x] 3.1.66 Reject inbound desktop media gateway ACK and close messages whose media-ingest, agent, or gateway bindings do not match the accepted stream.
+- [x] 3.1.67 Reject shared Go SRDP media frames with trailing payload bytes or non-zero reserved header bytes before adapter forwarding.
+- [x] 3.1.68 Reject SRDP media frames with unknown flag bits across Go, Rust, core-elx, and browser envelope boundaries.
+- [ ] 3.2 Implement the agent RDP adapter for registered targets only, including TLS/NLA verification and credential handling.
+- [x] 3.2.1 Add agent-side desktop open-frame decoding that rejects unselected routes before adapter dial.
+- [x] 3.2.2 Add an agent-side RDP adapter runtime seam that validates registered target route/TLS/NLA policy, requires a dedicated media sender, and fails closed until a concrete adapter is injected.
+- [x] 3.2.3 Gate `remote_access.desktop` and `remote_access.rdp` capability advertisement on explicit agent config plus a locally executable per-session RDP helper.
+- [x] 3.2.4 Add a bounded local IPC frame protocol for the per-session RDP helper so screen payloads use length-prefixed binary frames instead of ad hoc JSON.
+- [x] 3.2.5 Add the agent-side per-session RDP helper adapter wrapper that sends the trusted open payload, routes input/control frames to the helper, forwards SRDP media frames to the gateway sender, and tears down on close.
+- [x] 3.2.6 Add typed Rust helper open-payload parsing, fail-closed credential grant validation, and a backend boundary for the IronRDP connector implementation.
+- [x] 3.2.7 Add an IronRDP feature backend target that links the reviewed `ironrdp-core`/`ironrdp-pdu` crates while still failing closed until the connector loop is implemented.
+- [x] 3.2.8 Add helper-side fail-closed validation for RDP upstream port bounds, TLS/NLA posture, disabled redirection, and metadata-only recording before connector code can consume an open payload.
+- [x] 3.2.9 Add helper-side fail-closed validation for session timestamps, route allowlists, supported credential modes, and bounded screen policy before connector code can consume an open payload.
+- [x] 3.2.10 Add a Rust helper backend session seam so post-open input, acknowledgement, and close frames route through an active adapter session instead of being rejected as pre-open traffic.
+- [x] 3.2.11 Add an RDP helper capability probe and keep agent RDP capability advertisement disabled until the helper explicitly reports a ready connector.
+- [x] 3.2.12 Add the IronRDP feature backend's non-secret connection plan for registered upstream endpoint, TLS server identity, and screen dimensions while keeping credentials out of copied connector-owned state.
+- [x] 3.2.13 Require RDP helper capability probes to fail closed unless the IronRDP backend is linked as well as connector-ready.
+- [x] 3.2.14 Route validated desktop media acknowledgements from the Go adapter into the RDP helper IPC acknowledgement channel for end-to-end backpressure.
+- [x] 3.2.15 Parse and validate RDP helper desktop media acknowledgements before concrete Rust backend sessions can consume backpressure state.
+- [x] 3.2.16 Parse and validate RDP helper desktop input/control frames and close metadata before concrete Rust backend sessions can consume them.
+- [x] 3.2.17 Validate and clear RDP helper close payloads before session teardown decisions, including close frames received before backend open.
+- [x] 3.2.18 Re-validate agent-to-helper desktop input and media acknowledgement frames at the IPC boundary before serialization.
+- [x] 3.2.19 Reject screen update and clipboard frame types on the agent-to-helper input/control channel before IPC serialization.
+- [x] 3.2.20 Normalize and cap agent-to-helper disconnect control-frame reasons before IPC serialization.
+- [x] 3.2.21 Reject helper-to-agent SRDP media payloads with trailing bytes before forwarding them to the gateway media sender.
+- [x] 3.2.22 Normalize desktop media acknowledgement close reasons before agent-to-helper IPC serialization.
+- [x] 3.2.23 Normalize helper-side media acknowledgement, disconnect, and close reasons before backend delivery.
+- [x] 3.2.24 Reject helper-to-agent SRDP media frames whose desktop session binding does not match the active adapter session.
+- [x] 3.2.25 Send RDP broker open frames as desktop open payloads containing the registered target policy snapshot instead of SSH-shaped open data.
+- [x] 3.2.26 Wire agent-side RDP open frames into the desktop media gateway sender, RDP helper adapter runtime, ready response, and active desktop session registry.
+- [x] 3.2.27 Add a Bazel-only adapter connector-config probe proving validated ServiceRadar open payloads can map to IronRDP connector config through the isolated connector crate universe while runtime readiness stays disabled.
+- [x] 3.2.28 Add explicit adapter-side TLS trust-source planning for system roots, registered CA bundles, and pinned CA bundle requirements before connector code can consume a target policy.
+- [x] 3.2.29 Add a Bazel-only adapter initial-negotiation probe proving the mapped IronRDP connector config advertises NLA/CredSSP without plain TLS fallback while runtime readiness stays disabled.
+- [x] 3.2.30 Add a Bazel-only adapter server-confirm probe proving HYBRID/HYBRID_EX confirms reach the TLS upgrade then CredSSP boundary and TLS-only confirms are rejected.
+- [x] 3.2.31 Add a Bazel-only adapter `ironrdp-blocking` connect-begin probe proving the mapped config can reuse the upstream blocking connector loop through the TLS upgrade boundary without pre-TLS password exposure.
+- [x] 3.2.32 Add a Bazel-only adapter `ironrdp-blocking` connect-finalize probe proving the mapped config enters CredSSP after TLS upgrade without cleartext password exposure before server input.
+- [x] 3.2.33 Add a Bazel-only adapter TLS peer-certificate public-key extraction probe proving CredSSP binding input can be derived from verified certificate bytes inside the isolated connector crate universe.
+- [x] 3.2.34 Bind the Bazel-only adapter `ironrdp-blocking` connect-finalize probe to certificate-derived CredSSP public-key bytes instead of placeholder binding input.
+- [x] 3.2.35 Type the Bazel-only adapter CredSSP binding input as verified TLS peer public-key material so future connector code does not pass arbitrary byte vectors across the TLS/CredSSP boundary.
+- [x] 3.2.36 Add a Bazel-only adapter active-stage input probe proving validated helper policy can encode keyboard input into an RDP response frame while runtime readiness stays disabled.
+- [x] 3.2.37 Add Bazel-only adapter input translation for ServiceRadar keyboard, pointer, and focus frames into IronRDP active-stage input events while rejecting unsupported tokens.
+- [x] 3.2.38 Add a Rust helper media-drain contract so concrete backend sessions can emit already-encoded SRDP media frames over helper IPC after input or acknowledgement processing.
+- [x] 3.2.39 Add a Rust helper SRDP media-frame encoder matching the Go/browser binary envelope for future IronRDP graphics output.
+- [x] 3.2.40 Add Bazel-only adapter graphics-output translation from IronRDP active-stage dirty rectangles into SRDP dirty-rect media frames.
+- [x] 3.2.41 Add Bazel-only adapter active-stage output routing so RDP response frames go upstream and SRDP media frames queue for helper IPC drain.
+- [x] 3.2.42 Add a Bazel-only active-stage session harness that accepts ServiceRadar browser input, drives IronRDP input processing, writes upstream response bytes, and exposes media drain semantics.
+- [x] 3.2.43 Add a helper backend pump seam so server-driven RDP media can be emitted while browser IPC input is idle.
+- [x] 3.2.44 Make the production helper binary use the pumped stdio loop without marking the IronRDP connector ready.
+- [x] 3.2.45 Bind the Bazel-only active-stage server-read probe to the helper backend pump seam so future connector sessions can emit server-driven media through the same contract.
+- [x] 3.2.46 Add a Bazel-only active-stage handoff constructor that accepts an IronRDP `ConnectionResult` so future `connect_finalize` output can enter the same input/media/pump session path.
+- [x] 3.2.47 Add a Bazel-only network-pump handoff constructor that accepts a framed stream plus IronRDP `ConnectionResult` so future finalized connector sessions can use the same backend session contract.
+- [x] 3.2.48 Add a Bazel-only verified TLS client-config probe proving registered PEM CA bundles build normal Rustls verification, reject DER/invalid bundles, and disable TLS resumption for CredSSP while runtime readiness stays disabled.
+- [x] 3.2.49 Add a Bazel-only system-root TLS client-config probe proving the selected agent host's native trust store can build normal Rustls verification and fail closed on load errors while runtime readiness stays disabled.
+- [x] 3.2.50 Carry the registered RDP CA bundle ID from desktop target policy into broker-generated agent/helper open payloads so verified and pinned-CA connector paths have an explicit non-secret trust-anchor handle.
+- [x] 3.2.51 Reject `pinned_ca` RDP target policy before adapter/backend execution unless the trusted target snapshot includes a registered CA bundle ID.
+- [x] 3.2.52 Carry bounded registered RDP CA bundle PEM material in trusted agent/helper open payloads so verified TLS can be built without agent-local trust registry state.
+- [x] 3.2.53 Bind adapter-side verified Rustls client-config construction to the non-secret connection plan's selected TLS trust source.
+- [x] 3.2.54 Add explicit helper capability not-ready reasons so operators can distinguish an unlinked backend from an IronRDP-linked helper awaiting live auth/media/demo validation.
+- [x] 3.2.55 Run the connector-linked helper's runtime open path through verified TLS trust and connector-config input preflight before returning connector-not-ready.
+- [x] 3.2.56 Build and carry real Rustls client configs with resumption disabled from the selected TLS trust source for the future connector upgrade path.
+- [x] 3.2.57 Add a connector-linked connect-begin handoff that owns the framed stream, connector state, verified TLS config, and server name before TLS upgrade while runtime readiness stays disabled.
+- [x] 3.2.58 Add a connector-linked CredSSP-ready handoff that marks the verified TLS upgrade boundary and carries certificate-derived server public-key material into finalization while runtime readiness stays disabled.
+- [x] 3.2.59 Add a connector-linked finalized handoff boundary that preserves the framed stream and can enter the existing active-stage network-pump session contract after `connect_finalize` succeeds.
+- [x] 3.2.60 Parameterize the connector handoff client socket address so future live TCP dials can pass the selected local endpoint into IronRDP instead of relying on a hardcoded loopback address.
+- [x] 3.2.61 Add a connector-linked non-secret dial target preflight that formats registered target endpoints, handles IPv6 bracket formatting, and rejects unusable host text before live TCP code is added.
+- [x] 3.2.62 Add a connector-linked dialed-stream boundary that carries the registered remote endpoint and local client socket address into connect-begin handoff without exposing credential material.
+- [x] 3.2.63 Add a connector-linked TCP dial helper that turns a registered dial target into a dialed stream with local client address while runtime readiness remains disabled.
+- [x] 3.2.64 Add a connector-linked TCP connect-begin boundary that dials a registered target stream and drives IronRDP to the TLS-upgrade boundary while runtime readiness remains disabled.
+- [x] 3.2.65 Keep the connector-linked TCP connect-begin boundary fail-closed when a real stream selects plain TLS instead of CredSSP/NLA.
+- [x] 3.2.66 Add a connector-linked verified Rustls upgrade boundary that consumes the post-connect-begin stream, verifies the registered server identity/CA, extracts certificate-derived CredSSP binding material, and marks the connector TLS-upgraded while runtime readiness remains disabled.
+- [x] 3.2.67 Keep the connector-linked verified Rustls upgrade boundary fail-closed when the registered server identity does not match the trusted RDP endpoint certificate.
+- [x] 3.2.68 Keep the connector-linked verified Rustls upgrade boundary fail-closed when the endpoint certificate is not signed by the registered/pinned RDP trust source.
+- [x] 3.2.69 Apply the selected connector TCP timeout to connected stream reads and writes so later TLS/CredSSP phases fail closed instead of hanging on unresponsive endpoints.
+- [x] 3.2.70 Drive the connector-linked verified TLS handoff into the CredSSP finalization boundary over a real Rustls stream while preserving fail-closed behavior and password redaction.
+- [x] 3.2.71 Add an experimental connector-open boundary that owns TCP dial, NLA negotiation, verified Rustls upgrade, and CredSSP-ready handoff behind the optional connector artifact while runtime readiness remains disabled.
+- [x] 3.2.72 Add an open-shaped experimental connector path that performs validated request/credential parsing and reaches the verified CredSSP-ready handoff while runtime readiness remains disabled.
+- [x] 3.2.73 Add a ServiceRadar-owned bounded TCP-only SSPI/Kerberos network client for future CredSSP finalization instead of importing Teleport's AGPL network-client implementation.
+- [x] 3.2.74 Wire the ServiceRadar-owned bounded KDC client into the experimental CredSSP finalization boundary while preserving connector-not-ready runtime posture.
+- [x] 3.2.75 Carry trusted target Kerberos/KDC routing metadata into the connector plan and CredSSP finalization boundary without treating it as credential material.
+- [x] 3.2.76 Drive the open-shaped experimental connector path through bounded CredSSP finalization before the readiness gate while preserving connector-not-ready runtime posture.
+- [x] 3.2.77 Bind finalized connector handoffs to trusted broker media-session metadata before constructing the helper backend session shape.
+- [x] 3.2.78 Force successful experimental connector finalization through the media-bound network-pump constructor while runtime readiness remains disabled.
+- [x] 3.2.79 Cap non-media RDP helper IPC frames before payload allocation so only SRDP media frames can use the large helper frame budget.
+- [x] 3.2.80 Mirror RDP helper IPC frame type and non-media size caps in the Rust helper before payload allocation.
+- [x] 3.2.81 Keep the non-media helper IPC cap high enough for bounded registered CA bundle open payloads while still rejecting oversized control frames.
+- [x] 3.2.82 Document the RDP helper media-sender ownership contract so helper IPC buffers can be zeroed after synchronous send without async slice retention.
+- [x] 3.2.83 Cap RDP helper capability-probe stdout before JSON decoding so incomplete helpers cannot force unbounded probe buffering.
+- [x] 3.2.84 Sanitize and cap RDP helper connector-readiness reasons and reject ready helpers that still report a not-ready reason.
+- [x] 3.2.85 Remove the connector-linked experimental helper's artificial finalized-session readiness gate so successful CredSSP finalization can return an active network-pump backend session.
+- [x] 3.2.86 Align the helper connector-not-ready reason and operator docs with the remaining live auth/media/demo validation gate.
+- [x] 3.3 Ensure credentials, generated keys, RDP files, and credential caches are memory-only and are dropped on session close, timeout, policy revocation, or route loss.
+- [x] 3.3.1 Tighten agent desktop credential grant validation for brokered-secret custody and memory-user credential completeness.
+- [x] 3.3.2 Add an agent-side desktop credential grant cleanup helper for adapter close/error paths.
+- [x] 3.3.3 Reject expired brokered desktop credential grants before adapter use.
+- [x] 3.3.4 Drop adapter-open credential grant material immediately after the adapter open call, including failure paths.
+- [x] 3.3.5 Mark guarded RDP adapter sessions closed before calling concrete adapter cleanup so post-close input and media frames fail closed.
+- [x] 3.3.6 Zeroize raw helper open-frame payload bytes immediately after parsing so memory-user credential material is not retained in the IPC frame buffer.
+- [x] 3.3.7 Add the IronRDP feature backend's memory-user credential wrapper with zeroizing storage and redacted debug output while keeping connector readiness disabled.
+- [x] 3.3.8 Split domain-qualified memory-user credentials into zeroizing domain/login fields before future connector config construction.
+- [x] 3.3.9 Require memory-user credential grants to carry exact helper-side session and target bindings before connector code can consume them.
+- [x] 3.3.10 Align the Go adapter runtime with helper credential binding by requiring explicit memory-user session/target bindings and rejecting session mismatches before helper handoff.
+- [x] 3.3.11 Harden the per-session RDP helper process against credential-bearing core dumps before reading session frames.
+- [x] 3.3.12 Make agent-side RDP helper process shutdown context-aware so stuck helpers are killed during session cleanup.
+- [x] 3.3.13 Zero serialized helper input and close payload buffers after IPC handoff so typed keystrokes and close metadata are not retained in agent memory.
+- [x] 3.3.14 Mark agent-side RDP helper sessions terminal and close their transport when the helper reports an error or emits invalid frames.
+- [x] 3.3.15 Mark helper-initiated RDP close frames terminal, close their transport, and keep later manager cleanup idempotent.
+- [x] 3.3.16 Normalize and cap agent-to-helper close reasons before IPC so close metadata cannot exceed the helper validation budget.
+- [x] 3.3.17 Decode, normalize, cap, and clear helper-to-agent terminal close/error metadata before session teardown.
+- [x] 3.3.18 Drop agent-side credential grant material on helper resolve/start failures and other early adapter-open returns.
+- [x] 3.3.19 Reject helper-to-agent close payloads with trailing JSON or garbage while still clearing the raw payload buffer.
+- [x] 3.3.20 Clear raw helper-to-agent SRDP media payload buffers after successful forwarding and media-sender failures.
+- [x] 3.3.21 Reject RDP opens that require a credential grant before reserving desktop media or starting adapter/helper work.
+- [x] 3.3.22 Convert browser user-present RDP attach credentials into session/target/route-bound desktop memory-user grants instead of SSH-shaped metadata.
+- [x] 3.3.23 Avoid constructing connector-owned password copies during connector-not-ready runtime preflight.
+- [x] 3.4 Add resize, keyboard, pointer, focus, backpressure, frame quota, bitrate quota, and route-loss behavior.
+- [x] 3.4.1 Bound desktop pointer coordinates and keyboard/button token sizes before adapter input handling.
+- [x] 3.4.2 Add a desktop update-frame quota window for adapter frame-rate and bitrate enforcement.
+- [x] 3.4.3 Add desktop idle timeout and session TTL validation for adapter close behavior.
+- [x] 3.4.4 Add desktop selected-route validation for adapter route-loss close behavior.
+- [x] 3.4.5 Reject desktop quality-control requests above the approved session frame rate, bitrate, or resolution.
+- [x] 3.4.6 Add an adapter-facing desktop session guard that composes route, lifetime, frame policy, and quota checks.
+- [x] 3.4.7 Avoid repeated target normalization in the adapter-facing desktop session guard hot path.
+- [x] 3.4.8 Wrap concrete RDP adapter sessions with the adapter-facing session guard so browser input/control frames are validated before adapter dispatch.
+- [x] 3.4.9 Release the adapter guard lock before forwarding accepted input/media frames so concrete adapter callbacks cannot deadlock the policy guard.
+
+## 4. Operator And User Experience
+- [x] 4.1 Add web-ng target administration for desktop/RDP targets and redirection policy fields.
+- [x] 4.1.1 Add a durable Ash/Postgres registered RDP desktop target resource with route, credential custody, TLS/NLA, screen, redirection, recording, approval, and metadata fields.
+- [x] 4.1.2 Add a `settings.edge.manage`-gated admin API for listing, creating, updating, enabling, and disabling registered RDP desktop targets without exposing plaintext credential-shaped fields.
+- [x] 4.1.3 Add a `settings.edge.manage`-gated settings LiveView for listing, creating, editing, enabling, and disabling RDP desktop targets with route, TLS/NLA, screen, clipboard redirection, recording, and allowed-principal controls.
+- [x] 4.1.4 Add operator-facing Kerberos/KDC routing fields for RDP desktop targets and keep browser session metadata from overriding those trusted values.
+- [x] 4.2 Add a browser graphical renderer for authorized RDP sessions with visible target identity, recording state, credential mode, redirection state, quota state, and approval status.
+- [x] 4.2.1 Implement the browser media golden path: WebRTC session/signaling, WebRTC media tracks for encoded video, WebRTC DataChannel for binary frame envelopes and backpressure, WebGPU dirty-region/tile renderer, WASM helper boundary, and explicit browser backpressure.
+- [x] 4.2.1.1 Add the browser-side WebRTC signaling helper and binary desktop media frame parser/selector contract.
+- [x] 4.2.1.2 Add the server-side web-ng WebRTC signaling facade/controller contract for `webrtc_desktop_media`.
+- [x] 4.2.1.3 Add a browser WebGPU queue adapter for dirty-region/tile upload descriptors.
+- [x] 4.2.1.4 Route the browser render drain through WebGPU tile uploads when a queue/texture is available, keeping Canvas2D as the local harness fallback.
+- [x] 4.2.1.5 Add a browser renderer-target boundary so Canvas2D, WebGPU, and future WASM/GPU compositor paths share one hot-path frame application seam.
+- [x] 4.2.1.6 Cache the browser session renderer target so the animation loop does not reacquire the Canvas2D context on every tick.
+- [x] 4.2.1.7 Add a browser WebCodecs video renderer target behind the shared render-target boundary for encoded desktop video payloads.
+- [x] 4.2.1.8 Compact sparse dirty-rectangle rows only in the Canvas fallback path while preserving `bytesPerRow` zero-copy uploads for WebGPU.
+- [x] 4.2.1.9 Add a pluggable browser media-processing boundary for future worker/WASM parsing, dirty-region state, and backpressure without changing the WebRTC client contract.
+- [x] 4.2.1.10 Add receive-side WebRTC video-track handling and a browser video surface for future browser-decodable desktop media tracks.
+- [x] 4.2.1.11 Fail closed on malformed browser desktop media frames by reporting the processing error and closing the WebRTC viewer session.
+- [x] 4.2.1.12 Fail closed on malformed browser desktop control frames by reporting the processing error and closing the WebRTC viewer session.
+- [x] 4.2.1.13 Keep browser render drains alive when one desktop frame cannot be rendered, surfacing the renderer error and counting the failed frame as dropped.
+- [x] 4.2.1.14 Ignore stale browser desktop media/control DataChannel messages after viewer-session close.
+- [x] 4.2.1.15 Reject browser SRDP media frames with trailing bytes so DataChannel payloads match the validated frame envelope exactly.
+- [x] 4.2.1.16 Reject browser SRDP media frames with non-zero reserved header bytes so future protocol extensions fail closed until explicitly supported.
+- [x] 4.2.2 Keep Apache Arrow IPC limited to structured desktop metadata, audit/stat snapshots, overlays, or frame manifests; do not use Arrow IPC as the default screen-pixel transport.
+- [x] 4.2.3 Add a browser-facing sanitized desktop policy snapshot to RDP session responses for target identity, route, credential custody, redirection, quota, approval, and recording posture.
+- [x] 4.2.4 Add browser renderer-state helpers that normalize the RDP policy snapshot into stable visible status items without retaining secret-shaped fields.
+- [x] 4.2.5 Add the first browser RDP session shell hook/component that consumes WebRTC session metadata and visible policy posture without exposing credential material.
+- [x] 4.2.6 Add tested browser RDP session shell behavior for WebRTC readiness, visible posture, hook prop parsing, and cleanup without retaining credential material.
+- [x] 4.2.7 Add the first browser canvas-backed render drain for queued desktop tile frames, with visible renderer counters and session-change cleanup.
+- [x] 4.2.8 Add browser keyboard, pointer, focus, and resize control-frame emission over the WebRTC control channel using the agent-side desktop frame schema.
+- [x] 4.2.9 Show browser-side desktop backpressure state, render queue budget, dropped-frame count, and last rendered sequence in the RDP session shell.
+- [x] 4.2.10 Show browser-visible RDP TLS/NLA transport posture in the desktop session shell without exposing credential material.
+- [x] 4.3 Add recording/audit views for desktop session lifecycle and metadata without screen frames, clipboard content, file content, or audio by default.
+- [x] 4.3.1 Allow RDP-authorized operators to review RDP metadata-only recordings while hiding SSH recordings from RDP-only users.
+- [x] 4.3.2 Show RDP recording metadata snapshots for route, credential custody, target TLS/NLA posture, screen quotas, redirection policy, approval state, and recording mode without exposing desktop payloads.
+- [x] 4.3.3 Show recording lifecycle status, started/completed timestamps, retention, and failure reason alongside desktop policy metadata without exposing screen or clipboard payloads.
+- [x] 4.4 Add operator docs for registering RDP targets, configuring credential modes, target TLS/NLA trust, redirection controls, and session recording policy.
+
+## 5. Validation And Demo
+- [x] 5.1 Add unit tests for resource normalization, override rejection, RBAC, approval, redirection gates, quota enforcement, and audit records.
+- [x] 5.1.1 Add RBAC catalog tests for RDP open permission and Phoenix controller tests for desktop WebRTC signaling gates.
+- [x] 5.1.2 Add core-elx tests for desktop WebRTC signaling lifecycle, missing sessions, unsupported protocols, answers, candidates, and expiry.
+- [x] 5.1.3 Add focused Go tests for desktop clipboard redirection denial by default and explicit policy opt-in.
+- [x] 5.1.4 Add focused Go tests for selected-agent route allowlists and allowed desktop login principals.
+- [x] 5.1.5 Add focused Go tests for policy-aware desktop frame encode/decode clipboard gating.
+- [x] 5.1.6 Add focused Go tests for desktop clipboard direction enforcement.
+- [x] 5.1.7 Add focused Go tests proving desktop audit metadata omits credential secrets and caller-supplied metadata.
+- [x] 5.1.8 Add focused Go tests proving desktop frame audit metadata omits payload contents and input tokens.
+- [x] 5.1.9 Add focused Go tests proving desktop termination audit reasons are capped and sanitized.
+- [x] 5.1.10 Add focused Go tests proving desktop screen and clipboard content recording is denied by default.
+- [x] 5.1.11 Add focused Go tests proving session guard content-recording checks use the target policy snapshot.
+- [x] 5.1.12 Add focused Go tests proving desktop lifecycle audit metadata uses fixed event types and omits secrets.
+- [x] 5.1.13 Add Phoenix controller tests proving existing RDP sessions use the RDP permission for show/close authorization.
+- [x] 5.1.14 Add Phoenix controller, LiveView, and navigation tests proving RDP-only users can view RDP recording metadata/events but not SSH recordings.
+- [x] 5.1.15 Add focused core and LiveView tests proving RDP recording manifests and views expose safe desktop policy posture metadata without credential or payload persistence.
+- [x] 5.1.16 Add a focused Phoenix controller test proving RDP session responses expose sanitized desktop policy posture without leaking nested credential material.
+- [x] 5.1.17 Add focused browser renderer-state tests proving RDP policy snapshot status items are stable and do not retain secret-shaped fields.
+- [x] 5.1.18 Add focused Phoenix controller tests proving authorized RDP desktop target listing is feature-gated, uses RDP permissions, supports a provider/static source seam, and strips secret-shaped fields.
+- [x] 5.1.19 Add focused Phoenix controller tests proving RDP session creation is feature-gated, uses RDP permissions, binds to authorized desktop targets, and rejects browser-selected target overrides.
+- [x] 5.1.20 Add a focused Phoenix controller test proving authorized RDP target listing reads persisted registered desktop targets by default without exposing secret-shaped metadata.
+- [x] 5.1.21 Add focused Phoenix controller tests proving RDP target admin APIs require `settings.edge.manage`, normalize target policy inputs, persist updates, toggle enabled state, and reject invalid target ports.
+- [x] 5.1.22 Add focused LiveView tests proving RDP target settings routes are feature-gated, require `settings.edge.manage`, create targets, and toggle enabled state.
+- [x] 5.1.23 Add focused browser component and LiveView hook tests for the RDP session shell policy posture, WebRTC availability state, prop parsing, and unmount cleanup.
+- [x] 5.1.24 Add focused browser component tests proving the RDP session shell renders backpressure queue state without exposing secret-shaped policy fields.
+- [x] 5.1.25 Add focused browser renderer-state and component tests proving RDP TLS/NLA transport posture is visible without exposing secret-shaped policy fields.
+- [x] 5.1.26 Add focused LiveView/controller coverage proving RDP Kerberos/KDC routing metadata is operator-managed and browser session metadata cannot override it.
+- [x] 5.2 Add RDP adapter tests for TLS/NLA policy, credential non-persistence, rendering frames, resize, keyboard/pointer events, backpressure, cancellation, and cleanup.
+- [x] 5.2.1 Add focused Go tests for brokered desktop credential custody binding and memory-user credential completeness.
+- [x] 5.2.2 Add focused Go tests for desktop credential grant cleanup semantics.
+- [x] 5.2.3 Add focused Go tests for brokered desktop credential grant expiry.
+- [x] 5.2.4 Add focused Go tests proving the RDP adapter runtime validates route/TLS/NLA policy, fails closed without an adapter/media sender, and clears memory-user credential material after adapter open.
+- [x] 5.2.5 Add focused Go tests proving the RDP adapter runtime rejects invalid browser input frames before they reach the concrete adapter session.
+- [x] 5.2.6 Add focused Go tests proving the RDP adapter runtime rejects invalid SRDP media frames before they reach the concrete media sender.
+- [x] 5.2.7 Add focused Go tests proving guarded RDP adapter sessions close idempotently and reject post-close input/media frames.
+- [x] 5.2.8 Add focused Go tests proving RDP capability advertisement stays disabled until config enables it and the helper binary is executable.
+- [x] 5.2.9 Add focused Go tests proving the RDP helper IPC protocol round-trips frames and rejects invalid, oversized, and truncated messages.
+- [x] 5.2.10 Add focused Go tests proving the RDP helper adapter sends open credentials only to the helper, clears credential grants, routes input/close frames, forwards helper SRDP media frames, and reports helper errors.
+- [x] 5.2.11 Add focused Rust helper tests proving open payload validation rejects malformed schemas, invalid memory-user grants, and brokered-secret grants that carry passwords.
+- [x] 5.2.12 Add focused Rust/Bazel checks proving the IronRDP feature target links the reviewed core/PDU crates without enabling connector/CredSSP dependencies.
+- [x] 5.2.13 Add focused Rust helper tests proving unsupported TLS/NLA, redirection, content recording, and out-of-range upstream ports are rejected before adapter use.
+- [x] 5.2.14 Add focused Rust helper tests proving invalid session timestamps, selected-agent allowlist mismatches, unsupported credential modes, and invalid screen policy are rejected before adapter use.
+- [x] 5.2.15 Add focused Rust helper tests proving post-open input, acknowledgement, and close frames are delivered to the active backend session.
+- [x] 5.2.16 Add focused Go/Rust tests proving placeholder RDP helpers report connector-not-ready and agents do not advertise `remote_access.rdp` until the helper readiness probe passes.
+- [x] 5.2.17 Add focused Rust helper tests proving the IronRDP feature backend derives endpoint/TLS identity from target policy without copying credential material into a connector plan.
+- [x] 5.2.18 Add focused Rust helper tests proving raw open-frame payload bytes are zeroized after parse on success and failure paths.
+- [x] 5.2.19 Add focused Rust helper tests proving IronRDP memory-user credentials use redacted zeroizing storage before the connector loop is enabled.
+- [x] 5.2.20 Add focused Rust helper tests proving domain-qualified memory-user credentials split into redacted zeroizing connector-prep fields.
+- [x] 5.2.21 Add focused Rust helper tests proving memory-user grants without exact session/target bindings are rejected before adapter use.
+- [x] 5.2.22 Add focused Go tests proving memory-user credential grants without explicit bindings or with mismatched session bindings fail before adapter/helper use.
+- [x] 5.2.23 Add focused Go tests proving RDP helpers cannot advertise ready when the IronRDP backend is not linked.
+- [x] 5.2.24 Add focused Go tests proving stuck RDP helper processes are killed when close cleanup exceeds its context deadline.
+- [x] 5.2.25 Add focused Go tests proving serialized RDP helper input and close payload buffers are zeroed after IPC handoff.
+- [x] 5.2.26 Add focused Go tests proving helper-reported errors close the RDP helper session and reject subsequent browser input.
+- [x] 5.2.27 Add focused Go tests proving helper-initiated close frames close the session, reject subsequent browser input, and keep manager cleanup idempotent.
+- [x] 5.2.28 Add focused Go tests proving RDP helper media acknowledgements are forwarded over the helper ack channel, cleared after IPC handoff, and rejected after terminal close.
+- [x] 5.2.29 Add focused Rust helper tests proving ACK payload validation, ACK buffer zeroing, and invalid ACK rejection before backend session delivery.
+- [x] 5.2.30 Add focused Rust helper tests proving input/control payload validation, close payload validation, buffer zeroing, and invalid-frame rejection before backend session delivery.
+- [x] 5.2.31 Add focused Rust helper tests proving close payload validation also applies before backend open and keeps invalid close metadata fail-closed.
+- [x] 5.2.32 Add focused Go tests proving agent-to-helper close reasons are normalized and capped before IPC.
+- [x] 5.2.33 Add focused Go tests proving helper-to-agent terminal close/error payloads are decoded, capped, normalized, cleared, and rejected when malformed.
+- [x] 5.2.34 Add focused Go tests proving invalid agent-to-helper input and media acknowledgement frames are rejected before IPC serialization.
+- [x] 5.2.35 Add focused Go tests proving screen update frames cannot be sent on the agent-to-helper input/control channel.
+- [x] 5.2.36 Add focused Go tests proving disconnect control-frame reasons are normalized and capped before IPC serialization.
+- [x] 5.2.37 Add focused Go tests proving helper start failures still clear adapter-open credential grant material.
+- [x] 5.2.38 Add focused Go tests proving helper close payloads with trailing data are rejected and cleared.
+- [x] 5.2.39 Add focused Go tests proving helper media payloads with trailing bytes are rejected, cleared, and not forwarded.
+- [x] 5.2.40 Add focused Go tests proving desktop media acknowledgement close reasons are normalized before helper IPC.
+- [x] 5.2.41 Add focused Rust helper tests proving terminal reasons are normalized before backend delivery while raw IPC payloads are still cleared.
+- [x] 5.2.42 Add focused Go tests proving helper media frames with mismatched desktop session bindings are rejected, cleared, and not forwarded.
+- [x] 5.2.43 Add focused Go tests proving helper media payload buffers are cleared after successful forwarding and media-sender failures.
+- [x] 5.2.44 Add a feature-enabled Bazel test target for the reviewed IronRDP-linked helper backend checks.
+- [x] 5.2.45 Add a Bazel-only adapter connector-link probe test target that links `ironrdp-connector`, `ironrdp-blocking`, and `zeroize` from the isolated connector crate universe.
+- [x] 5.2.46 Add a Bazel-only adapter connector-config probe test proving ServiceRadar target policy, screen limits, domain-qualified username, and NLA-required posture map into IronRDP connector config.
+- [x] 5.2.47 Add focused Rust helper tests proving adapter TLS trust planning defaults to system roots, uses registered CA bundles, and rejects `pinned_ca` without a CA bundle.
+- [x] 5.2.48 Add a Bazel-only adapter initial-negotiation probe test proving the mapped IronRDP config emits an X.224 request that advertises CredSSP/NLA and omits plain TLS fallback.
+- [x] 5.2.49 Add a Bazel-only adapter server-confirm probe test proving HYBRID/HYBRID_EX confirms require TLS upgrade and CredSSP while TLS-only downgrade is rejected.
+- [x] 5.2.50 Add a Bazel-only adapter `ironrdp-blocking` connect-begin probe test proving upstream blocking connect writes no cleartext password before the TLS upgrade boundary.
+- [x] 5.2.51 Add a Bazel-only adapter `ironrdp-blocking` connect-finalize probe test proving CredSSP writes begin after TLS upgrade while cleartext passwords are absent before server input.
+- [x] 5.2.52 Add a Bazel-only adapter public-key extraction probe test proving valid TLS certificates produce CredSSP binding public-key bytes and invalid certificates fail closed.
+- [x] 5.2.53 Add a Bazel-only adapter connect-finalize probe test proving CredSSP finalization uses certificate-derived public-key bytes and rejects empty binding input.
+- [x] 5.2.54 Add Bazel-only adapter probe coverage for typed verified TLS peer public-key material at the CredSSP finalization boundary.
+- [x] 5.2.55 Add isolated connector-probe coverage proving `ironrdp-session::ActiveStageOutput` links without adding active-stage dependencies to the root Rust lockfile.
+- [x] 5.2.56 Add isolated connector-probe coverage proving an `ironrdp-session::ActiveStage` can be constructed from ServiceRadar-mapped connection state and accept a mouse-position update.
+- [x] 5.2.57 Add isolated connector-probe coverage proving active-stage keyboard input encoding emits an RDP response frame without producing graphics updates.
+- [x] 5.2.58 Add Bazel-only adapter probe coverage proving active-stage keyboard input encoding works from the adapter's validated target policy and memory-user credential boundary.
+- [x] 5.2.59 Add Bazel-only adapter probe coverage proving browser key and pointer input frames map to IronRDP input events, focus emits no protocol event, and unsupported tokens fail closed.
+- [x] 5.2.60 Add focused Rust helper tests proving backend-produced media frames are emitted as helper media IPC frames and media-drain failures fail closed.
+- [x] 5.2.61 Add focused Rust helper tests proving SRDP media-frame headers, field ordering, flags, payload families, and policy bounds match the Go/browser envelope.
+- [x] 5.2.62 Add Bazel-only adapter probe coverage proving IronRDP graphics updates become SRDP dirty-rect frames with browser upload metadata and invalid rectangles fail closed.
+- [x] 5.2.63 Add Bazel-only adapter probe coverage proving active-stage response frames write to the RDP stream, graphics output queues SRDP media, and write failures fail closed.
+- [x] 5.2.64 Add Bazel-only adapter probe coverage proving the active-stage session harness routes browser input to upstream RDP bytes and rejects unsupported input without side effects.
+- [x] 5.2.65 Add Bazel-only coverage for the connector-linked experimental helper artifact so optional packaging compiles the isolated connector crate universe without changing the root Rust lockfile.
+- [x] 5.2.66 Add Bazel-only adapter probe coverage proving the active-stage session harness implements the helper `RdpBackendSession` contract for input, media drain, acknowledgements, and graceful close.
+- [x] 5.2.67 Add focused Rust helper tests proving backend media queued during open is emitted before the helper waits for browser input.
+- [x] 5.2.68 Add Bazel-only adapter probe coverage for a future network-read path that feeds server RDP frames into IronRDP active-stage processing and fails closed on malformed PDUs.
+- [x] 5.2.69 Add Bazel-only adapter probe coverage for reading one framed server RDP PDU from `ironrdp-blocking::Framed` and failing closed before active-stage processing on malformed network input.
+- [x] 5.2.70 Add focused Rust helper tests proving backend-pumped media frames are emitted while the IPC reader is idle.
+- [x] 5.2.71 Add Bazel-only adapter probe coverage proving the helper backend pump seam reads framed server RDP PDUs and fails closed before media drain on malformed input.
+- [x] 5.2.72 Add Bazel-only adapter probe coverage proving an IronRDP `ConnectionResult` handoff can drive browser input into upstream RDP response bytes through the helper backend session path.
+- [x] 5.2.73 Add Bazel-only adapter probe coverage proving a framed stream plus IronRDP `ConnectionResult` handoff can drive browser input through the network-pump backend session path.
+- [x] 5.2.74 Add Bazel-only adapter probe coverage proving registered CA bundle material builds a verified Rustls client config, rejects empty/invalid material, and disables TLS resumption for CredSSP.
+- [x] 5.2.75 Add Bazel-only adapter probe coverage proving system-root trust loading builds a verified Rustls client config with native roots and disables TLS resumption for CredSSP.
+- [x] 5.2.76 Add focused Go/Rust tests proving `pinned_ca` target policy fails closed unless a CA bundle ID is present in the trusted open payload.
+- [x] 5.2.77 Add focused Go/Rust tests proving registered CA bundle IDs and PEM material are paired, bounded, and passed through helper parsing/planning without treating them as credentials.
+- [x] 5.2.78 Add Bazel-only adapter probe coverage proving a non-secret connection plan with registered CA bundle PEM builds a verified Rustls client config and rejects invalid bundle material.
+- [x] 5.2.79 Add focused Go/Rust helper capability tests proving not-ready probes include a stable `connector_ready_reason` while connector readiness remains false.
+- [x] 5.2.80 Add release publisher and manifest-validator tests proving experimental RDP artifacts carry a stable helper connector-readiness reason.
+- [x] 5.2.81 Add Bazel-only adapter probe coverage proving the connector-linked helper `open()` rejects invalid CA bundles before the connector loop and remains fail-closed for valid bundles.
+- [x] 5.2.82 Add Bazel-only adapter probe coverage proving connector-not-ready runtime preflight excludes password material from the preflight structure.
+- [x] 5.2.83 Add Bazel-only adapter probe coverage proving registered CA bundle and system-root trust sources produce real Rustls client configs with resumption disabled.
+- [x] 5.2.84 Add connector-linked connect-begin handoff coverage proving the post-negotiation handoff preserves upgrade state, verified TLS config, and server identity without pre-TLS password exposure.
+- [x] 5.2.85 Add connector-linked CredSSP handoff coverage proving the marked TLS-upgraded state carries server identity and certificate-derived binding material without exposing the cleartext password.
+- [x] 5.2.86 Add connector-linked finalization coverage proving failed CredSSP finalization returns the framed stream without cleartext password exposure and finalized handoffs can build active-stage network-pump sessions.
+- [x] 5.2.87 Add connector-linked coverage proving connect-begin handoffs preserve the supplied client socket address for future live TCP sessions.
+- [x] 5.2.88 Add connector-linked dial-target coverage proving DNS names and IPv6 literals format correctly without network I/O and malformed host text fails closed.
+- [x] 5.2.89 Add connector-linked dialed-stream handoff coverage proving the remote endpoint and client address survive into connect-begin without cleartext password exposure.
+- [x] 5.2.90 Add connector-linked loopback TCP dial coverage proving registered targets can produce a dialed stream and local client address without enabling runtime RDP readiness.
+- [x] 5.2.91 Add connector-linked loopback TCP connect-begin coverage proving a real stream reaches the TLS-upgrade boundary and the pre-TLS request omits cleartext password material.
+- [x] 5.2.92 Add connector-linked loopback TCP downgrade coverage proving TLS-only server confirms fail closed and the pre-TLS request still omits cleartext password material.
+- [x] 5.2.93 Add connector-linked loopback Rustls upgrade coverage proving a verified registered CA/server-name pair enters the CredSSP-ready handoff and the pre-TLS request omits cleartext password material.
+- [x] 5.2.94 Add connector-linked loopback Rustls name-mismatch coverage proving TLS verification fails closed before CredSSP and the pre-TLS request omits cleartext password material.
+- [x] 5.2.95 Add connector-linked loopback Rustls CA-mismatch coverage proving untrusted endpoint certificates fail closed before CredSSP and the pre-TLS request omits cleartext password material.
+- [x] 5.2.96 Add connector-linked TCP dial coverage proving live streams inherit read/write timeouts for bounded TLS/CredSSP failure behavior.
+- [x] 5.2.97 Add connector-linked loopback Rustls finalization coverage proving CredSSP bytes begin only after verified TLS and captured pre-auth plaintext omits cleartext password material.
+- [x] 5.2.98 Add connector-linked loopback coverage proving the experimental connector-open boundary reaches the CredSSP-ready handoff without exposing cleartext password material or enabling runtime readiness.
+- [x] 5.2.99 Add connector-linked loopback coverage proving the open-shaped experimental connector path reaches the verified handoff and still returns connector-not-ready without exposing cleartext password material.
+- [x] 5.2.100 Add connector-linked KDC network-client coverage proving TCP round trips preserve SSPI framing, unsupported protocols fail closed, and oversized Kerberos responses are rejected.
+- [x] 5.2.101 Add connector-linked loopback finalization coverage proving the experimental CredSSP path uses the bounded KDC client and still fails closed without exposing cleartext password material.
+- [x] 5.2.102 Add connector-linked coverage proving KDC proxy/hostname metadata is parsed, invalid URLs fail closed, and Kerberos config survives into CredSSP finalization.
+- [x] 5.2.103 Add connector-linked open-shaped coverage proving the experimental connector path reaches CredSSP finalization before returning connector-not-ready without exposing cleartext password material.
+- [x] 5.2.104 Add connector-linked finalized-handoff coverage proving backend session construction uses trusted media-session metadata and rejects missing media bindings.
+- [x] 5.2.105 Add connector-linked coverage proving finalized connector handoffs bind to the desktop media session contract before runtime readiness can be advertised.
+- [x] 5.2.106 Add focused Go IPC framing tests proving oversized non-media helper frames fail before payload read while large payloads remain media-only.
+- [x] 5.2.107 Add focused Rust helper framing tests proving unsupported message types and oversized non-media frames fail before payload read while large payloads remain media-only.
+- [x] 5.2.108 Add focused Go/Rust helper framing tests proving bounded open payloads can carry registered CA bundle material under the non-media IPC cap.
+- [x] 5.2.109 Add focused Go tests proving helper media payloads are synchronously copied/serialized before helper IPC buffers are cleared.
+- [x] 5.2.110 Add focused Go tests proving oversized RDP helper capability output is rejected by the bounded probe reader.
+- [x] 5.2.111 Add focused Go tests proving RDP helper connector-readiness reasons are normalized, capped, and absent when connector readiness is true.
+- [x] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
+- [x] 5.3.1 Add focused Go tests for selected-agent desktop open-frame binding and session-bound desktop frame decoding.
+- [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.
+- [x] 5.3.3 Add focused Go tests for desktop update frame-rate and bitrate quota enforcement.
+- [x] 5.3.4 Add focused Go tests for desktop idle timeout and session TTL enforcement.
+- [x] 5.3.5 Add focused Go tests for selected-agent and selected-gateway route-loss detection.
+- [x] 5.3.6 Add focused Go tests for desktop quality-control requests above session policy.
+- [x] 5.3.7 Add focused Go tests for adapter-facing desktop session guard behavior.
+- [ ] 5.4 Add a demo proof path with a private Windows RDP target or controlled RDP test server reachable only from an agent.
+- [x] 5.4.1 Add an operator demo proof path for a private Windows/xrdp target reachable only from the selected edge agent, with readiness, policy, media, backpressure, cleanup, and audit checks.
+- [x] 5.4.2 Add an opt-in live IronRDP connector boundary probe and validate the lab target at `192.168.1.45` reaches the TLS/NLA upgrade boundary without cleartext password exposure.
+- [x] 5.4.3 Add an explicitly lab-gated live TLS upgrade smoke probe and validate `192.168.1.45` reaches IronRDP's CredSSP state with certificate public-key extraction and without recorded cleartext password exposure.
+- [x] 5.4.4 Add an opt-in live verified TLS upgrade probe for controlled RDP targets with configured CA bundle files and server identity.
+- [x] 5.4.5 Rerun the lab target boundary and lab-insecure TLS probes after finalized connector handoffs can return active network-pump sessions.
+- [x] 5.4.6 Add an opt-in adapter-level live helper-open probe that uses disposable lab credentials and expects a finalized network-pump session.
+- [x] 5.4.7 Add a dedicated Bazel integration target for the adapter-level live helper-open probe so connector-gated tests execute outside the crate unit-test filter path.
+- [x] 5.4.8 Record the current live helper-open blocker: target/user/password env is present, but missing configured server identity and CA bundle leaves the lab target failing closed at verified TLS trust.
+- [ ] 5.4.9 Validate the adapter-level live helper-open probe with a controlled target whose RDP certificate chains to the configured CA bundle and server identity.
+- [ ] 5.5 Update the Teleport parity matrix after the RDP slice is implemented and validated.
+- [x] 5.5.1 Add the current Teleport-style desktop parity/status matrix with explicit partial and not-production-ready connector states.
+- [x] 5.6 Add desktop media performance tests for delayed links, browser backpressure, credit-window exhaustion, long-running frame bursts, and stale-frame coalescing/drop behavior.
+- [x] 5.6.1 Add focused Go tests for desktop media frame encoding/decoding, validation, truncation rejection, ack validation, and credit-window exhaustion/adjustment.
+- [x] 5.6.2 Add focused Go tests for browser desktop media acknowledgement control-message decoding.
+- [x] 5.6.3 Add focused Go tests proving desktop media split-frame encoding reuses header buffers and avoids metadata/payload copies.
+- [x] 5.6.4 Add Go desktop media hot-path benchmarks for contiguous encoding, split-frame/static-field encoding, copying decode, and no-copy decode.
+- [x] 5.6.4.1 Add a Go desktop session-guard hot-path benchmark for per-frame adapter validation.
+- [x] 5.6.5 Add focused Go tests proving desktop media credit windows reject replayed/out-of-order acks without granting duplicate credit.
+- [x] 5.6.6 Add focused Go tests proving oversized desktop media ack credit is capped before being added to the sender credit window.
+- [x] 5.6.7 Add focused Go tests proving dirty reused desktop media headers reset reserved bytes without copying payload data.
+- [x] 5.6.8 Add focused Go tests proving pause/resume quality hints update sender state and same-sequence control acks do not duplicate credit.
+- [x] 5.6.9 Add focused Go tests proving unsupported desktop media ack quality levels are rejected.
+- [x] 5.6.10 Add focused Go tests proving close acks stop normal media sends without blocking EOF.
+- [x] 5.6.11 Add focused Go tests proving oversized desktop media close reasons are rejected.
+- [x] 5.6.12 Add focused Go tests proving close ack reasons are trimmed before being stored in sender state.
+- [x] 5.6.13 Add focused Go tests proving post-close desktop media acks cannot mutate sender credit or sequence state.
+- [x] 5.6.14 Add focused Go tests proving metadata bytes count toward desktop media max chunk enforcement.
+- [x] 5.6.15 Add focused Go tests proving SRDP media frames are accepted only through the selected desktop session route.
+- [x] 5.6.16 Add focused Go tests proving SRDP media acknowledgements are accepted only through the selected desktop session route.
+- [x] 5.6.17 Add focused Go tests proving guard-owned SRDP media ack application rejects route and replay failures before mutating sender credit state.
+- [x] 5.6.18 Add generated Go protobuf bindings for the dedicated desktop media service contract so agent/gateway implementation can compile against the stream API.
+- [x] 5.6.19 Add focused Go tests proving desktop media gateway client methods fail closed when the gateway connection is unavailable.
+- [x] 5.6.20 Compile the shared Elixir desktop media protobuf bindings without boundary warnings so gateway/core stream implementation can use the service modules.
+- [x] 5.6.21 Add focused Elixir tests proving the desktop media session tracker enforces owner/media binding, capacity limits, ack credit accounting, and close cleanup.
+- [x] 5.6.22 Add focused Elixir tests proving the desktop media gRPC server opens, heartbeats, closes, rejects mismatched identities, and fails the media stream closed until forwarding is implemented.
+- [x] 5.6.23 Add focused Elixir tests proving desktop media stream control replies, frame binding checks, and max chunk enforcement run before frame forwarding is enabled.
+- [x] 5.6.24 Add focused Elixir tests proving configured desktop media frame forwarding emits acknowledgements, updates tracker counters, and leaves state unchanged on forwarder failure.
+- [x] 5.6.25 Add focused Elixir tests proving the desktop media ERTS forwarder probes core, retries nodedown, and the core-elx ingress validates binding and chunk size.
+- [x] 5.6.26 Add focused Elixir tests proving the desktop media manager fails viewer admission closed without an offer provider, tracks configured viewers, and records frame counters without payload retention.
+- [x] 5.6.27 Add focused Elixir tests proving core-elx desktop media browser acknowledgements validate binding/replay state and are the only source of fresh media credit.
+- [x] 5.6.28 Add focused Elixir tests proving WebRTC signaling routes browser media acknowledgements to the media manager, propagates replay/binding errors, and does not leak GenServer routing options.
+- [x] 5.6.29 Add focused Elixir tests proving the core-elx SRDP media-frame envelope encoder matches header layout, preserves payload leaves as iodata, and rejects invalid fields before binary construction.
+- [x] 5.6.30 Add focused Elixir tests proving the core-elx DataChannel provider emits offers, creates media/control DataChannels, gates frame sends on channel-open state, and routes browser acks to the signaling owner.
+- [x] 5.6.31 Add focused Elixir tests proving the desktop media manager can still fail closed when the WebRTC offer provider is explicitly disabled.
+- [x] 5.6.32 Add focused Go tests proving the agent desktop media gateway sender opens sessions, forwards chunks, handles acks, enforces chunk limits, and closes idempotently.
+- [x] 5.6.33 Add focused Go tests proving adapter-facing desktop media acknowledgements are route/session validated before reaching concrete adapter backpressure handlers.
+- [x] 5.6.34 Add focused Go tests proving desktop media gateway close reasons are normalized and capped in both directions.
+- [x] 5.6.35 Add focused Go tests proving invalid desktop media gateway acknowledgements are rejected before registered handlers run.
+- [x] 5.6.36 Add focused Go tests proving desktop media acknowledgement close reasons are normalized before sender credit-window storage.
+- [x] 5.6.37 Add focused Go tests proving whitespace-only desktop media close acknowledgements cannot bypass same-sequence acknowledgement rejection.
+- [x] 5.6.38 Add focused Go tests proving desktop media gateway acknowledgement handlers receive normalized close reasons.
+- [x] 5.6.39 Add focused Go tests proving desktop media gateway requested and accepted max chunks cannot exceed the absolute SRDP frame-data limit.
+- [x] 5.6.40 Add focused Go tests proving the desktop media gateway sender rejects malformed SRDP payload family and dimension fields before forwarding.
+- [x] 5.6.41 Add focused Go tests proving accepted desktop media gateway sessions are closed when stream open fails.
+- [x] 5.6.42 Add focused Go tests proving accepted desktop media gateway sessions are closed on returned max-chunk and media-session validation failures.
+- [x] 5.6.43 Add focused Go tests proving desktop media sender setup returns both stream-open and accepted-session cleanup errors when cleanup fails.
+- [x] 5.6.44 Add focused Go tests proving accepted desktop media gateway sessions are closed when stream open returns a nil stream without an error.
+- [x] 5.6.45 Add focused Go tests proving accepted desktop media gateway sessions are closed when media-ingest binding is missing from the accepted response.
+- [x] 5.6.46 Add focused Elixir tests proving desktop media heartbeat and close control calls reject mismatched media-ingest bindings without closing the session.
+- [x] 5.6.47 Add focused Elixir tests proving desktop media frame chunks reject mismatched media-ingest bindings before forwarding.
+- [x] 5.6.48 Add focused Elixir tests proving desktop media acknowledgement credit mutations reject mismatched media-ingest bindings without changing counters.
+- [x] 5.6.49 Add focused Elixir tests proving desktop media frame, heartbeat, and acknowledgement mutations stop after the session starts closing.
+- [x] 5.6.50 Add focused Elixir tests proving desktop media frame, heartbeat, and acknowledgement mutations stop after the session lease expires.
+- [x] 5.6.51 Add focused Elixir tests proving desktop media frame counter mutations reject mismatched media-ingest bindings without changing counters.
+- [x] 5.6.52 Add focused Go tests proving long-running desktop media bursts exhaust credit and recover only after browser acknowledgements.
+- [x] 5.6.53 Add focused core-elx tests proving browser desktop control frames route through the DataChannel provider, signaling manager, and media session manager with viewer/session binding.
+- [x] 5.6.54 Add focused core-elx tests proving browser desktop control frames can be forwarded to a configured route layer with full input details while manager state only stores sanitized metadata and remains unchanged on forwarder failure.
+- [x] 5.6.55 Add focused Elixir tests proving core-elx forwards browser desktop control frames to an active broker and the broker sends typed desktop control frames over the selected agent route without auditing input tokens.
+- [x] 5.6.56 Add focused Go tests proving agent-side typed desktop control frames reach active desktop adapter sessions and fail closed without an active session or with mismatched frame types.
+- [x] 5.6.57 Add focused Elixir tests proving RDP broker open frames carry desktop target route, TLS/NLA, screen, credential, redirection, and recording policy for the selected agent.
+- [x] 5.6.58 Add focused Go tests proving RDP open frames reserve desktop media sessions, open the adapter runtime, emit media binding readiness, register active sessions, and fail closed before adapter open when media setup is missing.
+- [x] 5.6.59 Add focused Go tests proving RDP opens with secret-bearing credential modes fail closed before media reservation when the per-session grant is missing.
+- [x] 5.6.60 Add focused channel tests proving user-present RDP attach emits a desktop credential grant, does not echo secrets, and rejects SSH-style private-key credentials.
+- [x] 5.6.61 Add focused Elixir coverage proving RDP broker open frames forward the configured CA bundle ID in the target TLS policy without leaking target policy internals into metadata.
+- [x] 5.6.62 Add focused Elixir coverage proving RDP broker open frames forward public CA bundle PEM material only inside target TLS policy.
+- [x] 5.6.63 Add focused Go tests proving desktop media gateway sends consume frame metadata and payload bytes before caller buffers can be cleared or reused.
+- [x] 5.6.64 Add focused Go tests proving inbound desktop media gateway ACK and close controls fail closed on media-ingest, agent, or gateway binding mismatches.
+- [x] 5.7 Add browser renderer tests for WebRTC capability selection, DataChannel handling, WebGPU rendering, local Canvas harness behavior, dirty tile masks, queue limits, stale update coalescing, and Arrow metadata-only handling.
+- [x] 5.7.1 Add browser WebRTC client tests for desktop media frame acknowledgement and credit emission over the control DataChannel.
+- [x] 5.7.2 Add browser WebRTC client tests for coalesced desktop media acknowledgements and consumed-byte credit accounting.
+- [x] 5.7.3 Add browser WebRTC client tests for stale-frame drop behavior, critical-frame preservation, and ack credit after drops.
+- [x] 5.7.4 Add browser WebRTC client tests proving metadata bytes stay renderer-owned and are not eagerly parsed in the receive loop.
+- [x] 5.7.5 Add browser media parser tests for repeated-frame parsing with stable-field caching.
+- [x] 5.7.6 Add browser WebRTC client tests proving pending ack credit is not mixed across media bindings.
+- [x] 5.7.7 Add browser WebRTC client tests for pause/resume quality hints under renderer backpressure.
+- [x] 5.7.8 Add browser WebRTC client tests for final close acknowledgements with pending and already-flushed media credit.
+- [x] 5.7.9 Add browser WebRTC client tests proving close acknowledgement reasons are normalized and capped.
+- [x] 5.7.10 Add browser WebRTC client tests proving close acknowledgement reasons are capped by UTF-8 byte length.
+- [x] 5.7.11 Add browser renderer-state tests for dirty tile masks, no-copy tile upload planning, Canvas harness application, and metadata-only frame handling.
+- [x] 5.7.12 Add browser renderer-state tests proving Arrow IPC attachments stay metadata-only and cannot enter screen-pixel upload paths.
+- [x] 5.7.13 Add browser renderer-state tests for bounded render queues, stale-frame coalescing, and critical-frame preservation.
+- [x] 5.7.14 Add browser renderer-state tests proving stale-frame coalescing does not cross media-session bindings.
+- [x] 5.7.15 Add browser renderer-state tests for WebGPU queue-compatible tile uploads without copying payload bytes.
+- [x] 5.7.16 Add browser renderer-runtime tests proving queued tile frames drain into a canvas-compatible surface with bounded per-tick work and metadata-only frames do not enter the pixel upload path.
+- [x] 5.7.17 Add browser control-frame tests proving keyboard, pointer, focus, resize, oversized-token rejection, and WebRTC control-channel send behavior match the Go desktop frame contract.
+- [x] 5.7.18 Add browser renderer-runtime tests proving WebGPU tile uploads are preferred over Canvas2D and reuse frame payload buffers without copying.
+- [x] 5.7.19 Add browser renderer-runtime tests for the renderer-target hot-path boundary and Canvas2D/WebGPU target adapters.
+- [x] 5.7.20 Add browser renderer-runtime tests proving WebCodecs video payloads use the shared renderer-target boundary without copying payload bytes.
+- [x] 5.7.21 Add browser renderer-state tests proving sparse dirty-rectangle rows are compacted for the Canvas fallback without changing WebGPU upload metadata.
+- [x] 5.7.22 Add browser WebRTC client tests proving media frames flow through the pluggable processing boundary and close cleanup runs.
+- [x] 5.7.23 Add browser WebRTC client and component tests proving video tracks surface separately from DataChannel frame rendering.
+- [x] 5.7.24 Add browser WebRTC client tests proving malformed desktop media frames fail closed through viewer cleanup.
+- [x] 5.7.25 Add browser WebRTC client tests proving malformed desktop control frames fail closed through viewer cleanup.
+- [x] 5.7.26 Add browser renderer-runtime tests proving malformed frame metadata is dropped without breaking later frame drains.
+- [x] 5.7.27 Add browser WebRTC client tests proving stale DataChannel messages after close do not process media/control frames.
+
+## 6. Optional Packaging And EdgeOps Distribution
+- [x] 6.1 Add separate release/build artifacts for the base agent and the RDP helper or RDP-enabled bundle so IronRDP is not included in default agent installs.
+  - [x] Add release-publisher support for an explicit optional RDP-enabled runtime bundle artifact that is omitted from default releases.
+  - [x] Add a separate `serviceradar-rdp-adapter` helper binary target and RDP-enabled runtime archive that are omitted from base agent installs.
+  - [x] Add a separate fail-closed `rdp_adapter_ironrdp` Bazel target that links reviewed IronRDP core/PDU crates without changing the default agent or runtime bundle.
+  - [x] Package the optional RDP runtime archive with an IronRDP-enabled helper target rather than the base helper target while still requiring the helper readiness probe before runtime advertisement.
+  - [x] Add a connector-linked experimental helper target backed by the isolated connector crate universe and package it in the optional RDP runtime archive while it still reports `connector_ready: false`.
+  - [x] Keep the connector-linked experimental helper build warning-clean for intentionally probe-gated IronRDP paths while runtime readiness remains disabled.
+- [ ] 6.1.1 Link the reviewed IronRDP backend into the helper target before advertising the optional artifact as production-ready.
+- [x] 6.2 Add Forgejo release metadata fields for artifact capabilities, helper protocol version, compatibility range, checksums, signatures, SBOM/license review, and deployment requirements.
+- [x] 6.2.1 Mark fail-closed RDP helper artifacts as experimental and connector-not-ready in deployment requirements until the helper readiness probe can pass.
+- [x] 6.2.2 Reject imported/manual RDP release manifests unless they declare helper protocol, compatible agent range, helper install metadata, readiness probe, and connector-readiness state.
+- [x] 6.2.3 Enforce signed RDP helper readiness metadata during agent-side managed release staging before accepting optional helper installs.
+- [x] 6.2.4 Reject RDP helper install commands whose helper protocol, compatible agent range, or deployment requirements diverge from the signed artifact metadata.
+- [x] 6.2.5 Reject helper install commands for unsupported/non-RDP artifact capabilities so base agent artifacts cannot bypass RDP readiness checks.
+- [x] 6.2.6 Require experimental RDP release metadata to include `helper_connector_ready_reason` whenever `helper_connector_ready` is false.
+- [x] 6.2.7 Reject RDP release metadata that omits `helper_connector_ready_reason` for connector-not-ready experimental artifacts or includes it on connector-ready artifacts.
+- [x] 6.2.8 Align core release-manifest validation with agent-side RDP readiness metadata rules so connector-ready artifacts cannot retain stale not-ready reasons.
+- [x] 6.2.9 Reject non-printable or oversized RDP helper readiness reasons during core release-manifest validation.
+- [x] 6.3 Update web-ng EdgeOps artifact discovery to hide RDP-enabled artifacts unless the deployment has remote-access/RDP enabled by operator policy.
+- [x] 6.4 Update one-click agent deployment to install or update the RDP helper only when the selected artifact declares `remote_access.rdp`.
+- [x] 6.5 Add tests proving base agents do not expose RDP artifacts in EdgeOps by default and RDP-enabled deployments only show signed compatible helper/bundle artifacts.
+
+## 7. Device Launch And Deployable ICE/TURN
+- [x] 7.1 Add a bounded runtime parser for non-secret ICE endpoint JSON that rejects embedded credentials, unsupported schemes, malformed hosts/ports, and oversized collections.
+- [x] 7.2 Load TURN REST shared-secret material only from a mounted file, require at least 32 printable non-whitespace bytes, and reject TURN endpoints when the file is absent or unreadable.
+- [x] 7.3 Enforce a positive TURN credential TTL no greater than one hour and return session-bound minted credentials to the browser instead of static credentials.
+- [x] 7.4 Add Helm values, existing-Secret validation, web-ng env/mount wiring, and Helm unit tests for RDP WebRTC ICE/TURN configuration.
+- [x] 7.5 Add the authenticated device RDP LiveView, exact authorized target resolution, device-details action, user-present credential form, ready-before-WebRTC sequencing, and deterministic cleanup.
+- [x] 7.6 Add focused LiveView/component/controller tests for authorization denial, wrong-device target denial, password clearing, no client-selected upstream fields, and session cleanup.
+- [ ] 7.7 Validate a ServiceRadar-originated Windows QGA playbook run, register the controlled Windows target with verified TLS identity, and complete the live RDP/WebRTC demo proof.
+- [x] 7.8 Add an opt-in core-only ICE egress NetworkPolicy with explicit CIDR and UDP/TCP port validation, demo values, Helm unit coverage, and operator documentation.

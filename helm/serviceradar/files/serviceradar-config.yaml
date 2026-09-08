@@ -1,0 +1,1059 @@
+{{- $lb := "{{" -}}
+{{- $rb := "}}" -}}
+{{- $trustDomain := .Values.spire.trustDomain | default "carverauto.dev" -}}
+{{- $spireNamespace := default .Release.Namespace .Values.spire.namespace -}}
+{{- $datasvcSA := .Values.spire.datasvcServiceAccount | default "serviceradar-datasvc" -}}
+{{- $agentVals := default (dict) .Values.agent -}}
+{{- $pluginHTTPTrustedCAFiles := list "/etc/serviceradar/certs/root.pem" -}}
+{{- if hasKey $agentVals "pluginHTTPTrustedCAFiles" -}}
+  {{- $pluginHTTPTrustedCAFiles = get $agentVals "pluginHTTPTrustedCAFiles" -}}
+{{- end -}}
+{{- $agentSA := default "serviceradar-agent" $agentVals.serviceAccount -}}
+{{- $gatewayVals := default (dict) .Values.agentGateway -}}
+{{- $gatewayService := default (dict) $gatewayVals.service -}}
+{{- $gatewayPort := default 50052 $gatewayService.port -}}
+{{- $agentID := default "k8s-agent" $agentVals.agentId -}}
+{{- $agentPartition := coalesce .Values.partitionId $agentVals.partitionId $gatewayVals.partitionId "default" -}}
+{{- $gatewayServiceName := "serviceradar-agent-gateway" -}}
+{{- $gatewayAddress := default (printf "%s:%v" $gatewayServiceName $gatewayPort) $agentVals.gatewayAddress -}}
+{{- $agentComponentCert := printf "%s-%s-chain.pem" $agentID $agentPartition -}}
+{{- $agentComponentKey := printf "%s-%s-key.pem" $agentID $agentPartition -}}
+{{- $cnpgRuntime := default (dict) .Values.cnpg.runtimeParams -}}
+{{- $appSchema := default "platform" .Values.cnpg.schema -}}
+{{- $searchPath := index $cnpgRuntime "search_path" -}}
+{{- if not $searchPath -}}
+  {{- $searchPath = printf "%s,ag_catalog" $appSchema -}}
+{{- end -}}
+{{- $pg := default (dict) .Values.spire.postgres -}}
+{{- $cnpgClusterName := default "cnpg" $pg.clusterName -}}
+{{- $logCollectorSA := .Values.spire.logCollectorServiceAccount | default "serviceradar-log-collector" -}}
+{{- $rperfCheckerSA := .Values.spire.rperfCheckerServiceAccount | default "serviceradar-rperf-checker" -}}
+{{- $trapdSA := .Values.spire.trapdServiceAccount | default "serviceradar-trapd" -}}
+{{- $serverVals := default (dict) .Values.spire.server -}}
+{{- $spireServerService := default "spire-server" $serverVals.serviceName -}}
+{{- /*
+  OTel/trace export for the Go services (agent, datasvc).
+  These binaries read logging.otel from their JSON config (not the OTEL_*
+  SDK env vars used by the Elixir services), and the same block also drives
+  the process-wide TracerProvider via logger.EnsureTracing. We derive it from
+  the shared otelExporter values so Go and Elixir services point at the same
+  collector. The Go OTLP exporter uses otlptracegrpc.WithEndpoint(), which
+  wants a bare host:port, so strip any scheme from otelExporter.endpoint.
+*/ -}}
+{{- $otelExporter := default (dict) .Values.otelExporter -}}
+{{- $otelEnabled := default false $otelExporter.enabled -}}
+{{- $otelEndpointRaw := default "" $otelExporter.endpoint -}}
+{{- $otelEndpoint := $otelEndpointRaw | trimPrefix "https://" | trimPrefix "http://" -}}
+{{- $otelCertDir := default "/etc/serviceradar/certs" $otelExporter.certDir -}}
+{{- $otelInsecure := default false $otelExporter.insecure -}}
+# base/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: serviceradar-config
+data:
+  
+  core.json: |
+    {
+      "listen_addr": ":8090",
+      "grpc_addr": ":50052",
+      "api_key": "",
+      "cnpg": {
+        "host": "{{ default (printf "%s-rw.%s.svc.cluster.local" $cnpgClusterName .Release.Namespace) .Values.cnpg.host }}",
+        "port": {{ default 5432 .Values.cnpg.port }},
+        "database": "{{ default "serviceradar" .Values.cnpg.database }}",
+        "username": "{{ default "serviceradar" .Values.cnpg.username }}",
+        "password": "",
+        "application_name": "serviceradar-core",
+        "ssl_mode": "verify-full",
+        "cert_dir": "/etc/serviceradar/certs",
+        "max_connections": 50,
+        "min_connections": 5,
+        "statement_timeout": "30s",
+        "tls": {
+          "cert_file": "/etc/serviceradar/certs/core.pem",
+          "key_file": "/etc/serviceradar/certs/core-key.pem",
+          "ca_file": "/etc/serviceradar/cnpg/ca.crt"
+        },
+        "runtime_params": {
+          "search_path": "{{ $searchPath }}"
+        }
+      },
+      "reaper": {
+        "interval": "{{ .Values.core.reaper.interval | default "1h" }}",
+        "ttl": "{{ .Values.core.reaper.ttl | default "24h" }}"
+      },
+      "identity_reconciliation": {
+        {{- $promo := default (dict) .Values.core.identity.promotion -}}
+        "enabled": {{ default false .Values.core.identity.enabled }},
+        "sightings_only_mode": {{ default false .Values.core.identity.sightingsOnlyMode }},
+        "promotion": {
+          "enabled": {{ default false .Values.core.identity.promotion.enabled }},
+          "shadow_mode": {{ if hasKey $promo "shadowMode" }}{{ $promo.shadowMode }}{{ else }}true{{ end }},
+          "min_persistence": "{{ default "24h" .Values.core.identity.promotion.minPersistence }}",
+          "require_hostname": {{ default false .Values.core.identity.promotion.requireHostname }},
+          "require_fingerprint": {{ default false .Values.core.identity.promotion.requireFingerprint }}
+        },
+        "fingerprinting": {
+          "enabled": {{ default false .Values.core.identity.fingerprinting.enabled }},
+          "port_budget": {{ default 32 .Values.core.identity.fingerprinting.portBudget }},
+          "timeout": "{{ default "2s" .Values.core.identity.fingerprinting.timeout }}"
+        },
+        "reaper": {
+          "interval": "{{ default "1h" .Values.core.identity.reaper.interval }}",
+          "profiles": {
+            "default": {
+              "ttl": "{{ default "24h" .Values.core.identity.reaper.profiles.default.ttl }}"
+            },
+            "dynamic": {
+              "ttl": "{{ default "6h" .Values.core.identity.reaper.profiles.dynamic.ttl }}"
+            },
+            "guest": {
+              "ttl": "{{ default "1h" .Values.core.identity.reaper.profiles.guest.ttl }}"
+            },
+            "static": {
+              "ttl": "{{ default "72h" .Values.core.identity.reaper.profiles.static.ttl }}",
+              "allow_ip_as_id": {{- $static := .Values.core.identity.reaper.profiles.static -}} {{- if and $static (hasKey $static "allowIPAsID") -}}{{ $static.allowIPAsID }}{{- else -}}true{{- end }}
+            }
+          }
+        },
+        "drift": {
+          "baseline_devices": {{ default 0 .Values.core.identity.drift.baselineDevices }},
+          "tolerance_percent": {{ default 0 .Values.core.identity.drift.tolerancePercent }},
+          "pause_on_drift": {{ default true .Values.core.identity.drift.pauseOnDrift }},
+          "alert_on_drift": {{ default true .Values.core.identity.drift.alertOnDrift }}
+        }
+      },
+      "alert_threshold": "5m",
+      "known_gateways": [
+        "k8s-gateway",
+        "docker-gateway"
+      ],
+      "metrics": {
+        "enabled": true,
+        "retention": 100,
+        "max_gateways": 10000
+      },
+      "features": {
+        "use_log_digest": true,
+        "use_device_search_planner": true,
+        "require_device_registry": true
+      },
+      "security": {
+        "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
+        "cert_dir": "/etc/serviceradar/certs",
+        "role": "core",
+        "trust_domain": "{{$trustDomain}}",
+        "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/serviceradar-core",
+        "workload_socket": "unix:/run/spire/sockets/agent.sock",
+        "tls": {
+          "cert_file": "/etc/serviceradar/certs/core.pem",
+          "key_file": "/etc/serviceradar/certs/core-key.pem",
+          "ca_file": "/etc/serviceradar/certs/root.pem",
+          "client_ca_file": "/etc/serviceradar/certs/root.pem",
+          "skip_verify": false
+        }
+      },
+      "kv_security": {
+        "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
+        "cert_dir": "/etc/serviceradar/certs",
+        "role": "core",
+        "trust_domain": "{{$trustDomain}}",
+        "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/serviceradar-datasvc",
+        "workload_socket": "unix:/run/spire/sockets/agent.sock",
+        "tls": {
+          "cert_file": "/etc/serviceradar/certs/core.pem",
+          "key_file": "/etc/serviceradar/certs/core-key.pem",
+          "ca_file": "/etc/serviceradar/certs/root.pem"
+        }
+      },
+      "spire_admin": {
+        "enabled": true,
+        "server_address": "spire-server.{{$spireNamespace}}.svc.cluster.local:8081",
+        "server_spiffe_id": "spiffe://{{$trustDomain}}/spire/server",
+        "workload_socket": "unix:/run/spire/sockets/agent.sock",
+        "join_token_ttl": "15m"
+      },
+      "edge_onboarding": {
+        "enabled": true,
+        "encryption_key": "",
+        "default_selectors": [
+          "unix:uid:0",
+          "unix:gid:0",
+          "unix:user:root",
+          "unix:group:root"
+        ],
+        "default_metadata": {
+          "gateway": {
+            "core_address": "{{ include "serviceradar.coreAddress" . }}",
+            "core_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/serviceradar-core",
+            "kv_address": "serviceradar-datasvc:50057",
+            "kv_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/serviceradar-datasvc",
+            "spire_upstream_address": "spire-server.{{$spireNamespace}}.svc.cluster.local",
+            "spire_upstream_port": "8081",
+            "spire_parent_id": "spiffe://{{$trustDomain}}/ns/edge/gateway-nested-spire",
+            "agent_address": "agent:50051",
+            "agent_spiffe_id": "spiffe://{{$trustDomain}}/services/agent",
+            "nested_spire_wait_attempts": "120",
+            "log_level": "info",
+            "logs_dir": "./logs"
+          },
+          "checker": {
+            "spire_upstream_address": "23.138.124.18",
+            "spire_upstream_port": "18081",
+            "trust_domain": "{{$trustDomain}}"
+          }
+        },
+        "join_token_ttl": "15m",
+        "download_token_ttl": "10m",
+        "gateway_id_prefix": "edge"
+      },
+      "cors": {
+        "allowed_origins": ["*"],
+        "allow_credentials": true
+      },
+      "auth": {
+        "jwt_secret": "PLACEHOLDER_WILL_BE_REPLACED",
+        "jwt_expiration": "24h",
+        "local_users": {
+          "admin": "PLACEHOLDER_BCRYPT_HASH_WILL_BE_REPLACED"
+        },
+        "rbac": {
+          "user_roles": {
+            "admin": ["admin", "operator", "viewer"],
+            "operator": ["operator", "viewer"],
+            "user": ["viewer"]
+          },
+          "role_permissions": {
+            "admin": ["*"],
+            "operator": ["config:read", "config:write", "device:*", "alert:*"],
+            "viewer": ["config:read", "device:read", "alert:read", "metrics:read"]
+          },
+          "route_protection": {
+            "/api/admin/*": ["admin"],
+            "/api/config/*": {
+              "GET": ["viewer", "operator", "admin"],
+              "POST": ["operator", "admin"],
+              "PUT": ["operator", "admin"],
+              "DELETE": ["admin"]
+            },
+            "/api/devices/*": {
+              "GET": ["viewer", "operator", "admin"],
+              "POST": ["operator", "admin"],
+              "PUT": ["operator", "admin"],
+              "DELETE": ["admin"]
+            },
+            "/api/alerts/*": {
+              "GET": ["viewer", "operator", "admin"],
+              "POST": ["operator", "admin"],
+              "PUT": ["operator", "admin"],
+              "DELETE": ["admin"]
+            }
+          }
+        }
+      },
+      "nats": {
+        "url": "tls://serviceradar-nats:4222",
+        "max_reconnects": 10,
+        "reconnect_wait": "2s",
+        "drain_timeout": "30s",
+      {{ if .Values.natsCreds.platform }}
+        "creds_file": "/etc/serviceradar/creds/platform.creds",
+      {{ end }}
+        "security": {
+          "mode": "mtls",
+          "tls": {
+            "cert_file": "/etc/serviceradar/certs/core.pem",
+            "key_file": "/etc/serviceradar/certs/core-key.pem",
+            "ca_file": "/etc/serviceradar/certs/root.pem"
+          }
+        }
+      },
+      "events": {
+        "enabled": true,
+        "stream_name": "events",
+        "subjects": ["events.>", "logs.>", "otel.traces.>", "otel.metrics.>", "pdns.ocsf", "pdns.ocsf.>"]
+      },
+      "snmp": {
+        "enabled": false,
+        "listen_addr": ":161",
+        "community": "public",
+        "timeout": "5s",
+        "retries": 3
+      },
+      "write_buffer": {
+        "size": 10000,
+        "flush_interval": "5s",
+        "max_retries": 3,
+        "retry_delay": "1s"
+      },
+      "logging": {
+        "level": "info",
+        "debug": false,
+        "output": "stdout",
+        "time_format": "",
+        "otel": {
+          "enabled": true,
+          "endpoint": "serviceradar-log-collector:4317",
+          "service_name": "serviceradar-core",
+          "batch_timeout": "5s",
+          "insecure": false,
+          "headers": {},
+          "tls": {
+            "cert_file": "/etc/serviceradar/certs/core.pem",
+            "key_file": "/etc/serviceradar/certs/core-key.pem",
+            "ca_file": "/etc/serviceradar/certs/root.pem",
+            "server_name": "serviceradar-log-collector",
+            "skip_verify": false
+          }
+        }
+      }
+    }
+
+  agent.json: |
+      {
+        "checkers_dir": "{{ default "/var/lib/serviceradar/checkers" (get (default dict (get $agentVals "checkersStorage")) "basePath") }}",
+        "agent_id": "{{$agentID}}",
+        "agent_name": "agent",
+        "host_ip": "agent",
+        "partition": "{{$agentPartition}}",
+        "gateway_addr": "{{$gatewayAddress}}",
+        "push_interval": "{{ default "30s" $agentVals.pushInterval }}",
+        "status_debounce_interval": "{{ default "30s" $agentVals.statusDebounceInterval }}",
+        "status_heartbeat_interval": "{{ default "5m" $agentVals.statusHeartbeatInterval }}",
+        "plugin_http_trusted_ca_files": {{ toJson $pluginHTTPTrustedCAFiles }},
+        "sync_runtime_enabled": {{- if hasKey $agentVals "syncRuntimeEnabled" -}}{{ $agentVals.syncRuntimeEnabled }}{{- else -}}true{{- end }},
+        "remote_access_known_hosts_file": "{{ default "/var/lib/serviceradar/checkers/remote-access-known_hosts" $agentVals.remoteAccessKnownHostsFile }}",
+        "kv_address": "serviceradar-datasvc:50057",
+        "kv_security": {
+          "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
+          "cert_dir": "/etc/serviceradar/certs",
+          "role": "agent",
+          "trust_domain": "{{$trustDomain}}",
+          "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/{{$datasvcSA}}",
+          "workload_socket": "unix:/run/spire/sockets/agent.sock",
+          "tls": {
+            "cert_file": "agent.pem",
+            "key_file": "agent-key.pem",
+            "ca_file": "root.pem"
+          }
+        },
+        "security": {
+          "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
+          "cert_dir": "/etc/serviceradar/certs",
+          "role": "agent",
+          "trust_domain": "{{$trustDomain}}",
+          "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/{{$agentSA}}",
+          "workload_socket": "unix:/run/spire/sockets/agent.sock",
+          "tls": {
+            "cert_file": "agent.pem",
+            "key_file": "agent-key.pem",
+            "ca_file": "root.pem",
+            "client_ca_file": "root.pem"
+          }
+        },
+        "gateway_security": {
+          "mode": "mtls",
+          "cert_dir": "/etc/serviceradar/certs",
+          "server_name": "serviceradar-agent-gateway",
+          "role": "agent",
+          "tls": {
+            "cert_file": "{{$agentComponentCert}}",
+            "key_file": "{{$agentComponentKey}}",
+            "ca_file": "root.pem",
+            "client_ca_file": "root.pem"
+          }
+        },
+        "logging": {
+          "level": "info",
+          "debug": false,
+          "output": "stdout",
+          "time_format": "",
+{{- if and $otelEnabled $otelEndpoint }}
+          "otel": {
+            "enabled": true,
+            "endpoint": "{{ $otelEndpoint }}",
+            "service_name": "serviceradar-agent",
+            "batch_timeout": "5s",
+            "insecure": {{ $otelInsecure }},
+            "headers": {},
+            "tls": {
+              "cert_file": "{{ $otelCertDir }}/agent.pem",
+              "key_file": "{{ $otelCertDir }}/agent-key.pem",
+              "ca_file": "{{ $otelCertDir }}/root.pem"
+            }
+          }
+{{- else }}
+          "otel": {
+            "enabled": false
+          }
+{{- end }}
+        }
+      }
+
+  sweep.json: |
+      {
+        "networks": {{ (.Values.sweep.networks | default (list "192.168.2.0/24" "192.168.3.1/32")) | toJson }},
+        "ports": {{ (.Values.sweep.ports | default (list 22 80 443 3306 5432 6379 8080 8443)) | toJson }},
+        "sweep_modes": {{ (.Values.sweep.modes | default (list "icmp" "tcp")) | toJson }},
+        "interval": "{{ .Values.sweep.interval | default "5m" }}",
+        "concurrency": {{ .Values.sweep.concurrency | default 100 }},
+        "timeout": "{{ .Values.sweep.timeout | default "10s" }}",
+        "tcp_settings": {
+          "rate_limit": {{ .Values.sweep.tcp.rateLimit | default 20000 }},
+          "rate_limit_burst": {{ .Values.sweep.tcp.rateLimitBurst | default 20000 }},
+          "max_batch": {{ .Values.sweep.tcp.maxBatch | default 32 }},
+          "concurrency": {{ .Values.sweep.tcp.concurrency | default 256 }},
+          "timeout": "{{ .Values.sweep.tcp.timeout | default "3s" }}",
+          "route_discovery_host": "{{ .Values.sweep.tcp.routeDiscoveryHost | default "8.8.8.8:80" }}",
+          "ring_block_size": {{ .Values.sweep.tcp.ringBlockSize | default 0 }},
+          "ring_block_count": {{ .Values.sweep.tcp.ringBlockCount | default 0 }},
+          "interface": "{{ .Values.sweep.tcp.interface | default "" }}",
+          "suppress_rst_reply": {{ .Values.sweep.tcp.suppressRSTReply | default false }},
+          "global_ring_memory_mb": {{ .Values.sweep.tcp.globalRingMemoryMB | default 0 }},
+          "ring_readers": {{ .Values.sweep.tcp.ringReaders | default 0 }},
+          "ring_poll_timeout_ms": {{ .Values.sweep.tcp.ringPollTimeoutMs | default 0 }}
+        },
+        "high_perf_icmp": {{ .Values.sweep.icmp.highPerf | default true }},
+        "icmp_rate_limit": {{ .Values.sweep.icmp.rateLimit | default 5000 }},
+        "icmp_settings": {
+          "rate_limit": {{ .Values.sweep.icmp.settings.rateLimit | default 1000 }},
+          "timeout": "{{ .Values.sweep.icmp.settings.timeout | default "5s" }}",
+          "max_batch": {{ .Values.sweep.icmp.settings.maxBatch | default 64 }}
+        }
+      } 
+  
+  external.json: |
+      {
+        "enabled": true
+      }
+  
+  rperf-checker.json: |
+      {
+        "name": "rperf-checker",
+        "type": "grpc",
+        "address": "serviceradar-rperf:50081",
+        "security": {
+          "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
+          "cert_dir": "/etc/serviceradar/certs",
+          "role": "gateway",
+          "trust_domain": "{{$trustDomain}}",
+          "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/{{$rperfCheckerSA}}",
+          "workload_socket": "unix:/run/spire/sockets/agent.sock",
+          "tls": {
+            "cert_file": "agent.pem",
+            "key_file": "agent-key.pem",
+            "ca_file": "root.pem",
+            "client_ca_file": "root.pem"
+          }
+        }
+      }
+  
+  trapd-checker.json: |
+      {
+        "name": "trapd",
+        "type": "grpc",
+        "address": "serviceradar-trapd:50043",
+        "security": {
+          "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
+          "cert_dir": "/etc/serviceradar/certs",
+          "role": "gateway",
+          "trust_domain": "{{$trustDomain}}",
+          "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/{{$trapdSA}}",
+          "workload_socket": "unix:/run/spire/sockets/agent.sock",
+          "tls": {
+            "cert_file": "agent.pem",
+            "key_file": "agent-key.pem",
+            "ca_file": "root.pem",
+            "client_ca_file": "root.pem"
+          }
+        }
+      }
+  
+  flowgger-checker.json: |
+      {
+        "name": "flowgger",
+        "type": "grpc",
+        "address": "serviceradar-log-collector:50044",
+        "security": {
+          "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
+          "cert_dir": "/etc/serviceradar/certs",
+          "role": "gateway",
+          "trust_domain": "{{$trustDomain}}",
+          "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/{{$logCollectorSA}}",
+          "workload_socket": "unix:/run/spire/sockets/agent.sock",
+          "tls": {
+            "cert_file": "agent.pem",
+            "key_file": "agent-key.pem",
+            "ca_file": "root.pem",
+            "client_ca_file": "root.pem"
+          }
+        }
+      }
+  
+  snmp.json: |
+      {
+        "enabled": false,
+        "timeout": "30s",
+        "targets": []
+      }
+  
+  core-k8s-init.sh: |
+      #!/bin/bash
+      set -e
+  
+      echo "🔑 Using API_KEY: ${API_KEY:0:8}... (${#API_KEY} chars)"
+      echo "🔐 Using JWT_SECRET: ${JWT_SECRET:0:8}... (${#JWT_SECRET} chars)"
+  
+      TEMPLATE_PATH="/etc/serviceradar/core.json"
+      CONFIG_PATH="${CONFIG_PATH:-/var/lib/serviceradar/core.json}"
+      CONFIG_DIR=$(dirname "$CONFIG_PATH")
+      mkdir -p "$CONFIG_DIR"
+  
+      if [ ! -f "$CONFIG_PATH" ]; then
+          echo "Seeding runtime config from $TEMPLATE_PATH into $CONFIG_PATH"
+          cp "$TEMPLATE_PATH" "$CONFIG_PATH"
+      fi
+  
+      echo "Using runtime configuration at $CONFIG_PATH"
+  
+      EFFECTIVE_NAMESPACE="${KUBERNETES_NAMESPACE:-{{$spireNamespace}}}"
+      CNPG_HOST_VALUE="${CNPG_HOST:-{{ $cnpgClusterName }}-rw.${EFFECTIVE_NAMESPACE}.svc.cluster.local}"
+      CNPG_PORT_VALUE="${CNPG_PORT:-5432}"
+      CNPG_DATABASE_VALUE="${CNPG_DATABASE:-serviceradar}"
+      CNPG_USERNAME_VALUE="${CNPG_USERNAME:-postgres}"
+      CNPG_SSLMODE_VALUE="${CNPG_SSLMODE:-verify-full}"
+      CNPG_CERT_DIR_VALUE="${CNPG_CERT_DIR:-/etc/serviceradar/certs}"
+      CNPG_CA_FILE_VALUE="${CNPG_CA_FILE:-/etc/serviceradar/cnpg/ca.crt}"
+      EDGE_ONBOARDING_KEY_VALUE="${EDGE_ONBOARDING_ENCRYPTION_KEY:-}"
+  
+      if [ -z "$CNPG_PASSWORD" ]; then
+          echo "Warning: CNPG_PASSWORD environment variable not found"
+      else
+          echo "Found CNPG password from Kubernetes secret"
+      fi
+  
+      if [ -f "$CONFIG_PATH" ]; then
+          TEMPLATE_SECURITY=$(jq -c '.security // empty' "$TEMPLATE_PATH")
+          if [ -n "$TEMPLATE_SECURITY" ]; then
+              echo "Synchronizing security block from template"
+              TMP_CONFIG=$(mktemp)
+              jq --argjson security "$TEMPLATE_SECURITY" '.security = $security' "$CONFIG_PATH" > "$TMP_CONFIG"
+              mv "$TMP_CONFIG" "$CONFIG_PATH"
+          fi
+  
+      echo "Updating configuration with secrets..."
+      TMP_CONFIG=$(mktemp)
+      jq --arg host "$CNPG_HOST_VALUE" \
+         --arg port "$CNPG_PORT_VALUE" \
+         --arg db "$CNPG_DATABASE_VALUE" \
+         --arg user "$CNPG_USERNAME_VALUE" \
+         --arg pwd "$CNPG_PASSWORD" \
+         --arg ssl "$CNPG_SSLMODE_VALUE" \
+         --arg certdir "$CNPG_CERT_DIR_VALUE" \
+         --arg jwt "$JWT_SECRET" \
+         --arg api_key "$API_KEY" \
+         --arg bcrypt "$ADMIN_BCRYPT_HASH" \
+         --arg edge_key "$EDGE_ONBOARDING_KEY_VALUE" \
+         --arg ca_file "$CNPG_CA_FILE_VALUE" \
+         '.cnpg.host = $host
+          | .cnpg.port = ($port | tonumber)
+          | .cnpg.database = $db
+          | .cnpg.username = $user
+          | .cnpg.password = $pwd
+          | .cnpg.ssl_mode = $ssl
+          | .cnpg.cert_dir = $certdir
+          | .auth.jwt_secret = $jwt
+          | .auth.jwt_expiration = "24h"
+          | .auth.local_users.admin = $bcrypt
+          | .api_key = $api_key
+          | .cnpg.tls.ca_file = $ca_file
+          | (if ($edge_key | length) > 0 then .edge_onboarding.encryption_key = $edge_key else . end)' \
+        "$CONFIG_PATH" > "$TMP_CONFIG"
+          mv "$TMP_CONFIG" "$CONFIG_PATH"
+          echo "Configuration updated with secrets at $CONFIG_PATH"
+  
+          if ! jq -e '.auth.jwt_private_key_pem // empty' "$CONFIG_PATH" >/dev/null 2>&1; then
+              echo "Warning: RS256 key material missing from $CONFIG_PATH; Core JWKS will be empty" >&2
+          fi
+      fi
+  
+      if [ "${WAIT_FOR_CNPG:-true}" = "true" ]; then
+          echo "Waiting for CNPG at ${CNPG_HOST_VALUE}:${CNPG_PORT_VALUE}..."
+          CNPG_READY=false
+          for i in {1..30}; do
+              if timeout 5 bash -lc "exec 3<>/dev/tcp/${CNPG_HOST_VALUE}/${CNPG_PORT_VALUE}" > /dev/null 2>&1; then
+                  CNPG_READY=true
+                  break
+              fi
+              echo "Waiting for CNPG... ($i/30)"
+              sleep 2
+          done
+          if [ "$CNPG_READY" != "true" ]; then
+              echo "Warning: CNPG endpoint did not respond after 30 attempts; proceeding anyway" >&2
+          else
+              echo "CNPG port is reachable."
+          fi
+      fi
+  
+      if [ "${INIT_DB:-false}" = "true" ]; then
+          echo "Initializing database tables..."
+      fi
+  
+      echo "🔍 Final environment check:"
+      echo "  API_KEY: ${API_KEY:0:8}... (${#API_KEY} chars)"
+      echo "  JWT_SECRET: ${JWT_SECRET:0:8}... (${#JWT_SECRET} chars)"
+      echo "  AUTH_ENABLED: ${AUTH_ENABLED:-true}"
+  
+      exec /usr/local/bin/serviceradar-core --config="$CONFIG_PATH"
+  nats.conf: |
+      # NATS Server Configuration for ServiceRadar Kubernetes Deployment
+      server_name: nats-serviceradar-k8s
+  
+      # Listen on all interfaces for Kubernetes networking
+      listen: 0.0.0.0:4222
+  
+      # HTTP monitoring
+      http: 0.0.0.0:8222
+
+      # Enable JetStream for KV store
+      jetstream {
+        # Directory to store JetStream data
+        store_dir: /data/jetstream
+        # Maximum storage size
+        max_memory_store: 1G
+        # Maximum disk storage
+        max_file_store: 10G
+      }
+  
+      # Enable mTLS for secure communication
+      tls {
+        # Path to the server certificate
+        cert_file: "/etc/serviceradar/certs/nats.pem"
+        # Path to the server private key
+        key_file: "/etc/serviceradar/certs/nats-key.pem"
+        # Path to the root CA certificate for verifying clients
+        ca_file: "/etc/serviceradar/certs/root.pem"
+  
+        # Require client certificates (enables mTLS)
+        verify: true
+        # Require and verify client certificates
+        verify_and_map: true
+      }
+  
+      # Account-based authorization for ServiceRadar components
+      accounts {
+        # System account with full privileges  
+        SYS: {
+          users: []
+        }
+        
+        # ServiceRadar services account
+        SERVICERADAR: {
+          jetstream: enabled
+          users: [
+          {
+            user: "CN=serviceradar-tools,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+            permissions: {
+              publish: {
+                allow: [">"]
+              }
+              subscribe: {
+                allow: [">"]
+              }
+            }
+          },
+          {
+            user: "CN=serviceradar-core,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+            permissions: {
+              publish: {
+                allow: [">"]
+              }
+              subscribe: {
+                allow: [">"]
+              }
+            }
+          },
+          {
+            user: "CN=serviceradar-datasvc,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+            permissions: {
+              publish: {
+                allow: [">"]
+              }
+              subscribe: {
+                allow: [">"]
+              }
+            }
+          },
+          {
+            user: "CN=serviceradar-agent,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+            permissions: {
+              publish: {
+                allow: [">"]
+              }
+              subscribe: {
+                allow: [">"]
+              }
+            }
+          },
+          {
+            user: "CN=serviceradar-log-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+            permissions: {
+              publish: {
+                allow: ["logs.syslog", "otel.>", "logs.otel", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.CREATE.events", "$JS.API.>"]
+              }
+              subscribe: {
+                allow: ["$JS.API.>", "_INBOX.>"]
+              }
+            }
+          },
+          {
+            user: "CN=serviceradar-flowgger,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+            permissions: {
+              publish: {
+                allow: ["logs.syslog", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.CREATE.events", "$JS.API.>"]
+              }
+              subscribe: {
+                allow: ["$JS.API.>", "_INBOX.>"]
+              }
+            }
+          },
+          {
+            user: "CN=serviceradar-otel,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+            permissions: {
+              publish: {
+                allow: ["otel.>", "logs.otel", "$JS.API.>"]
+              }
+              subscribe: {
+                allow: ["$JS.API.>", "_INBOX.>"]
+              }
+            }
+          },
+          {
+            user: "CN=serviceradar-trapd,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+            permissions: {
+              publish: {
+                allow: ["logs.snmp", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.CREATE.events", "$JS.API.>"]
+              }
+              subscribe: {
+                allow: ["$JS.API.>", "_INBOX.>"]
+              }
+            }
+          },
+          {
+            user: "CN=serviceradar-flow-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+            permissions: {
+              publish: {
+                allow: ["flows.raw.>", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.CREATE.events", "$JS.API.>"]
+              }
+              subscribe: {
+                allow: ["$JS.API.>", "_INBOX.>"]
+              }
+            }
+          },
+          {
+            user: "CN=serviceradar-netflow-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+            permissions: {
+              publish: {
+                allow: ["flows.raw.>", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.CREATE.events", "$JS.API.>"]
+              }
+              subscribe: {
+                allow: ["$JS.API.>", "_INBOX.>"]
+              }
+            }
+          },
+          {
+            user: "CN=serviceradar-bmp-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+            permissions: {
+              publish: {
+                allow: ["arancini.updates", "arancini.updates.>", "$JS.API.STREAM.INFO.ARANCINI_CAUSAL", "$JS.API.STREAM.CREATE.ARANCINI_CAUSAL", "$JS.API.>"]
+              }
+              subscribe: {
+                allow: ["$JS.API.>", "_INBOX.>"]
+              }
+            }
+          },
+          {
+            user: "CN=serviceradar-falcosidekick,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+            permissions: {
+              publish: {
+                allow: ["falco.>", "$JS.API.STREAM.INFO.falco_events", "$JS.API.STREAM.CREATE.falco_events", "$JS.API.>"]
+              }
+              subscribe: {
+                allow: ["$JS.API.>", "_INBOX.>"]
+              }
+            }
+          },
+          {
+            user: "O=ServiceRadar"
+            permissions: {
+              publish: {
+                allow: [">"]
+              }
+              subscribe: {
+                allow: [">"]
+              }
+            }
+          }
+          ]
+        }
+      }
+      
+      # Set system account
+      system_account: "SYS"
+  
+      # Logging settings
+      debug: true
+      trace: false
+  
+  otel.toml: |
+      # ServiceRadar OTEL Collector Configuration for Kubernetes Deployment
+      
+      [server]
+      # Address to bind the OTEL collector to
+      bind_address = "0.0.0.0"
+      # Port to listen on for OTEL traces
+      port = 4317
+      
+      [nats]
+      # NATS server URL with mTLS (Kubernetes deployment)
+      url = "tls://serviceradar-nats:4222"
+      {{ if .Values.natsCreds.platform }}
+      creds_file = "/etc/serviceradar/creds/platform.creds"
+      {{ end }}
+      
+      # Subject to publish traces/metrics to (default: otel)
+      subject = "otel"
+      # Subject to publish logs to (default: <subject>.logs)
+      logs_subject = "logs.otel"
+      
+      # JetStream stream name (default: events)
+      stream = "events"
+      
+      # Timeout for NATS operations in seconds (default: 30)
+      timeout_secs = 30
+      
+      # mTLS configuration for NATS
+      [nats.tls]
+      cert_file = "/etc/serviceradar/certs/log-collector.pem"
+      key_file = "/etc/serviceradar/certs/log-collector-key.pem"
+      ca_file = "/etc/serviceradar/certs/root.pem"
+      
+      [grpc_tls]
+      cert_file = "/etc/serviceradar/certs/log-collector.pem"
+      key_file = "/etc/serviceradar/certs/log-collector-key.pem"
+      ca_file = "/etc/serviceradar/certs/root.pem"
+  
+  trapd.json: |
+      {
+        "listen_addr": "0.0.0.0:162",
+        "nats_url": "tls://serviceradar-nats:4222",
+      {{ if .Values.natsCreds.platform }}
+        "nats_creds_file": "/etc/serviceradar/creds/platform.creds",
+      {{ end }}
+        "stream_name": "events",
+        "stream_replicas": {{ default 1 .Values.trapd.streamReplicas }},
+        "subject": "logs.snmp",
+        "nats_security": {
+          "mode": "mtls",
+          "cert_dir": "/etc/serviceradar/certs",
+          "cert_file": "/etc/serviceradar/certs/trapd.pem",
+          "key_file": "/etc/serviceradar/certs/trapd-key.pem",
+          "ca_file": "/etc/serviceradar/certs/root.pem"
+        },
+        "grpc_listen_addr": "0.0.0.0:50043",
+        "grpc_security": {
+          "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
+          "cert_dir": "/etc/serviceradar/certs",
+          "trust_domain": "{{ .Values.spire.trustDomain }}",
+          "workload_socket": "unix:/run/spire/sockets/agent.sock",
+          "cert_file": "/etc/serviceradar/certs/trapd.pem",
+          "key_file": "/etc/serviceradar/certs/trapd-key.pem",
+          "ca_file": "/etc/serviceradar/certs/root.pem"
+        },
+        "otel": {
+          "enabled": true,
+          "endpoint": "serviceradar-log-collector:4317",
+          "service_name": "serviceradar-trapd",
+          "tls": {
+            "cert_file": "/etc/serviceradar/certs/trapd.pem",
+            "key_file": "/etc/serviceradar/certs/trapd-key.pem",
+            "ca_file": "/etc/serviceradar/certs/root.pem",
+            "server_name": "serviceradar-log-collector"
+          }
+        }
+      }
+  
+  faker.json: |
+      {
+        "service": {
+          "name": "faker",
+          "description": "ServiceRadar Fake Armis API Service",
+          "version": "1.0.0"
+        },
+        "server": {
+          "listen_address": "0.0.0.0:8080",
+          "read_timeout": "10s",
+          "write_timeout": "30s",
+          "idle_timeout": "30s"
+        },
+        "simulation": {
+          "total_devices": {{ .Values.faker.simulation.totalDevices | default 50000 }},
+          "ip_shuffle": {
+            "enabled": {{ .Values.faker.simulation.ipShuffle.enabled | default true }},
+            "interval": "{{ .Values.faker.simulation.ipShuffle.interval | default "10m" }}",
+            "percentage": {{ .Values.faker.simulation.ipShuffle.percentage | default 5 }},
+            "warmup_cycles": {{ .Values.faker.simulation.ipShuffle.warmupCycles | default 0 }},
+            "allow_expansion": {{ .Values.faker.simulation.ipShuffle.allowExpansion | default false }},
+            "pool_headroom_percent": {{ .Values.faker.simulation.ipShuffle.poolHeadroomPercent | default 0 }},
+            "log_changes": true
+          },
+          "bgp": {
+            "enabled": {{ .Values.faker.simulation.bgp.enabled | default false }},
+            "seed": {{ .Values.faker.simulation.bgp.seed | default 40164200 }},
+            "publish_interval": "{{ .Values.faker.simulation.bgp.publishInterval | default "15s" }}",
+            "outage_interval": "{{ .Values.faker.simulation.bgp.outageInterval | default "2m" }}",
+            "outage_duration_min": "{{ .Values.faker.simulation.bgp.outageDurationMin | default "20s" }}",
+            "outage_duration_max": "{{ .Values.faker.simulation.bgp.outageDurationMax | default "45s" }}",
+            "manage_daemon": {{- if hasKey .Values.faker.simulation.bgp "manageDaemon" }} {{ .Values.faker.simulation.bgp.manageDaemon }} {{- else }} true {{- end }},
+            "gobgp_api_address": "{{ .Values.faker.simulation.bgp.gobgpApiAddress | default "127.0.0.1:50051" }}",
+            "gobgp_binary": "{{ .Values.faker.simulation.bgp.gobgpBinary | default "gobgpd" }}",
+            "gobgp_cli_binary": "{{ .Values.faker.simulation.bgp.gobgpCliBinary | default "gobgp" }}",
+            "bmp_collector_address": "{{ .Values.faker.simulation.bgp.bmpCollectorAddress | default "serviceradar-bmp-collector:11019" }}",
+            "router_id": "{{ .Values.faker.simulation.bgp.routerId | default "204.209.51.59" }}",
+            "max_prefixes_per_tick": {{ .Values.faker.simulation.bgp.maxPrefixesPerTick | default 3 }},
+            "local_asn": {{ .Values.faker.simulation.bgp.localAsn | default 401642 }},
+            "advertised_prefixes": {{ toJson (.Values.faker.simulation.bgp.advertisedPrefixes | default (list "23.138.124.0/24" "2602:f678::/48")) }},
+            "peers": {{ toJson (.Values.faker.simulation.bgp.peers | default (list)) }}
+          }
+        },
+        "storage": {
+          "data_dir": "/var/lib/serviceradar/faker",
+          "devices_file": "fake_armis_devices.json",
+          "persist_changes": true
+        },
+        "logging": {
+          "level": "info",
+          "file": "/var/log/serviceradar/faker.log",
+          "max_size": "100M",
+          "max_backups": 5,
+          "max_age": 30
+        }
+      }
+  
+  rperf.json: |
+      {
+        "listen_addr": "0.0.0.0:50081",
+        "name": "rperf-checker",
+        "type": "grpc",
+        "timeout": "30s",
+        "security": {
+          "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
+          "cert_dir": "/etc/serviceradar/certs",
+          "trust_domain": "{{$trustDomain}}",
+          "workload_socket": "unix:/run/spire/sockets/agent.sock",
+          "tls": {
+            "cert_file": "rperf-checker.pem",
+            "key_file": "rperf-checker-key.pem",
+            "ca_file": "root.pem",
+            "client_ca_file": "root.pem"
+          }
+        },
+        "default_poll_interval": 300,
+        "targets": []
+      }
+  
+    # Data Service Configuration
+  datasvc.json: |
+      {
+        "listen_addr": "0.0.0.0:50057",
+        "nats_url": "tls://serviceradar-nats:4222",
+      {{ if .Values.natsCreds.platform }}
+        "nats_creds_file": "/etc/serviceradar/creds/platform.creds",
+      {{ end }}
+        "nats_security": {
+          "mode": "mtls",
+          "cert_dir": "/etc/serviceradar/certs",
+          "server_name": "nats.serviceradar",
+          "role": "datasvc",
+          "tls": {
+            "cert_file": "kv.pem",
+            "key_file": "kv-key.pem",
+            "ca_file": "root.pem",
+            "client_ca_file": "root.pem"
+          }
+        },
+        "security": {
+          "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
+          "cert_dir": "/etc/serviceradar/certs",
+          "role": "datasvc",
+          "trust_domain": "{{$trustDomain}}",
+          "workload_socket": "unix:/run/spire/sockets/agent.sock",
+          "tls": {
+            "cert_file": "kv.pem",
+            "key_file": "kv-key.pem",
+            "ca_file": "root.pem",
+            "client_ca_file": "root.pem"
+          }
+        },
+        "nats_operator": {
+          "name": "serviceradar",
+          "operator_seed_env": "NATS_OPERATOR_SEED",
+          "system_account_public_key_env": "NATS_SYSTEM_ACCOUNT_PUBLIC_KEY",
+        {{- if or .Values.natsCreds.system .Values.natsCreds.autoGenerate }}
+          "system_account_creds_file": "/etc/serviceradar/creds/system.creds",
+        {{- end }}
+          "allowed_client_identities": [
+            "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ .Values.spire.coreServiceAccount | default "serviceradar-core" }}",
+            "CN=serviceradar-core,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+          ]
+        },
+        "rbac": {
+          "roles": [
+            {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ .Values.spire.coreServiceAccount | default "serviceradar-core" }}", "role": "writer"},
+            {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $logCollectorSA }}", "role": "reader"},
+            {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $agentSA }}", "role": "writer"},
+            {"identity": "CN=serviceradar-agent,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "writer"},
+            {"identity": "CN=serviceradar-log-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"},
+            {"identity": "CN=serviceradar-core,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "writer"},
+            {"identity": "CN=serviceradar-falcosidekick,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"},
+            {"identity": "CN=serviceradar-tools,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"}
+          ]
+        },
+        "bucket": "serviceradar-datasvc",
+        "bucket_max_bytes": {{ default 5368709120 .Values.datasvc.bucketMaxBytes | int64 }},
+        "object_max_bytes": {{ default 536870912 .Values.datasvc.objectMaxBytes | int64 }},
+        "object_store_bytes": {{ default 17179869184 .Values.datasvc.objectStoreBytes | int64 }},
+        "jetstream_replicas": {{ default 1 .Values.datasvc.jetstreamReplicas | int }},
+{{- if and $otelEnabled $otelEndpoint }}
+        "logging": {
+          "level": "info",
+          "debug": false,
+          "output": "stdout",
+          "time_format": "",
+          "otel": {
+            "enabled": true,
+            "endpoint": "{{ $otelEndpoint }}",
+            "service_name": "serviceradar-datasvc",
+            "batch_timeout": "5s",
+            "insecure": {{ $otelInsecure }},
+            "headers": {},
+            "tls": {
+              "cert_file": "{{ $otelCertDir }}/kv.pem",
+              "key_file": "{{ $otelCertDir }}/kv-key.pem",
+              "ca_file": "{{ $otelCertDir }}/root.pem"
+            }
+          }
+        }
+{{- else }}
+        "logging": {
+          "level": "info",
+          "debug": false,
+          "output": "stdout",
+          "time_format": "",
+          "otel": {
+            "enabled": false
+          }
+        }
+{{- end }}
+      }

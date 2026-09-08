@@ -1,0 +1,34 @@
+_format_version: "3.0"
+_transform: true
+
+services:
+  - name: core-api
+    url: http://core:8090
+    routes:
+      - name: core-api-routes
+        paths:
+          - /api
+        strip_path: false
+
+consumers:
+  - username: default-jwt
+
+plugins:
+  - name: jwt
+    route: core-api-routes
+    enabled: true
+    config:
+      key_claim_name: kid
+      claims_to_verify:
+        - exp
+      run_on_preflight: true
+
+jwt_secrets:
+  # Replace the public key with your Core JWKS key that matches the JWT 'kid'
+  - consumer: default-jwt
+    algorithm: RS256
+    key: dev-1
+    rsa_public_key: |
+      -----BEGIN PUBLIC KEY-----
+      REPLACE_WITH_CORE_JWKS_PEM
+      -----END PUBLIC KEY-----

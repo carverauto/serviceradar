@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the ServiceRadar Example native add-on periodically (template)
+
+[Timer]
+OnBootSec=10m
+OnUnitActiveSec=6h
+RandomizedDelaySec=15m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

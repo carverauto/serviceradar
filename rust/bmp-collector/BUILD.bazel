@@ -1,0 +1,30 @@
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:rust_binary.bzl", "rust_binary")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+
+package(default_visibility = ["//visibility:public"])
+
+# Built as a hermetic Bazel target on the vendored crates (//third_party/crate_mirror)
+# — replaces the former cargo-in-genrule, which invoked `cargo build` and failed under
+# Bazel's sandbox trying to download crates into ~/.cargo.
+rust_binary(
+    name = "serviceradar-bmp-collector",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/main.rs",
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ),
+)
+
+# Back-compat alias: docker/images + build/packaging reference
+# //rust/bmp-collector:bmp-collector.
+alias(
+    name = "bmp-collector",
+    actual = ":serviceradar-bmp-collector",
+)
+
+rust_test(
+    name = "bmp_collector_test",
+    crate = ":serviceradar-bmp-collector",
+)

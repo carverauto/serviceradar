@@ -1,0 +1,33 @@
+# Valid native add-on manifest fixture (mirrors addons/sample-addon/addon.yaml).
+id: sample
+name: Sample Add-on
+version: 0.1.0
+description: Reference native add-on that validates the go-plugin add-on contract.
+
+kind: native
+delivery: pushed-artifact
+supervision: agent-sidecar
+language: go
+
+capabilities:
+  - sample
+
+requires:
+  base_agent: ">=1.2.0"
+  platforms: [linux]
+  agent_capabilities: [host-network-visibility]
+  os_capabilities: []
+  run_as: serviceradar
+
+plugin:
+  protocol: grpc
+  app_protocol_version: 1
+
+exec:
+  binary: serviceradar-sample-addon
+  install_path: /usr/local/lib/serviceradar/bin
+
+state_dirs:
+  - /var/lib/serviceradar/sample
+
+config_schema: config.schema.json

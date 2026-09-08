@@ -1,0 +1,14 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library")
+
+go_library(
+    name = "armis-api-probe_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/carverauto/serviceradar/go/cmd/tools/armis-api-probe",
+    visibility = ["//visibility:private"],
+)
+
+go_binary(
+    name = "armis-api-probe",
+    embed = [":armis-api-probe_lib"],
+    visibility = ["//visibility:public"],
+)

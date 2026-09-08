@@ -1,0 +1,85 @@
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+
+filegroup(
+    name = "srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "target/**",
+            "bazel-*",
+        ],
+    ),
+    visibility = ["//visibility:public"],
+)
+
+# Plain rlib disposition kernel crate for non-NIF consumers and the kernel unit tests.
+# The `rustler` feature is OFF here, so the optional proc-macro dep is not pulled in and
+# correlation-engine / tests link this without rustler.
+rust_library(
+    name = "serviceradar_anomaly_disposition",
+    srcs = glob(
+        ["src/**/*.rs"],
+        exclude = ["src/bin/**/*.rs"],
+    ),
+    crate_name = "serviceradar_anomaly_disposition",
+    crate_root = "src/lib.rs",
+    visibility = ["//visibility:public"],
+    # path-dep on the shared substrate (the sibling bazel target) + deep_causality_core.
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + [
+        "//rust/anomaly-core:serviceradar_anomaly_core",
+    ],
+)
+
+# Same crate with the `rustler` feature ON, for the NIF cdylib in
+# //elixir/serviceradar_core/native/anomaly_disposition_nif. That feature is what derives
+# NifMap/NifTaggedEnum/NifUnitEnum on the ABI types; without it the NIF fails to compile
+# with "the trait bound `SeasonalConfig: Decoder<'_>` is not satisfied". It is a separate
+# target rather than a flag on the one above so that non-NIF consumers stay rustler-free.
+rust_library(
+    name = "serviceradar_anomaly_disposition_rustler",
+    srcs = glob(
+        ["src/**/*.rs"],
+        exclude = ["src/bin/**/*.rs"],
+    ),
+    crate_features = ["rustler"],
+    crate_name = "serviceradar_anomaly_disposition",
+    crate_root = "src/lib.rs",
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + [
+        "//rust/anomaly-core:serviceradar_anomaly_core",
+    ],
+)
+
+rust_test(
+    name = "serviceradar_anomaly_disposition_test",
+    crate = ":serviceradar_anomaly_disposition",
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+        normal_dev = True,
+    ) + [
+        "//rust/anomaly-core:serviceradar_anomaly_core",
+    ],
+)
+
+# End-to-end proof test: drives BOTH engine halves (the agent edge detector in
+# //rust/anomaly-core and the core seasonal disposition in this crate) from one
+# synthetic scenario, asserting escalate / suppress / clean. Integration test, so it
+# links both crate libraries as deps (not `crate = ...`).
+rust_test(
+    name = "anomaly_e2e_test",
+    srcs = ["tests/anomaly_e2e.rs"],
+    crate_root = "tests/anomaly_e2e.rs",
+    deps = [
+        ":serviceradar_anomaly_disposition",
+        "//rust/anomaly-core:serviceradar_anomaly_core",
+    ],
+)

@@ -1,0 +1,189 @@
+# Global Bazel configuration for the ServiceRadar monorepo.
+# Keep this file minimal and import developer- or environment-specific overrides
+# via the optional .bazelrc.local and .bazelrc.remote files.
+
+# Write build outputs in a platform-specific directory;
+# avoid outputs being wiped and rewritten when switching between platforms.
+common --experimental_platform_in_output_dir
+common --noannounce_rc
+common --experimental_convenience_symlinks=clean
+common --color=yes
+common --ui_event_filters=-INFO
+# ...but NOT for `test`. Bazel emits the contents of a failing test's log as an
+# INFO event, so filtering INFO away discards exactly the output `--test_output`
+# below is set to show. Measured on a deliberately failing target: with the
+# filter, a redirected run prints the FAIL line and nothing else -- no test name,
+# no assertion, no diff; with INFO restored the full ExUnit failure appears. CI
+# redirects stdout, so every Bazel test failure reached a human as "some shard
+# failed", with the reason discarded before it was ever written down.
+test --ui_event_filters=+INFO
+# Allow platform-specific build:* sections (linux/macos/windows).
+common --enable_platform_specific_config
+# Mirror-first URL rewrites for deps that ship a single download URL. See the file.
+# --downloader_config, not --experimental_downloader_config: Bazel 9.2 warns the latter is
+# deprecated on every invocation. The path is workspace-relative and must NOT use
+# %workspace%, which is not expanded here -- it is taken literally and the file is not found.
+common --downloader_config=tools/bazel/downloader.cfg
+# Detailed profiling in BuildBuddy
+common --noslim_profile
+# common --experimental_profile_include_target_label
+# common --experimental_profile_include_primary_output
+# Do NOT put repository_cache / disk_cache / distdir under the source tree.
+# Use Bazel defaults (~/.cache/bazel) or machine-local .bazelrc.local instead.
+
+# This is a deliberate exception to the "no distdir under the source tree" rule above. These are immutable vendored source crates.
+common --distdir=%workspace%/third_party/crate_mirror
+
+build --keep_going
+build --jobs=auto
+build --show_timestamps
+# The NEXT_*/TURBOPACK entries below stay: they are the same on every machine
+build --action_env=NEXT_PRIVATE_SKIP_TURBOPACK=1
+build --action_env=TURBOPACK=
+build --action_env=NEXT_SKIP_TURBO=1
+
+# Can these be removed as we build hermetic??
+build --action_env=PKG_CONFIG_SYSROOT_DIR_aarch64_unknown_linux_gnu=/
+build --action_env=PKG_CONFIG_PATH_aarch64_unknown_linux_gnu=/usr/lib/postgresql/18/lib/pkgconfig:/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig
+
+# Enable clang-tidy diagnostics via --config=clang-tidy
+build:clang-tidy --features=clang_tidy
+test:clang-tidy --features=clang_tidy
+
+# RULES_ERLANG
+build --repo_env=RULES_ERLANG_SKIP_SYSTEM=1
+build --repo_env=RULES_ELIXIR_SKIP_SYSTEM=1
+
+# Use hermetic Python toolchain from rules_python extension (MODULE.bazel)
+# instead of system Python for cross-platform compatibility with remote cache
+# Disable legacy package generation globally so transitive Python tools follow
+# the same explicit-package policy declared for ServiceRadar in MODULE.bazel.
+build --@rules_python//python/config_settings:incompatible_default_to_explicit_init_py=true
+# Avoid GitHub fallback for Go module fetches in repo rules.
+build --repo_env=GOPROXY=https://proxy.golang.org
+build --repo_env=NEXT_SKIP_TURBO=1
+build --repo_env=NEXT_PRIVATE_SKIP_TURBOPACK=1
+build --repo_env=TURBOPACK=
+build --@io_bazel_rules_go//go/config:pure
+
+# Standard test ergonomics: show failing logs and retry known flaky tests once.
+test --test_output=errors
+test --remote_executor=
+test --@io_bazel_rules_go//go/config:pure
+test --flaky_test_attempts=2
+
+# Metadata for buildbuddy
+build --workspace_status_command=$(pwd)/scripts/workspace_status.sh
+
+# Cache/BES transport without execution ownership. This profile is safe to combine with a
+# host-native platform for database-facing integration tests: it deliberately selects no remote
+# executor, host/target platform, remote JDK, toolchain, or Linux-only environment.
+# Remote Cache CDC https://www.buildbuddy.io/blog/content-defined-chunking
+build:cache_only --experimental_remote_cache_chunking
+# Remote Cache reduction and compression
+build:cache_only --remote_cache_compression
+build:cache_only --experimental_remote_cache_compression_threshold=100
+# The cache proxy is the cache hop; BuildBuddy remains the bytestream/BES authority.
+build:cache_only --remote_bytestream_uri_prefix=carverauto.buildbuddy.io
+build:cache_only --remote_cache=grpcs://cache-proxy.carverauto.dev:443
+build:cache_only --bes_backend=grpcs://carverauto.buildbuddy.io
+build:cache_only --bes_results_url=https://carverauto.buildbuddy.io/invocation/
+
+# Remote execution profile settings inherited by CI.
+build:remote_base --config=cache_only
+# Number of parallel jobs on remote executors
+build:remote_base --jobs=100
+build:remote_base --remote_download_minimal
+
+build:remote_base --remote_executor=grpcs://carverauto.buildbuddy.io
+# Remote platforms
+build:remote_base --host_platform=//build/rbe:rbe_platform
+build:remote_base --platforms=//build/rbe:rbe_platform
+build:remote_base --cpu=k8
+# Compiler config is all done via the Hermetic LLVM toolchain in MODULE.bazel.
+# No OPENSSL_* here either;
+build:remote_base --extra_execution_platforms=//build/rbe:rbe_platform
+build:remote_base --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
+build:remote_base --define=EXECUTOR=remote
+build:remote_base --incompatible_strict_action_env
+build:remote_base --action_env=NEXT_PRIVATE_SKIP_TURBOPACK=1
+build:remote_base --action_env=TURBOPACK=
+build:remote_base --action_env=NEXT_SKIP_TURBO=1
+# THE COMPILATION MODE IS PART OF THE CACHE KEY
+build:remote_base --compilation_mode=opt
+build:remote_base --remote_timeout=15m
+build:remote_base --test_output=errors
+build:remote_base --noenable_platform_specific_config
+
+# CI profile on top of the remote config. Client cache paths are set per profile below and
+# never in remote_base -- setting them in both made Bazel warn that --disk_cache was
+# expanded twice from --config=ci.
+build:ci --config=remote_base
+# The Bazel CLIENT's caches, on the node volume //k8s/buildbuddy bind-mounts into the workflow
+# runner at /bazel-cache, so a fresh runner does not re-download and re-extract every external
+# repo. The repo caches are the ones that keep toolchains off the network; the disk cache is
+# action outputs. CI-only -- this path exists on the executors and nowhere else, and the init
+# container in //k8s/buildbuddy/values-workflows.yaml is what makes it writable by the runner.
+build:ci --disk_cache=/bazel-cache/disk
+build:ci --repository_cache=/bazel-cache/repo
+build:ci --repo_contents_cache=/bazel-cache/repo-contents
+build:ci --experimental_disk_cache_gc_max_size=100G
+build:ci --keep_going
+build:ci --build_metadata=REPO_URL=https://github.com/carverauto/serviceradar.git
+build:ci --build_metadata=ROLE=CI
+build:ci --build_metadata=VISIBILITY=PUBLIC
+build:ci --build_metadata=USER=gh
+
+# `--config=remote` is remote_base plus workstation-local cache paths. `make test` uses this
+# profile, so the paths must exist on a developer machine -- /bazel-cache does not.
+build:remote --config=remote_base
+build:remote --disk_cache=~/.cache/serviceradar-bazel/disk
+build:remote --repository_cache=~/.cache/serviceradar-bazel/repo
+build:remote --repo_contents_cache=~/.cache/serviceradar-bazel/repo-contents
+build:remote --experimental_disk_cache_gc_max_size=50G
+
+build:darwin_pkg --platforms=//build/platforms:darwin_exec
+build:darwin_pkg --host_platform=//build/platforms:darwin_exec
+build:darwin_pkg --extra_execution_platforms=//build/platforms:darwin_exec
+build:darwin_pkg --action_env=DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+build:darwin_pkg --action_env=PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/usr/local/go/bin
+build:darwin_pkg --action_env=PKG_SIGN_IDENTITY
+build:darwin_pkg --action_env=PKG_NOTARIZE_PROFILE
+build:darwin_pkg --action_env=PKG_VERSION
+build:darwin_pkg --action_env=PKG_IDENTIFIER
+build:darwin_pkg --action_env=PKG_DISABLE_TIMESTAMP=0
+build:darwin_pkg --action_env=XCODE_VERSION_OVERRIDE=26.0
+build:darwin_pkg --remote_default_exec_properties=OSFamily=MacOS
+build:darwin_pkg --repo_env=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin
+build:darwin_pkg --repo_env=BAZEL=/usr/local/bin/bazel
+build:darwin_pkg --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
+# macOS local builds must keep exec tools on Darwin when remote execution is disabled.
+# Usage: bazel build --config=darwin_local <targets>
+build:darwin_local --host_platform=//build/platforms:darwin_aarch64
+build:darwin_local --extra_execution_platforms=//build/platforms:darwin_aarch64
+build:darwin_local --extra_toolchains=@local_config_cc_toolchains//:all
+build:darwin_local --copt=-Wno-unused-command-line-argument
+build:darwin_local --host_copt=-Wno-unused-command-line-argument
+build:darwin_local --linkopt=-Wno-unused-command-line-argument
+build:darwin_local --strategy=CppCompile=local
+build:darwin_local --strategy=CppLink=local
+# Ensure rules_pkg tar uses host Python on macOS
+build:darwin_local --action_env=RULES_PKG_PYTHON=/usr/bin/python3
+
+# Plain local Bazel tests on Apple Silicon also need Darwin exec tools; otherwise
+# registered Linux exec platforms can be selected for generated protobuf tools.
+build:macos --extra_execution_platforms=//build/platforms:darwin_aarch64
+build:macos --config=darwin_local
+test:macos --config=darwin_local
+
+# Allow developers to extend configuration locally (ignored in version control).
+try-import %workspace%/.bazelrc.local
+
+# Remote credentials and local overrides live in .bazelrc.remote (kept out of version control).
+# CI jobs generate it to carry the BuildBuddy API key. No cache opt-in is written there any
+# more: the proxy is `build:cache_only --remote_cache` above, which `remote_base` inherits.
+#
+# KEEP THIS IMPORT LAST. An rc file can only override configs defined before it, so an override
+# placed above build:remote_base is silently overwritten by it -- the build looks entirely
+# normal and simply ignores the override.
+try-import %workspace%/.bazelrc.remote

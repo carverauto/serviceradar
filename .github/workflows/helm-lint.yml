@@ -1,0 +1,143 @@
+# Copyright 2025 Carver Automation Corporation.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Helm Lint
+permissions:
+  contents: read
+  pull-requests: read
+
+on:
+  push:
+    branches: [ staging ]
+    paths:
+      - 'helm/**'
+      - '.github/workflows/helm-lint.yml'
+      - 'scripts/run-helm.sh'
+      - 'scripts/check-core-analytics-helm-defaults.sh'
+      - 'scripts/check-cnpg-wal-cap-helm-defaults.sh'
+      - 'scripts/check-tenant-chart-hook-order.sh'
+      - 'scripts/check-hosted-runtime-cert-boundary.sh'
+      - 'scripts/check-web-ng-extra-env-value-from.sh'
+  pull_request:
+    branches: [ staging ]
+    paths:
+      - 'helm/**'
+      - '.github/workflows/helm-lint.yml'
+      - 'scripts/run-helm.sh'
+      - 'scripts/check-core-analytics-helm-defaults.sh'
+      - 'scripts/check-cnpg-wal-cap-helm-defaults.sh'
+      - 'scripts/check-tenant-chart-hook-order.sh'
+      - 'scripts/check-hosted-runtime-cert-boundary.sh'
+      - 'scripts/check-web-ng-extra-env-value-from.sh'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Helm Lint
+    runs-on: arc-runner-set
+    env:
+      HELM_VERSION: 3.14.4
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      # ARC runners have no docker.sock. Install a native helm binary.
+      - name: Install Helm
+        run: |
+          set -euo pipefail
+          version="v${HELM_VERSION}"
+          archive="helm-${version}-linux-amd64.tar.gz"
+          curl -fsSL "https://get.helm.sh/${archive}" -o "${RUNNER_TEMP}/${archive}"
+          echo "a5844ef2c38ef6ddf3b5a8f7d91e7e0e8ebc39a38bb3fc8013d629c1ef29c259  ${RUNNER_TEMP}/${archive}" | sha256sum -c -
+          mkdir -p "${HOME}/.local/bin"
+          tar -xzf "${RUNNER_TEMP}/${archive}" -C "${RUNNER_TEMP}" linux-amd64/helm
+          install -m 0755 "${RUNNER_TEMP}/linux-amd64/helm" "${HOME}/.local/bin/helm"
+          echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
+          "${HOME}/.local/bin/helm" version --short
+
+      - name: Run helm lint
+        run: helm lint helm/serviceradar
+
+      - name: Run helm template (validate rendering)
+        run: |
+          helm template serviceradar helm/serviceradar \
+            --set global.imageTag="v1.0.0" \
+            --debug > /dev/null
+          helm template serviceradar helm/serviceradar \
+            --set global.imageTag="v1.0.0" \
+            --set flowCollector.enabled=true \
+            --debug > /dev/null
+
+      - name: Verify web-ng secret-backed environment values
+        run: ./scripts/check-web-ng-extra-env-value-from.sh
+
+      - name: Verify core analytics defaults
+        run: ./scripts/check-core-analytics-helm-defaults.sh
+
+      - name: Verify CNPG WAL cap defaults
+        run: ./scripts/check-cnpg-wal-cap-helm-defaults.sh
+
+      # The gate above pins three points; this pins the shape of the whole
+      # derivation, including the two cases that previously produced an
+      # effectively unbounded WAL cap: a Mi-denominated size and a bare-number
+      # (bytes) size. pg_wal shares the data PVC, so an over-derived value is a
+      # disk-exhaustion bug, not a tuning preference.
+      - name: Verify CNPG WAL sizing derivation
+        run: |
+          set -euo pipefail
+          check() {
+            local size="$1" want_max="$2" want_min="$3" want_cap="$4" got
+            got="$(./scripts/run-helm.sh template serviceradar helm/serviceradar \
+              --show-only templates/cnpg-cluster.yaml \
+              --set global.imageTag=v1.0.0 \
+              --set cnpg.storageSize="$size" \
+              | grep -oE '"(max_wal_size|min_wal_size|max_slot_wal_keep_size)": "[^"]+"' \
+              | sort | tr '\n' ' ')"
+            local want='"max_slot_wal_keep_size": "'"$want_cap"'" "max_wal_size": "'"$want_max"'" "min_wal_size": "'"$want_min"'" '
+            if [ "$got" != "$want" ]; then
+              echo "storageSize=$size" >&2
+              echo "  expected: $want" >&2
+              echo "  actual:   $got" >&2
+              exit 1
+            fi
+          }
+          # Small volumes keep PostgreSQL's own 1GB and spend no extra WAL disk.
+          check 10Gi          1GB 256MB 5GB
+          check 20Gi          1GB 256MB 10GB
+          check 100Gi         7GB 896MB 30GB
+          check 102400Mi      7GB 896MB 30GB
+          check 107374182400  7GB 896MB 30GB
+          check 1Ti           8GB 1024MB 307GB
+          echo "CNPG WAL sizing derivation is correct"
+
+      - name: Verify SPIRE-managed CNPG carries the same WAL budget
+        run: |
+          set -euo pipefail
+          out="$(./scripts/run-helm.sh template serviceradar helm/serviceradar \
+            --set global.imageTag=v1.0.0 \
+            -f helm/serviceradar/values-demo-staging.yaml \
+            --show-only templates/spire-postgres.yaml)"
+          for want in '"max_slot_wal_keep_size": "5GB"' '"max_wal_size": "1GB"' '"min_wal_size": "256MB"'; do
+            echo "$out" | grep -qF "$want" || { echo "missing $want in spire-postgres render" >&2; exit 1; }
+          done
+          echo "SPIRE CNPG WAL budget is present"
+
+      - name: Verify tenant bootstrap hook order
+        run: ./scripts/check-tenant-chart-hook-order.sh
+
+      - name: Verify hosted runtime certificate boundary
+        run: ./scripts/check-hosted-runtime-cert-boundary.sh

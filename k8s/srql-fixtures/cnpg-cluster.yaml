@@ -1,0 +1,89 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: srql-fixture
+  namespace: srql-fixtures
+spec:
+  description: Shared CNPG instance for SRQL API tests (Timescale + Apache AGE + PostGIS + pgvector)
+  instances: 2
+  # Always pin by digest as well as tag. A tag alone is mutable: 18.3.0-sr5 was
+  # overwritten in place once, and Harbor then garbage-collected the manifest this
+  # cluster was running, which is what caused the ImagePullBackOff outage.
+  #
+  # sr1..sr3 are skipped deliberately. sr1 and sr2 do not start at all -- their
+  # extensions were linked against the RBE executor's glibc (GLIBC_2.38 / an
+  # unresolved __isoc23_strtoul). sr3 starts but its base was the bullseye 
+  # tag, so PostGIS cannot load: libldap-2.5.so.0 is missing. sr4 is the first build
+  # on the bookworm base with the extensions compiled under a sysroot from it.
+  imageName: registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.4.0-sr4@sha256:59e442dec59fac3149e3a3c49ba0cc2987bfb052bca1a0ea8c01b4bb31427d1d
+  # Harbor has GC'd this digest before. IfNotPresent lets a TLS reload reuse the
+  # node cache instead of taking the only primary down on a registry 404.
+  imagePullPolicy: IfNotPresent
+  imagePullSecrets:
+    - name: registry-carverauto-dev-cred
+
+  # k8s-cp3-worker3 cannot pull the digest-pinned Harbor CNPG image (ImagePullBackOff).
+  # The BuildBuddy fleets already exclude it. Leave the replica off that node so TLS
+  # reload is not performed on a 1/2 cluster.
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values:
+                  - k8s-cp3-worker3
+
+  storage:
+    size: 20Gi
+    storageClass: local-path
+
+  bootstrap:
+    initdb:
+      database: srql_fixture
+      owner: srql
+      secret:
+        name: srql-test-db-credentials
+      postInitApplicationSQL:
+        - CREATE EXTENSION IF NOT EXISTS timescaledb;
+        - CREATE EXTENSION IF NOT EXISTS age;
+        - CREATE EXTENSION IF NOT EXISTS postgis;
+        - CREATE EXTENSION IF NOT EXISTS vector;
+        - CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+
+  postgresql:
+    shared_preload_libraries:
+      - timescaledb
+      - age
+      - pg_stat_statements
+    pg_hba:
+      - "hostnossl all all all reject"
+      - "hostssl all all all scram-sha-256"
+    parameters:
+      max_connections: "200"
+      shared_buffers: 512MB
+
+  # User-provided server TLS from cert-manager (cert-manager.yaml). Distinct
+  # secret names so the operator never fights cert-manager for srql-fixture-ca
+  # / srql-fixture-server. Client / streaming_replica certs stay operator-managed.
+  certificates:
+    serverCASecret: srql-fixture-server-ca
+    serverTLSSecret: srql-fixture-server-tls
+
+  managed:
+    roles:
+      - name: srql
+        ensure: present
+        login: true
+        passwordSecret:
+          name: srql-test-db-credentials
+      - name: srql_hydra
+        ensure: present
+        login: true
+        superuser: true
+        passwordSecret:
+          name: srql-test-admin-credentials
+
+  monitoring:
+    enablePodMonitor: true

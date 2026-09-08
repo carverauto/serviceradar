@@ -1,0 +1,61 @@
+{{- $trustDomain := .Values.spire.trustDomain | default "carverauto.dev" -}}
+{{- if .Values.checkerTemplates.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: serviceradar-checker-templates
+data:
+  # Note: sysmon is now embedded directly in the agent - no separate checker config needed
+  snmp.json: |
+    {
+      "node_address": "{{`{{AGENT_ADDRESS}}`}}",
+      "listen_addr": ":50054",
+      "security": {
+        "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
+        "role": "checker",
+        "cert_dir": "/etc/serviceradar/certs",
+        "trust_domain": "{{`{{TRUST_DOMAIN}}`}}",
+        "server_spiffe_id": "{{`{{DOWNSTREAM_SPIFFE_ID}}`}}",
+        "workload_socket": "unix:/run/spire/sockets/agent.sock"
+      },
+      "timeout": "30s",
+      "logger": {
+        "level": "{{`{{LOG_LEVEL}}`}}",
+        "debug": false,
+        "output": "stdout"
+      },
+      "targets": []
+    }
+  rperf.json: |
+    {
+      "listen_addr": "0.0.0.0:50081",
+      "name": "rperf-checker",
+      "type": "grpc",
+      "timeout": "30s",
+      "security": {
+        "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
+        "cert_dir": "/etc/serviceradar/certs",
+        "trust_domain": "{{`{{TRUST_DOMAIN}}`}}",
+        "server_spiffe_id": "{{`{{DOWNSTREAM_SPIFFE_ID}}`}}",
+        "workload_socket": "unix:/run/spire/sockets/agent.sock"
+      },
+      "default_poll_interval": 300,
+      "targets": []
+    }
+  dusk.json: |
+    {
+      "name": "dusk",
+      "type": "grpc",
+      "node_address": "{{`{{AGENT_ADDRESS}}`}}",
+      "listen_addr": ":50082",
+      "timeout": "5m",
+      "security": {
+        "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
+        "role": "checker",
+        "cert_dir": "/etc/serviceradar/certs",
+        "trust_domain": "{{`{{TRUST_DOMAIN}}`}}",
+        "server_spiffe_id": "{{`{{DOWNSTREAM_SPIFFE_ID}}`}}",
+        "workload_socket": "unix:/run/spire/sockets/agent.sock"
+      }
+    }
+{{- end }}

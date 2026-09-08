@@ -1,0 +1,20 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "sidecar",
+    srcs = [
+        "status_proto.go",
+        "types.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/agent/sidecar",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//proto",
+    ],
+)
+
+go_test(
+    name = "sidecar_test",
+    srcs = ["status_proto_test.go"],
+    deps = [":sidecar"],
+)

@@ -1,0 +1,54 @@
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:rust_shared_library.bzl", "rust_shared_library")
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "bazel-*",
+            "target/**",
+        ],
+    ),
+)
+
+# A NIF is loaded by the BEAM, which supplies the enif_* symbols at load time, so the
+# shared object is linked with those symbols left undefined. That is the default for an
+# ELF .so; Mach-O has to be told explicitly.
+rust_shared_library(
+    name = "zen_nif",
+    srcs = glob(["src/**/*.rs"]),
+    # Link the C++ runtime INTO this NIF.
+    #
+    # A cdylib defaults to the cc toolchain's dynamic_runtime_lib, and hermetic-llvm's is a
+    # real shared libc++: the link picks up bazel-out/.../_solib_.../libc++.so.1 plus an
+    # rpath of $ORIGIN/../../../../_solib_... That rpath is correct exactly where Bazel put
+    # the file and nowhere else -- mix copies the NIF to
+    # _build/<env>/lib/<app>/priv/native/, the relative path stops resolving, and the BEAM
+    # reports `libc++.so.1: cannot open shared object file` from on_load. A NIF is dlopen'd
+    # from wherever it was installed, so it cannot carry an external C++ runtime dep.
+    #
+    # gcc linked libstdc++ from the system and hid this; hermetic-llvm has no system libc++
+    # to fall back on, which is the point.
+    cc_runtime_linkage = "static",
+    crate_name = "zen_nif",
+    edition = "2021",
+    # rustler always emits `<crate>_nif_init`, but emits the plain `nif_init` that
+    # :erlang.load_nif looks for only when RUSTLER_PRIMARY_NIF_INIT or CARGO_PRIMARY_PACKAGE
+    # is set (rustler_codegen-0.38.0/src/init.rs:116-118). Cargo sets CARGO_PRIMARY_PACKAGE
+    # for the package it was asked to build; Bazel does not, so without this the library
+    # loads and then fails with
+    #   {:bad_lib, "Failed to find library init function: dlsym(..., _nif_init)"}
+    rustc_env = {"RUSTLER_PRIMARY_NIF_INIT": "1"},
+    rustc_flags = select({
+        "@platforms//os:macos": ["-Clink-arg=-Wl,-undefined,dynamic_lookup"],
+        "//conditions:default": [],
+    }),
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + [
+    ],
+)

@@ -1,0 +1,49 @@
+<% form = to_form(%{"email" => ""}, as: :user) %>
+<section class="mx-auto flex min-h-[70vh] w-full max-w-md items-center px-6 py-16">
+  <div class="w-full rounded-sr-surface border border-sr-line bg-sr-surface p-8 shadow-sr-raised">
+    <div class="space-y-2">
+      <p class="text-xs font-semibold uppercase tracking-[0.24em] text-sr-brand">
+        Account Recovery
+      </p>
+      <h1 class="text-3xl font-semibold tracking-tight text-sr-ink">Reset your password</h1>
+      <p class="text-sm leading-6 text-sr-muted">
+        Enter the email address tied to this tenant workspace and we will send you a password
+        reset link.
+      </p>
+    </div>
+
+    <.form
+      for={form}
+      id="password-reset-request-form"
+      action={~p"/auth/password-reset"}
+      method="post"
+      class="mt-8 space-y-5"
+    >
+      <.input
+        field={form[:email]}
+        type="email"
+        label="Email"
+        required
+        autocomplete="email"
+        placeholder="you@example.com"
+      />
+
+      <button
+        id="password-reset-request-submit"
+        type="submit"
+        class="inline-flex w-full min-h-11 items-center justify-center rounded-sr-control border border-transparent bg-sr-brand px-3.5 text-sm font-semibold text-sr-on-brand shadow-sr-button outline-none transition-[transform,background-color] duration-200 ease-sr-out hover:-translate-y-0.5 hover:bg-sr-brand-strong focus-visible:ring-2 focus-visible:ring-sr-focus active:translate-y-px"
+      >
+        Send reset link
+      </button>
+    </.form>
+
+    <div class="mt-6 text-center text-sm text-sr-muted">
+      <a
+        href={~p"/users/log-in"}
+        class="font-semibold text-sr-brand outline-none hover:text-sr-brand-strong focus-visible:ring-2 focus-visible:ring-sr-focus"
+      >
+        Back to sign in
+      </a>
+    </div>
+  </div>
+</section>

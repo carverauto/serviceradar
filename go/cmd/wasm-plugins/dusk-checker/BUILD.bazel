@@ -1,0 +1,23 @@
+# gazelle:ignore
+#
+# This is a TinyGo plugin in its own Go module, compiled to wasip1 by
+# //build/wasm_plugins, not by rules_go. Gazelle has no rules_go targets to generate
+# here. See go.mod for the SDK pin.
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "config.schema.json",
+    "main.go",
+    "plugin.yaml",
+])
+
+filegroup(
+    name = "srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "dist/**",
+            "manifest.json",
+        ],
+    ),
+)

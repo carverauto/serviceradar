@@ -1,0 +1,190 @@
+load("@rules_cc//cc:defs.bzl", "cc_import", "cc_library")
+
+package(default_visibility = ["//visibility:public"])
+
+genrule(
+    name = "libpcap_amd64_files",
+    srcs = [
+        "@ubuntu_noble_libdbus_1_3_amd64_deb//file",
+        "@ubuntu_noble_libibverbs1_amd64_deb//file",
+        "@ubuntu_noble_libnl_3_200_amd64_deb//file",
+        "@ubuntu_noble_libnl_route_3_200_amd64_deb//file",
+        "@ubuntu_noble_libpcap0_8_dev_amd64_deb//file",
+        "@ubuntu_noble_libpcap0_8t64_amd64_deb//file",
+    ],
+    outs = [
+        "linux_amd64/libdbus-1.so",
+        "linux_amd64/libdbus-1.so.3",
+        "linux_amd64/libibverbs.so",
+        "linux_amd64/libibverbs.so.1",
+        "linux_amd64/libnl-3.so",
+        "linux_amd64/libnl-3.so.200",
+        "linux_amd64/libnl-route-3.so",
+        "linux_amd64/libnl-route-3.so.200",
+        "linux_amd64/libpcap.so",
+        "linux_amd64/libpcap.so.0.8",
+    ],
+    cmd = """
+set -euo pipefail
+out_dir="$(@D)/linux_amd64"
+root="$(@D)/libpcap_amd64_root"
+rm -rf "$${out_dir}" "$${root}"
+mkdir -p "$${out_dir}" "$${root}"
+dpkg-deb -x "$(location @ubuntu_noble_libpcap0_8_dev_amd64_deb//file)" "$${root}"
+dpkg-deb -x "$(location @ubuntu_noble_libpcap0_8t64_amd64_deb//file)" "$${root}"
+dpkg-deb -x "$(location @ubuntu_noble_libdbus_1_3_amd64_deb//file)" "$${root}"
+dpkg-deb -x "$(location @ubuntu_noble_libibverbs1_amd64_deb//file)" "$${root}"
+dpkg-deb -x "$(location @ubuntu_noble_libnl_3_200_amd64_deb//file)" "$${root}"
+dpkg-deb -x "$(location @ubuntu_noble_libnl_route_3_200_amd64_deb//file)" "$${root}"
+cp -L "$${root}/usr/lib/x86_64-linux-gnu/libdbus-1.so.3" "$${out_dir}/libdbus-1.so.3"
+cp -L "$${root}/usr/lib/x86_64-linux-gnu/libdbus-1.so.3" "$${out_dir}/libdbus-1.so"
+cp -L "$${root}/usr/lib/x86_64-linux-gnu/libibverbs.so.1" "$${out_dir}/libibverbs.so.1"
+cp -L "$${root}/usr/lib/x86_64-linux-gnu/libibverbs.so.1" "$${out_dir}/libibverbs.so"
+cp -L "$${root}/usr/lib/x86_64-linux-gnu/libnl-3.so.200" "$${out_dir}/libnl-3.so.200"
+cp -L "$${root}/usr/lib/x86_64-linux-gnu/libnl-3.so.200" "$${out_dir}/libnl-3.so"
+cp -L "$${root}/usr/lib/x86_64-linux-gnu/libnl-route-3.so.200" "$${out_dir}/libnl-route-3.so.200"
+cp -L "$${root}/usr/lib/x86_64-linux-gnu/libnl-route-3.so.200" "$${out_dir}/libnl-route-3.so"
+cp -L "$${root}/usr/lib/x86_64-linux-gnu/libpcap.so" "$${out_dir}/libpcap.so"
+cp -L "$${root}/usr/lib/x86_64-linux-gnu/libpcap.so.0.8" "$${out_dir}/libpcap.so.0.8"
+""",
+)
+
+genrule(
+    name = "libpcap_arm64_files",
+    srcs = [
+        "@ubuntu_noble_libdbus_1_3_arm64_deb//file",
+        "@ubuntu_noble_libibverbs1_arm64_deb//file",
+        "@ubuntu_noble_libnl_3_200_arm64_deb//file",
+        "@ubuntu_noble_libnl_route_3_200_arm64_deb//file",
+        "@ubuntu_noble_libpcap0_8_dev_arm64_deb//file",
+        "@ubuntu_noble_libpcap0_8t64_arm64_deb//file",
+    ],
+    outs = [
+        "linux_arm64/libdbus-1.so",
+        "linux_arm64/libdbus-1.so.3",
+        "linux_arm64/libibverbs.so",
+        "linux_arm64/libibverbs.so.1",
+        "linux_arm64/libnl-3.so",
+        "linux_arm64/libnl-3.so.200",
+        "linux_arm64/libnl-route-3.so",
+        "linux_arm64/libnl-route-3.so.200",
+        "linux_arm64/libpcap.so",
+        "linux_arm64/libpcap.so.0.8",
+    ],
+    cmd = """
+set -euo pipefail
+out_dir="$(@D)/linux_arm64"
+root="$(@D)/libpcap_arm64_root"
+rm -rf "$${out_dir}" "$${root}"
+mkdir -p "$${out_dir}" "$${root}"
+dpkg-deb -x "$(location @ubuntu_noble_libpcap0_8_dev_arm64_deb//file)" "$${root}"
+dpkg-deb -x "$(location @ubuntu_noble_libpcap0_8t64_arm64_deb//file)" "$${root}"
+dpkg-deb -x "$(location @ubuntu_noble_libdbus_1_3_arm64_deb//file)" "$${root}"
+dpkg-deb -x "$(location @ubuntu_noble_libibverbs1_arm64_deb//file)" "$${root}"
+dpkg-deb -x "$(location @ubuntu_noble_libnl_3_200_arm64_deb//file)" "$${root}"
+dpkg-deb -x "$(location @ubuntu_noble_libnl_route_3_200_arm64_deb//file)" "$${root}"
+cp -L "$${root}/usr/lib/aarch64-linux-gnu/libdbus-1.so.3" "$${out_dir}/libdbus-1.so.3"
+cp -L "$${root}/usr/lib/aarch64-linux-gnu/libdbus-1.so.3" "$${out_dir}/libdbus-1.so"
+cp -L "$${root}/usr/lib/aarch64-linux-gnu/libibverbs.so.1" "$${out_dir}/libibverbs.so.1"
+cp -L "$${root}/usr/lib/aarch64-linux-gnu/libibverbs.so.1" "$${out_dir}/libibverbs.so"
+cp -L "$${root}/usr/lib/aarch64-linux-gnu/libnl-3.so.200" "$${out_dir}/libnl-3.so.200"
+cp -L "$${root}/usr/lib/aarch64-linux-gnu/libnl-3.so.200" "$${out_dir}/libnl-3.so"
+cp -L "$${root}/usr/lib/aarch64-linux-gnu/libnl-route-3.so.200" "$${out_dir}/libnl-route-3.so.200"
+cp -L "$${root}/usr/lib/aarch64-linux-gnu/libnl-route-3.so.200" "$${out_dir}/libnl-route-3.so"
+cp -L "$${root}/usr/lib/aarch64-linux-gnu/libpcap.so" "$${out_dir}/libpcap.so"
+cp -L "$${root}/usr/lib/aarch64-linux-gnu/libpcap.so.0.8" "$${out_dir}/libpcap.so.0.8"
+""",
+)
+
+cc_import(
+    name = "libdbus_amd64",
+    interface_library = ":linux_amd64/libdbus-1.so",
+    shared_library = ":linux_amd64/libdbus-1.so.3",
+)
+
+cc_import(
+    name = "libibverbs_amd64",
+    interface_library = ":linux_amd64/libibverbs.so",
+    shared_library = ":linux_amd64/libibverbs.so.1",
+)
+
+cc_import(
+    name = "libnl_amd64",
+    interface_library = ":linux_amd64/libnl-3.so",
+    shared_library = ":linux_amd64/libnl-3.so.200",
+)
+
+cc_import(
+    name = "libnl_route_amd64",
+    interface_library = ":linux_amd64/libnl-route-3.so",
+    shared_library = ":linux_amd64/libnl-route-3.so.200",
+)
+
+cc_import(
+    name = "libpcap_amd64",
+    interface_library = ":linux_amd64/libpcap.so",
+    shared_library = ":linux_amd64/libpcap.so.0.8",
+)
+
+cc_import(
+    name = "libdbus_arm64",
+    interface_library = ":linux_arm64/libdbus-1.so",
+    shared_library = ":linux_arm64/libdbus-1.so.3",
+)
+
+cc_import(
+    name = "libibverbs_arm64",
+    interface_library = ":linux_arm64/libibverbs.so",
+    shared_library = ":linux_arm64/libibverbs.so.1",
+)
+
+cc_import(
+    name = "libnl_arm64",
+    interface_library = ":linux_arm64/libnl-3.so",
+    shared_library = ":linux_arm64/libnl-3.so.200",
+)
+
+cc_import(
+    name = "libnl_route_arm64",
+    interface_library = ":linux_arm64/libnl-route-3.so",
+    shared_library = ":linux_arm64/libnl-route-3.so.200",
+)
+
+cc_import(
+    name = "libpcap_arm64",
+    interface_library = ":linux_arm64/libpcap.so",
+    shared_library = ":linux_arm64/libpcap.so.0.8",
+)
+
+cc_library(
+    name = "pcap_amd64",
+    deps = [
+        ":libdbus_amd64",
+        ":libibverbs_amd64",
+        ":libnl_amd64",
+        ":libnl_route_amd64",
+        ":libpcap_amd64",
+    ],
+)
+
+cc_library(
+    name = "pcap_arm64",
+    deps = [
+        ":libdbus_arm64",
+        ":libibverbs_arm64",
+        ":libnl_arm64",
+        ":libnl_route_arm64",
+        ":libpcap_arm64",
+    ],
+)
+
+cc_library(
+    name = "pcap",
+    deps = select({
+        "//build/platforms:target_linux_aarch64_musl": [],
+        "//build/platforms:target_linux_x86_64_musl": [],
+        "//build/platforms:target_linux_arm64": [":pcap_arm64"],
+        "//build/platforms:target_linux_x86_64": [":pcap_amd64"],
+        "//conditions:default": [],
+    }),
+)

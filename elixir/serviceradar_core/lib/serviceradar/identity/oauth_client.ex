@@ -1,0 +1,377 @@
+defmodule ServiceRadar.Identity.OAuthClient do
+  @moduledoc """
+  OAuth2 Client resource for user self-service API credentials.
+
+  OAuth clients enable users to create their own client credentials for
+  programmatic API access using the OAuth2 Client Credentials flow.
+  Each client has a client_id (UUID) and client_secret pair.
+
+  ## Client Credentials Flow
+
+  1. User creates an OAuthClient in the UI
+  2. UI shows client_id and client_secret (secret shown only once)
+  3. Application exchanges credentials at `/oauth/token`:
+     ```
+     POST /oauth/token
+     Content-Type: application/x-www-form-urlencoded
+
+     grant_type=client_credentials
+     &client_id=<client_id>
+     &client_secret=<client_secret>
+     &scope=read write
+     ```
+  4. Server returns a JWT access token
+  5. Application uses token in Authorization header
+
+  ## Scopes
+
+  - `read` - Read-only access to resources
+  - `write` - Create and modify resources
+  - `admin` - Full administrative access (requires admin user)
+  - `mcp` - Call the MCP server at `/mcp` (still subject to the caller's RBAC)
+
+  ## Security
+
+  - Client secrets are bcrypt hashed (never stored in plain text)
+  - Only the first 8 characters (prefix) are stored for identification
+  - Clients can be revoked at any time
+  - Optional expiration dates are supported
+  - Usage tracking for auditing
+  """
+
+  use Ash.Resource,
+    domain: ServiceRadar.Identity,
+    data_layer: AshPostgres.DataLayer,
+    authorizers: [Ash.Policy.Authorizer]
+
+  alias ServiceRadar.Identity.AccessCredentialChanges
+  alias ServiceRadar.Identity.Constants
+  alias ServiceRadar.Policies.Checks.ActorHasPermission
+
+  @api_credentials_check {ActorHasPermission,
+                          permission: Constants.api_credentials_manage_permission()}
+
+  @client_create_fields [:name, :description, :scopes, :expires_at, :user_id]
+  @client_update_fields [:name, :description, :expires_at]
+  @client_usage_fields [:last_used_ip]
+  @client_self_manage_actions [:update, :record_use, :revoke, :disable, :enable, :destroy]
+
+  postgres do
+    table "oauth_clients"
+    repo ServiceRadar.Repo
+    schema "platform"
+  end
+
+  code_interface do
+    define :get_by_id, action: :by_id, args: [:id]
+    define :get_by_prefix, action: :by_prefix, args: [:prefix]
+    define :list_by_user, action: :by_user, args: [:user_id]
+    define :list_active, action: :active
+    define :authenticate, action: :authenticate, args: [:client_id, :client_secret]
+    define :create
+    define :update
+    define :record_use
+    define :revoke
+    define :disable
+    define :enable
+    define :destroy
+  end
+
+  actions do
+    defaults [:read]
+
+    read :by_id do
+      argument :id, :uuid, allow_nil?: false
+      get? true
+      filter expr(id == ^arg(:id))
+    end
+
+    read :by_prefix do
+      argument :prefix, :string, allow_nil?: false
+      filter expr(secret_prefix == ^arg(:prefix) and enabled == true and is_nil(revoked_at))
+    end
+
+    read :by_user do
+      argument :user_id, :uuid, allow_nil?: false
+      filter expr(user_id == ^arg(:user_id))
+    end
+
+    read :active do
+      description "All active (non-revoked, non-expired) clients"
+
+      filter expr(
+               enabled == true and
+                 is_nil(revoked_at) and
+                 (is_nil(expires_at) or expires_at > now())
+             )
+    end
+
+    # Authenticate a client using client_id and client_secret
+    read :authenticate do
+      description "Authenticate using client credentials"
+      argument :client_id, :uuid, allow_nil?: false
+      argument :client_secret, :string, allow_nil?: false, sensitive?: true
+      get? true
+      filter expr(id == ^arg(:client_id) and enabled == true and is_nil(revoked_at))
+
+      prepare fn query, _context ->
+        Ash.Query.after_action(query, fn _query, results ->
+          case results do
+            [client] ->
+              secret = Ash.Query.get_argument(query, :client_secret)
+
+              if Bcrypt.verify_pass(secret, client.secret_hash) do
+                {:ok, [client]}
+              else
+                {:ok, []}
+              end
+
+            [] ->
+              # Prevent timing attacks
+              Bcrypt.no_user_verify()
+              {:ok, []}
+          end
+        end)
+      end
+    end
+
+    create :create do
+      description "Create a new OAuth client"
+      accept @client_create_fields
+
+      argument :client_secret, :string do
+        allow_nil? false
+        sensitive? true
+        description "The raw client secret to hash and store"
+      end
+
+      change fn changeset, _context ->
+        AccessCredentialChanges.init_secret(changeset,
+          argument: :client_secret,
+          hash_attribute: :secret_hash,
+          prefix_attribute: :secret_prefix,
+          hash_fun: &Bcrypt.hash_pwd_salt/1
+        )
+      end
+    end
+
+    update :update do
+      accept @client_update_fields
+    end
+
+    update :record_use do
+      description "Record client usage"
+      accept @client_usage_fields
+      change atomic_update(:last_used_at, expr(now()))
+      change atomic_update(:use_count, expr(use_count + 1))
+    end
+
+    update :revoke do
+      description "Revoke this client"
+      # Non-atomic: uses function change to set multiple attributes
+      require_atomic? false
+
+      change fn changeset, _context ->
+        AccessCredentialChanges.revoke(changeset)
+      end
+    end
+
+    update :disable do
+      description "Disable this client"
+      change set_attribute(:enabled, false)
+    end
+
+    update :enable do
+      description "Enable this client"
+      change set_attribute(:enabled, true)
+    end
+
+    destroy :destroy do
+      description "Delete this client"
+    end
+  end
+
+  policies do
+    import ServiceRadar.Policies
+
+    # System actors can perform all operations (schema isolation via search_path)
+    system_bypass()
+
+    # `:authenticate` is the pre-authentication step of the OAuth2 token
+    # endpoint: there is no actor yet — the client_secret IS the credential,
+    # verified by bcrypt in the action's own after_action. It MUST be a bypass,
+    # not a plain policy: as a plain policy it was ANDed with the
+    # `action_type(:read)` policy below (which requires `user_id == actor.id`),
+    # so with a nil actor EVERY token request was filtered to empty and the
+    # endpoint returned `invalid_client` for valid credentials. Placed before
+    # the read policy so it short-circuits.
+    bypass action(:authenticate) do
+      authorize_if always()
+    end
+
+    # Users can read their own clients
+    policy action_type(:read) do
+      authorize_if expr(user_id == ^actor(:id))
+      authorize_if is_admin()
+    end
+
+    # Users can create clients for themselves
+    policy action(:create) do
+      authorize_if ServiceRadar.Identity.OAuthClient.Checks.CreatingOwnClient
+      authorize_if is_admin()
+    end
+
+    # Users can update/revoke/delete their own clients
+    policy action(@client_self_manage_actions) do
+      authorize_if expr(user_id == ^actor(:id))
+      authorize_if is_admin()
+    end
+
+    # Catalog visibility is not enough: creating or listing clients is a
+    # privilege. Built-in roles keep it via default_roles; a custom profile
+    # (demo) that omits the key cannot mint API credentials. Authenticate
+    # remains a bypass above; record_use runs as a system actor.
+    policy action_type([:create, :read, :update, :destroy]) do
+      authorize_if @api_credentials_check
+    end
+  end
+
+  attributes do
+    uuid_primary_key :id
+
+    attribute :name, :string do
+      allow_nil? false
+      public? true
+      description "Client display name"
+    end
+
+    attribute :description, :string do
+      public? true
+      description "Client description/purpose"
+    end
+
+    # Credentials
+    attribute :secret_hash, :string do
+      allow_nil? false
+      public? false
+      sensitive? true
+      description "Bcrypt-hashed client secret"
+    end
+
+    attribute :secret_prefix, :string do
+      allow_nil? false
+      public? true
+      description "First 8 characters of the secret for identification"
+      constraints max_length: 8
+    end
+
+    # Permissions
+    attribute :scopes, {:array, :string} do
+      allow_nil? false
+      default ["read"]
+      public? true
+      description "Granted scopes (read, write, admin, mcp)"
+    end
+
+    # Status
+    attribute :enabled, :boolean do
+      default true
+      public? true
+      description "Whether this client is active"
+    end
+
+    attribute :revoked_at, :utc_datetime_usec do
+      public? true
+      description "When the client was revoked"
+    end
+
+    # Usage tracking
+    attribute :last_used_at, :utc_datetime_usec do
+      public? true
+      description "When client was last used"
+    end
+
+    attribute :last_used_ip, :string do
+      public? true
+      description "IP address of last use"
+    end
+
+    attribute :use_count, :integer do
+      default 0
+      public? true
+      description "Number of times client has been used"
+    end
+
+    # Expiration
+    attribute :expires_at, :utc_datetime_usec do
+      public? true
+      description "Optional expiration time"
+    end
+
+    # User who owns this client
+    attribute :user_id, :uuid do
+      allow_nil? false
+      public? true
+      description "User who owns this client"
+    end
+
+    create_timestamp :inserted_at
+    update_timestamp :updated_at
+  end
+
+  relationships do
+    belongs_to :user, ServiceRadar.Identity.User do
+      source_attribute :user_id
+      destination_attribute :id
+      allow_nil? false
+      public? true
+    end
+  end
+
+  calculations do
+    calculate :is_valid,
+              :boolean,
+              expr(
+                enabled == true and
+                  is_nil(revoked_at) and
+                  (is_nil(expires_at) or expires_at > now())
+              )
+
+    calculate :is_expired, :boolean, expr(not is_nil(expires_at) and expires_at <= now())
+
+    calculate :is_revoked, :boolean, expr(not is_nil(revoked_at))
+
+    calculate :client_id, :string, expr(type(id, :string)) do
+      description "Client ID (same as id, formatted as string)"
+    end
+
+    calculate :status,
+              :string,
+              expr(
+                cond do
+                  not is_nil(revoked_at) -> "revoked"
+                  not is_nil(expires_at) and expires_at <= now() -> "expired"
+                  enabled == false -> "disabled"
+                  true -> "active"
+                end
+              )
+
+    calculate :status_color,
+              :string,
+              expr(
+                cond do
+                  not is_nil(revoked_at) -> "red"
+                  not is_nil(expires_at) and expires_at <= now() -> "orange"
+                  enabled == false -> "gray"
+                  true -> "green"
+                end
+              )
+
+    calculate :scopes_display, :string, expr(fragment("array_to_string(?, ', ')", scopes))
+  end
+
+  identities do
+    # Clients are unique by their ID (primary key)
+    # No need for additional uniqueness constraint
+  end
+end

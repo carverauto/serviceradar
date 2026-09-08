@@ -1,0 +1,402 @@
+name: Publish Native Add-ons
+
+on:
+  # Republish native add-ons on every release tag so the published artifacts (and the
+  # versions surfaced in the add-ons UI) track the code, instead of only on manual dispatch.
+  # Pairs with release.yml, which builds the images on the same `v*` tags.
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Optional extra tag to apply to published native add-on artifacts."
+        required: false
+        type: string
+      sign_branch_catalog:
+        description: "Sign workflow-dispatch branch catalogs for maintainer demo/import validation."
+        required: false
+        default: "false"
+        type: boolean
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: serviceradar-signing
+    environment: release
+    env:
+      BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY || secrets.BUILDBUDDY_API_KEY }}
+      OCI_REGISTRY: registry.carverauto.dev
+      OCI_PROJECT: serviceradar
+      OCI_USERNAME: ${{ secrets.HARBOR_ROBOT_USERNAME }}
+      OCI_TOKEN: ${{ secrets.HARBOR_ROBOT_SECRET }}
+      COSIGN_KEYLESS: ${{ secrets.COSIGN_KEYLESS }}
+      SIGSTORE_FULCIO_URL: ${{ secrets.SIGSTORE_FULCIO_URL }}
+      SIGSTORE_REKOR_URL: ${{ secrets.SIGSTORE_REKOR_URL }}
+      SIGSTORE_OIDC_ISSUER: ${{ secrets.SIGSTORE_OIDC_ISSUER }}
+      SIGSTORE_OIDC_CLIENT_ID: ${{ secrets.SIGSTORE_OIDC_CLIENT_ID }}
+      SIGSTORE_OIDC_AUDIENCE: ${{ secrets.SIGSTORE_OIDC_AUDIENCE }}
+      SIGSTORE_TRUSTED_ROOT: ${{ secrets.SIGSTORE_TRUSTED_ROOT }}
+      SIGSTORE_TRUSTED_ROOT_FILE: ${{ secrets.SIGSTORE_TRUSTED_ROOT_FILE }}
+      SIGSTORE_ROOT_PEM: ${{ secrets.SIGSTORE_ROOT_PEM }}
+      SIGSTORE_ROOT_FILE: ${{ secrets.SIGSTORE_ROOT_FILE }}
+      SIGSTORE_CT_LOG_PUBLIC_KEY: ${{ secrets.SIGSTORE_CT_LOG_PUBLIC_KEY }}
+      SIGSTORE_CT_LOG_PUBLIC_KEY_FILE: ${{ secrets.SIGSTORE_CT_LOG_PUBLIC_KEY_FILE }}
+      SIGSTORE_REKOR_PUBLIC_KEY_PEM: ${{ secrets.SIGSTORE_REKOR_PUBLIC_KEY_PEM }}
+      SIGSTORE_REKOR_PUBLIC_KEY_FILE: ${{ secrets.SIGSTORE_REKOR_PUBLIC_KEY_FILE }}
+      COSIGN_CERTIFICATE_IDENTITY: ${{ secrets.COSIGN_CERTIFICATE_IDENTITY }}
+      COSIGN_CERTIFICATE_IDENTITY_REGEXP: ${{ secrets.COSIGN_CERTIFICATE_IDENTITY_REGEXP }}
+      COSIGN_CERTIFICATE_OIDC_ISSUER: ${{ secrets.COSIGN_CERTIFICATE_OIDC_ISSUER }}
+      COSIGN_CERTIFICATE_OIDC_ISSUER_REGEXP: ${{ secrets.COSIGN_CERTIFICATE_OIDC_ISSUER_REGEXP }}
+      # The per-arch pushed-artifact tarballs are signed with the agent release key
+      # (the same key the agent verifies with), reusing the existing release signer.
+      # The OCI bundle's integrity is covered by the Cosign signature; there is no
+      # bundle-level upload-signature for native add-ons (unlike wasm plugins).
+      SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY: ${{ secrets.SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY }}
+      GH_TOKEN: ${{ github.token }}
+      GITHUB_TOKEN: ${{ github.token }}
+      BAZELISK_HOME: ${{ github.workspace }}/.cache/bazelisk
+      # Used by the publish, import-index and release-asset steps, which must all agree on
+      # the tag they are naming. Computed once here rather than repeated per step.
+      EXTRA_TAG: ${{ github.event.inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+
+      - name: Enforce release tag source
+        env:
+          INPUT_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || '' }}
+          RELEASE_BASE_REF: origin/staging
+        run: |
+          set -euo pipefail
+
+          publish_tag="${INPUT_TAG}"
+          if [[ -z "${publish_tag}" && "${GITHUB_REF}" == refs/tags/* ]]; then
+            publish_tag="${GITHUB_REF#refs/tags/}"
+          fi
+          if [[ -z "${publish_tag}" || "${publish_tag}" != v* ]]; then
+            echo "Branch catalog dispatch: skipping release-tag source gate."
+            exit 0
+          fi
+
+          release_tag="${publish_tag}"
+          ./scripts/validate-release-tag.sh "${release_tag}"
+          expected_ref="refs/tags/${release_tag}"
+          # Tag-push must run on the annotated tag ref. workflow_dispatch may
+          # use staging (or another branch) to recover a failed tag publish so
+          # long as the tag still points at a staging-reachable release commit.
+          if [[ "${GITHUB_EVENT_NAME}" != "workflow_dispatch" && "${GITHUB_REF}" != "${expected_ref}" ]]; then
+            echo "Release tag ${release_tag} must be published from ${expected_ref}, got ${GITHUB_REF}" >&2
+            exit 1
+          fi
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && "${GITHUB_REF}" != "${expected_ref}" ]]; then
+            echo "workflow_dispatch recovery for ${release_tag} from ${GITHUB_REF} (expected tag ref ${expected_ref})."
+          fi
+
+          git fetch --no-tags origin "+${expected_ref}:${expected_ref}" || true
+          if ! git rev-parse -q --verify "refs/tags/${release_tag}^{commit}" >/dev/null; then
+            git fetch --no-tags origin "refs/tags/${release_tag}:refs/tags/${release_tag}"
+          fi
+
+          tag_commit="$(git rev-list -n1 "refs/tags/${release_tag}^{commit}")"
+          if [[ ! "${tag_commit}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Unable to resolve commit for ${release_tag}" >&2
+            exit 1
+          fi
+          file_version="$(git show "${tag_commit}:VERSION")"
+          file_version="${file_version%%[$'\r\n']*}"
+          if [[ "${release_tag}" != "v${file_version}" ]]; then
+            echo "Release tag ${release_tag} does not match VERSION (${file_version})" >&2
+            exit 1
+          fi
+
+          git fetch --no-tags origin +refs/heads/staging:refs/remotes/origin/staging
+          if ! git merge-base --is-ancestor "${tag_commit}" "${RELEASE_BASE_REF}"; then
+            echo "Release commit ${tag_commit} is not reachable from ${RELEASE_BASE_REF}" >&2
+            exit 1
+          fi
+
+          echo "Validated ${release_tag} at ${tag_commit} from ${RELEASE_BASE_REF}."
+
+      - name: Cache Bazel artifacts
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            ${{ env.BAZELISK_HOME }}
+          # Keyed on .bazelversion ONLY. This cache holds BAZELISK_HOME, which contains just
+          # the downloaded bazel binaries -- nothing in it depends on .bazelrc, MODULE.bazel or
+          # the lockfile, so hashing those only busted the key (and re-uploaded an identical
+          # ~200MB entry) on every unrelated build-config edit. Bazel's own action cache lives
+          # remotely on BuildBuddy, not here.
+          key: ${{ runner.os }}-bazelisk-${{ hashFiles('.bazelversion') }}
+          restore-keys: |
+            ${{ runner.os }}-bazelisk-
+
+      - name: Install Bazelisk
+        run: ./scripts/install-bazelisk.sh
+
+      # MUST run before the first bazel invocation below. `--config=remote` points the
+      # executor, cache and BES at carverauto.buildbuddy.io, and the API key reaches Bazel
+      # ONLY through .bazelrc.remote -- which is gitignored, so it does not exist in a
+      # fresh checkout. Without it every remote call dies with `PERMISSION_DENIED: Anonymous
+      # access disabled`.
+      - name: Configure remote cache
+        run: |
+          set -euo pipefail
+
+          if [ -z "${BUILDBUDDY_ORG_API_KEY:-}" ]; then
+            echo "BUILDBUDDY_ORG_API_KEY is unavailable; --config=remote cannot authenticate." >&2
+            exit 1
+          fi
+
+          umask 077
+          printf 'common --remote_header=x-buildbuddy-api-key=%s\n' "${BUILDBUDDY_ORG_API_KEY}" > .bazelrc.remote
+
+      - name: Install Cosign
+        run: ./scripts/install-cosign.sh
+
+      - name: Install ORAS
+        run: ./scripts/install-oras.sh
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Run hermetic native add-on gate fixtures
+        run: bazel test -c opt --config=remote //build/native_addons:build_gates_test
+
+      # Only check_addon_no_stdlib_plugin and check_addon_deadcode_elimination remain here;
+      # both shell out to `go list -deps` / `go build -ldflags=-dumpdep`, which is why the
+      # Setup Go step above stays. Manifest validation and dependency isolation moved to
+      # :build_gates_test (step above) -- see the Makefile for why.
+      #
+      # No REQUIRE_GSA and no go-size-analyzer install: REQUIRE_GSA is read ONLY by
+      # scripts/check-addon-binary-size.sh, which is deliberately not an addon_build_gates
+      # prerequisite (binary size is //build/native_addons:binary_size_test). The env var
+      # and the gsa install it guarded were both no-ops in this job.
+      - name: Run native add-on build gates
+        run: make addon_build_gates
+
+      - name: Login to Harbor
+        run: |
+          set -euo pipefail
+          if [[ -z "${OCI_USERNAME:-}" || -z "${OCI_TOKEN:-}" ]]; then
+            echo "Missing Harbor robot credentials. Set HARBOR_ROBOT_USERNAME and HARBOR_ROBOT_SECRET." >&2
+            exit 1
+          fi
+
+          echo "${OCI_TOKEN}" | oras login "${OCI_REGISTRY}" -u "${OCI_USERNAME}" --password-stdin
+
+      - name: Publish native add-on OCI artifacts
+        env:
+          SIGN_BRANCH_CATALOG: ${{ github.event.inputs.sign_branch_catalog || 'false' }}
+          # KEEP THESE FLAGS IDENTICAL TO THE `bazel test` STEP ABOVE (-c opt --config=remote).
+          # Every flag that differs forks the configuration, and a forked configuration
+          # shares no remote cache entries with the one CI just warmed -- it rebuilds the
+          # world.
+          #
+          # --config=remote is REQUIRED, not tidiness. With NO config these targets build
+          # locally on the signing runner, which has no linker, so the first Rust tool
+          # bazel needs (rules_rust's process_wrapper) dies with
+          #   collect2: fatal error: cannot find 'ld'
+          # --config=ci cannot be used here: that profile pins /bazel-cache, which exists
+          # only on ARC workflow runners. serviceradar-signing gets Permission denied.
+          #
+          # NO --stamp. Nothing in the add-on graph consumes stamp data: the bundles are a
+          # native.genrule plus an sh_binary, neither of which stamps, and no add-on binary
+          # sets `stamp` or `x_defs`. Version comes from addons/<name>/addon.yaml (enforced
+          # by the version-bump gate) and the OCI tag is passed as an argument. It bought
+          # nothing and split the cache.
+          #
+          # --remote_download_outputs=all overrides --remote_download_minimal (inherited
+          # from build:remote_base) because these are `bazel run` targets: the sh_binary and
+          # its runfiles -- bundle zip, metadata.json, tarballs, signature tool -- must be on
+          # local disk for oras to upload them.
+          BAZEL_BUILD_FLAGS: -c opt --config=remote --remote_download_outputs=all
+          OPENBAO_ADDR: https://openbao-active.openbao-system.svc.cluster.local:8200
+          OPENBAO_K8S_ROLE: github-signing-runner
+          COSIGN_KEY_REF: hashivault://cosign-release
+        run: |
+          set -euo pipefail
+          if [[ -z "${SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY:-}" ]]; then
+            echo "Missing agent release signing key. Set SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY." >&2
+            exit 1
+          fi
+
+          # The verify step checks per-arch artifacts against the agent release public
+          # key; derive it from the private key so the secret stays the single source.
+          # Same flags as every other bazel call in this job. Bare `bazel run` builds in
+          # fastbuild on the runner -- a THIRD configuration alongside the opt/ci one,
+          # analyzed and compiled from scratch locally for one small Go tool.
+          export SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY="$(bazel run ${BAZEL_BUILD_FLAGS} //build/native_addons:addon_artifact_signature_tool -- public-key | tail -n1)"
+
+          push_args=()
+          verify_tags=("sha-${GITHUB_SHA}")
+          if [[ -n "${EXTRA_TAG:-}" ]]; then
+            push_args+=(--tag "${EXTRA_TAG}")
+            verify_tags+=("${EXTRA_TAG}")
+          fi
+
+          ./scripts/push_all_native_addons.sh "${push_args[@]}"
+
+          release_signing_refs_regex='^refs/(tags/v.*|heads/(staging|main|master))$'
+          should_sign="false"
+          if [[ "${GITHUB_REF:-}" =~ ${release_signing_refs_regex} ]]; then
+            should_sign="true"
+            export OPENBAO_SIGNING_ALLOWED_REFS_REGEX="${release_signing_refs_regex}"
+          elif [[ "${GITHUB_EVENT_NAME:-}" == "workflow_dispatch" && "${SIGN_BRANCH_CATALOG:-false}" == "true" ]]; then
+            should_sign="true"
+            unset OPENBAO_SIGNING_ALLOWED_REFS_REGEX
+            echo "Signing workflow-dispatch branch catalog for maintainer demo/import validation: ${GITHUB_REF:-unknown-ref}."
+          fi
+
+          if [[ "${should_sign}" == "true" ]]; then
+            source ./scripts/ci/prepare-openbao-cosign-env.sh
+            ./scripts/sign-native-addon-publish.sh "${verify_tags[@]}"
+            ./scripts/verify-native-addon-publish.sh "${verify_tags[@]}"
+            unset VAULT_TOKEN VAULT_ADDR COSIGN_KEY_REF
+          else
+            echo "Skipping OpenBao cosign signing for non-release ref '${GITHUB_REF:-}'. Set sign_branch_catalog=true on workflow_dispatch to sign a branch catalog for demo/import validation."
+          fi
+
+      - name: Generate import index
+        env:
+          # Same flags as the publish step above -- see the comment there for why. This step
+          # runs `bazel build //build/native_addons:all_metadata` inside
+          # generate-native-addon-import-index.sh and then READS the metadata.json files out
+          # of bazel-bin, so --remote_download_outputs=all is what puts them on local disk.
+          BAZEL_BUILD_FLAGS: -c opt --config=remote --remote_download_outputs=all
+        run: |
+          set -euo pipefail
+          tag="${EXTRA_TAG:-sha-${GITHUB_SHA}}"
+          OUTPUT="${RUNNER_TEMP:-/tmp}/serviceradar-native-addon-index.json" \
+            ./scripts/generate-native-addon-import-index.sh "${tag}"
+          jq '.addons | length' "${RUNNER_TEMP:-/tmp}/serviceradar-native-addon-index.json"
+
+      - name: Upload import index release asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          token="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
+          if [[ -z "${token}" ]]; then
+            echo "Missing GitHub token (GITHUB_TOKEN/GH_TOKEN)." >&2
+            exit 1
+          fi
+
+          release_tag="${EXTRA_TAG:-sha-${GITHUB_SHA}}"
+          # GITHUB_SHA on an annotated tag-push is the tag object, not the
+          # commit. GitHub 404/403s if that is sent as target_commitish.
+          # When the git tag already exists, omit the field entirely.
+          target_commitish=""
+          if [[ "${release_tag}" =~ ^sha-([0-9a-f]{40})$ ]]; then
+            target_commitish="${BASH_REMATCH[1]}"
+          elif git rev-parse -q --verify "refs/tags/${release_tag}" >/dev/null; then
+            target_commitish=""
+          else
+            peeled="$(git rev-parse -q --verify "${GITHUB_SHA}^{commit}" 2>/dev/null || true)"
+            if [[ "${peeled}" =~ ^[0-9a-f]{40}$ ]]; then
+              target_commitish="${peeled}"
+            fi
+          fi
+
+          index_path="${RUNNER_TEMP:-/tmp}/serviceradar-native-addon-index.json"
+          if [[ ! -s "${index_path}" ]]; then
+            echo "Missing native add-on import index at ${index_path}" >&2
+            exit 1
+          fi
+
+          api_base="https://api.github.com/repos/${GITHUB_REPOSITORY}"
+          gh_headers=(
+            -H "Accept: application/vnd.github+json"
+            -H "Authorization: Bearer ${token}"
+            -H "X-GitHub-Api-Version: 2022-11-28"
+          )
+
+          # /releases/tags/{tag} hides drafts. Always list first.
+          fetch_release() {
+            local release_json releases_json
+            releases_json="$(curl -sS "${gh_headers[@]}" \
+              "${api_base}/releases?per_page=100" || true)"
+            release_json="$(jq -c --arg tag "${release_tag}" \
+              'if type == "array" then first(.[] | select(.tag_name == $tag)) // empty else empty end' \
+              <<<"${releases_json}" 2>/dev/null || true)"
+            if [[ -n "${release_json}" ]]; then
+              printf '%s\n' "${release_json}"
+              return 0
+            fi
+            curl -sS "${gh_headers[@]}" \
+              "${api_base}/releases/tags/${release_tag}" || true
+          }
+
+          release_json="$(fetch_release)"
+          release_id="$(echo "${release_json}" | jq -r 'select(type == "object") | .id // empty')"
+          if [[ -z "${release_id}" ]]; then
+            if [[ -n "${target_commitish}" ]]; then
+              create_body="$(
+                jq -n \
+                  --arg tag_name "${release_tag}" \
+                  --arg target_commitish "${target_commitish}" \
+                  --arg name "Native add-on catalog ${release_tag}" \
+                  --arg body "Generated native add-on import catalog for ${release_tag}." \
+                  '{
+                    tag_name: $tag_name,
+                    target_commitish: $target_commitish,
+                    name: $name,
+                    body: $body,
+                    draft: true,
+                    prerelease: true
+                  }'
+              )"
+            else
+              create_body="$(
+                jq -n \
+                  --arg tag_name "${release_tag}" \
+                  --arg name "Native add-on catalog ${release_tag}" \
+                  --arg body "Generated native add-on import catalog for ${release_tag}." \
+                  '{
+                    tag_name: $tag_name,
+                    name: $name,
+                    body: $body,
+                    draft: true,
+                    prerelease: true
+                  }'
+              )"
+            fi
+            create_json="$(curl -sS -w '\n%{http_code}' -X POST \
+              "${gh_headers[@]}" \
+              -H "Content-Type: application/json" \
+              -d "${create_body}" \
+              "${api_base}/releases" || true)"
+            create_code="$(echo "${create_json}" | tail -n1)"
+            create_json="$(echo "${create_json}" | sed '$d')"
+            echo "Create release HTTP ${create_code}"
+            release_id="$(echo "${create_json}" | jq -r 'select(type == "object") | .id // empty')"
+            if [[ -z "${release_id}" ]]; then
+              echo "${create_json}" | jq -c . >&2 || echo "${create_json}" >&2
+              release_json="$(fetch_release)"
+              release_id="$(echo "${release_json}" | jq -r 'select(type == "object") | .id // empty')"
+            fi
+          fi
+          if [[ -z "${release_id}" ]]; then
+            echo "Unable to resolve or create release id for ${release_tag}" >&2
+            exit 1
+          fi
+
+          ./scripts/upload-forgejo-release-asset.sh \
+            "${release_tag}" \
+            "${index_path}" \
+            serviceradar-native-addon-index.json
+          echo "Uploaded serviceradar-native-addon-index.json to ${release_tag}"

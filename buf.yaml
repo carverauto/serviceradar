@@ -1,0 +1,23 @@
+version: v2
+modules:
+  - path: proto
+lint:
+  use:
+    - STANDARD
+  except:
+    - PACKAGE_DIRECTORY_MATCH
+# Wire-compatibility gate. GitHub #4026.
+#
+# Without this, `buf lint` is the only proto check in CI, and lint has nothing
+# to say about tag reuse. A field that reuses a tag freed by a removed field is
+# accepted silently and mis-decodes against peers still running the old
+# encoding -- with no error on either side, which is the failure this
+# repository keeps paying for elsewhere.
+#
+# WIRE_JSON rather than WIRE: the generated Go and Elixir trees are committed,
+# so a field rename is a real break here even when the wire bytes are
+# unchanged. FILE would additionally forbid moving a message between files,
+# which is legitimate churn this gate should not block.
+breaking:
+  use:
+    - WIRE_JSON

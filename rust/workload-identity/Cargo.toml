@@ -1,0 +1,38 @@
+[package]
+name = "serviceradar-workload-identity"
+version = "0.1.6"
+description = "Node-local workload identity enrichment for ServiceRadar"
+authors = ["ServiceRadar Team"]
+edition = "2024"
+license = "Apache-2.0"
+
+[lib]
+name = "serviceradar_workload_identity"
+path = "src/lib.rs"
+
+[[bin]]
+name = "serviceradar-workload-identity-check"
+path = "src/bin/workload-identity-check.rs"
+
+[[bin]]
+name = "serviceradar-workload-identity"
+path = "src/bin/workload-identity.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true, features = ["derive", "env"] }
+hyper-util = { workspace = true, features = ["tokio"] }
+log = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "sync", "time"] }
+prost = { workspace = true }
+tonic = { workspace = true, features = ["tls-ring"] }
+tonic-prost = { workspace = true }
+tower = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[build-dependencies]
+tonic-prost-build = { workspace = true }

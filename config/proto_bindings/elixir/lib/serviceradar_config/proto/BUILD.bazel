@@ -1,0 +1,22 @@
+load("@aspect_bazel_lib//lib:write_source_files.bzl", "write_source_files")
+# The checked-in Elixir bindings, for non-Bazel tooling. The Bazel build generates from
+# //config/proto instead; //config/proto:binding_drift_*_test keeps the two in step.
+exports_files([
+    "config.pb.ex",
+    "rules.pb.ex",
+])
+
+# Write-back for the committed copies of the generated Elixir bindings.
+#
+# The copies exist so mix and IDEs reach them without Bazel, and :binding_drift_*_test beside
+# them makes the two impossible to disagree. Refreshing them is THIS target's job: nobody
+# reaches into bazel-out, which is a per-configuration path the tree deliberately hides.
+#
+#     bazel run //config/proto_bindings/elixir/lib/serviceradar_config/proto:update_bindings
+write_source_files(
+    name = "update_bindings",
+    files = {
+        "config.pb.ex": "//config/proto:config.generated.ex",
+        "rules.pb.ex": "//config/proto:rules.generated.ex",
+    },
+)

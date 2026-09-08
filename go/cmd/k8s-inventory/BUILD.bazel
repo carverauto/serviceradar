@@ -1,0 +1,21 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library")
+
+go_library(
+    name = "k8s-inventory_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/carverauto/serviceradar/go/cmd/k8s-inventory",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//go/pkg/k8sinventory",
+        "@io_k8s_client_go//dynamic",
+        "@io_k8s_client_go//kubernetes",
+        "@io_k8s_client_go//rest",
+        "@io_k8s_client_go//tools/clientcmd",
+    ],
+)
+
+go_binary(
+    name = "k8s-inventory",
+    embed = [":k8s-inventory_lib"],
+    visibility = ["//visibility:public"],
+)

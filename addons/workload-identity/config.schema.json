@@ -1,0 +1,97 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Workload Identity Configuration",
+  "description": "Operator-facing configuration for the standalone node-local workload identity collector. The collector reads CRI/runtime metadata and writes bounded snapshots for ServiceRadar agent ingest.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "enabled": {
+      "type": "boolean",
+      "title": "Enabled",
+      "description": "Master switch for node-local workload identity collection. Assigning the add-on is the security opt-in; set this false to keep the service installed but idle.",
+      "default": true
+    },
+    "root": {
+      "type": "string",
+      "title": "Discovery root",
+      "description": "Filesystem root used for CRI endpoint discovery. Leave as / on live hosts.",
+      "default": "/",
+      "x-serviceradar-ui-advanced": true
+    },
+    "cri_endpoint": {
+      "type": "string",
+      "title": "CRI endpoint",
+      "description": "Optional explicit CRI Unix socket path. Leave empty to discover common endpoints such as /run/k3s/containerd/containerd.sock, /run/containerd/containerd.sock, and /var/run/crio/crio.sock.",
+      "default": "",
+      "x-serviceradar-ui-advanced": true
+    },
+    "docker_endpoint": {
+      "type": "string",
+      "title": "Docker endpoint",
+      "description": "Optional explicit Docker Engine Unix socket path. Leave empty to discover common endpoints such as /var/run/docker.sock.",
+      "default": "",
+      "x-serviceradar-ui-advanced": true
+    },
+    "runtime": {
+      "type": "object",
+      "title": "Runtime source",
+      "description": "Optional runtime selector. Use auto discovery by default, containerd/crio/cri for Kubernetes CRI sockets, or docker for Docker and Docker Compose hosts.",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "title": "Runtime type",
+          "enum": ["auto", "containerd", "crio", "cri", "docker"],
+          "default": "auto"
+        },
+        "socket": {
+          "type": "string",
+          "title": "Runtime socket",
+          "description": "Optional Unix socket path for the selected runtime type.",
+          "default": ""
+        }
+      },
+      "x-serviceradar-ui-advanced": true
+    },
+    "context_name": {
+      "type": "string",
+      "title": "Context name",
+      "description": "Operator-facing workload context stamped onto emitted workload identity. For Kubernetes this should match the kubeconfig context or another stable human-recognizable environment name. CRI does not expose this reliably, so set it when multiple clusters or container environments report into the same ServiceRadar deployment.",
+      "default": ""
+    },
+    "cluster_id": {
+      "type": "string",
+      "title": "Cluster ID",
+      "description": "Legacy stable cluster identifier stamped onto emitted workload identity. Prefer context_name for user-facing investigation labels.",
+      "default": ""
+    },
+    "cluster_name": {
+      "type": "string",
+      "title": "Cluster name",
+      "description": "Legacy human-friendly cluster name stamped onto emitted workload identity. Prefer context_name for new assignments.",
+      "default": ""
+    },
+    "refresh_interval_s": {
+      "type": "integer",
+      "title": "Refresh interval (s)",
+      "description": "How often the collector refreshes node-local runtime metadata. Values below 10 seconds are clamped by the collector.",
+      "minimum": 0,
+      "default": 60
+    },
+    "spool_dir": {
+      "type": "string",
+      "title": "Spool directory",
+      "description": "Directory where the collector publishes bounded identity snapshots for local agent ingest.",
+      "default": "/var/lib/serviceradar/workload-identity/spool",
+      "x-serviceradar-ui-advanced": true
+    },
+    "max_identities": {
+      "type": "integer",
+      "title": "Maximum identities per snapshot",
+      "description": "Upper bound on identities written to one snapshot. Larger nodes emit a degradation marker and truncate the snapshot until streaming ingest is enabled.",
+      "minimum": 1,
+      "default": 50000,
+      "x-serviceradar-ui-advanced": true
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "title": "Proxmox Console",
+  "description": "Operator-visible console presentation settings. Target, session, credential, and transport authority are injected through the trusted agent host boundary.",
+  "x-serviceradar-docs-url": "https://docs.serviceradar.cloud/docs/proxmox#console-access",
+  "properties": {
+    "timeout_ms": {
+      "type": "integer",
+      "description": "Console connector timeout in milliseconds.",
+      "default": 30000,
+      "minimum": 1000,
+      "maximum": 300000
+    }
+  }
+}

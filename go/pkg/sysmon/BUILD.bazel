@@ -1,0 +1,49 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+package(default_visibility = ["//visibility:public"])
+
+go_library(
+    name = "sysmon",
+    srcs = [
+        "collector.go",
+        "config.go",
+        "cpu.go",
+        "disk.go",
+        "host.go",
+        "memory.go",
+        "metrics.go",
+        "network.go",
+        "process.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/sysmon",
+    deps = [
+        "//go/pkg/agent/core",
+        "//go/pkg/cpufreq",
+        "//go/pkg/logger",
+        "@com_github_shirou_gopsutil_v3//cpu",
+        "@com_github_shirou_gopsutil_v3//disk",
+        "@com_github_shirou_gopsutil_v3//mem",
+        "@com_github_shirou_gopsutil_v3//net",
+        "@com_github_shirou_gopsutil_v3//process",
+    ],
+)
+
+go_test(
+    name = "sysmon_test",
+    srcs = [
+        "collector_test.go",
+        "process_test.go",
+    ],
+    embed = [":sysmon"],
+    # TestCollectNetwork -> CollectNetwork -> gopsutil net.IOCountersWithContext. On Linux that
+    # reads /proc/net/dev and spawns nothing, but on macOS gopsutil shells out to netstat,
+    # which lives in /usr/sbin -- outside Bazel's default test PATH of /bin:/usr/bin:
+    # /usr/local/bin. So this target, and only this target, needs /usr/sbin.
+    #
+    # Declared here as a fixed string rather than by restoring the repo-wide
+    # `test --test_env=PATH` in .bazelrc. That inherited form put the invoking shell's PATH
+    # into the cache key of every test in the repo, so nothing ever cached across CI runs.
+    # Scoping the exception to the one target that needs it keeps this test honest without
+    # paying for it everywhere.
+    env = {"PATH": "/usr/sbin:/usr/local/bin:/usr/bin:/bin"},
+)

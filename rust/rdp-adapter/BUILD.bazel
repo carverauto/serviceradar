@@ -1,0 +1,126 @@
+load("@rules_rs//rs:rust_binary.bzl", "rust_binary")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+
+package(default_visibility = ["//visibility:public"])
+
+RDP_CONNECTOR_DEPS = [
+    "@rdp_connector_crates//:base64",
+    "@rdp_connector_crates//:ironrdp-blocking",
+    "@rdp_connector_crates//:ironrdp-connector",
+    "@rdp_connector_crates//:ironrdp-core",
+    "@rdp_connector_crates//:ironrdp-graphics",
+    "@rdp_connector_crates//:ironrdp-pdu",
+    "@rdp_connector_crates//:ironrdp-session",
+    "@rdp_connector_crates//:rustls",
+    "@rdp_connector_crates//:rustls-native-certs",
+    "@rdp_connector_crates//:serde",
+    "@rdp_connector_crates//:serde_json",
+    "@rdp_connector_crates//:x509-cert",
+    "@rdp_connector_crates//:zeroize",
+]
+
+rust_library(
+    name = "rdp_adapter_lib",
+    srcs = glob(
+        ["src/**/*.rs"],
+        exclude = ["src/main.rs"],
+    ),
+    crate_name = "serviceradar_rdp_adapter",
+    crate_root = "src/lib.rs",
+    deps = [
+        "@crates//:serde",
+        "@crates//:serde_json",
+        "@crates//:zeroize",
+    ],
+)
+
+rust_library(
+    name = "rdp_adapter_ironrdp_lib",
+    srcs = glob(
+        ["src/**/*.rs"],
+        exclude = ["src/main.rs"],
+    ),
+    crate_features = ["ironrdp-backend"],
+    crate_name = "serviceradar_rdp_adapter",
+    crate_root = "src/lib.rs",
+    deps = [
+        "@crates//:serde",
+        "@crates//:serde_json",
+        "@crates//:zeroize",
+    ],
+)
+
+rust_library(
+    name = "rdp_adapter_connector_link_probe_lib",
+    srcs = glob(
+        ["src/**/*.rs"],
+        exclude = ["src/main.rs"],
+    ),
+    crate_features = ["ironrdp-backend"],
+    crate_name = "serviceradar_rdp_adapter",
+    crate_root = "src/lib.rs",
+    rustc_flags = ["--cfg=serviceradar_rdp_connector_link_probe"],
+    deps = RDP_CONNECTOR_DEPS,
+)
+
+rust_library(
+    name = "rdp_adapter_ironrdp_connector_experimental_lib",
+    srcs = glob(
+        ["src/**/*.rs"],
+        exclude = ["src/main.rs"],
+    ),
+    crate_features = ["ironrdp-backend"],
+    crate_name = "serviceradar_rdp_adapter",
+    crate_root = "src/lib.rs",
+    rustc_flags = ["--cfg=serviceradar_rdp_connector_link_probe"],
+    deps = RDP_CONNECTOR_DEPS,
+)
+
+rust_binary(
+    name = "rdp_adapter",
+    srcs = ["src/main.rs"],
+    crate_root = "src/main.rs",
+    deps = [":rdp_adapter_lib"],
+)
+
+rust_binary(
+    name = "rdp_adapter_ironrdp",
+    srcs = ["src/main.rs"],
+    crate_root = "src/main.rs",
+    deps = [":rdp_adapter_ironrdp_lib"],
+)
+
+rust_binary(
+    name = "rdp_adapter_ironrdp_connector_experimental",
+    srcs = ["src/main.rs"],
+    crate_root = "src/main.rs",
+    deps = [":rdp_adapter_ironrdp_connector_experimental_lib"],
+)
+
+rust_test(
+    name = "rdp_adapter_test",
+    crate = ":rdp_adapter_lib",
+)
+
+rust_test(
+    name = "rdp_adapter_ironrdp_test",
+    crate = ":rdp_adapter_ironrdp_lib",
+)
+
+rust_test(
+    name = "rdp_adapter_connector_link_probe_test",
+    crate = ":rdp_adapter_connector_link_probe_lib",
+)
+
+rust_test(
+    name = "rdp_adapter_ironrdp_connector_experimental_test",
+    crate = ":rdp_adapter_ironrdp_connector_experimental_lib",
+)
+
+rust_test(
+    name = "rdp_adapter_live_connector_probe_test",
+    srcs = ["tests/connector_live_probe.rs"],
+    crate_root = "tests/connector_live_probe.rs",
+    deps = [":rdp_adapter_ironrdp_connector_experimental_lib"],
+)

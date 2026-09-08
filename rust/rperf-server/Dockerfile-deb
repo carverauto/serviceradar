@@ -1,0 +1,28 @@
+# Build stage
+FROM rust:1.78-bullseye AS builder
+
+WORKDIR /usr/src/rperf
+
+# Add the x86_64-unknown-linux-gnu target for cross-compilation
+RUN rustup target add x86_64-unknown-linux-gnu
+
+# Build the patched rperf crate from this repository.
+COPY third_party/rust_patches/rperf-0.1.25 ./
+RUN cargo install --path . --target x86_64-unknown-linux-gnu --root /usr/local
+
+# Runtime stage
+FROM debian:bullseye-slim
+
+RUN apt-get update && apt-get install -y \
+    libssl-dev \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create output directory
+RUN mkdir -p /output
+
+# Copy binary to both /usr/local/bin and /output
+COPY --from=builder /usr/local/bin/rperf /usr/local/bin/serviceradar-rperf
+COPY --from=builder /usr/local/bin/rperf /output/serviceradar-rperf
+
+CMD ["/usr/local/bin/serviceradar-rperf"]

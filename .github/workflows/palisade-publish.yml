@@ -1,0 +1,120 @@
+# Copyright 2026 Carver Automation Corporation.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Publishes elixir/palisade to public hex.pm when a tag of the
+# form `palisade-vX.Y.Z` is pushed. Palisade is Apache-2.0 OSS;
+# hex.pm is the canonical Elixir package registry.
+#
+# Setup once on the runner / GitHub Actions environment:
+#   1. Create an API key on hex.pm with publish scope (`mix hex.user key`).
+#   2. Set repository secret `HEX_API_KEY` = the key value.
+#
+# Workflow:
+#   1. Maintainer bumps version in elixir/palisade/mix.exs.
+#   2. Merges to main.
+#   3. Tags: `git tag palisade-v0.x.y && git push --tags`.
+#   4. This workflow runs, sets up Elixir, runs the quality gate
+#      one more time, then publishes to hex.pm.
+#
+# Consumers update their `~> 0.x` pin to pick up the new release.
+
+name: Publish Palisade
+
+permissions:
+  contents: write
+
+on:
+  push:
+    tags:
+      - "palisade-v*"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  ImageOS: ubuntu24
+
+jobs:
+  publish:
+    name: Publish palisade to hex.pm
+    runs-on: arc-runner-set
+    defaults:
+      run:
+        working-directory: elixir/palisade
+    env:
+      ImageOS: ubuntu24
+      MIX_ENV: test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout@v7.0.1
+
+      - name: Setup Beam
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # erlef/setup-beam@v1.24.1
+        env:
+          ImageOS: ubuntu24
+        with:
+          otp-version: "28.1"
+          elixir-version: "1.19.4"
+
+      - name: Cache deps + _build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # actions/cache@v6.1.0
+        with:
+          path: |
+            elixir/palisade/deps
+            elixir/palisade/_build
+          key: palisade-${{ hashFiles('elixir/palisade/mix.lock') }}
+          restore-keys: |
+            palisade-
+
+      - name: Fetch deps
+        run: mix deps.get
+
+      - name: Verify version tag matches mix.exs version
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME:-}"
+          if [ -z "$tag" ]; then
+            echo "Could not determine tag name from env" >&2
+            exit 1
+          fi
+          # Strip 'palisade-v' prefix
+          tag_version="${tag#palisade-v}"
+          mix_version=$(grep -E '^\s*@version' mix.exs | sed -E 's/.*"([^"]+)".*/\1/')
+          echo "Tag version: $tag_version"
+          echo "mix.exs version: $mix_version"
+          if [ "$tag_version" != "$mix_version" ]; then
+            echo "Tag $tag does not match mix.exs version $mix_version — refusing to publish." >&2
+            exit 1
+          fi
+
+      - name: mix format --check-formatted
+        run: mix format --check-formatted
+
+      - name: mix compile --warnings-as-errors
+        run: MIX_ENV=prod mix compile --warnings-as-errors
+
+      - name: mix test
+        run: mix test
+
+      - name: mix credo --strict
+        run: mix credo --strict
+
+      - name: Publish to hex.pm
+        env:
+          # API key with publish scope on hex.pm. Generate via
+          # `mix hex.user key generate --permission api:write`
+          # (or hex.pm dashboard) and set as a GitHub Actions secret.
+          HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
+        run: MIX_ENV=prod mix hex.publish package --yes

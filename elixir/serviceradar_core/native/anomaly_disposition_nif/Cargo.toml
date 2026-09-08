@@ -1,0 +1,20 @@
+[package]
+name = "anomaly_disposition_nif"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "anomaly_disposition_nif"
+crate-type = ["cdylib"]
+
+[dependencies]
+# Rustler builds this cdylib during `mix compile` (core mix pins {:rustler, "~> 0.37"},
+# mirroring native/zen_nif which resolves rustler 0.38). This is the ONLY crate that
+# depends on rustler; the kernel crate stays rustler-free for bazel/tests.
+rustler = { workspace = true, features = ["nif_version_2_15"] }
+
+# Path-dep on the phase-1 disposition kernel crate, with its `rustler` feature ON so
+# the NIF-facing ABI types derive NifMap/NifTaggedEnum/NifUnitEnum. The kernel crate
+# keeps that feature OFF by default, so bazel/tests/causal-engine link it without
+# pulling rustler.
+serviceradar-anomaly-disposition = { path = "../../../../rust/anomaly-disposition", features = ["rustler"] }

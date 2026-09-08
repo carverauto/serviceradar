@@ -1,0 +1,1012 @@
+actions:
+  # Explicit API dispatch only, after verifying the reaper namespace protection.
+  # No push/PR/scheduled trigger: this mutates isolated fixture generations.
+  - name: "SchemaTemplateQualification"
+    triggers: {}
+    env:
+      OCI_REGISTRY: "registry.carverauto.dev"
+      OCI_AUTH_REQUIRED: "1"
+      SRQL_FIXTURE_CA_URL: "https://srql-fixture-ca.carverauto.dev/ca.crt"
+    self_hosted: true
+    pool: "workflows"
+    container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.3"
+    platform_properties:
+      OSFamily: "linux"
+      Arch: "amd64"
+      dockerNetwork: "bridge"
+    resource_requests:
+      memory: "50GB"
+      disk: "40GB"
+    steps:
+      - run: >-
+          bazel run -c opt --config=ci --//build:enable_integration_tests //:buildbuddy_setup_docker_auth
+      - run: |
+          set -euo pipefail
+          umask 077
+          export SERVICERADAR_ENV=ci
+          export BAZEL_PROFILE=ci
+          # An explicit dispatch may recover its own interrupted synthetic run.
+          # Rust revalidates identity and refuses live connections before rebuild.
+          RUN_ID="${SCHEMA_TEMPLATE_QUALIFICATION_RUN_ID:-$(od -An -tx1 -N4 /dev/urandom | tr -d ' \n')}"
+          [[ "$RUN_ID" =~ ^[a-z0-9]{8,32}$ ]] || { echo "Invalid qualification run ID" >&2; exit 1; }
+          export RUN_ID
+          SERVICERADAR_FIXTURE_ENV_FILE="$(mktemp "${TMPDIR:-/tmp}/serviceradar-template-qualification.XXXXXX")"
+          export SERVICERADAR_FIXTURE_ENV_FILE
+          trap 'rm -f "$SERVICERADAR_FIXTURE_ENV_FILE"' EXIT
+          bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //:buildbuddy_setup_fixture_env
+          set -a; . "$SERVICERADAR_FIXTURE_ENV_FILE"; set +a
+          echo "Schema template synthetic qualification run: $RUN_ID"
+          FLAGS="-c opt --config=ci --strategy=TestRunner=local --//build:enable_integration_tests
+             --//build:run_id=$RUN_ID --test_env=SERVICERADAR_ENV=ci --flaky_test_attempts=1
+             --test_output=errors --nocache_test_results --noremote_upload_local_results
+             --test_env=SERVICERADAR_SECRET_DATABASE_PASSWORD
+             --test_env=SERVICERADAR_SECRET_DATABASE_ADMIN_PASSWORD
+             $SERVICERADAR_TEST_ENV_FLAGS"
+          bazel test $FLAGS //rust/integration-db:generation_lifecycle_test
+
+  - name: "BazelCI"
+    env:
+      OCI_REGISTRY: "registry.carverauto.dev"
+      OCI_AUTH_REQUIRED: "1"
+
+      # Cert server. in cluster.
+      SRQL_FIXTURE_CA_URL: "https://srql-fixture-ca.carverauto.dev/ca.crt"
+
+    # Redirects work to pods in the self hosted cluster.
+    self_hosted: true
+
+    # The dedicated workflow fleet is defined in //k8s/buildbuddy/values-workflows.yaml;
+    # Matched against the executor's `poolName`, so the two must match at all times.
+    pool: "workflows"
+
+    # TAGGED IDENTICALLY TO rbe-executor,
+    container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.3"
+
+    platform_properties:
+      OSFamily: "linux"
+      Arch: "amd64"
+      # Under `oci` isolation this is a BOOLEAN in disguise. ociruntime.go reduces the property
+      # to `networkEnabled: networkMode != "off"`
+      dockerNetwork: "bridge"
+
+    triggers:
+      pull_request:
+        branches:
+          - "staging"
+
+    # cpu also accepts an `m` suffix for thousandths of a core ("8000m" = 8 cores).
+    # UNITS: `GB` HERE MEANS GiB, NOT 10^9.
+    resource_requests:
+      memory: "50GB"
+      disk: "40GB"
+
+    steps:
+      # Put Harbor credentials into ~/.docker/config.json, for rules_oci's registry fetches.
+      # See buildbuddy_setup_docker_auth.sh for details
+      - run: >-
+          bazel run -c opt --config=ci --//build:enable_integration_tests //:buildbuddy_setup_docker_auth --verbose_failures
+
+      # Build the entire repo, INCLUDING the integration targets. The privileged
+      # loaded-object netprobe test is manual because this runner cannot grant its
+      # required Linux capabilities, so name it explicitly here to keep it compiled.
+      #
+      # `--//build:enable_integration_tests` here compiles nothing extra at runtime and starts no
+      # database -- it only flips requires_shared_fixture() so those targets are compatible and
+      # therefore actually get built. Without it they are incompatible, a wildcard SKIPS them,
+      # and a compile error in one survives every step until the database sweep selects it: that
+      # is how //integration_tests/srql reached CI missing a dep on //rust/integration-db and
+      # failed with `no external crate serviceradar_integration_db` twenty minutes in, after a
+      # fixture had been provisioned.
+      - run: >-
+          bazel build -c opt --config=ci --//build:enable_integration_tests //...
+          //rust/netprobe:loaded_tcp_attribution_test
+
+      # Runs all unit tests; exclude intgration and acceptance tests.
+      #
+      # `--//build:enable_integration_tests` is here for CONFIGURATION and CACHE CONTINUITY
+      - run: >-
+          bazel test -c opt --config=ci --//build:enable_integration_tests
+          //... --test_tag_filters=-integration_test,-acceptance_test,-benchmark
+
+      # The topology geometry acceptance target is intentionally excluded from the
+      # ordinary unit sweep. Run it once in the digest-pinned Playwright executor;
+      # its screenshots and traces are retained through TEST_UNDECLARED_OUTPUTS_DIR.
+      #
+      # PATH-GATED, GitHub-workflow `paths:` style: the scene this target renders
+      # is a static bundle -- the spec installs fixture DOM, with no server and no
+      # webServer in playwright.config.js -- so every Bazel input it declares lives
+      # under elixir/web-ng/test/playwright or elixir/web-ng/assets. The cone is
+      # those two packages, this file (it carries the invocation), and the godview
+      # NIF as a deliberately conservative in-area path. A PR outside that cone
+      # skips the browser run instead of paying for it (see #4165). BuildBuddy
+      # workflow steps have no native paths filter, hence the explicit git check
+      # against the staging fork point.
+      #
+      # FAIL-OPEN on every arm that cannot see the diff. The base ref is fetched
+      # first because the runner clones by SHA and need not leave a
+      # refs/remotes/origin/* ref behind; an unresolved merge-base and a failed
+      # diff both RUN the acceptance. A gate that cannot see the diff must never
+      # silently drop coverage.
+      - run: |
+          set -euo pipefail
+          git fetch --no-tags --quiet origin \
+            +refs/heads/staging:refs/remotes/origin/staging 2>/dev/null || true
+          GOD_VIEW_GATE_BASE="$(git merge-base HEAD origin/staging 2>/dev/null || true)"
+          if [ -z "$GOD_VIEW_GATE_BASE" ]; then
+            echo "godview gate: no staging merge-base, running acceptance (fail-open)"
+          elif ! GOD_VIEW_GATE_CHANGED="$(git diff --name-only "$GOD_VIEW_GATE_BASE" HEAD -- \
+            elixir/web-ng/test/playwright \
+            elixir/web-ng/assets \
+            elixir/web-ng/native/god_view_nif \
+            buildbuddy.yaml)"; then
+            echo "godview gate: diff unavailable, running acceptance (fail-open)"
+          elif [ -n "$GOD_VIEW_GATE_CHANGED" ]; then
+            echo "godview gate: godview-area changes detected, running acceptance"
+          else
+            echo "godview gate: no godview-area changes, skipping acceptance"
+            exit 0
+          fi
+          bazel test -c opt --config=ci //elixir/web-ng/test/playwright:god_view_elk_scene_acceptance --test_output=errors --nocache_test_results --flaky_test_attempts=1
+
+      # The database lifecycle. ONE step: the invocations share a shell, and BuildBuddy has no
+      # `if: always()`, so a trap is the only way to guarantee teardown after a red suite.
+      #
+      # `--//build:enable_integration_tests` on every call: these targets are
+      # target_compatible_with = requires_shared_fixture(), and the guard stays explicit because
+      # they run DDL against a fixture concurrent branches share.
+      #
+      # `--strategy=TestRunner=local` moves ONLY the test action to the runner. NOT for
+      # routing -- a cluster executor reaches the fixture too, which is what makes the
+      # throwaway-password probe in .agents/skills/srql-fixtures-db-tests possible. It is for
+      # the CREDENTIAL: a remote action ships its environment to the executor and BuildBuddy
+      # records action metadata, so the two SERVICERADAR_SECRET_* values below stay on this
+      # runner and out of the remote action.
+      #
+      # $SERVICERADAR_TEST_ENV_FLAGS is materialized by //:buildbuddy_setup_fixture_env.
+      - run: |
+          set -euo pipefail
+          umask 077
+
+          export SERVICERADAR_ENV=ci
+          export BAZEL_PROFILE=ci
+
+          # Every checkout selects an immutable generation from declared schema inputs. The
+          # same run id owns its lease before and during the measured lifecycle; there is no
+          # branch name in the identity and no fallback to sr_core_template.
+
+          RUN_ID="$(od -An -tx1 -N4 /dev/urandom | tr -d ' \n')"
+          export RUN_ID
+          RUN_DATABASE="sr_core_test_$RUN_ID"
+          SERVICERADAR_FIXTURE_ENV_FILE="$(mktemp "${TMPDIR:-/tmp}/serviceradar-fixture-env.XXXXXX")"
+          chmod 600 "$SERVICERADAR_FIXTURE_ENV_FILE"
+          export SERVICERADAR_FIXTURE_ENV_FILE
+          FLAGS="-c opt --config=ci --strategy=TestRunner=local --//build:enable_integration_tests
+             --//build:run_id=$RUN_ID --test_env=SERVICERADAR_ENV=ci --flaky_test_attempts=1
+             --test_output=errors
+             --nocache_test_results --noremote_upload_local_results
+             --test_env=SERVICERADAR_SECRET_DATABASE_PASSWORD
+             --test_env=SERVICERADAR_SECRET_DATABASE_ADMIN_PASSWORD
+             --test_env=SERVICERADAR_SECRET_DGRAPH_ADMIN_PASSWORD"
+
+          OBSERVER_DIR="$(mktemp -d "${TMPDIR:-/tmp}/serviceradar-observer.XXXXXX")"
+          READY_FILE="$OBSERVER_DIR/ready"
+          SUITE_COMPLETE_FILE="$OBSERVER_DIR/suite-complete"
+          QUIESCENT_FILE="$OBSERVER_DIR/quiescent"
+          STOP_FILE="$OBSERVER_DIR/stop"
+          test ! -e "$READY_FILE"
+          test ! -e "$SUITE_COMPLETE_FILE"
+          test ! -e "$QUIESCENT_FILE"
+          test ! -e "$STOP_FILE"
+          OBSERVER_PID=""
+          SUITE_STATUS=0
+          OBSERVER_STATUS=0
+          TEARDOWN_STATUS=0
+          RELEASE_STATUS=0
+          GENERATION_LEASED=0
+          GENERATION_DIGEST=""
+          GENERATION_DATABASE=""
+          START_NS=0
+
+          validate_cleanup_json() {
+            python3 -c 'import json,re,sys
+          value=json.load(sys.stdin)
+          if not isinstance(value,list) or any(not isinstance(item,str) or re.fullmatch(r"sr_tpl_[0-9a-f]{48}",item) is None for item in value):
+              raise SystemExit("invalid generation cleanup response")'
+          }
+
+          parse_prepare_json() {
+            python3 -c 'import json,re,sys
+          value=json.load(sys.stdin)
+          digest=value.get("digest") if isinstance(value,dict) else None
+          valid=(isinstance(value,dict) and set(value)=={"builder_token","database","digest","status"}
+              and value["status"] in {"ready","needs_migration"}
+              and isinstance(digest,str) and re.fullmatch(r"[0-9a-f]{64}",digest) is not None
+              and value["database"]=="sr_tpl_"+digest[:48]
+              and type(value["builder_token"]) is int and value["builder_token"]>0)
+          if not valid:
+              raise SystemExit("invalid generation preparation response")
+          print(value["status"],value["digest"],value["database"],sep="\t")'
+          }
+
+          validate_ready_json() {
+            python3 -c 'import json,sys
+          value=json.load(sys.stdin)
+          if not isinstance(value,dict) or value.get("status")!="ready" or value.get("digest")!=sys.argv[1] or value.get("database")!=sys.argv[2]:
+              raise SystemExit("generation did not become ready with its pinned identity")' "$1" "$2"
+          }
+
+          validate_lifecycle_json() {
+            python3 -c 'import json,sys
+          value=json.load(sys.stdin)
+          expected={"digest":sys.argv[2],"lease_id":sys.argv[3],"status":sys.argv[1]}
+          if not isinstance(value,dict) or set(value)!={"digest","lease_id","status"} or value!=expected:
+              raise SystemExit("invalid generation lifecycle response")' "$1" "$2" "$3"
+          }
+
+          wait_for_marker() {
+            marker="$1"
+            limit="$2"
+            elapsed=0
+            while [ ! -e "$marker" ] && [ "$elapsed" -lt "$limit" ]; do
+              sleep 1
+              elapsed=$((elapsed + 1))
+            done
+            [ -e "$marker" ]
+          }
+
+          wait_for_observer_ready() {
+            limit="$1"
+            elapsed=0
+            while [ ! -e "$READY_FILE" ] && [ "$elapsed" -lt "$limit" ]; do
+              if ! kill -0 "$OBSERVER_PID" 2>/dev/null; then
+                set +e
+                wait "$OBSERVER_PID"
+                OBSERVER_STATUS=$?
+                set -e
+                OBSERVER_PID=""
+                echo "observer exited before readiness with status $OBSERVER_STATUS" >&2
+                return 1
+              fi
+              sleep 1
+              elapsed=$((elapsed + 1))
+            done
+            if [ ! -e "$READY_FILE" ]; then
+              echo "observer did not become ready within ${limit}s" >&2
+              return 1
+            fi
+            if ! kill -0 "$OBSERVER_PID" 2>/dev/null; then
+              set +e
+              wait "$OBSERVER_PID"
+              OBSERVER_STATUS=$?
+              set -e
+              OBSERVER_PID=""
+              echo "observer exited immediately after readiness with status $OBSERVER_STATUS" >&2
+              return 1
+            fi
+          }
+
+          cleanup() {
+            ORIGINAL_STATUS=$?
+            trap - EXIT
+            set +e
+            if [ "$ORIGINAL_STATUS" -ne 0 ] && [ "$SUITE_STATUS" -eq 0 ]; then
+              SUITE_STATUS=$ORIGINAL_STATUS
+            fi
+            if [ -n "$OBSERVER_PID" ]; then
+              touch "$SUITE_COMPLETE_FILE"
+              if ! wait_for_marker "$QUIESCENT_FILE" 30; then
+                if [ "$OBSERVER_STATUS" -eq 0 ]; then
+                  OBSERVER_STATUS=1
+                fi
+              fi
+            fi
+            bazel test $FLAGS //rust/integration-db:teardown_db
+            TEARDOWN_STATUS=$?
+            if [ "$GENERATION_LEASED" -eq 1 ]; then
+              RELEASE_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:release_generation)"
+              RELEASE_STATUS=$?
+              echo "$RELEASE_JSON"
+              if [ "$RELEASE_STATUS" -eq 0 ]; then
+                validate_lifecycle_json released "$GENERATION_DIGEST" "$RUN_DATABASE" <<<"$RELEASE_JSON" || RELEASE_STATUS=1
+              fi
+            fi
+            END_NS="$(date +%s%N)"
+            if [ -n "$OBSERVER_PID" ]; then
+              touch "$STOP_FILE"
+              wait "$OBSERVER_PID"
+              OBSERVER_PROCESS_STATUS=$?
+              if [ "$OBSERVER_PROCESS_STATUS" -ne 0 ] && [ "$OBSERVER_STATUS" -eq 0 ]; then
+                OBSERVER_STATUS=$OBSERVER_PROCESS_STATUS
+              fi
+            fi
+            if [ "$START_NS" -eq 0 ]; then
+              LIFECYCLE_NS=0
+            else
+              LIFECYCLE_NS=$((END_NS - START_NS))
+            fi
+            echo "SERVICERADAR_BAZEL_CI_LIFECYCLE start_ns=$START_NS end_ns=$END_NS lifecycle_ns=$LIFECYCLE_NS suite_status=$SUITE_STATUS observer_status=$OBSERVER_STATUS teardown_status=$TEARDOWN_STATUS release_status=$RELEASE_STATUS"
+            rm -f "$SERVICERADAR_FIXTURE_ENV_FILE"
+            rm -rf "$OBSERVER_DIR"
+            if [ "$SUITE_STATUS" -ne 0 ]; then
+              exit "$SUITE_STATUS"
+            elif [ "$OBSERVER_STATUS" -ne 0 ]; then
+              exit "$OBSERVER_STATUS"
+            elif [ "$TEARDOWN_STATUS" -ne 0 ]; then
+              exit "$TEARDOWN_STATUS"
+            elif [ "$RELEASE_STATUS" -ne 0 ]; then
+              exit "$RELEASE_STATUS"
+            fi
+            exit "$ORIGINAL_STATUS"
+          }
+
+          trap cleanup EXIT
+          bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //:buildbuddy_setup_fixture_env
+          set -a; . "$SERVICERADAR_FIXTURE_ENV_FILE"; set +a
+          FLAGS="$FLAGS $SERVICERADAR_TEST_ENV_FLAGS"
+
+          bazel test $FLAGS //rust/integration-db:sweep_stale_dbs
+          CLEANUP_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:cleanup_generations)"
+          echo "$CLEANUP_JSON"
+          validate_cleanup_json <<<"$CLEANUP_JSON"
+
+          PREPARE_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:prepare_generation)"
+          GENERATION_LEASED=1
+          echo "$PREPARE_JSON"
+          IFS=$'\t' read -r GENERATION_STATUS GENERATION_DIGEST GENERATION_DATABASE < <(parse_prepare_json <<<"$PREPARE_JSON")
+          GENERATION_MIGRATOR_STARTED=0
+          if [ "$GENERATION_STATUS" = "needs_migration" ]; then
+            GENERATION_MIGRATOR_STARTED=1
+            bazel test $FLAGS //elixir/serviceradar_core:migrate_generation
+          fi
+
+          READY_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:prepare_generation)"
+          echo "$READY_JSON"
+          parse_prepare_json <<<"$READY_JSON" >/dev/null
+          validate_ready_json "$GENERATION_DIGEST" "$GENERATION_DATABASE" <<<"$READY_JSON"
+          echo "SERVICERADAR_SCHEMA_GENERATION_PREFLIGHT status=ready digest=$GENERATION_DIGEST migrator_started=$GENERATION_MIGRATOR_STARTED"
+
+          START_NS="$(date +%s%N)"
+          bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:observe_connections -- --ready-file "$READY_FILE" --suite-complete-file "$SUITE_COMPLETE_FILE" --quiescent-file "$QUIESCENT_FILE" --stop-file "$STOP_FILE" --max-seconds 1800 --required-pool-slots 114 &
+          OBSERVER_PID=$!
+          wait_for_observer_ready 30 || exit 1
+
+          PROVISION_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:provision_generation)"
+          echo "$PROVISION_JSON"
+          validate_lifecycle_json cloned "$GENERATION_DIGEST" "$RUN_DATABASE" <<<"$PROVISION_JSON"
+          # test_tag_filters controls execution, not every top-level target Bazel builds from
+          # //.... Keep build selection identical so packages and images stay out of this wave.
+          bazel test $FLAGS --build_tests_only --build_tag_filters=integration_test,-large_ingestion_test,-acceptance_test --test_tag_filters=integration_test,-large_ingestion_test,-acceptance_test //...
+          # web-ng's database-free unit allow-list excludes the focused shared-fixture DB cases.
+          # Reuse the now-quiescent serial_0 database before cleanup; the manual target cannot be
+          # selected by the wildcard.
+          bazel test $FLAGS //elixir/web-ng:networks_live_db_test
+
+      # BENCHMARKS. Run so they cannot rot; NOT gated on a threshold.
+      #
+      # These exist because `bazel test` compiles a Go Benchmark* function and then skips it --
+      # benchmarks need -test.bench, and nothing passed it. The first run of these targets found
+      # BenchmarkNetworkSweeper_OptimizedTCPScan already broken on two gomock expectations that
+      # runSweep gained after it was written, and fastsum's benchmarks sitting in no target at
+      # all. A benchmark nobody runs still passes review and still looks like coverage.
+      #
+      # NO THRESHOLD, deliberately. A benchmark on a shared runner is noisy, and a threshold set
+      # before that variance is measured produces failures that are not regressions -- the
+      # predictable response is to mute the check, and a muted gate still looks like protection.
+      # Gating is a later decision, argued from the numbers these runs collect.
+      #
+      # Cheap, and before the race step on purpose: the runner defaults to -test.benchtime=1x,
+      # so this proves the benchmarks still execute rather than producing numbers stable enough
+      # to compare.
+      # `--//build:enable_integration_tests` is here for the same reason the unit sweep carries
+      # it: CONFIGURATION and CACHE CONTINUITY. It is not that this step runs integration tests
+      # -- the tag filter selects `benchmark` alone. It is that a build setting is part of the
+      # configuration key, so omitting it makes `//...` a SECOND configuration and rebuilds the
+      # repo from scratch rather than reusing what the earlier steps just built. This step
+      # therefore matches the unit sweep's flags exactly.
+      - run: >-
+          bazel test -c opt --config=ci --//build:enable_integration_tests
+          --test_tag_filters=benchmark
+          --test_output=errors
+          //...
+
+      # Run all go race conditions tests (race on, pure off); --flaky_test_attempts=1 overrides the repo default of 2;
+      #
+      # LAST ON PURPOSE. `--@io_bazel_rules_go//go/config:{pure,race}` are configuration-affecting
+      # and cannot be shared with the steps above.
+      - run: >-
+          bazel test -c opt --config=ci //go/...
+          --@io_bazel_rules_go//go/config:pure=false
+          --@io_bazel_rules_go//go/config:race
+          --test_tag_filters=-integration_test,-acceptance_test,-benchmark
+          --test_timeout=600
+          --flaky_test_attempts=1
+          --test_arg=-test.count=5
+          --test_arg=-test.short
+          --test_arg=-test.shuffle=on
+
+  - name: "LargeIngestionGate"
+    env:
+      OCI_REGISTRY: "registry.carverauto.dev"
+      OCI_AUTH_REQUIRED: "1"
+      SRQL_FIXTURE_CA_URL: "https://srql-fixture-ca.carverauto.dev/ca.crt"
+    self_hosted: true
+    pool: "workflows"
+    container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.3"
+    platform_properties:
+      OSFamily: "linux"
+      Arch: "amd64"
+      dockerNetwork: "bridge"
+    triggers:
+      push:
+        branches:
+          - "staging"
+      schedule:
+        crons:
+          - "0 2 * * *"
+    resource_requests:
+      memory: "50GB"
+      disk: "40GB"
+    steps:
+      - run: >-
+          bazel run -c opt --config=ci --//build:enable_integration_tests //:buildbuddy_setup_docker_auth --verbose_failures
+
+      # Warm the exact integration-enabled configuration while leaving the test selection focused.
+      - run: >-
+          bazel build -c opt --config=ci --//build:enable_integration_tests //...
+
+      - run: |
+          set -euo pipefail
+          umask 077
+
+          export SERVICERADAR_ENV=ci
+          export BAZEL_PROFILE=ci
+
+          # Trunk and branch callers use the same immutable generation protocol. The legacy
+          # singleton remains protected for rollback but is never migrated or cloned here.
+
+          RUN_ID="$(od -An -tx1 -N4 /dev/urandom | tr -d ' \n')"
+          export RUN_ID
+          RUN_DATABASE="sr_core_test_$RUN_ID"
+          SERVICERADAR_FIXTURE_ENV_FILE="$(mktemp "${TMPDIR:-/tmp}/serviceradar-fixture-env.XXXXXX")"
+          chmod 600 "$SERVICERADAR_FIXTURE_ENV_FILE"
+          export SERVICERADAR_FIXTURE_ENV_FILE
+          FLAGS="-c opt --config=ci --strategy=TestRunner=local --//build:enable_integration_tests
+             --//build:run_id=$RUN_ID --test_env=SERVICERADAR_ENV=ci --flaky_test_attempts=1
+             --test_output=errors
+             --nocache_test_results --noremote_upload_local_results
+             --test_env=SERVICERADAR_SECRET_DATABASE_PASSWORD
+             --test_env=SERVICERADAR_SECRET_DATABASE_ADMIN_PASSWORD
+             --test_env=SERVICERADAR_SECRET_DGRAPH_ADMIN_PASSWORD"
+
+          OBSERVER_DIR="$(mktemp -d "${TMPDIR:-/tmp}/serviceradar-observer.XXXXXX")"
+          READY_FILE="$OBSERVER_DIR/ready"
+          SUITE_COMPLETE_FILE="$OBSERVER_DIR/suite-complete"
+          QUIESCENT_FILE="$OBSERVER_DIR/quiescent"
+          STOP_FILE="$OBSERVER_DIR/stop"
+          test ! -e "$READY_FILE"
+          test ! -e "$SUITE_COMPLETE_FILE"
+          test ! -e "$QUIESCENT_FILE"
+          test ! -e "$STOP_FILE"
+          OBSERVER_PID=""
+          SUITE_STATUS=0
+          OBSERVER_STATUS=0
+          TEARDOWN_STATUS=0
+          RELEASE_STATUS=0
+          GENERATION_LEASED=0
+          GENERATION_DIGEST=""
+          GENERATION_DATABASE=""
+          START_NS=0
+
+          validate_cleanup_json() {
+            python3 -c 'import json,re,sys
+          value=json.load(sys.stdin)
+          if not isinstance(value,list) or any(not isinstance(item,str) or re.fullmatch(r"sr_tpl_[0-9a-f]{48}",item) is None for item in value):
+              raise SystemExit("invalid generation cleanup response")'
+          }
+
+          parse_prepare_json() {
+            python3 -c 'import json,re,sys
+          value=json.load(sys.stdin)
+          digest=value.get("digest") if isinstance(value,dict) else None
+          valid=(isinstance(value,dict) and set(value)=={"builder_token","database","digest","status"}
+              and value["status"] in {"ready","needs_migration"}
+              and isinstance(digest,str) and re.fullmatch(r"[0-9a-f]{64}",digest) is not None
+              and value["database"]=="sr_tpl_"+digest[:48]
+              and type(value["builder_token"]) is int and value["builder_token"]>0)
+          if not valid:
+              raise SystemExit("invalid generation preparation response")
+          print(value["status"],value["digest"],value["database"],sep="\t")'
+          }
+
+          validate_ready_json() {
+            python3 -c 'import json,sys
+          value=json.load(sys.stdin)
+          if not isinstance(value,dict) or value.get("status")!="ready" or value.get("digest")!=sys.argv[1] or value.get("database")!=sys.argv[2]:
+              raise SystemExit("generation did not become ready with its pinned identity")' "$1" "$2"
+          }
+
+          validate_lifecycle_json() {
+            python3 -c 'import json,sys
+          value=json.load(sys.stdin)
+          expected={"digest":sys.argv[2],"lease_id":sys.argv[3],"status":sys.argv[1]}
+          if not isinstance(value,dict) or set(value)!={"digest","lease_id","status"} or value!=expected:
+              raise SystemExit("invalid generation lifecycle response")' "$1" "$2" "$3"
+          }
+
+          wait_for_marker() {
+            marker="$1"
+            limit="$2"
+            elapsed=0
+            while [ ! -e "$marker" ] && [ "$elapsed" -lt "$limit" ]; do
+              sleep 1
+              elapsed=$((elapsed + 1))
+            done
+            [ -e "$marker" ]
+          }
+
+          wait_for_observer_ready() {
+            limit="$1"
+            elapsed=0
+            while [ ! -e "$READY_FILE" ] && [ "$elapsed" -lt "$limit" ]; do
+              if ! kill -0 "$OBSERVER_PID" 2>/dev/null; then
+                set +e
+                wait "$OBSERVER_PID"
+                OBSERVER_STATUS=$?
+                set -e
+                OBSERVER_PID=""
+                echo "observer exited before readiness with status $OBSERVER_STATUS" >&2
+                return 1
+              fi
+              sleep 1
+              elapsed=$((elapsed + 1))
+            done
+            if [ ! -e "$READY_FILE" ]; then
+              echo "observer did not become ready within ${limit}s" >&2
+              return 1
+            fi
+            if ! kill -0 "$OBSERVER_PID" 2>/dev/null; then
+              set +e
+              wait "$OBSERVER_PID"
+              OBSERVER_STATUS=$?
+              set -e
+              OBSERVER_PID=""
+              echo "observer exited immediately after readiness with status $OBSERVER_STATUS" >&2
+              return 1
+            fi
+          }
+
+          cleanup() {
+            ORIGINAL_STATUS=$?
+            trap - EXIT
+            set +e
+            if [ "$ORIGINAL_STATUS" -ne 0 ] && [ "$SUITE_STATUS" -eq 0 ]; then
+              SUITE_STATUS=$ORIGINAL_STATUS
+            fi
+            if [ -n "$OBSERVER_PID" ]; then
+              touch "$SUITE_COMPLETE_FILE"
+              if ! wait_for_marker "$QUIESCENT_FILE" 30; then
+                if [ "$OBSERVER_STATUS" -eq 0 ]; then
+                  OBSERVER_STATUS=1
+                fi
+              fi
+            fi
+            bazel test $FLAGS //rust/integration-db:teardown_db
+            TEARDOWN_STATUS=$?
+            if [ "$GENERATION_LEASED" -eq 1 ]; then
+              RELEASE_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:release_generation)"
+              RELEASE_STATUS=$?
+              echo "$RELEASE_JSON"
+              if [ "$RELEASE_STATUS" -eq 0 ]; then
+                validate_lifecycle_json released "$GENERATION_DIGEST" "$RUN_DATABASE" <<<"$RELEASE_JSON" || RELEASE_STATUS=1
+              fi
+            fi
+            END_NS="$(date +%s%N)"
+            if [ -n "$OBSERVER_PID" ]; then
+              touch "$STOP_FILE"
+              wait "$OBSERVER_PID"
+              OBSERVER_PROCESS_STATUS=$?
+              if [ "$OBSERVER_PROCESS_STATUS" -ne 0 ] && [ "$OBSERVER_STATUS" -eq 0 ]; then
+                OBSERVER_STATUS=$OBSERVER_PROCESS_STATUS
+              fi
+            fi
+            if [ "$START_NS" -eq 0 ]; then
+              LIFECYCLE_NS=0
+            else
+              LIFECYCLE_NS=$((END_NS - START_NS))
+            fi
+            echo "SERVICERADAR_LARGE_INGESTION_LIFECYCLE start_ns=$START_NS end_ns=$END_NS lifecycle_ns=$LIFECYCLE_NS suite_status=$SUITE_STATUS observer_status=$OBSERVER_STATUS teardown_status=$TEARDOWN_STATUS release_status=$RELEASE_STATUS"
+            rm -f "$SERVICERADAR_FIXTURE_ENV_FILE"
+            rm -rf "$OBSERVER_DIR"
+            if [ "$SUITE_STATUS" -ne 0 ]; then
+              exit "$SUITE_STATUS"
+            elif [ "$OBSERVER_STATUS" -ne 0 ]; then
+              exit "$OBSERVER_STATUS"
+            elif [ "$TEARDOWN_STATUS" -ne 0 ]; then
+              exit "$TEARDOWN_STATUS"
+            elif [ "$RELEASE_STATUS" -ne 0 ]; then
+              exit "$RELEASE_STATUS"
+            fi
+            exit "$ORIGINAL_STATUS"
+          }
+
+          trap cleanup EXIT
+          bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //:buildbuddy_setup_fixture_env
+          set -a; . "$SERVICERADAR_FIXTURE_ENV_FILE"; set +a
+          FLAGS="$FLAGS $SERVICERADAR_TEST_ENV_FLAGS"
+
+          bazel test $FLAGS //rust/integration-db:sweep_stale_dbs
+          CLEANUP_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:cleanup_generations)"
+          echo "$CLEANUP_JSON"
+          validate_cleanup_json <<<"$CLEANUP_JSON"
+
+          PREPARE_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:prepare_generation)"
+          GENERATION_LEASED=1
+          echo "$PREPARE_JSON"
+          IFS=$'\t' read -r GENERATION_STATUS GENERATION_DIGEST GENERATION_DATABASE < <(parse_prepare_json <<<"$PREPARE_JSON")
+          GENERATION_MIGRATOR_STARTED=0
+          if [ "$GENERATION_STATUS" = "needs_migration" ]; then
+            GENERATION_MIGRATOR_STARTED=1
+            bazel test $FLAGS //elixir/serviceradar_core:migrate_generation
+          fi
+
+          READY_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:prepare_generation)"
+          echo "$READY_JSON"
+          parse_prepare_json <<<"$READY_JSON" >/dev/null
+          validate_ready_json "$GENERATION_DIGEST" "$GENERATION_DATABASE" <<<"$READY_JSON"
+          echo "SERVICERADAR_SCHEMA_GENERATION_PREFLIGHT status=ready digest=$GENERATION_DIGEST migrator_started=$GENERATION_MIGRATOR_STARTED"
+
+          START_NS="$(date +%s%N)"
+          bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:observe_connections -- --ready-file "$READY_FILE" --suite-complete-file "$SUITE_COMPLETE_FILE" --quiescent-file "$QUIESCENT_FILE" --stop-file "$STOP_FILE" --max-seconds 1800 --required-pool-slots 15 &
+          OBSERVER_PID=$!
+          wait_for_observer_ready 30 || exit 1
+
+          PROVISION_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:provision_generation_large_ingestion)"
+          echo "$PROVISION_JSON"
+          validate_lifecycle_json cloned "$GENERATION_DIGEST" "$RUN_DATABASE" <<<"$PROVISION_JSON"
+          bazel test $FLAGS //elixir/serviceradar_core:large_ingestion_release_gate
+
+  # This is deliberately a branch-only measurement action, not a pull-request gate. Its
+  # command block is hashed by //:integration_benchmark_harness_hash and stays identical
+  # between the before and after revisions of the parallelization benchmark.
+  - name: "IntegrationBenchmark"
+    env:
+      SRQL_FIXTURE_CA_URL: "https://srql-fixture-ca.carverauto.dev/ca.crt"
+    self_hosted: true
+    pool: "workflows"
+    container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.3"
+    platform_properties:
+      OSFamily: "linux"
+      Arch: "amd64"
+      dockerNetwork: "bridge"
+    triggers:
+      push:
+        branches:
+          - "benchmark/parallel-core-integration"
+    resource_requests:
+      memory: "50GB"
+      disk: "40GB"
+    steps: &integration_benchmark_steps
+      # Refuse a synthetic or stale checkout before spending any build capacity.
+      - run: |
+          set -euo pipefail
+          : "${SERVICERADAR_BENCHMARK_EXPECTED_SHA:?SERVICERADAR_BENCHMARK_EXPECTED_SHA is required}"
+          EFFECTIVE_HEAD="$(git rev-parse HEAD)"
+          [ "$SERVICERADAR_BENCHMARK_EXPECTED_SHA" = "$EFFECTIVE_HEAD" ] || {
+            echo "benchmark requested $SERVICERADAR_BENCHMARK_EXPECTED_SHA but checked out $EFFECTIVE_HEAD" >&2
+            exit 1
+          }
+
+      # Warm only the ordinary integration targets selected by the measured wildcard. Their
+      # transitive compile/runtime dependencies are still built, but unrelated packages, release
+      # archives, OCI images, and push targets stay out of this integration-only action.
+      - run: >-
+          bazel build -c opt --config=ci --//build:enable_integration_tests
+          --build_tag_filters=integration_test,-large_ingestion_test,-acceptance_test //...
+
+      # Warm every manual keyed-lifecycle target. Generation preparation itself remains outside
+      # the measured clock; provisioning and teardown remain inside it.
+      - run: >-
+          bazel build -c opt --config=ci --//build:enable_integration_tests
+          --build_tag_filters=
+          //rust/integration-db:observe_connections
+          //rust/integration-db:sweep_stale_dbs
+          //rust/integration-db:cleanup_generations
+          //rust/integration-db:prepare_generation
+          //rust/integration-db:provision_generation
+          //rust/integration-db:release_generation
+          //rust/integration-db:teardown_db
+          //elixir/serviceradar_core:migrate_generation
+
+      - run: |
+          set -euo pipefail
+          umask 077
+
+          export SERVICERADAR_ENV=ci
+          export BAZEL_PROFILE=ci
+
+          # Keyed preparation is outside the benchmark clock. Provisioning clones the exact
+          # pinned digest and never consults the legacy singleton.
+
+          RUN_ID="$(od -An -tx1 -N4 /dev/urandom | tr -d ' \n')"
+          export RUN_ID
+          RUN_DATABASE="sr_core_test_$RUN_ID"
+          SERVICERADAR_FIXTURE_ENV_FILE="$(mktemp "${TMPDIR:-/tmp}/serviceradar-fixture-env.XXXXXX")"
+          chmod 600 "$SERVICERADAR_FIXTURE_ENV_FILE"
+          export SERVICERADAR_FIXTURE_ENV_FILE
+          FLAGS="-c opt --config=ci --strategy=TestRunner=local --//build:enable_integration_tests
+             --//build:run_id=$RUN_ID --test_env=SERVICERADAR_ENV=ci --flaky_test_attempts=1
+             --test_output=all
+             --nocache_test_results --noremote_upload_local_results
+             --test_env=SERVICERADAR_SECRET_DATABASE_PASSWORD
+             --test_env=SERVICERADAR_SECRET_DATABASE_ADMIN_PASSWORD
+             --test_env=SERVICERADAR_SECRET_DGRAPH_ADMIN_PASSWORD"
+
+          OBSERVER_DIR="$(mktemp -d)"
+          READY_FILE="$OBSERVER_DIR/ready"
+          SUITE_COMPLETE_FILE="$OBSERVER_DIR/suite-complete"
+          QUIESCENT_FILE="$OBSERVER_DIR/quiescent"
+          STOP_FILE="$OBSERVER_DIR/stop"
+          [ ! -e "${READY_FILE}" ] && [ ! -e "${SUITE_COMPLETE_FILE}" ] && [ ! -e "${QUIESCENT_FILE}" ] && [ ! -e "${STOP_FILE}" ]
+          OBSERVER_PID=""
+          SUITE_STATUS=0
+          OBSERVER_STATUS=0
+          TEARDOWN_STATUS=0
+          RELEASE_STATUS=0
+          GENERATION_LEASED=0
+          GENERATION_DIGEST=""
+          GENERATION_DATABASE=""
+          START_NS=0
+
+          validate_cleanup_json() {
+            python3 -c 'import json,re,sys
+          value=json.load(sys.stdin)
+          if not isinstance(value,list) or any(not isinstance(item,str) or re.fullmatch(r"sr_tpl_[0-9a-f]{48}",item) is None for item in value):
+              raise SystemExit("invalid generation cleanup response")'
+          }
+
+          parse_prepare_json() {
+            python3 -c 'import json,re,sys
+          value=json.load(sys.stdin)
+          digest=value.get("digest") if isinstance(value,dict) else None
+          valid=(isinstance(value,dict) and set(value)=={"builder_token","database","digest","status"}
+              and value["status"] in {"ready","needs_migration"}
+              and isinstance(digest,str) and re.fullmatch(r"[0-9a-f]{64}",digest) is not None
+              and value["database"]=="sr_tpl_"+digest[:48]
+              and type(value["builder_token"]) is int and value["builder_token"]>0)
+          if not valid:
+              raise SystemExit("invalid generation preparation response")
+          print(value["status"],value["digest"],value["database"],sep="\t")'
+          }
+
+          validate_ready_json() {
+            python3 -c 'import json,sys
+          value=json.load(sys.stdin)
+          if not isinstance(value,dict) or value.get("status")!="ready" or value.get("digest")!=sys.argv[1] or value.get("database")!=sys.argv[2]:
+              raise SystemExit("generation did not become ready with its pinned identity")' "$1" "$2"
+          }
+
+          validate_lifecycle_json() {
+            python3 -c 'import json,sys
+          value=json.load(sys.stdin)
+          expected={"digest":sys.argv[2],"lease_id":sys.argv[3],"status":sys.argv[1]}
+          if not isinstance(value,dict) or set(value)!={"digest","lease_id","status"} or value!=expected:
+              raise SystemExit("invalid generation lifecycle response")' "$1" "$2" "$3"
+          }
+
+          wait_for_marker() {
+            marker="$1"
+            limit="$2"
+            elapsed=0
+            while [ ! -e "$marker" ] && [ "$elapsed" -lt "$limit" ]; do
+              sleep 1
+              elapsed=$((elapsed + 1))
+            done
+            [ -e "$marker" ]
+          }
+
+          cleanup() {
+            ORIGINAL_STATUS=$?
+            trap - EXIT
+            set +e
+            if [ "$ORIGINAL_STATUS" -ne 0 ] && [ "$SUITE_STATUS" -eq 0 ]; then
+              SUITE_STATUS=$ORIGINAL_STATUS
+            fi
+            if [ -n "$OBSERVER_PID" ]; then
+              touch "$SUITE_COMPLETE_FILE"
+              wait_for_marker "$QUIESCENT_FILE" 30 || OBSERVER_STATUS=1
+            fi
+            bazel test $FLAGS //rust/integration-db:teardown_db
+            TEARDOWN_STATUS=$?
+            if [ "$GENERATION_LEASED" -eq 1 ]; then
+              RELEASE_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:release_generation)"
+              RELEASE_STATUS=$?
+              echo "$RELEASE_JSON"
+              if [ "$RELEASE_STATUS" -eq 0 ]; then
+                validate_lifecycle_json released "$GENERATION_DIGEST" "$RUN_DATABASE" <<<"$RELEASE_JSON" || RELEASE_STATUS=1
+              fi
+            fi
+            END_NS="$(date +%s%N)"
+            if [ -n "$OBSERVER_PID" ]; then
+              touch "$STOP_FILE"
+              wait "$OBSERVER_PID"
+              OBSERVER_PROCESS_STATUS=$?
+              if [ "$OBSERVER_PROCESS_STATUS" -ne 0 ] && [ "$OBSERVER_STATUS" -eq 0 ]; then
+                OBSERVER_STATUS=$OBSERVER_PROCESS_STATUS
+              fi
+            fi
+            if [ "$START_NS" -eq 0 ]; then
+              LIFECYCLE_NS=0
+            else
+              LIFECYCLE_NS=$((END_NS - START_NS))
+            fi
+            echo "SERVICERADAR_INTEGRATION_BENCHMARK start_ns=$START_NS end_ns=$END_NS lifecycle_ns=$LIFECYCLE_NS suite_status=$SUITE_STATUS observer_status=$OBSERVER_STATUS teardown_status=$TEARDOWN_STATUS release_status=$RELEASE_STATUS"
+            rm -f "$SERVICERADAR_FIXTURE_ENV_FILE"
+            rm -rf "$OBSERVER_DIR"
+            if [ "$SUITE_STATUS" -ne 0 ]; then
+              exit "$SUITE_STATUS"
+            elif [ "$OBSERVER_STATUS" -ne 0 ]; then
+              exit "$OBSERVER_STATUS"
+            elif [ "$TEARDOWN_STATUS" -ne 0 ]; then
+              exit "$TEARDOWN_STATUS"
+            elif [ "$RELEASE_STATUS" -ne 0 ]; then
+              exit "$RELEASE_STATUS"
+            fi
+            exit "$ORIGINAL_STATUS"
+          }
+
+          trap cleanup EXIT
+          bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //:buildbuddy_setup_fixture_env
+          set -a; . "$SERVICERADAR_FIXTURE_ENV_FILE"; set +a
+          FLAGS="$FLAGS $SERVICERADAR_TEST_ENV_FLAGS"
+
+          bazel test $FLAGS //rust/integration-db:sweep_stale_dbs
+          CLEANUP_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:cleanup_generations)"
+          echo "$CLEANUP_JSON"
+          validate_cleanup_json <<<"$CLEANUP_JSON"
+
+          PREPARE_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:prepare_generation)"
+          GENERATION_LEASED=1
+          echo "$PREPARE_JSON"
+          IFS=$'\t' read -r GENERATION_STATUS GENERATION_DIGEST GENERATION_DATABASE < <(parse_prepare_json <<<"$PREPARE_JSON")
+          GENERATION_MIGRATOR_STARTED=0
+          if [ "$GENERATION_STATUS" = "needs_migration" ]; then
+            GENERATION_MIGRATOR_STARTED=1
+            bazel test $FLAGS //elixir/serviceradar_core:migrate_generation
+          fi
+
+          READY_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:prepare_generation)"
+          echo "$READY_JSON"
+          parse_prepare_json <<<"$READY_JSON" >/dev/null
+          validate_ready_json "$GENERATION_DIGEST" "$GENERATION_DATABASE" <<<"$READY_JSON"
+          echo "SERVICERADAR_SCHEMA_GENERATION_PREFLIGHT status=ready digest=$GENERATION_DIGEST migrator_started=$GENERATION_MIGRATOR_STARTED"
+
+          START_NS="$(date +%s%N)"
+          bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:observe_connections -- --ready-file "$READY_FILE" --suite-complete-file "$SUITE_COMPLETE_FILE" --quiescent-file "$QUIESCENT_FILE" --stop-file "$STOP_FILE" --max-seconds 1800 --required-pool-slots 114 &
+          OBSERVER_PID=$!
+          wait_for_marker "$READY_FILE" 30 || { echo "observer did not become ready" >&2; exit 1; }
+
+          PROVISION_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:provision_generation)"
+          echo "$PROVISION_JSON"
+          validate_lifecycle_json cloned "$GENERATION_DIGEST" "$RUN_DATABASE" <<<"$PROVISION_JSON"
+          # test_tag_filters controls execution, not every top-level target Bazel builds from
+          # //.... Keep build selection identical so packages and images stay out of the clock.
+          bazel test $FLAGS --build_tests_only --build_tag_filters=integration_test,-large_ingestion_test,-acceptance_test --test_tag_filters=integration_test,-large_ingestion_test,-acceptance_test //...
+
+  # Same exact benchmark steps, with only the workflow CPU allocation changed. These actions are
+  # explicit diagnostics: five alternating attempts per arm select the one CPU request later
+  # applied to BazelCI and both accepted before/after cohorts.
+  - name: "IntegrationBenchmarkCPU2"
+    env:
+      SRQL_FIXTURE_CA_URL: "https://srql-fixture-ca.carverauto.dev/ca.crt"
+    self_hosted: true
+    pool: "workflows"
+    container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.3"
+    platform_properties:
+      OSFamily: "linux"
+      Arch: "amd64"
+      dockerNetwork: "bridge"
+    triggers:
+      push:
+        branches:
+          - "benchmark/parallel-core-integration-cpu2"
+    resource_requests:
+      cpu: "2"
+      memory: "50GB"
+      disk: "40GB"
+    steps: *integration_benchmark_steps
+
+  - name: "IntegrationBenchmarkCPU12"
+    env:
+      SRQL_FIXTURE_CA_URL: "https://srql-fixture-ca.carverauto.dev/ca.crt"
+    self_hosted: true
+    pool: "workflows"
+    container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.3"
+    platform_properties:
+      OSFamily: "linux"
+      Arch: "amd64"
+      dockerNetwork: "bridge"
+    triggers:
+      push:
+        branches:
+          - "benchmark/parallel-core-integration-cpu12"
+    resource_requests:
+      cpu: "12"
+      memory: "50GB"
+      disk: "40GB"
+    steps: *integration_benchmark_steps
+
+  # Full Mix analyzer contract (compile --warnings-as-errors, xref, Credo,
+  # hex/deps audit, Sobelow, OpenAPI dump). Not a PR gate: those steps compile
+  # each project's Mix closure and were the bulk of the old 18m+ Elixir Quality
+  # required check. PRs keep mix format + mix credo --strict in
+  # .github/workflows/elixir-quality.yml; BazelCI above already compiles and
+  # tests the Elixir tree.
+  #
+  # --skip-nif: the workflow-runner image has no gcc/cargo (by design; C/Rust
+  # link is RBE). BazelCI already builds the NIFs. Mix still type-checks the
+  # Rustler stub modules.
+  #
+  # Same pool as BazelCI (one replica). 07:00 UTC is chosen so a weekday run
+  # usually misses US-hours PR traffic; if both are queued, one waits.
+  - name: "Elixir Quality (daily)"
+    self_hosted: true
+    pool: "workflows"
+    container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.3"
+    platform_properties:
+      OSFamily: "linux"
+      Arch: "amd64"
+      dockerNetwork: "bridge"
+    triggers:
+      schedule:
+        crons:
+          - "0 7 * * *"
+    timeout: 3h
+    resource_requests:
+      memory: "32GB"
+      disk: "40GB"
+    env:
+      HEX_HTTP_CONCURRENCY: "1"
+      HEX_HTTP_TIMEOUT: "120"
+    steps:
+      - run: |
+          set -euo pipefail
+
+          OTP_VERSION="28.3"
+          ELIXIR_VERSION="1.19.4"
+          prefix="${HOME}/.serviceradar-beam"
+          otp_dir="${prefix}/otp-${OTP_VERSION}"
+          elixir_dir="${prefix}/elixir-${ELIXIR_VERSION}-otp-28"
+
+          mkdir -p "${prefix}"
+
+          if [[ ! -x "${otp_dir}/bin/erl" ]]; then
+            rm -rf "${otp_dir}"
+            tmpdir="$(mktemp -d)"
+            curl -fsSL "https://builds.hex.pm/builds/otp/amd64/ubuntu-24.04/OTP-${OTP_VERSION}.tar.gz" \
+              | tar -xz -C "${tmpdir}"
+            mv "${tmpdir}/OTP-${OTP_VERSION}" "${otp_dir}"
+            rm -rf "${tmpdir}"
+            (cd "${otp_dir}" && ./Install -sasl "${otp_dir}")
+            test -x "${otp_dir}/bin/erl"
+          fi
+
+          if [[ ! -x "${elixir_dir}/bin/mix" ]]; then
+            rm -rf "${elixir_dir}"
+            mkdir -p "${elixir_dir}"
+            curl -fsSL "https://builds.hex.pm/builds/elixir/v${ELIXIR_VERSION}-otp-28.zip" \
+              -o /tmp/elixir.zip
+            unzip -q /tmp/elixir.zip -d "${elixir_dir}"
+            rm -f /tmp/elixir.zip
+          fi
+
+          export PATH="${elixir_dir}/bin:${otp_dir}/bin:${PATH}"
+          erl -eval 'io:format("~s~n", [erlang:system_info(otp_release)]), halt().' -noshell
+          elixir --version
+          mix --version
+
+          mix local.hex --force
+          mix local.rebar --force
+
+          ./scripts/elixir_quality.sh --all --skip-dialyzer --skip-nif
+
+          (cd elixir/web-ng && mix serviceradar.openapi.dump --check)

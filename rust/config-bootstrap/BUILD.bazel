@@ -1,0 +1,22 @@
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+
+rust_library(
+    name = "config_bootstrap",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + [
+        "//rust/kvutil",
+        "@crates//:tempfile",
+    ],
+)
+
+rust_test(
+    name = "config_bootstrap_test",
+    crate = ":config_bootstrap",
+)

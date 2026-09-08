@@ -1,0 +1,52 @@
+===============================================================================
+=                          ServiceRadar Debug Tools                          =
+===============================================================================
+
+[*] DEBUGGING COMMANDS:
+    test-connectivity    - Test all service connectivity
+    nats-js-status       - Show NATS JetStream status
+    test-grpc            - Health check all gRPC services
+    nats-cert-check      - Diagnose NATS certificate issues
+
+[*] NATS ALIASES:
+    nats-info            - Show NATS server information
+    nats-streams         - List all JetStream streams
+    nats-events          - Show events stream details
+    nats-kv              - Show KV store stream details
+    nats-datasvc         - Alias for nats-kv (DataService-backed)
+    nats --context <ctx> <cmd>  - Run CLI with bundled TLS context
+
+[*] gRPC ALIASES:
+    grpc-core            - Connect to core gRPC (supply method after alias)
+    grpc-agent           - Connect to agent gRPC
+    grpc-trapd           - Connect to trapd gRPC
+
+[*] QUICK TESTS:
+    nc-nats              - Test NATS TCP connectivity
+    ping-nats            - Ping NATS server
+    sr-devices           - List devices via ServiceRadar CLI
+
+[*] CERT LOCATIONS:
+    /etc/serviceradar/certs/root.pem       - Root CA
+    /etc/serviceradar/certs/datasvc.pem    - Default client certificate
+    /etc/serviceradar/certs/datasvc-key.pem - Default client private key
+
+[*] NATS CONTEXT: Auto-configured for tls://nats:4222 with mTLS
+
+[+] STATUS: TLS certs and JetStream aliases ready to use
+
+[!] READY TO USE: MOTD appears on login; environment auto-loads helpers
+
+===============================================================================
+NATS Configuration Context "serviceradar"
+
+   Description: ServiceRadar NATS Context for Debugging
+   Server URLs: tls://serviceradar-nats.serviceradar-staging.svc.cluster.local:4222
+   Certificate: /etc/serviceradar/certs/client.pem (OK)
+           Key: /etc/serviceradar/certs/client-key.pem (OK)
+            CA: /etc/serviceradar/certs/root.pem (OK)
+  Inbox Prefix: _INBOX
+          Path: /root/.config/nats/context/serviceradar.json
+
+WARNING: Shell environment overrides in place using NATS_URL
+✓ ServiceRadar debugging environment configured

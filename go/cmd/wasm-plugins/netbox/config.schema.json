@@ -1,0 +1,94 @@
+{
+  "type": "object",
+  "properties": {
+    "sources": {
+      "type": "array",
+      "description": "NetBox instances reachable from this agent. One inventory-sync assignment carries this agent's source list.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "description": "Stable identifier scoping device identities and snapshot bookkeeping. Do not change after devices have been discovered."
+          },
+          "source_name": {
+            "type": "string"
+          },
+          "base_url": {
+            "type": "string",
+            "description": "NetBox base URL, e.g. https://netbox.example.com."
+          },
+          "api_token": {
+            "type": "string",
+            "description": "NetBox API token sent as `Authorization: Token <value>`. Prefer a NetBox credential rule, which delivers the token without storing it here; scope it to read-only DCIM access."
+          },
+          "page_size": {
+            "type": "integer",
+            "default": 100,
+            "minimum": 1,
+            "maximum": 1000
+          },
+          "timeout_ms": {
+            "type": "integer",
+            "default": 30000,
+            "minimum": 1000,
+            "maximum": 300000
+          },
+          "insecure_skip_verify": {
+            "type": "boolean",
+            "default": false
+          },
+          "network_blacklist": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "CIDRs whose devices are excluded from discovery."
+          }
+        },
+        "required": ["source_id", "base_url"]
+      },
+      "minItems": 1
+    },
+    "source_id": {
+      "type": "string",
+      "x-serviceradar-ui-hidden": true,
+      "description": "Single-source compatibility field; prefer sources."
+    },
+    "source_name": {
+      "type": "string",
+      "x-serviceradar-ui-hidden": true
+    },
+    "base_url": {
+      "type": "string",
+      "x-serviceradar-ui-hidden": true,
+      "x-serviceradar-credential-materialized": true,
+      "description": "NetBox base URL. Injected from the credential rule's controller host. Never entered on the plugin assignment form."
+    },
+    "api_token": {
+      "type": "string",
+      "x-serviceradar-ui-hidden": true,
+      "x-serviceradar-credential-materialized": true,
+      "description": "NetBox API token. Stored on a credential secret, not on this assignment."
+    },
+    "page_size": {
+      "type": "integer",
+      "x-serviceradar-ui-hidden": true
+    },
+    "timeout_ms": {
+      "type": "integer",
+      "x-serviceradar-ui-hidden": true
+    },
+    "insecure_skip_verify": {
+      "type": "boolean",
+      "x-serviceradar-ui-hidden": true
+    },
+    "network_blacklist": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "x-serviceradar-ui-hidden": true
+    }
+  }
+}

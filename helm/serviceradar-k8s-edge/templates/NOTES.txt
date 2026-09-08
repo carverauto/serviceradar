@@ -1,0 +1,35 @@
+ServiceRadar Kubernetes edge sensors installed.
+
+Release:   {{ .Release.Name }}
+Namespace: {{ .Release.Namespace }}
+Cluster:   {{ include "sr-edge.clusterId" . | default "(set clusterId)" }}
+
+What this chart deploys (and what it does not)
+  ✓  serviceradar-agent (outbound mTLS → agent-gateway)
+  ✓  serviceradar-k8s-inventory (optional; kube API public VIP ownership)
+  ✗  core / web-ng / NATS / CNPG / agent-gateway / SPIRE
+
+Next steps
+  1. Ensure the TLS Secret exists:
+       kubectl -n {{ .Release.Namespace }} get secret {{ .Values.agent.existingTlsSecret | default "sr-edge-agent-mtls" }}
+
+  2. Confirm the edge pod is Ready:
+       kubectl -n {{ .Release.Namespace }} get deploy,pods -l app.kubernetes.io/instance={{ .Release.Name }}
+
+  3. On the platform (central / SaaS), after agent enrollment + inventory spool path is live:
+       in:public_endpoints cluster_id:{{ include "sr-edge.clusterId" . | default "YOUR_CLUSTER_ID" }} limit:20
+
+Gateway
+  Address: {{ .Values.agent.gatewayAddress | default "(set agent.gatewayAddress)" }}
+  SNI:     {{ .Values.agent.gatewayServerName }}
+
+Inventory
+  Enabled:     {{ .Values.k8sInventory.enabled }}
+  PublishMode: {{ .Values.k8sInventory.publishMode }}
+  Namespaces:  {{ if .Values.k8sInventory.namespaces }}{{ .Values.k8sInventory.namespaces | join ", " }}{{ else }}* (all){{ end }}
+
+Notes
+  - Agent TLS identity comes from agent.existingTlsSecret (edge package enrollment).
+  - Inventory kube API access uses the inventory ServiceAccount + ClusterRole.
+  - Shared emptyDir spool couples inventory → agent in one pod (agent_spool path).
+  - Full platform installs still use helm/serviceradar with k8sInventory.publishMode=nats.

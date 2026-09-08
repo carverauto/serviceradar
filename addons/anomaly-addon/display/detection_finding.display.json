@@ -1,0 +1,48 @@
+{
+  "id": "com.carverauto.anomaly.detection_finding.display",
+  "version": "1.1.0",
+  "schema_id": "com.carverauto.anomaly.detection_finding",
+  "schema_version": "1.0.0",
+  "widgets": [
+    {
+      "type": "summary",
+      "title": "anomaly.series_key",
+      "message": "message",
+      "source": "verdict_source",
+      "severity": "severity_id"
+    },
+    {
+      "type": "badges",
+      "fields": [
+        {"label": "State", "path": "anomaly.state", "tone": "status"},
+        {"label": "Source", "path": "verdict_source", "tone": "info"},
+        {"label": "Severity", "path": "severity_id", "tone": "severity"}
+      ]
+    },
+    {
+      "type": "facts",
+      "fields": [
+        {"label": "Series", "path": "anomaly.series_key"},
+        {"label": "Metric Class", "path": "anomaly.metric_class"},
+        {"label": "Score", "path": "anomaly.score"},
+        {"label": "Baseline Samples", "path": "anomaly.baseline_count"},
+        {"label": "Value", "path": "anomaly.value"},
+        {"label": "Reason", "path": "anomaly.reason"},
+        {"label": "Device", "path": "device_uid"},
+        {"label": "Verdict Source", "path": "verdict_source"}
+      ]
+    },
+    {
+      "type": "timeline",
+      "fields": [
+        {"label": "Event Time", "path": "time", "format": "timestamp"},
+        {"label": "Observed (unix nano)", "path": "anomaly.observed_at_unix_nano", "format": "unix_nano"}
+      ]
+    },
+    {
+      "type": "json_section",
+      "title": "Anomaly Details",
+      "paths": ["anomaly", "source_identity", "finding_info", "metadata.service_radar"]
+    }
+  ]
+}

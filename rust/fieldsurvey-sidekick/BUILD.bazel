@@ -1,0 +1,42 @@
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:rust_binary.bzl", "rust_binary")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "fieldsurvey_sidekick_lib",
+    srcs = glob(
+        ["src/**/*.rs"],
+        exclude = ["src/main.rs"],
+    ),
+    crate_name = "serviceradar_fieldsurvey_sidekick",
+    crate_root = "src/lib.rs",
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ),
+)
+
+rust_binary(
+    name = "fieldsurvey-sidekick",
+    srcs = ["src/main.rs"],
+    crate_root = "src/main.rs",
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + [":fieldsurvey_sidekick_lib"],
+)
+
+rust_test(
+    name = "fieldsurvey-sidekick-tests",
+    crate = ":fieldsurvey_sidekick_lib",
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + all_crate_deps(
+        cargo_only = True,
+        normal_dev = True,
+    ),
+)

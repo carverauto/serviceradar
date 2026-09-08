@@ -1,0 +1,27 @@
+{{- /* Component gate (issue #3859). ABSENT MEANS ENABLED: hasKey is used rather than a
+     truthiness test so that a chart or values file which never mentions `enabled`
+     renders exactly as before, and only an explicit `webNg.enabled: false` removes
+     this component. `default true` cannot be used here -- Helm treats false as empty,
+     so it would resurrect anything explicitly disabled. */ -}}
+{{- $gate1 := default (dict) .Values.webNg -}}
+{{- if or (not (hasKey $gate1 "enabled")) $gate1.enabled }}
+{{- $webNg := default (dict) .Values.webNg -}}
+{{- $pluginStorage := default (dict) $webNg.pluginStorage -}}
+{{- $pluginStorageBackend := lower (default "file" $pluginStorage.backend) -}}
+{{- if and ($pluginStorage.enabled) (eq $pluginStorageBackend "file") (not $pluginStorage.existingClaim) }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: serviceradar-web-ng-plugins
+spec:
+  accessModes:
+{{ toYaml (default (list "ReadWriteOnce") $pluginStorage.accessModes) | indent 4 }}
+  resources:
+    requests:
+      storage: {{ default "10Gi" $pluginStorage.size | quote }}
+  {{- if $pluginStorage.storageClassName }}
+  storageClassName: {{ $pluginStorage.storageClassName | quote }}
+  {{- end }}
+{{- end }}
+{{- end }}

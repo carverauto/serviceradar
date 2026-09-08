@@ -1,0 +1,10 @@
+package(default_visibility = ["//visibility:public"])
+
+# Do not wrap these in a filegroup of the same name: that is a self-edge
+# and `bazel build //...` fails analysis.
+exports_files([
+    "scratch-reaper.sql",
+    "scratch-reaper.yaml",
+    "httproute-ca.yaml",
+    "namespace.yaml",
+])

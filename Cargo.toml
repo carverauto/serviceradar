@@ -1,0 +1,248 @@
+[workspace]
+resolver = "2"
+members = [
+    "config/proto_bindings/rust",
+    "config/manager_config/rust",
+    "config/manager_secret/rust",
+    "config/tools/rust",
+    "config/manager_validator/rust",
+    "rust/integration-db",
+    "elixir/serviceradar_core/native/anomaly_disposition_nif",
+    "elixir/serviceradar_core/native/zen_nif",
+    "elixir/serviceradar_srql/native/srql_nif",
+    "elixir/web-ng/native/god_view_nif",
+    "rust/kvutil",
+    "rust/config-bootstrap",
+    "rust/edge-onboarding",
+    "rust/bmp-collector",
+    "rust/flowgger",
+    "rust/trapd",
+    "rust/otel",
+    "rust/log-collector",
+    "rust/afpacket",
+    "rust/netprobe",
+    "rust/workload-identity",
+    "rust/powerdns",
+    "rust/rperf-client",
+    "third_party/rust_patches/reqsign-azure-storage-1.0.0",
+    "third_party/rust_patches/reqsign-google-1.0.0",
+    "third_party/rust_patches/rperf-0.1.25",
+    "rust/flow-collector",
+    "rust/srql",
+    "integration_tests/srql",
+    "rust/correlation-engine",
+    "rust/metric-proto",
+    "rust/fieldsurvey-sidekick",
+    "rust/rdp-adapter",
+    "rust/addon-sdk",
+    "rust/otel-addon",
+    "rust/anomaly-core",
+    "rust/anomaly-addon",
+    "rust/anomaly-disposition",
+    "rust/protoc-plugins",
+]
+
+exclude = [
+    #"elixir/serviceradar_core_elx/deps/ex_sctp/native/ex_sctp",
+    # Orphaned copy of the srql NIF: nothing in web-ng references it (its only Rustler
+    # module is god_view_nif), and its package name collides with
+    # elixir/serviceradar_srql/native/srql_nif, which cargo forbids in one workspace.
+    "elixir/web-ng/native/srql_nif",
+    "rust/netprobe/ebpf",
+]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.93.0"
+
+
+[workspace.dependencies]
+# Large crates take default-features = false here and each consuming crate opts in to
+# the features it uses; `std` is hoisted since nothing in this workspace is no_std.
+# Small crates are a bare version. Keep alphabetical.
+anyhow = "1.0"
+# 0.7.6 is the first release on bgpkit-parser 0.20 and declares MSRV 1.93.
+arancini-lib = "=0.7.6"
+arrow-array = "59"
+arrow-ipc = "59"
+arrow-schema = "59"
+async-nats = "0.50.0"
+async-trait = "0.1"
+# Defaults (query, form, tokio, http1, matched-path, ...) are needed by every consumer;
+# they opt in only to extras like "ws" / "macros".
+axum = "0.8"
+aya-build = "0.1.3"
+base64 = "0.22"
+bb8 = "0.8"
+bgpkit-parser = { version = "0.20", default-features = false }
+bytes = "1"
+capnp = "0.25.1"
+capnpc = "0.25.0"
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+clap = "4"
+crossbeam-channel = "0.5"
+deep_causality = "0.15"
+deep_causality_algebra = "0.2"
+deep_causality_core = "0.11"
+deep_causality_data_structures = "0.10"
+deep_causality_sparse = "0.2"
+deep_causality_tensor = "0.5"
+deep_causality_topology = "0.7"
+deep_causality_uncertain = "0.5"
+diesel = { version = "2.3", default-features = false }
+diesel-async = { version = "0.7.1", default-features = false }
+ed25519-dalek = { version = "3", default-features = false }
+# default = auto-color/humantime/regex. All three are expected logging behaviour
+# (humantime is timestamp_seconds; dropping regex would silently breaks RUST_LOG filters).
+env_logger = { version = "0.11"}
+envy = "0.4"
+etherparse = "0.20"
+flate2 = "1"
+flowparser-sflow = "0.3"
+futures = { version = "0.3", default-features = false, features = ["std"] }
+glob = "0.3"
+hex = "0.4"
+hmac = "0.12"
+http = "1"
+http-body-util = "0.1"
+hyper = { version = "1.0", default-features = false }
+hyper-util = "0.1"
+kafka = { version = "0.10", default-features = false }
+lazy_static = "1.4"
+libc = "0.2"
+log = "0.4"
+may = { version = "~0.3", default-features = false }
+netflow_parser = { version = "1.0", default-features = false }
+nix = "0.31"
+notify = { version = "8", default-features = false }
+once_cell = "1.21"
+# Exact-pinned: its build script is configured by hand in //MODULE.bazel (OPENSSL_DIR into
+# @openssl), so a version that reorganises that probing changes the build without changing
+# anything here. Bump it deliberately, against the @openssl bazel_dep's version.
+openssl-sys = "=0.9.116"
+# ECDSA P-521 signature verification, used ONLY by the add-on SDK. go-plugin
+# AutoMTLS hardcodes elliptic.P521() and the rustls `ring` provider does not
+# implement that curve, so without this a Rust add-on cannot verify the agent's
+# client certificate. Pure Rust on purpose: aws-lc-rs supports P-521 but brings
+# 2.1M lines of vendored BoringSSL back into every crate (see bad32bfc5e).
+p521 = { version = "0.13", default-features = false, features = ["ecdsa"] }
+parking_lot = "0.12"
+pcap = "2.4.0"
+pem = "3"
+phf = "0.14"
+phf_codegen = "0.11"
+# Exact-pinned: it selects the pq-src version that //third_party/rust_patches:pq_src_fortify_patch
+# is written against, and a patch that no longer applies fails the fetch.
+pq-sys = "=0.7.5"
+pretty_assertions = "1"
+proptest = "1"
+# default = ["protobuf"]: without it prometheus swaps in its own
+# proto types and netprobe's get_counter().value() stops compiling.
+prometheus = { version = "0.14", features = ["protobuf"]}
+prost = "0.14"
+prost-build = "0.14"
+prost-types = "0.14"
+# protoc plugins, not library deps: nothing links them, protoc execs them. They are declared
+# here, and consumed by //rust/protoc-plugins, because rules_rs resolves //:Cargo.lock and
+# nothing else -- a crate reaches the build graph only as a real dependency of a real
+# workspace member. crates_vendor used to conjure them through its own `packages` attribute
+# instead, which is why //third_party/BUILD.bazel used to carry their versions.
+#
+# Keep these in step with the prost/tonic pins here: the plugins emit code that links against
+# the workspace prost, so a plugin from a different prost generation emits code that does not
+# match.
+protoc-gen-prost = "0.5"
+protoc-gen-tonic = "0.5"
+quick-xml = "0.41"
+quickcheck = "1"
+rand = "0.10"
+rcgen = "0.12"
+redis = { version = "1.4", default-features = false }
+regex-automata = { version = "0.4", default-features = false, features = ["std"] }
+roaring = "0.11"
+runfiles = "0.3"
+rustler = { version = "0.38", default-features = false }
+rustls = { version = "0.23", default-features = false, features = ["ring", "tls12"]}
+rustls-pemfile = "2"
+serde = { version = "1.0", default-features = false, features = ["std"] }
+serde_json = "1.0"
+serial_test = "3.2"
+sha2 = "0.11"
+snmp2 = { version = "0.5", default-features = false }
+spiffe = { version = "0.16", default-features = false }
+tempfile = "3"
+thiserror = "2"
+time = { version = ">=0.3.36, <0.3.47", default-features = false, features = ["std"] }
+time-tz = "0.3"
+tokio = "1"
+tokio-postgres = { version = "0.7", default-features = false, features = ["runtime"] }
+tokio-postgres-rustls = "0.14"
+tokio-rustls = { version = "0.26", default-features = false }
+tokio-stream = "0.1"
+toml = "1.1.3"
+tonic = { version = "0.14", default-features = false, features = ["transport", "codegen", "router"] }
+tonic-build = "0.14"
+tonic-health = "0.14"
+tonic-prost = "0.14"
+tonic-types = "0.14"
+tonic-prost-build = "0.14"
+tonic-reflection = "0.14"
+tower = "0.5"
+tower-http = { version = "0.7", default-features = false }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["std"] }
+ultragraph = "0.9"
+ureq = "3.3"
+urlencoding = "2"
+uuid = { version = "1", default-features = false, features = ["std"] }
+which = "8.0"
+zen-engine = "2.0"
+zeroize = { version = "1", default-features = false }
+
+[patch.crates-io]
+reqsign-azure-storage = { path = "third_party/rust_patches/reqsign-azure-storage-1.0.0" }
+reqsign-google = { path = "third_party/rust_patches/reqsign-google-1.0.0" }
+
+[profile.release]
+opt-level = 3
+debug = false
+rpath = false
+lto = true
+debug-assertions = false
+panic = "abort"
+
+# Crate build configuration, read by rules_rs from Cargo's own metadata table.
+# Binary-only crates: //rust/protoc-plugins exists solely to pin these, and the plugins
+# have to be generated as runnable binaries rather than libraries.
+[workspace.metadata.rules_rs.annotations."protoc-gen-prost"]
+gen_binaries = ["protoc-gen-prost"]
+
+[workspace.metadata.rules_rs.annotations."protoc-gen-tonic"]
+gen_binaries = ["protoc-gen-tonic"]
+
+# pq-src builds libpq from source. The patch re-asserts -D_FORTIFY_SOURCE=0 at the end of
+# $CFLAGS on macOS, where the toolchain's own -D_FORTIFY_SOURCE=1 lands after the crate's
+# define and the resulting fortify builtins collide with libpq's bundled strlcat/strlcpy.
+[workspace.metadata.rules_rs.annotations."pq-src"]
+build_script_data = ["openssl_gen_dir"]
+patch_args = ["-p1"]
+patches = ["//third_party/rust_patches:pq_src_fortify_patch"]
+
+# zstd-sys / libz-sys: use the BCR C libraries rather than each crate's bundled copy.
+# `zstd` and `zlib` are crate.repo_alias names declared in //MODULE.bazel.
+[workspace.metadata.rules_rs.annotations."zstd-sys"]
+deps = ["zstd"]
+gen_build_script = "off"
+
+[workspace.metadata.rules_rs.annotations."libz-sys"]
+deps = ["zlib"]
+gen_build_script = "off"
+
+# aws-lc-sys is never compiled. rustls is pinned to ring/tls12 with default-features
+# off, so aws-lc-rs is never enabled. rules_rs still warns because it scans every
+# lockfile package rather than what actually builds. Adopting its well-known
+# annotation would add the @aws-lc module and a bindgen toolchain for zero actions;
+# this keeps the default build-script path and silences that warning. Same table
+# in rust/rdp-connector-probe/Cargo.toml for the detached RDP hub.
+[workspace.metadata.rules_rs.annotations."aws-lc-sys"]
+gen_build_script = "on"

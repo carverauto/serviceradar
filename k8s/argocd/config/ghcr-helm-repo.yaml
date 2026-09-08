@@ -1,0 +1,34 @@
+# ArgoCD repository credentials for OCI Helm charts from ghcr.io
+# Apply with: kubectl apply -f ghcr-helm-repo.yaml
+#
+# The password should be a GitHub PAT with read:packages scope.
+# Create the secret manually or use external secrets:
+#
+#   kubectl create secret generic argocd-repo-ghcr-helm \
+#     --namespace argocd \
+#     --from-literal=type=helm \
+#     --from-literal=url=ghcr.io/carverauto/charts \
+#     --from-literal=enableOCI=true \
+#     --from-literal=username=<github-username> \
+#     --from-literal=password=<github-pat>
+#
+#   kubectl label secret argocd-repo-ghcr-helm -n argocd \
+#     argocd.argoproj.io/secret-type=repository
+#
+# Or apply this template after filling in credentials:
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: argocd-repo-ghcr-helm
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: repository
+type: Opaque
+stringData:
+  type: helm
+  url: ghcr.io/carverauto/charts
+  enableOCI: "true"
+  # Replace with actual credentials - do not commit real values
+  username: "${GHCR_USERNAME}"
+  password: "${GHCR_TOKEN}"

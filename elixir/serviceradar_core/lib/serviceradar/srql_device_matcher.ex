@@ -1,0 +1,199 @@
+defmodule ServiceRadar.SRQLDeviceMatcher do
+  @moduledoc false
+
+  alias ServiceRadar.Inventory.Device
+
+  require Ash.Query
+  require Logger
+
+  @field_mappings %{
+    "hostname" => :hostname,
+    "uid" => :uid,
+    "is_active" => :is_active,
+    "active" => :is_active,
+    "is_managed" => :is_managed,
+    "managed" => :is_managed,
+    "type" => :type_id,
+    "os" => :os,
+    "status" => :status
+  }
+
+  @type filter :: %{
+          field: String.t() | nil,
+          op: String.t(),
+          value: term()
+        }
+
+  @spec match_ast(map(), term(), keyword()) :: {:ok, boolean()} | {:error, term()}
+  def match_ast(ast, actor, opts \\ []) when is_map(ast) do
+    filters = extract_filters(ast)
+
+    query =
+      Device
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> apply_filters(filters, opts)
+      |> Ash.Query.limit(1)
+
+    case Ash.read_one(query, actor: actor) do
+      {:ok, nil} -> {:ok, false}
+      {:ok, _device} -> {:ok, true}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @spec extract_filters(map()) :: [filter()]
+  def extract_filters(%{"filters" => filters}) when is_list(filters) do
+    Enum.map(filters, fn filter ->
+      %{
+        field: Map.get(filter, "field"),
+        op: Map.get(filter, "op", "eq"),
+        value: Map.get(filter, "value")
+      }
+    end)
+  end
+
+  def extract_filters(_), do: []
+
+  @spec apply_filters(Ash.Query.t(), [filter()], keyword()) :: Ash.Query.t()
+  def apply_filters(query, filters, opts \\ []) do
+    query
+    |> maybe_apply_default_active_filter(filters, opts)
+    |> then(fn filtered_query ->
+      Enum.reduce(filters, filtered_query, fn filter, acc ->
+        apply_filter(acc, filter, opts)
+      end)
+    end)
+  end
+
+  defp maybe_apply_default_active_filter(query, filters, opts) do
+    if Keyword.get(opts, :default_active?, true) and not include_inactive?(filters) and
+         not has_field_filter?(filters, "is_active") and
+         not has_field_filter?(filters, "active") do
+      Ash.Query.filter(query, is_active == true or is_nil(is_active))
+    else
+      query
+    end
+  end
+
+  defp include_inactive?(filters) do
+    Enum.any?(filters, fn
+      %{field: field, value: value} when is_binary(field) ->
+        String.downcase(field) == "include_inactive" and normalize_bool(value) == true
+
+      _filter ->
+        false
+    end)
+  end
+
+  defp has_field_filter?(filters, field) do
+    Enum.any?(filters, fn
+      %{field: filter_field} when is_binary(filter_field) ->
+        String.downcase(filter_field) == field
+
+      _filter ->
+        false
+    end)
+  end
+
+  defp apply_filter(query, %{field: field, op: op, value: value}, opts) when is_binary(field) do
+    cond do
+      String.downcase(field) == "include_inactive" ->
+        query
+
+      tag_field?(field, opts) ->
+        tag_key = String.replace_prefix(field, "tags.", "")
+        apply_tag_filter(query, tag_key, value)
+
+      true ->
+        mapped_field = map_field(field, opts)
+        apply_standard_filter(query, mapped_field, op, value)
+    end
+  rescue
+    e ->
+      Logger.debug(fn ->
+        "#{log_prefix(opts)}: skipping filter #{field} #{op} #{inspect(value)}: #{Exception.message(e)}"
+      end)
+
+      query
+  end
+
+  defp apply_filter(query, _filter, _opts), do: query
+
+  defp map_field(field, opts) do
+    mappings = Keyword.get(opts, :field_mappings, @field_mappings)
+
+    case Map.fetch(mappings, field) do
+      {:ok, mapped} ->
+        mapped
+
+      :error ->
+        if Keyword.get(opts, :allow_existing_atom_fields?, true) do
+          String.to_existing_atom(field)
+        end
+    end
+  end
+
+  defp apply_standard_filter(query, field, op, value)
+       when field == :is_active and op in ["eq", "equals"] do
+    value = normalize_bool(value)
+    Ash.Query.filter(query, is_active == ^value or (is_nil(is_active) and ^value == true))
+  end
+
+  defp apply_standard_filter(query, field, op, value)
+       when field == :is_active and op in ["neq", "not_eq", "not_equals"] do
+    value = normalize_bool(value)
+    Ash.Query.filter(query, is_active != ^value and not (is_nil(is_active) and ^value == true))
+  end
+
+  defp apply_standard_filter(query, field, op, value)
+       when op in ["eq", "equals"] and is_atom(field) do
+    Ash.Query.filter_input(query, %{field => %{eq: value}})
+  end
+
+  defp apply_standard_filter(query, field, op, value)
+       when op in ["contains", "like"] and is_atom(field) do
+    value = trim_like_wildcards(value)
+    Ash.Query.filter_input(query, %{field => %{contains: value}})
+  end
+
+  defp apply_standard_filter(query, field, "in", value) when is_atom(field) and is_list(value) do
+    Ash.Query.filter_input(query, %{field => %{in: value}})
+  end
+
+  defp apply_standard_filter(query, field, _op, value) when is_atom(field) do
+    Ash.Query.filter_input(query, %{field => %{eq: value}})
+  end
+
+  defp apply_standard_filter(query, _field, _op, _value), do: query
+
+  defp apply_tag_filter(query, tag_key, tag_value) do
+    Ash.Query.filter(query, fragment("tags @> ?", ^%{tag_key => tag_value}))
+  end
+
+  defp log_prefix(opts), do: Keyword.get(opts, :log_prefix, "SRQLDeviceMatcher")
+
+  defp tag_field?(field, opts),
+    do: Keyword.get(opts, :tag_fields?, true) and String.starts_with?(field, "tags.")
+
+  defp trim_like_wildcards(value) when is_binary(value) do
+    value |> String.trim_leading("%") |> String.trim_trailing("%")
+  end
+
+  defp trim_like_wildcards(value), do: value
+
+  defp normalize_bool(value) when is_boolean(value), do: value
+
+  defp normalize_bool(value) when is_binary(value) do
+    case String.downcase(String.trim(value)) do
+      "true" -> true
+      "1" -> true
+      "yes" -> true
+      "false" -> false
+      "0" -> false
+      "no" -> false
+      _ -> value
+    end
+  end
+
+  defp normalize_bool(value), do: value
+end

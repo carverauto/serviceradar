@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://serviceradar.carverauto.dev/schemas/addons/anomaly/detection_finding.schema.json",
+  "title": "Anomaly Detection Finding (OCSF class_uid 2004)",
+  "description": "Payload the anomaly add-on emits per anomaly-open or anomaly-clear transition. An OCSF Detection Finding shaped for the causal prediction spine so core (CausalSignals) ingests it like other causal findings. The canonical series_key is computed in core from gateway-attested fields; source_identity carries the raw resource identity for re-keying.",
+  "type": "object",
+  "required": [
+    "event_id",
+    "id",
+    "signal_type",
+    "event_type",
+    "class_uid",
+    "category_uid",
+    "type_uid",
+    "activity_id",
+    "time",
+    "severity_id",
+    "verdict_source",
+    "anomaly"
+  ],
+  "properties": {
+    "event_id": { "type": "string", "minLength": 1 },
+    "id": { "type": "string", "minLength": 1 },
+    "signal_type": { "type": "string", "const": "causal" },
+    "event_type": { "type": "string", "const": "anomaly" },
+    "class_uid": { "type": "integer", "const": 2004 },
+    "category_uid": { "type": "integer", "const": 2 },
+    "type_uid": { "type": "integer", "const": 200401 },
+    "activity_id": { "type": "integer" },
+    "finding_type": { "type": "string" },
+    "provider": { "type": "string", "const": "anomaly_detection" },
+    "source": { "type": "string" },
+    "collector": { "type": "string" },
+    "verdict_source": {
+      "type": "string",
+      "description": "Origin discriminator for the edge<->central verdict join.",
+      "enum": ["edge-spike", "central-seasonal"]
+    },
+    "status": { "type": "string", "enum": ["open", "inactive", "suppressed"] },
+    "time": { "type": "integer", "description": "Event time, Unix milliseconds (OCSF time)." },
+    "severity_id": { "type": "integer", "minimum": 1, "maximum": 6 },
+    "device_uid": { "type": "string" },
+    "device_id": { "type": "string" },
+    "message": { "type": "string" },
+    "finding_info": {
+      "type": "object",
+      "required": ["uid"],
+      "properties": {
+        "uid": { "type": "string", "minLength": 1 },
+        "title": { "type": "string" },
+        "type": { "type": "string" },
+        "type_id": { "type": "integer" }
+      }
+    },
+    "source_identity": {
+      "type": "object",
+      "description": "Raw, pre-attestation resource identity carried so core can compute the canonical series_key (the producer hint is not canonical).",
+      "properties": {
+        "series_key": { "type": "string" },
+        "metric_class": { "type": "string" },
+        "agent_id": { "type": "string" },
+        "host_id": { "type": "string" },
+        "device_id": { "type": "string" },
+        "host_ip": { "type": "string" },
+        "partition": { "type": "string" },
+        "metric_name": { "type": "string" },
+        "if_index": { "type": "integer" },
+        "interface_uid": { "type": "string" }
+      }
+    },
+    "anomaly": {
+      "type": "object",
+      "required": ["series_key", "metric_class", "state", "score"],
+      "properties": {
+        "series_key": { "type": "string", "minLength": 1 },
+        "metric_class": { "type": "string" },
+        "state": { "type": "string" },
+        "reason": { "type": "string" },
+        "score": { "type": "number" },
+        "baseline_count": { "type": "integer" },
+        "value": { "type": "number" },
+        "sample_value": { "type": "number" },
+        "observed_at_unix_nano": { "type": "integer" },
+        "signals": { "type": "array" }
+      }
+    }
+  }
+}

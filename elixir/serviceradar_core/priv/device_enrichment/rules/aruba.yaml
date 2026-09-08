@@ -1,0 +1,14 @@
+rules:
+  - id: aruba-switch
+    enabled: true
+    priority: 890
+    confidence: 90
+    reason: "Aruba switch signature in SNMP identity"
+    match:
+      any:
+        sys_name: ["aruba"]
+        sys_descr: ["procurve", "arubaos-switch", "aruba switch"]
+    set:
+      vendor_name: "Aruba"
+      type: "Switch"
+      type_id: 10

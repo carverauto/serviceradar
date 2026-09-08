@@ -1,0 +1,193 @@
+{{- if .Values.bmpCollector.enabled }}
+{{- $data := default (dict) .Values.bmpCollector.data -}}
+{{- $cfg := default (dict) .Values.bmpCollector.config -}}
+{{- $dataEnabled := ne false (get $data "enabled") -}}
+{{- if and $dataEnabled (not $data.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: serviceradar-bmp-collector-data
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ default "1Gi" $data.size | quote }}
+  {{- if $data.storageClassName }}
+  storageClassName: {{ $data.storageClassName | quote }}
+  {{- end }}
+---
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: serviceradar-bmp-collector-config
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+data:
+  config.json: |
+    {{- dict
+      "listen_addr" (default "0.0.0.0:11019" $cfg.listenAddr)
+      "read_buffer_bytes" (default 65536 $cfg.readBufferBytes)
+      "max_frame_size_bytes" (default 16777216 $cfg.maxFrameSizeBytes)
+      "nats_url" (default "nats://serviceradar-nats:4222" $cfg.natsUrl)
+      "nats_domain" (($cfg.natsDomain | default "") | empty | ternary nil $cfg.natsDomain)
+      "nats_creds_file" (($cfg.natsCredsFile | default "") | empty | ternary nil $cfg.natsCredsFile)
+      "nats_tls_required" (default true $cfg.natsTlsRequired)
+      "nats_tls_first" (default false $cfg.natsTlsFirst)
+      "nats_tls_ca_cert_path" (default "/etc/serviceradar/certs/root.pem" $cfg.natsTlsCaCertPath)
+      "nats_tls_client_cert_path" (default "/etc/serviceradar/certs/bmp-collector.pem" $cfg.natsTlsClientCertPath)
+      "nats_tls_client_key_path" (default "/etc/serviceradar/certs/bmp-collector-key.pem" $cfg.natsTlsClientKeyPath)
+      "stream_name" (default "ARANCINI_CAUSAL" $cfg.streamName)
+      "subject_prefix" (default "arancini.updates" $cfg.subjectPrefix)
+      "stream_subjects" (default (list) $cfg.streamSubjects)
+      "stream_max_bytes" (default 10737418240 $cfg.streamMaxBytes)
+      "stream_replicas" (default 1 $cfg.streamReplicas)
+      "publish_timeout_ms" (default 5000 $cfg.publishTimeoutMs)
+      | toPrettyJson | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-bmp-collector
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  replicas: {{ .Values.bmpCollector.replicaCount | default 1 }}
+  selector:
+    matchLabels:
+      app: serviceradar-bmp-collector
+  template:
+    metadata:
+      labels:
+        app: serviceradar-bmp-collector
+        app.kubernetes.io/part-of: serviceradar
+      annotations:
+        {{- include "serviceradar.runtimeCertRollAnnotations" . | nindent 8 }}
+      {{- if .Values.global.forceRolloutOnUpgrade }}
+        serviceradar.io/release-revision: {{ .Release.Revision | quote }}
+      {{- end }}
+    spec:
+      {{- include "serviceradar.topologySpread" (dict "root" . "app" "serviceradar-bmp-collector") | nindent 6 }}
+      serviceAccountName: {{ .Values.spire.bmpCollectorServiceAccount | default "serviceradar-bmp-collector" }}
+      {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      securityContext:
+        fsGroup: 1001
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: bmp-collector
+        image: {{ default (include "serviceradar.imageRepository" (dict "Values" .Values "Chart" .Chart "name" "arancini")) .Values.bmpCollector.image.repository }}{{ include "serviceradar.imageRefSuffix" (dict "Values" .Values "Chart" .Chart "service" "bmpCollector") }}
+        imagePullPolicy: {{ .Values.bmpCollector.image.pullPolicy | default (include "serviceradar.imagePullPolicy" .) }}
+        ports:
+        {{- if .Values.bmpCollector.service.ports.bmp.enabled }}
+        - name: bmp
+          containerPort: {{ .Values.bmpCollector.service.ports.bmp.targetPort | default 11019 }}
+          protocol: {{ .Values.bmpCollector.service.ports.bmp.protocol | default "TCP" }}
+        {{- end }}
+        args:
+        - "--config"
+        - "/etc/serviceradar/bmp-collector/config.json"
+        env:
+        - name: RUST_LOG
+          value: "info"
+        livenessProbe:
+          tcpSocket:
+            port: bmp
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          tcpSocket:
+            port: bmp
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        resources:
+          {{- toYaml .Values.bmpCollector.resources | nindent 10 }}
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsUser: 1001
+          runAsGroup: 1001
+          capabilities:
+            drop: ["ALL"]
+        volumeMounts:
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+        - name: bmp-collector-config
+          mountPath: /etc/serviceradar/bmp-collector
+          readOnly: true
+        - name: nats-creds
+          mountPath: /etc/serviceradar/creds
+          readOnly: true
+        - name: bmp-collector-data
+          mountPath: /var/lib/serviceradar
+        - name: logs
+          mountPath: /var/log/serviceradar
+      volumes:
+      - name: cert-data
+        secret:
+          secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
+          items:
+{{ include "serviceradar.runtimeCertItems" (list "root.pem" "bmp-collector.pem" "bmp-collector-key.pem") | indent 12 }}
+      - name: bmp-collector-config
+        configMap:
+          name: serviceradar-bmp-collector-config
+      - name: nats-creds
+        secret:
+          secretName: serviceradar-nats-creds
+      - name: bmp-collector-data
+        {{- if $data.existingClaim }}
+        persistentVolumeClaim:
+          claimName: {{ $data.existingClaim | quote }}
+        {{- else if $dataEnabled }}
+        persistentVolumeClaim:
+          claimName: serviceradar-bmp-collector-data
+        {{- else }}
+        emptyDir: {}
+        {{- end }}
+      - name: logs
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-bmp-collector
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+  {{- with .Values.bmpCollector.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.bmpCollector.service.type | default "ClusterIP" }}
+  {{- with .Values.bmpCollector.service.externalTrafficPolicy }}
+  externalTrafficPolicy: {{ . }}
+  {{- end }}
+  {{- if .Values.bmpCollector.service.loadBalancerIP }}
+  loadBalancerIP: {{ .Values.bmpCollector.service.loadBalancerIP | quote }}
+  {{- end }}
+  selector:
+    app: serviceradar-bmp-collector
+  ports:
+  {{- if .Values.bmpCollector.service.ports.bmp.enabled }}
+  - name: bmp
+    port: {{ .Values.bmpCollector.service.ports.bmp.port | default 11019 }}
+    targetPort: {{ .Values.bmpCollector.service.ports.bmp.targetPort | default 11019 }}
+    protocol: {{ .Values.bmpCollector.service.ports.bmp.protocol | default "TCP" }}
+  {{- end }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.spire.bmpCollectorServiceAccount | default "serviceradar-bmp-collector" }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+{{- end }}

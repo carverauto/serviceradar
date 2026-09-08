@@ -1,0 +1,60 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "trivysidecar",
+    srcs = [
+        "config.go",
+        "deduper.go",
+        "envelope.go",
+        "health.go",
+        "kinds.go",
+        "metrics.go",
+        "publisher.go",
+        "runtime.go",
+        "service.go",
+        "utils.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/trivysidecar",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@com_github_nats_io_nats_go//:nats_go",
+        "@com_github_nats_io_nats_go//jetstream",
+        "@io_k8s_apimachinery//pkg/api/errors",
+        "@io_k8s_apimachinery//pkg/apis/meta/v1:meta",
+        "@io_k8s_apimachinery//pkg/apis/meta/v1/unstructured",
+        "@io_k8s_apimachinery//pkg/runtime/schema",
+        "@io_k8s_client_go//discovery",
+        "@io_k8s_client_go//dynamic",
+        "@io_k8s_client_go//dynamic/dynamicinformer",
+        "@io_k8s_client_go//rest",
+        "@io_k8s_client_go//tools/cache",
+        "@io_k8s_client_go//tools/clientcmd",
+    ],
+)
+
+go_test(
+    name = "trivysidecar_test",
+    srcs = [
+        "envelope_test.go",
+        "kinds_test.go",
+        "publisher_integration_test.go",
+        "service_test.go",
+    ],
+    embed = [":trivysidecar"],
+    deps = [
+        "@com_github_nats_io_nats_go//:nats_go",
+        "@com_github_nats_io_nats_go//jetstream",
+        "@com_github_nats_io_nats_server_v2//server",
+        "@io_k8s_apimachinery//pkg/apis/meta/v1:meta",
+        "@io_k8s_apimachinery//pkg/apis/meta/v1/unstructured",
+        "@io_k8s_apimachinery//pkg/runtime",
+        "@io_k8s_apimachinery//pkg/types",
+        "@io_k8s_client_go//dynamic/fake",
+    ],
+)
+
+filegroup(
+    name = "display_contracts",
+    srcs = ["display/vulnerability_report.display.json"],
+    visibility = ["//visibility:public"],
+)

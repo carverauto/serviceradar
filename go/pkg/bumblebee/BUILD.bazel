@@ -1,0 +1,26 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "bumblebee",
+    srcs = [
+        "catalog.go",
+        "config.go",
+        "profile.go",
+        "roots.go",
+        "runner.go",
+        "spool.go",
+        "types.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/bumblebee",
+    visibility = ["//visibility:public"],
+    deps = ["//third_party/bumblebee/upstream"],
+)
+
+go_test(
+    name = "bumblebee_test",
+    srcs = [
+        "catalog_test.go",
+        "runner_test.go",
+    ],
+    embed = [":bumblebee"],
+)

@@ -1,0 +1,890 @@
+load("@rules_elixir//:elixir_tests.bzl", "ex_unit_tests")
+load("@rules_elixir//:ex_unit_test.bzl", "ex_unit_test")
+load("@rules_elixir//:mix_app.bzl", "mix_app")
+load(
+    "@serviceradar//build:integration_shards.bzl",
+    "LARGE_INGESTION_DB_SHARD",
+    "LARGE_INGESTION_REPO_POOL_SIZE",
+    "integration_lane_names",
+    "integration_selection_source_sets",
+    "integration_test_env",
+    "partition_by_lane",
+)
+load("@serviceradar//build:integration_tests.bzl", "requires_shared_fixture")
+load("@serviceradar//build/schema_template:replay_env.bzl", "SCHEMA_TEMPLATE_REPLAY_ENV")
+
+package(default_visibility = ["//visibility:public"])
+
+# Every ExUnit file in the project. test/db/** is excluded because those are the database
+# lifecycle targets (migrate_template), not suite tests -- they are declared individually.
+ALL_TEST_SRCS = glob(
+    ["test/**/*_test.exs"],
+    exclude = [
+        "test/db/**",
+        "test/release_gates/**",
+        # Full cold-start qualification applies the production baseline plus every migration,
+        # then runs startup again to cover the normal :migrated branch. Even its quiet serial
+        # cost exceeds the complete PR lifecycle budget, so it runs once in the source-separated
+        # release qualification target below rather than in any ordinary lane.
+        "test/serviceradar/cluster/database_bootstrap_integration_test.exs",
+        # This brings up real peer nodes and has its own discoverable target
+        # below so the normal helper's :cluster exclusion cannot skip it.
+        "test/serviceradar/edge/agent_command_bus_rpc_registry_test.exs",
+    ],
+)
+
+# Disjoint selected-source partition: one audited async BEAM plus serial BEAM lanes. Unit-only
+# files remain in ALL_TEST_SRCS for the database-free unit targets but are not loaded here.
+INTEGRATION_LANE_SRCS = partition_by_lane(ALL_TEST_SRCS)
+
+INTEGRATION_SELECTION_SOURCE_SETS = integration_selection_source_sets(ALL_TEST_SRCS)
+
+# Files integration tests open at runtime. Both the eight ordinary lanes and the focused
+# large-ingestion gate use the same application/configuration fixtures, but release-gate test
+# sources remain source-separated and arrive only through the dedicated target's srcs.
+INTEGRATION_RUNTIME_DATA = glob(
+    [
+        "config/**",
+        "lib/**",
+        "priv/**",
+        "test/**",
+    ],
+    allow_empty = True,
+    exclude = [
+        "test/**/*_test.exs",
+        "test/release_gates/**",
+    ],
+) + [
+    # Read at MODULE level (compile time) by
+    # test/serviceradar/plugins/anomaly_addon_profile_seeder_test.exs, via
+    # Path.expand("../../../../../addons/...", __DIR__) -- so no tag can skip it and it
+    # has to be a declared input. ex_unit_test mirrors the workspace layout, which is
+    # what puts it where that relative path resolves.
+    "//addons/anomaly-addon:anomaly_manifest",
+    # Likewise module level: test/serviceradar/plugins/manifest_test.exs globs
+    # go/cmd/wasm-plugins/**/{config*.schema.json,plugin*.yaml} and raises if the glob
+    # comes back empty, so every first-party Wasm plugin package has to be an input.
+    "//go/cmd/wasm-plugins/alienvault-otx:srcs",
+    "//go/cmd/wasm-plugins/awx:srcs",
+    "//go/cmd/wasm-plugins/axis:srcs",
+    "//go/cmd/wasm-plugins/dusk-checker:srcs",
+    "//go/cmd/wasm-plugins/netbox:srcs",
+    "//go/cmd/wasm-plugins/opentext-nom:srcs",
+    "//go/cmd/wasm-plugins/proxmox:srcs",
+    "//go/cmd/wasm-plugins/sample-northbound:srcs",
+    "//go/cmd/wasm-plugins/unifi-protect:srcs",
+    # Read at RUNTIME by ServiceRadar.Edge.AddonConfigContractFixturesTest through
+    # ServiceRadar.Plugins.AddonConfigContractFixtures.{fixture_dir,schema}/1, which
+    # resolve the repo root from the working directory when the compile-time one is not
+    # present. That makes these runfiles, not compile inputs: the test executes in a
+    # sandbox, so a file staged only into the mix_app build tree is not there at all.
+    # (anomaly-addon's manifest is already listed above.)
+    "//addons/bumblebee-scan:bumblebee_scan_manifest",
+    "//addons/netprobe:netprobe_manifest",
+    "//addons/otel-collector:otel_collector_manifest",
+    "//addons/rdp-adapter:rdp_adapter_manifest",
+    "//addons/scalibr-endpoint-inventory:scalibr_endpoint_inventory_manifest",
+    "//addons/workload-identity:workload_identity_manifest",
+    "//go/pkg/agent:addonconfig_contract_fixtures",
+    # The config loader, referenced from elixir_opts by a relative path, so it has to be
+    # a declared input too. The ex_unit_tests macro adds this automatically; a
+    # hand-written ex_unit_test does not.
+    "//build:elixir_test_config_loader.exs",
+    # The per-run database name, as a declared build input. test/db/integration_env.exs
+    # reads it out of runfiles at build/run_id_file.txt -- the same file and the same
+    # relative path //rust/integration-db reads -- so provision, the suite and teardown
+    # cannot disagree about which database they own.
+    "//build:run_id_file",
+    # Guarded suites resolve their endpoint from the one CI fixture identity, exactly as the Rust
+    # provisioner and template migrator do. Focused workstation Mix tests use a separately created
+    # srql-fixtures scratch database; a guarded Bazel lane cannot select localhost.
+    "//config/environments:ci_binpb",
+]
+
+# Compile-time files needed by the database-free selection loaders. This deliberately omits the
+# config loader, run-id artifact, and CI fixture identity from INTEGRATION_RUNTIME_DATA: no
+# selection tool has an endpoint it could connect to. Test bodies never execute, so runtime-only
+# addon fixtures are not needed here.
+INTEGRATION_SELECTION_DATA = glob(
+    [
+        "config/**",
+        "lib/**",
+        "priv/**",
+        "test/**",
+    ],
+    allow_empty = True,
+    exclude = [
+        "test/**/*_test.exs",
+        "test/release_gates/**",
+    ],
+) + [
+    "//addons/anomaly-addon:anomaly_manifest",
+    "//go/cmd/wasm-plugins/alienvault-otx:srcs",
+    "//go/cmd/wasm-plugins/awx:srcs",
+    "//go/cmd/wasm-plugins/axis:srcs",
+    "//go/cmd/wasm-plugins/dusk-checker:srcs",
+    "//go/cmd/wasm-plugins/netbox:srcs",
+    "//go/cmd/wasm-plugins/opentext-nom:srcs",
+    "//go/cmd/wasm-plugins/proxmox:srcs",
+    "//go/cmd/wasm-plugins/sample-northbound:srcs",
+    "//go/cmd/wasm-plugins/unifi-protect:srcs",
+]
+
+INTEGRATION_TEST_DEPS = [
+    ":erlang_app",
+    "//config/manager_config/elixir:manager",
+    "//config/manager_secret/elixir:secret",
+]
+
+# Static inputs for the repository-level integration execution contract. Keep the unit target on
+# ALL_TEST_SRCS, while the ordinary database lanes below use only the audited selected-source
+# union. The contract needs every source in order to fail when the glob and disposition inventory
+# drift in either direction.
+filegroup(
+    name = "integration_contract_test_inputs",
+    srcs = ALL_TEST_SRCS + ["test/INTEGRATION_SOURCE_DISPOSITIONS.tsv"],
+)
+
+filegroup(
+    name = "srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "bazel-*",
+            "_build/**",
+            "deps/**",
+            "native/**/target/**",
+            "tmp/**",
+            "**/*.swp",
+            "**/*~",
+        ],
+    ),
+)
+
+# What `mix compile` actually needs -- :srcs minus the 599 *_test.exs files.
+#
+# THIS IS THE SINGLE BIGGEST INCREMENTAL-BUILD LEVER IN THE ELIXIR TREE.
+#
+# mix.exs:48 says `elixirc_paths(:test), do: ["lib", "test/support"]`, so of the 623 files
+# under test/ exactly 20 are ever compiled into the application. The other 603 were still
+# declared inputs of the compile action, which meant editing ONE unrelated test file
+# invalidated:
+#
+#   :erlang_app (53s) -> :erlang_app_prod (53s) -> //elixir/web-ng:erlang_app (62s)
+#   -> agent_gateway, core_elx, every ex_unit_test target, all 8 integration lanes
+#
+# i.e. the entire ~190s critical chain for a one-line change to a file the application never
+# compiles. Bazel was correct to rebuild -- a declared input changed. The input was wrong.
+#
+# The test files still reach the tests: //build:elixir_tests.bzl passes each *_test.exs as
+# the `srcs` of its own ex_unit_test target, and the runtime fixtures come through `data`
+# below. Nothing loses an input; the compile stops claiming inputs it does not read.
+#
+# Deliberately a SEPARATE filegroup rather than a narrower :srcs. :srcs means "the whole
+# package" and //elixir/web-ng/assets:BUILD.bazel documents relying on that breadth; giving
+# the compile its own, honestly-scoped input set keeps both meanings available.
+filegroup(
+    name = "compile_srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "bazel-*",
+            "_build/**",
+            "deps/**",
+            "native/**/target/**",
+            "tmp/**",
+            "**/*.swp",
+            "**/*~",
+            # The exclusion that matters. test/support is added back below.
+            "test/**",
+        ],
+    ) + glob(
+        ["test/support/**"],
+        allow_empty = True,
+    ),
+)
+
+# The migration files, as an input to //rust/integration-db.
+#
+# That crate decides whether the template database is current by comparing the versions in
+# these filenames against the template's schema_migrations, so it needs them staged in its
+# runfiles. Declaring them here rather than globbing from the Rust package keeps the
+# ownership right: this project owns its migrations.
+filegroup(
+    name = "migrations",
+    srcs = glob(
+        ["priv/repo/migrations/*.exs"],
+        allow_empty = False,
+    ),
+)
+
+# Schema-template identity inputs. Keep these separate from the migration execution
+# target: adding the manifest must not change which database any consumer uses.
+filegroup(
+    name = "schema_template_baseline_sql",
+    srcs = ["priv/repo/baseline/platform_schema.sql"],
+)
+
+filegroup(
+    name = "schema_template_baseline_metadata",
+    srcs = ["priv/repo/baseline/metadata.json"],
+)
+
+# Migrations currently use Ecto/Oban directly (versions pinned in mix.lock).
+# SchemaBootstrap calls SchemaSql; the Repo and lifecycle loaders supply its
+# configuration. Add any future application helper called by migrations here.
+filegroup(
+    name = "schema_template_helpers",
+    srcs = [
+        "lib/mix/tasks/serviceradar.db.migrate.ex",
+        "lib/serviceradar/cluster/startup_migrations.ex",
+        "lib/serviceradar/postgres/schema_sql.ex",
+        "lib/serviceradar/repo.ex",
+        "lib/serviceradar/repo/schema_bootstrap.ex",
+        "test/db/db_task_helper.exs",
+        "test/db/fixture_config.exs",
+        "test/db/migrate_db_test.exs",
+        "test/db/migrate_generation_test.exs",
+        "test/db/template_env.exs",
+        "test/db/template_generation.exs",
+        "test/db/template_generation_env.exs",
+    ],
+)
+
+filegroup(
+    name = "schema_template_configuration",
+    srcs = [
+        "config/config.exs",
+        "config/dev.exs",
+        "config/prod.exs",
+        "config/runtime.exs",
+        "config/test.exs",
+        "config/test_database_guard.exs",
+        "mix.exs",
+        "mix.lock",
+    ],
+)
+
+# Bootstrap files only -- what `mix deps.get` needs to resolve this project as a path
+# dependency, with none of its lib/ sources. Keeping this separate from :srcs is what lets
+# //elixir/web-ng:deps_cache stay keyed on lockfiles, so it stays a remote cache hit across
+# any change that does not touch dependencies.
+filegroup(
+    name = "deps_srcs",
+    srcs = ["mix.exs"] + glob(
+        [
+            "mix.lock",
+            "config/**",
+        ],
+        allow_empty = True,
+    ),
+)
+
+# Shared between the :test and :prod compilations below, which differ only in mix_env.
+CORE_SRCS = [
+    ":compile_srcs",
+    # Read at compile time, from outside this package. The *_addon_package_seeder
+    # modules do Path.expand("../../../../../addons/<x>/config.schema.json", __DIR__)
+    # and bake the result in with @external_resource, so these have to be declared
+    # action inputs -- existing in the source tree is not enough. mix_app stages srcs
+    # under their own package path, which is what makes the five-levels-up path
+    # resolve here the same way it resolves to the repo root under plain mix.
+    "//addons/bumblebee-scan:bumblebee_scan_manifest",
+    "//addons/netprobe:netprobe_manifest",
+    "//addons/otel-collector:otel_collector_manifest",
+    "//addons/scalibr-endpoint-inventory:scalibr_endpoint_inventory_manifest",
+    "//addons/workload-identity:workload_identity_manifest",
+    # Same reason, different consumer. ServiceRadar.Plugins.AddonConfigContractFixtures
+    # pins @repo_root Path.expand("../../../../..", __DIR__) at compile time, so under
+    # mix_app that resolves inside the build tree and the committed fixtures have to be
+    # staged there too. Declaring them on the test target instead puts them in the test's
+    # runfiles, which is a different directory and not the one the baked-in path points
+    # at -- the drift test then fails with "could not read file .../erlang_app_mix/go/...".
+    "//go/pkg/agent:addonconfig_contract_fixtures",
+]
+
+# Bazel builds the cdylibs; Mix must not shell out to cargo. `use Rustler` merges
+# Application.compile_env(otp_app, __MODULE__) over its own options, so this disables
+# native compilation without touching lib/ or the checked-in config. The libraries
+# themselves arrive via native_libs, and reach a release through this app's priv.
+CORE_EXTRA_CONFIG = [
+    "config :serviceradar_core, ServiceRadar.Observability.Zen.Native, skip_compilation?: true",
+    "config :serviceradar_core, ServiceRadar.Observability.DispositionKernels, skip_compilation?: true",
+]
+
+CORE_NATIVE_LIBS = {
+    "//elixir/serviceradar_core/native/anomaly_disposition_nif:anomaly_disposition_nif": "anomaly_disposition_nif",
+    "//elixir/serviceradar_core/native/zen_nif:zen_nif": "zen_nif",
+}
+
+CORE_DEPS = [
+    "//third_party/hex_vendored/connection:erlang_app",
+    "//third_party/hex_vendored/elixir_uuid:erlang_app",
+    "//elixir/serviceradar_srql:erlang_app",
+    "//third_party/hex_vendored/opentelemetry_oban:erlang_app",
+    "@hexpm//:ash",
+    "@hexpm//:ash_admin",
+    "@hexpm//:ash_cloak",
+    "@hexpm//:ash_json_api",
+    "@hexpm//:ash_oban",
+    "@hexpm//:ash_paper_trail",
+    "@hexpm//:ash_postgres",
+    "@hexpm//:ash_state_machine",
+    "@hexpm//:bcrypt_elixir",
+    "@hexpm//:boundary",
+    "@hexpm//:broadway",
+    "@hexpm//:broadway_dashboard",
+    "@hexpm//:castore",
+    "@hexpm//:cloak",
+    "@hexpm//:ecto_sql",
+    "@hexpm//:ex_json_schema",
+    "@hexpm//:file_system",
+    "@hexpm//:geolix_adapter_mmdb2",
+    "@hexpm//:gnat",
+    "@hexpm//:grpc",
+    "@hexpm//:gun",
+    "@hexpm//:horde",
+    "@hexpm//:jason",
+    "@hexpm//:libcluster",
+    "@hexpm//:oban",
+    "@hexpm//:open_api_spex",
+    "@hexpm//:opentelemetry",
+    "@hexpm//:opentelemetry_api",
+    "@hexpm//:opentelemetry_api_experimental",
+    "@hexpm//:opentelemetry_bandit",
+    "@hexpm//:opentelemetry_ecto",
+    "@hexpm//:opentelemetry_experimental",
+    "@hexpm//:opentelemetry_exporter",
+    "@hexpm//:opentelemetry_phoenix",
+    "@hexpm//:opentelemetry_semantic_conventions",
+    "@hexpm//:postgrex",
+    "@hexpm//:protobuf",
+    "@hexpm//:req",
+    "@hexpm//:rustler",
+    "@hexpm//:simple_sat",
+    "@hexpm//:swoosh",
+    "@hexpm//:telemetry",
+    "@hexpm//:telemetry_metrics",
+    "@hexpm//:yaml_elixir",
+    "@rules_elixir//elixir",
+]
+
+# Declared `only: [:dev, :test]` in mix.exs, most with `runtime: false`. Mix therefore
+# excludes every one of them under MIX_ENV=prod -- but the Bazel :erlang_app_prod target was
+# declaring them anyway, which staged them into the prod compile's ERL_LIBS and, more
+# importantly, carried them through ErlangAppInfo into the OTP release closure that becomes
+# the shipped image. Lint and static-analysis tooling has no business in a production
+# release.
+#
+# Kept on the :test target, which is the env that actually resolves them.
+CORE_DEV_DEPS = [
+    "@hexpm//:ash_credo",
+    "@hexpm//:credo",
+    "@hexpm//:dialyxir",
+    "@hexpm//:ex_dna",
+    "@hexpm//:ex_slop",
+    "@hexpm//:mix_audit",
+    "@hexpm//:sourceror",
+    "@hexpm//:styler",
+]
+
+# serviceradar_core compiled by Mix inside a single hermetic Bazel action.
+#
+# mix_env is "test", not "prod", deliberately: mix.exs sets
+# elixirc_paths(:test) => ["lib", "test/support"], and the 20 modules under test/support
+# (ServiceRadar.TestSupport and friends) are what every ExUnit target needs on the code
+# path. Compiling under :prod would silently omit them.
+mix_app(
+    name = "erlang_app",
+    srcs = CORE_SRCS,
+    app_name = "serviceradar_core",
+    extra_config = CORE_EXTRA_CONFIG,
+    mix_env = "test",
+    native_libs = CORE_NATIVE_LIBS,
+    deps = CORE_DEPS + CORE_DEV_DEPS,
+)
+
+# The same application compiled for release. This is not a duplicate of :erlang_app --
+# the env is the whole point. Under :prod, elixirc_paths drops test/support, and every
+# Application.compile_env/2 read resolves against config/prod.exs instead of
+# config/test.exs. Shipping the :test build in an image would bake test configuration
+# into production, so //build:elixir_release.bzl consumes this one.
+mix_app(
+    name = "erlang_app_prod",
+    srcs = CORE_SRCS,
+    app_name = "serviceradar_core",
+    extra_config = CORE_EXTRA_CONFIG,
+    mix_env = "prod",
+    native_libs = CORE_NATIVE_LIBS,
+    deps = CORE_DEPS,
+)
+
+# One Bazel test target per ExUnit file. See //build:elixir_tests.bzl for why per-file.
+ex_unit_tests(
+    name = "unit_tests",
+    srcs = ALL_TEST_SRCS,
+    config_loader = "//build:elixir_test_config_loader.exs",
+    # Files the tests open at runtime. ex_unit_test stages only srcs and data, so anything
+    # read from disk has to be declared: several tests load a specific migration out of
+    # priv/repo/migrations to assert on it, and test/support carries fixtures.
+    data = glob(
+        [
+            "lib/**",
+            "priv/**",
+            "test/**",
+        ],
+        allow_empty = True,
+        exclude = ["test/**/*_test.exs"],
+    ) + [
+        # Read at MODULE level (compile time) by
+        # test/serviceradar/plugins/anomaly_addon_profile_seeder_test.exs, via
+        # Path.expand("../../../../../addons/...", __DIR__) -- so no tag can skip it and it
+        # has to be a declared input. ex_unit_test mirrors the workspace layout, which is
+        # what puts it where that relative path resolves.
+        # Read at runtime by the discovery parity tests, which compare the Elixir
+        # decoders against output captured from the Go translators. They live in
+        # the Go package that produces them, so the runfiles tree only contains
+        # them if they are declared here.
+        "//go/pkg/agent/netprobe:discovery_golden_fixtures",
+        "//go/pkg/agent/netprobe:enrichment_golden_fixtures",
+        "//addons/anomaly-addon:anomaly_manifest",
+        # Likewise module level: test/serviceradar/plugins/manifest_test.exs globs
+        # go/cmd/wasm-plugins/**/{config*.schema.json,plugin*.yaml} and raises if the glob
+        # comes back empty, so every first-party Wasm plugin package has to be an input.
+        "//go/cmd/wasm-plugins/alienvault-otx:srcs",
+        "//go/cmd/wasm-plugins/awx:srcs",
+        "//go/cmd/wasm-plugins/axis:srcs",
+        "//go/cmd/wasm-plugins/dusk-checker:srcs",
+        "//go/cmd/wasm-plugins/netbox:srcs",
+        "//go/cmd/wasm-plugins/opentext-nom:srcs",
+        "//go/cmd/wasm-plugins/proxmox:srcs",
+        "//go/cmd/wasm-plugins/sample-northbound:srcs",
+        "//go/cmd/wasm-plugins/unifi-protect:srcs",
+        # Read at runtime by test/serviceradar/plugins/display_contract_test.exs.
+        # The three Wasm-plugin display contracts above arrive through their
+        # package srcs; these non-Wasm contracts need their own runfile inputs.
+        "//addons/powerdns:powerdns_manifest",
+        "//go/pkg/trivysidecar:display_contracts",
+        "//integrations/falco:display_contracts",
+        # Read at runtime by test/serviceradar/notifications/edge_command_contract_test.exs,
+        # which asserts the agent's notify capability gate, envelope schema, and credential
+        # injection modes still match what the Elixir manifest validator allows. A contract
+        # test between two languages has to read the other language's source.
+        "//go/pkg/agent:notification_contract_srcs",
+        # Module level in test/serviceradar/observability/helm_config_contract_test.exs,
+        # which guards that the chart still exposes the env vars AnomalyConfigSeeder reads.
+        # It belongs in this tier, not the database-backed one: it reads two files and
+        # asserts on their text.
+        "//helm/serviceradar:values",
+    ],
+    test_helper = "test/test_helper.exs",
+    deps = [":erlang_app"],
+)
+
+# Runs the Elixir benches so they cannot rot -- the same defect //build:benchmarks.bzl fixes for
+# Go, arriving here by a different route. These benches are plain scripts that self-execute on
+# load, so nothing ever ran them: ALL_TEST_SRCS globs only `test/**/*_test.exs` and no glob in
+# this file mentions `bench/`, which left the whole directory outside every target.
+#
+# The driver lives in bench/ rather than test/ ON PURPOSE, and that is why this target is
+# explicit: a file in test/ would be swept into the unit sweep, where a benchmark's runtime is a
+# tax on every build. Being outside ALL_TEST_SRCS is also what keeps it from running twice.
+#
+# `benchmark` is what the CI benchmark step selects and what the unit and race sweeps exclude.
+ex_unit_test(
+    name = "bench_driver_test",
+    size = "medium",
+    srcs = ["bench/bench_driver_test.exs"],
+    # The benches are read off disk and required at runtime, so they are inputs, not deps.
+    data = glob(
+        ["bench/**"],
+        allow_empty = False,
+    ),
+    # bench/bench_test_helper.exs, NOT test/test_helper.exs -- that one excludes `:benchmark` in
+    # every branch, which would skip these and report the target green having run nothing. The
+    # helper file carries the full reasoning.
+    elixir_opts = [
+        "-r",
+        "bench/bench_test_helper.exs",
+    ],
+    tags = ["benchmark"],
+    deps = [":erlang_app"],
+)
+
+# A real web-node -> registry-node RPC regression. The general test helper
+# deliberately excludes :cluster, so this target owns the explicit opt-in and
+# keeps the test visible to tests(//...).
+ex_unit_test(
+    name = "agent_command_bus_rpc_registry_test",
+    size = "medium",
+    srcs = ["test/serviceradar/edge/agent_command_bus_rpc_registry_test.exs"],
+    data = ["test/cluster_test_helper.exs"],
+    elixir_opts = [
+        "-r",
+        "test/cluster_test_helper.exs",
+    ],
+    deps = [":erlang_app"],
+)
+
+# Selection-only tools for //build:integration_selection_equivalence_test. Two deterministic
+# chunks whose union is the selected set and four chunks covering the exact load-only complement
+# run in parallel fresh BEAMs.
+# Each uses ParallelCompiler to load its real sources, then asks ExUnit.Filters which exact tests
+# match the ordinary integration contract. No tool loads test_helper.exs, starts the ServiceRadar
+# application, receives a database endpoint, or executes a test body. The tools are manual because
+# only the Bazel comparator should execute them directly.
+[
+    ex_unit_test(
+        name = name,
+        size = "large",
+        srcs = ["test/support/integration_selection_manifest_runner.exs"],
+        data = INTEGRATION_SELECTION_DATA + sources,
+        env = {
+            "DATABASE_URL": "",
+            "PG_DATABASE_URL": "",
+            "SRQL_TEST_DATABASE_URL": "",
+            "SERVICERADAR_TEST_DATABASE_URL": "",
+            "SRQL_TEST_DATABASE_URL_FILE": "",
+            "SERVICERADAR_TEST_DATABASE_URL_FILE": "",
+            "SERVICERADAR_SELECTION_SOURCES": ",".join(sources),
+        },
+        tags = ["manual"],
+        deps = [":erlang_app"],
+    )
+    for name, sources in [
+        (
+            "integration_selection_selected_{}_runner".format(index),
+            INTEGRATION_SELECTION_SOURCE_SETS.selected_chunks[index],
+        )
+        for index in range(len(INTEGRATION_SELECTION_SOURCE_SETS.selected_chunks))
+    ] + [
+        (
+            "integration_selection_load_only_{}_runner".format(index),
+            INTEGRATION_SELECTION_SOURCE_SETS.load_only_chunks[index],
+        )
+        for index in range(len(INTEGRATION_SELECTION_SOURCE_SETS.load_only_chunks))
+    ]
+]
+
+# ONE ASYNC BEAM PLUS SERIAL BEAM LANES, with a disposable srql-fixtures database each.
+#
+# Audited transaction-owned modules run together in the async lane at cap eight. Every module
+# with a concrete database-global, VM-global, process-global, or external-resource blocker runs
+# at cap one in one of seven serial lanes. Each BEAM points at its own
+# sr_core_test_<run-id>_<lane> clone on srql-fixtures; neither demo nor production is eligible.
+# //build:integration_shards.bzl owns the lane names, caps, pool size, and deterministic source
+# map used by both these targets and //rust/integration-db provisioning.
+[
+    ex_unit_test(
+        name = "integration_tests_{}".format(lane),
+        size = "enormous",
+        srcs = INTEGRATION_LANE_SRCS[lane],
+        # Files the tests open at runtime. ex_unit_test stages only srcs and data, so anything
+        # read from disk has to be declared: several tests load a specific migration out of
+        # priv/repo/migrations to assert on it, and test/support carries fixtures.
+        #
+        # Every lane gets the full data set: which lane holds which test file is an
+        # implementation detail of the partition, so narrowing this per lane would break the
+        # moment a file moved between them.
+        data = INTEGRATION_RUNTIME_DATA,
+        elixir_opts = [
+            # BEFORE the config loader: config/test.exs reads SERVICERADAR_TEST_DATABASE_URL
+            # while building the Repo settings, so deriving it afterwards has no effect. Reads
+            # the base name from //build:run_id_file (declared in data above), the same file
+            # //rust/integration-db reads, so the suite hits the database provision_db cloned --
+            # one producer of the format, not two implementations kept in step by hand.
+            "-r",
+            "test/db/integration_env.exs",
+            "-r",
+            "../../build/elixir_test_config_loader.exs",
+            # Must load before the test files: `use ExUnit.Case` raises at module compile time if
+            # ExUnit is not started.
+            "-r",
+            "test/test_helper.exs",
+        ],
+        # Runs ONLY the complement of :unit_tests -- the tests that need a running application
+        # and a database. The async lane has cap eight; every serial lane has cap one.
+        env = integration_test_env(lane),
+        tags = ["integration_test"],
+        # NO exec_properties, deliberately.
+        target_compatible_with = requires_shared_fixture(),
+        deps = INTEGRATION_TEST_DEPS,
+    )
+    for lane in integration_lane_names()
+]
+
+# The full-strength ingestion suites and cold database-bootstrap qualification are physically
+# absent from ALL_TEST_SRCS. The target receives one focused disposable database for ingestion;
+# bootstrap deliberately creates and cleans its own random scratch database. Keep this target
+# singular: ExUnit schedules at most one case in its BEAM so application-global ingestion setups
+# cannot overlap and the DDL-heavy bootstrap cannot contend with ordinary PR lanes. The legacy
+# target name remains stable because release qualification records key off it.
+ex_unit_test(
+    name = "large_ingestion_release_gate",
+    size = "enormous",
+    srcs = glob(
+        ["test/release_gates/large_ingestion/*_test.exs"],
+        allow_empty = False,
+    ) + [
+        "test/serviceradar/cluster/database_bootstrap_integration_test.exs",
+    ],
+    data = INTEGRATION_RUNTIME_DATA,
+    elixir_opts = [
+        "-r",
+        "test/db/integration_env.exs",
+        "-r",
+        "../../build/elixir_test_config_loader.exs",
+        "-r",
+        "test/test_helper.exs",
+    ],
+    env = {
+        "SERVICERADAR_ONLY_INTEGRATION": "1",
+        "SERVICERADAR_INTEGRATION_MAX_CASES": "1",
+        "SERVICERADAR_TEST_TOPOLOGY": "large_ingestion",
+        "SERVICERADAR_TEST_LANE": "large_ingestion",
+        # Pin the parent application Repo. Cold bootstrap also starts a temporary two-connection
+        # Repo and one direct admin connection, so the observer reserves 12 + 2 + 1 = 15 slots.
+        "SERVICERADAR_TEST_DATABASE_POOL_SIZE": str(LARGE_INGESTION_REPO_POOL_SIZE),
+        "SERVICERADAR_TEST_DB_SHARD": LARGE_INGESTION_DB_SHARD,
+        "SERVICERADAR_LARGE_INGESTION_DEVICE_COUNT": "50000",
+        "SERVICERADAR_LARGE_INGESTION_CHUNK_SIZE": "1000",
+    },
+    tags = [
+        "integration_test",
+        "large_ingestion_test",
+    ],
+    target_compatible_with = requires_shared_fixture(),
+    deps = INTEGRATION_TEST_DEPS,
+)
+
+# Kept so the workflow, and anyone with the old target in muscle memory, can still say
+# //elixir/serviceradar_core:integration_tests and get the complete audited lane set.
+test_suite(
+    name = "integration_tests",
+    tags = ["integration_test"],
+    target_compatible_with = requires_shared_fixture(),
+    tests = [
+        ":integration_tests_{}".format(lane)
+        for lane in integration_lane_names()
+    ],
+)
+
+# --- template migration -----------------------------------------------------------------
+#
+# The only part of the database lifecycle that must run on the BEAM: the 368 migrations are
+# `use Ecto.Migration` modules, so only Ecto.Migrator can apply them. Creating databases,
+# extensions, AGE graphs, the stale sweep and the teardown are all //rust/integration-db,
+# which starts in 0.1s where this target costs ~30-45s before it does anything.
+#
+# It migrates the SHARED TEMPLATE, not a per-run database. Per-run databases are physical
+# copies of that template (CREATE DATABASE ... TEMPLATE), so the migrations are applied once
+# and every later run gets the schema as a file copy. TRUNK ONLY -- see :migrate_run below
+# for why a branch must not reach this target. //rust/integration-db:prepare_template
+# decides whether this target needs to run at all by comparing the migration versions on disk
+# against the template's schema_migrations, and on a branch that adds no migrations the
+# workflow skips it -- which is the point: the BEAM leaves the critical path entirely.
+#
+# Because migrations are append-only and Ecto.Migrator tracks what it applied, adding one
+# advances the template by exactly that migration rather than rebuilding it.
+#
+# `external` disables Bazel's test caching. Without it a rerun would be a cache hit that
+# applied no migrations -- a green job that changed nothing. `manual` keeps it out of //...
+# so an ordinary `bazel test` never points DDL at the shared fixture. The workflow selects
+# `--strategy=TestRunner=local`; a target tag would also drag this expensive BEAM compilation
+# onto the runner instead of leaving eligible actions on RBE/cache.
+#
+#
+# Do not reintroduce the old backend-specific `test.env-secrets` exec property. Fixture values
+# are supplied by the Bazel client and the database-facing TestRunner stays local.
+ex_unit_test(
+    name = "integration_env_config_test",
+    size = "small",
+    srcs = ["test/db/integration_env_config_test.exs"],
+    data = [
+        "config/test_database_guard.exs",
+        "test/db/fixture_config.exs",
+        "test/db/integration_env_config.exs",
+        "//config/environments:ci_binpb",
+    ],
+    deps = [
+        "//config/manager_config/elixir:manager",
+        "//config/manager_secret/elixir:secret",
+    ],
+)
+
+ex_unit_test(
+    name = "template_generation_test",
+    size = "small",
+    srcs = ["test/db/template_generation_test.exs"],
+    data = [
+        "test/db/template_generation.exs",
+        ":migrations",
+        "//build/schema_template:manifest",
+        "//build/schema_template:policy.json",
+    ],
+    deps = [":erlang_app"],
+)
+
+# Ordered, opt-in lifecycle step. Keep the singleton target below available
+# until the keyed lifecycle and reaper protections are qualified in-cluster.
+ex_unit_test(
+    name = "migrate_generation",
+    size = "enormous",
+    srcs = ["test/db/migrate_generation_test.exs"],
+    data = glob(
+        [
+            "config/**",
+            "priv/repo/**",
+        ],
+        allow_empty = True,
+    ) + [
+        "test/db/db_task_helper.exs",
+        "test/db/fixture_config.exs",
+        "test/db/template_generation.exs",
+        "test/db/template_generation_env.exs",
+        "//build:elixir_test_config_loader.exs",
+        "//build/schema_template:manifest",
+        "//build/schema_template:policy.json",
+        "//config/environments:ci_binpb",
+    ],
+    elixir_opts = [
+        "-r",
+        "test/db/fixture_config.exs",
+        "-r",
+        "test/db/template_generation_env.exs",
+        "-r",
+        "../../build/elixir_test_config_loader.exs",
+        "-r",
+        "test/db/db_task_helper.exs",
+    ],
+    env = SCHEMA_TEMPLATE_REPLAY_ENV,
+    tags = [
+        "external",
+        "manual",
+    ],
+    target_compatible_with = requires_shared_fixture(),
+    deps = [
+        ":erlang_app",
+        "//config/manager_config/elixir:manager",
+        "//config/manager_secret/elixir:secret",
+    ],
+)
+
+ex_unit_test(
+    name = "migrate_template",
+    size = "enormous",
+    srcs = ["test/db/migrate_db_test.exs"],
+    data = glob(
+        [
+            "config/**",
+            "priv/repo/**",
+        ],
+        allow_empty = True,
+    ) + [
+        # The loader is referenced from elixir_opts by relative path, so it has to be a
+        # declared input too -- the ex_unit_tests macro adds this automatically, a
+        # hand-written ex_unit_test does not.
+        "//build:elixir_test_config_loader.exs",
+        # Whether this checkout may write the SHARED template. test/db/template_env.exs refuses
+        # to migrate without it, reading the same declared input //rust/integration-db reads --
+        # which is what keeps the Rust and Elixir halves of the trunk lifecycle from disagreeing
+        # about who is allowed to touch sr_core_template.
+        "//build:template_authority_file",
+        "test/db/db_task_helper.exs",
+        "test/db/fixture_config.exs",
+        "test/db/template_env.exs",
+        # The CI fixture instance is DECLARED, so the configuration under test is the artifact
+        # the build just produced and validated, and Bazel reruns this when it changes -- the
+        # same contract //rust/integration-db has. This guarded lifecycle is not a localhost path.
+        "//config/environments:ci_binpb",
+    ],
+    elixir_opts = [
+        # BEFORE the config loader: config/test.exs reads SERVICERADAR_TEST_DATABASE_URL
+        # while building the Repo settings, so deriving it afterwards has no effect.
+        # fixture_config.exs defines the module template_env.exs calls, so it comes first.
+        "-r",
+        "test/db/fixture_config.exs",
+        "-r",
+        "test/db/template_env.exs",
+        "-r",
+        "../../build/elixir_test_config_loader.exs",
+        "-r",
+        "test/db/db_task_helper.exs",
+    ],
+    # `manual` stays here on purpose: this is an ordered DDL step in the fixture lifecycle
+    # (prepare -> migrate), not a test to be tag-selected. Bazel does not order tests, so
+    # letting a tag pull this into a batch would let it race the steps it must sit between.
+    tags = [
+        "external",
+        "manual",
+    ],
+    target_compatible_with = requires_shared_fixture(),
+    deps = [
+        ":erlang_app",
+        # test/db/fixture_config.exs resolves the fixture from SERVICERADAR_ENV through these
+        # two, which is what replaced parsing an SRQL_TEST_DATABASE_URL secret apart.
+        "//config/manager_config/elixir:manager",
+        "//config/manager_secret/elixir:secret",
+    ],
+)
+
+# The SAME migrator, pointed at this run's own database instead of the shared template.
+#
+# The only difference from :migrate_template is which env preloader runs first --
+# test/db/integration_env.exs derives sr_core_test_<run> from //build:run_id_file, where
+# test/db/template_env.exs names sr_core_template. That one line is the whole fix for a
+# pull request's migrations leaking into state every other branch reads: BazelCI triggers on
+# `pull_request` only, so every run that reached :migrate_template was advancing the shared
+# template with UNMERGED migrations, and every later run whose checkout lacked them was
+# refused. See rust/integration-db/src/template.rs.
+#
+# No shard suffix: SERVICERADAR_TEST_DB_SHARD is deliberately unset, so this migrates the
+# unsharded base that //rust/integration-db:provision_db then clones each lane from. Migrating
+# eight lanes separately would pay the BEAM's 28.8-45.6s startup eight times over.
+#
+# Runs only when //rust/integration-db:provision_base reports migrations pending, which on a
+# branch that adds none is never.
+ex_unit_test(
+    name = "migrate_run",
+    size = "enormous",
+    srcs = ["test/db/migrate_db_test.exs"],
+    data = glob(
+        [
+            "config/**",
+            "priv/repo/**",
+        ],
+        allow_empty = True,
+    ) + [
+        "//build:elixir_test_config_loader.exs",
+        # The per-run database name as a declared build input, read at the same relative path
+        # //rust/integration-db reads it from. One producer of the format, so the migrator and
+        # the provisioner cannot disagree about which database this run owns.
+        "//build:run_id_file",
+        "test/db/db_task_helper.exs",
+        "test/db/fixture_config.exs",
+        "test/db/integration_env.exs",
+        "test/db/integration_env_config.exs",
+        "//config/environments:ci_binpb",
+    ],
+    elixir_opts = [
+        # BEFORE the config loader: config/test.exs reads SERVICERADAR_TEST_DATABASE_URL while
+        # building the Repo settings, so deriving it afterwards has no effect.
+        # integration_env.exs requires fixture_config.exs itself, so it is not listed again.
+        "-r",
+        "test/db/integration_env.exs",
+        "-r",
+        "../../build/elixir_test_config_loader.exs",
+        "-r",
+        "test/db/db_task_helper.exs",
+    ],
+    tags = [
+        "external",
+        "manual",
+    ],
+    target_compatible_with = requires_shared_fixture(),
+    deps = [
+        ":erlang_app",
+        "//config/manager_config/elixir:manager",
+        "//config/manager_secret/elixir:secret",
+    ],
+)

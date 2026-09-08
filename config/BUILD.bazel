@@ -1,0 +1,35 @@
+# gazelle:ignore
+
+# The ServiceRadar configuration system.
+#
+# Schema, committed instances, rule set, fixtures, conformance vectors, formal model and
+# all three implementations live in this one tree. That is a deliberate exception to the
+# repository's language-tree layout: these artifacts change together, and splitting them
+# across four trees is the mechanism that produced the drift this replaces. See
+# openspec/changes/add-unified-config-and-secret-managers/design.md, Decision 10, before
+# relocating any of it.
+#
+# LAYOUT: data first, then COMPONENT/<language> for anything implemented.
+#
+#   proto/            the schema                        (no language)
+#   environments/     the committed instances           (no language)
+#   rules/            the rule set and the fixtures     (no language)
+#
+#   proto_bindings/{rust,go,elixir}   generated schema bindings
+#   manager_validator/{rust,go,elixir} the rule engine
+#   manager_config/{rust,go,elixir}   ConfigManager
+#   manager_secret/{rust,go,elixir}   SecretManager
+#   tools/{rust}                      build tooling for this tree
+#
+# Component first, language second, because the implementations of ONE component change
+# together -- a shape change lands in all three or the shared conformance vectors go red --
+# while two different components in the same language do not. Grouping by language instead
+# would put the things that must agree in three different places, which is the arrangement
+# Decision 10 rejected for the tree as a whole.
+#
+# tools/ has one language today and still carries the directory: a rule with an exception is
+# a rule nobody applies.
+#
+# This file exists so //config is a Bazel package and //config:defs.bzl is loadable.
+
+exports_files(["defs.bzl"])

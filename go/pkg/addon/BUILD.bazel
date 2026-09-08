@@ -1,0 +1,45 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "addon",
+    srcs = [
+        "addon.go",
+        "advisory_contract.go",
+        "credentials.go",
+        "grpc.go",
+        "producer_schedule_contract.go",
+        "scanner_contract.go",
+        "signal_schema.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/addon",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//proto/agent/addon/v1:addonpb",
+        "@com_github_hashicorp_go_plugin//:go-plugin",
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//status",
+    ],
+)
+
+go_test(
+    name = "addon_test",
+    srcs = [
+        "advisory_contract_test.go",
+        "credentials_request_body_test.go",
+        "credentials_test.go",
+        "grpc_relay_test.go",
+        "producer_schedule_contract_test.go",
+        "scanner_contract_test.go",
+        "signal_schema_test.go",
+    ],
+    embed = [":addon"],
+    deps = [
+        "//proto/agent/addon/v1:addonpb",
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//credentials/insecure",
+        "@org_golang_google_grpc//status",
+        "@org_golang_google_grpc//test/bufconn",
+    ],
+)

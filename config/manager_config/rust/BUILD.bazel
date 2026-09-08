@@ -1,0 +1,95 @@
+# gazelle:ignore
+
+load("@aspect_bazel_lib//lib:write_source_files.bzl", "write_source_files")
+load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+
+filegroup(
+    name = "schema_template_configuration_inputs",
+    srcs = glob([
+        "src/**/*.rs",
+        "src/*.binpb",
+    ]) + ["Cargo.toml"],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "target/**",
+            "bazel-*",
+        ],
+    ),
+    visibility = ["//visibility:public"],
+)
+
+# ConfigManager. Loading and validation are one operation on purpose: there is no entry point
+# that returns a value without having checked it (Decision 12).
+rust_library(
+    name = "manager",
+    srcs = glob(["src/**/*.rs"]),
+    # The embedded rule set. `include_bytes!` needs the file at COMPILE time, which is what
+    # compile_data provides; //config/manager_config/rust:ruleset_drift_test keeps this copy
+    # byte-identical to what protoc produces from //config/rules:ruleset.textproto.
+    compile_data = [
+        "src/ci.binpb",
+        "src/localhost.binpb",
+        "src/ruleset.binpb",
+    ],
+    crate_name = "serviceradar_config_manager",
+    crate_root = "src/lib.rs",
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + [
+        "//config/manager_validator/rust:validator",
+        "//config/proto_bindings/rust:config_schema",
+    ],
+)
+
+# Refresh the committed copies after editing a textproto:
+#
+#   bazel run //config/manager_config/rust:update_embedded_instances
+#
+# The drift tests below say WHEN these are stale; this is what makes them current. It exists so
+# nobody has to reach into bazel-out, which is a per-configuration path that the tree
+# deliberately hides -- //.bazelrc sets --experimental_convenience_symlinks=clean, so there is
+# no bazel-out symlink to copy from and any absolute path found by hand encodes the platform
+# and compilation mode it happened to be built with.
+write_source_files(
+    name = "update_embedded_instances",
+    files = {
+        "src/ruleset.binpb": "//config/rules:ruleset_binpb",
+        "src/ci.binpb": "//config/environments:ci_binpb",
+        "src/localhost.binpb": "//config/environments:localhost_binpb",
+    },
+)
+
+# The embedded copy must equal protoc's output for the committed textproto.
+#
+# Same pattern as //config/proto:binding_drift_*_test: a generated artifact is committed so
+# `cargo` can reach it too, and a diff test makes the two impossible to disagree. Without this,
+# editing ruleset.textproto would leave every Rust consumer validating against the previous
+# rules -- silently, and only in the builds that matter.
+diff_test(
+    name = "ruleset_drift_test",
+    file1 = "//config/rules:ruleset_binpb",
+    file2 = "src/ruleset.binpb",
+)
+
+# The embedded BuiltIn instances must equal protoc's output for the committed textprotos.
+[
+    diff_test(
+        name = "instance_drift_" + n + "_test",
+        file1 = "//config/environments:" + n + "_binpb",
+        file2 = "src/" + n + ".binpb",
+    )
+    for n in [
+        "ci",
+        "localhost",
+    ]
+]

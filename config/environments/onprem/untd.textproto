@@ -1,0 +1,60 @@
+# ServiceRadar environment configuration: onprem:untd
+#
+# GROUND TRUTH. This file is authored and reviewed here; a build action compiles it to a
+# binary message that every implementation loads. Do not edit the generated .binpb.
+#
+# NO SECRETS. Passwords, private keys and certificate material are resolved by
+# SecretManager. A build-time check rejects credential-shaped values in this file.
+#
+# AN EXAMPLE, not a real deployment. It exists so the onprem path -- the multi-instance kind,
+# its own package, the instance identifier in a file path -- is exercised by the same
+# build-time tests as every other instance, rather than being a code path nothing runs.
+#
+# A real enterprise deployment does NOT go here. This repository is public, and a customer's
+# topology is theirs; see design.md Decision 12 for the external-source mechanism they use
+# instead. What lives here is what we operate ourselves, plus this example.
+#
+# The coordinates below are the ServiceRadar chart's DEFAULTS -- an on-prem install runs the
+# same chart, so `cnpg-rw` in namespace `serviceradar` is what a default install produces.
+# Anything this deployment overrides in its values file must be overridden here too.
+
+kind: ENVIRONMENT_KIND_ONPREM
+instance: "untd"
+
+database {
+  host: "cnpg-rw.serviceradar.svc.cluster.local"
+  port: 5432
+  database: "serviceradar"
+
+  # Identities, not credentials. The password is a secret and is never written here.
+  connecting_role: "serviceradar"
+  owning_role: "serviceradar"
+
+  tls_mode: TLS_MODE_VERIFY_FULL
+  tls_server_name: "cnpg-rw.serviceradar.svc.cluster.local"
+
+  search_path: "platform, ag_catalog"
+
+  pool_size: 25
+  queue_target_ms: 500
+  queue_interval_ms: 1000
+  ownership_timeout_ms: 60000
+}
+
+nats {
+  url: "tls://serviceradar-nats.serviceradar.svc.cluster.local:4222"
+  server_name: "serviceradar-nats"
+}
+
+core {
+  address: "serviceradar-core:50052"
+  api_url: "http://serviceradar-core:8090"
+  security_mode: SECURITY_MODE_MTLS
+  server_name: "serviceradar-core"
+}
+
+dgraph {
+  host: "dgraph.serviceradar.svc.cluster.local"
+  port: 9080
+  tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+}

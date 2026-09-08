@@ -1,0 +1,456 @@
+"""web-ng browser assets, built by Bazel instead of inside the release action.
+
+Adding this file makes assets/ its own Bazel package, which is required for
+`npm.npm_translate_lock` in //MODULE.bazel to address package-lock.json by label.
+
+IMPORTANT: a `glob` never crosses a package boundary. The moment this BUILD file exists,
+`glob(["**"])` in //elixir/web-ng stops matching anything under assets/ -- silently, with
+no error. Every target that needs the asset sources must therefore depend on :all_srcs
+explicitly. //elixir/web-ng:srcs does; if you add another consumer of the web-ng tree,
+it needs :all_srcs too, or it will build against a project with no CSS and no JS.
+
+What this replaces: //build:mix_release.bzl ran `bun install` (twice, against a
+node_modules symlinked out of the executor's mutable /cache), then `mix tailwind`,
+`mix esbuild` and `mix phx.digest`, all inside the single release action. That made every
+Elixir source change re-run the entire JS toolchain. Here they are ordinary targets keyed
+on assets/** and the HEEx templates, so an .ex-only change is a cache hit.
+"""
+
+load("@aspect_bazel_lib//lib:copy_to_directory.bzl", "copy_to_directory")
+load("@aspect_rules_js//js:defs.bzl", "js_binary", "js_library", "js_run_binary", "js_test")
+load("@web_ng_npm//:defs.bzl", "npm_link_all_packages")
+load("@web_ng_npm//elixir/web-ng/assets:@tailwindcss/cli/package_json.bzl", tailwind_bin = "bin")
+load("@web_ng_npm//elixir/web-ng/assets:vitest/package_json.bzl", vitest_bin = "bin")
+load("//build:phoenix_digest.bzl", "phoenix_digest")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "package-lock.json",
+    "css/app.css",
+])
+
+# Materializes node_modules from the checked-in pnpm-lock.yaml as a Bazel-managed tree.
+# This is what replaces `bun install`, and with it the node_modules symlink into the
+# executor's mutable /cache.
+npm_link_all_packages(name = "node_modules")
+
+# Production JavaScript inputs scanned by the timestamp formatter inventory guard.
+# Keep this broad enough to catch new dashboard and hook modules while excluding
+# test-only, vendored, generated, and static trees.
+filegroup(
+    name = "timestamp_formatter_audit_js_srcs",
+    srcs = glob(
+        [
+            "component/*.js",
+            "component/*.jsx",
+            "component/*.ts",
+            "component/*.tsx",
+            "component/**/*.js",
+            "component/**/*.jsx",
+            "component/**/*.ts",
+            "component/**/*.tsx",
+            "js/**/*.js",
+            "js/**/*.jsx",
+            "js/**/*.ts",
+            "js/**/*.tsx",
+        ],
+        allow_empty = True,
+        exclude = [
+            "component/**/*.test.js",
+            "component/**/*.test.jsx",
+            "component/**/*.test.ts",
+            "component/**/*.test.tsx",
+            "component/**/*.spec.js",
+            "component/**/*.spec.jsx",
+            "component/**/*.spec.ts",
+            "component/**/*.spec.tsx",
+            "component/test/**",
+            "component/**/test/**",
+            "component/**/__tests__/**",
+            "component/**/node_modules/**",
+            "component/**/generated/**",
+            "component/**/static/**",
+            "component/**/vendor/**",
+            "js/**/*.test.js",
+            "js/**/*.test.jsx",
+            "js/**/*.test.ts",
+            "js/**/*.test.tsx",
+            "js/**/*.spec.js",
+            "js/**/*.spec.jsx",
+            "js/**/*.spec.ts",
+            "js/**/*.spec.tsx",
+            "js/test/**",
+            "js/**/test/**",
+            "js/**/__tests__/**",
+            "js/**/node_modules/**",
+            "js/**/generated/**",
+            "js/**/static/**",
+            "js/**/vendor/**",
+        ],
+    ),
+)
+
+filegroup(
+    name = "timestamp_formatter_test_srcs",
+    srcs = glob([
+        "js/hooks/charts/BGPTimeSeriesChart.js",
+        "js/hooks/charts/BGPTimeSeriesChart.test.js",
+        "js/hooks/charts/Netflow*Chart.js",
+        "js/hooks/charts/Netflow*Chart.test.js",
+    ]) + [
+        "component/src/DashboardBuilderCanvas.jsx",
+        "component/src/DashboardPanelChart.jsx",
+        "component/test/DashboardBuilderCanvas.test.jsx",
+        "component/test/DashboardPanelChart.test.jsx",
+        "js/dashboards/endpoint_inventory.js",
+        "js/dashboards/security_findings.js",
+        "js/dashboards/service_availability_noc.js",
+        "js/dashboards/user_time.test.js",
+        "js/hooks/TimezoneSelect.js",
+        "js/hooks/TimezoneSelect.test.js",
+        "js/hooks/UserTime.js",
+        "js/hooks/UserTime.test.js",
+        "js/hooks/charts/ChartRangeSelection.js",
+        "js/hooks/charts/ChartRangeSelection.test.js",
+        "js/hooks/charts/ChartRangeSelectionController.js",
+        "js/hooks/charts/ChartRangeSelectionController.test.js",
+        "js/hooks/charts/FlowRateChart.js",
+        "js/hooks/charts/FlowRateChart.test.js",
+        "js/hooks/charts/NetflowTrafficTooltip.js",
+        "js/hooks/charts/NetflowTrafficTooltip.test.js",
+        "js/hooks/charts/TimeseriesChart.js",
+        "js/hooks/charts/TimeseriesChart.test.js",
+        "js/hooks/charts/TimeseriesCombinedChart.js",
+        "js/hooks/charts/chart_range_selection.js",
+        "js/hooks/charts/chart_range_selection.test.js",
+        "js/hooks/charts/geometry.js",
+        "js/netflow_charts/util.js",
+        "js/netflow_charts/util.test.js",
+        "js/utils/chart_axis_grid.js",
+        "js/utils/chart_hover_geometry.js",
+        "js/utils/dashboard_user_time.js",
+        "js/utils/formatters.js",
+        "js/utils/timezone_options.js",
+        "js/utils/timezone_options.test.js",
+        "js/utils/user_time.js",
+        "js/utils/user_time.test.js",
+    ],
+)
+
+js_test(
+    name = "timestamp_formatter_tests",
+    size = "small",
+    args = [
+        "$(rootpath %s)" % test
+        for test in glob([
+            "component/test/DashboardBuilderCanvas.test.jsx",
+            "component/test/DashboardPanelChart.test.jsx",
+            "js/dashboards/user_time.test.js",
+            "js/hooks/UserTime.test.js",
+            "js/hooks/TimezoneSelect.test.js",
+            "js/hooks/charts/ChartRangeSelection.test.js",
+            "js/hooks/charts/BGPTimeSeriesChart.test.js",
+            "js/hooks/charts/ChartRangeSelectionController.test.js",
+            "js/hooks/charts/FlowRateChart.test.js",
+            "js/hooks/charts/Netflow*Chart.test.js",
+            "js/hooks/charts/NetflowTrafficTooltip.test.js",
+            "js/hooks/charts/TimeseriesChart.test.js",
+            "js/hooks/charts/chart_range_selection.test.js",
+            "js/netflow_charts/util.test.js",
+            "js/utils/timezone_options.test.js",
+            "js/utils/user_time.test.js",
+        ])
+    ],
+    chdir = package_name(),
+    data = glob([
+        "component/test/DashboardBuilderCanvas.test.jsx",
+        "component/test/DashboardPanelChart.test.jsx",
+        "js/dashboards/user_time.test.js",
+        "js/hooks/UserTime.test.js",
+        "js/hooks/TimezoneSelect.test.js",
+        "js/hooks/charts/ChartRangeSelection.test.js",
+        "js/hooks/charts/BGPTimeSeriesChart.test.js",
+        "js/hooks/charts/ChartRangeSelectionController.test.js",
+        "js/hooks/charts/FlowRateChart.test.js",
+        "js/hooks/charts/Netflow*Chart.test.js",
+        "js/hooks/charts/NetflowTrafficTooltip.test.js",
+        "js/hooks/charts/TimeseriesChart.test.js",
+        "js/hooks/charts/chart_range_selection.test.js",
+        "js/netflow_charts/util.test.js",
+        "js/utils/timezone_options.test.js",
+        "js/utils/user_time.test.js",
+    ]) + [
+        ":node_modules",
+        ":timestamp_formatter_test_srcs",
+    ],
+    entry_point = "timestamp_formatter_test_runner.mjs",
+    tags = ["unit_test"],
+)
+
+# The complete God-View JavaScript surface, including production modules,
+# contract suites, and canonical topology fixtures. Keeping this one declared
+# input set prevents a new scene module or fixture from silently falling out of
+# the Bazel unit gate.
+filegroup(
+    name = "god_view_scene_test_srcs",
+    srcs = glob([
+        "js/lib/god_view/**/*.js",
+        "js/lib/deckgl/**/*.js",
+        "js/wasm/god_view_exec_runtime.js",
+    ]) + [
+        "god_view_acceptance_geometry_observer.js",
+        "god_view_acceptance_geometry_observer.test.js",
+        "god_view_acceptance_timeline.js",
+        "god_view_acceptance_timeline.test.js",
+        "god_view_production_bundle_contract.test.js",
+        "js/lib/GodViewRenderer.js",
+        "js/utils/dashboard_user_time.js",
+        "js/utils/user_time.js",
+    ],
+)
+
+js_test(
+    name = "god_view_scene_tests",
+    size = "small",
+    args = [
+        "$(rootpath %s)" % test
+        for test in glob([
+            "god_view_*test.js",
+            "js/lib/god_view/*.test.js",
+        ])
+    ],
+    chdir = package_name(),
+    data = glob([
+        "js/lib/god_view/**/*.js",
+        "js/lib/deckgl/**/*.js",
+        "js/wasm/god_view_exec_runtime.js",
+    ]) + [
+        "god_view_acceptance_geometry_observer.js",
+        "god_view_acceptance_geometry_observer.test.js",
+        "god_view_acceptance_timeline.js",
+        "god_view_acceptance_timeline.test.js",
+        "god_view_production_bundle_contract.test.js",
+        "js/lib/GodViewRenderer.js",
+        ":bundle_srcs",
+        ":node_modules",
+    ],
+    entry_point = "god_view_scene_test_runner.mjs",
+    tags = ["unit_test"],
+)
+
+vitest_bin.vitest_test(
+    name = "credential_deep_link_focus_test",
+    args = [
+        "run",
+        "js/hooks/CredentialDeepLinkFocus.test.js",
+    ],
+    chdir = package_name(),
+    data = [
+        "js/hooks/CredentialDeepLinkFocus.js",
+        "js/hooks/CredentialDeepLinkFocus.test.js",
+        ":node_modules",
+    ],
+    tags = ["unit_test"],
+)
+
+vitest_bin.vitest_test(
+    name = "details_state_test",
+    args = [
+        "run",
+        "js/hooks/DetailsState.test.js",
+    ],
+    chdir = package_name(),
+    data = [
+        "js/hooks/DetailsState.js",
+        "js/hooks/DetailsState.test.js",
+        ":node_modules",
+    ],
+    tags = ["unit_test"],
+)
+
+vitest_bin.vitest_test(
+    name = "remote_access_ssh_console_hook_test",
+    args = [
+        "run",
+        "js/hooks/RemoteAccessSSHConsole.test.js",
+    ],
+    chdir = package_name(),
+    data = [
+        "component/src/RemoteAccessSSHConsole.jsx",
+        "js/hooks/RemoteAccessSSHConsole.js",
+        "js/hooks/RemoteAccessSSHConsole.test.js",
+        ":node_modules",
+    ],
+    tags = ["unit_test"],
+)
+
+vitest_bin.vitest_test(
+    name = "remote_access_ssh_console_component_test",
+    args = [
+        "run",
+        "component/test/RemoteAccessSSHConsole.test.jsx",
+        "component/test/RemoteAccessSSHConsoleHostKey.test.jsx",
+        "component/test/RemoteAccessSSHConsoleSession.test.jsx",
+        "component/test/RemoteAccessSSHConsoleRememberKey.test.jsx",
+        "component/test/RemoteAccessTerminal.test.jsx",
+    ],
+    chdir = package_name(),
+    data = [
+        "component/src/RemoteAccessSSHConsole.jsx",
+        "component/src/RemoteAccessTerminal.jsx",
+        "component/src/sshEphemeralKeypair.js",
+        "component/test/RemoteAccessSSHConsole.test.jsx",
+        "component/test/RemoteAccessSSHConsoleHostKey.test.jsx",
+        "component/test/RemoteAccessSSHConsoleRememberKey.test.jsx",
+        "component/test/RemoteAccessSSHConsoleSession.test.jsx",
+        "component/test/RemoteAccessTerminal.test.jsx",
+        ":node_modules",
+    ],
+    tags = ["unit_test"],
+)
+
+js_binary(
+    name = "god_view_elk_scene_bundler",
+    data = [":node_modules/esbuild"],
+    entry_point = "god_view_elk_scene_bundle.mjs",
+)
+
+js_run_binary(
+    name = "god_view_elk_scene_bundle",
+    srcs = [
+        "god_view_elk_scene_harness.js",
+        ":god_view_scene_test_srcs",
+        ":node_modules",
+    ],
+    outs = ["god_view_elk_scene.bundle.js"],
+    args = [
+        "god_view_elk_scene_harness.js",
+        "god_view_elk_scene.bundle.js",
+    ],
+    chdir = package_name(),
+    tool = ":god_view_elk_scene_bundler",
+)
+
+js_library(
+    name = "god_view_scene_assertions_lib",
+    srcs = ["js/lib/god_view/acceptance_geometry_assertions.js"],
+)
+
+js_library(
+    name = "god_view_acceptance_timeline_lib",
+    srcs = ["god_view_acceptance_timeline.js"],
+)
+
+js_library(
+    name = "god_view_elk_scene_acceptance_test_lib",
+    srcs = ["god_view_elk_scene_acceptance.playwright.js"],
+    deps = [
+        ":god_view_acceptance_timeline_lib",
+        ":god_view_scene_assertions_lib",
+        ":node_modules/@playwright/test",
+    ],
+)
+
+# Everything under assets/, minus installed dependency trees. node_modules is listed in
+# //.bazelignore, so Bazel does not see it; the excludes here are belt-and-braces for a
+# developer working tree where an install has already happened.
+filegroup(
+    name = "all_srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "node_modules/**",
+            "component/node_modules/**",
+            "**/target/**",
+        ],
+    ),
+)
+
+# Inputs both bundlers read: the stylesheet entry, the JS tree, the vendored Tailwind
+# plugins (css/app.css does `@plugin "../vendor/heroicons"`), and the React component
+# sources that Tailwind scans via `@source "../component/src"`.
+filegroup(
+    name = "bundle_srcs",
+    srcs = glob(
+        [
+            "css/**",
+            "js/**",
+            "vendor/**",
+            "component/src/**",
+        ],
+        allow_empty = True,
+    ),
+)
+
+# css/app.css declares `@source "../../lib/serviceradar_web_ng_web"`, so Tailwind v4 reads
+# the HEEx templates to decide which utility classes to emit. Leave these out and the
+# stylesheet builds clean and ships almost empty.
+tailwind_bin.tailwindcss(
+    name = "css_bundle",
+    srcs = [
+        ":bundle_srcs",
+        ":node_modules",
+        "//elixir/web-ng:web_templates",
+    ],
+    outs = ["static/assets/css/app.css"],
+    args = [
+        "--input=css/app.css",
+        "--output=static/assets/css/app.css",
+        "--minify",
+    ],
+    chdir = package_name(),
+)
+
+# Driven through esbuild.config.mjs rather than the generated `bin.esbuild`: that bin is
+# the platform-native executable and rules_js would hand it to node. See the comment at
+# the top of esbuild.config.mjs.
+js_binary(
+    name = "bundler",
+    data = [":node_modules/esbuild"],
+    entry_point = "esbuild.config.mjs",
+)
+
+# out_dirs, not outs: the `file` loaders make esbuild emit content-hashed copies of every
+# font and wasm blob it encounters, and those names cannot be predicted at analysis time.
+js_run_binary(
+    name = "js_bundle",
+    srcs = [
+        ":bundle_srcs",
+        ":node_modules",
+    ],
+    args = ["static/assets/js"],
+    chdir = package_name(),
+    out_dirs = ["static/assets/js"],
+    tool = ":bundler",
+)
+
+# The undigested static tree: generated bundles plus the files that are checked in
+# (favicon, robots.txt, images, openapi.json). mix_release preserved those by copying them
+# aside before wiping priv/static; here they are simply inputs.
+copy_to_directory(
+    name = "static_undigested",
+    srcs = [
+        ":css_bundle",
+        ":js_bundle",
+        "//elixir/web-ng:static_files",
+    ],
+    replace_prefixes = {
+        "static/": "",
+        "priv/static/": "",
+    },
+    root_paths = [
+        package_name(),
+        "elixir/web-ng/priv/static",
+    ],
+)
+
+# config/prod.exs sets `cache_static_manifest: "priv/static/cache_manifest.json"`, so the
+# release needs the digested tree, not the raw one. Output is a tar consumed by
+# //elixir/web-ng:release_assembled through elixir_release's `overlays`.
+phoenix_digest(
+    name = "static",
+    src = ":static_undigested",
+    out = "static.tar.gz",
+    prefix = "static",
+)

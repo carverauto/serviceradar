@@ -1,0 +1,1004 @@
+{{- /* Component gate (issue #3859). ABSENT MEANS ENABLED: hasKey is used rather than a
+     truthiness test so that a chart or values file which never mentions `enabled`
+     renders exactly as before, and only an explicit `webNg.enabled: false` removes
+     this component. `default true` cannot be used here -- Helm treats false as empty,
+     so it would resurrect anything explicitly disabled. */ -}}
+{{- $gate0 := default (dict) .Values.webNg -}}
+{{- if or (not (hasKey $gate0 "enabled")) $gate0.enabled }}
+{{- $cnpg := default (dict) .Values.cnpg -}}
+{{- $cnpgClusterName := include "serviceradar.cnpgClusterName" . -}}
+{{- $cnpgPooler := default (dict) $cnpg.pooler -}}
+{{- $cnpgPoolerRoute := default (dict) $cnpgPooler.route -}}
+{{- $webNg := default (dict) .Values.webNg -}}
+{{- $webNgDatabase := default (dict) $webNg.database -}}
+{{- $webNgObanQueues := default (dict) $webNg.obanQueues -}}
+{{- $webNgGodView := default (dict) $webNg.godView -}}
+{{- $webNgFirstPartyImport := default (dict) $webNg.firstPartyPluginImport -}}
+{{- $webNgNativeAddonImport := default (dict) $webNg.nativeAddonImport -}}
+{{- $controlPlaneRuntime := default (dict) $webNg.controlPlaneRuntime -}}
+{{- $controlPlaneRuntimeEnabled := default false $controlPlaneRuntime.enabled -}}
+{{- $controlPlaneRuntimePort := default 4001 $controlPlaneRuntime.port -}}
+{{- $controlPlaneRuntimeSecretName := default "serviceradar-control-plane-runtime-access" $controlPlaneRuntime.existingSecretName -}}
+{{- $controlPlaneRuntimeSecretKey := default "token" $controlPlaneRuntime.tokenSecretKey -}}
+{{- $runtimeGraphAutoRefresh := true -}}
+{{- if hasKey $webNgGodView "runtimeGraphAutoRefresh" -}}
+{{- $runtimeGraphAutoRefresh = get $webNgGodView "runtimeGraphAutoRefresh" -}}
+{{- end -}}
+{{- $webNgObanQueueDefault := 2 -}}
+{{- if hasKey $webNgObanQueues "default" -}}{{- $webNgObanQueueDefault = get $webNgObanQueues "default" -}}{{- end -}}
+{{- $webNgObanQueueAlerts := 1 -}}
+{{- if hasKey $webNgObanQueues "alerts" -}}{{- $webNgObanQueueAlerts = get $webNgObanQueues "alerts" -}}{{- end -}}
+{{- $webNgObanQueueServiceChecks := 1 -}}
+{{- if hasKey $webNgObanQueues "serviceChecks" -}}{{- $webNgObanQueueServiceChecks = get $webNgObanQueues "serviceChecks" -}}{{- end -}}
+{{- $webNgObanQueueNotifications := 1 -}}
+{{- if hasKey $webNgObanQueues "notifications" -}}{{- $webNgObanQueueNotifications = get $webNgObanQueues "notifications" -}}{{- end -}}
+{{- $webNgObanQueueOnboarding := 1 -}}
+{{- if hasKey $webNgObanQueues "onboarding" -}}{{- $webNgObanQueueOnboarding = get $webNgObanQueues "onboarding" -}}{{- end -}}
+{{- $webNgObanQueueEvents := 1 -}}
+{{- if hasKey $webNgObanQueues "events" -}}{{- $webNgObanQueueEvents = get $webNgObanQueues "events" -}}{{- end -}}
+{{- $webNgObanQueueSweeps := 1 -}}
+{{- if hasKey $webNgObanQueues "sweeps" -}}{{- $webNgObanQueueSweeps = get $webNgObanQueues "sweeps" -}}{{- end -}}
+{{- $webNgObanQueueEdge := 1 -}}
+{{- if hasKey $webNgObanQueues "edge" -}}{{- $webNgObanQueueEdge = get $webNgObanQueues "edge" -}}{{- end -}}
+{{- $webNgObanQueueIntegrations := 1 -}}
+{{- if hasKey $webNgObanQueues "integrations" -}}{{- $webNgObanQueueIntegrations = get $webNgObanQueues "integrations" -}}{{- end -}}
+{{- $webNgObanQueueMaintenance := 0 -}}
+{{- if hasKey $webNgObanQueues "maintenance" -}}{{- $webNgObanQueueMaintenance = get $webNgObanQueues "maintenance" -}}{{- end -}}
+{{- $webNgObanQueueWebMaintenance := 2 -}}
+{{- if hasKey $webNgObanQueues "webMaintenance" -}}{{- $webNgObanQueueWebMaintenance = get $webNgObanQueues "webMaintenance" -}}{{- end -}}
+{{- $webNgPublicUrl := include "serviceradar.webNgPublicUrl" . -}}
+{{- $gatewayApi := default (dict) .Values.gatewayApi -}}
+{{- $webHost := coalesce $webNg.host .Values.ingress.host $gatewayApi.host "serviceradar-web-ng" -}}
+{{- if $webNgPublicUrl -}}
+{{- $parsedPublicUrl := urlParse $webNgPublicUrl -}}
+{{- $publicUrlHost := default "" (get $parsedPublicUrl "host") -}}
+{{- $webHost = trimSuffix ":443" $publicUrlHost -}}
+{{- end -}}
+{{- $pluginStorage := default (dict) $webNg.pluginStorage -}}
+{{- $gateway := default (dict) .Values.agentGateway -}}
+{{- $gatewayService := default (dict) $gateway.service -}}
+{{- $gatewayArtifactPublicUrl := "" -}}
+{{- if $gateway.publicHostname -}}
+{{- $gatewayArtifactPublicUrl = printf "https://%s:%v" $gateway.publicHostname (default 50053 $gatewayService.artifactPort) -}}
+{{- end -}}
+{{- $agentArtifactPublicUrl := default $webNgPublicUrl $gatewayArtifactPublicUrl -}}
+{{- $pluginStorageBackend := lower (default "file" $pluginStorage.backend) -}}
+{{- $pluginStorageFileBackend := and $pluginStorage.enabled (eq $pluginStorageBackend "file") -}}
+{{- $objectStoreRetention := default (dict) .Values.objectStoreRetention -}}
+{{- $objectStoreRetentionEnabled := true -}}
+{{- if hasKey $objectStoreRetention "enabled" -}}{{- $objectStoreRetentionEnabled = get $objectStoreRetention "enabled" -}}{{- end -}}
+{{- $objectStoreRetentionDryRun := false -}}
+{{- if hasKey $objectStoreRetention "dryRun" -}}{{- $objectStoreRetentionDryRun = get $objectStoreRetention "dryRun" -}}{{- end -}}
+{{- $agentReleasePublicKey := default "" $webNg.agentReleasePublicKey -}}
+{{- $adminEmail := default "root@localhost" $webNg.adminEmail -}}
+{{- $geoipMmdb := default (dict) .Values.geoipMmdb -}}
+{{- $secrets := default "serviceradar-secrets" .Values.secrets.existingSecretName -}}
+{{- $automationCallbacks := default (dict) .Values.automationCallbacks -}}
+{{- include "serviceradar.validateAutomationCallbacks" . -}}
+{{- $automationCallbacksEnabled := false -}}
+{{- if hasKey $automationCallbacks "enabled" -}}{{- $automationCallbacksEnabled = get $automationCallbacks "enabled" -}}{{- end -}}
+{{- $automationCallbackResponsePolicy := default (dict) $automationCallbacks.responsePolicy -}}
+{{- $automationCallbackOrigin := default $webNgPublicUrl $automationCallbacks.canonicalOrigin -}}
+{{- $remoteAccess := default (dict) .Values.remoteAccess -}}
+{{- $remoteAccessDesktop := default (dict) $remoteAccess.desktop -}}
+{{- $remoteAccessDesktopRdp := default (dict) $remoteAccessDesktop.rdp -}}
+{{- $remoteAccessDesktopRdpEnabled := false -}}
+{{- if hasKey $remoteAccessDesktopRdp "enabled" -}}{{- $remoteAccessDesktopRdpEnabled = get $remoteAccessDesktopRdp "enabled" -}}{{- end -}}
+{{- $remoteAccessDesktopWebRTC := default (dict) $remoteAccessDesktopRdp.webRTC -}}
+{{- $remoteAccessDesktopIceServers := default (list) $remoteAccessDesktopWebRTC.iceServers -}}
+{{- $remoteAccessDesktopIceServersJSON := toJson $remoteAccessDesktopIceServers -}}
+{{- $remoteAccessDesktopTurnConfigured := and $remoteAccessDesktopRdpEnabled (regexMatch "(?i)\"turns?:" $remoteAccessDesktopIceServersJSON) -}}
+{{- $remoteAccessDesktopTurn := default (dict) $remoteAccessDesktopWebRTC.turn -}}
+{{- include "serviceradar.validateRemoteAccessDesktopWebRTC" . -}}
+{{- $remoteAccessSsh := default (dict) $remoteAccess.ssh -}}
+{{- $remoteAccessSshEnabled := false -}}
+{{- if hasKey $remoteAccessSsh "enabled" -}}{{- $remoteAccessSshEnabled = get $remoteAccessSsh "enabled" -}}{{- end -}}
+{{- $remoteAccessSshBrowserKeyRemember := default (dict) $remoteAccessSsh.browserKeyRemember -}}
+{{- $remoteAccessSshBrowserKeyRememberEnabled := false -}}
+{{- if hasKey $remoteAccessSshBrowserKeyRemember "enabled" -}}{{- $remoteAccessSshBrowserKeyRememberEnabled = get $remoteAccessSshBrowserKeyRemember "enabled" -}}{{- end -}}
+{{- $sshCertificatePolicy := default (dict) $remoteAccess.sshCertificatePolicy -}}
+{{- include "serviceradar.validateRemoteAccessSSHCertificatePolicy" . -}}
+{{- $sshCertificatePolicyEnabled := false -}}
+{{- if hasKey $sshCertificatePolicy "enabled" -}}{{- $sshCertificatePolicyEnabled = get $sshCertificatePolicy "enabled" -}}{{- end -}}
+{{- $sshCertificatePolicyWorkloads := default (dict) $sshCertificatePolicy.workloads -}}
+{{- $sshCertificatePolicyWeb := true -}}
+{{- if hasKey $sshCertificatePolicyWorkloads "web" -}}{{- $sshCertificatePolicyWeb = get $sshCertificatePolicyWorkloads "web" -}}{{- end -}}
+{{- $sshCertificatePolicyWebEnabled := and $sshCertificatePolicyEnabled $sshCertificatePolicyWeb -}}
+{{- $sshCaSigner := default (dict) $remoteAccess.sshCaSigner -}}
+{{- include "serviceradar.validateRemoteAccessSSHCaSigner" . -}}
+{{- $sshCaSignerEnabled := false -}}
+{{- if hasKey $sshCaSigner "enabled" -}}{{- $sshCaSignerEnabled = get $sshCaSigner "enabled" -}}{{- end -}}
+{{- $sshCaSignerWorkloads := default (dict) $sshCaSigner.workloads -}}
+{{- $sshCaSignerWeb := true -}}
+{{- if hasKey $sshCaSignerWorkloads "web" -}}{{- $sshCaSignerWeb = get $sshCaSignerWorkloads "web" -}}{{- end -}}
+{{- $sshCaSignerWebEnabled := and $sshCaSignerEnabled $sshCaSignerWeb -}}
+{{- $trustDomain := .Values.spire.trustDomain | default "carverauto.dev" -}}
+{{- $spireBundle := default "spire-bundle" .Values.spire.bundleConfigMap -}}
+{{- $datasvc := default (dict) $webNg.datasvc -}}
+{{- $datasvcHost := default "serviceradar-datasvc" $datasvc.host -}}
+{{- $datasvcPort := default 50057 $datasvc.port -}}
+{{- $datasvcSecMode := default "mtls" $datasvc.secMode -}}
+{{- $datasvcSecModeLower := lower $datasvcSecMode -}}
+{{- $datasvcTLS := ternary "true" "false" (ne $datasvcSecModeLower "plaintext") -}}
+{{- $datasvcCertDir := default "/etc/serviceradar/certs" $datasvc.certDir -}}
+{{- $datasvcCertName := default "web" $datasvc.certName -}}
+{{- $datasvcServerName := default "datasvc.serviceradar" $datasvc.serverName -}}
+{{- $webNgSA := default "serviceradar-web-ng" .Values.spire.webNgServiceAccount -}}
+{{- $coreVals := default (dict) .Values.core -}}
+{{- $deviceEnrichment := default (dict) $coreVals.deviceEnrichment -}}
+{{- $deviceEnrichmentRulesDir := default "/var/lib/serviceradar/rules/device-enrichment" $deviceEnrichment.rulesDir -}}
+{{- $deviceEnrichmentFsOverrides := default (dict) $deviceEnrichment.filesystemOverrides -}}
+{{- $deviceEnrichmentFsEnabled := default false $deviceEnrichmentFsOverrides.enabled -}}
+{{- $deviceEnrichmentFsConfigMap := default "" $deviceEnrichmentFsOverrides.existingConfigMap -}}
+{{- $deviceEnrichmentFsSecret := default "" $deviceEnrichmentFsOverrides.existingSecret -}}
+{{- $deviceEnrichmentFsClaim := default "" $deviceEnrichmentFsOverrides.existingClaim -}}
+{{- $migrationVals := default (dict) $coreVals.migrations -}}
+{{- $migrationsEnabled := default true $migrationVals.enabled -}}
+{{- $coreClusterNodeBasename := default "serviceradar_core" $coreVals.kubernetesNodeBasename -}}
+{{- $gatewayVals := default (dict) .Values.agentGateway -}}
+{{- $gatewayServiceName := "serviceradar-agent-gateway" -}}
+{{- $gatewayServicePort := default 50052 $gatewayVals.service.port -}}
+{{- $gatewayAddress := "" -}}
+{{- if $webNg.gatewayAddress -}}
+{{- $gatewayAddress = $webNg.gatewayAddress -}}
+{{- else if $webHost -}}
+{{- $gatewayAddress = printf "%s:%v" $webHost $gatewayServicePort -}}
+{{- else -}}
+{{- $gatewayAddress = printf "%s:%v" $gatewayServiceName $gatewayServicePort -}}
+{{- end -}}
+{{- $natsUrl := default "tls://serviceradar-nats:4222" $webNg.natsUrl -}}
+{{- $coreAddress := default (include "serviceradar.coreAddress" .) $webNg.coreAddress -}}
+{{- $gatewayClusterNodeBasename := default "serviceradar_agent_gateway" $gatewayVals.kubernetesNodeBasename -}}
+{{- $webClusterNodeBasename := default "serviceradar_web_ng" $webNg.kubernetesNodeBasename -}}
+{{- $webClusterStrategy := default "dns" $webNg.clusterStrategy -}}
+{{- $webClusterDnsQuery := default (printf "serviceradar-web-ng-headless.%s.svc.cluster.local" .Release.Namespace) $webNg.clusterDnsQuery -}}
+{{- $coreClusterDnsQuery := default (printf "serviceradar-core-elx-headless.%s.svc.cluster.local" .Release.Namespace) $webNg.clusterCoreDnsQuery -}}
+{{- $gatewayClusterDnsQuery := default (printf "serviceradar-agent-gateway-headless.%s.svc.cluster.local" .Release.Namespace) $webNg.clusterGatewayDnsQuery -}}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $webNgSA }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-web-ng
+spec:
+  replicas: {{ default 1 $webNg.replicas }}
+  selector:
+    matchLabels:
+      app: serviceradar-web-ng
+  template:
+    metadata:
+      labels:
+        app: serviceradar-web-ng
+        app.kubernetes.io/part-of: serviceradar
+      annotations:
+        {{- include "serviceradar.runtimeCertRollAnnotations" . | nindent 8 }}
+        checksum/db-credentials: {{ include "serviceradar.dbCredentialsChecksum" . }}
+        {{- if .Values.global.forceRolloutOnUpgrade }}
+        serviceradar.io/release-revision: {{ .Release.Revision | quote }}
+        {{- end }}
+    spec:
+      {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      {{- include "serviceradar.topologySpread" (dict "root" . "app" "serviceradar-web-ng") | nindent 6 }}
+      serviceAccountName: {{ $webNgSA }}
+      securityContext:
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      {{- if or $pluginStorageFileBackend $migrationsEnabled }}
+      initContainers:
+      {{- if $pluginStorageFileBackend }}
+      - name: init-plugin-storage
+        image: busybox:1.36
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsUser: 10001
+          runAsGroup: 10001
+          capabilities:
+            drop: ["ALL"]
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          set -eu
+          STORAGE_PATH={{ default "/var/lib/serviceradar/plugin-packages" $pluginStorage.basePath | quote }}
+          mkdir -p "${STORAGE_PATH}/plugins"
+        volumeMounts:
+        - name: plugin-packages
+          mountPath: {{ default "/var/lib/serviceradar/plugin-packages" $pluginStorage.basePath | quote }}
+      {{- end }}
+      {{- if $migrationsEnabled }}
+      - name: wait-migrations
+        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-tools" "service" "tools") }}
+        imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+        {{- include "serviceradar.containerSecurityContext" . | nindent 8 }}
+        command: ["/bin/sh", "-c"]
+        env:
+        - name: MIGRATIONS_EXPECTED_VERSION
+          value: {{ default "" $migrationVals.expectedVersion | quote }}
+        - name: CNPG_HOST
+          value: {{ include "serviceradar.cnpgDirectHost" . | quote }}
+        - name: CNPG_PORT
+          value: {{ default 5432 $cnpg.port | quote }}
+        - name: CNPG_DATABASE
+          value: {{ default "serviceradar" $cnpg.database | quote }}
+        - name: CNPG_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: {{ default "serviceradar-db-credentials" $cnpg.credentialsSecret | quote }}
+              key: username
+        - name: CNPG_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ default "serviceradar-db-credentials" $cnpg.credentialsSecret | quote }}
+              key: password
+        - name: CNPG_SSL_MODE
+          value: {{ default "verify-full" $cnpg.sslmode | quote }}
+        - name: CNPG_CA_FILE
+          value: {{ default "/etc/serviceradar/cnpg/ca.crt" $cnpg.caFile | quote }}
+        {{- if $cnpg.requireClientCert }}
+        - name: CNPG_CERT_FILE
+          value: {{ printf "%s/%s" (default "/etc/serviceradar/certs" $cnpg.certDir) (default "cnpg-client.pem" $cnpg.clientCertName) | quote }}
+        - name: CNPG_KEY_FILE
+          value: {{ printf "%s/%s" (default "/etc/serviceradar/certs" $cnpg.certDir) (default "cnpg-client-key.pem" $cnpg.clientKeyName) | quote }}
+        {{- end }}
+        args:
+        - |
+          set -eu
+          export PGPASSWORD="${CNPG_PASSWORD}"
+          export PGSSLMODE="${CNPG_SSL_MODE:-disable}"
+          if [ -n "${CNPG_CA_FILE:-}" ]; then
+            export PGSSLROOTCERT="${CNPG_CA_FILE}"
+          fi
+          if [ -n "${CNPG_CERT_FILE:-}" ] && [ -n "${CNPG_KEY_FILE:-}" ]; then
+            export PGSSLCERT="${CNPG_CERT_FILE}"
+            export PGSSLKEY="${CNPG_KEY_FILE}"
+          fi
+          # An existence check on platform.schema_migrations only proves the
+          # table is there, not that it is CURRENT -- a schema left behind by a
+          # skipped migration hook (helm upgrade --no-hooks) passes it happily
+          # and web-ng then boots against tables its release expects but the
+          # database does not have. Compare the applied high-water mark against
+          # the newest migration this chart revision ships instead.
+          EXPECTED="${MIGRATIONS_EXPECTED_VERSION:-}"
+          if [ -n "${EXPECTED}" ]; then
+            echo "Waiting for platform schema migrations (expecting >= ${EXPECTED})..."
+            # Postgres does the comparison: version is a bigint and these are
+            # 14-digit timestamps, which is not something to hand to `test -ge`
+            # in whatever /bin/sh the tools image ships.
+            PROBE="SELECT COALESCE(MAX(version), 0), (COALESCE(MAX(version), 0) >= ${EXPECTED}) FROM platform.schema_migrations"
+          else
+            echo "Waiting for platform schema migrations (version check disabled)..."
+            PROBE="SELECT COALESCE(MAX(version), 0), TRUE FROM platform.schema_migrations"
+          fi
+          APPLIED=""
+          for i in $(seq 1 120); do
+            # Unset on a failed probe so a mid-loop outage cannot leave a stale
+            # value in the timeout message below.
+            RESULT=""
+            RESULT=$(psql -h "${CNPG_HOST}" -U "${CNPG_USERNAME}" -d "${CNPG_DATABASE}" -tAc "${PROBE}" 2>/dev/null) || true
+            case "${RESULT}" in
+              *"|t")
+                echo "Migrations current (applied=${RESULT%%|*}, expected=${EXPECTED:-any})."
+                exit 0
+                ;;
+              *"|f")
+                APPLIED="${RESULT%%|*}"
+                echo "Schema is behind: applied=${APPLIED}, expected=${EXPECTED} ($i/120)"
+                ;;
+              *)
+                echo "Waiting for migrations... ($i/120)"
+                ;;
+            esac
+            sleep 2
+          done
+          if [ -n "${APPLIED}" ]; then
+            echo "Timed out: schema is stale (applied=${APPLIED}, expected=${EXPECTED}). The" >&2
+            echo "serviceradar-core-migrations Job did not run or did not finish -- a" >&2
+            echo "'helm upgrade --no-hooks' skips it, since it is a pre-upgrade hook." >&2
+          else
+            echo "Timed out waiting for migrations: platform.schema_migrations unreadable." >&2
+          fi
+          exit 1
+        volumeMounts:
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+        - name: {{ $cnpgClusterName }}-ca
+          mountPath: /etc/serviceradar/cnpg
+          readOnly: true
+      {{- end }}
+      {{- end }}
+      containers:
+      - name: web-ng
+        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-web-ng" "service" "webNg") }}
+        imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+        {{- include "serviceradar.containerSecurityContext" . | nindent 8 }}
+        ports:
+        - containerPort: 4000
+          name: http
+        {{- if $controlPlaneRuntimeEnabled }}
+        # Pod-only machine endpoint. It is intentionally omitted from both
+        # web-ng Services and every Gateway route.
+        - containerPort: {{ $controlPlaneRuntimePort }}
+          name: control-runtime
+        {{- end }}
+        - containerPort: 4369
+          name: epmd
+        - containerPort: 9100
+          name: dist
+        env:
+        - name: PORT
+          value: "4000"
+        - name: TMPDIR
+          value: "/tmp"
+        - name: ELIXIR_ERL_OPTIONS
+          value: "+fnu"
+        - name: ERL_FLAGS
+          value: "-kernel inet_dist_listen_min 9100 -kernel inet_dist_listen_max 9155"
+        - name: PHX_SERVER
+          value: "true"
+        # The ServiceRadar RELEASE this deployment corresponds to -- not the
+        # container image tag. web-ng uses it to fetch plugin and native add-on
+        # assets from the matching GitHub release, and to show a version in the
+        # product status UI (`deployed_release_version/0` strips the `v`).
+        #
+        # These were the same value until now, which only worked when deploying
+        # by `v1.4.x` tags. The documented demo/production path pins
+        # `global.imageTag=sha-<gitsha>` for immutability, and no release is ever
+        # named `sha-...`, so NativeAddonSyncWorker and FirstPartySyncWorker both
+        # discarded permanently with `Release tag sha-... was not found` and the
+        # status UI displayed a 40-character sha as the version.
+        #
+        # Defaults to the chart's appVersion, which is what `scripts/cut-release.sh`
+        # keeps in step with `VERSION` and the published `v<semver>` release.
+        - name: SERVICERADAR_RELEASE_VERSION
+          value: {{ .Values.global.releaseVersion | default (printf "v%s" .Chart.AppVersion) | quote }}
+        - name: PHX_HOST
+          value: {{ $webHost | quote }}
+        {{- if $webNgPublicUrl }}
+        # ActionLinks and Discord/Slack embeds use this as the origin for
+        # /alerts/<id> deep links. Without it, pages go out with no way back
+        # into ServiceRadar.
+        - name: SERVICERADAR_NOTIFICATION_ACTION_BASE_URL
+          value: {{ $webNgPublicUrl | quote }}
+        {{- end }}
+        - name: PHX_CHECK_ORIGIN
+          value: {{ default "true" $webNg.checkOrigin | quote }}
+        - name: SERVICERADAR_GOD_VIEW_ENABLED
+          value: {{ default "true" $webNg.godViewEnabled | quote }}
+        {{/* First-class flags. extraEnv cannot shadow SERVICERADAR_MCP_*. */}}
+        - name: SERVICERADAR_MCP_ENABLED
+          value: {{ default "false" $webNg.mcpEnabled | quote }}
+        - name: SERVICERADAR_MCP_CLIENT_CREDENTIALS_ENABLED
+          value: {{ default "true" $webNg.mcpClientCredentialsEnabled | quote }}
+        - name: SERVICERADAR_MCP_REFRESH_TTL_SECONDS
+          value: {{ default "28800" $webNg.mcpRefreshTtlSeconds | quote }}
+        - name: SERVICERADAR_DEV_ROUTES
+          value: {{ default "false" $webNg.devRoutes | quote }}
+        {{- if not (hasKey (default (dict) $webNg.extraEnv) "SERVICERADAR_LOCAL_MAILER") }}
+        - name: SERVICERADAR_LOCAL_MAILER
+          value: {{ default "false" $webNg.localMailer | quote }}
+        {{- end }}
+        {{- if $controlPlaneRuntimeEnabled }}
+        - name: SERVICERADAR_CONTROL_PLANE_RUNTIME_PORT
+          value: {{ $controlPlaneRuntimePort | quote }}
+        - name: SERVICERADAR_CONTROL_PLANE_RUNTIME_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ $controlPlaneRuntimeSecretName | quote }}
+              key: {{ $controlPlaneRuntimeSecretKey | quote }}
+        {{- end }}
+        {{- if $agentReleasePublicKey }}
+        - name: SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY
+          value: {{ $agentReleasePublicKey | quote }}
+        {{- end }}
+        - name: SERVICERADAR_ADMIN_EMAIL
+          value: {{ $adminEmail | quote }}
+        - name: SERVICERADAR_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ $secrets | quote }}
+              key: admin-password
+        {{- if default false $webNg.adminPasswordForceSync }}
+        - name: SERVICERADAR_ADMIN_PASSWORD_FORCE_SYNC
+          # Treat the secret as authoritative — when the secret is rotated
+          # while the database persists, the next bootstrap resets the stored
+          # hash to match instead of silently locking the operator out.
+          value: "true"
+        {{- end }}
+        {{- if (default (dict) $webNg.auth).forceLocalLogin }}
+        - name: SERVICERADAR_AUTH_FORCE_LOCAL_LOGIN
+          # Break-glass: permit local password login regardless of SSO
+          # enforcement (server-side LoginPolicy). A valid password is still
+          # required — this is the recover-from-broken-AuthSettings hatch, not a
+          # bypass. Disable once normal SSO access is restored.
+          value: "true"
+        {{- end }}
+        {{- if (default (dict) $webNg.auth).disableSso }}
+        - name: SERVICERADAR_AUTH_DISABLE_SSO
+          value: "true"
+        {{- end }}
+        - name: SERVICERADAR_GATEWAY_ADDR
+          value: {{ $gatewayAddress | quote }}
+        - name: NATS_URL
+          value: {{ $natsUrl | quote }}
+        {{- if or .Values.natsCreds.platform .Values.natsCreds.autoGenerate }}
+        - name: NATS_ENABLED
+          value: "true"
+        - name: NATS_TLS
+          value: "true"
+        - name: NATS_SERVER_NAME
+          value: {{ default "serviceradar-nats" $webNg.natsServerName | quote }}
+        - name: NATS_CERT_NAME
+          value: {{ default "web" $webNg.natsCertName | quote }}
+        - name: NATS_CREDS_FILE
+          value: "/etc/serviceradar/creds/platform.creds"
+        {{- end }}
+        - name: CORE_ADDRESS
+          value: {{ $coreAddress | quote }}
+        - name: CLUSTER_ENABLED
+          value: {{ default "true" $webNg.clusterEnabled | quote }}
+        - name: CLUSTER_STRATEGY
+          value: {{ $webClusterStrategy | quote }}
+        - name: CLUSTER_DNS_QUERY
+          value: {{ $webClusterDnsQuery | quote }}
+        - name: CLUSTER_NODE_BASENAME
+          value: {{ $webClusterNodeBasename | quote }}
+        - name: CLUSTER_CORE_DNS_QUERY
+          value: {{ $coreClusterDnsQuery | quote }}
+        - name: CLUSTER_CORE_NODE_BASENAME
+          value: {{ $coreClusterNodeBasename | quote }}
+        - name: CLUSTER_GATEWAY_DNS_QUERY
+          value: {{ $gatewayClusterDnsQuery | quote }}
+        - name: CLUSTER_GATEWAY_NODE_BASENAME
+          value: {{ $gatewayClusterNodeBasename | quote }}
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: NODE_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: RELEASE_NODE
+          value: {{ printf "%s@$(POD_IP)" $webClusterNodeBasename | quote }}
+        - name: RELEASE_DISTRIBUTION
+          value: "name"
+        - name: RELEASE_COOKIE
+          valueFrom:
+            secretKeyRef:
+              name: {{ $secrets | quote }}
+              key: cluster-cookie
+        - name: SERVICERADAR_ONBOARDING_TOKEN_PRIVATE_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ $secrets | quote }}
+              key: edge-onboarding-key
+        - name: SERVICERADAR_EDGE_CRYPTO_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: {{ $secrets | quote }}
+              key: web-ng-secret-key-base
+        - name: DATASVC_ENABLED
+          value: "true"
+        - name: SECRET_KEY_BASE
+          valueFrom:
+            secretKeyRef:
+              name: {{ $secrets | quote }}
+              key: web-ng-secret-key-base
+        - name: POOL_SIZE
+          value: {{ default 10 $webNgDatabase.poolSize | quote }}
+        - name: DATABASE_QUEUE_TARGET_MS
+          value: {{ default 2000 $webNgDatabase.queueTargetMs | quote }}
+        - name: DATABASE_QUEUE_INTERVAL_MS
+          value: {{ default 2000 $webNgDatabase.queueIntervalMs | quote }}
+        - name: DATABASE_TIMEOUT_MS
+          value: {{ default 120000 $webNgDatabase.timeoutMs | quote }}
+        - name: DATABASE_POOL_TIMEOUT_MS
+          value: {{ default 120000 $webNgDatabase.poolTimeoutMs | quote }}
+        - name: SERVICERADAR_WEB_NG_OBAN_ENABLED
+          value: {{ default true $webNg.obanEnabled | quote }}
+        - name: WEB_NG_OBAN_QUEUE_DEFAULT
+          value: {{ $webNgObanQueueDefault | quote }}
+        - name: WEB_NG_OBAN_QUEUE_ALERTS
+          value: {{ $webNgObanQueueAlerts | quote }}
+        - name: WEB_NG_OBAN_QUEUE_SERVICE_CHECKS
+          value: {{ $webNgObanQueueServiceChecks | quote }}
+        - name: WEB_NG_OBAN_QUEUE_NOTIFICATIONS
+          value: {{ $webNgObanQueueNotifications | quote }}
+        - name: WEB_NG_OBAN_QUEUE_ONBOARDING
+          value: {{ $webNgObanQueueOnboarding | quote }}
+        - name: WEB_NG_OBAN_QUEUE_EVENTS
+          value: {{ $webNgObanQueueEvents | quote }}
+        - name: WEB_NG_OBAN_QUEUE_SWEEPS
+          value: {{ $webNgObanQueueSweeps | quote }}
+        - name: WEB_NG_OBAN_QUEUE_EDGE
+          value: {{ $webNgObanQueueEdge | quote }}
+        - name: WEB_NG_OBAN_QUEUE_INTEGRATIONS
+          value: {{ $webNgObanQueueIntegrations | quote }}
+        - name: WEB_NG_OBAN_QUEUE_MAINTENANCE
+          value: {{ $webNgObanQueueMaintenance | quote }}
+        - name: WEB_NG_OBAN_QUEUE_WEB_MAINTENANCE
+          value: {{ $webNgObanQueueWebMaintenance | quote }}
+        # Core-elx owns advisory feed acquisition. Keep web-ng from running the
+        # shared FeedWorker if it ever sees an integrations job.
+        - name: SERVICERADAR_ADVISORY_FEEDS_ENABLED
+          value: "false"
+        - name: ADVISORY_FEED_SCHEDULER_ENABLED
+          value: "false"
+        - name: SERVICERADAR_GOD_VIEW_RUNTIME_GRAPH_REFRESH_MS
+          value: {{ default 30000 $webNgGodView.runtimeGraphRefreshMs | quote }}
+        - name: SERVICERADAR_GOD_VIEW_RUNTIME_GRAPH_AUTO_REFRESH
+          value: {{ $runtimeGraphAutoRefresh | quote }}
+        - name: SERVICERADAR_GOD_VIEW_SNAPSHOT_BUDGET_MS
+          value: {{ default 2000 $webNgGodView.snapshotBudgetMs | quote }}
+        - name: SERVICERADAR_GOD_VIEW_SNAPSHOT_COALESCE_MS
+          value: {{ default 0 $webNgGodView.snapshotCoalesceMs | quote }}
+        - name: SERVICERADAR_FIRST_PARTY_PLUGIN_REPO_URL
+          value: {{ default "https://github.com/carverauto/serviceradar" $webNgFirstPartyImport.repoUrl | quote }}
+        - name: SERVICERADAR_FIRST_PARTY_PLUGIN_INDEX_ASSET
+          value: {{ default "serviceradar-wasm-plugin-index.json" $webNgFirstPartyImport.indexAssetName | quote }}
+        - name: SERVICERADAR_FIRST_PARTY_PLUGIN_AUTO_SYNC
+          value: {{ default false $webNgFirstPartyImport.autoSyncEnabled | quote }}
+        - name: SERVICERADAR_FIRST_PARTY_PLUGIN_SYNC_LIMIT
+          value: {{ default 10 $webNgFirstPartyImport.syncReleaseLimit | quote }}
+        - name: SERVICERADAR_FIRST_PARTY_PLUGIN_SYNC_INTERVAL_SECONDS
+          value: {{ default 3600 $webNgFirstPartyImport.syncIntervalSeconds | quote }}
+        - name: SERVICERADAR_FIRST_PARTY_PLUGIN_COSIGN_BINARY
+          value: {{ default "/usr/local/bin/cosign" $webNgFirstPartyImport.cosignBinary | quote }}
+        {{- if $webNgFirstPartyImport.cosignPublicKey }}
+        - name: SERVICERADAR_FIRST_PARTY_PLUGIN_COSIGN_PUBLIC_KEY
+          value: {{ $webNgFirstPartyImport.cosignPublicKey | quote }}
+        {{- end }}
+        {{- if $webNgFirstPartyImport.cosignPublicKeyFile }}
+        - name: SERVICERADAR_FIRST_PARTY_PLUGIN_COSIGN_PUBLIC_KEY_FILE
+          value: {{ $webNgFirstPartyImport.cosignPublicKeyFile | quote }}
+        {{- end }}
+        {{- if $webNgFirstPartyImport.registryDockerConfigSecret }}
+        - name: SERVICERADAR_FIRST_PARTY_PLUGIN_REGISTRY_DOCKER_CONFIG_JSON
+          valueFrom:
+            secretKeyRef:
+              name: {{ $webNgFirstPartyImport.registryDockerConfigSecret | quote }}
+              key: {{ default ".dockerconfigjson" $webNgFirstPartyImport.registryDockerConfigSecretKey | quote }}
+        {{- else if $webNgFirstPartyImport.registryDockerConfigJson }}
+        - name: SERVICERADAR_FIRST_PARTY_PLUGIN_REGISTRY_DOCKER_CONFIG_JSON
+          value: {{ $webNgFirstPartyImport.registryDockerConfigJson | quote }}
+        {{- end }}
+        {{- if $webNgFirstPartyImport.registryDockerConfigFile }}
+        - name: SERVICERADAR_FIRST_PARTY_PLUGIN_REGISTRY_DOCKER_CONFIG_FILE
+          value: {{ $webNgFirstPartyImport.registryDockerConfigFile | quote }}
+        {{- end }}
+        - name: SERVICERADAR_NATIVE_ADDON_REPO_URL
+          value: {{ default "https://github.com/carverauto/serviceradar" $webNgNativeAddonImport.repoUrl | quote }}
+        - name: SERVICERADAR_NATIVE_ADDON_INDEX_ASSET
+          value: {{ default "serviceradar-native-addon-index.json" $webNgNativeAddonImport.indexAssetName | quote }}
+        - name: SERVICERADAR_NATIVE_ADDON_AUTO_SYNC
+          value: {{ default false $webNgNativeAddonImport.autoSyncEnabled | quote }}
+        - name: SERVICERADAR_NATIVE_ADDON_SYNC_LIMIT
+          value: {{ default 10 $webNgNativeAddonImport.syncReleaseLimit | quote }}
+        - name: SERVICERADAR_NATIVE_ADDON_SYNC_INTERVAL_SECONDS
+          value: {{ default 3600 $webNgNativeAddonImport.syncIntervalSeconds | quote }}
+        - name: SERVICERADAR_NATIVE_ADDON_AUTO_APPROVE_IDS
+          value: {{ join "," (default (list) $webNgNativeAddonImport.autoApproveAddonIds) | quote }}
+        {{- if $pluginStorage.enabled }}
+        - name: PLUGIN_STORAGE_BACKEND
+          value: {{ $pluginStorageBackend | quote }}
+        {{- if $pluginStorageFileBackend }}
+        - name: PLUGIN_STORAGE_PATH
+          value: {{ default "/var/lib/serviceradar/plugin-packages" $pluginStorage.basePath | quote }}
+        {{- end }}
+        {{- if $pluginStorage.jetstreamBucket }}
+        - name: PLUGIN_STORAGE_BUCKET
+          value: {{ $pluginStorage.jetstreamBucket | quote }}
+        {{- end }}
+        {{- if $pluginStorage.jetstreamReplicas }}
+        - name: PLUGIN_STORAGE_JS_REPLICAS
+          value: {{ $pluginStorage.jetstreamReplicas | quote }}
+        {{- end }}
+        - name: PLUGIN_STORAGE_SIGNING_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: {{ $secrets | quote }}
+              key: plugin-storage-signing-secret
+        {{- if $webNgPublicUrl }}
+        - name: PLUGIN_STORAGE_PUBLIC_URL
+          value: {{ $webNgPublicUrl | quote }}
+        {{- end }}
+        {{- if $agentArtifactPublicUrl }}
+        - name: AGENT_PLUGIN_STORAGE_PUBLIC_URL
+          value: {{ $agentArtifactPublicUrl | quote }}
+        {{- end }}
+        {{- end }}
+        - name: OBJECT_STORE_RETENTION_ENABLED
+          value: {{ $objectStoreRetentionEnabled | quote }}
+        - name: OBJECT_STORE_RETENTION_DRY_RUN
+          value: {{ $objectStoreRetentionDryRun | quote }}
+        - name: OBJECT_STORE_RETENTION_CRON
+          value: {{ default "0 3 * * *" $objectStoreRetention.cron | quote }}
+        - name: OBJECT_STORE_RETENTION_PLUGIN_ORPHAN_GRACE_SECONDS
+          value: {{ default 604800 $objectStoreRetention.pluginOrphanGraceSeconds | quote }}
+        {{- if $objectStoreRetentionEnabled }}
+        - name: OBAN_MAINTENANCE_QUEUE_LIMIT
+          value: {{ default 1 $objectStoreRetention.webNgMaintenanceQueueLimit | quote }}
+        {{- end }}
+        - name: SERVICERADAR_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ $secrets | quote }}
+              key: api-key
+        - name: CLOAK_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ $secrets | quote }}
+              key: cloak-key
+        - name: SERVICERADAR_AUTOMATION_CALLBACKS_ENABLED
+          value: {{ $automationCallbacksEnabled | quote }}
+        {{- if $automationCallbacksEnabled }}
+        - name: SERVICERADAR_AUTOMATION_CALLBACK_HMAC_KEYRING_FILE
+          value: "/etc/serviceradar/automation-callback/hmac-keyring.json"
+        - name: SERVICERADAR_AUTOMATION_CALLBACK_ENVELOPE_KEY_FILE
+          value: "/etc/serviceradar/automation-callback/envelope-key"
+        - name: SERVICERADAR_AUTOMATION_CALLBACK_ENVELOPE_KEY_ID
+          value: {{ default "current" $automationCallbacks.envelopeKeyId | quote }}
+        - name: SERVICERADAR_AUTOMATION_CALLBACK_ORIGIN
+          value: {{ $automationCallbackOrigin | quote }}
+        - name: SERVICERADAR_AUTOMATION_CALLBACK_AWX_CREDENTIAL_TYPE_ID
+          value: {{ $automationCallbacks.awxCredentialTypeId | quote }}
+        - name: SERVICERADAR_AUTOMATION_CALLBACK_AWX_ORGANIZATION_ID
+          value: {{ $automationCallbacks.awxOrganizationId | quote }}
+        - name: SERVICERADAR_AUTOMATION_CALLBACK_AWX_INJECTOR_DIGEST
+          value: {{ $automationCallbacks.awxInjectorDigest | quote }}
+        - name: SERVICERADAR_AUTOMATION_CALLBACK_RESPONSE_POLICY_FILE
+          value: "/etc/serviceradar/automation-callback-policy/response-policy.json"
+        {{- end }}
+        {{- if $sshCertificatePolicyWebEnabled }}
+        - name: SERVICERADAR_REMOTE_ACCESS_SSH_CERTIFICATE_POLICY_FILE
+          value: "/etc/serviceradar/remote-access-ssh-policy/certificate-policy.json"
+        {{- end }}
+        {{- if $sshCaSignerWebEnabled }}
+        - name: SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_ENABLED
+          value: "true"
+        - name: SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_COMMAND
+          value: {{ default "/usr/local/bin/serviceradar-sshca-signer" $sshCaSigner.command | quote }}
+        - name: SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_ARGS_JSON
+          value: {{ toJson $sshCaSigner.args | quote }}
+        - name: SERVICERADAR_REMOTE_ACCESS_SSH_CA_KEY_ID
+          value: {{ $sshCaSigner.keyId | quote }}
+        {{- end }}
+        - name: SERVICERADAR_REMOTE_ACCESS_DESKTOP_RDP_ENABLED
+          value: {{ $remoteAccessDesktopRdpEnabled | quote }}
+        {{- if $remoteAccessDesktopRdpEnabled }}
+        - name: SERVICERADAR_REMOTE_ACCESS_DESKTOP_WEBRTC_ICE_SERVERS_JSON
+          value: {{ $remoteAccessDesktopIceServersJSON | quote }}
+        {{- end }}
+        {{- if $remoteAccessDesktopTurnConfigured }}
+        - name: SERVICERADAR_REMOTE_ACCESS_DESKTOP_WEBRTC_TURN_SHARED_SECRET_FILE
+          value: "/etc/serviceradar/remote-access-rdp-turn/shared-secret"
+        - name: SERVICERADAR_REMOTE_ACCESS_DESKTOP_WEBRTC_TURN_CREDENTIAL_TTL_SECONDS
+          value: {{ default 600 $remoteAccessDesktopTurn.credentialTtlSeconds | quote }}
+        {{- end }}
+        - name: SERVICERADAR_REMOTE_ACCESS_SSH_ENABLED
+          value: {{ $remoteAccessSshEnabled | quote }}
+        - name: SERVICERADAR_REMOTE_ACCESS_BROWSER_KEY_REMEMBER_ENABLED
+          value: {{ $remoteAccessSshBrowserKeyRememberEnabled | quote }}
+        {{- if $geoipMmdb.enabled }}
+        - name: GEOLITE_MMDB_DIR
+          value: {{ default "/var/lib/serviceradar/geoip" $geoipMmdb.basePath | quote }}
+        - name: GEOLITE_MMDB_DOWNLOAD_ENABLED
+          value: "true"
+        - name: IPINFO_MMDB_DOWNLOAD_ENABLED
+          value: "true"
+        {{- end }}
+        {{- with $.Values.otelExporter }}
+        {{- if .enabled }}
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: {{ .endpoint | quote }}
+        - name: OTEL_CERT_DIR
+          value: {{ default "/etc/serviceradar/certs" .certDir | quote }}
+        - name: OTEL_CERT_NAME
+          value: "web"
+        - name: OTEL_SERVICE_NAME
+          value: "serviceradar-web-ng"
+        - name: OTEL_TRACES_SAMPLER_ARG
+          value: {{ default "1.0" .samplingRatio | quote }}
+        {{- end }}
+        {{- end }}
+        {{- with .Values.webNg.extraEnv }}
+        {{- range $name, $value := . }}
+        {{- if and (ne $name "SERVICERADAR_MCP_ENABLED") (ne $name "SERVICERADAR_MCP_CLIENT_CREDENTIALS_ENABLED") (ne $name "SERVICERADAR_MCP_REFRESH_TTL_SECONDS") }}
+        - name: {{ $name | quote }}
+          value: {{ $value | quote }}
+        {{- end }}
+        {{- end }}
+        {{- end }}
+        {{- with .Values.webNg.extraEnvValueFrom }}
+        {{- range $name, $valueFrom := . }}
+        {{- if and (ne $name "SERVICERADAR_MCP_ENABLED") (ne $name "SERVICERADAR_MCP_CLIENT_CREDENTIALS_ENABLED") (ne $name "SERVICERADAR_MCP_REFRESH_TTL_SECONDS") }}
+        - name: {{ $name | quote }}
+          valueFrom:
+{{- toYaml $valueFrom | nindent 12 }}
+        {{- end }}
+        {{- end }}
+        {{- end }}
+        - name: DEVICE_ENRICHMENT_RULES_DIR
+          value: {{ $deviceEnrichmentRulesDir | quote }}
+        - name: CNPG_HOST
+          value: {{ include "serviceradar.cnpgWorkloadHost" (dict "root" . "workload" "webNg") | quote }}
+        - name: CNPG_PORT
+          value: {{ default 5432 $cnpg.port | quote }}
+        {{- if and (default false $cnpgPooler.enabled) (default false (get $cnpgPoolerRoute "webNg")) }}
+        - name: CNPG_TLS_SERVER_NAME
+          value: {{ include "serviceradar.cnpgDirectHost" . | quote }}
+        - name: DATABASE_PREPARE
+          value: "unnamed"
+        - name: WEB_NG_OBAN_NOTIFIER
+          value: "pg"
+        {{- end }}
+        - name: CNPG_DATABASE
+          value: {{ default "serviceradar" $cnpg.database | quote }}
+        - name: CNPG_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: {{ default "serviceradar-db-credentials" $cnpg.credentialsSecret | quote }}
+              key: username
+        - name: CNPG_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ default "serviceradar-db-credentials" $cnpg.credentialsSecret | quote }}
+              key: password
+        - name: CNPG_SSL_MODE
+          value: {{ default "verify-full" $cnpg.sslmode | quote }}
+        - name: CNPG_CA_FILE
+          value: {{ default "/etc/serviceradar/cnpg/ca.crt" $cnpg.caFile | quote }}
+        {{- if $cnpg.requireClientCert }}
+        - name: CNPG_CERT_FILE
+          value: {{ printf "%s/%s" (default "/etc/serviceradar/certs" $cnpg.certDir) (default "cnpg-client.pem" $cnpg.clientCertName) | quote }}
+        - name: CNPG_KEY_FILE
+          value: {{ printf "%s/%s" (default "/etc/serviceradar/certs" $cnpg.certDir) (default "cnpg-client-key.pem" $cnpg.clientKeyName) | quote }}
+        {{- end }}
+        - name: DATASVC_ADDRESS
+          value: {{ printf "%s:%v" $datasvcHost $datasvcPort | quote }}
+        - name: DATASVC_HOST
+          value: {{ $datasvcHost | quote }}
+        - name: DATASVC_PORT
+          value: {{ $datasvcPort | quote }}
+        - name: DATASVC_SEC_MODE
+          value: {{ $datasvcSecMode | quote }}
+        - name: DATASVC_SSL
+          value: {{ $datasvcTLS | quote }}
+        - name: DATASVC_CERT_DIR
+          value: {{ $datasvcCertDir | quote }}
+        - name: DATASVC_CERT_NAME
+          value: {{ $datasvcCertName | quote }}
+        - name: DATASVC_SERVER_NAME
+          value: {{ $datasvcServerName | quote }}
+        {{- if eq $datasvcSecModeLower "spiffe" }}
+        - name: SPIFFE_TRUST_DOMAIN
+          value: {{ $trustDomain | quote }}
+        - name: SPIFFE_MODE
+          value: {{ default "filesystem" .Values.spiffe.mode | quote }}
+        - name: SPIFFE_CERT_DIR
+          value: {{ $datasvcCertDir | quote }}
+        - name: SPIFFE_WORKLOAD_API_SOCKET
+          value: "unix:///run/spire/sockets/agent.sock"
+        - name: SPIFFE_TRUST_BUNDLE_PATH
+          value: "/run/spire/bundle/bundle.crt"
+        {{- end }}
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+        {{- if $automationCallbacksEnabled }}
+        - name: automation-callback-secrets
+          mountPath: /etc/serviceradar/automation-callback
+          readOnly: true
+        - name: automation-callback-response-policy
+          mountPath: /etc/serviceradar/automation-callback-policy
+          readOnly: true
+        {{- end }}
+        {{- if $sshCertificatePolicyWebEnabled }}
+        - name: remote-access-ssh-certificate-policy
+          mountPath: /etc/serviceradar/remote-access-ssh-policy
+          readOnly: true
+        {{- end }}
+        {{- if $sshCaSignerWebEnabled }}
+        - name: remote-access-ssh-ca
+          mountPath: {{ default "/run/secrets/serviceradar_ssh_ca" $sshCaSigner.mountPath | quote }}
+          subPath: ca-key
+          readOnly: true
+        {{- end }}
+        {{- if $remoteAccessDesktopTurnConfigured }}
+        - name: remote-access-rdp-turn
+          mountPath: /etc/serviceradar/remote-access-rdp-turn
+          readOnly: true
+        {{- end }}
+        {{- if or .Values.natsCreds.platform .Values.natsCreds.autoGenerate }}
+        - name: nats-creds
+          mountPath: /etc/serviceradar/creds
+          readOnly: true
+        {{- end }}
+        - name: {{ $cnpgClusterName }}-ca
+          mountPath: /etc/serviceradar/cnpg
+          readOnly: true
+        {{- if $pluginStorageFileBackend }}
+        - name: plugin-packages
+          mountPath: {{ default "/var/lib/serviceradar/plugin-packages" $pluginStorage.basePath | quote }}
+        {{- end }}
+        {{- if $geoipMmdb.enabled }}
+        - name: geoip-mmdb
+          mountPath: {{ default "/var/lib/serviceradar/geoip" $geoipMmdb.basePath | quote }}
+        {{- end }}
+        {{- if $deviceEnrichmentFsEnabled }}
+        - name: device-enrichment-rules
+          mountPath: {{ $deviceEnrichmentRulesDir | quote }}
+        {{- end }}
+        {{- if eq $datasvcSecModeLower "spiffe" }}
+        - name: spire-agent-socket
+          mountPath: /run/spire/sockets
+          readOnly: true
+        - name: spire-bundle
+          mountPath: /run/spire/bundle
+          readOnly: true
+        {{- end }}
+        resources:
+          {{- toYaml (default (dict) .Values.webNg.resources) | nindent 10 }}
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: 4000
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: 4000
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      - name: cert-data
+        secret:
+          secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
+          items:
+{{ include "serviceradar.runtimeCertItems" (list "root.pem" "web.pem" "web-key.pem" "cnpg-client.pem" "cnpg-client-key.pem") | indent 12 }}
+      {{- if $automationCallbacksEnabled }}
+      - name: automation-callback-secrets
+        secret:
+          secretName: {{ $secrets | quote }}
+          defaultMode: 0440
+          items:
+          - key: automation-callback-hmac-keyring
+            path: hmac-keyring.json
+          - key: automation-callback-envelope-key
+            path: envelope-key
+      - name: automation-callback-response-policy
+        secret:
+          secretName: {{ $automationCallbackResponsePolicy.existingSecretName | quote }}
+          defaultMode: 0440
+          items:
+          - key: {{ $automationCallbackResponsePolicy.secretKey | quote }}
+            path: response-policy.json
+      {{- end }}
+      {{- if $sshCertificatePolicyWebEnabled }}
+      - name: remote-access-ssh-certificate-policy
+        secret:
+          secretName: {{ $sshCertificatePolicy.existingSecretName | quote }}
+          defaultMode: 0440
+          items:
+          - key: {{ $sshCertificatePolicy.secretKey | quote }}
+            path: certificate-policy.json
+      {{- end }}
+      {{- if $sshCaSignerWebEnabled }}
+      - name: remote-access-ssh-ca
+        secret:
+          secretName: {{ $sshCaSigner.existingSecretName | quote }}
+          defaultMode: 0400
+          items:
+          - key: {{ $sshCaSigner.secretKey | quote }}
+            path: ca-key
+      {{- end }}
+      {{- if $remoteAccessDesktopTurnConfigured }}
+      - name: remote-access-rdp-turn
+        secret:
+          secretName: {{ $remoteAccessDesktopTurn.existingSecretName | quote }}
+          defaultMode: 0440
+          items:
+          - key: {{ $remoteAccessDesktopTurn.secretKey | quote }}
+            path: shared-secret
+      {{- end }}
+      {{- if or .Values.natsCreds.platform .Values.natsCreds.autoGenerate }}
+      - name: nats-creds
+        secret:
+          secretName: serviceradar-nats-creds
+      {{- end }}
+      - name: {{ $cnpgClusterName }}-ca
+        secret:
+          secretName: {{ $cnpgClusterName }}-ca
+      {{- if $pluginStorageFileBackend }}
+      - name: plugin-packages
+        persistentVolumeClaim:
+          claimName: {{ default "serviceradar-web-ng-plugins" $pluginStorage.existingClaim | quote }}
+      {{- end }}
+      {{- if $geoipMmdb.enabled }}
+      - name: geoip-mmdb
+        {{- if $geoipMmdb.emptyDir }}
+        emptyDir: {}
+        {{- else }}
+        persistentVolumeClaim:
+          claimName: {{ default "serviceradar-geoip-mmdb" $geoipMmdb.existingClaim | quote }}
+        {{- end }}
+      {{- end }}
+      {{- if $deviceEnrichmentFsEnabled }}
+      - name: device-enrichment-rules
+        {{- if $deviceEnrichmentFsConfigMap }}
+        configMap:
+          name: {{ $deviceEnrichmentFsConfigMap | quote }}
+        {{- else if $deviceEnrichmentFsSecret }}
+        secret:
+          secretName: {{ $deviceEnrichmentFsSecret | quote }}
+        {{- else if $deviceEnrichmentFsClaim }}
+        persistentVolumeClaim:
+          claimName: {{ $deviceEnrichmentFsClaim | quote }}
+        {{- else }}
+        emptyDir: {}
+        {{- end }}
+      {{- end }}
+      {{- if eq $datasvcSecModeLower "spiffe" }}
+      - name: spire-agent-socket
+        hostPath:
+          path: {{ include "serviceradar.spireSocketHostPath" . | quote }}
+          type: DirectoryOrCreate
+      - name: spire-bundle
+        configMap:
+          name: {{ $spireBundle | quote }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-web-ng
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/name: serviceradar-web-ng
+    app.kubernetes.io/component: web-ng
+spec:
+  selector:
+    app: serviceradar-web-ng
+  ports:
+  - name: http
+    port: 4000
+    targetPort: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-web-ng-headless
+spec:
+  clusterIP: None
+  selector:
+    app: serviceradar-web-ng
+  ports:
+  - name: http
+    port: 4000
+    targetPort: http
+  - name: epmd
+    port: 4369
+    targetPort: epmd
+  - name: dist
+    port: 9100
+    targetPort: dist
+{{- end }}

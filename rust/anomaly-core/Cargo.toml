@@ -1,0 +1,19 @@
+[package]
+name = "serviceradar-anomaly-core"
+version = "0.1.0"
+description = "Shared per-series anomaly detector (Welford z-score + DeepCausality rolling/seasonal/trend signals) used by the edge anomaly add-on (OpenSpec: move-anomaly-detection-to-edge)."
+edition = "2024"
+license = "Apache-2.0"
+
+[lib]
+name = "serviceradar_anomaly_core"
+path = "src/lib.rs"
+
+[dependencies]
+# External deps
+clap = {  workspace = true, features = ["std", "derive"] }
+deep_causality_core = { workspace = true }
+deep_causality_data_structures = { workspace = true }
+flate2 = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }

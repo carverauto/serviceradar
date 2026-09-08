@@ -1,0 +1,65 @@
+## ServiceRadar Agent Gateway VM Arguments
+##
+## This file configures the Erlang VM for agent gateway nodes.
+## See: https://www.erlang.org/doc/man/erl.html
+
+## =============================================================================
+## Performance Tuning
+## =============================================================================
+
+## Async thread pool sized to the cpu quota (1-core limit, floored at 2)
++A 2
+
+## Increase process limit for large clusters
++P 1000000
+
+## Increase port limit
++Q 65536
+
+## Increase atom limit
++t 5000000
+
+## Enable kernel polling for better network performance
++K true
+
+## Cap schedulers near the cgroup cpu LIMIT (1-core limit, floored at 2) and
+## kill busy-wait spin. Baked here (not env) so it cannot be removed via
+## ELIXIR_ERL_OPTIONS.
+## NOTE: +sbt db removed — core-binding under CFS pins schedulers to cores the
+## pod does not own, causing migration stalls.
++sbwt none
++sbwtdcpu none
++sbwtdio none
++S 2:2
++SDcpu 2
++SDio 2
+
+## Increase distribution buffer size for large messages
++zdbbl 32768
+
+## Enable time warp mode for better time handling
++C multi_time_warp
+
+## Garbage collection settings
++hms 8192
++hmbs 512
+
+## =============================================================================
+## Cluster Connectivity
+## =============================================================================
+
+-kernel net_ticktime 120
+-kernel dist_auto_connect once
+
+## =============================================================================
+## Remote Debugging & Observability
+## =============================================================================
+
+-kernel logger_level notice
+-kernel shell_history enabled
+
+## =============================================================================
+## Crash Dump Location
+## =============================================================================
+
+-env ERL_CRASH_DUMP /var/log/serviceradar/erl_crash.dump

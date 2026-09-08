@@ -1,0 +1,6 @@
+package(default_visibility = ["//visibility:public"])
+
+alias(
+    name = "rperf",
+    actual = "//third_party/rust_patches/rperf-0.1.25:rperf_bin",
+)

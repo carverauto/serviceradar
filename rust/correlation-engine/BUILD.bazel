@@ -1,0 +1,50 @@
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:rust_binary.bzl", "rust_binary")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+
+rust_library(
+    name = "correlation_engine_lib",
+    srcs = glob(
+        ["src/**/*.rs"],
+        exclude = ["src/main.rs"],
+    ),
+    crate_name = "correlation_engine",
+    crate_root = "src/lib.rs",
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + [
+        "//rust/metric-proto:serviceradar_metric_proto",
+        "//rust/srql:srql_lib",
+    ],
+)
+
+rust_binary(
+    name = "correlation_engine_bin",
+    srcs = ["src/main.rs"],
+    crate_name = "correlation_engine",
+    visibility = ["//visibility:public"],
+    deps = [
+        ":correlation_engine_lib",
+        "//rust/metric-proto:serviceradar_metric_proto",
+        "//rust/srql:srql_lib",
+    ] + all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ),
+)
+
+rust_test(
+    name = "correlation_engine_test",
+    crate = ":correlation_engine_lib",
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+        normal_dev = True,
+    ) + [
+        "//rust/metric-proto:serviceradar_metric_proto",
+        "//rust/srql:srql_lib",
+    ],
+)

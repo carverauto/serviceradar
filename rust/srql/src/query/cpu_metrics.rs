@@ -1,0 +1,1019 @@
+use super::{BindParam, QueryPlan};
+use crate::{
+    error::{Result, ServiceError},
+    jsonb::DbJson,
+    models::CpuMetricRow,
+    parser::{Entity, Filter, FilterOp, OrderClause, OrderDirection},
+    schema::cpu_metrics::dsl::{
+        agent_id as col_agent_id, cluster as col_cluster, core_id as col_core_id, cpu_metrics,
+        device_id as col_device_id, frequency_hz as col_frequency_hz, gateway_id as col_gateway_id,
+        host_id as col_host_id, label as col_label, partition as col_partition,
+        timestamp as col_timestamp, usage_percent as col_usage_percent,
+    },
+    time::TimeRange,
+};
+use chrono::{DateTime, Utc};
+use diesel::PgTextExpressionMethods;
+use diesel::QueryDsl;
+use diesel::pg::Pg;
+use diesel::prelude::*;
+use diesel::query_builder::{
+    AsQuery, BoxedSelectStatement, BoxedSqlQuery, FromClause, SqlQuery as DieselSqlQuery,
+};
+use diesel::sql_query;
+use diesel::sql_types::{Array, Float8, Int4, Jsonb, Nullable, Text, Timestamptz};
+use diesel_async::{AsyncPgConnection, RunQueryDsl};
+use serde_json::Value;
+
+type CpuMetricsTable = crate::schema::cpu_metrics::table;
+type CpuMetricsFromClause = FromClause<CpuMetricsTable>;
+type CpuQuery<'a> =
+    BoxedSelectStatement<'a, <CpuMetricsTable as AsQuery>::SqlType, CpuMetricsFromClause, Pg>;
+#[derive(Debug, Clone)]
+struct CpuStatsSpec {
+    alias: String,
+    group_by_device_id: bool,
+}
+
+#[derive(Debug, Clone)]
+struct CpuStatsSql {
+    sql: String,
+    binds: Vec<SqlBindValue>,
+}
+
+#[derive(Debug, Clone)]
+enum SqlBindValue {
+    Text(String),
+    TextArray(Vec<String>),
+    Int(i32),
+    Float(f64),
+    Timestamp(DateTime<Utc>),
+}
+
+impl SqlBindValue {
+    fn apply<'a>(
+        &self,
+        query: BoxedSqlQuery<'a, Pg, DieselSqlQuery>,
+    ) -> BoxedSqlQuery<'a, Pg, DieselSqlQuery> {
+        match self {
+            SqlBindValue::Text(value) => query.bind::<Text, _>(value.clone()),
+            SqlBindValue::TextArray(values) => query.bind::<Array<Text>, _>(values.clone()),
+            SqlBindValue::Int(value) => query.bind::<Int4, _>(*value),
+            SqlBindValue::Float(value) => query.bind::<Float8, _>(*value),
+            SqlBindValue::Timestamp(value) => query.bind::<Timestamptz, _>(*value),
+        }
+    }
+}
+
+#[derive(Debug, QueryableByName)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+struct CpuStatsPayload {
+    #[diesel(sql_type = Nullable<Jsonb>)]
+    payload: Option<DbJson>,
+}
+
+pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> Result<Vec<Value>> {
+    ensure_entity(plan)?;
+
+    if let Some(spec) = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))? {
+        let payload = execute_stats(conn, plan, &spec).await?;
+        return Ok(payload);
+    }
+
+    let query = build_query(plan)?;
+    let rows: Vec<CpuMetricRow> = query
+        .limit(plan.limit)
+        .offset(plan.offset)
+        .load(conn)
+        .await
+        .map_err(|err| ServiceError::Internal(err.into()))?;
+
+    Ok(rows.into_iter().map(CpuMetricRow::into_json).collect())
+}
+
+pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
+    ensure_entity(plan)?;
+
+    if let Some(spec) = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))? {
+        let sql = if should_route_stats_to_cagg(plan) {
+            build_cagg_stats_query(plan, &spec)?
+        } else {
+            build_stats_query(plan, &spec)?
+        };
+        let params = sql.binds.into_iter().map(bind_param_from_stats).collect();
+        return Ok((rewrite_placeholders(&sql.sql), params));
+    }
+
+    let query = build_query(plan)?.limit(plan.limit).offset(plan.offset);
+    let sql = super::diesel_sql(&query)?;
+
+    let mut params = Vec::new();
+    if let Some(TimeRange { start, end }) = &plan.time_range {
+        params.push(BindParam::timestamptz(*start));
+        params.push(BindParam::timestamptz(*end));
+    }
+
+    for filter in &plan.filters {
+        collect_filter_params(&mut params, filter)?;
+    }
+
+    super::reconcile_limit_offset_binds(&sql, &mut params, plan.limit, plan.offset)?;
+
+    #[cfg(any(test, debug_assertions))]
+    {
+        let bind_count = super::diesel_bind_count(&query)?;
+        if bind_count != params.len() {
+            return Err(ServiceError::Internal(anyhow::anyhow!(
+                "bind count mismatch (diesel {bind_count} vs params {})",
+                params.len()
+            )));
+        }
+    }
+
+    Ok((sql, params))
+}
+
+fn ensure_entity(plan: &QueryPlan) -> Result<()> {
+    match plan.entity {
+        Entity::CpuMetrics => Ok(()),
+        _ => Err(ServiceError::InvalidRequest(
+            "entity not supported by cpu metrics query".into(),
+        )),
+    }
+}
+
+fn build_query(plan: &QueryPlan) -> Result<CpuQuery<'static>> {
+    let mut query = base_query(plan)?;
+    query = apply_ordering(query, &plan.order);
+    Ok(query)
+}
+
+fn base_query(plan: &QueryPlan) -> Result<CpuQuery<'static>> {
+    let mut query = cpu_metrics.into_boxed::<Pg>();
+
+    if let Some(TimeRange { start, end }) = &plan.time_range {
+        query = query.filter(col_timestamp.ge(*start).and(col_timestamp.le(*end)));
+    }
+
+    for filter in &plan.filters {
+        query = apply_filter(query, filter)?;
+    }
+
+    Ok(query)
+}
+
+fn bind_param_from_stats(value: SqlBindValue) -> BindParam {
+    match value {
+        SqlBindValue::Text(value) => BindParam::Text(value),
+        SqlBindValue::TextArray(values) => BindParam::TextArray(values),
+        SqlBindValue::Int(value) => BindParam::Int(i64::from(value)),
+        SqlBindValue::Float(value) => BindParam::Float(value),
+        SqlBindValue::Timestamp(value) => BindParam::timestamptz(value),
+    }
+}
+
+fn collect_text_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
+    match filter.op {
+        FilterOp::Eq | FilterOp::NotEq | FilterOp::Like | FilterOp::NotLike => {
+            params.push(BindParam::Text(filter.value.as_scalar()?.to_string()));
+            Ok(())
+        }
+        FilterOp::In | FilterOp::NotIn => {
+            let values = filter.value.as_list()?.to_vec();
+            if values.is_empty() {
+                return Ok(());
+            }
+            params.push(BindParam::TextArray(values));
+            Ok(())
+        }
+        _ => Err(ServiceError::InvalidRequest(format!(
+            "unsupported operator for text filter: {:?}",
+            filter.op
+        ))),
+    }
+}
+
+fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
+    match filter.field.as_str() {
+        "gateway_id" | "agent_id" | "host_id" | "device_id" | "partition" | "cluster" | "label" => {
+            collect_text_params(params, filter)
+        }
+        "core_id" => {
+            params.push(BindParam::Int(i64::from(parse_i32(
+                filter.value.as_scalar()?,
+            )?)));
+            Ok(())
+        }
+        "usage_percent" | "frequency_hz" => {
+            params.push(BindParam::Float(parse_f64(filter.value.as_scalar()?)?));
+            Ok(())
+        }
+        other => Err(ServiceError::InvalidRequest(format!(
+            "unsupported filter field for cpu_metrics: '{other}'"
+        ))),
+    }
+}
+
+fn apply_filter<'a>(mut query: CpuQuery<'a>, filter: &Filter) -> Result<CpuQuery<'a>> {
+    match filter.field.as_str() {
+        "gateway_id" => {
+            query = apply_text_filter!(query, filter, col_gateway_id)?;
+        }
+        "agent_id" => {
+            query = apply_text_filter!(query, filter, col_agent_id)?;
+        }
+        "host_id" => {
+            query = apply_text_filter!(query, filter, col_host_id)?;
+        }
+        "device_id" => {
+            query = apply_text_filter!(query, filter, col_device_id)?;
+        }
+        "partition" => {
+            query = apply_text_filter!(query, filter, col_partition)?;
+        }
+        "cluster" => {
+            query = apply_text_filter!(query, filter, col_cluster)?;
+        }
+        "label" => {
+            query = apply_text_filter!(query, filter, col_label)?;
+        }
+        "core_id" => {
+            let value = parse_i32(filter.value.as_scalar()?)?;
+            query = apply_eq_filter!(
+                query,
+                filter,
+                col_core_id,
+                value,
+                "core_id filter only supports equality"
+            )?;
+        }
+        "usage_percent" => {
+            let value = parse_f64(filter.value.as_scalar()?)?;
+            match filter.op {
+                FilterOp::Eq => query = query.filter(col_usage_percent.eq(value)),
+                FilterOp::NotEq => query = query.filter(col_usage_percent.ne(value)),
+                FilterOp::Gt => query = query.filter(col_usage_percent.gt(value)),
+                FilterOp::Gte => query = query.filter(col_usage_percent.ge(value)),
+                FilterOp::Lt => query = query.filter(col_usage_percent.lt(value)),
+                FilterOp::Lte => query = query.filter(col_usage_percent.le(value)),
+                _ => {
+                    return Err(ServiceError::InvalidRequest(
+                        "usage_percent filter does not support this operator".into(),
+                    ));
+                }
+            }
+        }
+        "frequency_hz" => {
+            let value = parse_f64(filter.value.as_scalar()?)?;
+            query = apply_eq_filter!(
+                query,
+                filter,
+                col_frequency_hz,
+                value,
+                "frequency_hz filter only supports equality"
+            )?;
+        }
+        other => {
+            return Err(ServiceError::InvalidRequest(format!(
+                "unsupported filter field for cpu_metrics: '{other}'"
+            )));
+        }
+    }
+
+    Ok(query)
+}
+
+fn apply_ordering<'a>(mut query: CpuQuery<'a>, order: &[OrderClause]) -> CpuQuery<'a> {
+    let mut applied = false;
+    for clause in order {
+        query = if !applied {
+            applied = true;
+            apply_primary_order(query, clause)
+        } else {
+            apply_secondary_order(query, clause)
+        };
+    }
+
+    if !applied {
+        query = query.order(col_timestamp.desc());
+    }
+
+    query
+}
+
+fn apply_primary_order<'a>(query: CpuQuery<'a>, clause: &OrderClause) -> CpuQuery<'a> {
+    match clause.field.as_str() {
+        "timestamp" => match clause.direction {
+            OrderDirection::Asc => query.order(col_timestamp.asc()),
+            OrderDirection::Desc => query.order(col_timestamp.desc()),
+        },
+        "usage_percent" => match clause.direction {
+            OrderDirection::Asc => query.order(col_usage_percent.asc()),
+            OrderDirection::Desc => query.order(col_usage_percent.desc()),
+        },
+        "gateway_id" => match clause.direction {
+            OrderDirection::Asc => query.order(col_gateway_id.asc()),
+            OrderDirection::Desc => query.order(col_gateway_id.desc()),
+        },
+        "device_id" => match clause.direction {
+            OrderDirection::Asc => query.order(col_device_id.asc()),
+            OrderDirection::Desc => query.order(col_device_id.desc()),
+        },
+        "host_id" => match clause.direction {
+            OrderDirection::Asc => query.order(col_host_id.asc()),
+            OrderDirection::Desc => query.order(col_host_id.desc()),
+        },
+        "partition" => match clause.direction {
+            OrderDirection::Asc => query.order(col_partition.asc()),
+            OrderDirection::Desc => query.order(col_partition.desc()),
+        },
+        "core_id" => match clause.direction {
+            OrderDirection::Asc => query.order(col_core_id.asc()),
+            OrderDirection::Desc => query.order(col_core_id.desc()),
+        },
+        _ => query,
+    }
+}
+
+fn apply_secondary_order<'a>(query: CpuQuery<'a>, clause: &OrderClause) -> CpuQuery<'a> {
+    match clause.field.as_str() {
+        "timestamp" => match clause.direction {
+            OrderDirection::Asc => diesel::QueryDsl::then_order_by(query, col_timestamp.asc()),
+            OrderDirection::Desc => diesel::QueryDsl::then_order_by(query, col_timestamp.desc()),
+        },
+        "usage_percent" => match clause.direction {
+            OrderDirection::Asc => diesel::QueryDsl::then_order_by(query, col_usage_percent.asc()),
+            OrderDirection::Desc => {
+                diesel::QueryDsl::then_order_by(query, col_usage_percent.desc())
+            }
+        },
+        "gateway_id" => match clause.direction {
+            OrderDirection::Asc => diesel::QueryDsl::then_order_by(query, col_gateway_id.asc()),
+            OrderDirection::Desc => diesel::QueryDsl::then_order_by(query, col_gateway_id.desc()),
+        },
+        "device_id" => match clause.direction {
+            OrderDirection::Asc => diesel::QueryDsl::then_order_by(query, col_device_id.asc()),
+            OrderDirection::Desc => diesel::QueryDsl::then_order_by(query, col_device_id.desc()),
+        },
+        "host_id" => match clause.direction {
+            OrderDirection::Asc => diesel::QueryDsl::then_order_by(query, col_host_id.asc()),
+            OrderDirection::Desc => diesel::QueryDsl::then_order_by(query, col_host_id.desc()),
+        },
+        "partition" => match clause.direction {
+            OrderDirection::Asc => diesel::QueryDsl::then_order_by(query, col_partition.asc()),
+            OrderDirection::Desc => diesel::QueryDsl::then_order_by(query, col_partition.desc()),
+        },
+        "core_id" => match clause.direction {
+            OrderDirection::Asc => diesel::QueryDsl::then_order_by(query, col_core_id.asc()),
+            OrderDirection::Desc => diesel::QueryDsl::then_order_by(query, col_core_id.desc()),
+        },
+        _ => query,
+    }
+}
+
+async fn execute_stats(
+    conn: &mut AsyncPgConnection,
+    plan: &QueryPlan,
+    spec: &CpuStatsSpec,
+) -> Result<Vec<Value>> {
+    let sql = if should_route_stats_to_cagg(plan) {
+        build_cagg_stats_query(plan, spec)?
+    } else {
+        build_stats_query(plan, spec)?
+    };
+    let mut query = sql_query(rewrite_placeholders(&sql.sql)).into_boxed::<Pg>();
+    for bind in &sql.binds {
+        query = bind.apply(query);
+    }
+    let rows: Vec<CpuStatsPayload> = query
+        .load::<CpuStatsPayload>(conn)
+        .await
+        .map_err(|err| ServiceError::Internal(err.into()))?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|row| row.payload.map(serde_json::Value::from))
+        .collect())
+}
+
+fn build_stats_query(plan: &QueryPlan, spec: &CpuStatsSpec) -> Result<CpuStatsSql> {
+    build_stats_query_with_source(plan, spec, "cpu_metrics", "timestamp", "AVG(usage_percent)")
+}
+
+fn build_cagg_stats_query(plan: &QueryPlan, spec: &CpuStatsSpec) -> Result<CpuStatsSql> {
+    let avg_col = super::cagg_column_for_entity(&Entity::CpuMetrics, "avg", "usage_percent")
+        .ok_or_else(|| {
+            ServiceError::InvalidRequest(
+                "missing CAGG mapping for avg(usage_percent) on cpu_metrics".into(),
+            )
+        })?;
+    build_stats_query_with_source(
+        plan,
+        spec,
+        "cpu_metrics_hourly",
+        "bucket",
+        &format!(
+            "CASE WHEN SUM(sample_count) = 0 THEN NULL ELSE SUM({avg_col} * sample_count)::float8 / SUM(sample_count)::float8 END"
+        ),
+    )
+}
+
+fn build_stats_query_with_source(
+    plan: &QueryPlan,
+    spec: &CpuStatsSpec,
+    table: &str,
+    time_col: &str,
+    aggregate_expr: &str,
+) -> Result<CpuStatsSql> {
+    let mut clauses = Vec::new();
+    let mut binds = Vec::new();
+
+    let cagg_mode = table == "cpu_metrics_hourly";
+
+    if let Some(TimeRange { start, end }) = &plan.time_range {
+        clauses.push(if cagg_mode {
+            super::hourly_cagg_lower_bound_clause(time_col)
+        } else {
+            format!("{time_col} >= ?")
+        });
+        binds.push(SqlBindValue::Timestamp(*start));
+        clauses.push(if cagg_mode {
+            super::hourly_cagg_upper_bound_clause(time_col)
+        } else {
+            format!("{time_col} <= ?")
+        });
+        binds.push(SqlBindValue::Timestamp(*end));
+    }
+
+    for filter in &plan.filters {
+        if let Some((clause, mut values)) = build_stats_filter_clause(filter, cagg_mode)? {
+            clauses.push(clause);
+            binds.append(&mut values);
+        }
+    }
+
+    let mut sql = String::from("SELECT jsonb_build_object(");
+    if spec.group_by_device_id {
+        sql.push_str("'device_id', device_id, '");
+        sql.push_str(&spec.alias);
+        sql.push_str("', ");
+        sql.push_str(aggregate_expr);
+    } else {
+        sql.push('\'');
+        sql.push_str(&spec.alias);
+        sql.push_str("', ");
+        sql.push_str(aggregate_expr);
+    }
+    sql.push_str(") AS payload\nFROM ");
+    sql.push_str(table);
+    if !clauses.is_empty() {
+        sql.push_str("\nWHERE ");
+        sql.push_str(&clauses.join(" AND "));
+    }
+    if spec.group_by_device_id {
+        sql.push_str("\nGROUP BY device_id");
+        sql.push_str(&build_stats_order_clause(plan, &spec.alias, aggregate_expr));
+    } else {
+        sql.push_str(&build_ungrouped_stats_order_clause(
+            plan,
+            &spec.alias,
+            aggregate_expr,
+        ));
+    }
+    sql.push_str(&format!("\nLIMIT {} OFFSET {}", plan.limit, plan.offset));
+
+    Ok(CpuStatsSql { sql, binds })
+}
+
+fn build_ungrouped_stats_order_clause(
+    plan: &QueryPlan,
+    alias: &str,
+    aggregate_expr: &str,
+) -> String {
+    if plan.order.is_empty() {
+        return String::new();
+    }
+
+    let mut parts = Vec::new();
+    for clause in &plan.order {
+        if !clause.field.eq_ignore_ascii_case(alias) {
+            continue;
+        }
+
+        let dir = match clause.direction {
+            OrderDirection::Asc => "ASC",
+            OrderDirection::Desc => "DESC",
+        };
+        parts.push(format!("{aggregate_expr} {dir}"));
+    }
+
+    if parts.is_empty() {
+        String::new()
+    } else {
+        format!("\nORDER BY {}", parts.join(", "))
+    }
+}
+
+fn build_stats_order_clause(plan: &QueryPlan, alias: &str, aggregate_expr: &str) -> String {
+    if plan.order.is_empty() {
+        return format!("\nORDER BY {aggregate_expr} DESC");
+    }
+
+    let mut parts = Vec::new();
+    for clause in &plan.order {
+        let column = if clause.field.eq_ignore_ascii_case(alias) {
+            aggregate_expr
+        } else if clause.field.eq_ignore_ascii_case("device_id") {
+            "device_id"
+        } else {
+            continue;
+        };
+
+        let dir = match clause.direction {
+            OrderDirection::Asc => "ASC",
+            OrderDirection::Desc => "DESC",
+        };
+        parts.push(format!("{column} {dir}"));
+    }
+
+    if parts.is_empty() {
+        format!("\nORDER BY {aggregate_expr} DESC")
+    } else {
+        format!("\nORDER BY {}", parts.join(", "))
+    }
+}
+
+fn build_stats_filter_clause(
+    filter: &Filter,
+    cagg_mode: bool,
+) -> Result<Option<(String, Vec<SqlBindValue>)>> {
+    if cagg_mode {
+        return match filter.field.as_str() {
+            "host_id" => Ok(Some(build_text_clause("host_id", filter)?)),
+            "device_id" => Ok(Some(build_text_clause("device_id", filter)?)),
+            _ => Ok(None),
+        };
+    }
+
+    match filter.field.as_str() {
+        "gateway_id" => Ok(Some(build_text_clause("gateway_id", filter)?)),
+        "agent_id" => Ok(Some(build_text_clause("agent_id", filter)?)),
+        "host_id" => Ok(Some(build_text_clause("host_id", filter)?)),
+        "device_id" => Ok(Some(build_text_clause("device_id", filter)?)),
+        "partition" => Ok(Some(build_text_clause("partition", filter)?)),
+        "cluster" => Ok(Some(build_text_clause("cluster", filter)?)),
+        "label" => Ok(Some(build_text_clause("label", filter)?)),
+        "core_id" => Ok(Some(build_numeric_clause("core_id", filter, true)?)),
+        "usage_percent" => Ok(Some(build_numeric_clause("usage_percent", filter, false)?)),
+        "frequency_hz" => Ok(Some(build_numeric_clause("frequency_hz", filter, false)?)),
+        _ => Ok(None),
+    }
+}
+
+fn should_route_stats_to_cagg(plan: &QueryPlan) -> bool {
+    if !super::should_route_plan_to_hourly_cagg(plan) {
+        return false;
+    }
+
+    plan.filters
+        .iter()
+        .all(|filter| matches!(filter.field.as_str(), "device_id" | "host_id"))
+}
+
+fn build_text_clause(column: &str, filter: &Filter) -> Result<(String, Vec<SqlBindValue>)> {
+    let mut binds = Vec::new();
+    let clause = match filter.op {
+        FilterOp::Eq => {
+            binds.push(SqlBindValue::Text(filter.value.as_scalar()?.to_string()));
+            format!("{column} = ?")
+        }
+        FilterOp::NotEq => {
+            binds.push(SqlBindValue::Text(filter.value.as_scalar()?.to_string()));
+            format!("{column} <> ?")
+        }
+        FilterOp::Like => {
+            binds.push(SqlBindValue::Text(filter.value.as_scalar()?.to_string()));
+            format!("{column} ILIKE ?")
+        }
+        FilterOp::NotLike => {
+            binds.push(SqlBindValue::Text(filter.value.as_scalar()?.to_string()));
+            format!("NOT ({column} ILIKE ?)")
+        }
+        FilterOp::In => {
+            let values = filter.value.as_list()?.to_vec();
+            if values.is_empty() {
+                return Ok(("1=0".to_string(), Vec::new()));
+            }
+            binds.push(SqlBindValue::TextArray(values));
+            format!("{column} = ANY(?)")
+        }
+        FilterOp::NotIn => {
+            let values = filter.value.as_list()?.to_vec();
+            if values.is_empty() {
+                return Ok(("1=1".to_string(), Vec::new()));
+            }
+            binds.push(SqlBindValue::TextArray(values));
+            format!("{column} <> ALL(?)")
+        }
+        _ => {
+            return Err(ServiceError::InvalidRequest(format!(
+                "text filter {column} does not support operator {:?}",
+                filter.op
+            )));
+        }
+    };
+    Ok((clause, binds))
+}
+
+fn build_numeric_clause(
+    column: &str,
+    filter: &Filter,
+    integer: bool,
+) -> Result<(String, Vec<SqlBindValue>)> {
+    let mut binds = Vec::new();
+    let clause = match filter.op {
+        FilterOp::Eq => {
+            if integer {
+                binds.push(SqlBindValue::Int(parse_i32(filter.value.as_scalar()?)?));
+            } else {
+                binds.push(SqlBindValue::Float(parse_f64(filter.value.as_scalar()?)?));
+            }
+            format!("{column} = ?")
+        }
+        FilterOp::NotEq => {
+            if integer {
+                binds.push(SqlBindValue::Int(parse_i32(filter.value.as_scalar()?)?));
+            } else {
+                binds.push(SqlBindValue::Float(parse_f64(filter.value.as_scalar()?)?));
+            }
+            format!("{column} <> ?")
+        }
+        FilterOp::Gt => {
+            if integer {
+                binds.push(SqlBindValue::Int(parse_i32(filter.value.as_scalar()?)?));
+            } else {
+                binds.push(SqlBindValue::Float(parse_f64(filter.value.as_scalar()?)?));
+            }
+            format!("{column} > ?")
+        }
+        FilterOp::Gte => {
+            if integer {
+                binds.push(SqlBindValue::Int(parse_i32(filter.value.as_scalar()?)?));
+            } else {
+                binds.push(SqlBindValue::Float(parse_f64(filter.value.as_scalar()?)?));
+            }
+            format!("{column} >= ?")
+        }
+        FilterOp::Lt => {
+            if integer {
+                binds.push(SqlBindValue::Int(parse_i32(filter.value.as_scalar()?)?));
+            } else {
+                binds.push(SqlBindValue::Float(parse_f64(filter.value.as_scalar()?)?));
+            }
+            format!("{column} < ?")
+        }
+        FilterOp::Lte => {
+            if integer {
+                binds.push(SqlBindValue::Int(parse_i32(filter.value.as_scalar()?)?));
+            } else {
+                binds.push(SqlBindValue::Float(parse_f64(filter.value.as_scalar()?)?));
+            }
+            format!("{column} <= ?")
+        }
+        _ => {
+            return Err(ServiceError::InvalidRequest(format!(
+                "{column} filter only supports equality and range comparisons"
+            )));
+        }
+    };
+
+    Ok((clause, binds))
+}
+
+fn parse_stats_spec(raw: Option<&str>) -> Result<Option<CpuStatsSpec>> {
+    let stats_raw = match raw {
+        Some(value) if !value.trim().is_empty() => value.trim(),
+        _ => return Ok(None),
+    };
+
+    if stats_raw.contains(',') {
+        return Err(ServiceError::InvalidRequest(
+            "cpu metrics stats only support a single expression".into(),
+        ));
+    }
+
+    let (expr_segment, group_by_device_id) = match split_group_clause(stats_raw) {
+        Some((expr_segment, group_segment)) => {
+            if !group_segment.eq_ignore_ascii_case("device_id") {
+                return Err(ServiceError::InvalidRequest(
+                    "cpu metrics stats only support grouping by device_id".into(),
+                ));
+            }
+            (expr_segment, true)
+        }
+        None => (stats_raw.to_string(), false),
+    };
+
+    let (expr, alias) = parse_expr_and_alias(&expr_segment)?;
+    let expr_lower = expr.trim().to_lowercase();
+
+    if !expr_lower.starts_with("avg(") || !expr_lower.ends_with(')') {
+        return Err(ServiceError::InvalidRequest(
+            "cpu metrics stats only support avg(usage_percent) expressions".into(),
+        ));
+    }
+
+    let column = expr_lower
+        .trim_start_matches("avg(")
+        .trim_end_matches(')')
+        .trim();
+
+    if column != "usage_percent" {
+        return Err(ServiceError::InvalidRequest(
+            "cpu metrics stats only support avg(usage_percent)".into(),
+        ));
+    }
+
+    Ok(Some(CpuStatsSpec {
+        alias,
+        group_by_device_id,
+    }))
+}
+
+fn parse_expr_and_alias(segment: &str) -> Result<(String, String)> {
+    let lower = segment.to_lowercase();
+    if lower.rfind(" as ").is_some() {
+        let (expr, alias_raw) = split_alias(segment)?;
+        let alias = sanitize_alias(alias_raw)?;
+        return Ok((expr, alias));
+    }
+
+    let expr = segment.trim().to_string();
+    if expr.is_empty() {
+        return Err(ServiceError::InvalidRequest(
+            "stats expression must not be empty".into(),
+        ));
+    }
+
+    // Alias is optional for cpu stats; default to the aggregate+field name.
+    Ok((expr, "avg_usage_percent".to_string()))
+}
+
+fn split_group_clause(raw: &str) -> Option<(String, String)> {
+    let lower = raw.to_lowercase();
+    if let Some(idx) = lower.rfind(" by ") {
+        let left = raw[..idx].trim().to_string();
+        let right = raw[idx + 4..]
+            .trim()
+            .trim_matches('"')
+            .trim_matches('\'')
+            .to_string();
+        if left.is_empty() || right.is_empty() {
+            None
+        } else {
+            Some((left, right))
+        }
+    } else {
+        None
+    }
+}
+
+fn split_alias(segment: &str) -> Result<(String, String)> {
+    let lower = segment.to_lowercase();
+    if let Some(idx) = lower.rfind(" as ") {
+        let expr = segment[..idx].trim().to_string();
+        let alias = segment[idx + 4..]
+            .trim()
+            .trim_matches('"')
+            .trim_matches('\'')
+            .to_string();
+        if expr.is_empty() || alias.is_empty() {
+            return Err(ServiceError::InvalidRequest(
+                "stats expression must include an alias".into(),
+            ));
+        }
+        Ok((expr, alias))
+    } else {
+        Err(ServiceError::InvalidRequest(
+            "stats expression must include an alias".into(),
+        ))
+    }
+}
+
+fn sanitize_alias(raw: String) -> Result<String> {
+    let alias = raw.trim().to_lowercase();
+    if alias.is_empty()
+        || alias
+            .chars()
+            .any(|ch| !ch.is_ascii_alphanumeric() && ch != '_')
+    {
+        return Err(ServiceError::InvalidRequest(
+            "stats alias must be alphanumeric".into(),
+        ));
+    }
+    Ok(alias)
+}
+
+fn parse_i32(raw: &str) -> Result<i32> {
+    raw.parse::<i32>()
+        .map_err(|_| ServiceError::InvalidRequest("value must be an integer".into()))
+}
+
+fn parse_f64(raw: &str) -> Result<f64> {
+    raw.parse::<f64>()
+        .map_err(|_| ServiceError::InvalidRequest("value must be numeric".into()))
+}
+
+fn rewrite_placeholders(sql: &str) -> String {
+    let mut rewritten = String::with_capacity(sql.len());
+    let mut index = 1;
+    for ch in sql.chars() {
+        if ch == '?' {
+            rewritten.push('$');
+            rewritten.push_str(&index.to_string());
+            index += 1;
+        } else {
+            rewritten.push(ch);
+        }
+    }
+    rewritten
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser::{Entity, Filter, FilterOp, FilterValue, OrderClause, OrderDirection};
+    use chrono::{Duration as ChronoDuration, TimeZone, Utc};
+
+    #[test]
+    fn stats_query_matches_cpu_language_reference() {
+        let plan = stats_plan(
+            r#"avg(usage_percent) as avg_cpu by device_id"#,
+            "demo-partition",
+        );
+        let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))
+            .unwrap()
+            .unwrap();
+        assert_eq!(spec.alias, "avg_cpu");
+        assert!(spec.group_by_device_id);
+
+        let sql = build_stats_query(&plan, &spec).expect("stats SQL should build");
+        assert!(
+            sql.sql.contains("AVG(usage_percent)")
+                && sql.sql.contains("GROUP BY device_id")
+                && sql.sql.contains("'avg_cpu'")
+                && sql.sql.contains("jsonb_build_object('device_id'"),
+            "unexpected stats SQL: {}",
+            sql.sql
+        );
+        assert_eq!(sql.binds.len(), 3, "expected time range + filter binds");
+    }
+
+    #[test]
+    fn stats_query_allows_missing_alias() {
+        let plan = stats_plan("avg(usage_percent) by device_id", "demo-partition");
+        let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))
+            .unwrap()
+            .unwrap();
+        assert_eq!(spec.alias, "avg_usage_percent");
+        assert!(spec.group_by_device_id);
+    }
+
+    #[test]
+    fn stats_query_supports_ungrouped_cpu_aggregate() {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::hours(7);
+        let plan = QueryPlan {
+            entity: Entity::CpuMetrics,
+            filters: vec![],
+            order: vec![OrderClause {
+                field: "avg_usage".into(),
+                direction: OrderDirection::Desc,
+            }],
+            limit: 100,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: Some(crate::parser::StatsSpec::from_raw(
+                "avg(usage_percent) as avg_usage",
+            )),
+            downsample: None,
+            rollup_stats: None,
+            other: false,
+            include_deleted: false,
+        };
+
+        let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))
+            .unwrap()
+            .unwrap();
+        assert!(!spec.group_by_device_id);
+
+        let sql = build_cagg_stats_query(&plan, &spec).expect("cagg stats SQL should build");
+        assert!(
+            sql.sql.contains("FROM cpu_metrics_hourly")
+                && sql.sql.contains("jsonb_build_object('avg_usage'")
+                && !sql.sql.contains("GROUP BY device_id"),
+            "unexpected ungrouped cagg stats SQL: {}",
+            sql.sql
+        );
+    }
+
+    #[test]
+    fn stats_query_uses_hourly_cagg_for_large_windows() {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::hours(7);
+        let plan = QueryPlan {
+            entity: Entity::CpuMetrics,
+            filters: vec![Filter {
+                field: "device_id".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar("dev-1".to_string()),
+            }],
+            order: vec![OrderClause {
+                field: "avg_cpu".into(),
+                direction: OrderDirection::Desc,
+            }],
+            limit: 100,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: Some(crate::parser::StatsSpec::from_raw(
+                "avg(usage_percent) as avg_cpu by device_id",
+            )),
+            downsample: None,
+            rollup_stats: None,
+            other: false,
+            include_deleted: false,
+        };
+
+        let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))
+            .unwrap()
+            .unwrap();
+        let sql = build_cagg_stats_query(&plan, &spec).expect("cagg stats SQL should build");
+        assert!(
+            sql.sql.contains("FROM cpu_metrics_hourly")
+                && sql.sql.contains("avg_usage_percent")
+                && sql.sql.contains("sample_count"),
+            "unexpected cagg stats SQL: {}",
+            sql.sql
+        );
+        assert!(should_route_stats_to_cagg(&plan));
+    }
+
+    fn stats_plan(stats: &str, partition: &str) -> QueryPlan {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::hours(1);
+        QueryPlan {
+            entity: Entity::CpuMetrics,
+            filters: vec![Filter {
+                field: "partition".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar(partition.to_string()),
+            }],
+            order: vec![OrderClause {
+                field: "avg_cpu".into(),
+                direction: OrderDirection::Desc,
+            }],
+            limit: 100,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: Some(crate::parser::StatsSpec::from_raw(stats)),
+            downsample: None,
+            rollup_stats: None,
+            other: false,
+            include_deleted: false,
+        }
+    }
+
+    #[test]
+    fn unknown_filter_field_returns_error() {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::hours(1);
+        let plan = QueryPlan {
+            entity: Entity::CpuMetrics,
+            filters: vec![Filter {
+                field: "unknown_field".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar("test".to_string()),
+            }],
+            order: Vec::new(),
+            limit: 100,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: None,
+            downsample: None,
+            rollup_stats: None,
+            other: false,
+            include_deleted: false,
+        };
+
+        let result = build_query(&plan);
+        match result {
+            Err(err) => {
+                assert!(
+                    err.to_string().contains("unsupported filter field"),
+                    "error should mention unsupported filter field: {}",
+                    err
+                );
+            }
+            Ok(_) => panic!("expected error for unknown filter field"),
+        }
+    }
+}

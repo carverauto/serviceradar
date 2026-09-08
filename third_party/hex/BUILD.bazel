@@ -1,0 +1,102 @@
+load("@rules_elixir//:hex_stubs.bzl", "hex_stubs", "hex_stubs_test", "hex_stubs_write")
+
+# BUILD stubs for the Hex closure, compiled by Bazel's own Elixir toolchain. This is what
+# replaces `mix deps.get` + `mix deps.compile`: each package becomes a real Bazel target
+# producing ErlangAppInfo.
+#
+# Everything here except bundlex.BUILD is generated -- see :write below. The closure itself is
+# declared from hex_packages.bzl by //third_party/hex:extensions.bzl, which the root
+# MODULE.bazel loads as a single module extension.
+#
+# The generator and its rules live in rules_elixir; only this repository's dependency POLICY
+# is here. extensions.bzl cannot move: repositories a module extension creates resolve
+# apparent repo names through the repo mapping of the module that DEFINES the extension, so
+# the @serviceradar labels below only resolve while it is declared from this module.
+exports_files(glob(["*.BUILD"]))
+
+# Every project's lock. All of them together, because a Bazel repository name is global:
+# the closure has to be resolved once across the whole workspace, not per project.
+MIX_LOCKS = [
+    "//elixir/datasvc:mix.lock",
+    "//elixir/palisade:mix.lock",
+    "//elixir/serviceradar_agent_gateway:mix.lock",
+    "//elixir/serviceradar_core:mix.lock",
+    "//elixir/serviceradar_core_elx:mix.lock",
+    "//elixir/serviceradar_srql:mix.lock",
+    "//elixir/web-ng:mix.lock",
+]
+
+# Hand-written, because the generator cannot produce it: bundlex is pinned from git rather
+# than resolved from hex.pm, so it is never a mix.lock entry.
+HAND_WRITTEN = ["bundlex.BUILD"]
+
+hex_stubs(
+    name = "stubs",
+    drop_edges = {
+        # A mix.lock records what the resolver saw and nothing about WHY -- no MIX_ENV, no
+        # `only:` -- so a dependency some project pulls in for :test alone is indistinguishable
+        # here from a runtime one and would be emitted as a hard edge. `optional: true` cannot
+        # stand in for that judgement either; plenty of optional deps are genuinely used.
+        #
+        # Not merely dead weight in a release: lazy_html builds through cc_precompiler, which
+        # DOWNLOADS a prebuilt .so from GitHub releases keyed on the BUILD machine's
+        # architecture instead of compiling one. It ignores the target platform completely and
+        # put an x86-64 liblazy_html.so inside the linux/arm64 agent-gateway release. Nothing
+        # in the build objected; it was found by reading the ELF machine of every artifact in
+        # the tarball. Anything else reaching a release through cc_precompiler (adbc is next)
+        # has the same defect.
+        #
+        # Drops the EDGE, not the package: @hexpm//:lazy_html is still generated, and web-ng's
+        # test target still reaches it through WEB_NG_DEV_DEPS -- the env that actually uses
+        # it, since Phoenix.LiveViewTest is its only consumer.
+        "phoenix_live_view": ["lazy_html"],
+    },
+    extra_mix_attrs = [
+        # A dependency reading a key with Application.compile_env/3 records what it saw, and
+        # the release refuses to boot if that disagrees with the sys.config it applies. Each
+        # package compiles in its own sandbox, so the root config is handed to it explicitly.
+        "extra_config = HEX_COMPILE_ENV_CONFIG,",
+    ],
+    extra_mix_loads = {
+        "@serviceradar//build:hex_compile_env.bzl": ["HEX_COMPILE_ENV_CONFIG"],
+    },
+    locks = MIX_LOCKS,
+    path_deps = {
+        # Not a path dep, but the same problem: bundlex is pinned from git, so it is never a
+        # Hex lock entry and the edge to it would be dropped. It is declared by hand as a
+        # git_pkg in :extensions.bzl, which puts it in the same extension as the fetched
+        # packages -- that is why a sibling stub can name it directly.
+        "bundlex": "@hex_bundlex//:erlang_app",
+        # First-party projects that override a Hex dependency via `path:` in mix.exs never
+        # appear as lock entries, but Hex packages still declare an edge to them (gnat ->
+        # connection). Without this the edge is dropped and the dependent fails with "module
+        # Connection is not loaded", which reads as a missing dep rather than a shadowed one.
+        "connection": "@serviceradar//third_party/hex_vendored/connection:erlang_app",
+        "elixir_uuid": "@serviceradar//third_party/hex_vendored/elixir_uuid:erlang_app",
+        "opentelemetry_oban": "@serviceradar//third_party/hex_vendored/opentelemetry_oban:erlang_app",
+        "serviceradar_srql": "@serviceradar//elixir/serviceradar_srql:erlang_app",
+    },
+)
+
+# The gate that makes the generated tree trustworthy. Without it, a mix.lock bump that nobody
+# regenerated leaves Bazel building an older closure than Mix resolves -- which is exactly how
+# four packages silently drifted before this existed.
+hex_stubs_test(
+    name = "gen_test",
+    size = "small",
+    checked_in = ["hex_packages.bzl"] + [
+        f
+        for f in glob(["*.BUILD"])
+        if f not in HAND_WRITTEN
+    ],
+    stubs = ":stubs",
+    write_target = "//third_party/hex:write",
+)
+
+# manual: a target that mutates the source tree must not be reachable from a wildcard build.
+hex_stubs_write(
+    name = "write",
+    dest_package = "third_party/hex",
+    stubs = ":stubs",
+    tags = ["manual"],
+)

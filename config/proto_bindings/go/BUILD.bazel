@@ -1,0 +1,48 @@
+# gazelle:ignore
+
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("@aspect_bazel_lib//lib:write_source_files.bzl", "write_source_files")
+
+# Checked-in Go bindings, retained for non-Bazel tooling (go test, gopls, IDEs), matching the
+# convention in //proto.
+#
+# The Bazel build does NOT consume these: it generates from //config/proto via
+# go_proto_library, so a Bazel build cannot silently use a stale checked-in copy.
+# //config/proto:binding_drift_go_{config,rules}_test are the drift guards, matching the
+# Elixir bindings' guards. Regenerate with //config/proto:config_go.
+
+go_library(
+    name = "configpb",
+    srcs = [
+        "config.pb.go",
+        "rules.pb.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/config/proto_bindings/go",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@org_golang_google_protobuf//reflect/protoreflect",
+        "@org_golang_google_protobuf//runtime/protoimpl",
+    ],
+)
+
+exports_files([
+    "config.pb.go",
+    "rules.pb.go",
+])
+
+# Write-back for the committed copies of generated artifacts.
+#
+# The copies exist so `go build` / `mix` reach them without Bazel, and the diff test beside them
+# makes the two impossible to disagree. Refreshing them is THIS target's job: nobody reaches into
+# bazel-out, which is a per-configuration path the tree deliberately hides (//.bazelrc sets
+# --experimental_convenience_symlinks=clean), so any absolute path found by hand encodes the
+# platform and compilation mode it happened to be built with.
+#
+#     bazel run //config/proto_bindings/go:update_bindings
+write_source_files(
+    name = "update_bindings",
+    files = {
+        "config.pb.go": "//config/proto:config/proto/config.pb.go",
+        "rules.pb.go": "//config/proto:config/proto/rules.pb.go",
+    },
+)

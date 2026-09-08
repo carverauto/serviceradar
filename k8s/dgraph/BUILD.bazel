@@ -1,0 +1,14 @@
+# Exported so //k8s/dgraph/tests can declare them as inputs. Without a package here these
+# files belong to the repository root package, and the test would reach them by path rather
+# than as a dependency -- meaning an edit to a certificate would not re-run the test.
+package(default_visibility = ["//k8s/dgraph:__subpackages__"])
+
+exports_files([
+    "deploy-dgraph.sh",
+    "ci/values.yaml",
+    "ci/certificate.yaml",
+    "ci/httproute-ca.yaml",
+    "ci/namespace.yaml",
+    "demo/values.yaml",
+    "demo/certificate.yaml",
+])

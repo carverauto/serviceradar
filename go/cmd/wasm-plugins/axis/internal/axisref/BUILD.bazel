@@ -1,0 +1,29 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+filegroup(
+    name = "srcs",
+    srcs = ["vapix_parsers.go"],
+    visibility = [
+        "//build/wasm_plugins:__pkg__",
+        "//go/cmd/wasm-plugins/axis:__pkg__",
+    ],
+)
+
+go_library(
+    name = "axisref",
+    srcs = ["vapix_parsers.go"],
+    importpath = "github.com/carverauto/serviceradar/go/cmd/wasm-plugins/axis/internal/axisref",
+    visibility = ["//go/cmd/wasm-plugins/axis:__subpackages__"],
+)
+
+go_test(
+    name = "axisref_test",
+    srcs = [
+        "compatibility_test.go",
+        "vapix_parsers_test.go",
+    ],
+    data = [
+        "//go/cmd/wasm-plugins/axis:EXTRACTION_MANIFEST.md",
+    ],
+    embed = [":axisref"],
+)

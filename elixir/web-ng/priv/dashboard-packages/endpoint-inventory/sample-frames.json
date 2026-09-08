@@ -1,0 +1,95 @@
+[
+  {
+    "id": "scan_status",
+    "query": "in:endpoint_inventory_status current:true sort:last_scan_at:desc limit:200",
+    "encoding": "json_rows",
+    "status": "ok",
+    "results": [
+      {
+        "scan_id": "scan-alpha",
+        "device_uid": "sr:device-alpha",
+        "agent_id": "agent-k8s-cp3-worker1",
+        "state": "completed",
+        "coverage_state": "complete",
+        "freshness": "fresh",
+        "package_count": 456,
+        "last_scan_at": "2026-06-10T14:42:00Z",
+        "last_successful_scan_at": "2026-06-10T14:42:00Z",
+        "metadata": {"hostname": "k8s-cp3-worker1"}
+      },
+      {
+        "scan_id": "scan-beta",
+        "device_uid": "sr:device-delta",
+        "agent_id": "ns03-pdns",
+        "state": "completed",
+        "coverage_state": "partial",
+        "freshness": "stale",
+        "package_count": 211,
+        "last_scan_at": "2026-06-08T20:10:00Z",
+        "last_successful_scan_at": "2026-06-08T20:10:00Z",
+        "metadata": {"hostname": "ns03"}
+      }
+    ]
+  },
+  {
+    "id": "package_rollup",
+    "query": "in:endpoint_packages rollup_stats:current_counts limit:60",
+    "encoding": "json_rows",
+    "status": "ok",
+    "results": [
+      {
+        "package_manager": "deb",
+        "ecosystem": "debian",
+        "name": "openssl",
+        "version": "3.0.13",
+        "host_count": 18,
+        "canonical_purl": "pkg:deb/debian/openssl@3.0.13",
+        "cpes": ["cpe:2.3:a:openssl:openssl:3.0.13:*:*:*:*:*:*:*"],
+        "last_seen_at": "2026-06-10T14:42:00Z"
+      },
+      {
+        "package_manager": "deb",
+        "ecosystem": "debian",
+        "name": "nginx",
+        "version": "1.24.0",
+        "host_count": 5,
+        "canonical_purl": "pkg:deb/debian/nginx@1.24.0",
+        "cpes": ["cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*"],
+        "last_seen_at": "2026-06-10T14:38:00Z"
+      }
+    ]
+  },
+  {
+    "id": "cpe_rollup",
+    "query": "in:endpoint_packages rollup_stats:current_cpe_counts limit:60",
+    "encoding": "json_rows",
+    "status": "ok",
+    "results": [
+      {
+        "cpe": "cpe:2.3:a:openssl:openssl:3.0.13:*:*:*:*:*:*:*",
+        "host_count": 18,
+        "first_seen_at": "2026-06-08T10:00:00Z",
+        "last_seen_at": "2026-06-10T14:42:00Z"
+      }
+    ]
+  },
+  {
+    "id": "recent_packages",
+    "query": "in:endpoint_packages current:true sort:updated_at:desc limit:120",
+    "encoding": "json_rows",
+    "status": "ok",
+    "results": [
+      {
+        "device_uid": "sr:device-alpha",
+        "agent_id": "agent-k8s-cp3-worker1",
+        "package_manager": "deb",
+        "name": "openssl",
+        "version": "3.0.13",
+        "architecture": "amd64",
+        "canonical_purl": "pkg:deb/debian/openssl@3.0.13",
+        "cpes": ["cpe:2.3:a:openssl:openssl:3.0.13:*:*:*:*:*:*:*"],
+        "updated_at": "2026-06-10T14:42:00Z"
+      }
+    ]
+  }
+]

@@ -1,0 +1,32 @@
+{{- if .Values.flowCollector.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: serviceradar-flow-collector-bootstrap-config
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: flow-collector-bootstrap
+  annotations:
+    # A dedicated, hook-scoped copy of flow-collector.json for the bootstrap
+    # Job (flow-collector-bootstrap-job.yaml, hook-weight -5) to mount.
+    #
+    # The Job cannot mount the ordinary serviceradar-flow-collector-config
+    # ConfigMap (flow-collector.yaml) directly: pre-install hooks run before
+    # ANY ordinary (non-hook) resource is created, so on a fresh `helm
+    # install` that ConfigMap does not exist yet when this hook fires, and
+    # the Job would fail to start. Giving *this* ConfigMap a more negative
+    # hook-weight than the Job guarantees it exists first, on both install
+    # and upgrade.
+    #
+    # Safe to hook-manage (unlike the data PVC the Job also mounts): this
+    # holds no state across releases, only the current rendered config, so
+    # being deleted-and-recreated on every hook run (Helm's default
+    # behaviour for a hook resource, see hook-delete-policy below) is a
+    # no-op change in content, never a loss.
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-6"
+    "helm.sh/hook-delete-policy": before-hook-creation
+data:
+  flow-collector.json: |
+    {{- include "serviceradar.flowCollectorConfigJSON" . | nindent 4 }}
+{{- end }}

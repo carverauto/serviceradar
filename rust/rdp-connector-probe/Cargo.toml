@@ -1,0 +1,47 @@
+[package]
+name = "serviceradar-rdp-connector-probe"
+version = "0.1.0"
+edition = "2024"
+
+authors = ["ServiceRadar Team"]
+description = "Review-only isolated IronRDP connector dependency probe"
+license = "Apache-2.0"
+publish = false
+
+[workspace]
+resolver = "2"
+
+[dependencies]
+# audited 2026-07-13; exact-pinned with the maintained connector family.
+ironrdp-blocking = { version = "=0.10.0", default-features = false }
+# audited 2026-07-13; moves CredSSP/SSPI off yanked spin 0.9.8. Connector 0.10
+# still forces sspi/scard at build time; ServiceRadar rejects smart-card policy at runtime.
+ironrdp-connector = { version = "=0.10.0", default-features = false }
+# audited 2026-07-13; exact-pinned common types for the connector family.
+ironrdp-core = { version = "=0.2.1", default-features = false, features = ["alloc"] }
+# audited 2026-07-13; exact-pinned graphics primitives for session 0.11.
+ironrdp-graphics = { version = "=0.9.0", default-features = false }
+# audited 2026-07-13; exact-pinned PDU implementation for connector 0.10.
+ironrdp-pdu = { version = "=0.9.0", default-features = false, features = ["std"] }
+# audited 2026-07-13; exact-pinned active-session state machine.
+ironrdp-session = { version = "=0.11.0", default-features = false }
+rustls = { version = "0.23.40", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-native-certs = "0.8.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+x509-cert = { version = "0.2", default-features = false, features = ["std"] }
+zeroize = { version = "1", default-features = false, features = ["alloc"] }
+
+[dev-dependencies]
+base64 = "0.22"
+
+# Crate build configuration for this hub, moved out of //MODULE.bazel. See the same
+# table in the root Cargo.toml for why it lives here.
+
+# aws-lc-sys is never compiled: both rustls consumers here -- the probe and sspi -- pin
+# ring/std/tls12 with default-features off, so aws-lc-rs is never enabled. rules_rs warns
+# anyway because it checks every lockfile package rather than what actually builds;
+# adopting its suggestion would add the @aws-lc module and a bindgen toolchain for zero
+# actions.
+[workspace.metadata.rules_rs.annotations."aws-lc-sys"]
+gen_build_script = "on"

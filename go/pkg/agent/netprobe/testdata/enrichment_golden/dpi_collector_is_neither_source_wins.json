@@ -1,0 +1,21 @@
+{
+  "ip": "10.20.30.61",
+  "metadata": {
+    "_alias_collector_ip": "10.20.30.40",
+    "_alias_last_seen_at": "2026-08-23T15:46:40Z",
+    "_alias_last_seen_ip": "10.20.30.61",
+    "agent_id": "agent-synthetic-1",
+    "discovery_source": "passive-netprobe",
+    "dpi.interface": "",
+    "dpi.observed_at": "2026-08-23T15:46:40Z",
+    "dpi.profile_id": "",
+    "dpi.protocol": "tls",
+    "dpi.source": "passive-netprobe",
+    "dpi.tls.confidence": "0.000",
+    "dpi.tls.count": "1",
+    "dpi.tls.last_observed_at": "2026-08-23T15:46:40Z",
+    "gateway_id": "gateway-synthetic-1",
+    "ip_alias:10.20.30.61": "2026-08-23T15:46:40Z",
+    "source": "passive-netprobe"
+  }
+}

@@ -1,0 +1,398 @@
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:rust_binary.bzl", "rust_binary")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+load(
+    "//build:integration_shards.bzl",
+    "LARGE_INGESTION_DB_SHARD",
+    "integration_lane_names",
+)
+load("//build:integration_tests.bzl", "requires_shared_fixture")
+
+# Declared inputs every target that opens a connection needs.
+#
+# Loading still validates, but the rule set is no longer among these: it is embedded in
+# //config/manager_config/rust, because it varies by nothing and every caller having to supply
+# it was what kept services from using ConfigManager at all. The committed instances stay --
+# those DO vary, by environment. The run id names the database the step may touch.
+#
+# Hoisted because it was previously repeated per target and had already drifted: provision_db
+# carried the rule set without the instances, and the per-shard variants carried neither.
+FIXTURE_DATA = [
+    "//build:run_id_file",
+    "//config/environments:ci_binpb",
+]
+
+# The extra input a target needs before it may WRITE the shared template `sr_core_template`.
+#
+# Only the two targets that do declare it, so the rest cannot -- `require_template_authority`
+# fails closed on a missing runfile, which makes "did not declare the input" and "was not given
+# authority" the same answer. It sits beside the run id because it decides the same kind of
+# thing: WHICH database a step may touch, from the build graph rather than from ambient
+# environment, where two steps of one lifecycle could disagree.
+TEMPLATE_WRITE_DATA = ["//build:template_authority_file"]
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files(["registry.sql"])
+
+filegroup(
+    name = "schema_template_construction_inputs",
+    srcs = [
+        "BUILD.bazel",
+        "Cargo.toml",
+        "registry.sql",
+        "src/bin/generation.rs",
+        "src/config/mod.rs",
+        "src/generation.rs",
+        "src/lib.rs",
+    ],
+)
+
+filegroup(
+    name = "srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "bazel-*",
+            "target/**",
+        ],
+    ),
+)
+
+rust_library(
+    name = "serviceradar_integration_db",
+    srcs = glob(["src/**/*.rs"]),
+    compile_data = ["registry.sql"],
+    crate_name = "serviceradar_integration_db",
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + [
+        "//config/manager_config/rust:manager",
+        "//config/manager_secret/rust:secret_manager",
+        "//config/proto_bindings/rust:config_schema",
+        "//rust/srql:srql_lib",
+    ],
+)
+
+# Pure logic: quoting and the disposable-name guard. No database, so this one is a normal
+# cached test and runs in any wildcard. URL repointing is gone -- the DSN is assembled from
+# typed fields rather than parsed and rewritten.
+rust_test(
+    name = "serviceradar_integration_db_test",
+    compile_data = ["registry.sql"],
+    crate = ":serviceradar_integration_db",
+    # The one declared input this cached test needs: it checks that the authority marker is
+    # readable from the path the write targets look it up by, which is the failure a fail-closed
+    # gate cannot otherwise distinguish from working correctly.
+    data = TEMPLATE_WRITE_DATA,
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+        normal_dev = True,
+    ) + [
+        "//config/manager_config/rust:manager",
+        "//config/manager_secret/rust:secret_manager",
+        "//config/proto_bindings/rust:config_schema",
+        "//rust/srql:srql_lib",
+    ],
+)
+
+# The database lifecycle targets.
+#
+# `external` disables Bazel's test caching, which is not optional here: a cached "pass" would
+# mean a rerun provisions nothing and drops nothing, and the job would go green having done
+# neither. `manual` keeps them out of //... so an ordinary `bazel test` never points DDL at
+# the shared fixture.
+#
+# THERE IS DELIBERATELY NO `no-remote-exec` HERE ANY MORE -- but note that the TEST actions
+# are nonetheless pinned to the runner, by `--strategy=TestRunner=local` on the workflow's
+# invocations rather than by a tag here. An RBE executor cannot resolve the fixture hostname
+# ("failed to lookup address information: Name or service not known"), so a fully remote run
+# fails at step 1. `--strategy=` selects per mnemonic, so compiles stay remote and cached
+# while only the test binary moves; a tag cannot make that distinction, which is exactly why
+# it was removed (below).
+#
+# It was load-bearing once. The CA reached the test as a PATH -- PGSSLROOTCERT and friends,
+# written by scripts/ci/configure-srql-fixture.sh into ${RUNNER_TEMP} -- and --test_env forwards
+# the path, never the file, so an executor died with
+#
+#   FAILED: failed to open PGSSLROOTCERT
+#   Caused by: No such file or directory (os error 2)
+#
+# src/lib.rs ca_pem_from_env() now prefers SRQL_TEST_DATABASE_CA_CERT, which carries the PEM
+# CONTENT (//.bazelrc forwards it), and falls back to the path only for a developer pointing at
+# a local fixture. The tag outlived the reason for it by some margin.
+#
+# Keeping it was not free. Tags propagate from a *_test rule to its COMPILE actions, so rustc
+# ran wherever the client was: on the workflow runner that means `linker /usr/bin/gcc not found`
+# (the runner image has no compiler), and on a macOS workstation `cannot execute binary file`
+# (Exit 126, the process_wrapper is built for the Linux exec platform). Both were live failures.
+# It survived on CI only because remote CACHING still applied and the compile was always a hit --
+# which stopped being true the moment the cc toolchain changed and re-keyed every action.
+#
+# These read SERVICERADAR_ENV and nothing else: host, port, roles and TLS posture come from the
+# instance ConfigManager loads for that identity, and the password from the provider the same
+# identity selects.
+#
+# Sequencing lives in the workflow, because Bazel deliberately does not order tests:
+#   sweep_stale_dbs -> provision_base -> (elixir) migrate_run -> provision_db
+#     -> (elixir) integration_tests -> teardown_db
+#
+# The trunk action additionally advances the shared template ahead of that sequence, with its
+# own run id: prepare_template -> [reset_template] -> (elixir) migrate_template. No other
+# action writes to the template.
+#
+[
+    rust_test(
+        name = target,
+        size = "medium",
+        srcs = ["tests/{}_test.rs".format(target)],
+        crate_root = "tests/{}_test.rs".format(target),
+        # Loading validates (Decision 12), so the committed rule set is a declared input of
+        # anything that opens a connection -- not only of the targets that read migrations.
+        data = FIXTURE_DATA,
+        tags = [
+            "external",
+            "manual",
+        ],
+        target_compatible_with = requires_shared_fixture(),
+        deps = all_crate_deps(
+            cargo_only = True,
+            normal = True,
+            normal_dev = True,
+        ) + [
+            ":serviceradar_integration_db",
+            "//rust/srql:srql_lib",
+        ],
+    )
+    for target in [
+        "sweep_stale_dbs",
+        "teardown_db",
+    ]
+]
+
+# Split out of the list above because it alone reads the migration filenames: it refuses to
+# clone a template that is behind the migrations on disk, which would otherwise run the suite
+# against a schema that does not match the code under test.
+rust_test(
+    name = "provision_db",
+    size = "medium",
+    srcs = ["tests/provision_db_test.rs"],
+    crate_root = "tests/provision_db_test.rs",
+    data = FIXTURE_DATA + ["//elixir/serviceradar_core:migrations"],
+    # One database per integration lane, from the same .bzl that generates the Elixir lane
+    # targets, so the two name sets cannot drift.
+    #
+    # env, NOT args: libtest reads a bare argv entry as a test-name filter, so passing lane
+    # names as args matched no test, ran nothing and exited 0 -- green having provisioned
+    # nothing at all.
+    env = {"SERVICERADAR_TEST_DB_SHARDS": ",".join(integration_lane_names())},
+    tags = [
+        "external",
+        "manual",
+    ],
+    target_compatible_with = requires_shared_fixture(),
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+        normal_dev = True,
+    ) + [
+        ":serviceradar_integration_db",
+        "//rust/srql:srql_lib",
+    ],
+)
+
+# The source-separated release gate needs only its dedicated database. It deliberately does not
+# participate in integration_lane_names(), so ordinary provisioning remains exactly the frozen
+# async/serial lane set.
+rust_test(
+    name = "provision_db_large_ingestion",
+    size = "medium",
+    srcs = ["tests/provision_db_test.rs"],
+    crate_root = "tests/provision_db_test.rs",
+    data = FIXTURE_DATA + ["//elixir/serviceradar_core:migrations"],
+    env = {"SERVICERADAR_TEST_DB_SHARDS": LARGE_INGESTION_DB_SHARD},
+    tags = [
+        "external",
+        "manual",
+    ],
+    target_compatible_with = requires_shared_fixture(),
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+        normal_dev = True,
+    ) + [
+        ":serviceradar_integration_db",
+        "//rust/srql:srql_lib",
+    ],
+)
+
+# Focused developer targets clone only the lane that will run, instead of touching seven
+# additional databases. The lane list still comes from the same .bzl as the Elixir targets.
+[
+    rust_test(
+        name = "provision_db_{}".format(lane),
+        size = "medium",
+        srcs = ["tests/provision_db_test.rs"],
+        crate_root = "tests/provision_db_test.rs",
+        data = FIXTURE_DATA + ["//elixir/serviceradar_core:migrations"],
+        env = {"SERVICERADAR_TEST_DB_SHARDS": lane},
+        tags = [
+            "external",
+            "manual",
+        ],
+        target_compatible_with = requires_shared_fixture(),
+        deps = all_crate_deps(
+            cargo_only = True,
+            normal = True,
+            normal_dev = True,
+        ) + [
+            ":serviceradar_integration_db",
+            "//rust/srql:srql_lib",
+        ],
+    )
+    for lane in integration_lane_names()
+]
+
+# Creates the template if absent and reports whether it needs migrating.
+#
+# TRUNK ONLY, and refuses without --//build:template_authority=true rather than trusting that it
+# is named from the right action. Its caller is the action that triggers on a push to staging;
+# the pull-request lifecycle calls :provision_base instead. Advancing the shared template is a
+# write to state every branch reads, and only trunk's migrations belong in it -- see
+# src/template.rs for the incident that split these two apart.
+#
+# A binary rather than a test because it reports a human-readable migration status on stdout.
+# `bazel run` builds eligible actions remotely and launches the binary on the caller, which
+# branches on the `migration(s) pending` line without depending on a TestRunner placement strategy.
+rust_binary(
+    name = "prepare_template",
+    srcs = ["src/bin/prepare_template.rs"],
+    data = FIXTURE_DATA + TEMPLATE_WRITE_DATA + ["//elixir/serviceradar_core:migrations"],
+    tags = ["manual"],
+    target_compatible_with = requires_shared_fixture(),
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + [
+        ":serviceradar_integration_db",
+        "//rust/srql:srql_lib",
+    ],
+)
+
+# Creates this run's base database, and reports whether it still needs migrating.
+#
+# The step every lifecycle runs, trunk or not. It seeds sr_core_test_<run> from the shared
+# template when that template is a safe seed and from nothing when it is not, so a branch's own
+# migrations land on a per-run database instead of on state every other branch reads.
+#
+# A binary for the same reason as :prepare_template -- the caller branches on its stdout to
+# decide whether //elixir/serviceradar_core:migrate_run is worth the BEAM.
+rust_binary(
+    name = "provision_base",
+    srcs = ["src/bin/provision_base.rs"],
+    data = FIXTURE_DATA + ["//elixir/serviceradar_core:migrations"],
+    tags = ["manual"],
+    target_compatible_with = requires_shared_fixture(),
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + [
+        ":serviceradar_integration_db",
+        "//rust/srql:srql_lib",
+    ],
+)
+
+# Drops the shared template so the next trunk run rebuilds it.
+#
+# The recovery for a template that has diverged from trunk. Invoked automatically by the trunk
+# lifecycle when :prepare_template reports the template AHEAD, and by hand from a trunk checkout
+# otherwise. Never from a pull request: a branch must not be able to destroy state every other
+# branch reads, which --//build:template_authority makes a refusal rather than a rule.
+rust_binary(
+    name = "reset_template",
+    srcs = ["src/bin/reset_template.rs"],
+    data = FIXTURE_DATA + TEMPLATE_WRITE_DATA,
+    tags = ["manual"],
+    target_compatible_with = requires_shared_fixture(),
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + [
+        ":serviceradar_integration_db",
+        "//rust/srql:srql_lib",
+    ],
+)
+
+# Samples the shared fixture while the dedicated IntegrationBenchmark lifecycle runs. It is
+# manual so ordinary wildcards never connect to the fixture; BuildBuddy starts it explicitly
+# after fixture credentials have been materialized.
+rust_binary(
+    name = "observe_connections",
+    srcs = ["src/bin/observe_connections.rs"],
+    data = FIXTURE_DATA,
+    tags = ["manual"],
+    target_compatible_with = requires_shared_fixture(),
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + [
+        ":serviceradar_integration_db",
+        "//rust/srql:srql_lib",
+    ],
+)
+
+# Explicit opt-in keyed lifecycle. Keep legacy text prepare/provision callable during rollout.
+rust_test(
+    name = "generation_lifecycle_test",
+    size = "large",
+    srcs = ["tests/generation_lifecycle_test.rs"],
+    crate_root = "tests/generation_lifecycle_test.rs",
+    data = FIXTURE_DATA + [
+        "//build/schema_template:manifest",
+        "//build/schema_template:policy.json",
+    ],
+    tags = [
+        "external",
+        "integration_test",
+        "manual",
+    ],
+    target_compatible_with = requires_shared_fixture(),
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+        normal_dev = True,
+    ) + [":serviceradar_integration_db"],
+)
+
+[
+    rust_binary(
+        name = name,
+        srcs = ["src/bin/generation.rs"],
+        args = [operation],
+        data = FIXTURE_DATA + [
+            "//build/schema_template:manifest",
+            "//build/schema_template:policy.json",
+        ],
+        env = {"SERVICERADAR_TEST_DB_SHARDS": shards},
+        tags = ["manual"],
+        target_compatible_with = requires_shared_fixture(),
+        deps = all_crate_deps(
+            cargo_only = True,
+            normal = True,
+        ) + [":serviceradar_integration_db"],
+    )
+    for name, operation, shards in [
+        ("prepare_generation", "prepare", ""),
+        (
+            "provision_generation",
+            "clone",
+            ",".join(integration_lane_names()),
+        ),
+        ("provision_generation_large_ingestion", "clone", LARGE_INGESTION_DB_SHARD),
+        ("release_generation", "release", ""),
+        ("cleanup_generations", "cleanup", ""),
+    ]
+]

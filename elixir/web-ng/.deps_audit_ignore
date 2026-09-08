@@ -1,0 +1,81 @@
+# EEF-CVE-2026-53425 / Missing InResponseTo validation in Samly
+# EEF-CVE-2026-53424 / Missing one-time-use enforcement / SAML replay
+#
+# samly 1.4.0 is still the latest Hex release, and both advisories list
+# every release from 0.3.0 as affected, so there is no patched package
+# to upgrade to. hex.audit reports these as EEF-CVE ids (aka CVE-2026-53425
+# / CVE-2026-53424); no GHSA aliases are published.
+#
+# web-ng's live SAML ACS path is the custom controller/strategy, not
+# Samly.SPHandler:
+# - lib/serviceradar_web_ng_web/controllers/saml_controller.ex
+# - lib/serviceradar_web_ng_web/auth/saml_strategy.ex
+# That path validates signature, audience, recipient, issuer, and
+# assertion time window, plus a RelayState CSRF token. It does not
+# persist AuthnRequest IDs or compare InResponseTo, and it does not
+# record assertion IDs to reject replays. Keep this waiver until
+# upstream publishes a patched samly or those checks are added here.
+EEF-CVE-2026-53425
+EEF-CVE-2026-53424
+
+# GHSA-4g2h-vm7x-747c / esaml XXE
+#
+# web-ng does not rely on default external-entity expansion in the SAML flow.
+# Its local parsing paths explicitly disable external entities and DTD nodes:
+# - lib/serviceradar_web_ng_web/controllers/saml_controller.ex
+# - lib/serviceradar_web_ng_web/auth/saml_strategy.ex
+#
+# There is no newer Hex release than esaml 4.6.0 available to upgrade to at
+# this time, so we track the advisory here until upstream publishes a patched
+# package or the dependency is replaced.
+GHSA-4g2h-vm7x-747c
+
+# EEF-CVE-2026-53424 (CRITICAL) / EEF-CVE-2026-53425 (HIGH) / samly 1.4.0
+#
+# 53424 is Samly.Helper.decode_idp_auth_resp/3 never supplying esaml's
+# DuplicateFun, so bearer assertions can be replayed. 53425 is
+# Samly.SPHandler.validate_authresp/3 never checking InResponseTo against a
+# persisted AuthnRequest ID. web-ng's ACS is
+# ServiceRadarWebNGWeb.SAMLController, which does not call those functions.
+#
+# Hex has no release newer than 1.4.0; the advisories list every 0.3.0+ as
+# affected. Keep this waiver until upstream publishes a patched package or
+# samly is removed from this Mix project.
+EEF-CVE-2026-53424
+EEF-CVE-2026-53425
+
+# GHSA-rhv4-8758-jx7v / Decimal unbounded exponent DoS
+#
+# web-ng currently receives Decimal through shared Ash, Ecto, Postgrex, ADBC,
+# and schema tooling dependencies that constrain Decimal to the 2.x line. The
+# first advisory-listed patched release is Decimal 3.0.0, so this cannot be
+# resolved in this Mix project without a broader dependency compatibility
+# upgrade across the Elixir workspace.
+#
+# Keep this waiver local to this quality gate until the shared dependency graph
+# accepts Decimal 3.x or the dependency is otherwise removed from this release.
+GHSA-rhv4-8758-jx7v
+
+# EEF-CVE-2026-43966 / cowlib HTTP response splitting,
+# EEF-CVE-2026-43969 / GHSA-g2wm-735q-3f56 / cowlib cookie encoder, and
+# EEF-CVE-2026-43971 / cowlib Link header directive smuggling have no patched
+# Hex release as of cowlib 2.19.0. That release fixed only the HPACK/QPACK
+# decoder DoS (EEF-CVE-2026-59248). 43966/43969 still list every release from
+# 2.9.0 as affected. 43971 (published 2026-08-18) is the same story: a git
+# fix exists at ninenines/cowlib@89da27ee but Hex has not published a package
+# that closes the range. Keep these waivers until cowlib publishes a patched
+# release or the dependency is replaced.
+EEF-CVE-2026-43966
+EEF-CVE-2026-43969
+EEF-CVE-2026-43971
+GHSA-g2wm-735q-3f56
+
+# mix hex.audit and mix deps.audit report the cowlib response-splitting defect
+# under different ids, and the mix_audit ignore file matches on the advisory id
+# exactly (MixAudit.CLI.Audit rejects `&1.id in ignored_advisory_ids`), so the
+# GitHub id has to be listed alongside the EEF id above. It is the same defect:
+# the advisory text is verbatim about cowlib, reported here against the
+# dependent package gun. Note that gun cannot be upgraded out of it -- the gun
+# row carries cowboy's range data (`< 2.16.0`, first patched `2.16.0`) while
+# gun's newest release is 2.5.0, so no gun version can ever satisfy it.
+GHSA-w4f7-4cxr-rv3c

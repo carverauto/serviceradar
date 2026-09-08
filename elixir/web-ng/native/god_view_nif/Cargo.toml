@@ -1,0 +1,21 @@
+[package]
+name = "god_view_nif"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "god_view_nif"
+crate-type = ["cdylib"]
+
+[dependencies]
+arrow-array = { workspace = true }
+arrow-ipc = { workspace = true }
+arrow-schema = { workspace = true }
+deep_causality = { workspace = true }
+deep_causality_sparse = { workspace = true }
+deep_causality_tensor = { workspace = true }
+deep_causality_topology = { workspace = true }
+roaring = { workspace = true }
+rustler = { workspace = true, features = ["nif_version_2_15"] }
+serde_json = { workspace = true }
+ultragraph = { workspace = true }

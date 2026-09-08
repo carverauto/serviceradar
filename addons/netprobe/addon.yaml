@@ -1,0 +1,57 @@
+# netprobe native add-on manifest (migrate-netprobe-to-native-addon).
+#
+# Delivers the host-network-visibility sidecar (rust/netprobe: passive p0f/JA4
+# fingerprinting, DPI, eBPF process attribution, flow table) as a signed
+# pushed-artifact add-on instead of baking it into the base serviceradar-agent
+# package. The control plane validates operator config against config.schema.json
+# (mirrors proto agent.netprobe.v1.VisibilityAgentConfig) before delivery.
+#
+# Supervision is declared `systemd-service` (the intended end state: a
+# capability-granted long-running daemon). The systemd unit + the agent-side
+# activation/lifecycle (socket ownership reconciliation vs. today's
+# agent-launched sidecar) are migrate-netprobe tasks 2.1/2.2 — intentionally not
+# shipped in this manifest's bundle yet, pending that design open question.
+id: netprobe
+name: Host Network Visibility (netprobe)
+version: 0.2.61
+description: >-
+  Passive host fingerprinting (p0f/JA4), DPI, eBPF process attribution, and flow
+  visibility. Capability-granted long-running daemon delivered as a signed
+  pushed-artifact add-on, carved out of the base agent.
+
+kind: native
+delivery: pushed-artifact     # compiled-in | pushed-artifact | os-package
+supervision: systemd-service  # config-toggle | agent-sidecar | systemd-service | systemd-timer | ephemeral-helper
+language: rust                # go | rust
+
+capabilities:
+  - host-network-visibility
+
+requires:
+  base_agent: ">=1.2.0"
+  platforms: [linux]
+  agent_capabilities: [host-network-visibility]
+  # Normalized + allowlist-checked by the agent (normalizeAddonCapabilities) and
+  # applied to the staged binary via the root-owned agent-updater (setcap), never
+  # by the add-on itself. eBPF + AF_XDP + raw/packet sockets for capture.
+  # CAP_NET_ADMIN is required by kernels that gate XSKMAP creation behind net admin,
+  # even when netprobe starts in attribution-only mode with no capture interfaces.
+  os_capabilities: [CAP_NET_RAW, CAP_NET_ADMIN, CAP_BPF, CAP_PERFMON]
+  run_as: serviceradar
+
+# No `plugin:` block: netprobe is supervised as a systemd-service and speaks its
+# bespoke NetprobeFrame Unix-socket IPC to the agent, not the go-plugin gRPC
+# add-on contract (re-expressing it over gRPC is explicitly deferred).
+
+exec:
+  binary: serviceradar-netprobe
+  install_path: /usr/local/lib/serviceradar/bin
+
+state_dirs:
+  - /var/lib/serviceradar/netprobe
+
+# artifacts[] (per-arch object_key/sha256/signature_ref) are populated by the
+# signed-bundle build (build/native_addons) + the build-signing pipeline;
+# omitted in this source manifest.
+
+config_schema: config.schema.json

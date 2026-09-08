@@ -1,0 +1,43 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "agentgateway",
+    srcs = ["gateway_client.go"],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/agentgateway",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//go/pkg/grpc",
+        "//go/pkg/logger",
+        "//go/pkg/models",
+        "//proto",
+        "@io_opentelemetry_go_contrib_instrumentation_google_golang_org_grpc_otelgrpc//:otelgrpc",
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//connectivity",
+        "@org_golang_google_grpc//credentials/insecure",
+        "@org_golang_google_grpc//keepalive",
+        "@org_golang_google_grpc//status",
+        "@org_golang_google_protobuf//proto",
+    ],
+)
+
+go_test(
+    name = "agentgateway_test",
+    srcs = [
+        "gateway_client_camera_media_integration_test.go",
+        "gateway_client_remote_capture_test.go",
+        "gateway_client_test.go",
+    ],
+    embed = [":agentgateway"],
+    deps = [
+        "//go/pkg/logger",
+        "//go/pkg/models",
+        "//proto",
+        "@com_github_stretchr_testify//require",
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//status",
+        "@org_golang_google_protobuf//proto",
+        "@org_uber_go_mock//gomock",
+    ],
+)

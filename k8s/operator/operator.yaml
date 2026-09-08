@@ -1,0 +1,99 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    app.kubernetes.io/name: cnpg-operator
+  name: cnpg-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cnpg-operator
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cnpg-cnpg-controller-manager
+  namespace: cnpg-system
+  labels:
+    app.kubernetes.io/name: cnpg-operator
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cnpg-operator
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cnpg-operator
+    spec:
+      serviceAccountName: cnpg-operator
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - command:
+        - /manager
+        args:
+        - controller
+        - --leader-elect
+        - --config-map-name=$(OPERATOR_DEPLOYMENT_NAME)-config
+        - --secret-name=$(OPERATOR_DEPLOYMENT_NAME)-config
+        - --webhook-port=9443
+        image: controller:latest
+        name: cnpg-operator
+        ports:
+          - containerPort: 8080
+            name: metrics
+            protocol: TCP
+        env:
+        - name: OPERATOR_IMAGE_NAME
+          value: $(OPERATOR_IMAGE_NAME)
+        - name: OPERATOR_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: MONITORING_QUERIES_CONFIGMAP
+          value: $(DEFAULT_MONITORING_CONFIGMAP)
+        resources:
+          limits:
+            cpu: 100m
+            memory: 200Mi
+          requests:
+            cpu: 100m
+            memory: 100Mi
+        livenessProbe:
+          httpGet:
+            port: 9443
+            scheme: HTTPS
+            path: /readyz
+        readinessProbe:
+          httpGet:
+            port: 9443
+            scheme: HTTPS
+            path: /readyz
+        volumeMounts:
+          - mountPath: /controller
+            name: scratch-data
+          - mountPath: /run/secrets/cnpg.io/webhook
+            name: webhook-certificates
+        securityContext:
+          runAsUser: 10001
+          runAsGroup: 10001
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          seccompProfile:
+            type: RuntimeDefault
+          capabilities:
+            drop:
+              - "ALL"
+      volumes:
+        - name: scratch-data
+          emptyDir: {}
+        - name: webhook-certificates
+          secret:
+            optional: true
+            secretName: cnpg-webhook-cert
+            defaultMode: 420
+      terminationGracePeriodSeconds: 10

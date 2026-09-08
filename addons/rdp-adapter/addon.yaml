@@ -1,0 +1,37 @@
+# RDP adapter native add-on manifest (issue 3425).
+#
+# Delivers the per-session RDP helper as a signed pushed-artifact add-on instead
+# of baking it into an alternate RDP-enabled serviceradar-agent runtime archive.
+# The compiled-in remote-access subsystem resolves this helper by add-on id and
+# spawns it on demand for each RDP desktop session.
+id: rdp
+name: RDP Adapter
+version: 0.1.6
+description: >-
+  Per-session RDP desktop helper used by the compiled-in remote-access feature.
+  Staged as a signed pushed-artifact add-on and invoked on demand; the agent does
+  not run or supervise it as a long-lived process.
+
+kind: native
+delivery: pushed-artifact
+supervision: ephemeral-helper
+language: rust
+
+capabilities:
+  - remote_access.rdp
+  - remote_access.desktop
+
+requires:
+  base_agent: ">=1.2.0"
+  platforms: [linux]
+  os_capabilities: []
+  run_as: serviceradar
+
+exec:
+  binary: serviceradar-rdp-adapter
+  install_path: /usr/local/lib/serviceradar/addons/rdp/current
+
+state_dirs:
+  - /var/lib/serviceradar/remote-access
+
+config_schema: config.schema.json

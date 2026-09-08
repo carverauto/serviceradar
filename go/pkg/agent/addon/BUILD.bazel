@@ -1,0 +1,69 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "addon",
+    srcs = [
+        "artifacts.go",
+        "credentials.go",
+        "manager.go",
+        "metric_feed.go",
+        "resource_limits_linux.go",
+        "resource_limits_other.go",
+        "status_proto.go",
+        "stream_backoff.go",
+        "telemetry_env.go",
+        "types.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/agent/addon",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//go/pkg/addon",
+        "//go/pkg/logger",
+        "//proto",
+        "//proto/agent/addon/v1:addonpb",
+        "@com_github_hashicorp_go_hclog//:go-hclog",
+        "@com_github_hashicorp_go_plugin//:go-plugin",
+        "@com_github_rs_zerolog//:zerolog",
+    ],
+)
+
+go_test(
+    name = "addon_test",
+    srcs = [
+        "artifacts_test.go",
+        "credentials_test.go",
+        "manager_rust_addon_test.go",
+        "manager_test.go",
+        "metric_feed_test.go",
+        "resource_limits_linux_test.go",
+        "status_proto_test.go",
+        "telemetry_env_test.go",
+        "telemetry_test.go",
+    ],
+    # Both reference add-ons are declared inputs so the supervision tests and the
+    # Go<->Rust interop proof actually run here instead of skipping. The Rust binary
+    # is what makes //rust/addon-sdk's hand-written go-plugin handshake a tested
+    # contract rather than an assumption; without it the polyglot claim is verified
+    # nowhere. The tests exec these as subprocesses (go-plugin over a UDS), so the
+    # executable bit runfiles already preserves is all they need.
+    data = [
+        "//go/cmd/serviceradar-sample-addon",
+        "//rust/addon-sdk:serviceradar-rust-sample-addon",
+    ],
+    embed = [":addon"],
+    # $(rootpath ...) is relative to the RUNFILES ROOT, but a go_test runs with its own
+    # package directory as the working directory -- so resolving these with filepath.Abs
+    # looks under go/pkg/agent/addon/... and finds nothing. resolveBinPath in
+    # manager_test.go joins them against TEST_SRCDIR/TEST_WORKSPACE instead. Do not
+    # "simplify" that back to filepath.Abs: the failure mode is a silent t.Skip inside a
+    # target that still reports PASS, which is how these tests sat inert.
+    env = {
+        "SERVICERADAR_RUST_ADDON_BIN": "$(rootpath //rust/addon-sdk:serviceradar-rust-sample-addon)",
+        "SERVICERADAR_SAMPLE_ADDON_BIN": "$(rootpath //go/cmd/serviceradar-sample-addon)",
+    },
+    deps = [
+        "//go/pkg/addon",
+        "//proto/agent/addon/v1:addonpb",
+        "@com_github_rs_zerolog//:zerolog",
+    ],
+)

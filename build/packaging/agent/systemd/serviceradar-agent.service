@@ -1,0 +1,48 @@
+[Unit]
+Description=ServiceRadar Agent Service
+After=network.target
+
+[Service]
+Type=simple
+User=serviceradar
+WorkingDirectory=/var/lib/serviceradar
+ExecStart=/usr/local/bin/serviceradar-agent
+# Keep ServiceRadar host components in one accounting slice. Native add-ons
+# stay separate systemd units; the agent reports and attaches to them over IPC
+# instead of becoming their privileged process supervisor.
+Slice=serviceradar.slice
+Delegate=yes
+# The agent moves itself into a leaf subgroup before enabling cpu/memory/pids
+# controllers for agent-supervised native add-ons. Keep this compatible with
+# enterprise systemd releases that predate DelegateSubgroup=.
+# Keep /run/serviceradar under explicit setup rather than RuntimeDirectory=.
+# Netprobe also publishes /run/serviceradar/netprobe/ipc.sock; if systemd owns the
+# shared parent as the agent RuntimeDirectory, an agent restart can remove or
+# recreate the parent after netprobe has bound its socket.
+ExecStartPre=+/usr/bin/install -d -o serviceradar -g serviceradar -m 0750 /run/serviceradar
+Environment="CONFIG_SOURCE=file"
+Environment="KV_ADDRESS=127.0.0.1:50057"
+Environment="KV_SEC_MODE=mtls"
+Environment="KV_CERT_DIR=/etc/serviceradar/certs"
+Environment="KV_CERT_FILE=/etc/serviceradar/certs/component.pem"
+Environment="KV_KEY_FILE=/etc/serviceradar/certs/component-key.pem"
+Environment="KV_CA_FILE=/etc/serviceradar/certs/ca-chain.pem"
+EnvironmentFile=-/etc/serviceradar/kv-overrides.env
+AmbientCapabilities=CAP_NET_RAW
+# The agent process only receives CAP_NET_RAW above. The broader bounding set is
+# for the constrained setuid-root agent-updater child process, which applies
+# add-on file capabilities, installs systemd units, and relabels staged add-on
+# binaries. CAP_MAC_ADMIN is required for chcon (var_lib_t -> bin_t); without
+# it systemd exec of those binaries fails with status=203/EXEC on Enforcing
+# hosts. systemd inherits this bounding set to the updater child.
+CapabilityBoundingSet=CAP_NET_RAW CAP_SETFCAP CAP_DAC_OVERRIDE CAP_FOWNER CAP_CHOWN CAP_MAC_ADMIN
+Restart=always
+RestartSec=10
+LimitNPROC=512
+LimitNOFILE=65535
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

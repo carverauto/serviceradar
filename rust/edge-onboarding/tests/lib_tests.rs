@@ -1,0 +1,148 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+//! Integration tests for edge_onboarding crate.
+
+use edge_onboarding::{
+    ComponentType, DeploymentType, MtlsBootstrapConfig, OnboardingResult, SecurityConfig,
+    SecurityMode, try_onboard,
+};
+use std::sync::{Mutex, OnceLock};
+
+const ONBOARDING_TOKEN_ENV: &str = "ONBOARDING_TOKEN";
+
+fn env_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
+
+#[test]
+fn test_component_type_as_str() {
+    assert_eq!(ComponentType::Gateway.as_str(), "gateway");
+    assert_eq!(ComponentType::Agent.as_str(), "agent");
+    assert_eq!(ComponentType::Checker.as_str(), "checker");
+    assert_eq!(ComponentType::Sync.as_str(), "sync");
+}
+
+#[test]
+fn test_component_type_config_filename() {
+    assert_eq!(ComponentType::Gateway.config_filename(), "gateway.json");
+    assert_eq!(ComponentType::Agent.config_filename(), "agent.json");
+    assert_eq!(ComponentType::Checker.config_filename(), "checker.json");
+    assert_eq!(ComponentType::Sync.config_filename(), "sync.json");
+}
+
+#[test]
+fn test_try_onboard_no_token() {
+    let _guard = env_lock().lock().unwrap();
+    // Clear the env var if set
+    // SAFETY: `env_lock` serialises every test in this binary that touches
+    // ONBOARDING_TOKEN, so no other thread can read the environment concurrently.
+    unsafe {
+        std::env::remove_var(ONBOARDING_TOKEN_ENV);
+    }
+
+    // Should return None when no token is present
+    let result = try_onboard(ComponentType::Checker).unwrap();
+    assert!(result.is_none());
+}
+
+#[test]
+fn test_try_onboard_empty_token() {
+    let _guard = env_lock().lock().unwrap();
+    // SAFETY: as above; `env_lock` is held for the duration of the test.
+    unsafe {
+        std::env::set_var(ONBOARDING_TOKEN_ENV, "");
+    }
+
+    let result = try_onboard(ComponentType::Checker).unwrap();
+    assert!(result.is_none());
+
+    // SAFETY: as above; still holding `env_lock`.
+    unsafe {
+        std::env::remove_var(ONBOARDING_TOKEN_ENV);
+    }
+}
+
+#[test]
+fn test_try_onboard_whitespace_token() {
+    let _guard = env_lock().lock().unwrap();
+    // SAFETY: as above; `env_lock` is held for the duration of the test.
+    unsafe {
+        std::env::set_var(ONBOARDING_TOKEN_ENV, "   ");
+    }
+
+    let result = try_onboard(ComponentType::Checker).unwrap();
+    assert!(result.is_none());
+
+    // SAFETY: as above; still holding `env_lock`.
+    unsafe {
+        std::env::remove_var(ONBOARDING_TOKEN_ENV);
+    }
+}
+
+#[test]
+fn test_mtls_bootstrap_config_fields() {
+    let cfg = MtlsBootstrapConfig {
+        token: "edgepkg-v2:abc.def".to_string(),
+        host: Some("https://core.example.com:8090".to_string()),
+        bundle_path: None,
+        cert_dir: Some("/tmp/certs".to_string()),
+        service_name: Some("sysmon".to_string()),
+    };
+
+    assert_eq!(cfg.token, "edgepkg-v2:abc.def");
+    assert_eq!(cfg.host.as_deref(), Some("https://core.example.com:8090"));
+    assert!(cfg.bundle_path.is_none());
+    assert_eq!(cfg.cert_dir.as_deref(), Some("/tmp/certs"));
+    assert_eq!(cfg.service_name.as_deref(), Some("sysmon"));
+}
+
+#[test]
+fn test_onboarding_result_fields() {
+    let result = OnboardingResult {
+        config_path: "/etc/config/checker.json".to_string(),
+        config_data: vec![1, 2, 3],
+        spiffe_id: Some("spiffe://example.com/service".to_string()),
+        package_id: "pkg-123".to_string(),
+        deployment_type: DeploymentType::Docker,
+        cert_dir: "/etc/certs".to_string(),
+    };
+
+    assert_eq!(result.config_path, "/etc/config/checker.json");
+    assert_eq!(result.config_data, vec![1, 2, 3]);
+    assert_eq!(
+        result.spiffe_id,
+        Some("spiffe://example.com/service".to_string())
+    );
+    assert_eq!(result.package_id, "pkg-123");
+    assert_eq!(result.deployment_type, DeploymentType::Docker);
+    assert_eq!(result.cert_dir, "/etc/certs");
+}
+
+#[test]
+fn test_security_config_default() {
+    let config = SecurityConfig::default();
+    assert!(config.tls_enabled.is_none());
+    assert!(config.mode.is_none());
+    assert!(config.cert_dir.is_none());
+}
+
+#[test]
+fn test_security_mode_default() {
+    let mode = SecurityMode::default();
+    assert_eq!(mode, SecurityMode::None);
+}

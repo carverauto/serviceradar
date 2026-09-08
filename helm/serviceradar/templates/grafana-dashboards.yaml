@@ -1,0 +1,38 @@
+{{- $obs := default (dict) .Values.observability -}}
+{{- $grafana := default (dict) (get $obs "grafana") -}}
+{{- $dashboards := default (dict) (get $grafana "dashboards") -}}
+{{- $obsEnabled := false -}}
+{{- if hasKey $obs "enabled" -}}
+{{- $obsEnabled = $obs.enabled -}}
+{{- end -}}
+{{- $dashboardsEnabled := true -}}
+{{- if hasKey $dashboards "enabled" -}}
+{{- $dashboardsEnabled = $dashboards.enabled -}}
+{{- end -}}
+{{- if and $obsEnabled $dashboardsEnabled }}
+{{- $folder := default "ServiceRadar" $dashboards.folder -}}
+{{- range $path, $_ := .Files.Glob "dashboards/*.json" }}
+{{- $fileName := base $path -}}
+{{- $dashboardName := trimSuffix ".json" $fileName -}}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ printf "serviceradar-dashboard-%s" ($dashboardName | lower | replace "_" "-" | trunc 38 | trimSuffix "-") | quote }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: grafana-dashboard
+    {{- with $dashboards.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  annotations:
+    grafana_folder: {{ $folder | quote }}
+    k8s-sidecar-target-directory: {{ printf "/tmp/dashboards/%s" $folder | quote }}
+    {{- with $dashboards.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+data:
+  {{ $fileName }}: |-
+{{ $.Files.Get $path | indent 4 }}
+{{ end }}
+{{- end }}

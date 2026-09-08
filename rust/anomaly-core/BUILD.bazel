@@ -1,0 +1,75 @@
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:rust_binary.bzl", "rust_binary")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+
+filegroup(
+    name = "srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "target/**",
+            "bazel-*",
+        ],
+    ),
+    visibility = ["//visibility:public"],
+)
+
+rust_library(
+    name = "serviceradar_anomaly_core",
+    srcs = glob(
+        ["src/**/*.rs"],
+        exclude = ["src/bin/**/*.rs"],
+    ),
+    crate_name = "serviceradar_anomaly_core",
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    visibility = ["//visibility:public"],
+    # deep_causality_core + deep_causality_data_structures. The `rustler` feature is
+    # off by default, so its optional proc-macro dep is not pulled into this target.
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ),
+)
+
+rust_binary(
+    name = "anomaly-backtest",
+    srcs = ["src/bin/anomaly-backtest.rs"],
+    crate_root = "src/bin/anomaly-backtest.rs",
+    edition = "2024",
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + [":serviceradar_anomaly_core"],
+)
+
+rust_test(
+    name = "serviceradar_anomaly_core_test",
+    crate = ":serviceradar_anomaly_core",
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+        normal_dev = True,
+    ),
+)
+
+# Labeled-corpus scorecard floor gate (OpenSpec overhaul-anomaly-engine-reliability
+# task 1.20.c): replays the committed tools/anomaly-proof corpus through the shared
+# backtest plumbing and enforces spike-precision / drift-recall / drift-FP / score
+# bound floors. Runs in the plain `bazel test tests(//...)` CI sweep.
+rust_test(
+    name = "scorecard_gate_test",
+    size = "large",
+    srcs = ["tests/scorecard_gate.rs"],
+    crate_root = "tests/scorecard_gate.rs",
+    data = [
+        "testdata/scorecard/samples.jsonl.gz",
+        "testdata/scorecard/truth.csv.gz",
+    ],
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+        normal_dev = True,
+    ) + [":serviceradar_anomaly_core"],
+)

@@ -1,0 +1,482 @@
+33220A Waveform Generator
+33521A Waveform Generator
+34972A Data Logger
+3PAR
+53230A Frequency Counter
+883 VoIP
+ADB-4820CD
+APIC
+AV Receiver
+AVC787
+Access Control
+Access Gateway
+Access Point
+Adaptive Security Appliance
+AirPort Express
+AirPort Extreme
+Alarm Panel
+AmpliFi
+AppDynamics
+Apple TV (2nd generation)
+Apple TV (3rd generation)
+Apple TV (4th generation)
+Apple TV 4K
+Apple TV 4K (2nd generation)
+Appliance
+ArchiveTeam Warrior
+Asset Management
+AutoDome
+AutoVu SharpV
+BlackBox
+BladeSystem Onboard Administrator
+Border GW
+Bridge
+CC EtherNet/IP
+CP
+CU360
+Camera
+Captive Portal
+CarDetector
+Catalyst
+Catalyst 1900
+Celerra
+Chromecast
+ClearPass Policy Manager
+ClickShare
+CloudKey
+Color Bulb
+CommServer
+CommandPost
+ConnectUPS Web Card
+Crosswork SON Appliance
+D Series
+DCS-825L
+DCS-932
+DD OS
+DNA Center
+DSL Router
+DX800A
+Data ONTAP
+Digital Signage Player
+Discover
+Discovery
+DocCam
+Document Centre
+Drone Detector
+DuraFon
+E129
+E5810 Gateway Device
+ECOM100
+EDR-G902
+EDR-G903
+EM7
+EP-series
+EXA Signal Analyzer
+Eagle Eye Director II
+EchoLife Home Gateway
+EdgeRouter X
+EdgeSwitch
+Elevation
+Email Security Gateway
+EqualLogic
+Eternus
+Ethernet Relay Controller
+Ethernet Relay Module
+Excella
+Fastmark M5
+Fiber Network Box
+Firepower
+Firewall
+Firewall-1
+FlexiPacket Hub
+FortiMail
+FortiManager
+GXP1610
+GXP1615
+GXP1625
+GXP1628
+GXP2200
+GigaVUE
+HDHomeRun
+HDIPCam
+HT801
+HT802
+HT812
+HT813
+HT814
+HT818
+Helium Miner
+HiPer Access Router Card
+Home Controller
+Home Gateway
+HomePod
+HomePod mini
+Hue
+HyperFlex Connect
+IA Appliance
+IAM
+IBHLink S7++
+ILOM
+IMC
+IP Camera
+IP Link Control Processor
+IP2IR
+IPMI
+IPVPN
+IVR
+Infinity Controler
+Instreamer
+IntelliSlot Web Card
+Internet Payment Gateway
+Internet Phone Adapter
+Isilon InsightIQ
+Isilon OneFS
+J-Link Pro
+J9155A
+JetDirect
+K1000
+KWS-1043N
+KX-NS1000
+Key Management
+Key Management Server
+LORIX ONE
+Lantick Ethernet Relay Controller
+Lencore Sound Manager 2
+MDS 9000
+MPVPN
+MXA Signal Analyzer
+Mac Pro (Early 2008)
+Mac Pro (Early 2009)
+Mac Pro (Late 2013)
+Mac Pro (Late 2019)
+Mac Pro (Mid 2006)
+Mac Pro (Mid 2007)
+Mac Pro (Mid 2012)
+Mac mini (Late 2009)
+Mac mini (Late 2012)
+Mac mini (Late 2014)
+Mac mini (Late 2018)
+Mac mini (M1, 2020)
+Mac mini (Mid 2007)
+Mac mini (Mid 2010)
+Mac mini (Mid 2011)
+MacBook (13-inch, Mid 2010)
+MacBook (Retina, 12-inch, 2017)
+MacBook (Retina, 12-inch, Early 2015)
+MacBook (Retina, 12-inch, Early 2016)
+MacBook Air (11-inch, Early 2014)
+MacBook Air (11-inch, Early 2015)
+MacBook Air (11-inch, Late 2010)
+MacBook Air (11-inch, Mid 2011)
+MacBook Air (11-inch, Mid 2012)
+MacBook Air (13-inch, 2017)
+MacBook Air (13-inch, 2018)
+MacBook Air (13-inch, Early 2014)
+MacBook Air (13-inch, Late 2010)
+MacBook Air (13-inch, Mid 2011)
+MacBook Air (13-inch, Mid 2012)
+MacBook Air (M1, 2020)
+MacBook Air (M2, 2022)
+MacBook Air (Mid 2009)
+MacBook Air (Retina, 13-inch, 2018)
+MacBook Air (Retina, 13-inch, 2019)
+MacBook Air (Retina, 13-inch, 2020)
+MacBook Pro (13-inch, 2016, Four Thunderbolt 3 ports)
+MacBook Pro (13-inch, 2016, Two Thunderbolt 3 ports)
+MacBook Pro (13-inch, 2017, Four Thunderbolt 3 ports)
+MacBook Pro (13-inch, 2017, Two Thunderbolt 3 ports)
+MacBook Pro (13-inch, 2018, Four Thunderbolt 3 ports)
+MacBook Pro (13-inch, 2019, Two Thunderbolt 3 ports)
+MacBook Pro (13-inch, 2020)
+MacBook Pro (13-inch, 2020, Four Thunderbolt 3 ports)
+MacBook Pro (13-inch, 2020, Two Thunderbolt 3 ports)
+MacBook Pro (13-inch, Late 2011)
+MacBook Pro (13-inch, M1, 2020)
+MacBook Pro (13-inch, Mid 2009)
+MacBook Pro (13-inch, Mid 2010)
+MacBook Pro (13-inch, Mid 2012)
+MacBook Pro (14-inch, 2021)
+MacBook Pro (14-Inch, M1, 2021)
+MacBook Pro (15-inch, 2016)
+MacBook Pro (15-inch, 2017)
+MacBook Pro (15-inch, 2018)
+MacBook Pro (15-inch, 2019)
+MacBook Pro (15-inch, Late 2008)
+MacBook Pro (15-inch, Late 2011)
+MacBook Pro (15-inch, Mid 2009)
+MacBook Pro (15-inch, Mid 2010)
+MacBook Pro (15-inch, Mid 2012)
+MacBook Pro (16-inch, 2019)
+MacBook Pro (16-inch, 2021)
+MacBook Pro (17-inch, Early 2008)
+MacBook Pro (17-inch, Late 2011)
+MacBook Pro (17-inch, Mid 2009)
+MacBook Pro (17-inch, Mid 2010)
+MacBook Pro (Retina, 13-inch, Early 2013)
+MacBook Pro (Retina, 13-inch, Early 2015)
+MacBook Pro (Retina, 13-inch, Late 2013)
+MacBook Pro (Retina, 15-inch, Early 2013)
+MacBook Pro (Retina, 15-inch, Late 2013)
+MacBook Pro (Retina, 15-inch, Mid 2015)
+Makito X Decoder
+Media Gateway
+MediaLink Controller
+MediaSense
+Meeting Management
+Meeting Server
+MegaRAC
+Meraki Device
+Mercury
+Mergepoint
+Miniserver
+My Book Live
+N1913A Power Meter
+N5172B Signal Generator
+NAM
+NAS4Free
+NFVIS
+NPort
+NR900
+NTP-2
+NTP-RG-1402G
+NetPing
+NetScaler Gateway
+NetScaler SDX Gateway
+NetScreen
+NetVR
+Netbox
+Netscaler Gateway
+Network Camera
+Network Gateway
+Network Node
+Network Security Appliance
+Nexus 1000V
+Nexus Player
+Novus UPS
+OfficeConnect Switch
+OnHub
+OpenManage
+OpenManage Switch
+OpenNAC
+Orbi micro
+Orbit IP Camera
+PCoIP Endpoint Device
+PDR M800
+PIAF Virtual Appliance
+PLAY
+PLC-5
+Paragon-100G
+Photonic Switch
+Plug Outdoor
+PoliWall
+PowerLogic Power Meter
+PowerVault 124T
+Prime Collaboration Manager
+Primergy
+Printer
+Prosafe Plus
+Quad Plus Receiver
+R Series
+RT31P2
+RTU
+Rack PDU Card
+RadioLinx
+Raspberry Pi
+ReadyNAS
+RecoverPoint
+ReeCam
+Roku
+Room Alert
+Roomba
+S7 DALI Gateway
+SD-WAN
+SDWAN
+SHDSL Router
+SHIELD
+SIGMA Spectrum Infusion System
+SIP Gateway
+SIParator Firewall
+SL2100
+SLS
+SPA
+SPA112
+SPA122
+SPA232D
+SPA8800 IP Telephony Gateway
+SRP
+SV8100
+SV9100
+ScanFront
+Scrutinizer
+Sensor
+Sentry Switched CDU
+ShareLink Pro
+ShoreTel
+Sigma Control 2
+SimpliVity OmniStack
+Site Recovery Manager
+SmartEdge Sensor
+Softswitch
+SolsticePod
+SonicPoint
+SoundPoint
+Spot
+Stealthwatch
+Steelhead
+Storage Appliance
+Sub
+Sunny WebBox
+SuperStack 3
+SuperStack 3 Firewall
+SuperStack II
+Symmetry EN-2DBC
+System Management
+TG789vac
+TelePresence
+TelePresence MCU
+Tenable Appliance
+Tenable Core
+Tetration
+Time Capsule
+TouchLink Control Panel
+UCM6202
+UCM6204
+UCM6208
+UCS Manager
+UDS
+UPS
+USG20-VPN
+USG40
+USG60
+UniFi Cloud Key
+UniFi NVR
+UniFi Security Gateway
+Univerge
+Universal Media Gateway
+VBrick Rev
+VPN Gateway
+Verizon FiOS Router
+Video Controller
+Vigor
+Virtual Connect Manager
+Virtual Traffic Manager
+Vood
+WARP
+WLAN AP
+WNR2000
+WebBox
+Whiteboard
+Wireless Dock
+Wireless LAN Controller
+Wireless Radio
+Wireless Router
+Wyse 1000
+XCC
+Xfinity Broadband Router
+Xserve (Early 2008)
+Xserve (Early 2009)
+Xserve (Late 2006)
+Xserve G4
+Xserve G4 (Slot Load)
+Xserve G5
+ZebraNet PrintServer
+Zone Director
+airCube
+e-STUDIO
+iCOM Control Panel
+iDRAC
+iLO
+iLO 3
+iLO 4
+iMac (20/24-inch, Early 2008)
+iMac (21.5-inch, 2017)
+iMac (21.5-inch, Late 2012)
+iMac (21.5-inch, Late 2013)
+iMac (21.5-inch, Late 2015)
+iMac (21.5-inch, Mid 2010)
+iMac (21.5-inch, Mid 2011)
+iMac (21.5-inch, Mid 2014)
+iMac (24-inch, Early 2009)
+iMac (24-inch, M1, 2021)
+iMac (27-inch, Late 2009)
+iMac (27-inch, Late 2012)
+iMac (27-inch, Late 2013)
+iMac (27-inch, Mid 2010)
+iMac (27-inch, Mid 2011)
+iMac (Retina 4K, 21.5-inch, 2017)
+iMac (Retina 4K, 21.5-inch, 2019)
+iMac (Retina 4K, 21.5-inch, Late 2015)
+iMac (Retina 5K, 27-inch, 2017)
+iMac (Retina 5K, 27-inch, 2019)
+iMac (Retina 5K, 27-inch, 2020)
+iMac (Retina 5K, 27-inch, Late 2015)
+iMac (Retina 5K, 27-inch, Mid 2015)
+iMac Pro
+iMac Pro (Retina 5K, Late 2017)
+iPad (4th generation)
+iPad (5th generation)
+iPad (6th generation)
+iPad (7th generation)
+iPad (8th generation)
+iPad (9th generation)
+iPad Air
+iPad Air (3rd generation)
+iPad Air (4th generation)
+iPad Air 2
+iPad Pro (10.5-inch)
+iPad Pro (11-inch)
+iPad Pro (11-inch, 2nd generation)
+iPad Pro (11-inch, 3rd generation)
+iPad Pro (12.9-inch)
+iPad Pro (12.9-inch, 2nd generation)
+iPad Pro (12.9-inch, 3rd generation)
+iPad Pro (12.9-inch, 4th generation)
+iPad Pro (9.7-inch)
+iPad mini
+iPad mini (5th generation)
+iPad mini (6th generation)
+iPad mini 2
+iPad mini 3
+iPad mini 4
+iPhone (1st generation)
+iPhone 11
+iPhone 11 Pro
+iPhone 11 Pro Max
+iPhone 12
+iPhone 12 Mini
+iPhone 12 Pro
+iPhone 12 Pro Max
+iPhone 13
+iPhone 13 Pro
+iPhone 13 Pro Max
+iPhone 13 mini
+iPhone 3G
+iPhone 3GS
+iPhone 4
+iPhone 4s
+iPhone 5
+iPhone 5c
+iPhone 5s
+iPhone 6
+iPhone 6 Plus
+iPhone 6s
+iPhone 6s Plus
+iPhone 7
+iPhone 7 Plus
+iPhone 8
+iPhone 8 Plus
+iPhone SE (1st generation)
+iPhone SE (2nd generation)
+iPhone X
+iPhone XR
+iPhone XS
+iPhone XS Max
+iPod Touch (1st generation)
+iPod Touch (2nd generation)
+iPod Touch (3rd generation)
+iPod Touch (4th generation)
+iPod Touch (5th generation)
+iPod Touch (6th generation)
+iPod Touch (7th generation)
+iSTAR Ultra
+vManage

@@ -1,0 +1,134 @@
+# BuildBuddy WORKFLOW RUNNER image -- the container //buildbuddy.yaml runs its steps in.
+#
+# Not to be confused with //docker/Dockerfile.rbe, which is the image Bazel ACTIONS execute in
+# on the executors. This one hosts the `bazel` client that drives them.
+#
+# TAGGED IDENTICALLY TO rbe-executor, PATCH INCLUDED. They are the two halves of one Bazel run,
+# so one shared version says "these were built and tested together". Both images are rebuilt and
+# pushed at every bump even when only one of them changed -- v1.0.24.3 added lld to the executor
+# and nothing here, and this image still went to .3.
+#
+# //buildbuddy.yaml lists every workflow action's container_image (BazelCI and
+# Elixir Quality (daily) today) a bump has to update, and the grep that re-derives
+# that list. Push both images BEFORE moving any reference.
+#
+#   docker build --platform linux/amd64 -f docker/images/Dockerfile.workflow-runner \
+#     -t registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:<tag> docker/images/
+#   docker push registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:<tag>
+#
+# Never re-push over an existing tag: the executors warm this image
+# (//k8s/buildbuddy/values-workflows.yaml), so a moved tag means some executors hold the old
+# layers and others the new, with nothing in git showing a change.
+#
+# WHY THIS EXISTS
+#
+# `container_image: "ubuntu-24.04"` in buildbuddy.yaml resolves to
+# gcr.io/flame-public/rbe-ubuntu24-04, which is 398 MB compressed / 1.1 GB unpacked and lives
+# outside the cluster. Every cold executor pays that pull across the internet before step 1.
+# This image is the same Noble base, carries only what the workflow actually uses, and is
+# served by Harbor in the same cluster as the executors.
+#
+# A Dockerfile rather than an oci_image because the contents are apt packages. The
+# //docker/images/*.bzl macros assemble images from Bazel-built artifacts and pre-fetched
+# .debs declared one by one in MODULE.bazel; git alone drags in a large transitive deb set,
+# which would be a lot of http_file entries for an image that changes once a year.
+# //docker/Dockerfile.rbe is the existing precedent for this class of image.
+#
+# THE `buildbuddy` USER IS LOAD-BEARING
+#
+# BuildBuddy runs the workflow runner as the user named in the action's `user` field, which
+# defaults to `buildbuddy`. An image without it fails while building the OCI spec:
+#
+#   create OCI bundle: create spec: get container user:
+#     lookup user "buildbuddy" in /etc/passwd: user not found
+#
+# That happens BEFORE an invocation exists, so nothing appears in the BuildBuddy UI -- the run
+# looks like it was never triggered while the executor re-enqueues several times a second,
+# forever. uid/gid 1001 and the home directory below match gcr.io/flame-public/rbe-ubuntu24-04
+# exactly; do not renumber them.
+#
+# WHAT IS DELIBERATELY ABSENT
+#
+#   bazel / bazelisk  BuildBuddy's ci_runner provides the Bazel client. Verified: the upstream
+#                     rbe-ubuntu24-04 image has neither on PATH, and workflows on it run bazel.
+#   docker            buildbuddy_setup_docker_auth.sh never invokes the binary; it writes
+#                     ~/.docker/config.json itself from base64. Checked, not assumed.
+#                     Upstream ships the full docker-ce + containerd stack; nothing here uses it,
+#                     and //:push goes through rules_oci, which speaks the registry API directly.
+#   kubectl           Also absent upstream, which is WHY buildbuddy_setup_fixture_env.sh takes
+#                     its Path 2 (pre-set BuildBuddy secrets) rather than reading the
+#                     srql-fixtures secrets live. Adding kubectl here would silently switch CI
+#                     to Path 1 and change the DSNs it receives -- see
+#                     //rust/integration-db/README.md before doing that.
+#   systemd, dbus, apparmor, iptables/nftables, polkit, packagekit, software-properties
+#                     Upstream inherits these from a general-purpose Ubuntu image. A container
+#                     that runs one build and exits has no use for an init system or a firewall.
+#                     This is where most of the size difference comes from, and none of it is
+#                     reachable from a workflow step.
+#
+# DERIVED BY DIFFING. The contents above and below came from comparing
+# `dpkg-query -W` and the PATH of gcr.io/flame-public/rbe-ubuntu24-04 against this image
+# (307 packages vs 117). An earlier revision of this file listed python3 here as unused; three
+# genrules and //scripts/sign-oci-publish.sh use it, and CI failed on the first run with
+# `/usr/bin/env: 'python3': No such file or directory`. Re-run that diff before removing
+# anything, and prefer leaving a package in over reasoning about whether a step reaches it.
+#
+# Pinned by digest: a floating `24.04` tag would rebuild this image into a different base
+# without the tag changing, and the glibc version is the thing that must not move.
+FROM registry.carverauto.dev/mirror/library/ubuntu:24.04@sha256:d1e2e92c075e5ca139d51a140fff46f84315c0fdce203eab2807c7e495eff4f9
+
+# ca-certificates  HTTPS to the BuildBuddy app, Harbor, and every Bazel repository fetch
+# git              the ci_runner clones the repository into the workspace
+# openssl          buildbuddy_setup_fixture_env.sh reads the fixture CA's expiry
+#
+# python3          REQUIRED, and the reason this file has a second revision. Reached at least
+#                  three ways: `python3` in the genrule cmds of //docker/images/cnpg_image.bzl
+#                  and release_images.bzl, //scripts/sign-oci-publish.sh, and the
+#                  `#!/usr/bin/env python3` launcher of the py_binary targets in
+#                  //go/pkg/models, //build/native_addons and //build/wasm_plugins. The
+#                  hermetic 3.11 toolchain in MODULE.bazel does NOT cover these -- it serves
+#                  py_binary rule execution, not a shebang or a shell-invoked `python3`.
+# patch            http_archive falls back to the system binary for any patch its native
+#                  implementation will not take.
+# curl, wget       repository rules that shell out instead of using Bazel's downloader.
+# unzip, zip,      likewise for archive handling; Bazel extracts most formats itself but
+# xz-utils, bzip2  several rule sets exec these directly.
+# file             used by rules that sniff artifact types.
+# netbase          /etc/services and /etc/protocols. Absent, some libc lookups fail in ways
+#                  that surface as an unrelated network error.
+# tzdata           timezone database. Without it everything is UTC, which silently changes the
+#                  result of any timestamp test rather than failing loudly.
+#
+# --no-install-recommends is what keeps this small: git's recommends alone pull in perl-doc,
+# less and a mail transport agent.
+#
+# NOT build-essential. gcc/g++/binutils/make is the single largest thing upstream has that this
+# does not. Database callers use --strategy=TestRunner=local, which runs already-built test
+# binaries here while compilation and linking remain eligible for RBE under --config=ci. The
+# remote C toolchain lives in the executor image, not this runner. If a genuine runner-local link
+# ever fails with "linker `cc` not found", add build-essential -- that is the fix, and it costs
+# ~80 MB.
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      bzip2 \
+      ca-certificates \
+      curl \
+      file \
+      git \
+      netbase \
+      openssl \
+      patch \
+      python3 \
+      tzdata \
+      unzip \
+      wget \
+      xz-utils \
+      zip \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN groupadd --gid 1001 buildbuddy \
+ && useradd --uid 1001 --gid 1001 --create-home --shell /bin/sh buildbuddy
+
+# Matches the upstream image. BuildBuddy overrides both, but a shell is what a bare
+# `docker run` against this image should land you in when debugging it by hand.
+CMD ["/bin/sh", "-c", "bash"]

@@ -1,0 +1,31 @@
+suite: gateway api dns annotations
+templates:
+  - templates/gateway-api.yaml
+tests:
+  - it: keeps external-dns annotation enabled by default
+    set:
+      gatewayApi.enabled: true
+      gatewayApi.host: acme.serviceradar.cloud
+    asserts:
+      - equal:
+          path: metadata.name
+          value: serviceradar-edge-route
+        documentIndex: 3
+      - equal:
+          path: metadata.annotations["external-dns.alpha.kubernetes.io/hostname"]
+          value: acme.serviceradar.cloud
+        documentIndex: 3
+
+  - it: suppresses external-dns annotation when dns is disabled
+    set:
+      gatewayApi.enabled: true
+      gatewayApi.host: acme.serviceradar.cloud
+      gatewayApi.dns.enabled: false
+    asserts:
+      - equal:
+          path: metadata.name
+          value: serviceradar-edge-route
+        documentIndex: 3
+      - notExists:
+          path: metadata.annotations
+        documentIndex: 3

@@ -1,0 +1,27 @@
+# os-package native add-on manifest TEMPLATE.
+# Replace every `example` / `example-addon` token. This file MUST stay in sync with
+# addons/example-addon/addon.yaml (the copy the discovery index is built from): same
+# id, version, capabilities, supervision, exec.binary. Validated by
+# go/tools/addon-manifest-validator against addons/native-addon-manifest.schema.json.
+id: com.serviceradar.example-addon
+name: Example Add-on
+version: 0.1.0                      # semver, independent of the agent version
+description: Template for an OS-package-delivered native agent add-on.
+kind: native
+delivery: os-package               # compiled-in | pushed-artifact | os-package
+supervision: systemd-timer         # config-toggle | agent-sidecar | systemd-service |
+                                   #   systemd-timer | ephemeral-helper
+language: go                       # go | rust
+capabilities: [example]            # capability strings advertised when active
+requires:
+  base_agent: ">=1.2.0"            # base-agent version floor
+  platforms: [linux]               # GOOS allow-list
+  os_capabilities: []              # e.g. [CAP_NET_RAW] -> setcap via agent-updater
+  run_as: serviceradar             # privilege envelope surfaced in the UI
+artifacts: []                      # empty for os-package: the deb/rpm carries the bits
+exec:
+  binary: serviceradar-addon-example
+  install_path: /usr/local/lib/serviceradar/bin
+state_dirs:
+  - { path: /var/lib/serviceradar/example-addon, owner: serviceradar, mode: "0750" }
+config_schema: config.schema.json

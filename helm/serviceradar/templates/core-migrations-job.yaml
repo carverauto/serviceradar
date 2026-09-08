@@ -1,0 +1,219 @@
+{{- /* Component gate (issue #3859). ABSENT MEANS ENABLED: hasKey is used rather than a
+     truthiness test so that a chart or values file which never mentions `enabled`
+     renders exactly as before, and only an explicit `core.enabled: false` removes
+     this component. `default true` cannot be used here -- Helm treats false as empty,
+     so it would resurrect anything explicitly disabled. */ -}}
+{{- $gate6 := default (dict) .Values.core -}}
+{{- if or (not (hasKey $gate6 "enabled")) $gate6.enabled }}
+{{- $trustDomain := .Values.spire.trustDomain | default "carverauto.dev" -}}
+{{- $spireBundle := default "spire-bundle" .Values.spire.bundleConfigMap -}}
+{{- $cnpg := default (dict) .Values.cnpg -}}
+{{- $cnpgClusterName := include "serviceradar.cnpgClusterName" . -}}
+{{- $coreVals := default (dict) .Values.core -}}
+{{- $migrationVals := default (dict) $coreVals.migrations -}}
+{{- $observabilityRetention := default (dict) $coreVals.observabilityRetention -}}
+{{- $migrationsEnabled := default true $migrationVals.enabled -}}
+{{- $webNg := default (dict) .Values.webNg -}}
+{{- $pluginStorage := default (dict) $webNg.pluginStorage -}}
+{{- $secrets := default "serviceradar-secrets" .Values.secrets.existingSecretName -}}
+{{- if $migrationsEnabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: serviceradar-core-migrations
+  annotations:
+    # post-install (NOT pre-install) on a fresh release: this Job needs both the
+    # CNPG CA Secret and a reachable database, and both only exist once the CNPG
+    # Cluster in cnpg-cluster.yaml has been applied and reconciled. That Cluster
+    # is an ordinary resource, so on a first install it is created *after* all
+    # pre-install hooks -- a pre-install migration can therefore never succeed,
+    # it just blocks until Helm times out.
+    #
+    # pre-upgrade is still correct: on an upgrade the database already exists and
+    # the schema should be migrated before the new code rolls out.
+    "helm.sh/hook": post-install,pre-upgrade
+    "helm.sh/hook-weight": "-1"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        app: serviceradar-core-migrations
+        app.kubernetes.io/part-of: serviceradar
+      annotations:
+        {{- include "serviceradar.runtimeCertRollAnnotations" . | nindent 8 }}
+      {{- with $migrationVals.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      restartPolicy: Never
+      {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      {{- include "serviceradar.elixirReleasePodSecurityContext" . | nindent 6 }}
+      containers:
+      - name: core-migrations
+        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-core-elx" "service" "core") }}
+        imagePullPolicy: {{ default (include "serviceradar.imagePullPolicy" .) $migrationVals.imagePullPolicy }}
+        {{- include "serviceradar.containerSecurityContext" . | nindent 8 }}
+        command: ["/bin/sh", "-c"]
+        env:
+        - name: LANG
+          value: "C.UTF-8"
+        - name: LC_ALL
+          value: "C.UTF-8"
+        - name: ELIXIR_ERL_OPTIONS
+          value: "+fnu"
+        - name: CLUSTER_ENABLED
+          value: "false"
+        - name: SERVICERADAR_CLUSTER_COORDINATOR
+          value: "false"
+        - name: SERVICERADAR_CORE_REPO_ENABLED
+          value: "true"
+        - name: SERVICERADAR_CORE_OBAN_ENABLED
+          value: "false"
+        - name: SERVICERADAR_ASH_OBAN_SCHEDULER_ENABLED
+          value: "false"
+        - name: SERVICERADAR_CORE_REGISTRIES_ENABLED
+          value: "false"
+        - name: SERVICERADAR_CORE_VAULT_ENABLED
+          value: "false"
+        - name: SERVICE_HEARTBEAT_ENABLED
+          value: "false"
+        - name: STATUS_HANDLER_ENABLED
+          value: "false"
+        - name: DATASVC_ENABLED
+          value: "false"
+        - name: HEALTH_CHECK_RUNNER_ENABLED
+          value: "false"
+        - name: HEALTH_CHECK_REGISTRAR_ENABLED
+          value: "false"
+        - name: LOG_PROMOTION_CONSUMER_ENABLED
+          value: "false"
+        - name: EVENT_WRITER_ENABLED
+          value: "false"
+        - name: SERVICERADAR_CORE_RUN_MIGRATIONS
+          value: "true"
+        - name: SERVICERADAR_MIGRATION_ONLY
+          value: "true"
+        - name: MTR_RETENTION_DAYS
+          value: {{ default 30 $coreVals.mtrRetentionDays | quote }}
+        - name: SERVICERADAR_OTEL_TRACES_RETENTION_DAYS
+          value: {{ default 3 $observabilityRetention.otelTracesDays | quote }}
+        - name: SERVICERADAR_LOGS_RETENTION_DAYS
+          value: {{ default 30 $observabilityRetention.logsDays | quote }}
+        - name: SERVICERADAR_OCSF_NETWORK_ACTIVITY_RETENTION_DAYS
+          value: {{ default 90 $observabilityRetention.ocsfNetworkActivityDays | quote }}
+        - name: SERVICERADAR_OTEL_TRACES_CHUNK_INTERVAL_HOURS
+          value: {{ default 6 $observabilityRetention.otelTracesChunkIntervalHours | quote }}
+        - name: SERVICERADAR_LOGS_CHUNK_INTERVAL_HOURS
+          value: {{ default 24 $observabilityRetention.logsChunkIntervalHours | quote }}
+        - name: SERVICERADAR_OCSF_NETWORK_ACTIVITY_CHUNK_INTERVAL_HOURS
+          value: {{ default 24 $observabilityRetention.ocsfNetworkActivityChunkIntervalHours | quote }}
+        - name: CNPG_HOST
+          value: {{ include "serviceradar.cnpgDirectHost" . | quote }}
+        - name: CNPG_PORT
+          value: {{ default 5432 $cnpg.port | quote }}
+        - name: CNPG_DATABASE
+          value: {{ default "serviceradar" $cnpg.database | quote }}
+        - name: CNPG_APP_USER
+          valueFrom:
+            secretKeyRef:
+              name: {{ default "serviceradar-db-credentials" $cnpg.credentialsSecret | quote }}
+              key: username
+        - name: CNPG_APP_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ default "serviceradar-db-credentials" $cnpg.credentialsSecret | quote }}
+              key: password
+        - name: CNPG_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: {{ default "cnpg-superuser" $cnpg.superuserSecret | quote }}
+              key: username
+        - name: CNPG_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ default "cnpg-superuser" $cnpg.superuserSecret | quote }}
+              key: password
+        - name: CNPG_ADMIN_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: {{ default "cnpg-superuser" $cnpg.superuserSecret | quote }}
+              key: username
+        - name: CNPG_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ default "cnpg-superuser" $cnpg.superuserSecret | quote }}
+              key: password
+        - name: CNPG_SSL_MODE
+          value: {{ default "verify-full" $cnpg.sslmode | quote }}
+        - name: CNPG_CA_FILE
+          value: {{ default "/etc/serviceradar/cnpg/ca.crt" $cnpg.caFile | quote }}
+        {{- if $cnpg.requireClientCert }}
+        - name: CNPG_CERT_FILE
+          value: {{ printf "%s/%s" (default "/etc/serviceradar/certs" $cnpg.certDir) (default "cnpg-client.pem" $cnpg.clientCertName) | quote }}
+        - name: CNPG_KEY_FILE
+          value: {{ printf "%s/%s" (default "/etc/serviceradar/certs" $cnpg.certDir) (default "cnpg-client-key.pem" $cnpg.clientKeyName) | quote }}
+        {{- end }}
+        - name: CLOAK_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ $secrets | quote }}
+              key: cloak-key
+        {{- if .Values.spire.enabled }}
+        - name: SPIFFE_TRUST_DOMAIN
+          value: {{ $trustDomain | quote }}
+        - name: SPIFFE_MODE
+          value: {{ default "filesystem" .Values.spiffe.mode | quote }}
+        - name: SPIFFE_CERT_DIR
+          value: "/etc/serviceradar/certs"
+        - name: SPIFFE_WORKLOAD_API_SOCKET
+          value: "unix:///run/spire/sockets/agent.sock"
+        - name: SPIFFE_TRUST_BUNDLE_PATH
+          value: "/run/spire/bundle/bundle.crt"
+        {{- end }}
+        args:
+        - |
+          set -eu
+          exec /app/bin/serviceradar_core_elx start
+        volumeMounts:
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+        - name: {{ $cnpgClusterName }}-ca
+          mountPath: /etc/serviceradar/cnpg
+          readOnly: true
+        {{- if .Values.spire.enabled }}
+        - name: spire-agent-socket
+          mountPath: /run/spire/sockets
+          readOnly: true
+        - name: spire-bundle
+          mountPath: /run/spire/bundle
+          readOnly: true
+        {{- end }}
+      volumes:
+      - name: cert-data
+        secret:
+          secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
+          items:
+{{ include "serviceradar.runtimeCertItems" (list "root.pem" "core.pem" "core-key.pem" "cnpg-client.pem" "cnpg-client-key.pem") | indent 12 }}
+      - name: {{ $cnpgClusterName }}-ca
+        secret:
+          secretName: {{ $cnpgClusterName }}-ca
+          # Do not block pod startup if the CA is not present yet. Without this
+          # the pod sits in ContainerCreating with
+          #   MountVolume.SetUp failed ... secret "cnpg-ca" not found
+          # which surfaces as an opaque Helm timeout rather than a clear error.
+          optional: true
+      {{- if .Values.spire.enabled }}
+      - name: spire-agent-socket
+        hostPath:
+          path: {{ include "serviceradar.spireSocketHostPath" . | quote }}
+          type: DirectoryOrCreate
+      - name: spire-bundle
+        configMap:
+          name: {{ $spireBundle | quote }}
+      {{- end }}
+{{- end }}
+{{- end }}

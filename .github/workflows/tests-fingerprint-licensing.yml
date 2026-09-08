@@ -1,0 +1,61 @@
+name: Fingerprint Licensing
+
+on:
+  pull_request:
+    branches: [staging]
+    paths:
+      - 'Cargo.lock'
+      - 'rust/netprobe/**'
+      - 'third_party/netprobe_corpora/**'
+      - 'scripts/lint-recog-additions.sh'
+      - 'scripts/check-netprobe-fingerprint-licenses.sh'
+      - '.github/workflows/tests-fingerprint-licensing.yml'
+  push:
+    branches: [staging]
+    paths:
+      - 'Cargo.lock'
+      - 'rust/netprobe/**'
+      - 'third_party/netprobe_corpora/**'
+      - 'scripts/lint-recog-additions.sh'
+      - 'scripts/check-netprobe-fingerprint-licenses.sh'
+      - '.github/workflows/tests-fingerprint-licensing.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  netprobe-fingerprint-licenses:
+    runs-on: arc-runner-set
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Install Socket Firewall
+        run: bash scripts/ci/install-sfw.sh
+
+      - name: Setup Rust
+        run: |
+          set -euo pipefail
+
+          export PATH="${HOME}/.cargo/bin:${PATH}"
+          echo "${HOME}/.cargo/bin" >> "${GITHUB_PATH}"
+
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+              | sh -s -- -y --profile minimal --default-toolchain stable
+          fi
+
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+          cargo --version
+
+      - name: Check netprobe fingerprint dependencies
+        run: bash scripts/check-netprobe-fingerprint-licenses.sh
+
+      - name: Check ServiceRadar Recog additions
+        run: make lint-recog-additions

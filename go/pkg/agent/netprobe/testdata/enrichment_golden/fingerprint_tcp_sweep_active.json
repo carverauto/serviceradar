@@ -1,0 +1,29 @@
+{
+  "ip": "10.20.30.42",
+  "metadata": {
+    "_alias_collector_ip": "10.20.30.40",
+    "_alias_last_seen_at": "2026-08-23T15:46:40Z",
+    "_alias_last_seen_ip": "10.20.30.42",
+    "active_fingerprint.observed_at": "2026-08-23T15:46:40Z",
+    "active_fingerprint.observed_at_unix_nano": "1787500000000000000",
+    "active_fingerprint.protocol": "tcp",
+    "active_fingerprint.source": "sweep_active",
+    "active_fingerprint.tcp.confidence": "0.500",
+    "active_fingerprint.tcp.ip_version": "",
+    "active_fingerprint.tcp.mss": "0",
+    "active_fingerprint.tcp.options_layout": "",
+    "active_fingerprint.tcp.os_family": "linux",
+    "active_fingerprint.tcp.os_name": "",
+    "active_fingerprint.tcp.payload_class": "",
+    "active_fingerprint.tcp.quirks": "",
+    "active_fingerprint.tcp.signature": "s",
+    "active_fingerprint.tcp.ttl": "0",
+    "active_fingerprint.tcp.window_scale": "0",
+    "active_fingerprint.tcp.window_size": "",
+    "agent_id": "agent-synthetic-1",
+    "discovery_source": "sweep_active",
+    "gateway_id": "gateway-synthetic-1",
+    "ip_alias:10.20.30.42": "2026-08-23T15:46:40Z",
+    "source": "sweep_active"
+  }
+}

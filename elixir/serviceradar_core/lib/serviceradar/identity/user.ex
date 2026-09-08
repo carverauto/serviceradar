@@ -1,0 +1,589 @@
+defmodule ServiceRadar.Identity.User do
+  @moduledoc """
+  User resource for authentication and authorization.
+
+  Maps to the instance-scoped `ng_users` table.
+
+  ## Roles
+
+  - `:viewer` - Read-only access to instance data
+  - `:helpdesk` - Read-only access plus alert response capabilities
+  - `:operator` - Can create and modify resources
+  - `:admin` - Full instance management including user management
+
+  ## Authentication
+
+  Users can authenticate via:
+  - Password (with bcrypt hashing)
+  - OIDC (Google, Azure AD, Okta)
+  - SAML 2.0 (enterprise IdPs)
+  - Gateway JWT (Kong, Ambassador)
+
+  Authentication is handled by Guardian + Ueberauth, not AshAuthentication.
+  """
+
+  use Ash.Resource,
+    domain: ServiceRadar.Identity,
+    data_layer: AshPostgres.DataLayer,
+    notifiers: [ServiceRadar.Identity.UserNotifier],
+    authorizers: [Ash.Policy.Authorizer]
+
+  alias ServiceRadar.Identity.Changes.DisallowLastAdminLockout
+  alias ServiceRadar.Identity.Changes.HashPassword
+  alias ServiceRadar.Identity.Changes.InvalidateUserRbacCache
+  alias ServiceRadar.Identity.Changes.NormalizeTimezonePreference
+  alias ServiceRadar.Identity.Changes.RequirePrivilegeBoundary
+  alias ServiceRadar.Identity.Constants
+  alias ServiceRadar.Identity.PasswordHash
+  alias ServiceRadar.Identity.Validations.CurrentPassword
+  alias ServiceRadar.Identity.Validations.PasswordConfirmationMatches
+  alias ServiceRadar.Identity.Validations.ProfileTimezone
+  alias ServiceRadar.Policies.Checks.ActorHasPermission
+  alias ServiceRadar.Policies.Checks.ActorIsNil
+
+  @allowed_roles Constants.allowed_roles()
+  @auth_manage_permission Constants.auth_manage_permission()
+  @password_manage_permission Constants.password_manage_permission()
+  @auth_manage_check {ActorHasPermission, permission: @auth_manage_permission}
+  @password_manage_check {ActorHasPermission, permission: @password_manage_permission}
+  @rbac_manage_check {ActorHasPermission, permission: Constants.rbac_manage_permission()}
+  @share_principals_check {ActorHasPermission, permission: "analytics.share_principals.view"}
+  @user_admin_fields [:email, :display_name, :role, :role_profile_id]
+  @user_profile_fields [:email, :display_name]
+  @display_name_fields [:display_name]
+  @email_fields [:email]
+  @role_fields [:role]
+  @role_profile_fields [:role_profile_id, :role_profile_source]
+  @auth_lookup_actions [:by_email, :authenticate]
+  @self_service_actions [
+    :update,
+    :record_authentication,
+    :record_login
+  ]
+  @admin_user_management_actions [
+    :update_role,
+    :update_role_profile,
+    :admin_set_password,
+    :set_local_login,
+    :deactivate,
+    :reactivate
+  ]
+
+  postgres do
+    table "ng_users"
+    repo ServiceRadar.Repo
+    schema "platform"
+  end
+
+  code_interface do
+    define :get_by_email, action: :by_email, args: [:email]
+    define :get_by_id, action: :by_id, args: [:id]
+    define :authenticate, action: :authenticate, args: [:email, :password]
+    define :register_with_password
+    define :provision_sso_user
+    define :update
+    define :update_timezone_preference, action: :update_timezone_preference
+    define :change_password
+    define :record_authentication
+    define :record_login
+    define :deactivate
+    define :reactivate
+    define :update_role
+    define :update_role_profile, action: :update_role_profile
+    define :admin_set_password, action: :admin_set_password
+    define :set_local_login, action: :set_local_login
+  end
+
+  actions do
+    defaults [:read]
+
+    read :by_email do
+      argument :email, :ci_string, allow_nil?: false
+      get? true
+      filter expr(email == ^arg(:email))
+    end
+
+    read :by_id do
+      argument :id, :uuid, allow_nil?: false
+      get? true
+      filter expr(id == ^arg(:id))
+    end
+
+    read :admins do
+      filter expr(role == :admin and status == :active)
+    end
+
+    read :for_role_profile_boundary do
+      argument :role_profile_id, :uuid, allow_nil?: false
+      filter expr(role_profile_id == ^arg(:role_profile_id))
+    end
+
+    # Password authentication action
+    # Returns user if credentials valid, error otherwise
+    read :authenticate do
+      description "Authenticate a user with email and password"
+      argument :email, :ci_string, allow_nil?: false
+      argument :password, :string, allow_nil?: false, sensitive?: true
+      get? true
+      filter expr(email == ^arg(:email) and status == :active)
+
+      prepare fn query, _context ->
+        Ash.Query.after_action(query, fn _query, results ->
+          case results do
+            [user] ->
+              password = Ash.Query.get_argument(query, :password)
+
+              if verify_password(password, user.hashed_password) do
+                {:ok, [user]}
+              else
+                {:ok, []}
+              end
+
+            [] ->
+              # Prevent timing attacks
+              Bcrypt.no_user_verify()
+              {:ok, []}
+          end
+        end)
+      end
+    end
+
+    create :create do
+      description "Create a new user (admin or system use)"
+      accept @user_admin_fields
+
+      argument :password, :string do
+        allow_nil? true
+        sensitive? true
+        constraints min_length: 12
+      end
+
+      # Accounts created with a local password may sign in locally.
+      change set_attribute(:local_login_enabled, true)
+
+      change {HashPassword, force?: true}
+    end
+
+    create :register_with_password do
+      description "Register a new user with email and password"
+      accept @user_profile_fields
+
+      change ServiceRadar.Identity.Changes.AssignFirstUserRole
+
+      argument :password, :string do
+        allow_nil? false
+        sensitive? true
+        constraints min_length: 12
+      end
+
+      argument :password_confirmation, :string do
+        allow_nil? false
+        sensitive? true
+      end
+
+      validate PasswordConfirmationMatches
+
+      # Locally-registered accounts may sign in locally (SSO/JIT accounts do not).
+      change set_attribute(:local_login_enabled, true)
+
+      change {HashPassword, force?: true}
+    end
+
+    # JIT provisioning for SSO users
+    create :provision_sso_user do
+      description "Create a user from SSO claims (JIT provisioning)"
+      accept @user_profile_fields
+
+      argument :role, :atom do
+        allow_nil? true
+        default :viewer
+        constraints one_of: @allowed_roles
+      end
+
+      argument :external_id, :string do
+        allow_nil? false
+        description "IdP subject identifier"
+      end
+
+      argument :provider, :atom do
+        allow_nil? false
+        constraints one_of: [:oidc, :saml, :gateway]
+      end
+
+      # Set default role and mark as confirmed (SSO = verified email)
+      change set_attribute(:role, arg(:role))
+      change set_attribute(:status, :active)
+      change set_attribute(:confirmed_at, &DateTime.utc_now/0)
+
+      change fn changeset, _context ->
+        external_id = Ash.Changeset.get_argument(changeset, :external_id)
+        Ash.Changeset.force_change_attribute(changeset, :external_id, external_id)
+      end
+    end
+
+    update :update do
+      accept @display_name_fields
+    end
+
+    update :update_timezone_preference do
+      description "Update only the acting user's display timezone preference"
+      accept [:timezone]
+      change NormalizeTimezonePreference
+      validate ProfileTimezone
+    end
+
+    update :update_email do
+      accept @email_fields
+      require_atomic? false
+
+      argument :current_password, :string do
+        allow_nil? false
+        sensitive? true
+      end
+
+      validate {CurrentPassword, required_message: "is required"}
+
+      # Mark email as confirmed since this action is called after token-based
+      # verification in the Accounts context
+      change set_attribute(:confirmed_at, &DateTime.utc_now/0)
+    end
+
+    update :update_role do
+      accept @role_fields
+      require_atomic? false
+      change DisallowLastAdminLockout
+      change InvalidateUserRbacCache
+    end
+
+    update :update_role_profile do
+      accept @role_profile_fields
+      change InvalidateUserRbacCache
+    end
+
+    update :clear_role_profile_for_boundary do
+      accept []
+      change set_attribute(:role_profile_id, nil)
+      change set_attribute(:role_profile_source, :manual)
+      validate RequirePrivilegeBoundary
+      change InvalidateUserRbacCache
+    end
+
+    update :change_password do
+      description "Change a user's password"
+      # Non-atomic: validates current password against stored hash
+      require_atomic? false
+
+      argument :current_password, :string do
+        # Allow nil here - the change block handles validation based on whether user has a password
+        allow_nil? true
+        sensitive? true
+      end
+
+      argument :password, :string do
+        allow_nil? false
+        sensitive? true
+        constraints min_length: 12
+      end
+
+      argument :password_confirmation, :string do
+        allow_nil? false
+        sensitive? true
+      end
+
+      validate PasswordConfirmationMatches
+
+      validate {CurrentPassword,
+                required_message: "is required to change password",
+                no_password_message: "you don't have a password set"}
+
+      change {HashPassword, force?: true}
+    end
+
+    update :admin_set_password do
+      description "Set a user's password without requiring the current password (admin-only flow)"
+      require_atomic? false
+
+      argument :password, :string do
+        allow_nil? false
+        sensitive? true
+        constraints min_length: 12
+      end
+
+      change {HashPassword, force?: true}
+    end
+
+    update :set_local_login do
+      description "Enable or disable local password login for this account (admin-only)"
+      accept [:local_login_enabled]
+    end
+
+    update :record_authentication do
+      description "Record authentication timestamp for sudo mode"
+      change set_attribute(:authenticated_at, &DateTime.utc_now/0)
+    end
+
+    update :record_login do
+      description "Record user login timestamp and method"
+
+      argument :auth_method, :atom do
+        allow_nil? false
+        constraints one_of: [:password, :oidc, :saml, :gateway, :api_token, :oauth_client]
+      end
+
+      change set_attribute(:last_login_at, &DateTime.utc_now/0)
+      change set_attribute(:last_auth_method, arg(:auth_method))
+    end
+
+    update :deactivate do
+      description "Deactivate a user account and revoke access"
+      require_atomic? false
+      change DisallowLastAdminLockout
+      change set_attribute(:status, :inactive)
+    end
+
+    update :reactivate do
+      description "Reactivate a user account"
+      change set_attribute(:status, :active)
+    end
+  end
+
+  policies do
+    # System actors can perform all operations (schema isolation via search_path)
+    bypass always() do
+      authorize_if actor_attribute_equals(:role, :system)
+    end
+
+    # Public reads used by authentication flows (no actor available yet)
+    policy action(@auth_lookup_actions) do
+      authorize_if ActorIsNil
+
+      authorize_if @auth_manage_check
+    end
+
+    # Read access:
+    # - Admins (settings.auth.manage) can read any user
+    # - Users can read themselves
+    policy action_type(:read) do
+      authorize_if @auth_manage_check
+
+      authorize_if @share_principals_check
+
+      authorize_if expr(id == ^actor(:id))
+    end
+
+    bypass action(:for_role_profile_boundary) do
+      authorize_if @rbac_manage_check
+    end
+
+    # Public registration (no actor available)
+    policy action(:register_with_password) do
+      authorize_if ActorIsNil
+    end
+
+    # Admin-managed user creation
+    policy action(:create) do
+      authorize_if @auth_manage_check
+    end
+
+    # JIT provisioning is performed as a SystemActor in the web layer.
+    # Allow admins to use it intentionally; deny regular users.
+    policy action(:provision_sso_user) do
+      authorize_if @auth_manage_check
+    end
+
+    # Self-service updates and audit markers
+    policy action(@self_service_actions) do
+      authorize_if expr(id == ^actor(:id))
+
+      authorize_if @auth_manage_check
+    end
+
+    # Email is IdP-owned once `external_id` is set. Admins use other actions
+    # if they need to repair an account; this path is self-service only.
+    policy action(:update_email) do
+      forbid_if expr(not is_nil(external_id))
+      authorize_if expr(id == ^actor(:id))
+    end
+
+    policy action(:update_timezone_preference) do
+      authorize_if expr(id == ^actor(:id))
+    end
+
+    # Password is IdP-owned for SSO-linked accounts. Local accounts must both
+    # be changing their own password and hold settings.password.manage — the
+    # previous single policy ORed those, so a custom profile that omitted the
+    # key could still POST /users/update-password.
+    policy action(:change_password) do
+      forbid_if expr(not is_nil(external_id))
+      authorize_if expr(id == ^actor(:id))
+    end
+
+    policy action(:change_password) do
+      authorize_if @password_manage_check
+    end
+
+    # Admin-only user management
+    policy action(@admin_user_management_actions) do
+      authorize_if @auth_manage_check
+    end
+
+    policy action(:clear_role_profile_for_boundary) do
+      authorize_if @rbac_manage_check
+    end
+  end
+
+  attributes do
+    uuid_primary_key :id
+
+    attribute :email, :ci_string do
+      allow_nil? false
+      public? true
+      description "User email address (unique within the instance)"
+      constraints match: ~r/^[^\s]+@[^\s]+$/
+    end
+
+    attribute :hashed_password, :string do
+      allow_nil? true
+      sensitive? true
+      description "Bcrypt-hashed password"
+    end
+
+    attribute :local_login_enabled, :boolean do
+      allow_nil? false
+      default false
+      public? true
+
+      description """
+      Whether this account may authenticate with a local password when SSO is the
+      primary mode. SSO/JIT-provisioned accounts are SSO-only (false); locally
+      created/registered accounts are true. Governs server-side local-login policy
+      (see ServiceRadarWebNGWeb.Auth.LoginPolicy). Has no effect in password_only mode.
+      """
+    end
+
+    attribute :display_name, :string do
+      public? true
+      description "User's display name"
+    end
+
+    attribute :timezone, :string do
+      allow_nil? false
+      default "Etc/UTC"
+      public? true
+      description "IANA timezone used to display this user's local times"
+    end
+
+    attribute :role, :atom do
+      allow_nil? false
+      default :viewer
+      public? true
+      constraints one_of: @allowed_roles
+      description "User's role for authorization"
+    end
+
+    attribute :role_profile_id, :uuid do
+      allow_nil? true
+      public? true
+      description "Role profile assignment for RBAC"
+    end
+
+    attribute :role_profile_source, :atom do
+      allow_nil? false
+      public? true
+      default :manual
+      constraints one_of: [:manual, :idp]
+
+      description """
+      Who assigned `role_profile_id`. Removing a user from an identity-provider
+      group must revoke what that group granted, and that is only safe to do if
+      an IdP-granted profile can be told apart from one an operator assigned by
+      hand -- otherwise revocation would also wipe manual assignments from users
+      who have no mapping at all.
+      """
+    end
+
+    attribute :status, :atom do
+      allow_nil? false
+      default :active
+      public? true
+      constraints one_of: [:active, :inactive]
+      description "User account status"
+    end
+
+    attribute :external_id, :string do
+      public? false
+      description "External IdP subject identifier (for SSO users)"
+    end
+
+    attribute :confirmed_at, :utc_datetime do
+      public? true
+      description "When the user confirmed their email"
+    end
+
+    attribute :authenticated_at, :utc_datetime do
+      public? true
+      description "When the user last authenticated (for sudo mode)"
+    end
+
+    attribute :last_login_at, :utc_datetime do
+      public? true
+      description "When the user last logged in"
+    end
+
+    attribute :last_auth_method, :atom do
+      public? true
+      constraints one_of: [:password, :oidc, :saml, :gateway, :api_token, :oauth_client]
+      description "Last authentication method used by the user"
+    end
+
+    create_timestamp :inserted_at
+    update_timestamp :updated_at
+  end
+
+  relationships do
+    belongs_to :role_profile, ServiceRadar.Identity.RoleProfile do
+      allow_nil? true
+      attribute_writable? true
+    end
+  end
+
+  calculations do
+    calculate :confirmed?, :boolean, expr(not is_nil(confirmed_at))
+
+    calculate :initials,
+              :string,
+              expr(
+                if is_nil(display_name) do
+                  fragment("UPPER(LEFT(?, 2))", email)
+                else
+                  fragment(
+                    "UPPER(LEFT(?, 1)) || UPPER(LEFT(SPLIT_PART(?, ' ', 2), 1))",
+                    display_name,
+                    display_name
+                  )
+                end
+              )
+  end
+
+  identities do
+    # Email uniqueness is enforced per instance schema
+    identity :email, [:email]
+  end
+
+  @doc """
+  True when this account is linked to an identity provider.
+
+  SSO-provisioned users get `external_id` at JIT create time; pre-provisioned
+  users get it on first SSO sign-in. Email and password for those accounts are
+  owned by the IdP and cannot be changed in ServiceRadar.
+  """
+  @spec idp_managed_identity?(map() | nil) :: boolean()
+  def idp_managed_identity?(%{external_id: id}) when is_binary(id) and id != "", do: true
+  def idp_managed_identity?(_), do: false
+
+  # Helper function for password verification
+  defp verify_password(nil, _hash), do: false
+  defp verify_password(_password, nil), do: false
+  defp verify_password(_password, ""), do: false
+  defp verify_password(password, hash), do: PasswordHash.verify(password, hash)
+end

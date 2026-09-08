@@ -1,0 +1,21 @@
+[package]
+name = "serviceradar-config-manager"
+version = "0.1.0"
+edition = "2024"
+autotests = false
+
+[lib]
+name = "serviceradar_config_manager"
+path = "src/lib.rs"
+
+[dependencies]
+prost = { workspace = true }
+serviceradar-config-schema = { path = "../../proto_bindings/rust" }
+serviceradar-config-validator = { path = "../../manager_validator/rust" }
+# For fetch_ca_bundle. Defaults kept deliberately: ureq's TLS transport IS a default feature,
+# and disabling defaults removes it in a way that compiles clean and fails at runtime.
+ureq = { workspace = true }
+
+[[test]]
+name = "lib_tests"
+path = "tests/lib_tests.rs"

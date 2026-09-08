@@ -1,0 +1,115 @@
+{
+  "id": "cloud.serviceradar.service-availability-noc",
+  "name": "Service Availability NOC",
+  "version": "0.1.0",
+  "vendor": "ServiceRadar",
+  "description": "Operator dashboard for service availability, unavailable services, and active service incidents.",
+  "capabilities": [
+    "srql.execute"
+  ],
+  "data_frames": [
+    {
+      "id": "availability_rollup",
+      "query": "in:service_availability time:last_1h rollup_stats:availability",
+      "encoding": "json_rows",
+      "limit": 1,
+      "required": true,
+      "fields": [
+        "total",
+        "ok",
+        "warning",
+        "critical",
+        "unknown",
+        "availability_pct"
+      ]
+    },
+    {
+      "id": "attention_services",
+      "query": "in:service_availability status:(critical,unknown,warning) time:last_1h sort:last_observed_at:desc limit:50",
+      "encoding": "json_rows",
+      "limit": 50,
+      "required": true,
+      "fields": [
+        "service_name",
+        "service_key",
+        "service_kind",
+        "descriptor_id",
+        "status",
+        "response_time_ms",
+        "summary",
+        "last_observed_at"
+      ]
+    },
+    {
+      "id": "service_inventory",
+      "query": "in:monitored_services time:last_1h sort:display_name:asc limit:200",
+      "encoding": "json_rows",
+      "limit": 200,
+      "required": true,
+      "fields": [
+        "uid",
+        "display_name",
+        "service_key",
+        "service_kind",
+        "protocol",
+        "host",
+        "port",
+        "status"
+      ]
+    },
+    {
+      "id": "slo_evaluations",
+      "query": "in:slo_evaluations severity:(warning,critical) time:last_24h sort:evaluated_at:desc limit:25",
+      "encoding": "json_rows",
+      "limit": 25,
+      "required": true,
+      "fields": [
+        "uid",
+        "slo_key",
+        "slo_name",
+        "owner",
+        "compliance_state",
+        "severity",
+        "budget_remaining_basis_points",
+        "burn_rate_short",
+        "projected_exhaustion_at",
+        "evaluated_at"
+      ]
+    },
+    {
+      "id": "slo_budget_rollup",
+      "query": "in:slo_evaluations time:last_24h rollup_stats:slo_error_budget",
+      "encoding": "json_rows",
+      "limit": 1,
+      "required": true,
+      "fields": [
+        "total",
+        "critical",
+        "warning",
+        "error_budget_remaining",
+        "avg_budget_remaining_basis_points",
+        "max_burn_rate_short",
+        "next_projected_exhaustion_at"
+      ]
+    }
+  ],
+  "settings_schema": {
+    "type": "object",
+    "properties": {
+      "defaultNocTag": {
+        "type": "string",
+        "title": "Default NOC tag",
+        "default": "primary"
+      }
+    }
+  },
+  "renderer": {
+    "kind": "built_in",
+    "interface_version": "dashboard-built-in-v1",
+    "artifact": "service-availability-noc",
+    "trust": "first_party",
+    "entrypoint": "service_availability_noc",
+    "sha256": "d68069376394d360f82ddd9e97a6d586290f5837884f04d1d201e925e64d5510"
+  },
+  "schema_version": 1
+}

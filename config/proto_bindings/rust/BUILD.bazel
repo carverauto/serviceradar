@@ -1,0 +1,56 @@
+# gazelle:ignore
+
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:cargo_build_script.bzl", "cargo_build_script")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+
+filegroup(
+    name = "srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "target/**",
+            "bazel-*",
+        ],
+    ),
+    visibility = ["//visibility:public"],
+)
+
+cargo_build_script(
+    name = "build_script",
+    srcs = ["build.rs"],
+    build_script_env = {
+        "PROTOC": "$(execpath @bazel_tools//tools/proto:protoc)",
+    },
+    crate_root = "build.rs",
+    data = [
+        "//config/proto:config_proto_src",
+        "//config/proto:rules_proto_src",
+    ],
+    # The schema lives in //config/proto, a different package from this crate, so the
+    # generated CARGO_MANIFEST_DIR would not contain it and build.rs's execroot-relative
+    # path would resolve to nothing. Same reason as //rust/kvutil.
+    features = ["symlink-exec-root"],
+    tools = ["@bazel_tools//tools/proto:protoc"],
+    deps = ["@crates//:prost-build"],
+)
+
+rust_library(
+    name = "config_schema",
+    srcs = glob(["src/**/*.rs"]),
+    crate_name = "serviceradar_config_schema",
+    crate_root = "src/lib.rs",
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + [":build_script"],
+)
+
+# Every crate with #[cfg(test)] code needs a rust_test target, or the tests compile under
+# cargo and never run under Bazel.
+rust_test(
+    name = "config_schema_test",
+    crate = ":config_schema",
+)

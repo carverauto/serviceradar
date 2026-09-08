@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://serviceradar.cloud/addons/scalibr-endpoint-inventory/config.schema.json",
+  "title": "ScaLibr Endpoint Software Inventory Configuration",
+  "description": "Operator-facing configuration for the root-owned OSV ScaLibr endpoint software inventory scanner. The scanner writes the normal endpoint inventory spool payload for agent ingest.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "enabled": { "type": "boolean", "default": true },
+    "agent_id": {
+      "type": "string",
+      "minLength": 1,
+      "x-serviceradar-ui-hidden": true,
+      "description": "Runtime-injected from the assigned agent's own identity (written to the runtime profile file by the agent). Not operator-configurable, so it is hidden from the config form and never required when targeting a cohort/profile."
+    },
+    "scanner_id": { "type": "string", "default": "osv-scalibr" },
+    "scanner_version": { "type": "string" },
+    "profile_path": {
+      "type": "string",
+      "default": "/var/lib/serviceradar/endpoint-inventory/profile/runtime.json"
+    },
+    "spool_dir": {
+      "type": "string",
+      "default": "/var/lib/serviceradar/endpoint-inventory/spool"
+    },
+    "cache_dir": {
+      "type": "string",
+      "default": "/var/lib/serviceradar/endpoint-inventory/cache"
+    },
+    "tmp_dir": {
+      "type": "string",
+      "default": "/var/lib/serviceradar/endpoint-inventory/tmp"
+    },
+    "scan_timeout": { "type": "string", "default": "5m" },
+    "scalibr_plugins": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "default": ["os/dpkg", "os/rpm", "os/apk"]
+    },
+    "scan_roots": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "default": ["/"]
+    },
+    "paths_to_extract": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "dirs_to_skip": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": ["/proc", "/sys", "/dev", "/run"]
+    },
+    "network_online": { "type": "boolean", "default": false },
+    "read_symlinks": { "type": "boolean", "default": false },
+    "max_file_size": { "type": "integer", "minimum": 0, "default": 33554432 },
+    "max_inodes": { "type": "integer", "minimum": 0, "default": 0 },
+    "cadence": { "type": "string", "default": "24h" },
+    "collect_paths": { "type": "boolean", "default": false },
+    "collect_file_hashes": { "type": "boolean", "default": false },
+    "max_packages": { "type": "integer", "minimum": 1, "default": 100000 },
+    "force_full_scan_interval": { "type": "integer", "minimum": 1, "default": 24 },
+    "cache_stale_threshold": { "type": "string", "default": "26h" },
+    "upload_jitter": { "type": "string", "default": "0s" },
+    "upload_retry_initial": { "type": "string", "default": "5m" },
+    "upload_retry_max": { "type": "string", "default": "1h" },
+    "upload_retry_max_attempts": { "type": "integer", "minimum": 1, "default": 5 },
+    "force_fresh_enabled": { "type": "boolean", "default": false },
+    "max_output_bytes": { "type": "integer", "minimum": 1, "maximum": 33554432, "default": 33554432 }
+  },
+  "required": ["enabled", "scalibr_plugins", "scan_roots"]
+}

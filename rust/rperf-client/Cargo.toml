@@ -1,0 +1,31 @@
+[package]
+name = "serviceradar-rperf-checker"
+version = "1.0.30"
+description = "gRPC plugin for rperf network performance testing tool"
+authors = ["Michael Freeman <mfreeman451@gmail.com>"]
+edition = "2024"
+license = "Apache-2.0"
+
+[dependencies]
+anyhow = { workspace = true }
+chrono = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+config-bootstrap = { path = "../config-bootstrap" }
+env_logger = { workspace = true }
+log = { workspace = true }
+pem = { workspace = true }
+prost = { workspace = true }
+rustls = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+serviceradar-metric-proto = { path = "../metric-proto" }
+spiffe = { workspace = true, features = ["x509-source"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "process", "signal", "io-util", "time"] }
+tonic = { workspace = true, features = ["tls-ring"] }
+tonic-health ={ workspace = true }
+tonic-prost = { workspace = true }
+tonic-reflection =  { workspace = true }
+
+[build-dependencies]
+tonic-prost-build = { workspace = true }
+which = { workspace = true }

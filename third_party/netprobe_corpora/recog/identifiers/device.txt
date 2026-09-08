@@ -1,0 +1,115 @@
+ADSL Modem
+ADSL Router
+ATM DSL Unit
+AV Receiver
+Access Control
+Alarm Panel
+Appliance
+Audio Encoder
+Broadband Router
+Building Automation
+Cable Modem
+Check Scanner
+Cloud Network Video Recorder
+Copier
+DOCSIS Cable Modem
+DSL Modem
+DSLAM
+DSU/CSU
+DVR
+Data Terminal
+Desktop
+Device
+Device Hub
+Device Server
+Display Controller
+Environment Control
+Ethernet Adapter
+Fax Server
+Firewall
+Frame Relay
+HMI Controller
+Handheld Scanner
+Hub
+Hypervisor
+IDS
+IP Camera
+IPS
+IPTV
+Industrial Control
+JTAG Adapter
+KVM
+Laptop
+Light Bulb
+Lights Out Management
+Load Balancer
+Mainframe
+Management Processor
+Media Gateway
+Media Player
+Media Receiver
+Media Server
+Medical
+Mobile
+Mobile Phone
+Monitoring
+Multifunction Device
+Multiplexer
+NAC
+NAS
+Network
+Network Appliance
+Network Audio
+Network Management Device
+Network Scanner
+Onboard Administrator
+PDU
+PLC
+Point of Sale
+Power Device
+Power Meter
+Power Relay
+Powerline
+Print Server
+Printer
+Relay Controller
+Remote Access Server
+Remote Terminal
+Router
+SD-WAN Appliance
+SIP Device
+SIP Gateway
+Scanner
+Security Appliance
+Sensor
+Smart TV
+Storage
+Storage Appliance
+Support Appliance
+Switch
+Tablet
+Tape Library
+Telecom
+Test Instrument
+Thin Client
+UPS
+USB Server
+UnixWare
+VPN
+Video Conferencing
+Video Decoder
+Video Encoder
+ViewStation
+VoIP
+VoIP Gateway
+VoIP Server
+VoIP Switch
+Voice Appliance
+WAN Accelerator
+WAP
+WLAN Repeater
+Web Cam
+Web Proxy
+Whiteboard
+Wireless Controller
+Wireless Presenter

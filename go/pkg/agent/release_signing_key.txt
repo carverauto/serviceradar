@@ -1,0 +1,19 @@
+# Trusted Ed25519 release-signing PUBLIC key for package-managed agents.
+#
+# This is the PUBLIC half. There is no secret here, which is why it can live in the tree -- and
+# it already did: the identical value is committed as `agentReleasePublicKey` in both
+# helm/serviceradar/values.yaml and helm/serviceradar/values-demo.yaml, where the control plane
+# reads it as SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY. This file makes the agent side match.
+#
+#
+# Lines beginning with `#` and blank lines are ignored; the first remaining line is the key.
+#
+# KEEP IN SYNC with the two helm values above. To regenerate from the signing secret (CI only):
+#
+#     SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY=... \
+#       go run ./tools/go/derive_agent_release_public_key
+#
+# The release workflow asserts this file matches that derivation
+# (scripts/verify-agent-release-key-stamp.sh), so a stale or wrong value fails the release rather
+# than shipping agents that trust nothing.
+ZY2//cpkD3oVdC6q4Cg6lN1I2M6SgmDMzL4QyQjptH8=
