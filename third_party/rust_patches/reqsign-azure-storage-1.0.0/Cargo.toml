@@ -48,7 +48,7 @@ reqwest= { version = "0.12", default-features = false}
 serde= { version = "1", features = ["derive"]}
 serde_json= { version = "1"}
 sha1= { version = "0.10"}
-sha2= { version = "0.10", features = ["oid"]}
+sha2= { version = "0.11", features = ["oid"]}
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 jsonwebtoken= { version = "10.3.0"}
