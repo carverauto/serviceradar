@@ -1781,6 +1781,18 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
                  }
              })
 
+    # Pin acceptance at the frozen ceiling as well as refusal above it. This
+    # validates the assignment carrier without materializing a plan that large.
+    assert :ok =
+             AssignmentValidate.validate(%{
+               assignment
+               | mtr_expectation: %{
+                   assignment.mtr_expectation
+                   | ordinal_count: 2_147_483_648,
+                     ordinal_range_commitment: :binary.copy(<<1>>, 32)
+                 }
+             })
+
     # Reason-pinned rejects, mirroring the Go errors.
     assert {:error, :identity} = AssignmentValidate.validate(%{assignment | record_sequence: 0})
     assert {:error, :lease} = AssignmentValidate.validate(%{assignment | fence_token: 0})

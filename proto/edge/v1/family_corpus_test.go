@@ -260,6 +260,95 @@ func TestFamilyManifestMatchesDisk(t *testing.T) {
 	}
 }
 
+func canonicalMtrRecord(t *testing.T, family edgev1.EdgeRecordPayloadFamily) *edgev1.EdgeRecordV1 {
+	t.Helper()
+	r := canonicalRecord(t)
+
+	ctx := r.GetSourceAuthorization().GetContextId()
+	batch := &edgev1.MtrTraceBatchV1{
+		NetworkScopeId: r.GetNetworkScopeId(),
+		AgentId:        r.GetProducerContext().GetProducerInstanceId(),
+		BatchSequence:  1,
+		Source:         edgev1.SweepExecutionSource_SWEEP_EXECUTION_SOURCE_SCHEDULED_CHECK,
+		Correlation: &edgev1.MtrTraceBatchV1_ScheduledCheck{
+			ScheduledCheck: &edgev1.MtrScheduledCheckContextV1{CheckId: ctx},
+		},
+		Traces: []*edgev1.MtrTraceEventV1{{
+			TraceId: uuidv7(0x41), EventId: uuidv7(0x42),
+			// INSIDE the signed collection window; a zero time is outside it and the join
+			// would refuse the control for a reason that has nothing to do with framing.
+			ObservedAtUnixNano: fixedNanos,
+			SweepHostAddress:   []byte{10, 0, 0, 9},
+			Outcome:            edgev1.MtrOutcome_MTR_OUTCOME_REACHED,
+			Target:             "10.0.0.9", Attempted: true, TargetReached: true, TotalHops: 1,
+			Protocol:  edgev1.TransportProtocol_TRANSPORT_PROTOCOL_ICMP,
+			IpVersion: 4,
+			Hops: []*edgev1.MtrTraceHopV1{{
+				HopNumber: 1, Address: []byte{10, 0, 0, 1}, Sent: 3, Received: 3,
+			}},
+		}},
+	}
+
+	payload := mustMarshal(batch)
+	sum := sha256.Sum256(payload)
+
+	r.PayloadFamily = family
+	r.Payload = payload
+	r.EncodedSize = uint32(len(payload))
+	r.UncompressedSize = uint32(len(payload))
+	r.PayloadSha256 = sum[:]
+	r.ProductionCapability = productionCap(r)
+
+	if sa := r.GetSourceAuthorization(); sa != nil {
+		sa.Capability = sourceCap(r, sa.GetContextId(), sa.GetScopeId())
+	}
+
+	r.SemanticEnvelopeSha256 = edgerecord.SemanticEnvelopeDigest(r)
+
+	return r
+}
+
+func TestMtrIdentityTimeOverflow(t *testing.T) {
+	control := canonicalMtrRecord(t, edgev1.EdgeRecordPayloadFamily_EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1)
+	if err := edgerecord.ValidateMtrRecord(control, control.GetOutputContract(), goldenPolicy()); err != nil {
+		t.Fatalf("control: %v", err)
+	}
+	var millis int64 = 20_230_744_073_710
+	wrapped := millis * 1_000_000
+	claims := control.GetSourceAuthorization().GetCapability().GetSource()
+	if wrapped < claims.GetCollectionNotBeforeUnixNano() || wrapped > claims.GetCollectionExpiresUnixNano() {
+		t.Fatal("unchecked product must land inside the signed collection window")
+	}
+	for _, field := range []string{"trace_id", "event_id"} {
+		t.Run(field, func(t *testing.T) {
+			r := proto.Clone(control).(*edgev1.EdgeRecordV1)
+			var batch edgev1.MtrTraceBatchV1
+			if err := proto.Unmarshal(r.GetPayload(), &batch); err != nil {
+				t.Fatal(err)
+			}
+			if field == "trace_id" {
+				batch.Traces[0].TraceId = uuidv7At(millis)
+			} else {
+				batch.Traces[0].EventId = uuidv7At(millis)
+			}
+			r.Payload = mustMarshal(&batch)
+			r.EncodedSize = uint32(len(r.Payload))
+			r.UncompressedSize = uint32(len(r.Payload))
+			sum := sha256.Sum256(r.Payload)
+			r.PayloadSha256 = sum[:]
+			r.SemanticEnvelopeSha256 = edgerecord.SemanticEnvelopeDigest(r)
+			raw := golden(t, "mtr_"+field+"_time_overflow.bin", r)
+			var decoded edgev1.EdgeRecordV1
+			if err := proto.Unmarshal(raw, &decoded); err != nil {
+				t.Fatal(err)
+			}
+			if err := edgerecord.ValidateMtrRecord(&decoded, decoded.GetOutputContract(), goldenPolicy()); !errors.Is(err, edgerecord.ErrSweepJoin) {
+				t.Fatalf("%s overflow: got %v, want ErrSweepJoin", field, err)
+			}
+		})
+	}
+}
+
 // TestMtrEntrypointEnforcesFramingFamily proves the MTR ingress enforces the SAME equality at
 // its OWN call site.
 //
@@ -271,59 +360,13 @@ func TestFamilyManifestMatchesDisk(t *testing.T) {
 // SNAPSHOT_PAGE_V1 rather than RECOVERY_CONTROL_V1, because the recovery-lane biconditional
 // would refuse the latter earlier and the proof would be vacuous.
 func TestMtrEntrypointEnforcesFramingFamily(t *testing.T) {
-	mtrRecord := func(family edgev1.EdgeRecordPayloadFamily) *edgev1.EdgeRecordV1 {
-		r := canonicalRecord(t)
 
-		ctx := r.GetSourceAuthorization().GetContextId()
-		batch := &edgev1.MtrTraceBatchV1{
-			NetworkScopeId: r.GetNetworkScopeId(),
-			AgentId:        r.GetProducerContext().GetProducerInstanceId(),
-			BatchSequence:  1,
-			Source:         edgev1.SweepExecutionSource_SWEEP_EXECUTION_SOURCE_SCHEDULED_CHECK,
-			Correlation: &edgev1.MtrTraceBatchV1_ScheduledCheck{
-				ScheduledCheck: &edgev1.MtrScheduledCheckContextV1{CheckId: ctx},
-			},
-			Traces: []*edgev1.MtrTraceEventV1{{
-				TraceId: uuidv7(0x41), EventId: uuidv7(0x42),
-				// INSIDE the signed collection window; a zero time is outside it and the join
-				// would refuse the control for a reason that has nothing to do with framing.
-				ObservedAtUnixNano: fixedNanos,
-				SweepHostAddress:   []byte{10, 0, 0, 9},
-				Outcome:            edgev1.MtrOutcome_MTR_OUTCOME_REACHED,
-				Target:             "10.0.0.9", Attempted: true, TargetReached: true, TotalHops: 1,
-				Protocol:  edgev1.TransportProtocol_TRANSPORT_PROTOCOL_ICMP,
-				IpVersion: 4,
-				Hops: []*edgev1.MtrTraceHopV1{{
-					HopNumber: 1, Address: []byte{10, 0, 0, 1}, Sent: 3, Received: 3,
-				}},
-			}},
-		}
-
-		payload := mustMarshal(batch)
-		sum := sha256.Sum256(payload)
-
-		r.PayloadFamily = family
-		r.Payload = payload
-		r.EncodedSize = uint32(len(payload))
-		r.UncompressedSize = uint32(len(payload))
-		r.PayloadSha256 = sum[:]
-		r.ProductionCapability = productionCap(r)
-
-		if sa := r.GetSourceAuthorization(); sa != nil {
-			sa.Capability = sourceCap(r, sa.GetContextId(), sa.GetScopeId())
-		}
-
-		r.SemanticEnvelopeSha256 = edgerecord.SemanticEnvelopeDigest(r)
-
-		return r
-	}
-
-	ok := mtrRecord(edgev1.EdgeRecordPayloadFamily_EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1)
+	ok := canonicalMtrRecord(t, edgev1.EdgeRecordPayloadFamily_EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1)
 	if err := edgerecord.ValidateMtrRecord(ok, ok.GetOutputContract(), goldenPolicy()); err != nil {
 		t.Fatalf("the canonical MTR record must be admitted: %v", err)
 	}
 
-	wrong := mtrRecord(edgev1.EdgeRecordPayloadFamily_EDGE_RECORD_PAYLOAD_FAMILY_SNAPSHOT_PAGE_V1)
+	wrong := canonicalMtrRecord(t, edgev1.EdgeRecordPayloadFamily_EDGE_RECORD_PAYLOAD_FAMILY_SNAPSHOT_PAGE_V1)
 
 	err := edgerecord.ValidateMtrRecord(wrong, wrong.GetOutputContract(), goldenPolicy())
 	if !errors.Is(err, edgerecord.ErrPayloadFraming) {

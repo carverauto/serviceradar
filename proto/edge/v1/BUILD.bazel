@@ -66,6 +66,7 @@ go_test(
     name = "edgev1_golden_test",
     srcs = [
         "golden_test.go",
+        "mtr_bounds_test.go",
         # The SHARED corpus builder and its gate assertions. Without this Bazel stages the
         # fixtures as data but never EXECUTES the code that writes or checks them, so the
         # required shard would verify nothing about the corpus.
