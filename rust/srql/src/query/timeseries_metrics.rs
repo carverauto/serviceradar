@@ -79,6 +79,7 @@ struct TimeseriesStatsSql {
 enum SqlBindValue {
     Text(String),
     TextArray(Vec<String>),
+    IntArray(Vec<i64>),
     Timestamp(DateTime<Utc>),
 }
 
@@ -90,6 +91,7 @@ impl SqlBindValue {
         match self {
             SqlBindValue::Text(value) => query.bind::<Text, _>(value.clone()),
             SqlBindValue::TextArray(values) => query.bind::<Array<Text>, _>(values.clone()),
+            SqlBindValue::IntArray(values) => query.bind::<Array<BigInt>, _>(values.clone()),
             SqlBindValue::Timestamp(value) => query.bind::<Timestamptz, _>(*value),
         }
     }
@@ -940,6 +942,7 @@ fn bind_param_from_stats(value: SqlBindValue) -> BindParam {
     match value {
         SqlBindValue::Text(value) => BindParam::Text(value),
         SqlBindValue::TextArray(values) => BindParam::TextArray(values),
+        SqlBindValue::IntArray(values) => BindParam::IntArray(values),
         SqlBindValue::Timestamp(value) => BindParam::timestamptz(value),
     }
 }
@@ -1267,6 +1270,15 @@ fn build_interface_profile_filter_clause(
     match filter.field.as_str() {
         "partition" | "device_id" | "target_device_ip" | "metric_type" | "metric_name"
         | "series_key" => Ok(Some(build_text_clause(filter.field.as_str(), filter)?)),
+        "if_index" if matches!(filter.op, FilterOp::In) => {
+            let values = parse_i32_list(filter.value.as_list()?)?;
+            Ok(Some((
+                "if_index = ANY(?)".to_string(),
+                vec![SqlBindValue::IntArray(
+                    values.into_iter().map(i64::from).collect(),
+                )],
+            )))
+        }
         _ => Ok(None),
     }
 }
@@ -2489,7 +2501,6 @@ mod tests {
     use crate::parser::{Entity, Filter, FilterOp, FilterValue, OrderClause, OrderDirection};
     use chrono::{Duration as ChronoDuration, TimeZone, Utc};
 
-
     /// Build a plan for the stats path with the supplied filters.
     fn stats_plan(filters: Vec<Filter>, group: &str) -> (QueryPlan, TimeseriesStatsSpec) {
         let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
@@ -2583,7 +2594,12 @@ mod tests {
             sql.sql
         );
         // Two time bounds plus the site value.
-        assert_eq!(sql.binds.len(), 3, "site value should be bound: {}", sql.sql);
+        assert_eq!(
+            sql.binds.len(),
+            3,
+            "site value should be bound: {}",
+            sql.sql
+        );
     }
 
     #[test]

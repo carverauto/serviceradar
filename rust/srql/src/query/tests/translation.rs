@@ -551,6 +551,61 @@ fn translate_timeseries_metric_interface_hourly_profile_uses_rate_cagg() {
 }
 
 #[test]
+fn translate_interface_full_profile_with_device_and_interface_lists_scope_to_any() {
+    // The seasonal edge-baseline producer fetches the 168-bucket full profile
+    // in per-device chunks (`device_id:(...)`), so each statement aggregates a
+    // bounded device set instead of the whole fleet (issues #4391/#4393). The
+    // chunk filter must survive translation as a bound `= ANY(...)` predicate.
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+    let request = QueryRequest {
+        query: "in:timeseries_metric_interface_hourly metric_name:\"ifInOctets\" time:last_180d stats:profile_hour_of_week_full(value) timezone:\"Etc/UTC\" device_id:(\"sr:router-1\",\"sr:router-2\") if_index:(1,3,5) sort:series:asc,if_index:asc,dow:asc,hod:asc limit:50000".to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let response = translate_request(&config, request).expect("translation should succeed");
+
+    assert!(
+        response
+            .sql
+            .contains("FROM timeseries_metrics_interface_hourly"),
+        "expected interface hourly CAGG, got: {}",
+        response.sql
+    );
+    assert!(
+        response.sql.contains("device_id = ANY("),
+        "expected chunk device filter as a bound ANY predicate, got: {}",
+        response.sql
+    );
+    assert!(
+        response.params.iter().any(|param| matches!(
+            param,
+            BindParam::TextArray(ids)
+              if ids == &vec!["sr:router-1".to_string(), "sr:router-2".to_string()]
+        )),
+        "expected chunk device ids as one text-array bind, got: {:?}",
+        response.params
+    );
+
+    assert!(response.sql.contains("if_index = ANY("));
+    assert!(response.params.iter().any(|param| matches!(
+        param,
+        BindParam::IntArray(indexes) if indexes == &vec![1, 3, 5]
+    )));
+
+    let max_placeholder = super::max_dollar_placeholder(&response.sql);
+    assert_eq!(
+        max_placeholder,
+        response.params.len(),
+        "sql placeholders must match params length\nsql: {}\nparams: {:?}",
+        response.sql,
+        response.params
+    );
+}
+
+#[test]
 fn full_profiles_continue_past_the_generic_cursor_cap_in_translation() {
     let mut config = test_config();
     config.max_cursor_offset = 100;
@@ -572,6 +627,57 @@ fn full_profiles_continue_past_the_generic_cursor_cap_in_translation() {
         crate::pagination::decode_cursor(&next, &config.cursor_secret, i64::MAX).unwrap(),
         200
     );
+}
+
+#[test]
+fn discovery_profiles_continue_past_the_generic_cursor_cap_in_translation() {
+    let mut config = test_config();
+    config.max_cursor_offset = 100;
+
+    for entity in ["timeseries_metrics", "timeseries_metric_interface_hourly"] {
+        let mut cursor = Some(encode_cursor(100, &config.cursor_secret).expect("cursor"));
+
+        for expected_offset in [150, 200] {
+            let request = QueryRequest {
+                query: format!(
+                    "in:{entity} time:last_180d stats:profile_hour_of_week(value) timezone:\"Etc/UTC\" limit:50"
+                ),
+                limit: None,
+                cursor,
+                direction: QueryDirection::Next,
+                mode: None,
+            };
+
+            let response = translate_request(&config, request).expect("discovery page");
+            let next = response
+                .pagination
+                .next_cursor
+                .expect("discovery continuation");
+            assert_eq!(
+                crate::pagination::decode_cursor(&next, &config.cursor_secret, i64::MAX).unwrap(),
+                expected_offset
+            );
+            cursor = Some(next);
+        }
+    }
+}
+
+#[test]
+fn ordinary_translation_retains_the_generic_cursor_cap() {
+    let mut config = test_config();
+    config.max_cursor_offset = 100;
+    let mut request = QueryRequest {
+        query: "in:devices limit:50".to_string(),
+        limit: None,
+        cursor: Some(encode_cursor(100, &config.cursor_secret).expect("cursor")),
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let response = translate_request(&config, request.clone()).expect("page at cap");
+    assert!(response.pagination.next_cursor.is_none());
+    request.cursor = Some(encode_cursor(150, &config.cursor_secret).expect("cursor"));
+    assert!(translate_request(&config, request).is_err());
 }
 
 #[test]
@@ -1535,7 +1641,10 @@ fn translate_alerts_stats_actually_aggregates() {
         .expect("alerts stats should translate");
 
     assert!(sql.contains("COUNT(*)"), "no aggregate in: {sql}");
-    assert!(sql.contains("GROUP BY src.severity"), "no grouping in: {sql}");
+    assert!(
+        sql.contains("GROUP BY src.severity"),
+        "no grouping in: {sql}"
+    );
     assert!(
         sql.contains("jsonb_build_object('severity'"),
         "the group value must be projected: {sql}"
@@ -1549,7 +1658,10 @@ fn translate_alerts_stats_keeps_the_row_filters() {
     let sql = translate_query("in:alerts severity:critical stats:count() as n by status")
         .expect("filtered alerts stats should translate");
 
-    assert!(sql.contains("\"alerts\".\"severity\""), "filter dropped: {sql}");
+    assert!(
+        sql.contains("\"alerts\".\"severity\""),
+        "filter dropped: {sql}"
+    );
     assert!(sql.contains("GROUP BY src.status"));
 }
 
@@ -1586,7 +1698,11 @@ fn translate_alerts_stats_rejects_ungroupable_fields() {
 /// rules is a number nobody should act on.
 #[test]
 fn translate_alerts_stats_rejects_non_count_aggregations() {
-    for agg in ["avg(metric_value)", "sum(metric_value)", "max(metric_value)"] {
+    for agg in [
+        "avg(metric_value)",
+        "sum(metric_value)",
+        "max(metric_value)",
+    ] {
         let query = format!("in:alerts stats:{agg} as n by severity");
         assert!(translate_query(&query).is_err(), "{agg} must be rejected");
     }
@@ -1616,7 +1732,10 @@ fn translate_alerts_stats_rejects_unsafe_aliases() {
 fn translate_alerts_rows_are_unchanged_without_stats() {
     let sql = translate_query("in:alerts severity:critical").expect("row query still translates");
 
-    assert!(!sql.contains("COUNT(*)"), "a row query must not aggregate: {sql}");
+    assert!(
+        !sql.contains("COUNT(*)"),
+        "a row query must not aggregate: {sql}"
+    );
     assert!(!sql.contains("jsonb_build_object"), "{sql}");
 }
 

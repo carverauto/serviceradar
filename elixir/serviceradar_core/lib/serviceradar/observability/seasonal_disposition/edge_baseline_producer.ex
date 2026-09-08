@@ -3,15 +3,10 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer do
   Builds the per-series hour-of-week `seasonal_baselines` payload and delivers it
   to the edge anomaly add-on (OpenSpec task 2.6 — edge-baseline DELIVERY).
 
-  `SeasonalDisposition.Worker` already pages the 168-bucket hour-of-week profile
-  rows and emits central disposition verdicts. This sibling worker reuses that
-  exact SRQL fetch + row hydration (`Worker.edge_baseline_rows/2`), reduces each
-  source's rows to the compact `{center, scale}` summary via `EdgeBaseline.build/2`,
-  and writes the merged payload into the anomaly `AddonProfile.params`
-  (`"seasonal_baselines"`). The profile reconciler then propagates the params onto
-  every matched `AddonAssignment`, and the agent delivers them to the add-on via
-  `configure()` — so the edge detector deseasonalizes against the long-horizon
-  central profile instead of only its short rolling window.
+  Reuses `Worker.edge_baseline_rows/2` for SRQL pagination and row hydration,
+  with chunk planning in `batched_baseline_rows/2`, then reduces profile rows via
+  `EdgeBaseline.build/2`. Delivery scope and operator-facing behavior are described
+  in `docs/docs/anomaly-engine.md` under Seasonal Baselines.
 
   ## Series-key alignment (the crux)
 
@@ -63,6 +58,10 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer do
   @default_min_bucket_samples 4
   @default_min_bucket_coverage_fraction 0.60
   @default_max_baselines_per_agent 1_000
+  # Series budget for batched_baseline_rows/2. Each IN list is also bounded by
+  # the SRQL parser's MAX_FILTER_LIST_VALUES.
+  @default_max_combos_per_query 200
+  @srql_max_filter_list_values 200
   @delivery_telemetry [:serviceradar, :seasonal_disposition, :edge_baseline, :delivery]
 
   @impl Oban.Worker
@@ -186,7 +185,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer do
     # Central disposition continues to use its established latest-bucket SRQL
     # route.  Edge delivery is the only consumer that needs the complete 168
     # bucket profile, so upgrade a private copy of the source query here.
-    case Worker.edge_baseline_rows(full_profile_source(source), opts) do
+    case batched_baseline_rows(source, opts) do
       {:ok, rows} ->
         {:ok, keyed_delivery(source, rows, opts)}
 
@@ -198,6 +197,114 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer do
 
         {:error, reason}
     end
+  end
+
+  # Fetch the full 168-bucket profile in per-device chunks. A single fleet-wide
+  # full-profile statement aggregates 180 days x every series (with two
+  # `percentile_cont` passes) and exceeds the database statement_timeout as the
+  # fleet grows; the outer SRQL `limit:` cannot bound that input. So first run
+  # the source's latest-bucket query (one row per series — the same cost profile
+  # as the central disposition verdict pass) to learn the device cohort, then
+  # run the full-profile query once per device chunk with a `device_id:(...)`
+  # filter, splitting interface sources further with disjoint `if_index:(...)`
+  # filters. Aggregation is per series, so
+  # concatenating chunk rows yields exactly the fleet-wide result while each
+  # statement's input stays bounded by `:edge_baseline_max_combos_per_query`.
+  defp batched_baseline_rows(%Source{query: query} = source, opts) when is_binary(query) do
+    max_combos = max_combos_per_query(opts)
+
+    with {:ok, discovery} <- Worker.edge_baseline_rows(source, opts) do
+      discovery
+      |> plan_device_chunks(source, max_combos)
+      |> fetch_device_chunks(source, opts)
+    end
+  end
+
+  defp batched_baseline_rows(source, opts) do
+    Worker.edge_baseline_rows(full_profile_source(source), opts)
+  end
+
+  defp max_combos_per_query(opts) do
+    max(int_opt(opts, :edge_baseline_max_combos_per_query, @default_max_combos_per_query), 1)
+  end
+
+  # Interface identities are disjoint within a device. Scope each statement to
+  # one device and a bounded IN list so even a wide device cannot exceed the cap.
+  defp plan_device_chunks(discovery_rows, %Source{resource_type: "interface"}, max_combos) do
+    discovery_rows
+    |> Enum.group_by(& &1.series_key, & &1.if_index)
+    |> Enum.sort_by(fn {device, _indexes} -> device end)
+    |> Enum.flat_map(fn {device, indexes} ->
+      indexes
+      |> Enum.uniq()
+      |> Enum.sort()
+      |> Enum.chunk_every(min(max_combos, @srql_max_filter_list_values))
+      |> Enum.map(&%{devices: [device], if_indexes: &1})
+    end)
+  end
+
+  # Host sources have one series per device; bin-pack their device filters.
+  defp plan_device_chunks(discovery_rows, _source, max_combos) do
+    widths =
+      discovery_rows
+      |> Enum.map(& &1.series_key)
+      |> Enum.filter(&(is_binary(&1) and &1 != ""))
+      |> Enum.frequencies()
+
+    widths
+    |> Enum.sort_by(fn {_device, width} -> -width end)
+    |> Enum.reduce([], fn {device, width}, chunks ->
+      case Enum.find_index(chunks, &chunk_fits?(&1, width, max_combos)) do
+        nil -> [%{devices: [device], combos: width} | chunks]
+        index -> List.update_at(chunks, index, &add_device(&1, device, width))
+      end
+    end)
+    |> Enum.map(&%{devices: Enum.sort(&1.devices), if_indexes: []})
+  end
+
+  defp chunk_fits?(%{devices: devices, combos: combos}, width, max_combos) do
+    length(devices) < @srql_max_filter_list_values and combos + width <= max_combos
+  end
+
+  defp add_device(%{devices: devices, combos: combos}, device, width) do
+    %{devices: [device | devices], combos: combos + width}
+  end
+
+  defp fetch_device_chunks([], _source, _opts), do: {:ok, []}
+
+  defp fetch_device_chunks(chunks, source, opts) do
+    Logger.debug("Fetching seasonal edge baselines in device chunks",
+      source: source.name,
+      devices: chunks |> Enum.flat_map(& &1.devices) |> Enum.uniq() |> length(),
+      chunks: length(chunks)
+    )
+
+    Enum.reduce_while(chunks, {:ok, []}, fn chunk, {:ok, acc} ->
+      case Worker.edge_baseline_rows(full_profile_source(chunk_source(source, chunk)), opts) do
+        {:ok, rows} -> {:cont, {:ok, acc ++ rows}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp chunk_source(%Source{query: query} = source, %{devices: devices, if_indexes: indexes})
+       when is_binary(query) do
+    interface_filter = if indexes == [], do: "", else: " if_index:(#{Enum.join(indexes, ",")})"
+    %{source | query: query <> " " <> devices_filter(devices) <> interface_filter}
+  end
+
+  defp devices_filter(devices) do
+    ids = Enum.map_join(devices, ",", &quote_srql_string/1)
+    "device_id:(#{ids})"
+  end
+
+  defp quote_srql_string(value) do
+    escaped =
+      value
+      |> String.replace("\\", "\\\\")
+      |> String.replace("\"", "\\\"")
+
+    "\"#{escaped}\""
   end
 
   defp full_profile_source(%Source{query: query} = source) when is_binary(query) do

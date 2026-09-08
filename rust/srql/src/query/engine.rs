@@ -1,15 +1,15 @@
 use super::{
+    PaginationMeta, QueryPlan, QueryRequest, QueryResponse, TranslateRequest, TranslateResponse,
     addon_fleet, addon_statuses, advisory_coordinates, agents, alerts, bmp_events,
     build_query_plan, capacity_forecasts, composite_results, cpu_metrics, dashboard_service_views,
     dashboards, device_graph, device_sweep_overlap, devices, disk_metrics, downsample,
-    endpoint_inventory_scans,
-    endpoint_package_catalog, endpoint_packages, endpoint_vulnerability_matches, events,
-    field_survey, flows, gateways, graph_cypher, identity, interfaces, is_full_profile_query, logs,
-    memory_metrics, mtr_traces, otel_metric_points, otel_metrics, process_metrics,
-    public_endpoints, services, source_fact_disagreements, sweep_coverage, sweep_executions,
-    sweep_groups, sweep_profiles, sweep_results, threat_intel_matches, timeseries_metrics,
-    trace_summaries, traces, translate_request, virtualization, vulnerability_advisories, wifi_map,
-    PaginationMeta, QueryPlan, QueryRequest, QueryResponse, TranslateRequest, TranslateResponse,
+    endpoint_inventory_scans, endpoint_package_catalog, endpoint_packages,
+    endpoint_vulnerability_matches, events, field_survey, flows, gateways, graph_cypher, identity,
+    interfaces, is_exhaustive_profile_query, logs, memory_metrics, mtr_traces, otel_metric_points,
+    otel_metrics, process_metrics, public_endpoints, services, source_fact_disagreements,
+    sweep_coverage, sweep_executions, sweep_groups, sweep_profiles, sweep_results,
+    threat_intel_matches, timeseries_metrics, trace_summaries, traces, translate_request,
+    virtualization, vulnerability_advisories, wifi_map,
 };
 use crate::{
     config::AppConfig,
@@ -193,13 +193,9 @@ impl QueryEngine {
     fn build_pagination(&self, plan: &QueryPlan, fetched: i64) -> Result<PaginationMeta> {
         let next_offset = plan.offset.saturating_add(plan.limit);
         let next_cursor = if fetched >= plan.limit {
-            // Full hour-of-week profiles are consumed by the edge baseline
-            // producer in deterministic pages. A normal fleet needs 168 rows
-            // per series, so the generic offset cap previously turned a
-            // large-but-valid delivery into an empty failed run after 150k
-            // rows. Keep the public-query guard, but let this bounded,
-            // server-side profile aggregation paginate to completion.
-            if next_offset > self.config.max_cursor_offset && !is_full_profile_query(plan) {
+            // Share the profile classification with cursor decoding and translation;
+            // see is_exhaustive_profile_query for the pagination contract.
+            if next_offset > self.config.max_cursor_offset && !is_exhaustive_profile_query(plan) {
                 return Err(ServiceError::InvalidRequest(format!(
                     "query pagination reached the configured cursor limit of {} rows; narrow the query or raise srql_max_cursor_offset",
                     self.config.max_cursor_offset
@@ -252,13 +248,13 @@ mod tests {
 
     #[test]
     fn full_hour_of_week_profiles_are_exempt_from_the_generic_cursor_cap() {
-        assert!(is_full_profile_query(&plan(
+        assert!(is_exhaustive_profile_query(&plan(
             "profile_hour_of_week_full(value)"
         )));
     }
 
     #[test]
     fn ordinary_queries_remain_cursor_capped() {
-        assert!(!is_full_profile_query(&plan("profile_hour_of_week(value)")));
+        assert!(!is_exhaustive_profile_query(&plan("avg(value)")));
     }
 }

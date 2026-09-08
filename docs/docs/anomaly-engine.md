@@ -121,6 +121,12 @@ Default drift knobs include `cusum_k = 0.5`, `cusum_h = 8.0`,
 Core builds hour-of-week baselines from Timescale continuous aggregates and
 delivers them through anomaly add-on params.
 
+The producer first discovers series using the latest-bucket profile, then fetches
+full profiles in bounded device chunks. Interface queries additionally select
+disjoint interface-index groups within each device, including wide devices.
+A failed chunk fails that source fetch rather than delivering a partial profile.
+Profile pagination follows the [SRQL pagination contract](srql-language-reference.md#sorting-and-pagination).
+
 - Host baselines are safe to write on the AddonProfile.
 - Interface baselines are scoped to AddonAssignments for every agent that the
   SNMP polling resolver confirms polls the target. A collection partition is

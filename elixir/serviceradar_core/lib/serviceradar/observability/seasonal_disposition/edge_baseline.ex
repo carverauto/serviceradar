@@ -4,9 +4,9 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaseline do
   anomaly add-on deseasonalizes against the long-horizon central profile instead
   of only its short rolling window (OpenSpec task 2.6).
 
-  Input is the same 168-bucket hour-of-week profile rows the
-  `SeasonalDisposition.Worker` already hydrates from
-  `stats:profile_hour_of_week(value)` over the hourly CAGGs — one row per
+  Input is the full hour-of-week profile hydrated by
+  `SeasonalDisposition.Worker.edge_baseline_rows/2` for `EdgeBaselineProducer`,
+  with up to 168 rows per series — one row per
   `(series, dow, hod)` carrying the robust order statistics (`center`/`mad` or
   `center`/`p05`/`p95`) or the mean/stddev moments (`bucket_count`/`bucket_sum`/
   `bucket_sum_sq`). This module reduces each bucket to the compact
