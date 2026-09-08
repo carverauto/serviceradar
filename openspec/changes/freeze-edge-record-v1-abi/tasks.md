@@ -2149,7 +2149,7 @@ here.
         transport setting does. This subtask SHALL DETERMINE the effective bound, AND add the
         edge-ABI gate before its pair can pass; a vector authored first would record a Go
         acceptance as the frozen behaviour.
-  - [ ] 1.7-e LANE HANDSHAKE ADMISSION bounds -- BOTH HALVES, and NOTHING on the delivery-ACK
+  - [x] 1.7-e LANE HANDSHAKE ADMISSION bounds -- BOTH HALVES, and NOTHING on the delivery-ACK
         path. This task's body covers the frame AND LANE HANDSHAKE, while 1.7-a is scoped to
         raw byte ceilings and reaches neither a nonce length nor a credit cap. NOT 1.5-h's:
         those are transport admission, and putting them inside a domain-semantics subtask
