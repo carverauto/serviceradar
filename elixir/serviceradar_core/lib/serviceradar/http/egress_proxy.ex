@@ -1,11 +1,14 @@
 defmodule ServiceRadar.HTTP.EgressProxy do
   @moduledoc """
-  CONNECT-proxy settings for `ServiceRadar.Finch`.
+  Shared CONNECT-proxy settings for `ServiceRadar.Finch` and
+  `ServiceRadar.HTTP.EgressClient`.
 
   `SERVICERADAR_EGRESS_PROXY` is an HTTP URL (`http://host:port`). When set,
-  every Finch pool uses that host as an HTTP CONNECT proxy so a default-deny
-  NetworkPolicy can allow only Smokescreen. Unset leaves Finch connecting
-  directly.
+  release runtime configuration stores it as `:serviceradar_core, :egress_proxy`.
+  Finch pools and `EgressClient` use that host as an HTTP CONNECT proxy so a
+  default-deny NetworkPolicy can allow only the proxy. Unset leaves new clients
+  connecting directly. See `ServiceRadar.HTTP.EgressClient` for the external
+  artifact streaming contract and CONNECT compatibility constraints.
 
   HTTPS proxy URLs are rejected: Mint's CONNECT proxy is itself HTTP.
   """

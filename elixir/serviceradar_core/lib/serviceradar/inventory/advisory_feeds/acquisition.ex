@@ -9,8 +9,10 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Acquisition do
     carries a `sha256` it is verified.
   * **CISA** is a single public JSON streamed to disk.
 
-  All downloads stream to a file — the archive is
-  never held whole in memory. Extraction uses Erlang `:zip`, leaving `*.json.gz`
+  CISA and presigned VulnCheck downloads use `ServiceRadar.HTTP.EgressClient`;
+  see its module documentation for the streaming and CONNECT-proxy contract.
+  All downloads stream to a file - the archive is never held whole in memory.
+  Extraction uses Erlang `:zip`, leaving `*.json.gz`
   members in place for shard-by-shard decoding by `StreamReader`.
 
   `:http_get` / `:http_get_json` are injectable for tests.
