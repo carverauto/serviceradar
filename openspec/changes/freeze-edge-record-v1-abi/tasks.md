@@ -170,7 +170,7 @@ here.
         the fix
         CLOSED: `TestGoldenOuterEventTimeOverflow` consumes `record_event_time_overflow.bin`; its unchecked product lands inside all three signed windows, and replacing only the outer caller with unchecked multiplication makes the test fail (af52136833).
 
-- [ ] 1.2 Add compact `SweepObservationBatchV1` and mergeable
+- [x] 1.2 Add compact `SweepObservationBatchV1` and mergeable
   host/ICMP/TCP/MTR-summary messages with exact `(mode, protocol, port)` check
   dictionaries, per-mode revisions/outcomes, per-host observation time,
   plan/range digests, presence, bounds, and stable correlation keys.
@@ -231,7 +231,7 @@ here.
     is 1.3-f's; its evidence is listed under task 1.3, not duplicated here.
 
   SUBTASKS (parent stays unchecked until all close)
-  - [ ] 1.2-a field-by-field closeout audit against what shipped
+  - [x] 1.2-a field-by-field closeout audit against what shipped; see `sweep-observation-closeout-audit.md` (52 fields across eight messages)
   - [x] 1.2-b DECIDED: the CORRELATION peer belongs to 1.3-f and has landed
         (`SweepCorrelate`); the Elixir FULL BODY VALIDATOR belongs to 1.2. This item is
         the DECISION, and it is closed
