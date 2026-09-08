@@ -132,6 +132,20 @@ OSV/OpenVEX publication is the deliberate built-in exception: core acquires
 both archives atomically and consumes a bounded normalized projection so distro
 version and not-affected evidence retain their authority.
 
+### Built-in feed enablement
+
+At boot, core seeds Ubuntu OSV + OpenVEX (`ubuntu-osv-vex`) enabled by
+default. CISA KEV, VulnCheck KEV, and NVD start disabled until an operator
+enables them. On upgrade, core also enables an existing disabled Ubuntu row
+only if it has no attempt, success, or failure timestamps and its creation and
+update timestamps are equal. Previously edited or attempted rows retain their
+settings, including an operator's disablement.
+
+If Ubuntu was previously edited or attempted while disabled, enable it in
+**Settings -> Security -> Vulnerability Feeds** when Ubuntu matching is wanted.
+Enablement alone does not confirm vulnerable packages: the feed must complete
+a validated OSV/OpenVEX generation and the matcher must run against that evidence.
+
 Each source definition tracks:
 
 - provider and feed key

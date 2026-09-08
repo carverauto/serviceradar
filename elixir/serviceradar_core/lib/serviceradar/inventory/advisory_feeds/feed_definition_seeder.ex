@@ -12,20 +12,10 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedDefinitionSeeder do
       "never") before the first run; and
     * the worker's status writes always land.
 
-  The upsert is idempotent and only touches definition metadata
-  (`display_name`/`feed_type`/`refresh_interval_seconds`); it never overwrites
-  operator-set `enabled`, cadence-changes the operator may make, or run status.
-
-  The Ubuntu OSV + OpenVEX feed seeds with `enabled: true`, and its
-  seed-pristine rows are backfilled to enabled on boot. Other feeds stay off
-  until an operator enables them. The backfill only touches rows that
-  never ran and were never operator-edited, so an explicit operator disable is
-  never overwritten.
-
-  Enabled-by-default matters beyond scheduling: distro-managed packages can
-  only graduate past `candidate` when their distro feed produces assertions
-  (see `EndpointVulnerabilityAdjudicator`). A distro feed that never runs
-  leaves every endpoint's vulnerabilities unconfirmed fleet-wide.
+  Existing rows are left unchanged except for the guarded enablement backfill;
+  seeding does not refresh their definition metadata, cadence, or run status.
+  The operator-facing defaults and upgrade policy are documented in
+  `docs/docs/endpoint-software-security.md` under "Built-in feed enablement".
   """
 
   use ServiceRadar.DelayedSeeder, callback: :seed_defaults
