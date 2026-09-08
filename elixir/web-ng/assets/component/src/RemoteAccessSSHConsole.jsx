@@ -578,6 +578,43 @@ export function Component({
     setHostKeyFailure(decision)
   }, [])
 
+  const disconnectingRef = useRef(false)
+
+  // Visible alternative to typing logout/Ctrl-D inside the terminal (sr-4400):
+  // ask the server to close the session, then drop the socket the same way
+  // the unmount cleanup does and return to the connection form. The close
+  // request is best-effort so disconnect still works when the session already
+  // ended remotely.
+  const disconnectSession = useCallback(async () => {
+    if (!session?.id || disconnectingRef.current) {
+      return
+    }
+
+    disconnectingRef.current = true
+
+    try {
+      await fetch(`${createPath}/${session.id}/close`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "content-type": "application/json",
+          "x-csrf-token": csrfToken(),
+        },
+        body: JSON.stringify({reason: "operator_requested"}),
+      }).catch(() => null)
+    } finally {
+      try {
+        socketControlRef.current?.closeSocket?.(1000, "operator disconnected")
+      } catch (_error) {
+        // Ignore socket teardown failures.
+      }
+
+      setSession(null)
+      setCredential(null)
+      disconnectingRef.current = false
+    }
+  }, [createPath, session])
+
   // Rules-of-hooks: every hook must run on every render, including the
   // post-201 session branch below, which early-returns. A memo placed after
   // that return silently drops a hook on session renders and unmounts the
@@ -1047,6 +1084,7 @@ export function Component({
             terminalModuleLoader={terminalModuleLoader}
             onFileTransferMessage={handleFileTransferMessage}
             onHostKeyFailure={handleHostKeyFailure}
+            onDisconnect={disconnectSession}
             socketControlRef={socketControlRef}
           />
         </div>

@@ -169,6 +169,71 @@ describe("RemoteAccessSSHConsole session transition", () => {
       root.unmount()
     })
   })
+
+  it("disconnects through the session close endpoint and returns to the connection form", async () => {
+    let root
+    await act(async () => {
+      root = createRoot(container)
+      root.render(
+        <Component
+          deviceUid="sr:5bf1b6f6-0e7c-43ac-b883-a13447199d85"
+          createPath="/api/remote-access/sessions"
+          sshOptionsPath="/api/remote-access/devices/sr%3A5bf1b6f6-0e7c-43ac-b883-a13447199d85/ssh-options"
+          approvalId=""
+          title="SSH remote access"
+          allowRememberedKeys={false}
+          allowSkipVerifyHostKeyPolicy={false}
+          allowTargetHostOverride={false}
+          allowTargetPortOverride={false}
+          terminalModuleLoader={async () => fakeTerminalModules()}
+        />
+      )
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    })
+
+    const connectButton = [...container.querySelectorAll("button")].find((candidate) =>
+      (candidate.textContent || "").includes("Connect with SSO")
+    )
+    expect(connectButton).toBeTruthy()
+
+    await act(async () => {
+      connectButton.click()
+      await new Promise((resolve) => setTimeout(resolve, 500))
+    })
+
+    expect(container.textContent).toContain("pve02:22 via agent-dusk01")
+
+    // sr-4400: the console chrome offers a visible Disconnect control so the
+    // operator is not limited to typing logout/Ctrl-D inside the terminal.
+    const disconnectButton = container.querySelector('[data-testid="remote-access-disconnect"]')
+    expect(disconnectButton).toBeTruthy()
+    expect(disconnectButton.textContent).toContain("Disconnect")
+
+    await act(async () => {
+      disconnectButton.click()
+      await new Promise((resolve) => setTimeout(resolve, 500))
+    })
+
+    const fetchMock = globalThis.fetch
+    const closeCall = fetchMock.mock.calls.find(([url]) =>
+      String(url).endsWith(`/remote-access/sessions/${SESSION_DATA.id}/close`)
+    )
+    expect(closeCall).toBeTruthy()
+    expect(closeCall[1].method).toBe("POST")
+    expect(JSON.parse(closeCall[1].body).reason).toBe("operator_requested")
+
+    // The terminal unmounts and the connection form returns.
+    expect(container.textContent).not.toContain("pve02:22 via agent-dusk01")
+    const reconnectButton = [...container.querySelectorAll("button")].find((candidate) =>
+      (candidate.textContent || "").includes("Connect with SSO")
+    )
+    expect(reconnectButton).toBeTruthy()
+    expect(windowErrors).toEqual([])
+
+    await act(async () => {
+      root.unmount()
+    })
+  })
 })
 
 // Reproduces the reported failure: a device the deployment's SSH certificate
