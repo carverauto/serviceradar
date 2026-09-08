@@ -164,10 +164,11 @@ here.
 
   SUBTASKS (parent stays unchecked until all close)
   - [x] 1.1-a the typed Hello carrier
-  - [ ] 1.1-b the outer-record `event_id` UUIDv7 overflow vector (assigned by 1.3). The
+  - [x] 1.1-b the outer-record `event_id` UUIDv7 overflow vector (assigned by 1.3). The
         shared checked helper `UUIDv7Nanos` exists and `validateIdentityTime` calls it, so
         what is owed is the VECTOR proving this call site rejects rather than wraps -- not
         the fix
+        CLOSED: `TestGoldenOuterEventTimeOverflow` consumes `record_event_time_overflow.bin`; its unchecked product lands inside all three signed windows, and replacing only the outer caller with unchecked multiplication makes the test fail (af52136833).
 
 - [ ] 1.2 Add compact `SweepObservationBatchV1` and mergeable
   host/ICMP/TCP/MTR-summary messages with exact `(mode, protocol, port)` check
