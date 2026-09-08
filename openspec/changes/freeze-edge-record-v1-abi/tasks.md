@@ -72,16 +72,11 @@ PR. Compression is the NEXT PR.
 
 ### Estimate discipline
 
-The remaining freeze is NOT one to two weeks. SEVEN open parents and TWENTY unchecked
-named subtasks remain (1.3 and 1.17 are closed and do not count), including FIVE of 1.5's
-FOURTEEN obligations -- 1.5-h and 1.5-i are both closed, delivering the residual-bounds
-admission and the semantic-envelope transcript inventory. Fourteen, not eleven: three obligations the body carried had no subtask,
-and the exhaustiveness rule below requires one each -- 1.5-l (refusal classification), 1.5-m
-(Elixir framing parity for the lifecycle and recovery ingresses) and 1.5-n (the Elixir
-projected-cost comparison). COMPRESSION ADMISSION (1.5-f) IS CLOSED, and closing it released the
-chain it was blocking: 1.2-c, 1.3-f, task 1.3 and 1.15-b are all checked. Three to six
-focused weeks remains the honest range for the rest, depending on how much of 1.5 proves
-already implemented during closeout.
+The checkbox ledger is the current completion record. All implementation and fixture
+subtasks have been reviewed and closed; task 1.7 records the final contract freeze.
+Repository-wide validation and integration review of the broader restored branch remain
+separate from this wire-ABI change's scope. Historical open-task counts and calendar
+estimates do not describe the current branch.
 
 ## 1. Freeze the edge record v1 wire ABI
 
@@ -1843,7 +1838,7 @@ here.
         THE THREE ROWS ARE FLIPPED: `tombstone_scope`, `manifest_page_scope` and
         `resolved_scope` read `both` in the manifest, and the CLOSED exemption set in BOTH
         runtimes -- Go's `expectedGoOnlyObjects` and Elixir's `@expected_go_only` -- now holds
-        only `mtr_completion` (task 1.6-c). The Elixir suite enforces 18 rows, not 15. They reuse
+        no members after 1.6-c also closed. Both suites enforce all nineteen rows. They reuse
         the committed records and the committed issuer key; the generator keeps the private half.
         BOTH RECORDS CLEAR SIGNATURE AND TRUST FIRST. The control and the altered artifact differ
         only in the claimed scope, so the peer asserts `record_signed/2` on BOTH before running
@@ -2079,7 +2074,7 @@ here.
   outright: refusing it would make recovery of a corrupt segment unreportable, which is why
   this gates 2.21-2.28.
 
-- [ ] 1.7 Freeze the agent-gateway frame and lane handshake as an internal,
+- [x] 1.7 Freeze the agent-gateway frame and lane handshake as an internal,
   producer-neutral transport ABI. PREREQUISITE RULE -- COMPLETE, not a hand-listed
   subset: this task SHALL NOT be checked while ANY OTHER TASK OR SUBTASK IN THIS CHANGE is
   open. It is a RULE and not a list on purpose, and this entry does not enumerate one:
@@ -2128,7 +2123,8 @@ here.
   - LANDED: the raw and relational bounds (1.7-a/b), both lane handshake halves
     (1.7-e, 72d6409c4b), and composed ACK admission (1.7-f, 19e37a307a) are reviewed.
     The required normative assignment and correlation deltas exist.
-  - REMAINING: fixture coverage review (1.7-c, bb77274131) and the freeze gate (1.7-d).
+  - REMAINING: nothing. Fixture coverage (bb77274131) and the final gate were reviewed;
+    every task and subtask in this change is closed.
   - DEPENDS ON: every other open task in this change. It cannot close first by construction.
   - EVIDENCE: the per-task STATUS blocks above are what this gate reads.
 
@@ -2157,10 +2153,9 @@ here.
         `ValidateLaneOpenAck`). The return half is INDEPENDENTLY REMOVABLE and is a different
         message from `EdgeDeliveryAckV1`, which is 1.7-f's; a subtask covering only the
         request would leave the half that grants the credits unproven.
-        REQUIRED, NOT OPTIONAL: normative requirements stating the EXACT nonce range and
-        credit caps, and an Elixir peer. Go enforces all of it in the lane-open validator and
-        this runtime has none, so a Go-only closure would freeze one implementation rather
-        than a contract.
+        CLOSED: normative nonce and credit requirements, `LaneValidate.open/1` and
+        `open_ack/2`, and the shared `lane_bounds_corpus.txt` cover both halves (72d6409c4b).
+        The acceptance conditions below remain the frozen contract.
         MECHANICAL CLOSURE CONDITIONS -- shared vectors, each named:
         (a) REQUEST, with the VERDICT frozen for each row rather than left to the vector
             author -- nonce below the minimum REFUSE, at the minimum ACCEPT, at the maximum
@@ -2189,21 +2184,16 @@ here.
         lane-open handshake. `MaxRejectionCodeLen` belongs here, not with the nonce and credit
         caps: a disposition's machine-token code is carried on a delivery ACK, a different
         message on a different leg.
-        `MaxRejectionCodeLen` IS NOT YET FROZEN, and this subtask SHALL NOT describe it as
-        frozen until it is. No requirement states its value or its `[A-Z0-9_]` machine-token
-        grammar; a constant in one runtime is an implementation detail until the spec says
-        otherwise. Authoring BOTH the value and the grammar is this subtask's work, together
-        with a PRODUCTION-SHAPED Elixir ack boundary -- this runtime has no ack validator at
-        all, so there is nothing to claim parity against today.
+        CLOSED: the normative rejection-code length and `[A-Z0-9_]` grammar, Go
+        `DecodeAck`, Elixir `AckValidate.validate_bytes/3`, and the shared isolated
+        `ack_bounds_corpus.txt` groups are implemented and reviewed (19e37a307a).
         THE EXACT DISPOSITION DEFAULTS ARE NOT FROZEN. `DefaultMaxDispositions` and
         `DefaultMaxDispositionBytes` are CALLER-OVERRIDABLE -- `ValidateAck` takes them as
         parameters and substitutes the default only for a non-positive argument -- and a
         freeze cannot freeze a value a deployment sets.
-        1.7-f WILL FREEZE THE FINITE-LIMIT OBLIGATION: that a receiver imposes FINITE limits
-        at all THREE stages, whatever values it chooses. What is absent today is the NORMATIVE
-        ABI RULE, not the checks -- Go's `ValidateAckRawSize` and `ValidateAck` do constrain
-        budgets right now. They are CANDIDATE behaviour with no requirement behind them, so a
-        second implementation owes nothing and a future Go change breaks no stated rule. The
+        The finite-limit obligation is now normative at all THREE stages, whatever
+        values a receiver chooses. Both complete boundaries compose the checks in order.
+        The
         three stages: raw ACK bytes before decode, decoded
         disposition COUNT, and decoded CANONICAL bytes. The three are not substitutes --
         `proto.Size` collapses the duplicate and non-minimal fields that inflate received
@@ -2245,13 +2235,13 @@ here.
         may decline is not a rule. This is the same conclusion the plan boundary reached when
         it unexported its page-only path.
   - [x] 1.7-b the relational envelope budget vector; direct and client-wrapped duplicate-field overhead controls in `raw_relational_corpus.txt` (a850c8bece)
-  - [ ] 1.7-c FREEZE-CONDITION FIXTURE COVERAGE: Go/Elixir golden fixtures covering
+  - [x] 1.7-c FREEZE-CONDITION FIXTURE COVERAGE: Go/Elixir golden fixtures covering
         `EdgeOutputContractRef`, authenticated `EdgeProducerContext`, production authority,
         OPTIONAL source authority, delivery authority, registry epochs, and the finite
         platform route profiles. This is its OWN subtask because "the freeze gate itself"
         does not mechanically require it -- a generic closing item can be checked while this
         coverage is absent, which is exactly how a gate passes over a hole
-  - [ ] 1.7-d the freeze gate itself, once every other open task and subtask closes
+  - [x] 1.7-d the freeze gate itself, once every other open task and subtask closes
 
 - [x] 1.13 Restack prerequisite -- IMPLEMENTED as the stacked CANDIDATE slices.
   SCOPE: item (7) is MOVED OUT to tasks 1.4/1.15 and is NOT delivered here, so no
