@@ -22,7 +22,7 @@ proto_library(
     ],
     # Match the Makefile's `protoc -I=proto`: the descriptor source path (and the
     # generated file-level registration symbols) must be `edge/v1/*.proto`, not
-    # `proto/edge/v1/*.proto`. Safe because no proto imports these edge protos.
+    # `proto/edge/v1/*.proto`, including the import from monitoring.proto.
     strip_import_prefix = "/proto",
     visibility = ["//visibility:public"],
 )

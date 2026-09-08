@@ -8,12 +8,10 @@ platform payload families, encodings, and compression, the durable spool-reader
 versions, the frame bounds, and the output-contract registry epoch and digest SHALL
 be advertised there as TYPED fields.
 
-Those fields DO NOT EXIST in today's `monitoring.proto` Hello messages. Adding them
-is a deliverable of task 1.1 and a PREREQUISITE of the 1.7 freeze; until they land
-this requirement describes a target, and no component SHALL be said to read a typed
-capability from a message that has no such field. An earlier revision asserted the
-advertisement as though the fields were already there -- the same error as claiming
-lane-open governs values it does not carry.
+`EdgeRecordCapabilitiesV1` in `proto/edge/v1/record.proto` is the typed
+advertisement. Its wire fields and enum numbers are authoritative there. It is
+carried as `edge_record_capabilities` on both Hello messages. An absent carrier
+advertises no edge-record support; the legacy string list SHALL NOT supply it.
 
 `EdgeRecordLaneOpen` / `EdgeRecordLaneOpenAck` are the authority for the LANE
 PARAMETERS THEY CARRY, and only those: route profile, traffic class, spool
@@ -30,9 +28,33 @@ The lane messages are frozen in `proto/edge/v1/record.proto`. The Hello capabili
 fields are a DIFFERENT carrier: a shared typed `EdgeRecordCapabilitiesV1` defined in
 `proto/edge/v1/record.proto` and IMPORTED into BOTH `AgentHelloRequest` and
 `ControlStreamHello` in `proto/monitoring.proto`, which are the two agent hellos
-that exist. Where both appear in one session they SHALL be equal, and a difference
-SHALL be rejected as a capability conflict. Neither carries them today; task 1.1
-adds them and the 1.7 freeze waits on it.
+that exist. Where both appear in one session they SHALL be equal as sets,
+and a difference SHALL be rejected as a capability conflict. Every repeated field
+is an unordered set; duplicate members SHALL be refused even when both Hellos
+carry the same duplicates. Scalar bounds, registry epoch and snapshot digest
+SHALL match exactly. Absence and a present carrier SHALL NOT compare equal.
+
+The advertisement SHALL list supported output contracts explicitly. Each member
+is the exact tuple `(contract_id, contract_version, contract_bundle_sha256)` under
+the advertised registry epoch and snapshot digest. Registry identity alone SHALL
+NOT imply support for every contract in that registry. These members advertise
+support, not execution permission; they carry no effective grant or signature.
+
+The comparison API operates on decoded advertisements. Raw Hello limits,
+authenticated session association, negotiation and grant enforcement belong to
+the runtime integration; the presence of the carrier and comparison API SHALL NOT
+be represented as live enforcement on either RPC.
+
+#### Scenario: Order-independent agreement
+- **WHEN** both Hello messages advertise the same members in different orders
+- **AND** every scalar and contract tuple agrees
+- **THEN** the advertisements SHALL compare equal
+
+#### Scenario: Duplicated capability
+- **WHEN** either advertisement repeats a member in any capability set
+- **THEN** comparison SHALL refuse the duplicate rather than silently deduplicating it
+- **AND** the same duplicates in both advertisements SHALL still be refused
+
 
 #### Scenario: Capability is read from Hello, not inferred
 - **WHEN** a peer needs a supported contract, encoding, compression, or frame bound

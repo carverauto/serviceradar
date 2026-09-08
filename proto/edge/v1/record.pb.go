@@ -159,6 +159,53 @@ func (EdgeRecordCompression) EnumDescriptor() ([]byte, []int) {
 	return file_edge_v1_record_proto_rawDescGZIP(), []int{1}
 }
 
+// Payload encoding is independent of compression and output-contract identity.
+type EdgeRecordEncoding int32
+
+const (
+	EdgeRecordEncoding_EDGE_RECORD_ENCODING_UNSPECIFIED EdgeRecordEncoding = 0
+	EdgeRecordEncoding_EDGE_RECORD_ENCODING_PROTOBUF    EdgeRecordEncoding = 1
+)
+
+// Enum value maps for EdgeRecordEncoding.
+var (
+	EdgeRecordEncoding_name = map[int32]string{
+		0: "EDGE_RECORD_ENCODING_UNSPECIFIED",
+		1: "EDGE_RECORD_ENCODING_PROTOBUF",
+	}
+	EdgeRecordEncoding_value = map[string]int32{
+		"EDGE_RECORD_ENCODING_UNSPECIFIED": 0,
+		"EDGE_RECORD_ENCODING_PROTOBUF":    1,
+	}
+)
+
+func (x EdgeRecordEncoding) Enum() *EdgeRecordEncoding {
+	p := new(EdgeRecordEncoding)
+	*p = x
+	return p
+}
+
+func (x EdgeRecordEncoding) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (EdgeRecordEncoding) Descriptor() protoreflect.EnumDescriptor {
+	return file_edge_v1_record_proto_enumTypes[2].Descriptor()
+}
+
+func (EdgeRecordEncoding) Type() protoreflect.EnumType {
+	return &file_edge_v1_record_proto_enumTypes[2]
+}
+
+func (x EdgeRecordEncoding) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use EdgeRecordEncoding.Descriptor instead.
+func (EdgeRecordEncoding) EnumDescriptor() ([]byte, []int) {
+	return file_edge_v1_record_proto_rawDescGZIP(), []int{2}
+}
+
 // EdgeRecordTrafficClass comes from an effective control-plane grant. It is not
 // caller-selected and is not sweep-specific.
 type EdgeRecordTrafficClass int32
@@ -194,11 +241,11 @@ func (x EdgeRecordTrafficClass) String() string {
 }
 
 func (EdgeRecordTrafficClass) Descriptor() protoreflect.EnumDescriptor {
-	return file_edge_v1_record_proto_enumTypes[2].Descriptor()
+	return file_edge_v1_record_proto_enumTypes[3].Descriptor()
 }
 
 func (EdgeRecordTrafficClass) Type() protoreflect.EnumType {
-	return &file_edge_v1_record_proto_enumTypes[2]
+	return &file_edge_v1_record_proto_enumTypes[3]
 }
 
 func (x EdgeRecordTrafficClass) Number() protoreflect.EnumNumber {
@@ -207,7 +254,7 @@ func (x EdgeRecordTrafficClass) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use EdgeRecordTrafficClass.Descriptor instead.
 func (EdgeRecordTrafficClass) EnumDescriptor() ([]byte, []int) {
-	return file_edge_v1_record_proto_rawDescGZIP(), []int{2}
+	return file_edge_v1_record_proto_rawDescGZIP(), []int{3}
 }
 
 // EdgeRecordRouteProfile is a finite platform deployment value, never a
@@ -249,11 +296,11 @@ func (x EdgeRecordRouteProfile) String() string {
 }
 
 func (EdgeRecordRouteProfile) Descriptor() protoreflect.EnumDescriptor {
-	return file_edge_v1_record_proto_enumTypes[3].Descriptor()
+	return file_edge_v1_record_proto_enumTypes[4].Descriptor()
 }
 
 func (EdgeRecordRouteProfile) Type() protoreflect.EnumType {
-	return &file_edge_v1_record_proto_enumTypes[3]
+	return &file_edge_v1_record_proto_enumTypes[4]
 }
 
 func (x EdgeRecordRouteProfile) Number() protoreflect.EnumNumber {
@@ -262,7 +309,7 @@ func (x EdgeRecordRouteProfile) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use EdgeRecordRouteProfile.Descriptor instead.
 func (EdgeRecordRouteProfile) EnumDescriptor() ([]byte, []int) {
-	return file_edge_v1_record_proto_rawDescGZIP(), []int{3}
+	return file_edge_v1_record_proto_rawDescGZIP(), []int{4}
 }
 
 // EdgeOriginKind is the ingress-attested origin of a record, never caller truth.
@@ -299,11 +346,11 @@ func (x EdgeOriginKind) String() string {
 }
 
 func (EdgeOriginKind) Descriptor() protoreflect.EnumDescriptor {
-	return file_edge_v1_record_proto_enumTypes[4].Descriptor()
+	return file_edge_v1_record_proto_enumTypes[5].Descriptor()
 }
 
 func (EdgeOriginKind) Type() protoreflect.EnumType {
-	return &file_edge_v1_record_proto_enumTypes[4]
+	return &file_edge_v1_record_proto_enumTypes[5]
 }
 
 func (x EdgeOriginKind) Number() protoreflect.EnumNumber {
@@ -312,7 +359,7 @@ func (x EdgeOriginKind) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use EdgeOriginKind.Descriptor instead.
 func (EdgeOriginKind) EnumDescriptor() ([]byte, []int) {
-	return file_edge_v1_record_proto_rawDescGZIP(), []int{4}
+	return file_edge_v1_record_proto_rawDescGZIP(), []int{5}
 }
 
 // EdgeSourceAuthorizationKind names the kind of a source action whose authority
@@ -375,11 +422,11 @@ func (x EdgeSourceAuthorizationKind) String() string {
 }
 
 func (EdgeSourceAuthorizationKind) Descriptor() protoreflect.EnumDescriptor {
-	return file_edge_v1_record_proto_enumTypes[5].Descriptor()
+	return file_edge_v1_record_proto_enumTypes[6].Descriptor()
 }
 
 func (EdgeSourceAuthorizationKind) Type() protoreflect.EnumType {
-	return &file_edge_v1_record_proto_enumTypes[5]
+	return &file_edge_v1_record_proto_enumTypes[6]
 }
 
 func (x EdgeSourceAuthorizationKind) Number() protoreflect.EnumNumber {
@@ -388,7 +435,7 @@ func (x EdgeSourceAuthorizationKind) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use EdgeSourceAuthorizationKind.Descriptor instead.
 func (EdgeSourceAuthorizationKind) EnumDescriptor() ([]byte, []int) {
-	return file_edge_v1_record_proto_rawDescGZIP(), []int{5}
+	return file_edge_v1_record_proto_rawDescGZIP(), []int{6}
 }
 
 // EdgeCapabilityPurpose is the role a capability may fill. It equals the set
@@ -470,11 +517,11 @@ func (x EdgeCapabilityPurpose) String() string {
 }
 
 func (EdgeCapabilityPurpose) Descriptor() protoreflect.EnumDescriptor {
-	return file_edge_v1_record_proto_enumTypes[6].Descriptor()
+	return file_edge_v1_record_proto_enumTypes[7].Descriptor()
 }
 
 func (EdgeCapabilityPurpose) Type() protoreflect.EnumType {
-	return &file_edge_v1_record_proto_enumTypes[6]
+	return &file_edge_v1_record_proto_enumTypes[7]
 }
 
 func (x EdgeCapabilityPurpose) Number() protoreflect.EnumNumber {
@@ -483,7 +530,7 @@ func (x EdgeCapabilityPurpose) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use EdgeCapabilityPurpose.Descriptor instead.
 func (EdgeCapabilityPurpose) EnumDescriptor() ([]byte, []int) {
-	return file_edge_v1_record_proto_rawDescGZIP(), []int{6}
+	return file_edge_v1_record_proto_rawDescGZIP(), []int{7}
 }
 
 // EdgeRecordDispositionKind is the terminal outcome the gateway reports per
@@ -534,11 +581,11 @@ func (x EdgeRecordDispositionKind) String() string {
 }
 
 func (EdgeRecordDispositionKind) Descriptor() protoreflect.EnumDescriptor {
-	return file_edge_v1_record_proto_enumTypes[7].Descriptor()
+	return file_edge_v1_record_proto_enumTypes[8].Descriptor()
 }
 
 func (EdgeRecordDispositionKind) Type() protoreflect.EnumType {
-	return &file_edge_v1_record_proto_enumTypes[7]
+	return &file_edge_v1_record_proto_enumTypes[8]
 }
 
 func (x EdgeRecordDispositionKind) Number() protoreflect.EnumNumber {
@@ -547,7 +594,7 @@ func (x EdgeRecordDispositionKind) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use EdgeRecordDispositionKind.Descriptor instead.
 func (EdgeRecordDispositionKind) EnumDescriptor() ([]byte, []int) {
-	return file_edge_v1_record_proto_rawDescGZIP(), []int{7}
+	return file_edge_v1_record_proto_rawDescGZIP(), []int{8}
 }
 
 // EdgeClassificationSpanV1 is one contiguous run of lost spool sequences
@@ -604,11 +651,11 @@ func (x EdgeUnattributableReason) String() string {
 }
 
 func (EdgeUnattributableReason) Descriptor() protoreflect.EnumDescriptor {
-	return file_edge_v1_record_proto_enumTypes[8].Descriptor()
+	return file_edge_v1_record_proto_enumTypes[9].Descriptor()
 }
 
 func (EdgeUnattributableReason) Type() protoreflect.EnumType {
-	return &file_edge_v1_record_proto_enumTypes[8]
+	return &file_edge_v1_record_proto_enumTypes[9]
 }
 
 func (x EdgeUnattributableReason) Number() protoreflect.EnumNumber {
@@ -617,7 +664,206 @@ func (x EdgeUnattributableReason) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use EdgeUnattributableReason.Descriptor instead.
 func (EdgeUnattributableReason) EnumDescriptor() ([]byte, []int) {
-	return file_edge_v1_record_proto_rawDescGZIP(), []int{8}
+	return file_edge_v1_record_proto_rawDescGZIP(), []int{9}
+}
+
+// A supported contract is an immutable bundle, not an execution grant. The
+// enclosing advertisement supplies its registry epoch and snapshot digest.
+type EdgeSupportedContractV1 struct {
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	ContractId           string                 `protobuf:"bytes,1,opt,name=contract_id,json=contractId,proto3" json:"contract_id,omitempty"`
+	ContractVersion      uint32                 `protobuf:"varint,2,opt,name=contract_version,json=contractVersion,proto3" json:"contract_version,omitempty"`
+	ContractBundleSha256 []byte                 `protobuf:"bytes,3,opt,name=contract_bundle_sha256,json=contractBundleSha256,proto3" json:"contract_bundle_sha256,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
+}
+
+func (x *EdgeSupportedContractV1) Reset() {
+	*x = EdgeSupportedContractV1{}
+	mi := &file_edge_v1_record_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EdgeSupportedContractV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EdgeSupportedContractV1) ProtoMessage() {}
+
+func (x *EdgeSupportedContractV1) ProtoReflect() protoreflect.Message {
+	mi := &file_edge_v1_record_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EdgeSupportedContractV1.ProtoReflect.Descriptor instead.
+func (*EdgeSupportedContractV1) Descriptor() ([]byte, []int) {
+	return file_edge_v1_record_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *EdgeSupportedContractV1) GetContractId() string {
+	if x != nil {
+		return x.ContractId
+	}
+	return ""
+}
+
+func (x *EdgeSupportedContractV1) GetContractVersion() uint32 {
+	if x != nil {
+		return x.ContractVersion
+	}
+	return 0
+}
+
+func (x *EdgeSupportedContractV1) GetContractBundleSha256() []byte {
+	if x != nil {
+		return x.ContractBundleSha256
+	}
+	return nil
+}
+
+// Shared by AgentHelloRequest and ControlStreamHello. Repeated fields are SETS:
+// order is immaterial, duplicates are invalid, and two advertisements in one
+// session must agree on every set and scalar. No RPC has precedence. An absent
+// carrier advertises no edge-record support; legacy string capabilities cannot
+// supply any of these facts. This advertisement conveys support, not authority.
+type EdgeRecordCapabilitiesV1 struct {
+	state                    protoimpl.MessageState     `protogen:"open.v1"`
+	ProtocolVersions         []uint32                   `protobuf:"varint,1,rep,packed,name=protocol_versions,json=protocolVersions,proto3" json:"protocol_versions,omitempty"`
+	PayloadFamilies          []EdgeRecordPayloadFamily  `protobuf:"varint,2,rep,packed,name=payload_families,json=payloadFamilies,proto3,enum=serviceradar.edge.v1.EdgeRecordPayloadFamily" json:"payload_families,omitempty"`
+	Encodings                []EdgeRecordEncoding       `protobuf:"varint,3,rep,packed,name=encodings,proto3,enum=serviceradar.edge.v1.EdgeRecordEncoding" json:"encodings,omitempty"`
+	Compressions             []EdgeRecordCompression    `protobuf:"varint,4,rep,packed,name=compressions,proto3,enum=serviceradar.edge.v1.EdgeRecordCompression" json:"compressions,omitempty"`
+	SpoolReaderVersions      []uint32                   `protobuf:"varint,5,rep,packed,name=spool_reader_versions,json=spoolReaderVersions,proto3" json:"spool_reader_versions,omitempty"`
+	MaxRecordBytes           uint64                     `protobuf:"varint,6,opt,name=max_record_bytes,json=maxRecordBytes,proto3" json:"max_record_bytes,omitempty"`
+	MaxDeliveryEnvelopeBytes uint64                     `protobuf:"varint,7,opt,name=max_delivery_envelope_bytes,json=maxDeliveryEnvelopeBytes,proto3" json:"max_delivery_envelope_bytes,omitempty"`
+	MaxFrameBytes            uint64                     `protobuf:"varint,8,opt,name=max_frame_bytes,json=maxFrameBytes,proto3" json:"max_frame_bytes,omitempty"`
+	MaxClientMessageBytes    uint64                     `protobuf:"varint,9,opt,name=max_client_message_bytes,json=maxClientMessageBytes,proto3" json:"max_client_message_bytes,omitempty"`
+	RegistryEpoch            uint64                     `protobuf:"varint,10,opt,name=registry_epoch,json=registryEpoch,proto3" json:"registry_epoch,omitempty"`
+	RegistrySnapshotSha256   []byte                     `protobuf:"bytes,11,opt,name=registry_snapshot_sha256,json=registrySnapshotSha256,proto3" json:"registry_snapshot_sha256,omitempty"`
+	OutputContracts          []*EdgeSupportedContractV1 `protobuf:"bytes,12,rep,name=output_contracts,json=outputContracts,proto3" json:"output_contracts,omitempty"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
+}
+
+func (x *EdgeRecordCapabilitiesV1) Reset() {
+	*x = EdgeRecordCapabilitiesV1{}
+	mi := &file_edge_v1_record_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EdgeRecordCapabilitiesV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EdgeRecordCapabilitiesV1) ProtoMessage() {}
+
+func (x *EdgeRecordCapabilitiesV1) ProtoReflect() protoreflect.Message {
+	mi := &file_edge_v1_record_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EdgeRecordCapabilitiesV1.ProtoReflect.Descriptor instead.
+func (*EdgeRecordCapabilitiesV1) Descriptor() ([]byte, []int) {
+	return file_edge_v1_record_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *EdgeRecordCapabilitiesV1) GetProtocolVersions() []uint32 {
+	if x != nil {
+		return x.ProtocolVersions
+	}
+	return nil
+}
+
+func (x *EdgeRecordCapabilitiesV1) GetPayloadFamilies() []EdgeRecordPayloadFamily {
+	if x != nil {
+		return x.PayloadFamilies
+	}
+	return nil
+}
+
+func (x *EdgeRecordCapabilitiesV1) GetEncodings() []EdgeRecordEncoding {
+	if x != nil {
+		return x.Encodings
+	}
+	return nil
+}
+
+func (x *EdgeRecordCapabilitiesV1) GetCompressions() []EdgeRecordCompression {
+	if x != nil {
+		return x.Compressions
+	}
+	return nil
+}
+
+func (x *EdgeRecordCapabilitiesV1) GetSpoolReaderVersions() []uint32 {
+	if x != nil {
+		return x.SpoolReaderVersions
+	}
+	return nil
+}
+
+func (x *EdgeRecordCapabilitiesV1) GetMaxRecordBytes() uint64 {
+	if x != nil {
+		return x.MaxRecordBytes
+	}
+	return 0
+}
+
+func (x *EdgeRecordCapabilitiesV1) GetMaxDeliveryEnvelopeBytes() uint64 {
+	if x != nil {
+		return x.MaxDeliveryEnvelopeBytes
+	}
+	return 0
+}
+
+func (x *EdgeRecordCapabilitiesV1) GetMaxFrameBytes() uint64 {
+	if x != nil {
+		return x.MaxFrameBytes
+	}
+	return 0
+}
+
+func (x *EdgeRecordCapabilitiesV1) GetMaxClientMessageBytes() uint64 {
+	if x != nil {
+		return x.MaxClientMessageBytes
+	}
+	return 0
+}
+
+func (x *EdgeRecordCapabilitiesV1) GetRegistryEpoch() uint64 {
+	if x != nil {
+		return x.RegistryEpoch
+	}
+	return 0
+}
+
+func (x *EdgeRecordCapabilitiesV1) GetRegistrySnapshotSha256() []byte {
+	if x != nil {
+		return x.RegistrySnapshotSha256
+	}
+	return nil
+}
+
+func (x *EdgeRecordCapabilitiesV1) GetOutputContracts() []*EdgeSupportedContractV1 {
+	if x != nil {
+		return x.OutputContracts
+	}
+	return nil
 }
 
 // EdgeProductionClaimsV1 authorizes a specific attested producer to emit a
@@ -659,7 +905,7 @@ type EdgeProductionClaimsV1 struct {
 
 func (x *EdgeProductionClaimsV1) Reset() {
 	*x = EdgeProductionClaimsV1{}
-	mi := &file_edge_v1_record_proto_msgTypes[0]
+	mi := &file_edge_v1_record_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -671,7 +917,7 @@ func (x *EdgeProductionClaimsV1) String() string {
 func (*EdgeProductionClaimsV1) ProtoMessage() {}
 
 func (x *EdgeProductionClaimsV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_record_proto_msgTypes[0]
+	mi := &file_edge_v1_record_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -684,7 +930,7 @@ func (x *EdgeProductionClaimsV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EdgeProductionClaimsV1.ProtoReflect.Descriptor instead.
 func (*EdgeProductionClaimsV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_record_proto_rawDescGZIP(), []int{0}
+	return file_edge_v1_record_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *EdgeProductionClaimsV1) GetContractId() string {
@@ -880,7 +1126,7 @@ type EdgeSourceClaimsV1 struct {
 
 func (x *EdgeSourceClaimsV1) Reset() {
 	*x = EdgeSourceClaimsV1{}
-	mi := &file_edge_v1_record_proto_msgTypes[1]
+	mi := &file_edge_v1_record_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -892,7 +1138,7 @@ func (x *EdgeSourceClaimsV1) String() string {
 func (*EdgeSourceClaimsV1) ProtoMessage() {}
 
 func (x *EdgeSourceClaimsV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_record_proto_msgTypes[1]
+	mi := &file_edge_v1_record_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -905,7 +1151,7 @@ func (x *EdgeSourceClaimsV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EdgeSourceClaimsV1.ProtoReflect.Descriptor instead.
 func (*EdgeSourceClaimsV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_record_proto_rawDescGZIP(), []int{1}
+	return file_edge_v1_record_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *EdgeSourceClaimsV1) GetKind() EdgeSourceAuthorizationKind {
@@ -1057,7 +1303,7 @@ type EdgeDeliveryClaimsV1 struct {
 
 func (x *EdgeDeliveryClaimsV1) Reset() {
 	*x = EdgeDeliveryClaimsV1{}
-	mi := &file_edge_v1_record_proto_msgTypes[2]
+	mi := &file_edge_v1_record_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1069,7 +1315,7 @@ func (x *EdgeDeliveryClaimsV1) String() string {
 func (*EdgeDeliveryClaimsV1) ProtoMessage() {}
 
 func (x *EdgeDeliveryClaimsV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_record_proto_msgTypes[2]
+	mi := &file_edge_v1_record_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1082,7 +1328,7 @@ func (x *EdgeDeliveryClaimsV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EdgeDeliveryClaimsV1.ProtoReflect.Descriptor instead.
 func (*EdgeDeliveryClaimsV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_record_proto_rawDescGZIP(), []int{2}
+	return file_edge_v1_record_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *EdgeDeliveryClaimsV1) GetEventId() []byte {
@@ -1167,7 +1413,7 @@ type EdgeDeliveryRenewalV1 struct {
 
 func (x *EdgeDeliveryRenewalV1) Reset() {
 	*x = EdgeDeliveryRenewalV1{}
-	mi := &file_edge_v1_record_proto_msgTypes[3]
+	mi := &file_edge_v1_record_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1179,7 +1425,7 @@ func (x *EdgeDeliveryRenewalV1) String() string {
 func (*EdgeDeliveryRenewalV1) ProtoMessage() {}
 
 func (x *EdgeDeliveryRenewalV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_record_proto_msgTypes[3]
+	mi := &file_edge_v1_record_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1192,7 +1438,7 @@ func (x *EdgeDeliveryRenewalV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EdgeDeliveryRenewalV1.ProtoReflect.Descriptor instead.
 func (*EdgeDeliveryRenewalV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_record_proto_rawDescGZIP(), []int{3}
+	return file_edge_v1_record_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *EdgeDeliveryRenewalV1) GetRenewedNotBeforeUnixNano() int64 {
@@ -1223,7 +1469,7 @@ type EdgeDeliveryRolloverV1 struct {
 
 func (x *EdgeDeliveryRolloverV1) Reset() {
 	*x = EdgeDeliveryRolloverV1{}
-	mi := &file_edge_v1_record_proto_msgTypes[4]
+	mi := &file_edge_v1_record_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1235,7 +1481,7 @@ func (x *EdgeDeliveryRolloverV1) String() string {
 func (*EdgeDeliveryRolloverV1) ProtoMessage() {}
 
 func (x *EdgeDeliveryRolloverV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_record_proto_msgTypes[4]
+	mi := &file_edge_v1_record_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1248,7 +1494,7 @@ func (x *EdgeDeliveryRolloverV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EdgeDeliveryRolloverV1.ProtoReflect.Descriptor instead.
 func (*EdgeDeliveryRolloverV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_record_proto_rawDescGZIP(), []int{4}
+	return file_edge_v1_record_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *EdgeDeliveryRolloverV1) GetRecoveryId() []byte {
@@ -1315,7 +1561,7 @@ type EdgeCollectionClaimsV1 struct {
 
 func (x *EdgeCollectionClaimsV1) Reset() {
 	*x = EdgeCollectionClaimsV1{}
-	mi := &file_edge_v1_record_proto_msgTypes[5]
+	mi := &file_edge_v1_record_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1327,7 +1573,7 @@ func (x *EdgeCollectionClaimsV1) String() string {
 func (*EdgeCollectionClaimsV1) ProtoMessage() {}
 
 func (x *EdgeCollectionClaimsV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_record_proto_msgTypes[5]
+	mi := &file_edge_v1_record_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1340,7 +1586,7 @@ func (x *EdgeCollectionClaimsV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EdgeCollectionClaimsV1.ProtoReflect.Descriptor instead.
 func (*EdgeCollectionClaimsV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_record_proto_rawDescGZIP(), []int{5}
+	return file_edge_v1_record_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *EdgeCollectionClaimsV1) GetPurpose() EdgeCapabilityPurpose {
@@ -1478,7 +1724,7 @@ type EdgeAssignmentExecutionClaimsV1 struct {
 
 func (x *EdgeAssignmentExecutionClaimsV1) Reset() {
 	*x = EdgeAssignmentExecutionClaimsV1{}
-	mi := &file_edge_v1_record_proto_msgTypes[6]
+	mi := &file_edge_v1_record_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1490,7 +1736,7 @@ func (x *EdgeAssignmentExecutionClaimsV1) String() string {
 func (*EdgeAssignmentExecutionClaimsV1) ProtoMessage() {}
 
 func (x *EdgeAssignmentExecutionClaimsV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_record_proto_msgTypes[6]
+	mi := &file_edge_v1_record_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1503,7 +1749,7 @@ func (x *EdgeAssignmentExecutionClaimsV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EdgeAssignmentExecutionClaimsV1.ProtoReflect.Descriptor instead.
 func (*EdgeAssignmentExecutionClaimsV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_record_proto_rawDescGZIP(), []int{6}
+	return file_edge_v1_record_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *EdgeAssignmentExecutionClaimsV1) GetPurpose() EdgeCapabilityPurpose {
@@ -1676,7 +1922,7 @@ type EdgeSignedCapabilityV1 struct {
 
 func (x *EdgeSignedCapabilityV1) Reset() {
 	*x = EdgeSignedCapabilityV1{}
-	mi := &file_edge_v1_record_proto_msgTypes[7]
+	mi := &file_edge_v1_record_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1688,7 +1934,7 @@ func (x *EdgeSignedCapabilityV1) String() string {
 func (*EdgeSignedCapabilityV1) ProtoMessage() {}
 
 func (x *EdgeSignedCapabilityV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_record_proto_msgTypes[7]
+	mi := &file_edge_v1_record_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1701,7 +1947,7 @@ func (x *EdgeSignedCapabilityV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EdgeSignedCapabilityV1.ProtoReflect.Descriptor instead.
 func (*EdgeSignedCapabilityV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_record_proto_rawDescGZIP(), []int{7}
+	return file_edge_v1_record_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *EdgeSignedCapabilityV1) GetCapabilityVersion() uint32 {
@@ -1857,7 +2103,7 @@ type EdgeSourceAuthorizationV1 struct {
 
 func (x *EdgeSourceAuthorizationV1) Reset() {
 	*x = EdgeSourceAuthorizationV1{}
-	mi := &file_edge_v1_record_proto_msgTypes[8]
+	mi := &file_edge_v1_record_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1869,7 +2115,7 @@ func (x *EdgeSourceAuthorizationV1) String() string {
 func (*EdgeSourceAuthorizationV1) ProtoMessage() {}
 
 func (x *EdgeSourceAuthorizationV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_record_proto_msgTypes[8]
+	mi := &file_edge_v1_record_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1882,7 +2128,7 @@ func (x *EdgeSourceAuthorizationV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EdgeSourceAuthorizationV1.ProtoReflect.Descriptor instead.
 func (*EdgeSourceAuthorizationV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_record_proto_rawDescGZIP(), []int{8}
+	return file_edge_v1_record_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *EdgeSourceAuthorizationV1) GetKind() EdgeSourceAuthorizationKind {
@@ -1938,7 +2184,7 @@ type EdgeOutputContractRef struct {
 
 func (x *EdgeOutputContractRef) Reset() {
 	*x = EdgeOutputContractRef{}
-	mi := &file_edge_v1_record_proto_msgTypes[9]
+	mi := &file_edge_v1_record_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1950,7 +2196,7 @@ func (x *EdgeOutputContractRef) String() string {
 func (*EdgeOutputContractRef) ProtoMessage() {}
 
 func (x *EdgeOutputContractRef) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_record_proto_msgTypes[9]
+	mi := &file_edge_v1_record_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1963,7 +2209,7 @@ func (x *EdgeOutputContractRef) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EdgeOutputContractRef.ProtoReflect.Descriptor instead.
 func (*EdgeOutputContractRef) Descriptor() ([]byte, []int) {
-	return file_edge_v1_record_proto_rawDescGZIP(), []int{9}
+	return file_edge_v1_record_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *EdgeOutputContractRef) GetContractId() string {
@@ -2029,7 +2275,7 @@ type EdgeProducerContext struct {
 
 func (x *EdgeProducerContext) Reset() {
 	*x = EdgeProducerContext{}
-	mi := &file_edge_v1_record_proto_msgTypes[10]
+	mi := &file_edge_v1_record_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2041,7 +2287,7 @@ func (x *EdgeProducerContext) String() string {
 func (*EdgeProducerContext) ProtoMessage() {}
 
 func (x *EdgeProducerContext) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_record_proto_msgTypes[10]
+	mi := &file_edge_v1_record_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2054,7 +2300,7 @@ func (x *EdgeProducerContext) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EdgeProducerContext.ProtoReflect.Descriptor instead.
 func (*EdgeProducerContext) Descriptor() ([]byte, []int) {
-	return file_edge_v1_record_proto_rawDescGZIP(), []int{10}
+	return file_edge_v1_record_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *EdgeProducerContext) GetOriginKind() EdgeOriginKind {
@@ -2165,7 +2411,7 @@ type EdgeRecordV1 struct {
 
 func (x *EdgeRecordV1) Reset() {
 	*x = EdgeRecordV1{}
-	mi := &file_edge_v1_record_proto_msgTypes[11]
+	mi := &file_edge_v1_record_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2177,7 +2423,7 @@ func (x *EdgeRecordV1) String() string {
 func (*EdgeRecordV1) ProtoMessage() {}
 
 func (x *EdgeRecordV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_record_proto_msgTypes[11]
+	mi := &file_edge_v1_record_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2190,7 +2436,7 @@ func (x *EdgeRecordV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EdgeRecordV1.ProtoReflect.Descriptor instead.
 func (*EdgeRecordV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_record_proto_rawDescGZIP(), []int{11}
+	return file_edge_v1_record_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *EdgeRecordV1) GetEventId() []byte {
@@ -2337,7 +2583,7 @@ type EdgeDeliveryFrameV1 struct {
 
 func (x *EdgeDeliveryFrameV1) Reset() {
 	*x = EdgeDeliveryFrameV1{}
-	mi := &file_edge_v1_record_proto_msgTypes[12]
+	mi := &file_edge_v1_record_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2349,7 +2595,7 @@ func (x *EdgeDeliveryFrameV1) String() string {
 func (*EdgeDeliveryFrameV1) ProtoMessage() {}
 
 func (x *EdgeDeliveryFrameV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_record_proto_msgTypes[12]
+	mi := &file_edge_v1_record_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2362,7 +2608,7 @@ func (x *EdgeDeliveryFrameV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EdgeDeliveryFrameV1.ProtoReflect.Descriptor instead.
 func (*EdgeDeliveryFrameV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_record_proto_rawDescGZIP(), []int{12}
+	return file_edge_v1_record_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *EdgeDeliveryFrameV1) GetSpoolId() []byte {
@@ -2417,7 +2663,7 @@ type EdgeRecordDisposition struct {
 
 func (x *EdgeRecordDisposition) Reset() {
 	*x = EdgeRecordDisposition{}
-	mi := &file_edge_v1_record_proto_msgTypes[13]
+	mi := &file_edge_v1_record_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2429,7 +2675,7 @@ func (x *EdgeRecordDisposition) String() string {
 func (*EdgeRecordDisposition) ProtoMessage() {}
 
 func (x *EdgeRecordDisposition) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_record_proto_msgTypes[13]
+	mi := &file_edge_v1_record_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2442,7 +2688,7 @@ func (x *EdgeRecordDisposition) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EdgeRecordDisposition.ProtoReflect.Descriptor instead.
 func (*EdgeRecordDisposition) Descriptor() ([]byte, []int) {
-	return file_edge_v1_record_proto_rawDescGZIP(), []int{13}
+	return file_edge_v1_record_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *EdgeRecordDisposition) GetSequence() uint64 {
@@ -2490,7 +2736,7 @@ type EdgeDeliveryAckV1 struct {
 
 func (x *EdgeDeliveryAckV1) Reset() {
 	*x = EdgeDeliveryAckV1{}
-	mi := &file_edge_v1_record_proto_msgTypes[14]
+	mi := &file_edge_v1_record_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2502,7 +2748,7 @@ func (x *EdgeDeliveryAckV1) String() string {
 func (*EdgeDeliveryAckV1) ProtoMessage() {}
 
 func (x *EdgeDeliveryAckV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_record_proto_msgTypes[14]
+	mi := &file_edge_v1_record_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2515,7 +2761,7 @@ func (x *EdgeDeliveryAckV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EdgeDeliveryAckV1.ProtoReflect.Descriptor instead.
 func (*EdgeDeliveryAckV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_record_proto_rawDescGZIP(), []int{14}
+	return file_edge_v1_record_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *EdgeDeliveryAckV1) GetSpoolId() []byte {
@@ -2567,7 +2813,7 @@ type EdgeRecordLaneOpen struct {
 
 func (x *EdgeRecordLaneOpen) Reset() {
 	*x = EdgeRecordLaneOpen{}
-	mi := &file_edge_v1_record_proto_msgTypes[15]
+	mi := &file_edge_v1_record_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2579,7 +2825,7 @@ func (x *EdgeRecordLaneOpen) String() string {
 func (*EdgeRecordLaneOpen) ProtoMessage() {}
 
 func (x *EdgeRecordLaneOpen) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_record_proto_msgTypes[15]
+	mi := &file_edge_v1_record_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2592,7 +2838,7 @@ func (x *EdgeRecordLaneOpen) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EdgeRecordLaneOpen.ProtoReflect.Descriptor instead.
 func (*EdgeRecordLaneOpen) Descriptor() ([]byte, []int) {
-	return file_edge_v1_record_proto_rawDescGZIP(), []int{15}
+	return file_edge_v1_record_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *EdgeRecordLaneOpen) GetRouteProfile() EdgeRecordRouteProfile {
@@ -2665,7 +2911,7 @@ type EdgeRecordLaneOpenAck struct {
 
 func (x *EdgeRecordLaneOpenAck) Reset() {
 	*x = EdgeRecordLaneOpenAck{}
-	mi := &file_edge_v1_record_proto_msgTypes[16]
+	mi := &file_edge_v1_record_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2677,7 +2923,7 @@ func (x *EdgeRecordLaneOpenAck) String() string {
 func (*EdgeRecordLaneOpenAck) ProtoMessage() {}
 
 func (x *EdgeRecordLaneOpenAck) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_record_proto_msgTypes[16]
+	mi := &file_edge_v1_record_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2690,7 +2936,7 @@ func (x *EdgeRecordLaneOpenAck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EdgeRecordLaneOpenAck.ProtoReflect.Descriptor instead.
 func (*EdgeRecordLaneOpenAck) Descriptor() ([]byte, []int) {
-	return file_edge_v1_record_proto_rawDescGZIP(), []int{16}
+	return file_edge_v1_record_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *EdgeRecordLaneOpenAck) GetSpoolId() []byte {
@@ -2751,7 +2997,7 @@ type EdgeSourceSpanIdentityV1 struct {
 
 func (x *EdgeSourceSpanIdentityV1) Reset() {
 	*x = EdgeSourceSpanIdentityV1{}
-	mi := &file_edge_v1_record_proto_msgTypes[17]
+	mi := &file_edge_v1_record_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2763,7 +3009,7 @@ func (x *EdgeSourceSpanIdentityV1) String() string {
 func (*EdgeSourceSpanIdentityV1) ProtoMessage() {}
 
 func (x *EdgeSourceSpanIdentityV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_record_proto_msgTypes[17]
+	mi := &file_edge_v1_record_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2776,7 +3022,7 @@ func (x *EdgeSourceSpanIdentityV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EdgeSourceSpanIdentityV1.ProtoReflect.Descriptor instead.
 func (*EdgeSourceSpanIdentityV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_record_proto_rawDescGZIP(), []int{17}
+	return file_edge_v1_record_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *EdgeSourceSpanIdentityV1) GetKind() EdgeSourceAuthorizationKind {
@@ -2826,7 +3072,7 @@ type EdgeAttributedSpanIdentityV1 struct {
 
 func (x *EdgeAttributedSpanIdentityV1) Reset() {
 	*x = EdgeAttributedSpanIdentityV1{}
-	mi := &file_edge_v1_record_proto_msgTypes[18]
+	mi := &file_edge_v1_record_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2838,7 +3084,7 @@ func (x *EdgeAttributedSpanIdentityV1) String() string {
 func (*EdgeAttributedSpanIdentityV1) ProtoMessage() {}
 
 func (x *EdgeAttributedSpanIdentityV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_record_proto_msgTypes[18]
+	mi := &file_edge_v1_record_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2851,7 +3097,7 @@ func (x *EdgeAttributedSpanIdentityV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EdgeAttributedSpanIdentityV1.ProtoReflect.Descriptor instead.
 func (*EdgeAttributedSpanIdentityV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_record_proto_rawDescGZIP(), []int{18}
+	return file_edge_v1_record_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *EdgeAttributedSpanIdentityV1) GetProducerAssignmentId() []byte {
@@ -2921,7 +3167,7 @@ type EdgeAttributedActiveV1 struct {
 
 func (x *EdgeAttributedActiveV1) Reset() {
 	*x = EdgeAttributedActiveV1{}
-	mi := &file_edge_v1_record_proto_msgTypes[19]
+	mi := &file_edge_v1_record_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2933,7 +3179,7 @@ func (x *EdgeAttributedActiveV1) String() string {
 func (*EdgeAttributedActiveV1) ProtoMessage() {}
 
 func (x *EdgeAttributedActiveV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_record_proto_msgTypes[19]
+	mi := &file_edge_v1_record_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2946,7 +3192,7 @@ func (x *EdgeAttributedActiveV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EdgeAttributedActiveV1.ProtoReflect.Descriptor instead.
 func (*EdgeAttributedActiveV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_record_proto_rawDescGZIP(), []int{19}
+	return file_edge_v1_record_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *EdgeAttributedActiveV1) GetIdentity() *EdgeAttributedSpanIdentityV1 {
@@ -2974,7 +3220,7 @@ type EdgeAttributedPassiveV1 struct {
 
 func (x *EdgeAttributedPassiveV1) Reset() {
 	*x = EdgeAttributedPassiveV1{}
-	mi := &file_edge_v1_record_proto_msgTypes[20]
+	mi := &file_edge_v1_record_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2986,7 +3232,7 @@ func (x *EdgeAttributedPassiveV1) String() string {
 func (*EdgeAttributedPassiveV1) ProtoMessage() {}
 
 func (x *EdgeAttributedPassiveV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_record_proto_msgTypes[20]
+	mi := &file_edge_v1_record_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2999,7 +3245,7 @@ func (x *EdgeAttributedPassiveV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EdgeAttributedPassiveV1.ProtoReflect.Descriptor instead.
 func (*EdgeAttributedPassiveV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_record_proto_rawDescGZIP(), []int{20}
+	return file_edge_v1_record_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *EdgeAttributedPassiveV1) GetIdentity() *EdgeAttributedSpanIdentityV1 {
@@ -3020,7 +3266,7 @@ type EdgeUnattributableV1 struct {
 
 func (x *EdgeUnattributableV1) Reset() {
 	*x = EdgeUnattributableV1{}
-	mi := &file_edge_v1_record_proto_msgTypes[21]
+	mi := &file_edge_v1_record_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3032,7 +3278,7 @@ func (x *EdgeUnattributableV1) String() string {
 func (*EdgeUnattributableV1) ProtoMessage() {}
 
 func (x *EdgeUnattributableV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_record_proto_msgTypes[21]
+	mi := &file_edge_v1_record_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3045,7 +3291,7 @@ func (x *EdgeUnattributableV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EdgeUnattributableV1.ProtoReflect.Descriptor instead.
 func (*EdgeUnattributableV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_record_proto_rawDescGZIP(), []int{21}
+	return file_edge_v1_record_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *EdgeUnattributableV1) GetReason() EdgeUnattributableReason {
@@ -3071,7 +3317,7 @@ type EdgeClassificationSpanV1 struct {
 
 func (x *EdgeClassificationSpanV1) Reset() {
 	*x = EdgeClassificationSpanV1{}
-	mi := &file_edge_v1_record_proto_msgTypes[22]
+	mi := &file_edge_v1_record_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3083,7 +3329,7 @@ func (x *EdgeClassificationSpanV1) String() string {
 func (*EdgeClassificationSpanV1) ProtoMessage() {}
 
 func (x *EdgeClassificationSpanV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_record_proto_msgTypes[22]
+	mi := &file_edge_v1_record_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3096,7 +3342,7 @@ func (x *EdgeClassificationSpanV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EdgeClassificationSpanV1.ProtoReflect.Descriptor instead.
 func (*EdgeClassificationSpanV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_record_proto_rawDescGZIP(), []int{22}
+	return file_edge_v1_record_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *EdgeClassificationSpanV1) GetFromSequence() uint64 {
@@ -3193,7 +3439,7 @@ type EdgeLossManifestPageV1 struct {
 
 func (x *EdgeLossManifestPageV1) Reset() {
 	*x = EdgeLossManifestPageV1{}
-	mi := &file_edge_v1_record_proto_msgTypes[23]
+	mi := &file_edge_v1_record_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3205,7 +3451,7 @@ func (x *EdgeLossManifestPageV1) String() string {
 func (*EdgeLossManifestPageV1) ProtoMessage() {}
 
 func (x *EdgeLossManifestPageV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_record_proto_msgTypes[23]
+	mi := &file_edge_v1_record_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3218,7 +3464,7 @@ func (x *EdgeLossManifestPageV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EdgeLossManifestPageV1.ProtoReflect.Descriptor instead.
 func (*EdgeLossManifestPageV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_record_proto_rawDescGZIP(), []int{23}
+	return file_edge_v1_record_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *EdgeLossManifestPageV1) GetRecoveryId() []byte {
@@ -3308,7 +3554,7 @@ type SpoolLossTombstoneV1 struct {
 
 func (x *SpoolLossTombstoneV1) Reset() {
 	*x = SpoolLossTombstoneV1{}
-	mi := &file_edge_v1_record_proto_msgTypes[24]
+	mi := &file_edge_v1_record_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3320,7 +3566,7 @@ func (x *SpoolLossTombstoneV1) String() string {
 func (*SpoolLossTombstoneV1) ProtoMessage() {}
 
 func (x *SpoolLossTombstoneV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_record_proto_msgTypes[24]
+	mi := &file_edge_v1_record_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3333,7 +3579,7 @@ func (x *SpoolLossTombstoneV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SpoolLossTombstoneV1.ProtoReflect.Descriptor instead.
 func (*SpoolLossTombstoneV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_record_proto_rawDescGZIP(), []int{24}
+	return file_edge_v1_record_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *SpoolLossTombstoneV1) GetRecoveryId() []byte {
@@ -3411,7 +3657,7 @@ type EdgeRecoveryControlPayloadV1 struct {
 
 func (x *EdgeRecoveryControlPayloadV1) Reset() {
 	*x = EdgeRecoveryControlPayloadV1{}
-	mi := &file_edge_v1_record_proto_msgTypes[25]
+	mi := &file_edge_v1_record_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3423,7 +3669,7 @@ func (x *EdgeRecoveryControlPayloadV1) String() string {
 func (*EdgeRecoveryControlPayloadV1) ProtoMessage() {}
 
 func (x *EdgeRecoveryControlPayloadV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_record_proto_msgTypes[25]
+	mi := &file_edge_v1_record_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3436,7 +3682,7 @@ func (x *EdgeRecoveryControlPayloadV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EdgeRecoveryControlPayloadV1.ProtoReflect.Descriptor instead.
 func (*EdgeRecoveryControlPayloadV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_record_proto_rawDescGZIP(), []int{25}
+	return file_edge_v1_record_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *EdgeRecoveryControlPayloadV1) GetBody() isEdgeRecoveryControlPayloadV1_Body {
@@ -3511,7 +3757,7 @@ type RecoveryResolvedV1 struct {
 
 func (x *RecoveryResolvedV1) Reset() {
 	*x = RecoveryResolvedV1{}
-	mi := &file_edge_v1_record_proto_msgTypes[26]
+	mi := &file_edge_v1_record_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3523,7 +3769,7 @@ func (x *RecoveryResolvedV1) String() string {
 func (*RecoveryResolvedV1) ProtoMessage() {}
 
 func (x *RecoveryResolvedV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_record_proto_msgTypes[26]
+	mi := &file_edge_v1_record_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3536,7 +3782,7 @@ func (x *RecoveryResolvedV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecoveryResolvedV1.ProtoReflect.Descriptor instead.
 func (*RecoveryResolvedV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_record_proto_rawDescGZIP(), []int{26}
+	return file_edge_v1_record_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *RecoveryResolvedV1) GetRecoveryId() []byte {
@@ -3582,7 +3828,7 @@ type EdgeRecordClientMessage struct {
 
 func (x *EdgeRecordClientMessage) Reset() {
 	*x = EdgeRecordClientMessage{}
-	mi := &file_edge_v1_record_proto_msgTypes[27]
+	mi := &file_edge_v1_record_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3594,7 +3840,7 @@ func (x *EdgeRecordClientMessage) String() string {
 func (*EdgeRecordClientMessage) ProtoMessage() {}
 
 func (x *EdgeRecordClientMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_record_proto_msgTypes[27]
+	mi := &file_edge_v1_record_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3607,7 +3853,7 @@ func (x *EdgeRecordClientMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EdgeRecordClientMessage.ProtoReflect.Descriptor instead.
 func (*EdgeRecordClientMessage) Descriptor() ([]byte, []int) {
-	return file_edge_v1_record_proto_rawDescGZIP(), []int{27}
+	return file_edge_v1_record_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *EdgeRecordClientMessage) GetPayload() isEdgeRecordClientMessage_Payload {
@@ -3666,7 +3912,7 @@ type EdgeRecordServerMessage struct {
 
 func (x *EdgeRecordServerMessage) Reset() {
 	*x = EdgeRecordServerMessage{}
-	mi := &file_edge_v1_record_proto_msgTypes[28]
+	mi := &file_edge_v1_record_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3678,7 +3924,7 @@ func (x *EdgeRecordServerMessage) String() string {
 func (*EdgeRecordServerMessage) ProtoMessage() {}
 
 func (x *EdgeRecordServerMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_record_proto_msgTypes[28]
+	mi := &file_edge_v1_record_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3691,7 +3937,7 @@ func (x *EdgeRecordServerMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EdgeRecordServerMessage.ProtoReflect.Descriptor instead.
 func (*EdgeRecordServerMessage) Descriptor() ([]byte, []int) {
-	return file_edge_v1_record_proto_rawDescGZIP(), []int{28}
+	return file_edge_v1_record_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *EdgeRecordServerMessage) GetPayload() isEdgeRecordServerMessage_Payload {
@@ -3739,7 +3985,26 @@ var File_edge_v1_record_proto protoreflect.FileDescriptor
 
 const file_edge_v1_record_proto_rawDesc = "" +
 	"\n" +
-	"\x14edge/v1/record.proto\x12\x14serviceradar.edge.v1\"\xe1\b\n" +
+	"\x14edge/v1/record.proto\x12\x14serviceradar.edge.v1\"\x9b\x01\n" +
+	"\x17EdgeSupportedContractV1\x12\x1f\n" +
+	"\vcontract_id\x18\x01 \x01(\tR\n" +
+	"contractId\x12)\n" +
+	"\x10contract_version\x18\x02 \x01(\rR\x0fcontractVersion\x124\n" +
+	"\x16contract_bundle_sha256\x18\x03 \x01(\fR\x14contractBundleSha256\"\xf3\x05\n" +
+	"\x18EdgeRecordCapabilitiesV1\x12+\n" +
+	"\x11protocol_versions\x18\x01 \x03(\rR\x10protocolVersions\x12X\n" +
+	"\x10payload_families\x18\x02 \x03(\x0e2-.serviceradar.edge.v1.EdgeRecordPayloadFamilyR\x0fpayloadFamilies\x12F\n" +
+	"\tencodings\x18\x03 \x03(\x0e2(.serviceradar.edge.v1.EdgeRecordEncodingR\tencodings\x12O\n" +
+	"\fcompressions\x18\x04 \x03(\x0e2+.serviceradar.edge.v1.EdgeRecordCompressionR\fcompressions\x122\n" +
+	"\x15spool_reader_versions\x18\x05 \x03(\rR\x13spoolReaderVersions\x12(\n" +
+	"\x10max_record_bytes\x18\x06 \x01(\x04R\x0emaxRecordBytes\x12=\n" +
+	"\x1bmax_delivery_envelope_bytes\x18\a \x01(\x04R\x18maxDeliveryEnvelopeBytes\x12&\n" +
+	"\x0fmax_frame_bytes\x18\b \x01(\x04R\rmaxFrameBytes\x127\n" +
+	"\x18max_client_message_bytes\x18\t \x01(\x04R\x15maxClientMessageBytes\x12%\n" +
+	"\x0eregistry_epoch\x18\n" +
+	" \x01(\x04R\rregistryEpoch\x128\n" +
+	"\x18registry_snapshot_sha256\x18\v \x01(\fR\x16registrySnapshotSha256\x12X\n" +
+	"\x10output_contracts\x18\f \x03(\v2-.serviceradar.edge.v1.EdgeSupportedContractV1R\x0foutputContracts\"\xe1\b\n" +
 	"\x16EdgeProductionClaimsV1\x12\x1f\n" +
 	"\vcontract_id\x18\x01 \x01(\tR\n" +
 	"contractId\x12)\n" +
@@ -4032,7 +4297,10 @@ const file_edge_v1_record_proto_rawDesc = "" +
 	"\x15EdgeRecordCompression\x12'\n" +
 	"#EDGE_RECORD_COMPRESSION_UNSPECIFIED\x10\x00\x12 \n" +
 	"\x1cEDGE_RECORD_COMPRESSION_NONE\x10\x01\x12 \n" +
-	"\x1cEDGE_RECORD_COMPRESSION_ZSTD\x10\x02*\x92\x01\n" +
+	"\x1cEDGE_RECORD_COMPRESSION_ZSTD\x10\x02*]\n" +
+	"\x12EdgeRecordEncoding\x12$\n" +
+	" EDGE_RECORD_ENCODING_UNSPECIFIED\x10\x00\x12!\n" +
+	"\x1dEDGE_RECORD_ENCODING_PROTOBUF\x10\x01*\x92\x01\n" +
 	"\x16EdgeRecordTrafficClass\x12)\n" +
 	"%EDGE_RECORD_TRAFFIC_CLASS_UNSPECIFIED\x10\x00\x12\"\n" +
 	"\x1eEDGE_RECORD_TRAFFIC_CLASS_BULK\x10\x01\x12)\n" +
@@ -4091,109 +4359,116 @@ func file_edge_v1_record_proto_rawDescGZIP() []byte {
 	return file_edge_v1_record_proto_rawDescData
 }
 
-var file_edge_v1_record_proto_enumTypes = make([]protoimpl.EnumInfo, 9)
-var file_edge_v1_record_proto_msgTypes = make([]protoimpl.MessageInfo, 29)
+var file_edge_v1_record_proto_enumTypes = make([]protoimpl.EnumInfo, 10)
+var file_edge_v1_record_proto_msgTypes = make([]protoimpl.MessageInfo, 31)
 var file_edge_v1_record_proto_goTypes = []any{
 	(EdgeRecordPayloadFamily)(0),            // 0: serviceradar.edge.v1.EdgeRecordPayloadFamily
 	(EdgeRecordCompression)(0),              // 1: serviceradar.edge.v1.EdgeRecordCompression
-	(EdgeRecordTrafficClass)(0),             // 2: serviceradar.edge.v1.EdgeRecordTrafficClass
-	(EdgeRecordRouteProfile)(0),             // 3: serviceradar.edge.v1.EdgeRecordRouteProfile
-	(EdgeOriginKind)(0),                     // 4: serviceradar.edge.v1.EdgeOriginKind
-	(EdgeSourceAuthorizationKind)(0),        // 5: serviceradar.edge.v1.EdgeSourceAuthorizationKind
-	(EdgeCapabilityPurpose)(0),              // 6: serviceradar.edge.v1.EdgeCapabilityPurpose
-	(EdgeRecordDispositionKind)(0),          // 7: serviceradar.edge.v1.EdgeRecordDispositionKind
-	(EdgeUnattributableReason)(0),           // 8: serviceradar.edge.v1.EdgeUnattributableReason
-	(*EdgeProductionClaimsV1)(nil),          // 9: serviceradar.edge.v1.EdgeProductionClaimsV1
-	(*EdgeSourceClaimsV1)(nil),              // 10: serviceradar.edge.v1.EdgeSourceClaimsV1
-	(*EdgeDeliveryClaimsV1)(nil),            // 11: serviceradar.edge.v1.EdgeDeliveryClaimsV1
-	(*EdgeDeliveryRenewalV1)(nil),           // 12: serviceradar.edge.v1.EdgeDeliveryRenewalV1
-	(*EdgeDeliveryRolloverV1)(nil),          // 13: serviceradar.edge.v1.EdgeDeliveryRolloverV1
-	(*EdgeCollectionClaimsV1)(nil),          // 14: serviceradar.edge.v1.EdgeCollectionClaimsV1
-	(*EdgeAssignmentExecutionClaimsV1)(nil), // 15: serviceradar.edge.v1.EdgeAssignmentExecutionClaimsV1
-	(*EdgeSignedCapabilityV1)(nil),          // 16: serviceradar.edge.v1.EdgeSignedCapabilityV1
-	(*EdgeSourceAuthorizationV1)(nil),       // 17: serviceradar.edge.v1.EdgeSourceAuthorizationV1
-	(*EdgeOutputContractRef)(nil),           // 18: serviceradar.edge.v1.EdgeOutputContractRef
-	(*EdgeProducerContext)(nil),             // 19: serviceradar.edge.v1.EdgeProducerContext
-	(*EdgeRecordV1)(nil),                    // 20: serviceradar.edge.v1.EdgeRecordV1
-	(*EdgeDeliveryFrameV1)(nil),             // 21: serviceradar.edge.v1.EdgeDeliveryFrameV1
-	(*EdgeRecordDisposition)(nil),           // 22: serviceradar.edge.v1.EdgeRecordDisposition
-	(*EdgeDeliveryAckV1)(nil),               // 23: serviceradar.edge.v1.EdgeDeliveryAckV1
-	(*EdgeRecordLaneOpen)(nil),              // 24: serviceradar.edge.v1.EdgeRecordLaneOpen
-	(*EdgeRecordLaneOpenAck)(nil),           // 25: serviceradar.edge.v1.EdgeRecordLaneOpenAck
-	(*EdgeSourceSpanIdentityV1)(nil),        // 26: serviceradar.edge.v1.EdgeSourceSpanIdentityV1
-	(*EdgeAttributedSpanIdentityV1)(nil),    // 27: serviceradar.edge.v1.EdgeAttributedSpanIdentityV1
-	(*EdgeAttributedActiveV1)(nil),          // 28: serviceradar.edge.v1.EdgeAttributedActiveV1
-	(*EdgeAttributedPassiveV1)(nil),         // 29: serviceradar.edge.v1.EdgeAttributedPassiveV1
-	(*EdgeUnattributableV1)(nil),            // 30: serviceradar.edge.v1.EdgeUnattributableV1
-	(*EdgeClassificationSpanV1)(nil),        // 31: serviceradar.edge.v1.EdgeClassificationSpanV1
-	(*EdgeLossManifestPageV1)(nil),          // 32: serviceradar.edge.v1.EdgeLossManifestPageV1
-	(*SpoolLossTombstoneV1)(nil),            // 33: serviceradar.edge.v1.SpoolLossTombstoneV1
-	(*EdgeRecoveryControlPayloadV1)(nil),    // 34: serviceradar.edge.v1.EdgeRecoveryControlPayloadV1
-	(*RecoveryResolvedV1)(nil),              // 35: serviceradar.edge.v1.RecoveryResolvedV1
-	(*EdgeRecordClientMessage)(nil),         // 36: serviceradar.edge.v1.EdgeRecordClientMessage
-	(*EdgeRecordServerMessage)(nil),         // 37: serviceradar.edge.v1.EdgeRecordServerMessage
+	(EdgeRecordEncoding)(0),                 // 2: serviceradar.edge.v1.EdgeRecordEncoding
+	(EdgeRecordTrafficClass)(0),             // 3: serviceradar.edge.v1.EdgeRecordTrafficClass
+	(EdgeRecordRouteProfile)(0),             // 4: serviceradar.edge.v1.EdgeRecordRouteProfile
+	(EdgeOriginKind)(0),                     // 5: serviceradar.edge.v1.EdgeOriginKind
+	(EdgeSourceAuthorizationKind)(0),        // 6: serviceradar.edge.v1.EdgeSourceAuthorizationKind
+	(EdgeCapabilityPurpose)(0),              // 7: serviceradar.edge.v1.EdgeCapabilityPurpose
+	(EdgeRecordDispositionKind)(0),          // 8: serviceradar.edge.v1.EdgeRecordDispositionKind
+	(EdgeUnattributableReason)(0),           // 9: serviceradar.edge.v1.EdgeUnattributableReason
+	(*EdgeSupportedContractV1)(nil),         // 10: serviceradar.edge.v1.EdgeSupportedContractV1
+	(*EdgeRecordCapabilitiesV1)(nil),        // 11: serviceradar.edge.v1.EdgeRecordCapabilitiesV1
+	(*EdgeProductionClaimsV1)(nil),          // 12: serviceradar.edge.v1.EdgeProductionClaimsV1
+	(*EdgeSourceClaimsV1)(nil),              // 13: serviceradar.edge.v1.EdgeSourceClaimsV1
+	(*EdgeDeliveryClaimsV1)(nil),            // 14: serviceradar.edge.v1.EdgeDeliveryClaimsV1
+	(*EdgeDeliveryRenewalV1)(nil),           // 15: serviceradar.edge.v1.EdgeDeliveryRenewalV1
+	(*EdgeDeliveryRolloverV1)(nil),          // 16: serviceradar.edge.v1.EdgeDeliveryRolloverV1
+	(*EdgeCollectionClaimsV1)(nil),          // 17: serviceradar.edge.v1.EdgeCollectionClaimsV1
+	(*EdgeAssignmentExecutionClaimsV1)(nil), // 18: serviceradar.edge.v1.EdgeAssignmentExecutionClaimsV1
+	(*EdgeSignedCapabilityV1)(nil),          // 19: serviceradar.edge.v1.EdgeSignedCapabilityV1
+	(*EdgeSourceAuthorizationV1)(nil),       // 20: serviceradar.edge.v1.EdgeSourceAuthorizationV1
+	(*EdgeOutputContractRef)(nil),           // 21: serviceradar.edge.v1.EdgeOutputContractRef
+	(*EdgeProducerContext)(nil),             // 22: serviceradar.edge.v1.EdgeProducerContext
+	(*EdgeRecordV1)(nil),                    // 23: serviceradar.edge.v1.EdgeRecordV1
+	(*EdgeDeliveryFrameV1)(nil),             // 24: serviceradar.edge.v1.EdgeDeliveryFrameV1
+	(*EdgeRecordDisposition)(nil),           // 25: serviceradar.edge.v1.EdgeRecordDisposition
+	(*EdgeDeliveryAckV1)(nil),               // 26: serviceradar.edge.v1.EdgeDeliveryAckV1
+	(*EdgeRecordLaneOpen)(nil),              // 27: serviceradar.edge.v1.EdgeRecordLaneOpen
+	(*EdgeRecordLaneOpenAck)(nil),           // 28: serviceradar.edge.v1.EdgeRecordLaneOpenAck
+	(*EdgeSourceSpanIdentityV1)(nil),        // 29: serviceradar.edge.v1.EdgeSourceSpanIdentityV1
+	(*EdgeAttributedSpanIdentityV1)(nil),    // 30: serviceradar.edge.v1.EdgeAttributedSpanIdentityV1
+	(*EdgeAttributedActiveV1)(nil),          // 31: serviceradar.edge.v1.EdgeAttributedActiveV1
+	(*EdgeAttributedPassiveV1)(nil),         // 32: serviceradar.edge.v1.EdgeAttributedPassiveV1
+	(*EdgeUnattributableV1)(nil),            // 33: serviceradar.edge.v1.EdgeUnattributableV1
+	(*EdgeClassificationSpanV1)(nil),        // 34: serviceradar.edge.v1.EdgeClassificationSpanV1
+	(*EdgeLossManifestPageV1)(nil),          // 35: serviceradar.edge.v1.EdgeLossManifestPageV1
+	(*SpoolLossTombstoneV1)(nil),            // 36: serviceradar.edge.v1.SpoolLossTombstoneV1
+	(*EdgeRecoveryControlPayloadV1)(nil),    // 37: serviceradar.edge.v1.EdgeRecoveryControlPayloadV1
+	(*RecoveryResolvedV1)(nil),              // 38: serviceradar.edge.v1.RecoveryResolvedV1
+	(*EdgeRecordClientMessage)(nil),         // 39: serviceradar.edge.v1.EdgeRecordClientMessage
+	(*EdgeRecordServerMessage)(nil),         // 40: serviceradar.edge.v1.EdgeRecordServerMessage
 }
 var file_edge_v1_record_proto_depIdxs = []int32{
-	2,  // 0: serviceradar.edge.v1.EdgeProductionClaimsV1.traffic_class:type_name -> serviceradar.edge.v1.EdgeRecordTrafficClass
-	3,  // 1: serviceradar.edge.v1.EdgeProductionClaimsV1.route_profile:type_name -> serviceradar.edge.v1.EdgeRecordRouteProfile
-	4,  // 2: serviceradar.edge.v1.EdgeProductionClaimsV1.origin_kind:type_name -> serviceradar.edge.v1.EdgeOriginKind
-	5,  // 3: serviceradar.edge.v1.EdgeSourceClaimsV1.kind:type_name -> serviceradar.edge.v1.EdgeSourceAuthorizationKind
-	2,  // 4: serviceradar.edge.v1.EdgeSourceClaimsV1.traffic_class:type_name -> serviceradar.edge.v1.EdgeRecordTrafficClass
-	3,  // 5: serviceradar.edge.v1.EdgeSourceClaimsV1.route_profile:type_name -> serviceradar.edge.v1.EdgeRecordRouteProfile
-	4,  // 6: serviceradar.edge.v1.EdgeSourceClaimsV1.origin_kind:type_name -> serviceradar.edge.v1.EdgeOriginKind
-	12, // 7: serviceradar.edge.v1.EdgeDeliveryClaimsV1.renewal:type_name -> serviceradar.edge.v1.EdgeDeliveryRenewalV1
-	13, // 8: serviceradar.edge.v1.EdgeDeliveryClaimsV1.rollover:type_name -> serviceradar.edge.v1.EdgeDeliveryRolloverV1
-	6,  // 9: serviceradar.edge.v1.EdgeCollectionClaimsV1.purpose:type_name -> serviceradar.edge.v1.EdgeCapabilityPurpose
-	2,  // 10: serviceradar.edge.v1.EdgeCollectionClaimsV1.traffic_class:type_name -> serviceradar.edge.v1.EdgeRecordTrafficClass
-	6,  // 11: serviceradar.edge.v1.EdgeAssignmentExecutionClaimsV1.purpose:type_name -> serviceradar.edge.v1.EdgeCapabilityPurpose
-	2,  // 12: serviceradar.edge.v1.EdgeAssignmentExecutionClaimsV1.traffic_class:type_name -> serviceradar.edge.v1.EdgeRecordTrafficClass
-	26, // 13: serviceradar.edge.v1.EdgeAssignmentExecutionClaimsV1.source_identity:type_name -> serviceradar.edge.v1.EdgeSourceSpanIdentityV1
-	9,  // 14: serviceradar.edge.v1.EdgeSignedCapabilityV1.production:type_name -> serviceradar.edge.v1.EdgeProductionClaimsV1
-	10, // 15: serviceradar.edge.v1.EdgeSignedCapabilityV1.source:type_name -> serviceradar.edge.v1.EdgeSourceClaimsV1
-	11, // 16: serviceradar.edge.v1.EdgeSignedCapabilityV1.delivery:type_name -> serviceradar.edge.v1.EdgeDeliveryClaimsV1
-	14, // 17: serviceradar.edge.v1.EdgeSignedCapabilityV1.collection:type_name -> serviceradar.edge.v1.EdgeCollectionClaimsV1
-	15, // 18: serviceradar.edge.v1.EdgeSignedCapabilityV1.assignment_execution:type_name -> serviceradar.edge.v1.EdgeAssignmentExecutionClaimsV1
-	5,  // 19: serviceradar.edge.v1.EdgeSourceAuthorizationV1.kind:type_name -> serviceradar.edge.v1.EdgeSourceAuthorizationKind
-	16, // 20: serviceradar.edge.v1.EdgeSourceAuthorizationV1.capability:type_name -> serviceradar.edge.v1.EdgeSignedCapabilityV1
-	4,  // 21: serviceradar.edge.v1.EdgeProducerContext.origin_kind:type_name -> serviceradar.edge.v1.EdgeOriginKind
-	0,  // 22: serviceradar.edge.v1.EdgeRecordV1.payload_family:type_name -> serviceradar.edge.v1.EdgeRecordPayloadFamily
-	1,  // 23: serviceradar.edge.v1.EdgeRecordV1.compression:type_name -> serviceradar.edge.v1.EdgeRecordCompression
-	18, // 24: serviceradar.edge.v1.EdgeRecordV1.output_contract:type_name -> serviceradar.edge.v1.EdgeOutputContractRef
-	19, // 25: serviceradar.edge.v1.EdgeRecordV1.producer_context:type_name -> serviceradar.edge.v1.EdgeProducerContext
-	3,  // 26: serviceradar.edge.v1.EdgeRecordV1.route_profile:type_name -> serviceradar.edge.v1.EdgeRecordRouteProfile
-	2,  // 27: serviceradar.edge.v1.EdgeRecordV1.traffic_class:type_name -> serviceradar.edge.v1.EdgeRecordTrafficClass
-	16, // 28: serviceradar.edge.v1.EdgeRecordV1.production_capability:type_name -> serviceradar.edge.v1.EdgeSignedCapabilityV1
-	17, // 29: serviceradar.edge.v1.EdgeRecordV1.source_authorization:type_name -> serviceradar.edge.v1.EdgeSourceAuthorizationV1
-	16, // 30: serviceradar.edge.v1.EdgeDeliveryFrameV1.delivery_capability:type_name -> serviceradar.edge.v1.EdgeSignedCapabilityV1
-	7,  // 31: serviceradar.edge.v1.EdgeRecordDisposition.kind:type_name -> serviceradar.edge.v1.EdgeRecordDispositionKind
-	22, // 32: serviceradar.edge.v1.EdgeDeliveryAckV1.dispositions:type_name -> serviceradar.edge.v1.EdgeRecordDisposition
-	3,  // 33: serviceradar.edge.v1.EdgeRecordLaneOpen.route_profile:type_name -> serviceradar.edge.v1.EdgeRecordRouteProfile
-	2,  // 34: serviceradar.edge.v1.EdgeRecordLaneOpen.traffic_class:type_name -> serviceradar.edge.v1.EdgeRecordTrafficClass
-	3,  // 35: serviceradar.edge.v1.EdgeRecordLaneOpenAck.route_profile:type_name -> serviceradar.edge.v1.EdgeRecordRouteProfile
-	2,  // 36: serviceradar.edge.v1.EdgeRecordLaneOpenAck.traffic_class:type_name -> serviceradar.edge.v1.EdgeRecordTrafficClass
-	5,  // 37: serviceradar.edge.v1.EdgeSourceSpanIdentityV1.kind:type_name -> serviceradar.edge.v1.EdgeSourceAuthorizationKind
-	26, // 38: serviceradar.edge.v1.EdgeAttributedSpanIdentityV1.source:type_name -> serviceradar.edge.v1.EdgeSourceSpanIdentityV1
-	27, // 39: serviceradar.edge.v1.EdgeAttributedActiveV1.identity:type_name -> serviceradar.edge.v1.EdgeAttributedSpanIdentityV1
-	27, // 40: serviceradar.edge.v1.EdgeAttributedPassiveV1.identity:type_name -> serviceradar.edge.v1.EdgeAttributedSpanIdentityV1
-	8,  // 41: serviceradar.edge.v1.EdgeUnattributableV1.reason:type_name -> serviceradar.edge.v1.EdgeUnattributableReason
-	28, // 42: serviceradar.edge.v1.EdgeClassificationSpanV1.attributed_active:type_name -> serviceradar.edge.v1.EdgeAttributedActiveV1
-	29, // 43: serviceradar.edge.v1.EdgeClassificationSpanV1.attributed_passive:type_name -> serviceradar.edge.v1.EdgeAttributedPassiveV1
-	30, // 44: serviceradar.edge.v1.EdgeClassificationSpanV1.unattributable:type_name -> serviceradar.edge.v1.EdgeUnattributableV1
-	31, // 45: serviceradar.edge.v1.EdgeLossManifestPageV1.classification_spans:type_name -> serviceradar.edge.v1.EdgeClassificationSpanV1
-	33, // 46: serviceradar.edge.v1.EdgeRecoveryControlPayloadV1.tombstone:type_name -> serviceradar.edge.v1.SpoolLossTombstoneV1
-	32, // 47: serviceradar.edge.v1.EdgeRecoveryControlPayloadV1.manifest_page:type_name -> serviceradar.edge.v1.EdgeLossManifestPageV1
-	35, // 48: serviceradar.edge.v1.EdgeRecoveryControlPayloadV1.resolved:type_name -> serviceradar.edge.v1.RecoveryResolvedV1
-	24, // 49: serviceradar.edge.v1.EdgeRecordClientMessage.lane_open:type_name -> serviceradar.edge.v1.EdgeRecordLaneOpen
-	21, // 50: serviceradar.edge.v1.EdgeRecordClientMessage.delivery_frame:type_name -> serviceradar.edge.v1.EdgeDeliveryFrameV1
-	25, // 51: serviceradar.edge.v1.EdgeRecordServerMessage.lane_open_ack:type_name -> serviceradar.edge.v1.EdgeRecordLaneOpenAck
-	23, // 52: serviceradar.edge.v1.EdgeRecordServerMessage.ack:type_name -> serviceradar.edge.v1.EdgeDeliveryAckV1
-	36, // 53: serviceradar.edge.v1.EdgeRecordIngestService.Stream:input_type -> serviceradar.edge.v1.EdgeRecordClientMessage
-	37, // 54: serviceradar.edge.v1.EdgeRecordIngestService.Stream:output_type -> serviceradar.edge.v1.EdgeRecordServerMessage
-	54, // [54:55] is the sub-list for method output_type
-	53, // [53:54] is the sub-list for method input_type
-	53, // [53:53] is the sub-list for extension type_name
-	53, // [53:53] is the sub-list for extension extendee
-	0,  // [0:53] is the sub-list for field type_name
+	0,  // 0: serviceradar.edge.v1.EdgeRecordCapabilitiesV1.payload_families:type_name -> serviceradar.edge.v1.EdgeRecordPayloadFamily
+	2,  // 1: serviceradar.edge.v1.EdgeRecordCapabilitiesV1.encodings:type_name -> serviceradar.edge.v1.EdgeRecordEncoding
+	1,  // 2: serviceradar.edge.v1.EdgeRecordCapabilitiesV1.compressions:type_name -> serviceradar.edge.v1.EdgeRecordCompression
+	10, // 3: serviceradar.edge.v1.EdgeRecordCapabilitiesV1.output_contracts:type_name -> serviceradar.edge.v1.EdgeSupportedContractV1
+	3,  // 4: serviceradar.edge.v1.EdgeProductionClaimsV1.traffic_class:type_name -> serviceradar.edge.v1.EdgeRecordTrafficClass
+	4,  // 5: serviceradar.edge.v1.EdgeProductionClaimsV1.route_profile:type_name -> serviceradar.edge.v1.EdgeRecordRouteProfile
+	5,  // 6: serviceradar.edge.v1.EdgeProductionClaimsV1.origin_kind:type_name -> serviceradar.edge.v1.EdgeOriginKind
+	6,  // 7: serviceradar.edge.v1.EdgeSourceClaimsV1.kind:type_name -> serviceradar.edge.v1.EdgeSourceAuthorizationKind
+	3,  // 8: serviceradar.edge.v1.EdgeSourceClaimsV1.traffic_class:type_name -> serviceradar.edge.v1.EdgeRecordTrafficClass
+	4,  // 9: serviceradar.edge.v1.EdgeSourceClaimsV1.route_profile:type_name -> serviceradar.edge.v1.EdgeRecordRouteProfile
+	5,  // 10: serviceradar.edge.v1.EdgeSourceClaimsV1.origin_kind:type_name -> serviceradar.edge.v1.EdgeOriginKind
+	15, // 11: serviceradar.edge.v1.EdgeDeliveryClaimsV1.renewal:type_name -> serviceradar.edge.v1.EdgeDeliveryRenewalV1
+	16, // 12: serviceradar.edge.v1.EdgeDeliveryClaimsV1.rollover:type_name -> serviceradar.edge.v1.EdgeDeliveryRolloverV1
+	7,  // 13: serviceradar.edge.v1.EdgeCollectionClaimsV1.purpose:type_name -> serviceradar.edge.v1.EdgeCapabilityPurpose
+	3,  // 14: serviceradar.edge.v1.EdgeCollectionClaimsV1.traffic_class:type_name -> serviceradar.edge.v1.EdgeRecordTrafficClass
+	7,  // 15: serviceradar.edge.v1.EdgeAssignmentExecutionClaimsV1.purpose:type_name -> serviceradar.edge.v1.EdgeCapabilityPurpose
+	3,  // 16: serviceradar.edge.v1.EdgeAssignmentExecutionClaimsV1.traffic_class:type_name -> serviceradar.edge.v1.EdgeRecordTrafficClass
+	29, // 17: serviceradar.edge.v1.EdgeAssignmentExecutionClaimsV1.source_identity:type_name -> serviceradar.edge.v1.EdgeSourceSpanIdentityV1
+	12, // 18: serviceradar.edge.v1.EdgeSignedCapabilityV1.production:type_name -> serviceradar.edge.v1.EdgeProductionClaimsV1
+	13, // 19: serviceradar.edge.v1.EdgeSignedCapabilityV1.source:type_name -> serviceradar.edge.v1.EdgeSourceClaimsV1
+	14, // 20: serviceradar.edge.v1.EdgeSignedCapabilityV1.delivery:type_name -> serviceradar.edge.v1.EdgeDeliveryClaimsV1
+	17, // 21: serviceradar.edge.v1.EdgeSignedCapabilityV1.collection:type_name -> serviceradar.edge.v1.EdgeCollectionClaimsV1
+	18, // 22: serviceradar.edge.v1.EdgeSignedCapabilityV1.assignment_execution:type_name -> serviceradar.edge.v1.EdgeAssignmentExecutionClaimsV1
+	6,  // 23: serviceradar.edge.v1.EdgeSourceAuthorizationV1.kind:type_name -> serviceradar.edge.v1.EdgeSourceAuthorizationKind
+	19, // 24: serviceradar.edge.v1.EdgeSourceAuthorizationV1.capability:type_name -> serviceradar.edge.v1.EdgeSignedCapabilityV1
+	5,  // 25: serviceradar.edge.v1.EdgeProducerContext.origin_kind:type_name -> serviceradar.edge.v1.EdgeOriginKind
+	0,  // 26: serviceradar.edge.v1.EdgeRecordV1.payload_family:type_name -> serviceradar.edge.v1.EdgeRecordPayloadFamily
+	1,  // 27: serviceradar.edge.v1.EdgeRecordV1.compression:type_name -> serviceradar.edge.v1.EdgeRecordCompression
+	21, // 28: serviceradar.edge.v1.EdgeRecordV1.output_contract:type_name -> serviceradar.edge.v1.EdgeOutputContractRef
+	22, // 29: serviceradar.edge.v1.EdgeRecordV1.producer_context:type_name -> serviceradar.edge.v1.EdgeProducerContext
+	4,  // 30: serviceradar.edge.v1.EdgeRecordV1.route_profile:type_name -> serviceradar.edge.v1.EdgeRecordRouteProfile
+	3,  // 31: serviceradar.edge.v1.EdgeRecordV1.traffic_class:type_name -> serviceradar.edge.v1.EdgeRecordTrafficClass
+	19, // 32: serviceradar.edge.v1.EdgeRecordV1.production_capability:type_name -> serviceradar.edge.v1.EdgeSignedCapabilityV1
+	20, // 33: serviceradar.edge.v1.EdgeRecordV1.source_authorization:type_name -> serviceradar.edge.v1.EdgeSourceAuthorizationV1
+	19, // 34: serviceradar.edge.v1.EdgeDeliveryFrameV1.delivery_capability:type_name -> serviceradar.edge.v1.EdgeSignedCapabilityV1
+	8,  // 35: serviceradar.edge.v1.EdgeRecordDisposition.kind:type_name -> serviceradar.edge.v1.EdgeRecordDispositionKind
+	25, // 36: serviceradar.edge.v1.EdgeDeliveryAckV1.dispositions:type_name -> serviceradar.edge.v1.EdgeRecordDisposition
+	4,  // 37: serviceradar.edge.v1.EdgeRecordLaneOpen.route_profile:type_name -> serviceradar.edge.v1.EdgeRecordRouteProfile
+	3,  // 38: serviceradar.edge.v1.EdgeRecordLaneOpen.traffic_class:type_name -> serviceradar.edge.v1.EdgeRecordTrafficClass
+	4,  // 39: serviceradar.edge.v1.EdgeRecordLaneOpenAck.route_profile:type_name -> serviceradar.edge.v1.EdgeRecordRouteProfile
+	3,  // 40: serviceradar.edge.v1.EdgeRecordLaneOpenAck.traffic_class:type_name -> serviceradar.edge.v1.EdgeRecordTrafficClass
+	6,  // 41: serviceradar.edge.v1.EdgeSourceSpanIdentityV1.kind:type_name -> serviceradar.edge.v1.EdgeSourceAuthorizationKind
+	29, // 42: serviceradar.edge.v1.EdgeAttributedSpanIdentityV1.source:type_name -> serviceradar.edge.v1.EdgeSourceSpanIdentityV1
+	30, // 43: serviceradar.edge.v1.EdgeAttributedActiveV1.identity:type_name -> serviceradar.edge.v1.EdgeAttributedSpanIdentityV1
+	30, // 44: serviceradar.edge.v1.EdgeAttributedPassiveV1.identity:type_name -> serviceradar.edge.v1.EdgeAttributedSpanIdentityV1
+	9,  // 45: serviceradar.edge.v1.EdgeUnattributableV1.reason:type_name -> serviceradar.edge.v1.EdgeUnattributableReason
+	31, // 46: serviceradar.edge.v1.EdgeClassificationSpanV1.attributed_active:type_name -> serviceradar.edge.v1.EdgeAttributedActiveV1
+	32, // 47: serviceradar.edge.v1.EdgeClassificationSpanV1.attributed_passive:type_name -> serviceradar.edge.v1.EdgeAttributedPassiveV1
+	33, // 48: serviceradar.edge.v1.EdgeClassificationSpanV1.unattributable:type_name -> serviceradar.edge.v1.EdgeUnattributableV1
+	34, // 49: serviceradar.edge.v1.EdgeLossManifestPageV1.classification_spans:type_name -> serviceradar.edge.v1.EdgeClassificationSpanV1
+	36, // 50: serviceradar.edge.v1.EdgeRecoveryControlPayloadV1.tombstone:type_name -> serviceradar.edge.v1.SpoolLossTombstoneV1
+	35, // 51: serviceradar.edge.v1.EdgeRecoveryControlPayloadV1.manifest_page:type_name -> serviceradar.edge.v1.EdgeLossManifestPageV1
+	38, // 52: serviceradar.edge.v1.EdgeRecoveryControlPayloadV1.resolved:type_name -> serviceradar.edge.v1.RecoveryResolvedV1
+	27, // 53: serviceradar.edge.v1.EdgeRecordClientMessage.lane_open:type_name -> serviceradar.edge.v1.EdgeRecordLaneOpen
+	24, // 54: serviceradar.edge.v1.EdgeRecordClientMessage.delivery_frame:type_name -> serviceradar.edge.v1.EdgeDeliveryFrameV1
+	28, // 55: serviceradar.edge.v1.EdgeRecordServerMessage.lane_open_ack:type_name -> serviceradar.edge.v1.EdgeRecordLaneOpenAck
+	26, // 56: serviceradar.edge.v1.EdgeRecordServerMessage.ack:type_name -> serviceradar.edge.v1.EdgeDeliveryAckV1
+	39, // 57: serviceradar.edge.v1.EdgeRecordIngestService.Stream:input_type -> serviceradar.edge.v1.EdgeRecordClientMessage
+	40, // 58: serviceradar.edge.v1.EdgeRecordIngestService.Stream:output_type -> serviceradar.edge.v1.EdgeRecordServerMessage
+	58, // [58:59] is the sub-list for method output_type
+	57, // [57:58] is the sub-list for method input_type
+	57, // [57:57] is the sub-list for extension type_name
+	57, // [57:57] is the sub-list for extension extendee
+	0,  // [0:57] is the sub-list for field type_name
 }
 
 func init() { file_edge_v1_record_proto_init() }
@@ -4201,35 +4476,35 @@ func file_edge_v1_record_proto_init() {
 	if File_edge_v1_record_proto != nil {
 		return
 	}
-	file_edge_v1_record_proto_msgTypes[2].OneofWrappers = []any{
+	file_edge_v1_record_proto_msgTypes[4].OneofWrappers = []any{
 		(*EdgeDeliveryClaimsV1_Renewal)(nil),
 		(*EdgeDeliveryClaimsV1_Rollover)(nil),
 	}
-	file_edge_v1_record_proto_msgTypes[7].OneofWrappers = []any{
+	file_edge_v1_record_proto_msgTypes[9].OneofWrappers = []any{
 		(*EdgeSignedCapabilityV1_Production)(nil),
 		(*EdgeSignedCapabilityV1_Source)(nil),
 		(*EdgeSignedCapabilityV1_Delivery)(nil),
 		(*EdgeSignedCapabilityV1_Collection)(nil),
 		(*EdgeSignedCapabilityV1_AssignmentExecution)(nil),
 	}
-	file_edge_v1_record_proto_msgTypes[10].OneofWrappers = []any{}
-	file_edge_v1_record_proto_msgTypes[11].OneofWrappers = []any{}
 	file_edge_v1_record_proto_msgTypes[12].OneofWrappers = []any{}
-	file_edge_v1_record_proto_msgTypes[22].OneofWrappers = []any{
+	file_edge_v1_record_proto_msgTypes[13].OneofWrappers = []any{}
+	file_edge_v1_record_proto_msgTypes[14].OneofWrappers = []any{}
+	file_edge_v1_record_proto_msgTypes[24].OneofWrappers = []any{
 		(*EdgeClassificationSpanV1_AttributedActive)(nil),
 		(*EdgeClassificationSpanV1_AttributedPassive)(nil),
 		(*EdgeClassificationSpanV1_Unattributable)(nil),
 	}
-	file_edge_v1_record_proto_msgTypes[25].OneofWrappers = []any{
+	file_edge_v1_record_proto_msgTypes[27].OneofWrappers = []any{
 		(*EdgeRecoveryControlPayloadV1_Tombstone)(nil),
 		(*EdgeRecoveryControlPayloadV1_ManifestPage)(nil),
 		(*EdgeRecoveryControlPayloadV1_Resolved)(nil),
 	}
-	file_edge_v1_record_proto_msgTypes[27].OneofWrappers = []any{
+	file_edge_v1_record_proto_msgTypes[29].OneofWrappers = []any{
 		(*EdgeRecordClientMessage_LaneOpen)(nil),
 		(*EdgeRecordClientMessage_DeliveryFrame)(nil),
 	}
-	file_edge_v1_record_proto_msgTypes[28].OneofWrappers = []any{
+	file_edge_v1_record_proto_msgTypes[30].OneofWrappers = []any{
 		(*EdgeRecordServerMessage_LaneOpenAck)(nil),
 		(*EdgeRecordServerMessage_Ack)(nil),
 	}
@@ -4238,8 +4513,8 @@ func file_edge_v1_record_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_edge_v1_record_proto_rawDesc), len(file_edge_v1_record_proto_rawDesc)),
-			NumEnums:      9,
-			NumMessages:   29,
+			NumEnums:      10,
+			NumMessages:   31,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

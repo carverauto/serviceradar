@@ -15,6 +15,7 @@ filegroup(
     srcs = [
         "automation_launch_envelope.proto",
         "monitoring.proto",
+        "//proto/edge/v1:edge_proto_src",
     ],
     visibility = ["//visibility:public"],
 )
@@ -47,10 +48,10 @@ go_library(
     name = "proto",
     srcs = [
         "automation_launch_envelope.pb.go",
-        "core_service.pb.go",
-        "core_service_grpc.pb.go",
         "camera_media.pb.go",
         "camera_media_grpc.pb.go",
+        "core_service.pb.go",
+        "core_service_grpc.pb.go",
         "data_service.pb.go",
         "data_service_grpc.pb.go",
         "desktop_media.pb.go",
@@ -68,6 +69,7 @@ go_library(
     importpath = "github.com/carverauto/serviceradar/proto",
     visibility = ["//visibility:public"],
     deps = [
+        "//proto/edge/v1:edgev1",
         "//proto/identitymap/v1:identity_map",
         "@org_golang_google_grpc//:grpc",
         "@org_golang_google_grpc//codes",

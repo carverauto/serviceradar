@@ -54,6 +54,40 @@ enum EdgeRecordCompression {
   EDGE_RECORD_COMPRESSION_ZSTD = 2;
 }
 
+// Payload encoding is independent of compression and output-contract identity.
+enum EdgeRecordEncoding {
+  EDGE_RECORD_ENCODING_UNSPECIFIED = 0;
+  EDGE_RECORD_ENCODING_PROTOBUF = 1;
+}
+
+// A supported contract is an immutable bundle, not an execution grant. The
+// enclosing advertisement supplies its registry epoch and snapshot digest.
+message EdgeSupportedContractV1 {
+  string contract_id = 1;
+  uint32 contract_version = 2;
+  bytes contract_bundle_sha256 = 3;
+}
+
+// Shared by AgentHelloRequest and ControlStreamHello. Repeated fields are SETS:
+// order is immaterial, duplicates are invalid, and two advertisements in one
+// session must agree on every set and scalar. No RPC has precedence. An absent
+// carrier advertises no edge-record support; legacy string capabilities cannot
+// supply any of these facts. This advertisement conveys support, not authority.
+message EdgeRecordCapabilitiesV1 {
+  repeated uint32 protocol_versions = 1;
+  repeated EdgeRecordPayloadFamily payload_families = 2;
+  repeated EdgeRecordEncoding encodings = 3;
+  repeated EdgeRecordCompression compressions = 4;
+  repeated uint32 spool_reader_versions = 5;
+  uint64 max_record_bytes = 6;
+  uint64 max_delivery_envelope_bytes = 7;
+  uint64 max_frame_bytes = 8;
+  uint64 max_client_message_bytes = 9;
+  uint64 registry_epoch = 10;
+  bytes registry_snapshot_sha256 = 11;
+  repeated EdgeSupportedContractV1 output_contracts = 12;
+}
+
 // EdgeRecordTrafficClass comes from an effective control-plane grant. It is not
 // caller-selected and is not sweep-specific.
 enum EdgeRecordTrafficClass {
