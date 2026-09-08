@@ -112,7 +112,10 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventoryObservationFenceDbTest do
              )
 
     assert name == controller.name
-    assert membership(controller) == nil
+
+    assert {:error, %Ash.Error.Invalid{errors: [%Ash.Error.Query.NotFound{}]}} =
+             AwxHostMembership.get_by_source_identity(controller.id, 7, 10, actor: @actor)
+
     refute_received {:unexpected_effects, _}
     refute_received {:unexpected_notifications, _}
   end
