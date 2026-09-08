@@ -16,10 +16,9 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedDefinitionSeeder do
   (`display_name`/`feed_type`/`refresh_interval_seconds`); it never overwrites
   operator-set `enabled`, cadence-changes the operator may make, or run status.
 
-  Feeds that need no operator configuration (`requires_credential: false` in
-  `FeedRegistry`) seed with `enabled: true`, and seed-pristine rows for those
-  feeds are backfilled to enabled on boot. Credential-gated feeds stay off
-  until an operator attaches a credential. The backfill only touches rows that
+  The Ubuntu OSV + OpenVEX feed seeds with `enabled: true`, and its
+  seed-pristine rows are backfilled to enabled on boot. Other feeds stay off
+  until an operator enables them. The backfill only touches rows that
   never ran and were never operator-edited, so an explicit operator disable is
   never overwritten.
 
@@ -75,8 +74,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedDefinitionSeeder do
     end
   end
 
-  # Feeds that can run without operator configuration run by default.
-  defp default_enabled?(%{requires_credential: false}), do: true
+  defp default_enabled?(%{provider: "ubuntu", feed_key: "ubuntu-osv-vex"}), do: true
   defp default_enabled?(_), do: false
 
   # A row is seed-pristine when it never ran (no attempt of any outcome) and
