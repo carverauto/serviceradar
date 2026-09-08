@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Automation.Ansible.GitCatalogSyncWorkerTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias ServiceRadar.Automation.Ansible.GitCatalogSyncWorker, as: Worker
   alias ServiceRadar.Automation.Ansible.PlaybookRepository
@@ -209,6 +209,149 @@ defmodule ServiceRadar.Automation.Ansible.GitCatalogSyncWorkerTest do
 
       assert {"deploy.yml", :ok} in paths
       assert {"broken.yml", :error} in paths
+    end
+
+    test "resolves base dir from :ansible_catalog_base_dir app env when :base_dir opt is absent" do
+      configured =
+        Path.join(System.tmp_dir!(), "catalog_cfg_#{System.unique_integer([:positive])}")
+
+      prev = Application.get_env(:serviceradar_core, :ansible_catalog_base_dir)
+      Application.put_env(:serviceradar_core, :ansible_catalog_base_dir, configured)
+
+      on_exit(fn ->
+        File.rm_rf(configured)
+
+        case prev do
+          nil -> Application.delete_env(:serviceradar_core, :ansible_catalog_base_dir)
+          _ -> Application.put_env(:serviceradar_core, :ansible_catalog_base_dir, prev)
+        end
+      end)
+
+      repo = %PlaybookRepository{
+        id: "repo-cfg-1",
+        git_url: "https://github.com/example/playbooks.git",
+        git_ref: "main",
+        sync_interval_seconds: 600
+      }
+
+      test_pid = self()
+
+      git_runner = fn _bin, args, _opts ->
+        send(test_pid, {:git_args, args})
+        {"fatal: stubbed", 128}
+      end
+
+      assert {:error, _} =
+               Worker.sync_repo(repo,
+                 actor: nil,
+                 git_runner: git_runner,
+                 upsert_fn: fn _, _ -> {:ok, %{}} end,
+                 record_sync_fn: fn _r, _a, _o -> {:ok, %{}} end
+               )
+
+      assert_received {:git_args, ["clone" | _] = args}
+      assert String.starts_with?(List.last(args), Path.join(configured, "repo-cfg-1"))
+    end
+
+    @tag :tmp_dir
+    test "configured cache reaches git when temporary directory resolution raises", %{
+      tmp_dir: tmp
+    } do
+      configured = Path.join(tmp, "catalog")
+      File.mkdir_p!(configured)
+      {:ok, peer, _node} = :peer.start_link(%{connection: :standard_io})
+
+      try do
+        :ok = :peer.call(peer, :code, :add_paths, [:code.get_path()])
+        {:ok, _} = :peer.call(peer, :application, :ensure_all_started, [:elixir])
+
+        {result, _bindings} =
+          :peer.call(peer, Code, :eval_string, [
+            """
+            import ExUnit.Assertions
+            alias ServiceRadar.Automation.Ansible.GitCatalogSyncWorker, as: Worker
+            alias ServiceRadar.Automation.Ansible.PlaybookRepository
+
+            Code.compiler_options(ignore_module_conflict: true)
+
+            defmodule System do
+              def tmp_dir! do
+                raise "could not get a writable temporary directory"
+              end
+            end
+
+            assert_raise RuntimeError, "could not get a writable temporary directory", fn ->
+              System.tmp_dir!()
+            end
+
+            Application.put_env(:serviceradar_core, :ansible_catalog_base_dir, configured)
+
+            repo = %PlaybookRepository{
+              id: "repo-unavailable-temp",
+              git_url: "https://github.com/example/playbooks.git",
+              git_ref: "main",
+              sync_interval_seconds: 600
+            }
+
+            assert {:git_called, ["clone" | _] = args} =
+                     catch_throw(
+                       Worker.sync_repo(repo,
+                         actor: nil,
+                         git_runner: fn "git", args, _opts -> throw({:git_called, args}) end
+                       )
+                     )
+
+            assert List.last(args) == Path.join(configured, repo.id)
+            :ok
+            """,
+            [configured: configured]
+          ])
+
+        assert result == :ok
+      after
+        :peer.stop(peer)
+      end
+    end
+
+    test "falls back to a tmp-based dir when :ansible_catalog_base_dir app env is unset" do
+      prev = Application.get_env(:serviceradar_core, :ansible_catalog_base_dir)
+      Application.delete_env(:serviceradar_core, :ansible_catalog_base_dir)
+
+      on_exit(fn ->
+        case prev do
+          nil -> Application.delete_env(:serviceradar_core, :ansible_catalog_base_dir)
+          _ -> Application.put_env(:serviceradar_core, :ansible_catalog_base_dir, prev)
+        end
+      end)
+
+      repo = %PlaybookRepository{
+        id: "repo-fallback-1",
+        git_url: "https://github.com/example/playbooks.git",
+        git_ref: "main",
+        sync_interval_seconds: 600
+      }
+
+      test_pid = self()
+
+      git_runner = fn _bin, args, _opts ->
+        send(test_pid, {:git_args, args})
+        {"fatal: stubbed", 128}
+      end
+
+      assert {:error, _} =
+               Worker.sync_repo(repo,
+                 actor: nil,
+                 git_runner: git_runner,
+                 upsert_fn: fn _, _ -> {:ok, %{}} end,
+                 record_sync_fn: fn _r, _a, _o -> {:ok, %{}} end
+               )
+
+      assert_received {:git_args, ["clone" | _] = args}
+
+      expected_prefix =
+        Path.join(System.tmp_dir!(), "serviceradar_ansible_catalog/repo-fallback-1")
+
+      assert String.starts_with?(List.last(args), expected_prefix)
     end
 
     test "records error sync when git fails", %{base_dir: base} do
