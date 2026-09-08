@@ -321,6 +321,22 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     end
   end
 
+  test "prod config wires the egress CONNECT proxy for external downloads" do
+    with_env("SERVICERADAR_EGRESS_PROXY", "http://proxy.example.com:8080")
+
+    assert read_prod_config()[:serviceradar_core][:egress_proxy] == %{
+             scheme: :http,
+             host: "proxy.example.com",
+             port: 8080
+           }
+  end
+
+  test "prod config leaves the egress proxy unset when the deployment has none" do
+    with_env("SERVICERADAR_EGRESS_PROXY", nil)
+
+    assert read_prod_config()[:serviceradar_core][:egress_proxy] == nil
+  end
+
   test "canonical prune guard override is reachable from the environment" do
     refute read_prod_config()[:serviceradar_core][@topology_graph][:canonical_prune_guard_override]
 

@@ -507,6 +507,9 @@ config :serviceradar_core, :spiffe,
   workload_api_socket: System.get_env("SPIFFE_WORKLOAD_API_SOCKET", "unix:///run/spire/sockets/agent.sock")
 
 config :serviceradar_core,
+  egress_proxy: ServiceRadar.HTTP.EgressProxy.from_env()
+
+config :serviceradar_core,
   mapper_topology_edge_stale_minutes: parse_int_env.("SERVICERADAR_MAPPER_TOPOLOGY_EDGE_STALE_MINUTES", 180)
 
 # Keep authenticated desktop viewers and ingress actors bounded. These are

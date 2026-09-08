@@ -60,11 +60,12 @@ defmodule ServiceRadar.HTTP.EgressClient do
   Redirects are never followed: the caller decides, the same way
   `Req.get(redirect: false)` behaves. The required `:into` option takes a
   streaming function called as `fun.({:data, chunk}, acc)` that returns
-  `{:cont, acc}` or `{:halt, acc}`. Its initial accumulator is
+  `{:cont, acc}`, `{:halt, acc}`, or `{:error, reason}`. Its initial accumulator is
   `{nil, Req.Response.new(status: 200)}`. Each next chunk is requested only after
   the callback consumes the previous one. Streamed responses return an empty
   body; the callback owns the downloaded bytes, and its accumulator is not
   returned. Halting cancels the request and returns an empty successful response.
+  A callback error cancels the request and returns `{:error, reason}` to the caller.
 
   `:receive_timeout` bounds each wait for headers or the next chunk, not the
   total transfer or callback execution time. It defaults to 30,000 milliseconds;

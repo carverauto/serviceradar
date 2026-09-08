@@ -14,12 +14,14 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
   So the proxy here replies with exactly those 19 bytes.
   """
 
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias ServiceRadar.HTTP.EgressClient
+  alias ServiceRadar.Inventory.AdvisoryFeeds.Acquisition
 
   @goproxy_connect_reply "HTTP/1.0 200 OK\r\n\r\n"
   @body "synthetic-release-artifact"
+  @stall_body String.duplicate(@body, 4_096)
 
   setup do
     {:ok, _} = Application.ensure_all_started(:ssl)
@@ -63,6 +65,49 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
              EgressClient.get("https://localhost/artifact.tar.gz", opts(ctx, []))
 
     assert collect_chunks() == @body
+  end
+
+  @tag :tmp_dir
+  test "acquires CISA through CONNECT and cleans up failed transfers", ctx do
+    previous_root = System.get_env("SERVICERADAR_ADVISORY_STAGING_DIR")
+    System.put_env("SERVICERADAR_ADVISORY_STAGING_DIR", ctx.tmp_dir)
+
+    on_exit(fn ->
+      if previous_root do
+        System.put_env("SERVICERADAR_ADVISORY_STAGING_DIR", previous_root)
+      else
+        System.delete_env("SERVICERADAR_ADVISORY_STAGING_DIR")
+      end
+    end)
+
+    download_opts = opts(ctx, timeout_ms: 2_000)
+
+    assert {:ok, acquired} =
+             Acquisition.acquire_cisa(
+               "https://localhost/cisa.json",
+               "connect-success",
+               download_opts
+             )
+
+    assert File.read!(Path.join(acquired.extracted_dir, "cisa-kev.json")) == @body
+
+    assert {:error, {:download_failed, {:http_status, 302}}} =
+             Acquisition.acquire_cisa(
+               "https://localhost/redirect",
+               "connect-redirect",
+               download_opts
+             )
+
+    refute File.exists?(Path.join([ctx.tmp_dir, "cisa-kev", "connect-redirect"]))
+
+    assert {:error, {:download_failed, :timeout}} =
+             Acquisition.acquire_cisa(
+               "https://localhost/stall",
+               "connect-timeout",
+               download_opts
+             )
+
+    refute File.exists?(Path.join([ctx.tmp_dir, "cisa-kev", "connect-timeout"]))
   end
 
   test "returns the redirect instead of following it", ctx do
@@ -162,7 +207,7 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
     assert {:error, :timeout} =
              EgressClient.get("https://localhost/stall", opts(ctx, receive_timeout: 2_000))
 
-    assert collect_chunks() == @body
+    assert collect_chunks() == @stall_body
   end
 
   test "does not deliver more chunks while the consumer is busy", ctx do
@@ -256,22 +301,33 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
       {:ok, request} ->
         request = to_string(request)
 
-        if String.contains?(request, ["/slow", "/stall"]) do
-          :ssl.send(
-            socket,
-            "HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\nconnection: close\r\n\r\n"
-          )
+        cond do
+          String.contains?(request, "/stall") ->
+            # Deliver a substantial partial body without waiting for the chunked
+            # decoder to emit a tiny chunk before the origin stalls.
+            :ssl.send(socket, [
+              "HTTP/1.1 200 OK\r\ncontent-length: #{2 * byte_size(@stall_body)}\r\n",
+              "connection: close\r\n\r\n",
+              @stall_body
+            ])
 
-          delay = if String.contains?(request, "/stall"), do: 5_000, else: 800
+            Process.sleep(5_000)
 
-          Enum.each(1..5, fn _ ->
-            :ssl.send(socket, [Integer.to_string(byte_size(@body), 16), "\r\n", @body, "\r\n"])
-            Process.sleep(delay)
-          end)
+          String.contains?(request, "/slow") ->
+            :ssl.send(
+              socket,
+              "HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\nconnection: close\r\n\r\n"
+            )
 
-          :ssl.send(socket, "0\r\n\r\n")
-        else
-          :ssl.send(socket, origin_response(request))
+            Enum.each(1..5, fn _ ->
+              :ssl.send(socket, [Integer.to_string(byte_size(@body), 16), "\r\n", @body, "\r\n"])
+              Process.sleep(800)
+            end)
+
+            :ssl.send(socket, "0\r\n\r\n")
+
+          true ->
+            :ssl.send(socket, origin_response(request))
         end
 
         :ssl.close(socket)
