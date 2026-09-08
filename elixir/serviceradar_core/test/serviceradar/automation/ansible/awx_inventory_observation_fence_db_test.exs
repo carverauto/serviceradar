@@ -235,7 +235,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventoryObservationFenceDbTest do
   end
 
   defp fixture do
-    id = Ash.UUID.generate()
+    id = Ash.UUIDv7.generate()
 
     Seed.seed!(Controller, %{
       id: id,
