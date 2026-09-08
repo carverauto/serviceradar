@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
   - Inventory Domain: /api/v2/devices
   - Infrastructure Domain: /api/v2/gateways, /api/v2/agents
   - Monitoring Domain: /api/v2/service-checks, /api/v2/alerts
+  - Observability Domain: /api/v2/stateful-alert-rules
   """
 
   use ServiceRadarWebNGWeb.ConnCase, async: true
@@ -417,6 +418,139 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
     end
   end
 
+  describe "GET /api/v2/stateful-alert-rules" do
+    setup %{conn: conn} do
+      _rule = stateful_alert_rule_fixture()
+
+      %{conn: conn}
+    end
+
+    test "returns a list of stateful alert rules", %{conn: conn} do
+      conn = get(conn, ~p"/api/v2/stateful-alert-rules")
+      response = json_response(conn, 200)
+
+      assert is_map(response)
+      assert is_list(response["data"])
+      assert Map.has_key?(response, "data")
+    end
+
+    test "returns empty list for unauthenticated request" do
+      conn = build_conn()
+      conn = get(conn, ~p"/api/v2/stateful-alert-rules")
+
+      # API allows unauthenticated access but returns empty without auth context
+      response = json_response(conn, 200)
+      assert response["data"] == []
+    end
+  end
+
+  describe "POST /api/v2/stateful-alert-rules" do
+    test "creates a new stateful alert rule", %{conn: conn} do
+      params = %{
+        "data" => %{
+          "type" => "stateful-alert-rule",
+          "attributes" => %{
+            "name" => "New Test Rule #{System.unique_integer([:positive])}",
+            "signal" => "log",
+            "match" => %{},
+            "group_by" => ["serviceradar.sync.integration_source_id"]
+          }
+        }
+      }
+
+      conn =
+        conn
+        |> put_req_header("content-type", "application/vnd.api+json")
+        |> post(~p"/api/v2/stateful-alert-rules", params)
+
+      # Should return 201 Created or an error if policies prevent creation
+      assert conn.status in [201, 403]
+    end
+
+    test "returns error for unauthenticated request" do
+      conn = build_conn()
+
+      params = %{
+        "data" => %{
+          "type" => "stateful-alert-rule",
+          "attributes" => %{
+            "name" => "Test Rule",
+            "signal" => "log"
+          }
+        }
+      }
+
+      conn =
+        conn
+        |> put_req_header("content-type", "application/vnd.api+json")
+        |> post(~p"/api/v2/stateful-alert-rules", params)
+
+      # Without authentication, creation should fail (403) or succeed with validation error
+      assert conn.status in [400, 403]
+    end
+  end
+
+  describe "PATCH /api/v2/stateful-alert-rules/:id" do
+    setup %{conn: conn} do
+      rule = stateful_alert_rule_fixture()
+
+      %{conn: conn, rule: rule}
+    end
+
+    test "returns error for non-existent rule", %{conn: conn} do
+      fake_id = Ecto.UUID.generate()
+
+      params = %{
+        "data" => %{
+          "id" => fake_id,
+          "type" => "stateful-alert-rule",
+          "attributes" => %{"priority" => 5}
+        }
+      }
+
+      conn =
+        conn
+        |> put_req_header("content-type", "application/vnd.api+json")
+        |> patch(~p"/api/v2/stateful-alert-rules/#{fake_id}", params)
+
+      # Returns 400 (validation), 403 (forbidden), or 404 (not found)
+      assert conn.status in [400, 403, 404]
+    end
+  end
+
+  describe "DELETE /api/v2/stateful-alert-rules/:id" do
+    setup %{conn: conn} do
+      rule = stateful_alert_rule_fixture()
+
+      %{conn: conn, rule: rule}
+    end
+
+    test "returns error for non-existent rule", %{conn: conn} do
+      fake_id = Ecto.UUID.generate()
+
+      conn = delete(conn, ~p"/api/v2/stateful-alert-rules/#{fake_id}")
+
+      # Returns 400 (validation), 403 (forbidden), or 404 (not found)
+      assert conn.status in [400, 403, 404]
+    end
+
+    # Explicit coverage per tasks.md 5.5: PresetRuleResource's actual policy is
+    # `operator_action([:create, :update, :destroy])`, so operator CAN destroy
+    # a stateful alert rule -- unlike `assert_rbac_matrix`'s generic 3-tier
+    # assumption (`expected_permission/2` in policy_test_helpers.ex), which
+    # assumes operator cannot destroy. Do not rely on that generic helper for
+    # this resource; this test asserts the real behavior directly against the
+    # HTTP endpoint with a real operator-role user.
+    test "an authenticated operator can destroy a stateful alert rule", %{rule: rule} do
+      operator = operator_user_fixture()
+      conn = log_in_api_user(build_conn(), operator)
+
+      conn = delete(conn, ~p"/api/v2/stateful-alert-rules/#{rule.id}")
+
+      assert conn.status == 200
+    end
+  end
+
   describe "GET /api/v2/open_api" do
     test "returns OpenAPI spec", %{conn: conn} do
       # Use string path since AshJsonApi route isn't in Phoenix router verification
@@ -433,6 +567,7 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
       assert Map.has_key?(response, "openapi")
       assert Map.has_key?(response, "info")
       assert Map.has_key?(response, "paths")
+      assert Map.has_key?(response["paths"], "/stateful-alert-rules")
     end
   end
 

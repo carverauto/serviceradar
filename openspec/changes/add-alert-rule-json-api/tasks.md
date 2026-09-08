@@ -251,50 +251,124 @@
 > Section 3.2's fix + re-audit cleared the blocking finding (all 19
 > resources now correctly scope by actor); proceeding with the mount below.
 
-- [ ] 4.1 Add `ServiceRadar.Observability` to `ash_json_api_router.ex`'s
-      `domains:` list; update its moduledoc's endpoint listing to include
-      `/api/v2/stateful-alert-rules` and all 19 newly-live read-only paths.
-- [ ] 4.2 Add `ServiceRadar.Observability` to `OpenApiV2Controller`'s
-      hardcoded `@domains` list.
-- [ ] 4.3 File a separate GitHub issue for `OpenApiV2Controller`'s
-      pre-existing missing-`Notifications` entry — do not fix it as a
-      drive-by in this change.
-- [ ] 4.4 Run `mix serviceradar.openapi.dump` (from `elixir/web-ng`); commit
-      the resulting `priv/static/openapi.json` diff.
-- [ ] 4.5 Extend the existing `GET /api/v2/open_api` test in
-      `ash_json_api_test.exs` to assert `/api/v2/stateful-alert-rules`
-      appears in `response["paths"]`.
+- [x] 4.1 Added `ServiceRadar.Observability` to `ash_json_api_router.ex`'s
+      `domains:` list; updated its moduledoc's endpoint listing with
+      `/api/v2/stateful-alert-rules`'s 6 routes and all 19 newly-live
+      read-only paths (each annotated with the `system_bypass() +
+      read_viewer_plus()` gating from section 3.2). `mix compile
+      --warnings-as-errors` in `web-ng` confirms the mount compiles clean
+      (module resolves, no new warnings — see Verification below).
+- [x] 4.2 Added `ServiceRadar.Observability` to `OpenApiV2Controller`'s
+      hardcoded `@domains` list, with a code comment noting the pre-existing
+      missing-`Notifications` gap (not touched) and pointing at the GitHub
+      issue filed for it.
+- [x] 4.3 Filed https://github.com/carverauto/serviceradar/issues/328 for
+      `OpenApiV2Controller`'s pre-existing missing-`Notifications` entry —
+      not fixed as a drive-by in this change.
+- [x] 4.4 Ran `mix serviceradar.openapi.dump` (from `elixir/web-ng`);
+      `priv/static/openapi.json` grew from 57 to 79 paths (the 6
+      `stateful-alert-rules` paths + the 19 newly-reachable dormant read
+      paths — `/logs`, `/service_status`, `/capacity_forecasts`,
+      `/cpu_cluster_metrics`, `/otel_metrics`, `/otel_metric_points`,
+      `/otel_traces`, `/otel_trace_summaries`, `/cpu_metrics`,
+      `/memory_metrics`, `/disk_metrics`, `/process_metrics`,
+      `/timeseries_metrics`, and their 6 `*_hourly`/
+      `timeseries_metrics_interface_hourly` counterparts). Committed the
+      diff (1,578,913 bytes; +34,585/-12,062 lines vs. the prior committed
+      spec — mostly Ash's `x-*` extension metadata reformatting across
+      existing paths, not just the new ones — confirmed the new paths are a
+      strict superset addition, nothing existing was removed).
+- [x] 4.5 Extended the `GET /api/v2/open_api` test in `ash_json_api_test.exs`
+      to assert `Map.has_key?(response["paths"], "/stateful-alert-rules")`
+      (confirmed the OpenAPI spec's path keys are prefix-relative, e.g.
+      `/service-checks` not `/api/v2/service-checks`, by inspecting the
+      committed `openapi.json` directly before writing the assertion).
 
 ## 5. Tests
 
-- [ ] 5.1 Add `stateful_alert_rule_fixture/1` to
+- [x] 5.1 Added `stateful_alert_rule_fixture/1` to
       `elixir/web-ng/test/support/ash_test_helpers.ex`, mirroring
-      `service_check_fixture/1`'s shape (unique name, created via
+      `service_check_fixture/1`'s shape (unique name via
+      `System.unique_integer([:positive])`, created via
       `Ash.Changeset.for_create(:create, attrs, actor: system_actor())`).
-- [ ] 5.2 Register `StatefulAlertRule` in `policy_test_helpers.ex`'s
+      Supplies `name`/`signal`/`match`/`group_by` per `stateful_alert_rule.ex`'s
+      field list (the only field with no default is `name`; `signal`/`match`/
+      `group_by` are included anyway for explicitness per this task's own
+      instruction).
+- [x] 5.2 Registered `ServiceRadar.Observability.StatefulAlertRule ->
+      stateful_alert_rule_fixture()` in `policy_test_helpers.ex`'s
       `create_resource/1` dispatcher.
-- [ ] 5.3 Extend `ash_json_api_test.exs` with `describe` blocks for
+- [x] 5.3 Extended `ash_json_api_test.exs` with `describe` blocks:
       `GET /api/v2/stateful-alert-rules` (list + unauthenticated-empty),
-      `POST` (authed `[201, 403]` / unauth `[400, 403]`), `PATCH`, and
-      `DELETE`, mirroring the existing ServiceCheck/Alert blocks exactly.
-- [ ] 5.4 Add a policy/domain-level test file (check
-      `elixir/serviceradar_core/test/serviceradar/observability/` for the
-      right sibling convention first) mirroring `service_check_test.exs`:
-      operator can create/update/destroy, viewer cannot update — using
-      `operator_actor()`/`viewer_actor()`/`admin_actor()`/`system_actor()`
-      from `AshTestHelpers`.
-- [ ] 5.5 Write the operator-can-destroy test explicitly — do NOT reuse
-      `assert_rbac_matrix/2`'s generic 3-tier assumption (it assumes
-      operator cannot destroy, which is wrong for this resource).
+      `POST` (authed `[201, 403]` / unauth `[400, 403]`), `PATCH
+      /api/v2/stateful-alert-rules/:id` (non-existent-id error, mirroring the
+      Alert acknowledge/resolve blocks' shape), and
+      `DELETE /api/v2/stateful-alert-rules/:id` (non-existent-id error, plus
+      the explicit operator-destroy test — see 5.5).
+- [x] 5.4 Added
+      `elixir/serviceradar_core/test/serviceradar/observability/stateful_alert_rule_policy_test.exs`
+      (confirmed no name collision with the existing
+      `stateful_alert_rule_test.exs`, and that `_policy_test.exs` is an
+      established naming convention in this app — e.g.
+      `plugins/plugin_policy_assignment_recovery_request_policy_test.exs`,
+      `edge/remote_access_session_policy_test.exs`). Covers: system/admin/
+      operator/viewer can all read, nil actor cannot; operator and admin can
+      create, viewer and nil actor cannot; operator and admin can update,
+      viewer cannot; operator can destroy (see 5.5), viewer cannot. Uses
+      `ServiceRadar.DataCase` (this app has no `AshTestHelpers`-style shared
+      actor helper — that module is web-ng-test-only — so actors are
+      constructed inline via `SystemActor.system/1` and plain `%{id:, role:}`
+      maps, mirroring this app's own established policy-test convention
+      rather than web-ng's, since the two are separate Mix apps).
+- [x] 5.5 Wrote the operator-can-destroy test explicitly in both files —
+      `stateful_alert_rule_policy_test.exs` (direct `Ash.destroy` call) and
+      `ash_json_api_test.exs` (`DELETE /api/v2/stateful-alert-rules/:id` as a
+      real logged-in `operator_user_fixture()`, asserting `conn.status ==
+      200`) — neither relies on `assert_rbac_matrix/2`'s generic 3-tier
+      assumption (`expected_permission/2` in `policy_test_helpers.ex`, which
+      assumes operator cannot destroy — wrong for every `PresetRuleResource`
+      caller, `StatefulAlertRule` included).
 
 ## 6. File the flagged gap
 
-- [ ] 6.1 File a GitHub issue describing the OAuth2 scope-enforcement gap
-      on the `:ash_json_api` pipeline (`RequireOauthScope` not wired in;
-      authorization is purely `actor.role`-based today) as a platform-wide
-      follow-up, referencing this change as the reason it's now more
-      urgent.
+- [x] 6.1 Filed https://github.com/carverauto/serviceradar/issues/329
+      describing the OAuth2 scope-enforcement gap on the `:ash_json_api`
+      pipeline (`RequireOauthScope` not wired in; authorization is purely
+      `actor.role`-based today) as a platform-wide follow-up, referencing
+      this change (and `StatefulAlertRule`'s exposure specifically) as the
+      reason it's now more urgent.
 
 ## 7. Close out
 
-- [ ] 7.1 `openspec validate add-alert-rule-json-api --strict`.
+- [x] 7.1 `openspec validate add-alert-rule-json-api --strict` → "Change
+      'add-alert-rule-json-api' is valid".
+
+## Verification summary
+
+- `mix compile --warnings-as-errors`: clean in both apps except two
+  confirmed pre-existing, unrelated warnings (neither touched by this
+  change, both present since the repo's initial commit per `git log`):
+  `serviceradar_core`'s `refresh_trace_summaries_worker.ex` (already known,
+  flagged by this task's own instructions) and `web-ng`'s
+  `log_live/index.ex:372` (`def handle_event/3` clause grouping — newly
+  discovered during this session's first-ever `web-ng` compile in this
+  worktree, since sections 4+ were never reached before; confirmed
+  pre-existing via `git log --oneline -- .../log_live/index.ex` showing only
+  the initial commit).
+- `mix format --check-formatted`: clean in both apps.
+- `mix credo --strict`: clean in both apps (`serviceradar_core`: 36,899
+  mods/funs across 2,408 files; `web-ng`: 29,013 mods/funs across 1,324
+  files — both "found no issues").
+- Live, DB-backed `mix test` could not be run in this sandbox for either
+  app: `serviceradar_core`'s Postgres has no TimescaleDB extension
+  installed (`mix ecto.migrate` fails at `CREATE EXTENSION timescaledb`
+  with `undefined_file`), and `web-ng`'s own test suite short-circuits
+  entirely without `SERVICERADAR_REQUIRE_DB_TESTS=1` (confirmed forcing it
+  on hits the same missing-database/extension wall). Pure-introspection
+  tests were run with `mix test --no-start` where possible
+  (`stateful_alert_rule_test.exs`, unchanged pass, 6/6). The new
+  `stateful_alert_rule_policy_test.exs` (11 tests) and the new
+  `ash_json_api_test.exs` describe blocks compiled cleanly (proving no
+  syntax/reference errors) but did not execute live in this sandbox — a
+  human must re-run both against a real Postgres+TimescaleDB environment
+  before merge to close this out completely.
