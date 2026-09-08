@@ -276,9 +276,6 @@ defmodule ServiceRadar.Repo.SchemaBootstrap do
   defp mark_baseline_migrations_applied!(repo, migrations_path, %{
          "included_through" => included_through
        }) do
-    # The ledger Ecto reads, not a hardcoded name: under a repo configured with
-    # `migration_source: "ash_schema_migrations"` (web-ng) anything recorded in
-    # `platform.schema_migrations` is invisible to the migrator (issue #321).
     ledger = migration_ledger_table(repo)
 
     repo.query!("""
