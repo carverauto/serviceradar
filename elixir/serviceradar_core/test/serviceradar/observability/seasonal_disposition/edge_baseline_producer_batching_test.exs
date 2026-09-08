@@ -108,7 +108,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducerBat
     refute String.contains?(discovery, "profile_hour_of_week_full(")
     assert String.contains?(chunk, "profile_hour_of_week_full(")
 
-    assert ChunkedProfileRunner.chunk_devices(chunk) |> Enum.sort() ==
+    assert chunk |> ChunkedProfileRunner.chunk_devices() |> Enum.sort() ==
              Enum.sort(ChunkedProfileRunner.devices())
   end
 
@@ -166,7 +166,9 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducerBat
         interface_top_k_per_device: 512
       ]
 
-      opts = if cap == 200, do: opts, else: Keyword.put(opts, :edge_baseline_max_combos_per_query, cap)
+      opts =
+        if cap == 200, do: opts, else: Keyword.put(opts, :edge_baseline_max_combos_per_query, cap)
+
       assert {:ok, baselines} = EdgeBaselineProducer.build(opts)
       assert map_size(baselines) == 512
 
