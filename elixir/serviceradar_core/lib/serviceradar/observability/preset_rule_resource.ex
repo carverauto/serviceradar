@@ -18,6 +18,9 @@ defmodule ServiceRadar.Observability.PresetRuleResource do
     update_validations = eval_option(opts, :update_validations, __CALLER__)
     destroy_changes = eval_option(opts, :destroy_changes, __CALLER__)
     active_sort = eval_option(opts, :active_sort, __CALLER__)
+    extensions = eval_option(opts, :extensions, __CALLER__) || []
+    extra_actions = eval_option(opts, :extra_actions, __CALLER__) || []
+    extra_code_interface = eval_option(opts, :extra_code_interface, __CALLER__) || []
 
     active_enabled_field = Macro.var(:enabled, nil)
     active_filter = quote(do: expr(unquote(active_enabled_field) == true))
@@ -47,7 +50,8 @@ defmodule ServiceRadar.Observability.PresetRuleResource do
       use Ash.Resource,
         domain: ServiceRadar.Observability,
         data_layer: AshPostgres.DataLayer,
-        authorizers: [Ash.Policy.Authorizer]
+        authorizers: [Ash.Policy.Authorizer],
+        extensions: unquote(extensions)
 
       postgres do
         table unquote(table)
@@ -61,6 +65,7 @@ defmodule ServiceRadar.Observability.PresetRuleResource do
         define :create, action: :create
         define :update, action: :update
         define :destroy, action: :destroy
+        unquote_splicing(extra_code_interface)
       end
 
       actions do
@@ -83,6 +88,8 @@ defmodule ServiceRadar.Observability.PresetRuleResource do
         destroy :destroy do
           (unquote_splicing(build_changes_ast(destroy_changes)))
         end
+
+        unquote_splicing(extra_actions)
       end
 
       policies do
