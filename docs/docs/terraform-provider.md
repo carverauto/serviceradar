@@ -61,6 +61,12 @@ a retry: the previous create may already have succeeded. Imports may omit this
 create-only identity. A provider error preserves the server's deletion guard;
 disabling a resource is separate from deleting it.
 
+Changing a credential's provider or authentication method requires replacement.
+Supply an explicitly known, fresh `idempotency_key` and write-only credential
+material in that replacement plan. Reusing the previous creation key is rejected
+before Terraform can delete the existing credential; deletion remains subject to
+the server's usage guard.
+
 Import with the exact ServiceRadar UUID, for example:
 
 ```text

@@ -45,9 +45,32 @@ func (r *configurationResource) ModifyPlan(ctx context.Context, req resource.Mod
 		return
 	}
 	creating := req.State.Raw.IsNull()
-	if creating {
+	replacing := false
+	if !creating {
+		for _, field := range r.definition.fields {
+			if !field.immutable {
+				continue
+			}
+			var planned, previous types.String
+			resp.Diagnostics.Append(req.Plan.GetAttribute(ctx, path.Root(field.name), &planned)...)
+			resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root(field.name), &previous)...)
+			if !planned.Equal(previous) {
+				replacing = true
+			}
+		}
+	}
+	if creating || replacing {
 		var key types.String
 		resp.Diagnostics.Append(req.Plan.GetAttribute(ctx, path.Root("idempotency_key"), &key)...)
+		if replacing {
+			var previous types.String
+			resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("idempotency_key"), &previous)...)
+			plannedID, plannedErr := uuid.Parse(key.ValueString())
+			previousID, previousErr := uuid.Parse(previous.ValueString())
+			if key.IsUnknown() || key.IsNull() || plannedErr != nil || (previousErr == nil && plannedID == previousID) {
+				resp.Diagnostics.AddAttributeError(path.Root("idempotency_key"), "Fresh replacement identity required", "Set an explicitly known, fresh UUID before replacing this resource. The previous creation key is reserved for retrying the original creation.")
+			}
+		}
 		if !key.IsUnknown() {
 			if _, err := uuid.Parse(key.ValueString()); err != nil {
 				resp.Diagnostics.AddAttributeError(path.Root("idempotency_key"), "Missing create identity", "Set a unique, stable UUID before creating this resource. Retain it when retrying an ambiguous response.")
@@ -65,11 +88,11 @@ func (r *configurationResource) ModifyPlan(ctx context.Context, req resource.Mod
 	if planned.IsUnknown() {
 		return
 	}
-	rotating := !creating && !planned.Equal(previous)
-	if (creating && planned.ValueInt64() < 1) || (rotating && planned.ValueInt64() <= previous.ValueInt64()) {
+	rotating := !creating && !replacing && !planned.Equal(previous)
+	if ((creating || replacing) && planned.ValueInt64() < 1) || (rotating && planned.ValueInt64() <= previous.ValueInt64()) {
 		resp.Diagnostics.AddAttributeError(path.Root("values_version"), "Invalid credential version", "Use a positive version on create and increase it for each rotation.")
 	}
-	if creating || rotating {
+	if creating || replacing || rotating {
 		var values types.Map
 		resp.Diagnostics.Append(req.Config.GetAttribute(ctx, path.Root("values_wo"), &values)...)
 		if values.IsNull() || (!values.IsUnknown() && len(values.Elements()) == 0) {

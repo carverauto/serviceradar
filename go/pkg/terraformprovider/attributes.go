@@ -27,7 +27,7 @@ func (d resourceDefinition) schema() schema.Schema {
 	attributes := map[string]schema.Attribute{
 		"id":              schema.StringAttribute{Computed: true, Description: "Stable ServiceRadar UUID. Import with this exact ID.", PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
 		"etag":            schema.StringAttribute{Computed: true, Description: "Opaque server version used to prevent stale updates and deletion."},
-		"idempotency_key": schema.StringAttribute{Optional: true, Description: "Stable, unique UUID required when creating a resource. Retain it after an ambiguous response. Imports may omit it. This value is not a secret."},
+		"idempotency_key": schema.StringAttribute{Optional: true, Description: "Stable, unique UUID required when creating a resource. Retain it after an ambiguous response. Replacement requires an explicitly known, fresh UUID during planning. Imports may omit it. This value is not a secret."},
 	}
 	for _, f := range d.fields {
 		optional, computed := !f.required && !f.computed, !f.required

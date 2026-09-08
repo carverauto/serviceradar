@@ -90,6 +90,7 @@ func TestTerraformCLILifecycle(t *testing.T) {
 		}
 		return output
 	}
+	credentialProvider, authMethod, credentialKey := "awx", "bearer_token", fixtureKey
 	configure := func(version int, importing bool) {
 		t.Helper()
 		createKey := "idempotency_key = \"bbbbbbbb-cccc-4ddd-8eee-ffffffffffff\""
@@ -110,8 +111,8 @@ variable "credential_material" {
 }
 resource "serviceradar_network_credential_secret" "example" {
   name = "Example credential"
-  credential_provider = "awx"
-  auth_method = "bearer_token"
+  credential_provider = %q
+  auth_method = %q
   idempotency_key = %q
   values_version = %d
   values_wo = { api_token = var.credential_material }
@@ -121,7 +122,7 @@ resource "serviceradar_ansible_repository" "example" {
   git_url = "https://git.example.com/project/playbooks.git"
   %s
 }
-`, ca, fixtureKey, version, createKey))
+`, ca, credentialProvider, authMethod, credentialKey, version, createKey))
 	}
 	assertStateSecretsAbsent := func() {
 		t.Helper()
@@ -201,6 +202,43 @@ resource "serviceradar_ansible_repository" "example" {
 		t.Fatal("Terraform did not execute exactly one requested rotation")
 	}
 	command(0, "plan", "-detailed-exitcode", "-input=false", "-no-color")
+
+	for _, replacement := range []struct{ provider, method, key string }{
+		{"proxmox", "bearer_token", "cccccccc-dddd-4eee-8fff-aaaaaaaaaaaa"},
+		{"proxmox", "api_token", "dddddddd-eeee-4fff-8aaa-bbbbbbbbbbbb"},
+	} {
+		credentialProvider, authMethod = replacement.provider, replacement.method
+		configure(2, false)
+		output := command(1, "plan", "-input=false", "-no-color")
+		if !strings.Contains(string(output), "Fresh replacement identity required") {
+			t.Fatal("replacement plan failed without the creation identity diagnostic")
+		}
+		credential.mu.Lock()
+		intact := credential.object != nil && credential.createKey == credentialKey
+		deletes := credential.deletes
+		credential.mu.Unlock()
+		if !intact {
+			t.Fatal("rejected replacement changed the server credential")
+		}
+		if deletes != 0 {
+			t.Fatal("rejected replacement issued DELETE")
+		}
+		credentialKey = replacement.key
+		configure(2, false)
+		command(0, "plan", "-out=replacement.plan", "-input=false", "-no-color")
+		assertPlanSecretsAbsent("replacement.plan")
+		command(0, "show", "-json", "replacement.plan")
+		command(0, "apply", "-input=false", "-auto-approve", "-no-color", "replacement.plan")
+		assertStateSecretsAbsent()
+		credential.mu.Lock()
+		replaced := credential.object != nil && credential.createKey == credentialKey && credential.deletes == 1
+		credential.deletes = 0
+		credential.mu.Unlock()
+		if !replaced {
+			t.Fatal("fresh-key replacement did not delete and recreate the unused credential")
+		}
+		command(0, "plan", "-detailed-exitcode", "-input=false", "-no-color")
+	}
 
 	command(0, "state", "rm", "serviceradar_ansible_repository.example")
 	configure(2, true)

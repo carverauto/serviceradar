@@ -15,12 +15,12 @@ const fixtureMaterial = "synthetic-test-material-not-a-real-credential"
 // apiFixture deliberately implements the public wire contract, not provider
 // internals. Everything in this fixture is invented, including trust and IDs.
 type apiFixture struct {
-	mu                                sync.Mutex
-	object                            map[string]any
-	version, requests, rotations      int
-	guardDelete, rejectPatch, missing bool
-	createBody                        string
-	createKey                         string
+	mu                                    sync.Mutex
+	object                                map[string]any
+	version, requests, rotations, deletes int
+	guardDelete, rejectPatch, missing     bool
+	createBody                            string
+	createKey                             string
 }
 
 func (f *apiFixture) serve(w http.ResponseWriter, req *http.Request) {
@@ -46,6 +46,10 @@ func (f *apiFixture) serve(w http.ResponseWriter, req *http.Request) {
 	switch {
 	case req.Method == http.MethodPost && isCollection:
 		encoded, _ := json.Marshal(body)
+		if f.createKey == req.Header.Get("Idempotency-Key") && f.createBody != string(encoded) {
+			http.Error(w, "idempotency_conflict", http.StatusConflict)
+			return
+		}
 		if f.object != nil {
 			if f.createKey != req.Header.Get("Idempotency-Key") || f.createBody != string(encoded) {
 				http.Error(w, "conflicting create", http.StatusConflict)
@@ -76,6 +80,7 @@ func (f *apiFixture) serve(w http.ResponseWriter, req *http.Request) {
 		}
 		switch req.Method {
 		case http.MethodDelete:
+			f.deletes++
 			if f.guardDelete {
 				http.Error(w, "in use", http.StatusConflict)
 				return
