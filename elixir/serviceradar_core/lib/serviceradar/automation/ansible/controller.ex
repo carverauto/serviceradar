@@ -79,11 +79,11 @@ defmodule ServiceRadar.Automation.Ansible.Controller do
   paper_trail do
     primary_key_type :uuid_v7
     table_name "ansible_controller_versions"
-    mixin {ServiceRadar.Credentials.PaperTrailMixin, :mixin, []}
+    mixin {ServiceRadar.Credentials.PaperTrailMixin, :retained_versions, []}
     change_tracking_mode :changes_only
     store_action_name? true
     store_action_inputs? true
-    create_version_on_destroy? false
+    create_version_on_destroy? true
     ignore_attributes [:inserted_at, :updated_at, :last_health_at, :last_health_summary]
   end
 

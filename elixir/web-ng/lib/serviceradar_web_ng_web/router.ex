@@ -20,6 +20,7 @@ defmodule ServiceRadarWebNGWeb.Router do
   alias ServiceRadarWebNGWeb.Plugs.McpWwwAuthenticate
   alias ServiceRadarWebNGWeb.Plugs.RateLimit
   alias ServiceRadarWebNGWeb.Plugs.RateLimit.Bodies
+  alias ServiceRadarWebNGWeb.Plugs.RequireConfigurationScope
   alias ServiceRadarWebNGWeb.Plugs.RequireOauthScope
   alias ServiceRadarWebNGWeb.Plugs.SecurityHeaders
   alias ServiceRadarWebNGWeb.Settings.ShellHook
@@ -150,6 +151,10 @@ defmodule ServiceRadarWebNGWeb.Router do
     # granted for. Coarse client-credential scopes, API keys and sessions pass
     # through untouched. See `Auth.NarrowScopes`.
     plug(ConfineNarrowScope)
+  end
+
+  pipeline :configuration_api do
+    plug(RequireConfigurationScope)
   end
 
   # MCP streamable HTTP. Default-off (`McpEnabled`), user-bound API
@@ -712,18 +717,25 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/plugin-assignments/:id", PluginAssignmentController, :show)
     patch("/plugin-assignments/:id", PluginAssignmentController, :update)
     delete("/plugin-assignments/:id", PluginAssignmentController, :delete)
+  end
 
-    # Credential secrets and rules (same auth as plugin assignments)
+  # Declarative clients require both token capability and per-resource RBAC.
+  scope "/api/admin", ServiceRadarWebNGWeb.Api do
+    pipe_through([:api_key_auth, :configuration_api])
+
+    # Unified credentials and Ansible configuration.
     get("/network-credential-secrets", NetworkCredentialSecretController, :index)
     post("/network-credential-secrets", NetworkCredentialSecretController, :create)
     get("/network-credential-secrets/:id", NetworkCredentialSecretController, :show)
     patch("/network-credential-secrets/:id", NetworkCredentialSecretController, :update)
+    delete("/network-credential-secrets/:id", NetworkCredentialSecretController, :delete)
     post("/network-credential-secrets/:id/rotate", NetworkCredentialSecretController, :rotate)
 
     get("/network-credential-rules", NetworkCredentialRuleController, :index)
     post("/network-credential-rules", NetworkCredentialRuleController, :create)
     get("/network-credential-rules/:id", NetworkCredentialRuleController, :show)
     patch("/network-credential-rules/:id", NetworkCredentialRuleController, :update)
+    delete("/network-credential-rules/:id", NetworkCredentialRuleController, :delete)
     post("/network-credential-rules/:id/enable", NetworkCredentialRuleController, :enable)
     post("/network-credential-rules/:id/disable", NetworkCredentialRuleController, :disable)
 
@@ -731,8 +743,34 @@ defmodule ServiceRadarWebNGWeb.Router do
     post("/ansible-controllers", AnsibleControllerController, :create)
     get("/ansible-controllers/:id", AnsibleControllerController, :show)
     patch("/ansible-controllers/:id", AnsibleControllerController, :update)
+    delete("/ansible-controllers/:id", AnsibleControllerController, :delete)
+    get("/ansible-controllers/:id/readiness", AnsibleControllerController, :readiness)
     post("/ansible-controllers/:id/enable", AnsibleControllerController, :enable)
     post("/ansible-controllers/:id/disable", AnsibleControllerController, :disable)
+
+    get("/ansible-repositories", AnsibleRepositoryController, :index)
+    post("/ansible-repositories", AnsibleRepositoryController, :create)
+    get("/ansible-repositories/:id", AnsibleRepositoryController, :show)
+    patch("/ansible-repositories/:id", AnsibleRepositoryController, :update)
+    delete("/ansible-repositories/:id", AnsibleRepositoryController, :delete)
+    post("/ansible-repositories/:id/sync", AnsibleRepositoryController, :sync)
+    get("/ansible-repositories/:id/sync", AnsibleRepositoryController, :sync_status)
+
+    get("/ansible-operations", AnsibleAutomationController, :index)
+    post("/ansible-operations/prepare", AnsibleAutomationController, :prepare)
+    post("/ansible-operations", AnsibleAutomationController, :create)
+    get("/ansible-operations/:id", AnsibleAutomationController, :show)
+    post("/ansible-operations/:id/cancel", AnsibleAutomationController, :cancel)
+    get("/ansible-memberships", AnsibleAutomationController, :memberships)
+    post("/ansible-memberships/:id/approve", AnsibleAutomationController, :approve_membership)
+    get("/ansible-template-bindings", AnsibleAutomationController, :bindings)
+    post("/ansible-template-bindings/prepare", AnsibleAutomationController, :prepare_binding)
+    post("/ansible-template-bindings", AnsibleAutomationController, :create_binding)
+    post("/ansible-template-bindings/:id/revoke", AnsibleAutomationController, :revoke_binding)
+  end
+
+  scope "/api/admin", ServiceRadarWebNGWeb.Api do
+    pipe_through(:api_key_auth)
 
     # Collector package management
     get("/collectors", CollectorController, :index)

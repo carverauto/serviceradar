@@ -169,11 +169,9 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
                 conn
               end
 
-            if scope_string == "" do
-              conn
-            else
-              assign(conn, :oauth_token_scope, scope_string)
-            end
+            # Keep an empty API scope distinguishable from a user access token.
+            # Scope-gated routes must not fall back to the user's full authority.
+            assign(conn, :oauth_token_scope, scope_string)
           else
             conn
           end

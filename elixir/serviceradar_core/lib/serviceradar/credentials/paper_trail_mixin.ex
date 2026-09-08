@@ -20,4 +20,17 @@ defmodule ServiceRadar.Credentials.PaperTrailMixin do
       end
     end
   end
+
+  def retained_versions do
+    quote do
+      postgres do
+        schema "platform"
+
+        references do
+          # Audit source UUIDs survive permanent configuration deletion.
+          reference :version_source, ignore?: true
+        end
+      end
+    end
+  end
 end

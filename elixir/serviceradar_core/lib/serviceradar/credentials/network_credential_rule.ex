@@ -12,6 +12,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRule do
     extensions: [AshPaperTrail.Resource],
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Credentials.Changes.GuardCredentialRuleLifecycle
   alias ServiceRadar.Credentials.NetworkCredentialRulePreview
   alias ServiceRadar.Credentials.NetworkCredentialRuleTestDispatcher
   alias ServiceRadar.Credentials.NetworkCredentialRuleTestPlan
@@ -46,6 +47,13 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRule do
     repo ServiceRadar.Repo
     schema "platform"
 
+    foreign_key_names [
+      {:id, "proxmox_console_sessions_credential_rule_id_fkey", "credential_rule_in_use"},
+      {:id, "remote_access_sessions_credential_rule_id_fkey", "credential_rule_in_use"},
+      {:id, "remote_access_requests_credential_rule_id_fkey", "credential_rule_in_use"},
+      {:id, "remote_access_desktop_targets_credential_rule_id_fkey", "credential_rule_in_use"}
+    ]
+
     references do
       reference :secret, on_delete: :restrict
     end
@@ -54,11 +62,11 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRule do
   paper_trail do
     primary_key_type :uuid_v7
     table_name "network_credential_rule_versions"
-    mixin {ServiceRadar.Credentials.PaperTrailMixin, :mixin, []}
+    mixin {ServiceRadar.Credentials.PaperTrailMixin, :retained_versions, []}
     change_tracking_mode :changes_only
     store_action_name? true
     store_action_inputs? true
-    create_version_on_destroy? false
+    create_version_on_destroy? true
     ignore_attributes [:inserted_at, :updated_at]
   end
 
@@ -71,6 +79,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRule do
 
     define :create_rule, action: :create
     define :update_rule, action: :update
+    define :destroy_rule, action: :destroy
     define :preview, action: :preview, args: [:id]
     define :proxmox_api_test_plan, action: :proxmox_api_test_plan, args: [:id]
     define :dispatch_proxmox_api_test, action: :dispatch_proxmox_api_test, args: [:id]
@@ -119,6 +128,10 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRule do
       change set_attribute(:enabled, false)
     end
 
+    destroy :destroy do
+      change {GuardCredentialRuleLifecycle, mode: :destroy}
+    end
+
     update :record_test_result do
       accept [:last_test_status, :last_test_message]
       change set_attribute(:last_tested_at, &DateTime.utc_now/0)
@@ -165,7 +178,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRule do
 
     system_bypass()
     read_with_permission(@credential_manage_check)
-    action_type_with_permission([:create, :update], @credential_manage_check)
+    action_type_with_permission([:create, :update, :destroy], @credential_manage_check)
     action_with_permission(:preview, @credential_manage_check)
     action_with_permission(:proxmox_api_test_plan, @credential_manage_check)
     action_with_permission(:dispatch_proxmox_api_test, @credential_manage_check)

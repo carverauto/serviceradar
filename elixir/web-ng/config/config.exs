@@ -71,6 +71,10 @@ config :logger, :default_formatter,
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
 
+# The credentials API receives provider-specific material under `values`.
+# Filter the entire envelope before Phoenix formats request parameters.
+config :phoenix, :filter_parameters, ["password", "token", "secret", "values"]
+
 # Phoenix React NG - React rendering for components (GoRules JDM editor)
 # Bun runtime renders React components, LiveView handles the interactivity
 config :phoenix_react_ng, Phoenix.ReactServer,

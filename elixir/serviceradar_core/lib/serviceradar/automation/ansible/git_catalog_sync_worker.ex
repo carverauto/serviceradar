@@ -226,15 +226,16 @@ defmodule ServiceRadar.Automation.Ansible.GitCatalogSyncWorker do
     git_runner = Keyword.get(opts, :git_runner, &System.cmd/3)
 
     if File.dir?(Path.join(repo_dir, ".git")) do
-      with {:ok, _} <- git(git_runner, ["fetch", "--prune", "origin"], cd: repo_dir),
-           {:ok, _} <- git(git_runner, ["reset", "--hard", "origin/#{ref}"], cd: repo_dir) do
+      with {:ok, _} <- git(git_runner, ["remote", "set-url", "origin", url], cd: repo_dir),
+           {:ok, _} <- git(git_runner, ["fetch", "--depth", "50", "--prune", "origin", ref], cd: repo_dir),
+           {:ok, _} <- git(git_runner, ["reset", "--hard", "FETCH_HEAD"], cd: repo_dir) do
         :ok
       end
     else
       File.mkdir_p!(Path.dirname(repo_dir))
 
       with {:ok, _} <-
-             git(git_runner, ["clone", "--depth", "50", "--branch", ref, url, repo_dir], cd: nil) do
+             git(git_runner, ["clone", "--depth", "50", "--branch", ref, "--", url, repo_dir], cd: nil) do
         # Touch repo_id so future runs hit the fast path.
         _ = repo
         :ok
@@ -365,12 +366,13 @@ defmodule ServiceRadar.Automation.Ansible.GitCatalogSyncWorker do
     import Ecto.Query
 
     query =
-      from job in Oban.Job,
+      from(job in Oban.Job,
         where:
           job.worker == ^to_string(__MODULE__) and
             fragment("? -> ?", job.args, "repository_id") == ^repository_id and
             job.state in ["available", "scheduled", "executing", "retryable"],
         limit: 1
+      )
 
     ServiceRadar.Repo.exists?(query, prefix: ObanSupport.prefix())
   end

@@ -248,6 +248,14 @@
     "reason": null
   },
   {
+    "path": "lib/serviceradar_web_ng/configuration_request.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 1,
+    "fingerprint": "b73d0c875e0bdc74a2aa46d50878494dfc023c6620b78709d8839ebfe95ede90",
+    "classification": "canonical_machine",
+    "reason": "Canonical UTC timestamp used as an HTTP resource ETag."
+  },
+  {
     "path": "lib/serviceradar_web_ng/dashboards/authored/validation.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 1,
@@ -550,6 +558,14 @@
     "fingerprint": "50539cdf7ef968ec4def1461aab09f8deef40677639892052f6c4f351c0bb98d",
     "classification": "canonical_machine",
     "reason": null
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/controllers/api/ansible_repository_controller.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 1,
+    "fingerprint": "ed6177a5d9c945316e8819fc9ea4a0a4e95fabc4c1cf1789170daa1c39c96d0b",
+    "classification": "canonical_machine",
+    "reason": "Canonical UTC timestamp serialized in the repository API."
   },
   {
     "path": "lib/serviceradar_web_ng_web/controllers/api/camera_analysis_worker_controller.ex",

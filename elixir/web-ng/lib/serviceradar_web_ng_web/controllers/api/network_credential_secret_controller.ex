@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.Api.NetworkCredentialSecretController do
   use ServiceRadarWebNGWeb, :controller
 
   alias ServiceRadarWebNG.Accounts.Scope
+  alias ServiceRadarWebNG.ConfigurationRequest
   alias ServiceRadarWebNG.NetworkCredentials
   alias ServiceRadarWebNG.RBAC
 
@@ -29,7 +30,7 @@ defmodule ServiceRadarWebNGWeb.Api.NetworkCredentialSecretController do
     with :ok <- require_authenticated(conn),
          :ok <- require_permission(conn, @permission) do
       case credentials().get_secret(id, scope: get_scope(conn)) do
-        {:ok, secret} -> json(conn, secret_to_json(secret))
+        {:ok, secret} -> secret_response(conn, secret)
         {:error, :not_found} -> {:error, :not_found}
         {:error, error} -> {:error, error}
       end
@@ -39,11 +40,20 @@ defmodule ServiceRadarWebNGWeb.Api.NetworkCredentialSecretController do
   def create(conn, params) do
     with :ok <- require_authenticated(conn),
          :ok <- require_permission(conn, @permission) do
-      case credentials().create_secret(params, scope: get_scope(conn)) do
+      result =
+        ConfigurationRequest.create(
+          conn,
+          params,
+          fn -> credentials().create_secret(params, scope: get_scope(conn)) end,
+          fn id -> credentials().get_secret(id, scope: get_scope(conn)) end,
+          required: false
+        )
+
+      case result do
         {:ok, secret} ->
           conn
           |> put_status(:created)
-          |> json(secret_to_json(secret))
+          |> secret_response(secret)
 
         {:error, :invalid_request, message} ->
           conn
@@ -58,29 +68,46 @@ defmodule ServiceRadarWebNGWeb.Api.NetworkCredentialSecretController do
 
   def update(conn, %{"id" => id} = params) do
     with :ok <- require_authenticated(conn),
-         :ok <- require_permission(conn, @permission) do
-      attrs = %{
-        name: params["name"],
-        description: params["description"]
-      }
+         :ok <- require_permission(conn, @permission),
+         {:ok, mutation_opts} <- ConfigurationRequest.mutation_opts(conn, required: false) do
+      attrs = Map.take(params, ["name", "description"])
 
-      case credentials().update_secret_details(id, attrs, scope: get_scope(conn)) do
-        {:ok, secret} -> json(conn, secret_to_json(secret))
+      case credentials().update_secret_details(id, attrs, [scope: get_scope(conn)] ++ mutation_opts) do
+        {:ok, secret} -> secret_response(conn, secret)
         {:error, :not_found} -> {:error, :not_found}
         {:error, error} -> {:error, error}
       end
     end
   end
 
+  def delete(conn, %{"id" => id}) do
+    with :ok <- require_authenticated(conn),
+         :ok <- require_permission(conn, @permission),
+         {:ok, mutation_opts} <- ConfigurationRequest.mutation_opts(conn),
+         :ok <- credentials().delete_secret(id, [scope: get_scope(conn)] ++ mutation_opts) do
+      send_resp(conn, :no_content, "")
+    end
+  end
+
   def rotate(conn, %{"id" => id} = params) do
     with :ok <- require_authenticated(conn),
-         :ok <- require_permission(conn, @permission) do
+         :ok <- require_permission(conn, @permission),
+         {:ok, mutation_opts} <- ConfigurationRequest.mutation_opts(conn, required: false) do
       values = Map.get(params, "values") || %{}
 
       if is_map(values) do
-        case credentials().rotate_secret(id, values, scope: get_scope(conn)) do
+        result =
+          ConfigurationRequest.create(
+            conn,
+            params,
+            fn -> credentials().rotate_secret(id, values, [scope: get_scope(conn)] ++ mutation_opts) end,
+            fn id -> credentials().get_secret(id, scope: get_scope(conn)) end,
+            required: false
+          )
+
+        case result do
           {:ok, secret} ->
-            json(conn, secret_to_json(secret))
+            secret_response(conn, secret)
 
           {:error, :invalid_request, message} ->
             conn
@@ -99,6 +126,12 @@ defmodule ServiceRadarWebNGWeb.Api.NetworkCredentialSecretController do
         |> json(%{error: "invalid_request", message: "values must be an object"})
       end
     end
+  end
+
+  defp secret_response(conn, secret) do
+    conn
+    |> ConfigurationRequest.put_etag(secret)
+    |> json(secret_to_json(secret))
   end
 
   defp secret_to_json(secret) do

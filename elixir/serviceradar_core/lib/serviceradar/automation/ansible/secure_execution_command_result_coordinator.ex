@@ -18,6 +18,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
   alias ServiceRadar.Automation.Ansible.Controller
   alias ServiceRadar.Automation.Ansible.ControllerProvenance
   alias ServiceRadar.Automation.Ansible.ControllerSecuritySnapshot
+  alias ServiceRadar.Automation.Ansible.SecureExecutionContinuationBoundary
   alias ServiceRadar.Automation.Ansible.ExecutionLifecycle
   alias ServiceRadar.Automation.Ansible.SafeFailureEvidence
   alias ServiceRadar.Automation.Ansible.SecureExecutionCommandContract, as: Contract
@@ -100,7 +101,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
          :ok <-
            exact_authenticated_provenance(bundle, authenticated_agent_id, reported_command_type),
          :ok <- ensure_non_callback(bundle.operation),
-         :ok <- verify_controller_boundary(bundle),
+         :ok <- SecureExecutionContinuationBoundary.verify(bundle, bundle.attempt, now, opts),
          :ok <- terminal_command(bundle.command) do
       process_terminal_bundle(bundle, now, opts)
     end
@@ -137,7 +138,9 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
          true <-
            same_id?(bundle.attempt.id, attempt.id) || {:error, :secure_execution_attempt_changed},
          :ok <- ensure_non_callback(bundle.operation),
-         :ok <- verify_controller_boundary(bundle),
+         :ok <- SecureExecutionContinuationBoundary.verify(bundle, bundle.attempt, now, opts),
+         {:ok, request} <- rebuild_request(bundle),
+         :ok <- exact_persisted_contract(bundle, request),
          {:ok, claimed, token} <- claim_processing(bundle.attempt, now, opts) do
       bundle
       |> Map.put(:attempt, claimed)
@@ -161,7 +164,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
     with true <- not DateTime.before?(now, attempt.deadline_at) || {:error, :deadline_not_elapsed},
          {:ok, bundle} <- load_resources_for_attempt(attempt, opts),
          :ok <- ensure_non_callback(bundle.operation),
-         :ok <- verify_controller_boundary(bundle),
+         :ok <- SecureExecutionContinuationBoundary.verify(bundle, bundle.attempt, now, opts),
          {:ok, claimed, token} <- claim_processing(attempt, now, opts) do
       bundle = Map.put(bundle, :attempt, claimed)
 
@@ -305,28 +308,6 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
 
   defp ensure_non_callback(%{callback_actions: []}), do: :ok
   defp ensure_non_callback(_operation), do: {:error, :callback_execution_isolated}
-
-  defp verify_controller_boundary(bundle) do
-    metadata = value(bundle.execution, :metadata) || %{}
-    expected_partition_id = value(metadata, :dispatch_partition_id)
-    command = Map.get(bundle, :command)
-    command_partition_id = value(command || %{}, :partition_id)
-
-    with partition when is_binary(partition) and partition != "" <- expected_partition_id,
-         true <- partition == bundle.attempt.dispatch_partition_id,
-         true <- is_nil(command) or partition == command_partition_id,
-         :ok <-
-           ControllerSecuritySnapshot.verify(
-             bundle.controller,
-             value(metadata, :controller_security_snapshot)
-           ) do
-      :ok
-    else
-      false -> {:error, :secure_execution_dispatch_partition_drift}
-      {:error, _reason} = error -> error
-      _ -> {:error, :secure_execution_dispatch_partition_required}
-    end
-  end
 
   defp terminal_command(%AgentCommand{status: status}) when status in @terminal_command_states,
     do: :ok
@@ -1772,14 +1753,14 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
   end
 
   defp controller_provenance_opts(bundle, opts) do
-    metadata = value(bundle.execution, :metadata) || %{}
+    # Every caller has already verified this current controller against the
+    # immutable attestation (or the legacy cleanup snapshot). Reconstructing
+    # the verified snapshot avoids trusting mutable execution metadata.
+    {:ok, snapshot} = ControllerSecuritySnapshot.capture(bundle.controller)
 
     opts
     |> Keyword.get(:controller_provenance_opts, [])
-    |> Keyword.put(
-      :expected_controller_snapshot,
-      value(metadata, :controller_security_snapshot)
-    )
+    |> Keyword.put(:expected_controller_snapshot, snapshot)
     |> Keyword.put(:expected_partition_id, bundle.attempt.dispatch_partition_id)
   end
 

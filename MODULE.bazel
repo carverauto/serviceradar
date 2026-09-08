@@ -762,6 +762,8 @@ use_repo(
     "com_github_gosnmp_gosnmp",
     "com_github_hashicorp_go_hclog",
     "com_github_hashicorp_go_plugin",
+    "com_github_hashicorp_terraform_plugin_framework",
+    "com_github_hashicorp_terraform_plugin_go",
     "com_github_jackc_pgx_v5",
     "com_github_klauspost_compress",
     "com_github_nats_io_jwt_v2",
@@ -888,6 +890,23 @@ http_file = use_repo_rule(
 http_archive = use_repo_rule(
     "@bazel_tools//tools/build_defs/repo:http.bzl",
     "http_archive",
+)
+
+# The provider acceptance test consumes a real CLI as a declared input. Pin the
+# a release from the supported write-only-argument series so tests cannot depend on a
+# workstation install or fetch mutable tooling from inside a test action.
+http_archive(
+    name = "terraform_cli_linux_amd64",
+    urls = ["https://releases.hashicorp.com/terraform/1.11.4/terraform_1.11.4_linux_amd64.zip"],
+    sha256 = "1ce994251c00281d6845f0f268637ba50c0005657eb3cf096b92f753b42ef4dc",
+    build_file_content = 'exports_files(["terraform"], visibility = ["//visibility:public"])',
+)
+
+http_archive(
+    name = "terraform_cli_darwin_arm64",
+    urls = ["https://releases.hashicorp.com/terraform/1.11.4/terraform_1.11.4_darwin_arm64.zip"],
+    sha256 = "867e0808fa971217043e25b7a792b10720c79b1546f8a68479b74f138be73e18",
+    build_file_content = 'exports_files(["terraform"], visibility = ["//visibility:public"])',
 )
 
 # The arm64 OTP an arm64 Elixir image SHIPS; the amd64 pin above still RUNS the build.

@@ -7,9 +7,14 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AdminSpec do
   @portal_doc_surface "admin"
   @portal_doc_source "serviceradar-web-ng"
 
+  alias ServiceRadarWebNGWeb.OpenAPI.AnsibleRepositorySpec
+
   @spec document() :: map()
   def document do
-    portal_metadata(base_document())
+    base_document()
+    |> Map.update!("paths", &Map.merge(&1, AnsibleRepositorySpec.paths()))
+    |> update_in(["components", "schemas"], &Map.merge(&1, AnsibleRepositorySpec.schemas()))
+    |> portal_metadata()
   end
 
   @spec published_document(String.t()) :: map()
@@ -58,6 +63,7 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AdminSpec do
           "AuthorizationSettings" => authorization_settings_schema(),
           "AuthorizationSettingsUpdate" => authorization_settings_update_schema(),
           "RoleMapping" => role_mapping_schema(),
+          "AnsibleControllerReadiness" => ansible_controller_readiness_schema(),
           "Error" => %{
             "type" => "object",
             "properties" => %{
@@ -131,7 +137,8 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AdminSpec do
           op("Update BMP settings", "BMP Settings",
             body: "BmpSettingsUpdate",
             response: "BmpSettings",
-            description: "Updates one or more BMP settings. Triggers retention policy refresh and runtime cache refresh."
+            description:
+              "Updates one or more BMP settings. Triggers retention policy refresh and runtime cache refresh."
           )
       },
       "/api/admin/role-profiles/catalog" => %{
@@ -252,75 +259,138 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AdminSpec do
         "get" => op("List network credential secrets", "Credentials", response: "AnyArray"),
         "post" =>
           op("Create network credential secret", "Credentials",
+            params: [:idempotency_key],
             body: "AnyObject",
             response: "AnyObject",
-            status: "201"
+            status: "201",
+            etag: true
           )
       },
       "/api/admin/network-credential-secrets/{id}" => %{
-        "get" => op("Get network credential secret", "Credentials", params: [:id], response: "AnyObject"),
+        "get" => op("Get network credential secret", "Credentials", params: [:id], response: "AnyObject", etag: true),
         "patch" =>
           op("Update network credential secret details", "Credentials",
-            params: [:id],
+            params: [:id, :optional_if_match],
             body: "AnyObject",
-            response: "AnyObject"
+            response: "AnyObject",
+            etag: true
+          ),
+        "delete" =>
+          op("Delete an unused credential secret", "Credentials",
+            params: [:id, :if_match],
+            response: nil,
+            status: "204",
+            description:
+              "Requires settings.credentials.manage and a current If-Match. Existing credential usage prevents deletion. Returns 409 for a stale version or live usage."
           )
       },
       "/api/admin/network-credential-secrets/{id}/rotate" => %{
         "post" =>
           op("Rotate network credential secret", "Credentials",
-            params: [:id],
+            params: [:id, :optional_if_match, :idempotency_key],
             body: "AnyObject",
-            response: "AnyObject"
+            response: "AnyObject",
+            etag: true
           )
       },
       "/api/admin/network-credential-rules" => %{
         "get" => op("List network credential rules", "Credentials", response: "AnyArray"),
         "post" =>
           op("Create network credential rule", "Credentials",
+            params: [:idempotency_key],
             body: "AnyObject",
             response: "AnyObject",
-            status: "201"
+            status: "201",
+            etag: true
           )
       },
       "/api/admin/network-credential-rules/{id}" => %{
-        "get" => op("Get network credential rule", "Credentials", params: [:id], response: "AnyObject"),
+        "get" => op("Get network credential rule", "Credentials", params: [:id], response: "AnyObject", etag: true),
         "patch" =>
           op("Update network credential rule", "Credentials",
-            params: [:id],
+            params: [:id, :optional_if_match],
             body: "AnyObject",
-            response: "AnyObject"
+            response: "AnyObject",
+            etag: true
+          ),
+        "delete" =>
+          op("Delete an unused disabled credential rule", "Credentials",
+            params: [:id, :if_match],
+            response: nil,
+            status: "204",
+            description:
+              "Requires settings.credentials.manage and a current If-Match. The rule must be disabled and have no unexpired issued or active broker grants. Terminal grants retain their historical rule reference. Returns 409 for a stale version or live usage."
           )
       },
       "/api/admin/network-credential-rules/{id}/enable" => %{
-        "post" => op("Enable network credential rule", "Credentials", params: [:id], response: "AnyObject")
+        "post" =>
+          op("Enable network credential rule", "Credentials",
+            params: [:id, :optional_if_match],
+            response: "AnyObject",
+            etag: true
+          )
       },
       "/api/admin/network-credential-rules/{id}/disable" => %{
-        "post" => op("Disable network credential rule", "Credentials", params: [:id], response: "AnyObject")
+        "post" =>
+          op("Disable network credential rule", "Credentials",
+            params: [:id, :optional_if_match],
+            response: "AnyObject",
+            etag: true
+          )
       },
       "/api/admin/ansible-controllers" => %{
         "get" => op("List Ansible controllers", "Ansible", response: "AnyArray"),
         "post" =>
           op("Create Ansible controller", "Ansible",
+            params: [:idempotency_key],
             body: "AnyObject",
             response: "AnyObject",
-            status: "201"
+            status: "201",
+            etag: true
           )
       },
       "/api/admin/ansible-controllers/{id}" => %{
-        "get" => op("Get Ansible controller", "Ansible", params: [:id], response: "AnyObject"),
+        "get" => op("Get Ansible controller", "Ansible", params: [:id], response: "AnyObject", etag: true),
         "patch" =>
           op("Update Ansible controller", "Ansible",
-            params: [:id],
+            params: [:id, :optional_if_match],
             body: "AnyObject",
-            response: "AnyObject"
+            response: "AnyObject",
+            etag: true
+          ),
+        "delete" =>
+          op("Delete an unused disabled Ansible controller", "Ansible",
+            params: [:id, :if_match],
+            response: nil,
+            status: "204",
+            description:
+              "Requires ansible.controllers.manage and catalog read authority for dependency checks. The controller must be disabled and have no catalog entries, memberships, bindings, or retained execution references. Returns 409 for a stale version or a resource still in use."
+          )
+      },
+      "/api/admin/ansible-controllers/{id}/readiness" => %{
+        "get" =>
+          op("Read Ansible controller configuration and observed health", "Ansible",
+            params: [:id],
+            response: "AnsibleControllerReadiness",
+            description:
+              "Reports last observed health and whether purpose-specific credential references are configured. This performs no upstream request and is not evidence of execution readiness; every launch still requires live preflight."
           )
       },
       "/api/admin/ansible-controllers/{id}/enable" => %{
-        "post" => op("Enable Ansible controller", "Ansible", params: [:id], response: "AnyObject")
+        "post" =>
+          op("Enable Ansible controller", "Ansible",
+            params: [:id, :optional_if_match],
+            response: "AnyObject",
+            etag: true
+          )
       },
       "/api/admin/ansible-controllers/{id}/disable" => %{
-        "post" => op("Disable Ansible controller", "Ansible", params: [:id], response: "AnyObject")
+        "post" =>
+          op("Disable Ansible controller", "Ansible",
+            params: [:id, :optional_if_match],
+            response: "AnyObject",
+            etag: true
+          )
       },
       "/api/admin/collectors" => %{
         "get" => op("List collectors", "Collectors", response: "AnyArray"),
@@ -351,13 +421,21 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AdminSpec do
     base = %{
       "summary" => summary,
       "tags" => [tag],
-      "responses" => responses(status, response_schema)
+      "responses" =>
+        status
+        |> responses(response_schema)
+        |> response_etag(status, Keyword.get(opts, :etag, false))
+        |> configuration_errors(Keyword.get(opts, :params, []))
     }
 
     base
     |> maybe_put("description", Keyword.get(opts, :description))
     |> maybe_put("parameters", parameters(Keyword.get(opts, :params, [])))
     |> maybe_put("requestBody", request_body(Keyword.get(opts, :body)))
+  end
+
+  defp responses(status, nil) do
+    status |> responses("AnyObject") |> Map.put(status, %{"description" => "Success"})
   end
 
   defp responses(status, schema_name) do
@@ -372,9 +450,39 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AdminSpec do
       },
       "400" => %{"description" => "Bad request"},
       "403" => %{"description" => "Forbidden"},
+      "404" => %{"description" => "Not found"},
+      "409" => %{"description" => "Stale version or resource in use"},
       "422" => %{"description" => "Validation error"},
       "500" => %{"description" => "Internal server error"}
     }
+  end
+
+  defp response_etag(responses, _status, false), do: responses
+
+  defp response_etag(responses, status, true) do
+    put_in(responses, [status, "headers"], %{
+      "ETag" => %{
+        "description" => "Quoted updated_at timestamp; send verbatim as If-Match for edits or deletion.",
+        "schema" => %{"type" => "string"}
+      }
+    })
+  end
+
+  defp configuration_errors(responses, params) do
+    responses =
+      if :if_match in params,
+        do: Map.put(responses, "428", %{"description" => "A required If-Match header was not supplied"}),
+        else: responses
+
+    if :idempotency_key in params do
+      Map.merge(responses, %{
+        "409" => %{"description" => "Stale version, conflicting idempotency request, or request still in progress"},
+        "410" => %{"description" => "The resource associated with the original idempotent request has been deleted"},
+        "503" => %{"description" => "Idempotency receipts are unavailable; retry with the same key and request"}
+      })
+    else
+      responses
+    end
   end
 
   defp parameters([]), do: nil
@@ -388,12 +496,63 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AdminSpec do
   # so multi-parameter routes render a valid OpenAPI document.
   defp parameter(:id), do: %{"$ref" => "#/components/parameters/IdPathParam"}
 
+  defp parameter(:if_match) do
+    %{
+      "name" => "If-Match",
+      "in" => "header",
+      "required" => true,
+      "description" => "One quoted ETag from the current resource response. A stale ETag returns 409.",
+      "schema" => %{"type" => "string"}
+    }
+  end
+
+  defp parameter(:optional_if_match) do
+    :if_match
+    |> parameter()
+    |> Map.put("required", false)
+    |> Map.put(
+      "description",
+      "One quoted resource ETag. Optional for existing clients; supplying it prevents concurrent overwrites and returns 409 when stale."
+    )
+  end
+
+  defp parameter(:idempotency_key) do
+    %{
+      "name" => "Idempotency-Key",
+      "in" => "header",
+      "required" => false,
+      "description" =>
+        "Optional UUID for safe retries. Reuse the same key and request with the same account, OAuth client, and endpoint. A matching replay returns the original resource's current representation without repeating the mutation; a changed request returns 409 and a deleted resource returns 410.",
+      "schema" => %{"type" => "string", "format" => "uuid"}
+    }
+  end
+
   defp parameter(name) when is_atom(name) do
     %{
       "name" => Atom.to_string(name),
       "in" => "path",
       "required" => true,
       "schema" => %{"type" => "string"}
+    }
+  end
+
+  defp ansible_controller_readiness_schema do
+    %{
+      "type" => "object",
+      "properties" => %{
+        "controller_id" => %{"type" => "string", "format" => "uuid"},
+        "enabled" => %{"type" => "boolean"},
+        "observed_health" => %{
+          "type" => "string",
+          "enum" => ["unknown", "ok", "degraded", "unreachable", "unauthorized"]
+        },
+        "last_health_at" => %{"type" => "string", "format" => "date-time", "nullable" => true},
+        "credential_configuration" => %{
+          "type" => "object",
+          "properties" => Map.new(["sync", "execution", "callback"], &{&1, %{"type" => "boolean"}})
+        },
+        "live_preflight_required" => %{"type" => "boolean", "enum" => [true]}
+      }
     }
   end
 

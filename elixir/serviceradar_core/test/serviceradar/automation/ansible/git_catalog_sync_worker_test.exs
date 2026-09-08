@@ -354,6 +354,58 @@ defmodule ServiceRadar.Automation.Ansible.GitCatalogSyncWorkerTest do
       assert String.starts_with?(List.last(args), expected_prefix)
     end
 
+    test "cached repositories fetch the configured remote and tag before ingesting", %{
+      base_dir: base,
+      repo_dir: repo_dir
+    } do
+      repo = %PlaybookRepository{
+        id: "repo-uuid-1",
+        git_url: "https://git.example.com/new-catalog.git",
+        git_ref: "release-example",
+        sync_interval_seconds: 600
+      }
+
+      test_pid = self()
+
+      assert :ok =
+               Worker.sync_repo(repo,
+                 actor: nil,
+                 base_dir: base,
+                 git_runner: fn "git", args, opts ->
+                   send(test_pid, {:git, args, opts[:cd]})
+                   {"", 0}
+                 end,
+                 upsert_fn: fn _, _ -> {:ok, %{}} end,
+                 record_sync_fn: fn _, _, _ -> {:ok, %{}} end
+               )
+
+      assert_received {:git, ["remote", "set-url", "origin", "https://git.example.com/new-catalog.git"], ^repo_dir}
+      assert_received {:git, ["fetch", "--depth", "50", "--prune", "origin", "release-example"], ^repo_dir}
+      assert_received {:git, ["reset", "--hard", "FETCH_HEAD"], ^repo_dir}
+      refute_received {:git, ["reset", "--hard", "origin/release-example"], _}
+    end
+
+    test "a failed remote change never fetches or ingests the previous catalog", %{base_dir: base} do
+      repo = %PlaybookRepository{id: "repo-uuid-1", git_url: "https://git.example.com/new-catalog.git", git_ref: "main"}
+      test_pid = self()
+
+      assert {:error, {:git_failed, 128, _}} =
+               Worker.sync_repo(repo,
+                 actor: nil,
+                 base_dir: base,
+                 git_runner: fn "git", args, _ ->
+                   send(test_pid, {:git, args})
+                   {"synthetic remote update failure", 128}
+                 end,
+                 upsert_fn: fn _, _ -> send(test_pid, :unexpected_upsert) end,
+                 record_sync_fn: fn _, _, _ -> {:ok, %{}} end
+               )
+
+      assert_received {:git, ["remote", "set-url", "origin", _]}
+      refute_received {:git, ["fetch" | _]}
+      refute_received :unexpected_upsert
+    end
+
     test "records error sync when git fails", %{base_dir: base} do
       # Repo that doesn't exist on disk -- ensure_clone tries to clone,
       # fake runner fails.
