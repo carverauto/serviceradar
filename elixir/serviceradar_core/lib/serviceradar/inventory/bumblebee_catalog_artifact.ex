@@ -48,9 +48,16 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogArtifact do
     end
   end
 
+  # The agent-side scanner reads this file directly with the vendored
+  # Bumblebee exposure-catalog parser (third_party/bumblebee/upstream/internal/exposure),
+  # which requires schema_version "0.1.0" and entries keyed by id/ecosystem/package/versions.
+  # A mismatch here fails catalog load, and load runs per scan root, so it fails every
+  # root on every agent with coverage_state "failed" rather than reporting per-package errors.
+  @exposure_catalog_schema_version "0.1.0"
+
   defp build_payload(snapshot_ref, entries, metadata) do
     %{
-      "schema_version" => "serviceradar.bumblebee.catalog.v1",
+      "schema_version" => @exposure_catalog_schema_version,
       "snapshot_ref" => snapshot_ref,
       "catalog_version" => Map.get(metadata, "catalog_version"),
       "source_revision" => Map.get(metadata, "source_revision"),
@@ -61,13 +68,11 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogArtifact do
 
   defp artifact_entry(entry) do
     compact_map(%{
-      "catalog_id" => Map.fetch!(entry, :catalog_id),
+      "id" => Map.fetch!(entry, :catalog_id),
       "ecosystem" => Map.fetch!(entry, :ecosystem),
-      "package_name" => Map.fetch!(entry, :package_name),
-      "affected_versions" => Map.get(entry, :affected_versions, []),
-      "severity" => Map.fetch!(entry, :severity),
-      "source_url" => Map.get(entry, :source_url),
-      "metadata" => Map.get(entry, :metadata, %{})
+      "package" => Map.fetch!(entry, :package_name),
+      "versions" => Map.get(entry, :affected_versions, []),
+      "severity" => Map.fetch!(entry, :severity)
     })
   end
 

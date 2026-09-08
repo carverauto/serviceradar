@@ -54,14 +54,16 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogArtifactTest do
     assert metadata.attributes["entry_count"] == "1"
 
     assert %{
-             "schema_version" => "serviceradar.bumblebee.catalog.v1",
+             "schema_version" => "0.1.0",
              "snapshot_ref" => "bumblebee:test:v1",
              "catalog_version" => "v1",
              "source_revision" => "rev-1",
              "entries" => [
                %{
-                 "catalog_id" => "pkg-a",
-                 "package_name" => "left-pad",
+                 "id" => "pkg-a",
+                 "ecosystem" => "npm",
+                 "package" => "left-pad",
+                 "versions" => ["1.0.0"],
                  "severity" => "critical"
                }
              ]
