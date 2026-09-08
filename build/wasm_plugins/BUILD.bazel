@@ -100,3 +100,16 @@ go_test(
     srcs = ["upload_signature_tool_test.go"],
     embed = [":wasm_plugins_lib"],
 )
+
+# Runs the actual TinyGo artifact with the agent's exported-entrypoint lifecycle.
+go_test(
+    name = "awx_runtime_test",
+    srcs = ["awx_runtime_test.go"],
+    data = [":awx_wasm"],
+    deps = [
+        "@io_bazel_rules_go//go/runfiles",
+        "@com_github_tetratelabs_wazero//:wazero",
+        "@com_github_tetratelabs_wazero//api",
+        "@com_github_tetratelabs_wazero//imports/wasi_snapshot_preview1",
+    ],
+)
