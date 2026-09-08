@@ -20,12 +20,49 @@ declare_release_artifacts()
 
 go_library(
     name = "publish_packages_lib",
-    srcs = ["publish_packages.go"],
+    srcs = [
+        "agent_test_artifact.go",
+        "publish_packages.go",
+    ],
     importpath = "github.com/carverauto/serviceradar/build/release",
     visibility = ["//visibility:private"],
     deps = [
         "@io_bazel_rules_go//go/tools/bazel",
     ],
+)
+
+# These local runtime commands have no publishing credentials or package graph.
+# The private signing key is read only after `bazel run` has completed its actions.
+go_binary(
+    name = "agent_test_artifact_metadata",
+    data = ["//:VERSION"],
+    embed = [":publish_packages_lib"],
+)
+
+go_binary(
+    name = "agent_test_artifact",
+    data = [
+        "//:VERSION",
+        "//build/packaging/agent:agent_release_runtime_archive",
+        "//go/pkg/agent:release_signing_key.txt",
+    ],
+    embed = [":publish_packages_lib"],
+)
+
+go_test(
+    name = "agent_test_artifact_test",
+    srcs = ["agent_test_artifact_test.go"],
+    embed = [":publish_packages_lib"],
+)
+
+go_test(
+    name = "agent_test_runtime_archive_test",
+    srcs = ["agent_test_runtime_archive_test.go"],
+    data = [
+        "//:VERSION",
+        "//build/packaging/agent:agent_release_runtime_archive",
+    ],
+    embed = [":publish_packages_lib"],
 )
 
 go_binary(

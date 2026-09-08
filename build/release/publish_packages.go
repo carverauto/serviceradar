@@ -173,6 +173,10 @@ func main() {
 }
 
 func run() error {
+	if len(os.Args) > 1 && (os.Args[1] == "agent-test-metadata" || os.Args[1] == "agent-test-artifact") {
+		return runAgentTestArtifactCommand(os.Args[1], os.Args[2:])
+	}
+
 	config := parsePublishConfig()
 	ctx, err := buildPublishContext(config)
 	if err != nil {

@@ -21,5 +21,6 @@ package(default_visibility = ["//visibility:public"])
         ("awx_metadata", "artifacts/awx.metadata.json", "//build/wasm_plugins:awx_bundle_metadata"),
         ("agent_deb", "artifacts/agent.deb", "//build/packaging/agent:agent_deb"),
         ("agent_rpm", "artifacts/agent.rpm", "//build/packaging/agent:agent_rpm"),
+        ("agent_release", "artifacts/agent-release.tar.gz", "//build/packaging/agent:agent_release_runtime_archive"),
     ]
 ]

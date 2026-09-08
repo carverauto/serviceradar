@@ -17,11 +17,73 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
+
+func TestAgentVersionCLI(t *testing.T) {
+	t.Parallel()
+
+	binary := os.Getenv("SERVICERADAR_TEST_AGENT_BINARY")
+	if binary == "" {
+		if os.Getenv("TEST_SRCDIR") != "" {
+			t.Fatal("Bazel did not supply the declared agent executable")
+		}
+		t.Skip("the executable is supplied by the Bazel agent_test target")
+	}
+	if !filepath.IsAbs(binary) {
+		binary = filepath.Join(os.Getenv("TEST_SRCDIR"), os.Getenv("TEST_WORKSPACE"), binary)
+	}
+	version := os.Getenv("SERVICERADAR_TEST_AGENT_VERSION")
+	if version == "" {
+		t.Fatal("expected embedded version is missing")
+	}
+	configPath := writeAgentConfig(t, "{")
+
+	for _, args := range [][]string{{"--version"}, {"--config", configPath, "--version"}} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			t.Parallel()
+
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			cmd := exec.CommandContext(ctx, binary, args...)
+			cmd.Dir = t.TempDir()
+			cmd.Env = []string{"SR_ALLOW_EMBEDDED_DEFAULT_CONFIG=false"}
+			var stdout, stderr bytes.Buffer
+			cmd.Stdout, cmd.Stderr = &stdout, &stderr
+			if err := cmd.Run(); err != nil {
+				t.Fatalf("version command failed: %v; stderr=%q", err, stderr.String())
+			}
+			if got := stdout.String(); got != version+"\n" {
+				t.Fatalf("stdout = %q, want exact embedded version %q", got, version+"\n")
+			}
+			if got := stderr.String(); got != "" {
+				t.Fatalf("unexpected startup output: %q", got)
+			}
+		})
+	}
+
+	t.Run("normal startup still validates configuration", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, binary, "--config", configPath)
+		cmd.Dir = t.TempDir()
+		cmd.Env = []string{"SR_ALLOW_EMBEDDED_DEFAULT_CONFIG=false"}
+		output, err := cmd.CombinedOutput()
+		if err == nil || ctx.Err() != nil || !strings.Contains(string(output), "failed to parse config") {
+			t.Fatalf("normal startup should reject invalid configuration promptly: err=%v output=%q", err, output)
+		}
+	})
+}
 
 func TestLoadConfigRejectsTrailingData(t *testing.T) {
 	t.Parallel()
