@@ -128,6 +128,69 @@ describe("RemoteAccessTerminal brand chrome", () => {
     container.remove()
   })
 
+  it("omits the Disconnect button without an onDisconnect handler", () => {
+    const markup = renderToStaticMarkup(
+      React.createElement(Component, {
+        title: "SSH remote access",
+        terminalModuleLoader,
+      })
+    )
+
+    expect(markup).not.toContain("remote-access-disconnect")
+    expect(markup).not.toContain("Disconnect")
+  })
+
+  it("renders a Disconnect button next to the status when a handler is given", () => {
+    const markup = renderToStaticMarkup(
+      React.createElement(Component, {
+        title: "SSH remote access",
+        closeLabel: "SSH session",
+        onDisconnect: () => {},
+        terminalModuleLoader,
+      })
+    )
+
+    expect(markup).toContain('data-testid="remote-access-disconnect"')
+    expect(markup).toContain("Disconnect")
+    expect(markup).toContain('aria-label="Disconnect SSH session"')
+  })
+
+  it("calls onDisconnect when the Disconnect button is clicked", async () => {
+    vi.stubGlobal("WebSocket", FakeWebSocket)
+    vi.stubGlobal("ResizeObserver", FakeResizeObserver)
+
+    const onDisconnect = vi.fn()
+    const container = document.createElement("div")
+    document.body.appendChild(container)
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        React.createElement(Component, {
+          sessionId: "session-1",
+          ticket: "srra-test-ticket",
+          websocketPath: "/api/remote-access/sessions/session-1/stream",
+          terminalModuleLoader,
+          onDisconnect,
+        })
+      )
+    })
+
+    const button = container.querySelector('[data-testid="remote-access-disconnect"]')
+    expect(button).toBeTruthy()
+
+    await act(async () => {
+      button.click()
+    })
+
+    expect(onDisconnect).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      root.unmount()
+    })
+    container.remove()
+  })
+
   it("aligns the terminal chrome with sr tokens, not slate", () => {
     const markup = renderToStaticMarkup(
       React.createElement(Component, {

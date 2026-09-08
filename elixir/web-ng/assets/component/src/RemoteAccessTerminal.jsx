@@ -87,6 +87,7 @@ export function Component({
   terminalModuleLoader = null,
   onFileTransferMessage = null,
   onHostKeyFailure = null,
+  onDisconnect = null,
   socketControlRef = null,
 }) {
   const containerRef = useRef(null)
@@ -292,6 +293,8 @@ export function Component({
     websocketPath,
   ])
 
+  const disconnectHandler = typeof onDisconnect === "function" ? onDisconnect : null
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-sr-canvas text-sr-ink">
       <div className="flex min-h-12 items-center gap-3 border-b border-sr-line bg-sr-surface px-4 text-sm">
@@ -300,6 +303,18 @@ export function Component({
           {subtitle ? <div className="truncate text-xs text-sr-muted">{subtitle}</div> : null}
         </div>
         <span className={statusClass(status)}>{status}</span>
+        {disconnectHandler ? (
+          <button
+            className="rounded-md border border-sr-line-strong px-2 py-1 text-xs font-medium text-sr-ink hover:bg-sr-subtle"
+            type="button"
+            title={`Disconnect ${closeLabel}`}
+            aria-label={`Disconnect ${closeLabel}`}
+            data-testid="remote-access-disconnect"
+            onClick={disconnectHandler}
+          >
+            Disconnect
+          </button>
+        ) : null}
       </div>
       {error ? (
         <div className="border-b border-red-900/50 bg-red-950 px-4 py-2 text-sm text-red-100">

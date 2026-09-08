@@ -169,6 +169,161 @@ describe("RemoteAccessSSHConsole session transition", () => {
       root.unmount()
     })
   })
+
+  it.each(["success", "failure"])("isolates reconnect from a delayed transfer %s and stalled close", async (outcome) => {
+    const sockets = []
+    vi.stubGlobal("WebSocket", class {
+      static CONNECTING = 0
+      static OPEN = 1
+      constructor() {
+        this.readyState = 0
+        this.listeners = {}
+        this.close = vi.fn(() => { this.readyState = 3 })
+        sockets.push(this)
+      }
+      addEventListener(type, handler) { this.listeners[type] = handler }
+      send() {}
+    })
+    let finishTransfer
+    let finishClose
+    let listingCount = 0
+    vi.stubGlobal("fetch", vi.fn((url) => {
+      if (String(url).includes("ssh-options")) {
+        return Promise.resolve(jsonResponse({data: {accounts: [{name: "operator"}]}}))
+      }
+      if (String(url).endsWith("/close")) {
+        return new Promise((resolve) => { finishClose = resolve })
+      }
+      if (String(url).endsWith("/file-transfers")) {
+        listingCount += 1
+        if (listingCount === 1) return Promise.resolve(jsonResponse({data: {id: "transfer-example"}}))
+        return new Promise((resolve, reject) => {
+          finishTransfer = () => outcome === "success"
+            ? resolve(jsonResponse({data: {id: "transfer-delayed"}}))
+            : reject(new Error("obsolete transfer failure"))
+        })
+      }
+      return Promise.resolve(jsonResponse({data: {
+        id: "session-example",
+        ticket: "example-ticket",
+        target_host: "host01.example.com",
+        target_port: 22,
+        agent_id: "agent-example",
+        websocket_path: "/api/remote-access/sessions/session-example/stream",
+      }}, 201))
+    }))
+    const root = createRoot(container)
+    await act(async () => {
+      root.render(<Component deviceUid="device-example" terminalModuleLoader={fakeTerminalModules} />)
+    })
+    await act(async () => {
+      [...container.querySelectorAll("button")].find((button) => button.textContent.includes("Connect with SSO")).click()
+    })
+    await act(async () => {
+      container.querySelector('[aria-label="Refresh directory listing"]').click()
+    })
+    await act(async () => {
+      sockets[0].listeners.message({data: JSON.stringify({
+        type: "file_transfer",
+        frame_type: "file_transfer_outcome",
+        payload: {transfer_id: "transfer-example", entries: [{name: "example.txt", size: 5}]},
+      })})
+    })
+    expect(container.textContent).toContain("example.txt")
+    await act(async () => {
+      container.querySelector('[aria-label="Refresh directory listing"]').click()
+    })
+    expect(container.querySelector('[aria-label="Refresh directory listing"]').disabled).toBe(true)
+    await act(async () => {
+      container.querySelector('[data-testid="remote-access-disconnect"]').click()
+    })
+    expect(finishClose).toBeTypeOf("function")
+    expect(sockets[0].close).toHaveBeenCalledOnce()
+    await act(async () => {
+      [...container.querySelectorAll("button")].find((button) => button.textContent.includes("Connect with SSO")).click()
+    })
+    expect(container.textContent).not.toContain("example.txt")
+    expect(container.querySelector('[aria-label="Refresh directory listing"]').disabled).toBe(false)
+    await act(async () => {
+      finishTransfer()
+      finishClose(jsonResponse({}))
+      sockets[0].listeners.message({data: JSON.stringify({
+        type: "file_transfer",
+        frame_type: "file_transfer_outcome",
+        payload: {entries: [{name: "obsolete.txt", size: 2}]},
+      })})
+    })
+    expect(container.textContent).not.toContain("obsolete")
+    expect(container.textContent).not.toContain("transfer-delayed")
+    expect(container.querySelector('[aria-label="Refresh directory listing"]').disabled).toBe(false)
+    expect(sockets[1].close).not.toHaveBeenCalled()
+    await act(async () => { root.unmount() })
+  })
+
+  it("disconnects through the session close endpoint and returns to the connection form", async () => {
+    let root
+    await act(async () => {
+      root = createRoot(container)
+      root.render(
+        <Component
+          deviceUid="sr:5bf1b6f6-0e7c-43ac-b883-a13447199d85"
+          createPath="/api/remote-access/sessions"
+          sshOptionsPath="/api/remote-access/devices/sr%3A5bf1b6f6-0e7c-43ac-b883-a13447199d85/ssh-options"
+          approvalId=""
+          title="SSH remote access"
+          allowRememberedKeys={false}
+          allowSkipVerifyHostKeyPolicy={false}
+          allowTargetHostOverride={false}
+          allowTargetPortOverride={false}
+          terminalModuleLoader={async () => fakeTerminalModules()}
+        />
+      )
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    })
+
+    const connectButton = [...container.querySelectorAll("button")].find((candidate) =>
+      (candidate.textContent || "").includes("Connect with SSO")
+    )
+    expect(connectButton).toBeTruthy()
+
+    await act(async () => {
+      connectButton.click()
+      await new Promise((resolve) => setTimeout(resolve, 500))
+    })
+
+    expect(container.textContent).toContain("pve02:22 via agent-dusk01")
+
+    // sr-4400: the console chrome offers a visible Disconnect control so the
+    // operator is not limited to typing logout/Ctrl-D inside the terminal.
+    const disconnectButton = container.querySelector('[data-testid="remote-access-disconnect"]')
+    expect(disconnectButton).toBeTruthy()
+    expect(disconnectButton.textContent).toContain("Disconnect")
+
+    await act(async () => {
+      disconnectButton.click()
+      await new Promise((resolve) => setTimeout(resolve, 500))
+    })
+
+    const fetchMock = globalThis.fetch
+    const closeCall = fetchMock.mock.calls.find(([url]) =>
+      String(url).endsWith(`/remote-access/sessions/${SESSION_DATA.id}/close`)
+    )
+    expect(closeCall).toBeTruthy()
+    expect(closeCall[1].method).toBe("POST")
+    expect(JSON.parse(closeCall[1].body).reason).toBe("operator_requested")
+
+    // The terminal unmounts and the connection form returns.
+    expect(container.textContent).not.toContain("pve02:22 via agent-dusk01")
+    const reconnectButton = [...container.querySelectorAll("button")].find((candidate) =>
+      (candidate.textContent || "").includes("Connect with SSO")
+    )
+    expect(reconnectButton).toBeTruthy()
+    expect(windowErrors).toEqual([])
+
+    await act(async () => {
+      root.unmount()
+    })
+  })
 })
 
 // Reproduces the reported failure: a device the deployment's SSH certificate

@@ -427,6 +427,8 @@ export function Component({
   const [fileTransferBusy, setFileTransferBusy] = useState(false)
   const [uploadDestination, setUploadDestination] = useState("/")
   const [transferEvents, setTransferEvents] = useState([])
+  const transferGenerationRef = useRef(0)
+  const transferGeneration = transferGenerationRef.current
   const socketControlRef = useRef(null)
   const pendingUploadsRef = useRef(new Map())
   const startedUploadsRef = useRef(new Set())
@@ -578,6 +580,35 @@ export function Component({
     setHostKeyFailure(decision)
   }, [])
 
+  const disconnectSession = useCallback(() => {
+    if (!session?.id || transferGeneration !== transferGenerationRef.current) {
+      return
+    }
+
+    transferGenerationRef.current += 1
+    pendingUploadsRef.current.clear()
+    startedUploadsRef.current.clear()
+    downloadBuffersRef.current.clear()
+    setRemotePath("/")
+    setUploadDestination("/")
+    setEntries([])
+    setFileTransferError("")
+    setFileTransferBusy(false)
+    setTransferEvents([])
+    setSession(null)
+    setCredential(null)
+
+    void fetch(`${createPath}/${session.id}/close`, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "content-type": "application/json",
+        "x-csrf-token": csrfToken(),
+      },
+      body: JSON.stringify({reason: "operator_requested"}),
+    }).catch(() => null)
+  }, [createPath, session, transferGeneration])
+
   // Rules-of-hooks: every hook must run on every render, including the
   // post-201 session branch below, which early-returns. A memo placed after
   // that return silently drops a hook on session renders and unmounts the
@@ -666,6 +697,10 @@ export function Component({
       while (offset < upload.file.size) {
         const nextOffset = Math.min(offset + FILE_TRANSFER_CHUNK_BYTES, upload.file.size)
         const bytes = new Uint8Array(await upload.file.slice(offset, nextOffset).arrayBuffer())
+        if (transferGeneration !== transferGenerationRef.current) {
+          return
+        }
+
         const sent = control.sendFileTransferData({
           transfer_id: transferId,
           sequence,
@@ -682,6 +717,10 @@ export function Component({
         offset = nextOffset
       }
 
+      if (transferGeneration !== transferGenerationRef.current) {
+        return
+      }
+
       const sent = control.sendFileTransferData({
         transfer_id: transferId,
         sequence,
@@ -696,11 +735,15 @@ export function Component({
 
       addTransferEvent({transferId, status: "uploaded", path: upload.path})
     },
-    [addTransferEvent],
+    [addTransferEvent, transferGeneration],
   )
 
   const handleFileTransferMessage = useCallback(
     (message) => {
+      if (transferGeneration !== transferGenerationRef.current) {
+        return
+      }
+
       const payload = message.payload || {}
       const transferId = payload.transfer_id || ""
 
@@ -711,6 +754,10 @@ export function Component({
         if (upload && !upload.started && payload.status === "started") {
           upload.started = true
           streamUpload(transferId, upload).catch((uploadError) => {
+            if (transferGeneration !== transferGenerationRef.current) {
+              return
+            }
+
             pendingUploadsRef.current.delete(transferId)
             setFileTransferError(errorMessage(uploadError))
             addTransferEvent({transferId, status: "failed", path: upload.path})
@@ -768,7 +815,7 @@ export function Component({
         addTransferEvent({transferId, status: payload.status || "failed"})
       }
     },
-    [addTransferEvent, streamUpload],
+    [addTransferEvent, streamUpload, transferGeneration],
   )
 
   async function listDirectory(path = remotePath) {
@@ -779,8 +826,16 @@ export function Component({
 
     try {
       const transfer = await createFileTransfer("list", nextPath)
+      if (transferGeneration !== transferGenerationRef.current) {
+        return
+      }
+
       addTransferEvent({transferId: transfer.id, status: "requested", path: nextPath})
     } catch (listError) {
+      if (transferGeneration !== transferGenerationRef.current) {
+        return
+      }
+
       setFileTransferBusy(false)
       setFileTransferError(errorMessage(listError))
     }
@@ -799,6 +854,10 @@ export function Component({
 
     try {
       const transfer = await createFileTransfer("download", path, {display_name: entry.name || baseName(path)})
+      if (transferGeneration !== transferGenerationRef.current) {
+        return
+      }
+
       downloadBuffersRef.current.set(transfer.id, {
         chunks: [],
         name: entry.name || baseName(path),
@@ -806,6 +865,10 @@ export function Component({
       })
       addTransferEvent({transferId: transfer.id, status: "requested", path})
     } catch (downloadError) {
+      if (transferGeneration !== transferGenerationRef.current) {
+        return
+      }
+
       setFileTransferError(errorMessage(downloadError))
     }
   }
@@ -827,6 +890,10 @@ export function Component({
 
     try {
       const transfer = await createFileTransfer("upload", path, {display_name: file.name})
+      if (transferGeneration !== transferGenerationRef.current) {
+        return
+      }
+
       const upload = {file, path, started: false}
       pendingUploadsRef.current.set(transfer.id, upload)
       addTransferEvent({transferId: transfer.id, status: "requested", path})
@@ -834,12 +901,20 @@ export function Component({
       if (startedUploadsRef.current.delete(transfer.id)) {
         upload.started = true
         streamUpload(transfer.id, upload).catch((uploadError) => {
+          if (transferGeneration !== transferGenerationRef.current) {
+            return
+          }
+
           pendingUploadsRef.current.delete(transfer.id)
           setFileTransferError(errorMessage(uploadError))
           addTransferEvent({transferId: transfer.id, status: "failed", path})
         })
       }
     } catch (uploadError) {
+      if (transferGeneration !== transferGenerationRef.current) {
+        return
+      }
+
       setFileTransferError(errorMessage(uploadError))
     }
   }
@@ -1047,6 +1122,7 @@ export function Component({
             terminalModuleLoader={terminalModuleLoader}
             onFileTransferMessage={handleFileTransferMessage}
             onHostKeyFailure={handleHostKeyFailure}
+            onDisconnect={disconnectSession}
             socketControlRef={socketControlRef}
           />
         </div>
