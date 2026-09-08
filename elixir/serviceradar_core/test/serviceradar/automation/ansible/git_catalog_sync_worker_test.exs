@@ -254,13 +254,16 @@ defmodule ServiceRadar.Automation.Ansible.GitCatalogSyncWorkerTest do
     end
 
     @tag :tmp_dir
-    test "configured cache reaches git when temporary directory resolution raises", %{tmp_dir: tmp} do
+    test "configured cache reaches git when temporary directory resolution raises", %{
+      tmp_dir: tmp
+    } do
       configured = Path.join(tmp, "catalog")
       File.mkdir_p!(configured)
       {:ok, peer, _node} = :peer.start_link(%{connection: :standard_io})
 
       try do
         :ok = :peer.call(peer, :code, :add_paths, [:code.get_path()])
+        {:ok, _} = :peer.call(peer, :application, :ensure_all_started, [:elixir])
 
         {result, _bindings} =
           :peer.call(peer, Code, :eval_string, [
