@@ -9,6 +9,11 @@ ServiceRadar remote access routes interactive sessions through the same edge top
 
 The intended enterprise model is short-lived SSH user certificates backed by your identity provider, ServiceRadar RBAC, and an edge agent that can reach the target. Operators should avoid reusable agent-local SSH secrets.
 
+To disconnect an SSH session, click **Disconnect** next to the terminal status.
+The console closes its connection immediately and returns to the connection
+form, where you can start a new session. Disconnect also clears the session's
+file listing and transfer state.
+
 ## Connection Path
 
 Remote access traffic follows this path:
