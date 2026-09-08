@@ -1,0 +1,388 @@
+# SHARED SEMANTIC-ENVELOPE TRANSCRIPT INVENTORY (task 1.5-i).
+#
+# FIVE PRINCIPAL INVENTORIES PLUS SEPARATELY GUARDED EXCLUSION AND RELATION SETS -- SEVEN KEYED
+# SETS IN ALL, EACH GUARDED ON ITS OWN, AND NO GRAND TOTAL. They count
+# different proof units, so adding them would invent a number that means nothing: a root slot is
+# a CLOSURE VIEW, a framer operation is a LEXICAL WRITE inside one framer, a state case is an
+# ALTERNATIVE branch, an attachment edge is a COMPOSITION-GRAPH edge, and a separation row is a
+# quantity that must NOT reach the transcript. Each section is checked for its exact key set AND
+# its count, on its own terms.
+#
+# `op` -- FRAMER-LOCAL OPERATIONS (125). Deliberately NOT "every primitive callsite": that would
+# be 138, since the root slots contribute 13 direct writes on top of these. Nested members are
+# keyed under the sub-message that owns them (`delivery_claims.transition.*`,
+# `execution_grant_claims.source_identity.*`), so a key names a path and not just a leaf.
+#
+# `slot` -- ROOT SLOTS (17): the version prefix plus record fields 1..16, TWELVE direct and
+# FOUR composite. The direct/composite column is DERIVED FROM THE DESCRIPTOR by both consumers,
+# not copied from here, so relabelling a slot fails rather than passing unread. A closure view,
+# NOT seventeen further writes. THE ORDER OF THESE SLOTS IS NOT A SLOT ROW: per-slot inequality
+# is blind to it -- swapping two composite blocks leaves every slot row green -- so it is carried
+# by an ORDERED SEVENTEEN-CHUNK DECOMPOSITION of the root transcript, one chunk per direct write
+# and one per composite child's framed output, which is CONCATENATED AND HASHED BACK TO THE
+# PRODUCTION DIGEST before anything is concluded from it. Unbound, it was a second test-only
+# grammar free to drift -- and it had, silently omitting `producer_context` entirely. No two
+# chunks may concatenate identically IN EITHER ORDER; plain inequality is not enough for
+# variable-length chunks, since A||B can equal B||A for distinct A and B. The whole-envelope
+# base shape's vectors `root.shape.base.v0..v2` NAME that measurement; `v0` shares its value with
+# FIVE `state.*.present` rows -- producer_context, capability, capability@source_auth,
+# source_authorization and output_contract@root -- which measure the same thing, so SIX keys move
+# together. That set is ASSERTED, not just written here: `TestSemanticBaseShapeAliasSetIsExact`
+# and its Elixir peer rebuild it from these vectors and fail on drift. The `version` slot is REUSED
+# EVIDENCE from `version_corpus.txt`: only Go can parameterise the grammar version, and this
+# runtime's `SemanticDigest.compute/1` takes no version argument, so no row here re-proves it.
+#
+# `state` -- ALTERNATIVES. FIVE PRESENCE RULES across SIX CARRIER PAIRS (the capability rule
+# has TWO carriers: the record's production slot and source_auth's nested one) (one row each, NOT an increment to the operation
+# count), the two discriminant sets with EXACT values, and the single optU64 site. Presence and
+# discriminant rows SHALL pin EXACT framed bytes or a committed digest: absent and present
+# already differ in most fixtures for unrelated reasons, so INEQUALITY ALONE would survive
+# deleting the marker. `authority_epoch` is the ONLY optU64; the AuthorityEpoch fields in
+# production/source/execution-grant claims are plain u64 and are cited here so no reader infers
+# five optional sites.
+#
+# The delivery transition is pinned in FIVE states, not two: `unset`, and each of `renewal` and
+# `rollover` both DEFAULTED and POPULATED. The defaulted pair pins the discriminant; the populated
+# pair pins the order and width INSIDE the branch.
+# A defaulted renewal writes two zero i64s and a defaulted rollover two empty byte strings, so
+# swapping either pair is a NO-OP there -- measured: both swaps were invisible until the
+# populated bodies were committed.
+#
+# `edge` -- COMPOSITION GRAPH (13), NOT thirteen independent proofs. Edges OVERLAP operation and
+# slot evidence: deleting one call can fail rows in several sections at once. Each row targets
+# the deletion of THAT call OR INLINE BLOCK, and overlapping failures are recorded honestly rather than counted
+# as separate coverage. ALL THIRTEEN ARE DERIVED FROM THE DESCRIPTORS and compared in BOTH
+# DIRECTIONS: the nested walk finds four, the record's composite slots four more, and the claims
+# oneof the last five -- whose {field number, child root} pairs are pinned, since those numbers
+# ARE the transcript's discriminant values and renumbering two members relabels every framed
+# claim while the member set, the count and the child framers all stay identical. Deriving only
+# four left nine declared-and-underived, where deleting a declaration was indistinguishable from
+# deleting a carrier.
+#
+# `sep` -- SEPARATION. Quantities that must NOT influence the semantic digest -- spool
+# coordinates, `delivery_capability`, the physical artifact identity, and the producer-receipt
+# identity. These are frame FIELDS; 1.5-j owns broker PUBLICATION IDENTITY, a different object, one mutated per
+# row. FOUR of the five vary a LIVE quantity in both runtimes; `producer_receipt.submission_sha256`
+# is different in kind -- it is SCHEMA CLOSURE over a field that does not exist anywhere in the
+# edge protos, so there is nothing to vary and nothing to mutate. Do not read the five as a
+# uniform set.
+#
+# VALUE DISTINCTNESS IS SCOPED TO THE WHOLE FLAT TRANSCRIPT, because there is no smaller scope.
+# The preimage is an UNTAGGED CONCATENATION: no length prefix, no intermediate hash, no framing
+# around a child block. A helper in either implementation is therefore INVISIBLE to it -- calling
+# `producerContext` instead of writing its fields inline changes no byte and separates nothing --
+# so every write coexists with every other, and two writes of the same wire class carrying the
+# same value are exchangeable without moving a byte. THE WIRE CLASS IS THE WIDTH: `i64` is
+# `u64(uint64(v))` and `str` is `bytes([]byte(s))`, so those pairs are indistinguishable and are
+# guarded as one class.
+#
+# NEITHER RUNTIME'S HELPER STRUCTURE IS EVIDENCE OF ANYTHING, and the CARRIER'S OWN DECISIONS
+# need their own rows. A seam vector freezes what a framer does when TOLD a carrier is absent; it
+# says nothing about the root inferring `c != nil`, and replacing that inference with a literal
+# `true` was invisible until a whole-record ABSENT witness existed for each of the four carriers.
+# Likewise the claim bodies and the discriminant have vectors, but neither sees the capability
+# transcript AROUND them, so reordering the claims against the signature FOR ONE VARIANT the
+# record never carried was invisible until every composed capability shape was framed at the root.
+#
+# ONE FIXTURE CANNOT SEPARATE THE ROOT, and that is arithmetic. Its transcript carries thirteen
+# enum writes -- SEVEN with a range of 0..2 -- plus the structural constants. Seven positions
+# cannot take seven distinct values from three. So a position's identity is its SIGNATURE, the
+# tuple of values it takes across a shape's VARIANTS, and THREE are needed: no position may take
+# an all-equal tuple (one that never varies could equal a structural constant, and a shape whose
+# only content is root enums would frame identically in every variant -- measured), and a range
+# of 3 yields only SIX varying tuples over two variants against SEVEN positions. Three yield
+# twenty-four. The claim baselines are committed PER VARIANT for the same reason: the cross
+# product puts two claim bodies in one transcript, and constant-valued sets cannot separate them.
+#
+# TWO POSITIONS COLLIDE ONLY IF THEY AGREE IN EVERY VARIANT OF THE SHAPE THEY BOTH OCCUR IN.
+# Asking it across the whole fixture set is too weak -- a mutation executes inside ONE shape, and
+# `compression` and a claims discriminant were both 0 in the shape where production claims are
+# unset and the nested carrier holds `source`. TWO STRUCTURAL CONSTANTS ARE EXEMPT: two carriers
+# holding the same claims kind write the same discriminant by force of the shape, so no fixture of
+# it can separate them and no swap confined there changes anything for ANY input. A pair with a
+# FIELD on either side is never exempt: its equality is the fixture's choice, not the shape's.
+#
+# THREE SCOPES WERE WRONG BEFORE THIS ONE, each leaving a live survivor: per MESSAGE let
+# `execution_grant_claims.traffic_class` and its inlined `source_identity.kind` both take 0; per
+# HELPER let the root's `traffic_class` and `producer_context.origin_kind` both take 0; and
+# guarding only the BASE SHAPE let `payload_family` and `compression` -- both zero in the first
+# variant -- be swapped whenever the capability carried `collection`.
+#
+# EVERY WHOLE-RECORD SHAPE IS A FIXTURE. Reconstructing a shape byte for byte shows the mirror
+# agrees with production for it; it says nothing about whether two writes INSIDE it are
+# exchangeable, so every shape is built at every variant, signature-guarded and committed.
+#
+# AND NO HAND-PICKED MATRIX EVER CONVERGES. Five review rounds each found a reordering
+# conditioned on some state no fixture held -- a claims variant, a carrier, a PAIR of carriers,
+# then a pair the fixtures held but the guard compared globally -- and each round added the
+# missing case. The space of predicates a framer COULD branch on is unbounded, so no finite
+# fixture set is complete against it.
+#
+# SO THE MATRIX IS ENUMERATED FROM THE DECLARED AXES rather than chosen, and it is exhaustive
+# OVER THOSE AXES:
+#
+#   output_contract presence   2
+#   producer_context presence  2, and its optional authority_epoch when present -> 3
+#   production capability     10 states
+#   source_authorization      11: absent, or present with its capability in 10 states
+#
+# 2 x 3 x 10 x 11 = 660 shapes, plus the base record, at three variants each. The enumeration says
+# every combination of what the grammar DECLARES it branches on is committed. The static guards
+# are a separate, weaker thing: they check that the framers keep that shape, and they do not
+# establish that nothing else can branch -- see their limits below.
+#
+# EXHAUSTIVE OVER THE DECLARED AXES, NOT OVER EVERY PROGRAM THE HOST LANGUAGES CAN EXPRESS. The
+# cross product covers every combination of carrier presence and oneof discriminant the grammar
+# declares. It does NOT cover a framer that branches on something else -- and the static guards
+# that CHECK FOR RECOGNIZED FORMS of that are DEFENSE-IN-DEPTH REGRESSION CHECKS, not a proof. Their known limits, stated
+# so no reader infers more: the Go guard identifies proto and oneof accessors BY NAME, so a method
+# spelled `GetClaims` on an unrelated type is accepted; the Elixir guard reads function BODIES and
+# does not resolve function heads, guards, macro expansions or remote calls, so a two-clause helper
+# matching `%{projected_row_count: 42}` is invisible to it. Closing that needs a descriptor-validated
+# declarative grammar that GENERATES both framers, recorded as an UNOWNED follow-up -- not a second pair
+# of analyzers chasing two host languages from the outside.
+#
+# SEPARATION IS ASKED PER SHAPE, NOT ACROSS THE WHOLE FIXTURE SET. A mutation executes inside ONE
+# shape, so a pair must be separated by a variant OF THAT SHAPE -- asked globally, `compression`
+# and a claims discriminant were both 0 in the shape where production claims are unset and the
+# nested carrier holds `source`, and swapping them there moved no byte. Two STRUCTURAL CONSTANTS
+# are exempt: when both carriers hold the same claims kind their discriminants are forced equal by
+# the shape itself, and a swap confined to such a shape changes nothing for ANY input. A pair with
+# a FIELD on either side is never exempt -- its equality is the fixture's choice.
+#
+# THE CLAIM BASELINES SHARE THE RECORD'S GENERATION PASS, IN TWO SETS, PER VARIANT. A baseline is
+# spliced into a shape, so its writes land in the record's transcript; generated independently, a
+# record position and a claim position held the same value. The cross product then puts TWO claim
+# bodies in one transcript, so one set is not enough either, and disjoint VALUES cannot separate
+# them -- `production_claims` alone needs three distinct values from fields of range 3, 4 and 3,
+# which exhausts the range-3 space for a single carrier. The separation is by SIGNATURE across
+# variants. Measured on the way here: one shared set gave 202 collisions, two constant-valued
+# sets still gave 39.
+#
+# THE PRIMITIVE INVENTORY IS AN ORDERED MIRROR, BOUND BYTE FOR BYTE. Every conclusion above rests
+# on "these are exactly the writes, in exactly this order". A width SUM cannot establish that: it
+# is blind to an equal-width omission paired with an equal-width addition, and to any
+# substitution at all. So the mirror emits each primitive's exact bytes in transcript order and
+# its concatenation must EQUAL the preimage the seventeen chunks reconstruct -- itself proven
+# equal to production by hashing. It is checked for every committed variant, for each
+# carrier-absent shape and for each composed capability shape, so a branch the mirror gets wrong
+# cannot hide in an unexercised shape.
+#
+# PRESENCE MARKERS AND ZERO-LENGTH WRITES CARRY NO VALUE and are excluded from the signature
+# guard by name: a 1-byte marker and a bare length prefix cannot be made distinct, and exchanging
+# two identical writes is not observable in principle. Presence is discharged by the `state` rows
+# instead, which vary it.
+#
+# `sep` closure walks EVERY message in the package INCLUDING NESTED TYPES, carries
+# an ACCEPTED CONTROL (a field that IS present must be found by the same walk, or "found
+# nothing" would equally describe a scan that reached nothing), and asserts a nonzero scanned
+# inventory. The edge package declares no nested messages and no map fields today, so the
+# recursive branch is exercised against a descriptor built for the purpose rather than left to
+# be assumed correct.
+#
+# PROBE:
+#   preimage  exact framed bytes at a framing seam -- PUBLIC in Elixir (`ClaimsFraming`),
+#             same-package PRIVATE in Go, so "seam" means reachable-by-the-suite, not exported.
+#             THE TWO RUNTIMES REACH THE CLAIM BODIES AT DIFFERENT DEPTHS: Go calls each claim
+#             framer directly, while Elixir has only `claims_framed/1`, which prefixes the
+#             discriminant -- so its adapter slices those 8 bytes off to compare bodies. The
+#             prefix is therefore NOT covered by those rows on the Elixir side; the
+#             `state.claims_discriminant.*` vectors cover it separately, so the gap is closed by
+#             a different row rather than left open.
+#   digest    one-field mutation through the public digest entry point
+#   attach    deletion of the call must change the digest
+#   closure   descriptor-driven, both directions
+#   exclude   the quantity must NOT change the recomputed digest
+#   relation  the quantity reaches the transcript only THROUGH another committed value
+#   invariant the quantity must leave the digest unchanged while it varies
+#   committed the assertion is against a COMMITTED digest vector, not an ad-hoc recomputation
+#             and not an inequality: deleting a presence marker leaves absent/present unequal
+#             anyway, so only a frozen expected value discriminates it
+#   reuse     the obligation is discharged by a NAMED row in another corpus; no row here
+#             re-proves it, and the detail column names that row
+#
+# ADMISSION-INVALID RECORDS ARE INTENTIONAL. Rows mutate ONE occurrence and SHALL NOT
+# synchronise a duplicate field, reseal a capability, or validate the record: a second changed
+# occurrence can mask a deleted write, which is the defect these rows exist to find.
+#
+# kind  key                                                                detail       probe
+
+op    output_contract.presence                                           present      preimage
+op    output_contract.contract_id                                        str          preimage
+op    output_contract.contract_version                                   u64          preimage
+op    output_contract.contract_bundle_sha256                             bytes        preimage
+op    output_contract.registry_epoch                                     u64          preimage
+op    output_contract.registry_snapshot_sha256                           bytes        preimage
+op    output_contract.effective_grant_sha256                             bytes        preimage
+op    claims_framed.discriminant_7                                       u64          preimage
+op    claims_framed.discriminant_8                                       u64          preimage
+op    claims_framed.discriminant_9                                       u64          preimage
+op    claims_framed.discriminant_11                                      u64          preimage
+op    claims_framed.discriminant_12                                      u64          preimage
+op    claims_framed.discriminant_unset                                   u64          preimage
+op    collection_claims.purpose                                          u64          preimage
+op    collection_claims.network_scope_id                                 bytes        preimage
+op    collection_claims.authenticated_agent_id                           bytes        preimage
+op    collection_claims.execution_plan_id                                bytes        preimage
+op    collection_claims.target_range_id                                  bytes        preimage
+op    collection_claims.execution_shard                                  u64          preimage
+op    collection_claims.assignment_epoch                                 u64          preimage
+op    collection_claims.compiled_assignment_body_sha256                  bytes        preimage
+op    collection_claims.traffic_class                                    u64          preimage
+op    collection_claims.producer_assignment_id                           bytes        preimage
+op    collection_claims.execution_id                                     bytes        preimage
+op    production_claims.contract_id                                      str          preimage
+op    production_claims.contract_version                                 u64          preimage
+op    production_claims.contract_bundle_sha256                           bytes        preimage
+op    production_claims.registry_epoch                                   u64          preimage
+op    production_claims.network_scope_id                                 bytes        preimage
+op    production_claims.producer_assignment_id                           bytes        preimage
+op    production_claims.traffic_class                                    u64          preimage
+op    production_claims.route_profile                                    u64          preimage
+op    production_claims.origin_kind                                      u64          preimage
+op    production_claims.origin_principal_id                              bytes        preimage
+op    production_claims.producer_instance_id                             bytes        preimage
+op    production_claims.run_id                                           bytes        preimage
+op    production_claims.run_shard                                        u64          preimage
+op    production_claims.authority_epoch                                  u64          preimage
+op    production_claims.scope_id                                         bytes        preimage
+op    production_claims.scope_sha256                                     bytes        preimage
+op    production_claims.package_sha256                                   bytes        preimage
+op    production_claims.registry_snapshot_sha256                         bytes        preimage
+op    production_claims.effective_grant_sha256                           bytes        preimage
+op    production_claims.max_projected_row_count                          u64          preimage
+op    production_claims.max_projected_write_bytes                        u64          preimage
+op    production_claims.cost_model_version                               u64          preimage
+op    production_claims.package_id                                       str          preimage
+op    source_claims.kind                                                 u64          preimage
+op    source_claims.context_id                                           bytes        preimage
+op    source_claims.scope_id                                             bytes        preimage
+op    source_claims.scope_sha256                                         bytes        preimage
+op    source_claims.network_scope_id                                     bytes        preimage
+op    source_claims.collection_not_before_unix_nano                      i64          preimage
+op    source_claims.collection_expires_unix_nano                         i64          preimage
+op    source_claims.origin_principal_id                                  bytes        preimage
+op    source_claims.producer_instance_id                                 bytes        preimage
+op    source_claims.producer_assignment_id                               bytes        preimage
+op    source_claims.run_id                                               bytes        preimage
+op    source_claims.run_shard                                            u64          preimage
+op    source_claims.authority_epoch                                      u64          preimage
+op    source_claims.traffic_class                                        u64          preimage
+op    source_claims.route_profile                                        u64          preimage
+op    source_claims.execution_plan_sha256                                bytes        preimage
+op    source_claims.target_range_sha256                                  bytes        preimage
+op    source_claims.origin_kind                                          u64          preimage
+op    delivery_claims.event_id                                           bytes        preimage
+op    delivery_claims.record_sha256                                      bytes        preimage
+op    delivery_claims.spool_id                                           bytes        preimage
+op    delivery_claims.sequence                                           u64          preimage
+op    delivery_claims.transition.discriminant_renewal                    u64          preimage
+op    delivery_claims.transition.renewal.renewed_not_before_unix_nano    i64          preimage
+op    delivery_claims.transition.renewal.renewed_expires_unix_nano       i64          preimage
+op    delivery_claims.transition.discriminant_rollover                   u64          preimage
+op    delivery_claims.transition.rollover.recovery_id                    bytes        preimage
+op    delivery_claims.transition.rollover.prior_spool_id                 bytes        preimage
+op    delivery_claims.transition.rollover.prior_sequence                 u64          preimage
+op    delivery_claims.transition.discriminant_unset                      u64          preimage
+op    execution_grant_claims.purpose                                     u64          preimage
+op    execution_grant_claims.network_scope_id                            bytes        preimage
+op    execution_grant_claims.authenticated_agent_id                      bytes        preimage
+op    execution_grant_claims.producer_assignment_id                      bytes        preimage
+op    execution_grant_claims.execution_id                                bytes        preimage
+op    execution_grant_claims.run_id                                      bytes        preimage
+op    execution_grant_claims.run_shard                                   u64          preimage
+op    execution_grant_claims.authority_epoch                             u64          preimage
+op    execution_grant_claims.production_scope_id                         bytes        preimage
+op    execution_grant_claims.scope_sha256                                bytes        preimage
+op    execution_grant_claims.contract_bundle_sha256                      bytes        preimage
+op    execution_grant_claims.execution_plan_sha256                       bytes        preimage
+op    execution_grant_claims.target_range_sha256                         bytes        preimage
+op    execution_grant_claims.traffic_class                               u64          preimage
+op    execution_grant_claims.collection_not_before_unix_nano             i64          preimage
+op    execution_grant_claims.collection_expires_unix_nano                i64          preimage
+op    execution_grant_claims.source_identity.presence                    present      preimage
+op    execution_grant_claims.source_identity.kind                        u64          preimage
+op    execution_grant_claims.source_identity.context_id                  bytes        preimage
+op    execution_grant_claims.source_identity.source_scope_id             bytes        preimage
+op    execution_grant_claims.source_identity.source_scope_sha256                         bytes        preimage
+op    execution_grant_claims.compiled_assignment_id                      bytes        preimage
+op    execution_grant_claims.compiled_assignment_sha256                  bytes        preimage
+op    capability.presence                                                present      committed
+op    capability.capability_version                                      u64          digest
+op    capability.issuer_id                                               bytes        digest
+op    capability.issuer_key_id                                           bytes        digest
+op    capability.algorithm                                               str          digest
+op    capability.not_before_unix_nano                                    i64          digest
+op    capability.expires_at_unix_nano                                    i64          digest
+op    capability.signature                                               bytes        digest
+op    source_auth.presence                                               present      committed
+op    source_auth.kind                                                   u64          digest
+op    source_auth.context_id                                             bytes        digest
+op    source_auth.scope_id                                               bytes        digest
+op    source_auth.scope_sha256                                           bytes        digest
+op    producer_context.presence                                          present      committed
+op    producer_context.origin_kind                                       u64          digest
+op    producer_context.origin_principal_id                               bytes        digest
+op    producer_context.producer_instance_id                              bytes        digest
+op    producer_context.producer_assignment_id                            bytes        digest
+op    producer_context.run_id                                            bytes        digest
+op    producer_context.run_shard                                         u64          digest
+op    producer_context.authority_epoch                                   optU64       digest
+op    producer_context.scope_id                                          bytes        digest
+op    producer_context.scope_sha256                                      bytes        digest
+op    producer_context.package_id                                        str          digest
+op    producer_context.package_sha256                                    bytes        digest
+
+slot  version                                                            version_corpus.semantic_envelope reuse
+slot  01.event_id                                                        direct       attach
+slot  02.payload_family                                                  direct       attach
+slot  03.compression                                                     direct       attach
+slot  04.encoded_size                                                    direct       attach
+slot  05.uncompressed_size                                               direct       attach
+slot  06.payload_sha256                                                  direct       attach
+slot  07.output_contract                                                 composite    attach
+slot  08.producer_context                                                composite    attach
+slot  09.route_profile                                                   direct       attach
+slot  10.traffic_class                                                   direct       attach
+slot  11.network_scope_id                                                direct       attach
+slot  12.production_capability                                           composite    attach
+slot  13.source_authorization                                            composite    attach
+slot  14.projected_row_count                                             direct       attach
+slot  15.projected_write_bytes                                           direct       attach
+slot  16.cost_model_version                                              direct       attach
+
+state presence.output_contract                                              absent+present preimage
+state presence.producer_context                                             absent+present committed
+state presence.capability@production+source_auth                            absent+present committed
+state presence.source_authorization                                         absent+present committed
+state presence.execution_source_identity                                    absent+present preimage
+state discriminant.claims                                                 0,7,8,9,11,12 preimage
+state discriminant.delivery_transition                                    0,5,6        preimage
+state optional.producer_context.authority_epoch                           absent,0,1   digest
+
+edge  root->output_contract                                              occurrence   attach
+edge  root->producer_context                                             occurrence   attach
+edge  root->production_capability                                        occurrence   attach
+edge  root->source_authorization                                         occurrence   attach
+edge  source_authorization->capability                                   occurrence   attach
+edge  capability->claims_framed                                          occurrence   attach
+edge  claims_framed->production_claims                                   occurrence   attach
+edge  claims_framed->source_claims                                       occurrence   attach
+edge  claims_framed->delivery_claims                                     occurrence   attach
+edge  claims_framed->collection_claims                                   occurrence   attach
+edge  claims_framed->execution_grant_claims                              occurrence   attach
+edge  delivery_claims->transition                                        occurrence   attach
+edge  execution_grant_claims->source_identity                            occurrence   attach
+
+excl  17.semantic_envelope_sha256                                         self         exclude
+excl  18.payload                                                        raw          exclude
+rel   18.payload->06.payload_sha256                                      transitive   relation
+#       CONSTRUCTION, normative for this row: the two payloads are EQUAL LENGTH and the size
+#       fields are HELD FIXED, so the only normalized difference is the payload bytes and, in
+#       the second half, `payload_sha256`. Unequal lengths would move encoded_size/
+#       uncompressed_size too and the row would prove those slots instead.
+sep   producer_receipt.submission_sha256                                 schema-absent closure
+sep   physical_artifact.record_sha256.legal_reencoding                   reencode     invariant
+sep   delivery_frame.spool_id                                            outer-frame  invariant
+sep   delivery_frame.sequence                                            outer-frame  invariant
+sep   delivery_frame.delivery_capability                                 outer-frame  invariant

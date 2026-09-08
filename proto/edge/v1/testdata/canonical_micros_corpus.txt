@@ -1,0 +1,27 @@
+# Nanosecond -> containing-microsecond-bucket vectors (task 1.5-c).
+#
+# LITERAL rows. Every expected value is written out by hand and was verified with
+# independent arbitrary-precision arithmetic, NOT by calling either runtime's helper --
+# a manifest generated from the implementation cannot detect that implementation being
+# wrong, which is the entire failure this corpus exists to catch.
+#
+# The invariant is u*1000 <= ns < (u+1)*1000, stated in widened arithmetic: near the
+# extremes of int64 both bounds overflow the type.
+#
+# format: <nanoseconds> <microseconds>
+-1500 -2
+-1001 -2
+-1000 -1
+-999 -1
+-1 -1
+0 0
+999 0
+1000 1
+1500 1
+# The bottom of the int64 range. The bucket edge falls at MinInt64+808, and the two
+# implementations that get this wrong return a large POSITIVE value here.
+-9223372036854775808 -9223372036854776
+-9223372036854775001 -9223372036854776
+-9223372036854775000 -9223372036854775
+-9223372036854774809 -9223372036854775
+-9223372036854774808 -9223372036854775

@@ -1,3 +1,4 @@
+load("@rules_python//python:defs.bzl", "py_test")
 # Package placeholder for repository alias helper.
 load("@bazel_skylib//rules:common_settings.bzl", "bool_flag", "string_flag")
 load("@rules_elixir//:ex_unit_test.bzl", "ex_unit_test")
@@ -198,4 +199,21 @@ toolchain(
     name = "mix_payloads",
     toolchain = ":payloads",
     toolchain_type = "@rules_elixir//:mix_payloads_toolchain_type",
+)
+
+# Guards the enumeration gap introduced by moving the edge ABI suites off `go test ./...`.
+# A go_test target LISTS its srcs; `go test` DISCOVERED them, so a new *_test.go is silently
+# ungated under Bazel unless something checks. The test file carries the full reasoning.
+#
+# The BUILD files and the test sources are DECLARED INPUTS: a guard that read them off a path it
+# was not given would pass by finding nothing, which is the failure mode it exists to prevent.
+py_test(
+    name = "go_test_inventory_test",
+    srcs = ["go_test_inventory_test.py"],
+    data = [
+        "//go/pkg/edge/edgerecord:all_test_srcs",
+        "//go/pkg/edge/execstate:all_test_srcs",
+        "//go/pkg/edge/projection:all_test_srcs",
+        "//proto/edge/v1:all_test_srcs",
+    ],
 )

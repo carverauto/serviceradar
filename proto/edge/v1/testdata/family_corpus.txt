@@ -1,0 +1,4 @@
+sweep record_batch_v1 family_sweep_record_batch_v1.bin accept accept
+sweep run_event_v1 family_sweep_run_event_v1.bin refuse accept
+sweep snapshot_page_v1 family_sweep_snapshot_page_v1.bin refuse accept
+sweep snapshot_terminal_v1 family_sweep_snapshot_terminal_v1.bin refuse accept
