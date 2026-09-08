@@ -29,15 +29,35 @@ import (
 // its frozen preimage and verified single-leaf completion root. Elixir reads
 // these same rows; rejected dispositions never acquire a hashed preimage.
 func TestMtrCompletionDispositionSharedCorpus(t *testing.T) {
-	var manifest strings.Builder
+	type vector struct {
+		value  int32
+		trace  []byte
+		accept bool
+	}
+	var vectors []vector
 	for _, value := range []int32{1, 2, 3, 4, 5, 0, -1, 6, 999} {
+		v := vector{value: value, accept: value >= 1 && value <= 5}
+		if value == 1 {
+			v.trace = stableUUID(0x44)
+		}
+		vectors = append(vectors, v)
+	}
+	nonV7 := stableUUID(0x44)
+	nonV7[6] = (nonV7[6] & 0x0f) | 0x40
+	vectors = append(vectors,
+		vector{value: 2, trace: stableUUID(0x44)},
+		vector{value: 1},
+		vector{value: 1, trace: nonV7})
+	var manifest strings.Builder
+	for _, v := range vectors {
+		value := v.value
 		leaf := MtrCompletionLeaf{
 			Ordinal: 1, Disposition: MtrTerminalDisposition(value),
 			RangeSha256: bytes.Repeat([]byte{0x43}, 32),
+			TraceID:     v.trace,
 		}
 		traceHex := "-"
-		if value == 1 {
-			leaf.TraceID = stableUUID(0x44)
+		if len(leaf.TraceID) > 0 {
 			traceHex = fmt.Sprintf("%x", leaf.TraceID)
 		}
 		plan := bytes.Repeat([]byte{0x45}, 32)
@@ -45,7 +65,7 @@ func TestMtrCompletionDispositionSharedCorpus(t *testing.T) {
 		commitment := MtrOrdinalRangeCommitment(leaves)
 		root, err := MtrCompletionRoot(leaves, 0, 1, plan, commitment)
 		verdict, preimageHex, rootHex := "reject", "-", "-"
-		if value >= 1 && value <= 5 {
+		if v.accept {
 			if err != nil {
 				t.Fatalf("disposition %d: %v", value, err)
 			}

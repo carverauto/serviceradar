@@ -45,7 +45,7 @@ defmodule ServiceRadar.Edge.MtrCompletionCorpusTest do
     assert Enum.sort(values) ==
              Enum.sort(
                Enum.map(1..5, &{&1, "accept"}) ++
-                 Enum.map([0, -1, 6, 999], &{&1, "reject"})
+                 Enum.map([0, -1, 6, 999, 2, 1, 1], &{&1, "reject"})
              )
   end
 
