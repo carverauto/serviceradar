@@ -44,7 +44,7 @@ func testAgentMetadata(t *testing.T) agentTestArtifactMetadata {
 
 func TestAgentTestMetadataBindsReviewedCommitAndSafeURL(t *testing.T) {
 	metadata := testAgentMetadata(t)
-	if metadata.Version != "3.2.1-test.0123456789ab" {
+	if metadata.Version != "3.2.1-test.sha0123456789ab" {
 		t.Fatalf("wrong version: %q", metadata.Version)
 	}
 	wantName := "serviceradar-agent_" + metadata.Version + "_linux_amd64.tar.gz"
@@ -62,6 +62,21 @@ func TestAgentTestMetadataBindsReviewedCommitAndSafeURL(t *testing.T) {
 		if !errors.Is(err, errAgentTestCommit) {
 			t.Errorf("commit %q accepted: %v", commit, err)
 		}
+	}
+}
+
+func TestAgentTestMetadataKeepsLeadingZeroCommitPrefixAlphanumeric(t *testing.T) {
+	commit := "001234567890" + strings.Repeat("a", 28)
+	metadata, err := agentTestMetadata(agentTestArtifactConfig{
+		expectedCommit: commit,
+		workflowCommit: commit,
+		baseURL:        "https://artifacts.example.com/agent-tests",
+	}, "3.2.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metadata.Version != "3.2.1-test.sha001234567890" {
+		t.Fatalf("commit prefix must be an alphanumeric SemVer identifier: %q", metadata.Version)
 	}
 }
 

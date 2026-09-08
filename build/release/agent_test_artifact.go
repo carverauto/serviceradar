@@ -126,7 +126,7 @@ func agentTestMetadata(config agentTestArtifactConfig, baseVersion string) (agen
 		return metadata, err
 	}
 	metadata.Commit = config.expectedCommit
-	metadata.Version = baseVersion + "-test." + config.expectedCommit[:12]
+	metadata.Version = baseVersion + "-test.sha" + config.expectedCommit[:12]
 	metadata.ArtifactName = "serviceradar-agent_" + metadata.Version + "_linux_amd64.tar.gz"
 	metadata.ArtifactURL = base + "/" + metadata.Commit + "/" + metadata.ArtifactName
 	return metadata, nil
