@@ -1,4 +1,5 @@
 defmodule ServiceRadar.Repo.Migrations.AddAnsibleProvisioningRequests do
+  @moduledoc false
   use Ecto.Migration
 
   def change do

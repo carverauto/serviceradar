@@ -1,4 +1,5 @@
 defmodule ServiceRadar.Repo.Migrations.PreserveDeletedConfigurationHistory do
+  @moduledoc false
   use Ecto.Migration
 
   @tables [

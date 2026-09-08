@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -114,7 +115,11 @@ func runAWXWasm(t *testing.T, wasm []byte, config map[string]any, responses map[
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	runtime := wazero.NewRuntime(ctx)
-	defer runtime.Close(ctx)
+	defer func() {
+		if err := runtime.Close(ctx); err != nil {
+			t.Error(err)
+		}
+	}()
 	if _, err := wasi_snapshot_preview1.Instantiate(ctx, runtime); err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +175,7 @@ func runAWXWasm(t *testing.T, wasm []byte, config map[string]any, responses map[
 				}
 				path := strings.TrimPrefix(request.URL, "https://controller.example.com")
 				body, exists := responses[path]
-				if !exists || request.Method != "GET" || request.ResponseMode != "status_body" {
+				if !exists || request.Method != http.MethodGet || request.ResponseMode != "status_body" {
 					t.Fatalf("unexpected HTTP request: %+v", request)
 				}
 				encoded, err := json.Marshal(body)

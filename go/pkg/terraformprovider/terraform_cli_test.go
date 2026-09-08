@@ -143,30 +143,7 @@ resource "serviceradar_ansible_repository" "example" {
 	}
 	assertPlanSecretsAbsent := func(name string) {
 		t.Helper()
-		archive, err := zip.OpenReader(filepath.Join(directory, name))
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer func() {
-			if err := archive.Close(); err != nil {
-				t.Error(err)
-			}
-		}()
-		for _, file := range archive.File {
-			entry, err := file.Open()
-			if err != nil {
-				t.Fatal(err)
-			}
-			contents, err := io.ReadAll(entry)
-			closeErr := entry.Close()
-			if err != nil {
-				t.Fatal(err)
-			}
-			if closeErr != nil {
-				t.Fatal(closeErr)
-			}
-			assertNoSecrets(contents)
-		}
+		assertTerraformPlanSecretsAbsent(t, filepath.Join(directory, name), assertNoSecrets)
 	}
 
 	configure(1, false)
@@ -261,6 +238,34 @@ resource "serviceradar_ansible_repository" "example" {
 	command(0, "destroy", "-auto-approve", "-input=false", "-no-color")
 	if len(strings.TrimSpace(string(command(0, "state", "list")))) != 0 {
 		t.Fatal("successful destroy retained managed resources")
+	}
+}
+
+func assertTerraformPlanSecretsAbsent(t *testing.T, planPath string, assertNoSecrets func([]byte)) {
+	t.Helper()
+	archive, err := zip.OpenReader(planPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := archive.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	for _, file := range archive.File {
+		entry, err := file.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		contents, err := io.ReadAll(entry)
+		closeErr := entry.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if closeErr != nil {
+			t.Fatal(closeErr)
+		}
+		assertNoSecrets(contents)
 	}
 }
 

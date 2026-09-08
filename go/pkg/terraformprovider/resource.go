@@ -45,20 +45,7 @@ func (r *configurationResource) ModifyPlan(ctx context.Context, req resource.Mod
 		return
 	}
 	creating := req.State.Raw.IsNull()
-	replacing := false
-	if !creating {
-		for _, field := range r.definition.fields {
-			if !field.immutable {
-				continue
-			}
-			var planned, previous types.String
-			resp.Diagnostics.Append(req.Plan.GetAttribute(ctx, path.Root(field.name), &planned)...)
-			resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root(field.name), &previous)...)
-			if !planned.Equal(previous) {
-				replacing = true
-			}
-		}
-	}
+	replacing := r.planRequiresReplacement(ctx, req, resp)
 	if creating || replacing {
 		var key types.String
 		resp.Diagnostics.Append(req.Plan.GetAttribute(ctx, path.Root("idempotency_key"), &key)...)
@@ -99,6 +86,24 @@ func (r *configurationResource) ModifyPlan(ctx context.Context, req resource.Mod
 			resp.Diagnostics.AddAttributeError(path.Root("values_wo"), "Missing credential material", "Provide an ephemeral credential map for creation or rotation.")
 		}
 	}
+}
+
+func (r *configurationResource) planRequiresReplacement(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) bool {
+	replacing := false
+	if !req.State.Raw.IsNull() {
+		for _, field := range r.definition.fields {
+			if !field.immutable {
+				continue
+			}
+			var planned, previous types.String
+			resp.Diagnostics.Append(req.Plan.GetAttribute(ctx, path.Root(field.name), &planned)...)
+			resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root(field.name), &previous)...)
+			if !planned.Equal(previous) {
+				replacing = true
+			}
+		}
+	}
+	return replacing
 }
 
 func (r *configurationResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
