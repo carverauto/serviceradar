@@ -144,24 +144,26 @@ def elixir_release_rootfs_with_debs_amd64(
         release_tar,
         deb_packages,
         overlay_tool = "//docker/images:overlay_deb_packages.py",
+        zstd_tool = "@zstd//:zstd_cli",
         visibility = None):
     """Wrap an Elixir release under /app and overlay Debian packages into rootfs."""
 
     deb_args = ""
     if deb_packages:
         deb_args = """
-python3 "$(location {overlay_tool})" "$${{ROOT}}" \\
+python3 "$(location {overlay_tool})" --zstd "$(location {zstd_tool})" "$${{ROOT}}" \\
   {deb_locations}
 """.format(
             overlay_tool = overlay_tool,
-            deb_locations = " \\\n  ".join(['"$(location {})"'.format(pkg) for pkg in deb_packages]),
+            zstd_tool = zstd_tool,
+            deb_locations = " \\\n  ".join(["$(locations {})".format(pkg) for pkg in deb_packages]),
         )
 
     native.genrule(
         name = name,
         srcs = [release_tar] + deb_packages,
         outs = ["{}.tar".format(name)],
-        tools = [overlay_tool],
+        tools = [overlay_tool, zstd_tool],
         cmd = """
 set -euo pipefail
 TAR=$(location ___RELEASE_TAR___)

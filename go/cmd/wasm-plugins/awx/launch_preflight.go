@@ -37,7 +37,7 @@ const (
 	maxLaunchPreflightTemplateTimeout      = 7 * 24 * 60 * 60
 	maxLaunchPreflightTemplateForks        = 10_000
 	maxLaunchPreflightTemplateSliceCount   = 1_000
-	maxLaunchPreflightMembershipGeneration = math.MaxInt32
+	maxLaunchPreflightMembershipGeneration = math.MaxInt64 // Inventory generations are Unix nanoseconds, not AWX resource IDs.
 )
 
 var launchPreflightRequestKeys = map[string]struct{}{
@@ -393,9 +393,9 @@ func exactStringArg(args map[string]any, key string) (string, bool) {
 	return stringValue, ok
 }
 
-func canonicalPositiveIDArg(args map[string]any, key string, max int) (string, bool) {
+func canonicalPositiveIDArg(args map[string]any, key string, max int64) (string, bool) {
 	value, ok := exactStringArg(args, key)
-	if !ok || !canonicalPositiveID(value, int64(max)) {
+	if !ok || !canonicalPositiveID(value, max) {
 		return "", false
 	}
 	return value, true

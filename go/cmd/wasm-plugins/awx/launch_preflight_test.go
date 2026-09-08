@@ -214,6 +214,77 @@ func TestRunFetchLaunchPreflightRejectsNonCanonicalOrUnboundedRequestBeforeHTTP(
 	}
 }
 
+func TestRunFetchLaunchPreflightPreservesInt64MembershipGenerations(t *testing.T) {
+	previousDigest := ""
+	for _, generation := range []string{"2147483648", "1800000000000000000", "1800000000000000001", "9223372036854775807"} {
+		t.Run(generation, func(t *testing.T) {
+			template := launchPreflightTemplateBody(t, "2026-07-14T20:00:00Z", "")
+			fake := &scriptedHTTPClient{responses: launchPreflightResponses(t, template, template)}
+			swapHTTP(t, fake)
+
+			args := validLaunchPreflightArgs()
+			args["selected_hosts"].([]any)[0].(map[string]any)["membership_generation"] = generation
+			// Config.Args crosses a generic JSON decoder before reaching the plugin.
+			var decodedArgs map[string]any
+			if err := json.Unmarshal(mustLaunchPreflightJSON(t, args), &decodedArgs); err != nil {
+				t.Fatal(err)
+			}
+			result := dispatch(Config{BaseURL: "https://awx.example.test", APIToken: "broker-sentinel", Verb: launchPreflightVerb, Args: decodedArgs})
+			if result.Status != sdk.StatusOK {
+				t.Fatalf("preflight failed: %s", result.Summary)
+			}
+			var payload map[string]any
+			if err := json.Unmarshal([]byte(result.Details), &payload); err != nil {
+				t.Fatal(err)
+			}
+			host := payload["preflight"].(map[string]any)["selected_hosts"].([]any)[0].(map[string]any)
+			if host["membership_generation"] != generation {
+				t.Fatalf("generation lost precision: got %#v, want %q", host["membership_generation"], generation)
+			}
+			request, err := decodeLaunchPreflightRequest(decodedArgs)
+			if err != nil {
+				t.Fatal(err)
+			}
+			digest, err := canonicalDigest(request)
+			if err != nil || digest != payload["request_digest"] || digest == previousDigest {
+				t.Fatalf("generation request digest mismatch: got=%q previous=%q err=%v", payload["request_digest"], previousDigest, err)
+			}
+			previousDigest = digest
+		})
+	}
+}
+
+func TestRunFetchLaunchPreflightRejectsInvalidMembershipGenerationsBeforeHTTP(t *testing.T) {
+	for _, generation := range []any{"0", "-1", "01", "+1", "1.0", "1e9", " 1", "1\n", "9223372036854775808", 1, float64(1), nil} {
+		t.Run(fmt.Sprintf("%T_%v", generation, generation), func(t *testing.T) {
+			fake := &fakeHTTPClient{}
+			swapHTTP(t, fake)
+			args := validLaunchPreflightArgs()
+			args["selected_hosts"].([]any)[0].(map[string]any)["membership_generation"] = generation
+			result := dispatch(Config{BaseURL: "https://awx.example.test", APIToken: "broker-sentinel", Verb: launchPreflightVerb, Args: args})
+			if result.Status != sdk.StatusCritical || len(fake.requests) != 0 {
+				t.Fatalf("invalid generation made %d controller calls, status=%s", len(fake.requests), result.Status)
+			}
+		})
+	}
+}
+
+func TestDecodeLaunchPreflightRequestKeepsAWXObjectIDsWithinInt32(t *testing.T) {
+	for _, field := range []string{"template_id", "project_id", "inventory_id", "execution_environment_id", "awx_host_id"} {
+		t.Run(field, func(t *testing.T) {
+			args := validLaunchPreflightArgs()
+			if field == "awx_host_id" {
+				args["selected_hosts"].([]any)[0].(map[string]any)[field] = "2147483648"
+			} else {
+				args[field] = "2147483648"
+			}
+			if _, err := decodeLaunchPreflightRequest(args); err == nil {
+				t.Fatal("accepted an AWX object ID beyond signed 32-bit range")
+			}
+		})
+	}
+}
+
 func TestRunFetchLaunchPreflightRejectsSurveyDefaultBeforeDependentReads(t *testing.T) {
 	template := launchPreflightTemplateBody(t, "2026-07-14T20:00:00Z", "")
 	responses := launchPreflightResponses(t, template, template)

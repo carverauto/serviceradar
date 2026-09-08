@@ -71,12 +71,70 @@ defmodule ServiceRadar.Automation.Ansible.AwxLaunchContractTest do
              |> put_in(["template", "job_slice_count"], "1001")
              |> AwxLaunchContract.validate()
 
-    request = valid_request(snapshot)
-
     assert {:error, :invalid_awx_resource_id} =
-             request
-             |> put_in(["selected_hosts", Access.at(0), "membership_generation"], "2147483648")
+             snapshot
+             |> valid_request()
+             |> put_in(["selected_hosts", Access.at(0), "awx_host_id"], "2147483648")
              |> AwxLaunchContract.validate_request()
+  end
+
+  test "preserves signed 64-bit membership generations in requests, projections, and digests" do
+    digests =
+      for generation <- [
+            "2147483648",
+            "1800000000000000000",
+            "1800000000000000001",
+            "9223372036854775807"
+          ] do
+        snapshot =
+          valid_snapshot()
+          |> valid_live_snapshot()
+          |> put_in(["selected_hosts", Access.at(0), "membership_generation"], generation)
+
+        request =
+          valid_snapshot()
+          |> valid_request()
+          |> put_in(["selected_hosts", Access.at(0), "membership_generation"], generation)
+
+        assert {:ok, ^request} = AwxLaunchContract.validate_request(request)
+        assert {:ok, ^snapshot} = AwxLaunchContract.normalize(snapshot)
+        assert {:ok, digest} = AwxLaunchContract.digest(snapshot)
+        assert {:ok, ^snapshot} = AwxLaunchContract.verify(snapshot, digest)
+        assert snapshot == snapshot |> Jason.encode!() |> Jason.decode!()
+        digest
+      end
+
+    assert Enum.uniq(digests) == digests
+  end
+
+  test "rejects noncanonical, non-string, and overflowing membership generations" do
+    for generation <- [
+          "0",
+          "-1",
+          "01",
+          "+1",
+          "1.0",
+          "1e9",
+          " 1",
+          "1\n",
+          "9223372036854775808",
+          1,
+          1.0,
+          nil
+        ] do
+      snapshot =
+        valid_snapshot()
+        |> valid_live_snapshot()
+        |> put_in(["selected_hosts", Access.at(0), "membership_generation"], generation)
+
+      request =
+        valid_snapshot()
+        |> valid_request()
+        |> put_in(["selected_hosts", Access.at(0), "membership_generation"], generation)
+
+      assert {:error, _reason} = AwxLaunchContract.validate(snapshot)
+      assert {:error, _reason} = AwxLaunchContract.validate_request(request)
+    end
   end
 
   test "requires plugin-normalized target host and address spellings" do

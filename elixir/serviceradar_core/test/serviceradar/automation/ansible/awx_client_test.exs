@@ -106,6 +106,55 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
     )
   end
 
+  test "dispatches signed 64-bit membership generations without JSON precision loss" do
+    for generation <- ["2147483648", "1800000000000000001", "9223372036854775807"] do
+      request =
+        put_in(
+          launch_preflight_request(),
+          ["selected_hosts", Access.at(0), "membership_generation"],
+          generation
+        )
+
+      assert {:ok, _command} =
+               AwxClient.fetch_launch_preflight(preflight_controller(), request, dispatch_opts())
+
+      assert_receive {:dispatch, _, "awx.fetch_launch_preflight", payload, _}
+      assert payload["args"] == request
+
+      assert payload["args"] ==
+               payload |> Jason.encode!() |> Jason.decode!() |> Map.fetch!("args")
+    end
+  end
+
+  test "rejects invalid membership generations before dispatch" do
+    for generation <- [
+          "0",
+          "-1",
+          "01",
+          "+1",
+          "1.0",
+          "1e9",
+          " 1",
+          "1\n",
+          "9223372036854775808",
+          1,
+          1.0,
+          nil
+        ] do
+      request =
+        put_in(
+          launch_preflight_request(),
+          ["selected_hosts", Access.at(0), "membership_generation"],
+          generation
+        )
+
+      assert {:error, _reason} =
+               AwxClient.fetch_launch_preflight(preflight_controller(), request, dispatch_opts())
+    end
+
+    refute_received {:dispatch, _, "awx.fetch_launch_preflight", _, _}
+  end
+
   describe "dispatchability validation" do
     test "rejects controller with missing agent_id" do
       assert {:error, :controller_agent_id_missing} =

@@ -514,16 +514,19 @@ func validateProxmoxPublicParams(
 		return proxmoxAssignmentPolicyBinding{}, errPluginHostAuthorityMalformed
 	}
 	for ruleID := range ruleIDs {
-		expectedPolicyID := ""
+		policyMatches := false
 		switch {
 		case pluginID == proxmoxInventoryPluginID && entrypoint == proxmoxInventoryEntrypoint:
-			expectedPolicyID = "network-credential-rule:" + ruleID + ":inventory_enrichment"
+			// The materializer preserves unsuffixed inventory policy IDs. Match
+			// both exact forms, as the core host-authority validator does.
+			policyMatches = policyID == "network-credential-rule:"+ruleID ||
+				policyID == "network-credential-rule:"+ruleID+":inventory_enrichment"
 		case pluginID == proxmoxConsolePluginID && entrypoint == proxmoxConsoleEntrypoint:
-			expectedPolicyID = "network-credential-rule:" + ruleID + ":console_access"
+			policyMatches = policyID == "network-credential-rule:"+ruleID+":console_access"
 		default:
 			return proxmoxAssignmentPolicyBinding{}, errPluginHostAuthorityMalformed
 		}
-		if policyID != expectedPolicyID || !validPluginHostAuthorityString(assignmentID) {
+		if !policyMatches || !validPluginHostAuthorityString(assignmentID) {
 			return proxmoxAssignmentPolicyBinding{}, errPluginHostAuthorityMalformed
 		}
 
