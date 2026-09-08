@@ -12,7 +12,7 @@ defmodule ServiceRadar.Edge.ProjectionRows do
 
   @type row :: {String.t(), non_neg_integer(), integer()}
 
-  @spec sweep(%SweepObservationBatchV1{}) :: [row()]
+  @spec sweep(SweepObservationBatchV1.t()) :: [row()]
   def sweep(%SweepObservationBatchV1{hosts: hosts}) do
     hosts
     |> Enum.with_index()
@@ -24,7 +24,7 @@ defmodule ServiceRadar.Edge.ProjectionRows do
     end)
   end
 
-  @spec mtr(%MtrTraceBatchV1{}) :: [row()]
+  @spec mtr(MtrTraceBatchV1.t()) :: [row()]
   def mtr(%MtrTraceBatchV1{traces: traces}) do
     traces
     |> Enum.with_index()
@@ -33,10 +33,10 @@ defmodule ServiceRadar.Edge.ProjectionRows do
     end)
   end
 
-  @spec sweep_count(%SweepObservationBatchV1{}) :: non_neg_integer()
+  @spec sweep_count(SweepObservationBatchV1.t()) :: non_neg_integer()
   def sweep_count(batch), do: batch |> sweep() |> length()
 
-  @spec mtr_count(%MtrTraceBatchV1{}) :: non_neg_integer()
+  @spec mtr_count(MtrTraceBatchV1.t()) :: non_neg_integer()
   def mtr_count(batch), do: batch |> mtr() |> length()
 
   defp indexed(elements, kind, batch_index) do
