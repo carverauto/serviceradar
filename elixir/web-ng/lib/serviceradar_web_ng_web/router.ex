@@ -515,7 +515,7 @@ defmodule ServiceRadarWebNGWeb.Router do
 
   # Other scopes may use custom stacks.
   scope "/api", ServiceRadarWebNGWeb.Api do
-    pipe_through(:api_auth)
+    pipe_through([:api_auth, :rate_limit_api_default])
 
     post("/query", QueryController, :execute)
     get("/srql/catalog", SrqlCatalogController, :show)

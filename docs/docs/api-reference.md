@@ -31,6 +31,29 @@ environment variable, never in source control.
 To let an IDE or agent use those credentials over the Model Context
 Protocol, add the `mcp` scope and see [MCP Integration](./mcp-integration.md).
 
+## Rate limits
+
+The authenticated `/api` scope uses the shared `api_default` request budget,
+keyed by client IP rather than user or token. This includes queries, the SRQL
+catalog, devices, camera and Proxmox console sessions, spatial endpoints, and
+`/api/remote-access/*` session, WebRTC signaling, file-transfer, host-key,
+recording, and desktop-target requests. Requests from the same client IP share
+the budget with other routes using `api_default`; changing endpoints or tokens
+does not create a separate allowance. Separately declared scopes such as
+`/api/admin` are not covered by this scope's limiter.
+
+Authentication runs first: requests rejected as unauthenticated return `401`
+without consuming this budget. Responses passing through the limiter include
+`x-ratelimit-limit`, `x-ratelimit-remaining`, and `x-ratelimit-reset` headers.
+When exhausted, JSON clients receive `429` with `error: "rate_limited"` and
+`retry_after` in the response body. Wait for the `retry-after` header's number
+of seconds before retrying, and reduce polling or request bursts.
+
+For bucket configuration and defaults, see
+[`ServiceRadar.Security.RateLimiter`](https://github.com/carverauto/serviceradar/blob/staging/elixir/serviceradar_core/lib/serviceradar/security/rate_limiter.ex).
+This is a request budget, not a concurrent-session cap or a limit on traffic
+inside an established stream.
+
 ## Run an SRQL query — `POST /api/query`
 
 The `/api/query` endpoint executes a [ServiceRadar Query Language
