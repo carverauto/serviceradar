@@ -7,8 +7,13 @@ defmodule ServiceRadar.Observability.StatefulAlertRuleTest do
   independent of whether `ServiceRadar.Observability` is mounted on any
   JSON:API router — they prove the macro opt-in in `PresetRuleResource` (and
   the `json_api` block added to this resource alone) behave as designed.
-  HTTP-level coverage for the mounted routes lives in `elixir/web-ng`'s
-  `ash_json_api_test.exs`.
+
+  `ServiceRadar.Observability` is NOT mounted on the JSON:API router yet —
+  see `openspec/changes/add-alert-rule-json-api/tasks.md` section 3: 18 of
+  19 already-declared, dormant Observability resources default-open on read
+  (no actor check at all), which blocks mounting the domain until that's
+  resolved. HTTP-level coverage in `elixir/web-ng`'s `ash_json_api_test.exs`
+  is follow-up work, not yet present.
   """
   use ExUnit.Case, async: true
 
@@ -41,6 +46,9 @@ defmodule ServiceRadar.Observability.StatefulAlertRuleTest do
     end
 
     test "get_by_id code interface resolves to the :by_id read action" do
+      # function_exported?/3 does not load the module (unlike a real call) --
+      # ensure it's loaded first or this is order/seed-dependent.
+      Code.ensure_loaded!(StatefulAlertRule)
       assert function_exported?(StatefulAlertRule, :get_by_id, 1)
     end
   end
