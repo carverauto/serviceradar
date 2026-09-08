@@ -214,6 +214,13 @@ defmodule ServiceRadar.Edge.WireDecode do
 
   def decode_frame(_bytes), do: {:error, :systemic}
 
+  @doc "Decodes raw delivery ACK bytes under a caller-supplied positive finite limit."
+  @spec decode_ack(term(), pos_integer()) :: outcome()
+  def decode_ack(bytes, max_bytes) when is_integer(max_bytes) and max_bytes > 0,
+    do: run(Serviceradar.Edge.V1.EdgeDeliveryAckV1, max_bytes, bytes)
+
+  def decode_ack(_bytes, _max_bytes), do: {:error, :systemic}
+
   @doc """
   Decodes the raw `frame.record_bytes` of a delivery frame as an `EdgeRecordV1` -- the second ingress
   stage, distinct from the outer client-message/frame decode. See `t:outcome/0`.

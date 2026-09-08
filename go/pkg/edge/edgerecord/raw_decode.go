@@ -87,3 +87,21 @@ func validateClientRawEnvelope(raw []byte) error {
 	}
 	return nil
 }
+
+// DecodeAck composes raw-byte admission, decode and complete cumulative-ack
+// validation in that order. Each non-positive limit selects its finite default;
+// callers cannot disable a budget by passing zero. raw is EdgeDeliveryAckV1 bytes,
+// not an enclosing EdgeRecordServerMessage.
+func DecodeAck(raw []byte, session Session, maxWireBytes, maxDispositions, maxCanonicalBytes int) (*edgev1.EdgeDeliveryAckV1, error) {
+	if err := ValidateAckRawSize(raw, maxWireBytes); err != nil {
+		return nil, err
+	}
+	ack := &edgev1.EdgeDeliveryAckV1{}
+	if err := proto.Unmarshal(raw, ack); err != nil {
+		return nil, ErrRecordDecode
+	}
+	if err := ValidateAck(ack, session, maxDispositions, maxCanonicalBytes); err != nil {
+		return nil, err
+	}
+	return ack, nil
+}

@@ -72,6 +72,7 @@ go_test(
         "raw_bounds_corpus_test.go",
         "lifecycle_corpus_test.go",
         "lane_bounds_corpus_test.go",
+        "ack_bounds_corpus_test.go",
         # The SHARED corpus builder and its gate assertions. Without this Bazel stages the
         # fixtures as data but never EXECUTES the code that writes or checks them, so the
         # required shard would verify nothing about the corpus.

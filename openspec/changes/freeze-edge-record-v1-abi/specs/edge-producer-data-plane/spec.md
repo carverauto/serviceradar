@@ -3355,3 +3355,41 @@ These are validator API requirements and do not assert live ingress attachment.
 - **WHEN** either granted dimension is zero or exceeds its requested value
 - **THEN** the acknowledgement is refused even when the other dimension is legal
 - **AND** equality or a strictly smaller positive grant in either dimension is accepted
+
+### Requirement: Delivery acknowledgements have three finite admission budgets
+
+A delivery-ACK receiver SHALL impose finite positive limits on raw received ACK
+bytes before protobuf decode, decoded disposition count, and canonical encoded
+ACK bytes. Each budget SHALL be independently enforced; neither canonical size
+nor count replaces the raw-byte gate. The complete validator API SHALL compose
+raw-size admission, decode and decoded validation in that order. A non-positive
+configuration value SHALL select a finite default or be refused; it SHALL NOT
+disable a budget. The exact default values are implementation policy and are not
+frozen ABI constants. A message exactly at any configured limit SHALL remain
+eligible for acceptance when its other budgets and semantic rules hold.
+
+Both rejection dispositions SHALL carry a nonempty `rejection_code` of 1 through
+64 ASCII bytes inclusive, using only `[A-Z0-9_]`. Accepted dispositions SHALL
+carry an empty code. This is content validation, not field-presence validation:
+proto3 does not distinguish an omitted string from an explicitly empty one.
+Disposition kind alone determines whether the sequence resolves; the code SHALL
+NOT determine cumulative watermark advancement. Existing session binding,
+contiguous sequence, sent-event binding and resolving-prefix rules still apply.
+
+#### Scenario: Duplicate fields cannot bypass the raw-byte budget
+- **GIVEN** ACK bytes whose decoded count and canonical size fit their limits
+- **WHEN** duplicate or non-minimal fields make the raw encoding exceed its byte limit
+- **THEN** admission refuses before protobuf decode
+- **AND** the corresponding encoding exactly at the raw limit is accepted if otherwise valid
+
+#### Scenario: Decoded budgets are independent
+- **GIVEN** raw ACK bytes within their receive limit
+- **WHEN** either decoded count or canonical size exceeds its own configured limit
+- **THEN** the ACK is refused even when the other decoded budget is satisfied
+- **AND** equality at either budget is accepted if all other rules hold
+
+#### Scenario: Rejection-code predicates are independently enforced
+- **GIVEN** an otherwise valid rejection disposition
+- **WHEN** its code is empty, longer than 64 bytes, lowercase or contains punctuation
+- **THEN** the ACK is refused
+- **AND** legal one-byte and 64-byte tokens are accepted

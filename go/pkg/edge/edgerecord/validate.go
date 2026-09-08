@@ -1277,8 +1277,8 @@ func ValidateAck(a *edgev1.EdgeDeliveryAckV1, s Session, maxDispositions, maxDis
 	// Byte budget uses the CANONICAL encoded size (proto.Size), which bounds the
 	// semantic message. NOTE: this is NOT the received-wire size -- protobuf
 	// unmarshal collapses duplicate/non-minimal fields -- so the transport MUST
-	// separately enforce a hard inbound limit BEFORE decode (the gRPC receive
-	// message size limit). See ValidateAckRawSize for the pre-decode guard.
+	// separately enforce a hard inbound limit BEFORE decode. DecodeAck composes
+	// that raw guard with this decoded validator in the required order.
 	if proto.Size(a) > maxDispositionBytes {
 		return fmt.Errorf("%w: canonical ack %d exceeds byte budget %d", ErrDisposition, proto.Size(a), maxDispositionBytes)
 	}
@@ -1402,8 +1402,8 @@ func validateRejectionCode(code string) error {
 	return nil
 }
 
-// ValidateAckRawSize enforces the hard INBOUND wire limit on the raw server-message
-// bytes BEFORE decode. proto.Size on the decoded message cannot see duplicate /
+// ValidateAckRawSize enforces the hard INBOUND wire limit on raw ACK bytes
+// BEFORE decode. Use DecodeAck to compose it with decode and validation. proto.Size on the decoded message cannot see duplicate /
 // non-minimal fields that inflate the received bytes, so this pre-decode guard (or
 // the equivalent gRPC receive-message-size limit) is what actually bounds parse
 // cost. A non-positive limit applies the hard default.
