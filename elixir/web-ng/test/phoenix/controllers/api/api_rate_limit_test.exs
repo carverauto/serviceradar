@@ -11,6 +11,8 @@ defmodule ServiceRadarWebNGWeb.Api.ApiRateLimitTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
+  @moduletag :web_ng_shared_fixture_db
+
   alias ServiceRadar.Identity.OAuthClient.Credentials
   alias ServiceRadar.Security.RateLimiter
 
