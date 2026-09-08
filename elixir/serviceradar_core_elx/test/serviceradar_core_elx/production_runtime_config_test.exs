@@ -321,6 +321,27 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     end
   end
 
+  # The 2026-09-07 cisa-kev outage: SERVICERADAR_EGRESS_PROXY was set on the
+  # deployment, but this release never mirrored :egress_proxy, so
+  # ServiceRadar.Finch started with no CONNECT proxy. Feed downloads went
+  # direct, the default-deny NetworkPolicy dropped the packets, and every
+  # attempt failed with {:download_failed, %Req.TransportError{reason: :timeout}}.
+  test "prod config wires the egress CONNECT proxy for external downloads" do
+    with_env("SERVICERADAR_EGRESS_PROXY", "http://smokescreen.egress.svc.cluster.local:4750")
+
+    assert read_prod_config()[:serviceradar_core][:egress_proxy] == %{
+             scheme: :http,
+             host: "smokescreen.egress.svc.cluster.local",
+             port: 4750
+           }
+  end
+
+  test "prod config leaves the egress proxy unset when the deployment has none" do
+    with_env("SERVICERADAR_EGRESS_PROXY", nil)
+
+    assert read_prod_config()[:serviceradar_core][:egress_proxy] == nil
+  end
+
   test "canonical prune guard override is reachable from the environment" do
     refute read_prod_config()[:serviceradar_core][@topology_graph][:canonical_prune_guard_override]
 

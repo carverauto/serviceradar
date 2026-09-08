@@ -284,6 +284,21 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.AcquisitionTest do
       refute File.exists?(Path.join([root, "nist-nvd2", "index-timeout"]))
     end
 
+    test "a transport timeout maps to download_failed and removes the partial CISA file", %{
+      root: root
+    } do
+      http_get = fn _url, _opts -> {:error, %Req.TransportError{reason: :timeout}} end
+
+      assert {:error, {:download_failed, %Req.TransportError{reason: :timeout}}} =
+               Acquisition.acquire_cisa("https://example.invalid/cisa.json", "timeout-run",
+                 http_get: http_get
+               )
+
+      refute File.exists?(
+               Path.join([root, "cisa-kev", "timeout-run", "extracted", "cisa-kev.json"])
+             )
+    end
+
     test "rejects an HTTP error and removes the partial CISA file", %{root: root} do
       http_get = fn _url, opts ->
         File.write!(opts[:into].path, "gateway error")
