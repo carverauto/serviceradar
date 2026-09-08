@@ -44,6 +44,7 @@ go_test(
         "domain_test.go",
         "hello_capabilities_test.go",
         "lower_bound_corpus_test.go",
+        "mtr_completion_corpus_test.go",
         "optional_presence_corpus_test.go",
         "principal_test.go",
         "projected_cost_corpus_test.go",
