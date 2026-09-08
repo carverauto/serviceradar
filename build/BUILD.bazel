@@ -1,8 +1,8 @@
-load("@rules_python//python:defs.bzl", "py_test")
 # Package placeholder for repository alias helper.
 load("@bazel_skylib//rules:common_settings.bzl", "bool_flag", "string_flag")
 load("@rules_elixir//:ex_unit_test.bzl", "ex_unit_test")
 load("@rules_elixir//:mix_payloads.bzl", "mix_payloads")
+load("@rules_python//python:defs.bzl", "py_test")
 load(":integration_shards.bzl", "integration_selection_runner_names")
 load(
     ":integration_shards_test.bzl",
@@ -215,5 +215,15 @@ py_test(
         "//go/pkg/edge/execstate:all_test_srcs",
         "//go/pkg/edge/projection:all_test_srcs",
         "//proto/edge/v1:all_test_srcs",
+    ],
+)
+
+py_test(
+    name = "edge_projection_accounting_test",
+    srcs = ["edge_projection_accounting_test.py"],
+    data = [
+        "//elixir/serviceradar_core:accounting_guard_sources",
+        "//go/pkg/edge/edgerecord:accounting_guard_sources",
+        "//go/pkg/edge/projection:accounting_guard_sources",
     ],
 )

@@ -910,3 +910,11 @@ ex_unit_test(
         "//config/manager_secret/elixir:secret",
     ],
 )
+
+filegroup(
+    name = "accounting_guard_sources",
+    srcs = glob(
+        ["lib/**/*.ex"],
+        exclude = ["lib/serviceradar/proto/**"],
+    ),
+)

@@ -1,4 +1,38 @@
 ## ADDED Requirements
+
+### Requirement: Projected row cost is derived from enumerated synchronous mutations
+Any component declaring a projected row cost or performing synchronous mutations for an admitted edge record SHALL account for those mutations using the shared projection row rule, and the count SHALL be the length of its enumerated row set.
+
+The accounting scope is one admitted record and its single synchronous admission
+transaction. It includes every ledger, domain, outbox, work and current-state row
+mutated by that transaction. Asynchronous work and existing event_writer processors
+using a different ingestion contract are outside this scope.
+
+`projection.SweepProjectionRows` and `projection.MtrProjectionRows` enumerate the
+currently defined domain rows; the count functions derive their totals from these
+lists. `ServiceRadar.Edge.ProjectionRows` implements the same rule. Sweep rows
+comprise host reachability, each open port, each port error and a present MTR summary;
+MTR rows comprise each trace and each hop. Batch and child indices identify the
+source of each enumerated mutation. They are projection coordinates, not wire IDs.
+
+No production component currently declares a cost using this rule or persists an
+admitted edge record. This absence SHALL NOT exempt future admission ledger, outbox,
+work or current-state mutations: a component introducing them SHALL extend the row
+rule and its shared fixtures before declaring or consuming that cost. The static
+guard in `build/edge_projection_accounting_test.py` records its inspected source
+scope and its limitations; it SHALL be extended when runtime integration adds an
+ingress or persistence path outside that scope. A lexical guard alone SHALL NOT be
+treated as proof of dynamic callback effects or of a future writer's actual count.
+
+#### Scenario: Both runtimes count the same committed batch
+- **GIVEN** a committed positive sweep or MTR batch in the projection corpus
+- **WHEN** each runtime enumerates its domain rows
+- **THEN** the row coordinates and list length SHALL equal the shared corpus, including an empty batch
+
+#### Scenario: Admission adds an outbox mutation
+- **GIVEN** a component adding a synchronous outbox row to edge-record admission
+- **WHEN** it declares or checks the admitted record's projected cost
+- **THEN** that row SHALL appear in the shared accounting rule and count; a domain-only count SHALL NOT suffice
 ### Requirement: Every record carries an exact output-contract reference
 Every accepted record SHALL carry an `EdgeOutputContractRef` that identifies its output contract EXACTLY.
 
