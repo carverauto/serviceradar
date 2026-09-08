@@ -675,9 +675,9 @@ func launchPreflightSurveyResponse(t *testing.T, defaultValue any) *sdk.HTTPResp
 func launchPreflightCredentialBody(t *testing.T, id int, name, kind, modified string) []byte {
 	t.Helper()
 	return mustLaunchPreflightJSON(t, map[string]any{
-		"id": id, "name": name, "modified": modified, "credential_type": 1,
+		"id": id, "name": name, "modified": modified, "credential_type": 1, "kind": kind,
 		"summary_fields": map[string]any{
-			"credential_type": map[string]any{"id": 1, "name": "Machine", "kind": kind},
+			"credential_type": map[string]any{"id": 1, "name": "Machine"},
 		},
 		"inputs": map[string]any{"password": launchPreflightTestSecret},
 	})
@@ -733,4 +733,42 @@ func launchPreflightResultDigest(t *testing.T, result *sdk.Result) string {
 		t.Fatalf("preflight result missing digest: %#v", payload)
 	}
 	return digest
+}
+
+func TestLaunchPreflightCredentialUsesTopLevelKind(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		kind        any
+		summaryKind any
+		expected    bool
+	}{
+		{"controller shape", "ssh", nil, true},
+		{"consistent summary", "ssh", "ssh", true},
+		{"missing kind", nil, "ssh", false},
+		{"mismatched summary", "ssh", "vault", false},
+		{"non-string kind", true, nil, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			raw := launchPreflightCredentialBody(t, 17, "Example machine", "ssh", "2030-01-02T03:04:05Z")
+			var row map[string]any
+			if err := json.Unmarshal(raw, &row); err != nil {
+				t.Fatal(err)
+			}
+			row["kind"] = tc.kind
+			if tc.summaryKind != nil {
+				row["summary_fields"].(map[string]any)["credential_type"].(map[string]any)["kind"] = tc.summaryKind
+			}
+			object, ok := launchPreflightResponseObject(mustLaunchPreflightJSON(t, row))
+			if !ok {
+				t.Fatal("invalid fixture")
+			}
+			projection, ok := projectLaunchPreflightCredential(object)
+			if ok != tc.expected {
+				t.Fatalf("accepted=%v want=%v", ok, tc.expected)
+			}
+			if ok && projection.Type.Kind != "ssh" {
+				t.Fatalf("wrong kind: %q", projection.Type.Kind)
+			}
+		})
+	}
 }

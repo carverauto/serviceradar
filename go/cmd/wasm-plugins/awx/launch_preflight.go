@@ -1016,7 +1016,12 @@ func projectLaunchPreflightCredential(row map[string]json.RawMessage) (launchPre
 	summary, summaryOK := rawObject(row["summary_fields"])
 	typeSummary, typeSummaryOK := rawObject(summary["credential_type"])
 	typeName, typeNameOK := reviewedRawText(typeSummary["name"], maxAWXCatalogNameBytes, false)
-	typeKind, typeKindOK := rawBoundedString(typeSummary["kind"], 64, false)
+	// AWX returns kind on the credential itself; its type summary omits it.
+	typeKind, typeKindOK := rawBoundedString(row["kind"], 64, false)
+	if summaryKindRaw, present := typeSummary["kind"]; present {
+		summaryKind, valid := rawBoundedString(summaryKindRaw, 64, false)
+		typeKindOK = typeKindOK && valid && summaryKind == typeKind
+	}
 	typeSummaryID, typeSummaryIDOK := rawCanonicalPositiveID(typeSummary["id"], math.MaxInt32)
 	if !idOK || !nameOK || !modifiedOK || !typeIDOK || !summaryOK || !typeSummaryOK || !typeNameOK || !typeKindOK ||
 		!typeSummaryIDOK || typeID != typeSummaryID {

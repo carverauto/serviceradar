@@ -1,6 +1,6 @@
 id: awx
 name: AWX / AAP Bridge
-version: 0.1.14
+version: 0.1.15
 description: >
   Network bridge between ServiceRadar core and an AWX/AAP controller in the
   customer's network. Dispatches per-call REST verbs (ping, list inventories /

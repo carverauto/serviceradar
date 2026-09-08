@@ -92,7 +92,7 @@ func awxRuntimeResponses(surveyVariable string) map[string]any {
 		"/api/v2/job_templates/11/survey_spec/": map[string]any{"name": "Example survey", "spec": []any{map[string]any{"variable": surveyVariable, "question_name": "Example input", "question_description": "", "type": "text", "required": true, "min": 1, "max": 20, "default": ""}}},
 		"/api/v2/projects/12/":                  map[string]any{"id": 12, "name": "Example project", "modified": modified, "scm_type": "git", "scm_url": "https://git.example.com/ops/example.git", "scm_branch": "main", "scm_revision": strings.Repeat("c", 40), "scm_clean": true, "scm_update_on_launch": false, "status": "successful"},
 		"/api/v2/inventories/13/":               map[string]any{"id": 13, "name": "Example inventory", "modified": modified, "kind": ""},
-		"/api/v2/credentials/14/":               map[string]any{"id": 14, "name": "Example credential", "modified": modified, "credential_type": 1, "summary_fields": map[string]any{"credential_type": map[string]any{"id": 1, "name": "Machine", "kind": "ssh"}}},
+		"/api/v2/credentials/14/":               map[string]any{"id": 14, "name": "Example credential", "modified": modified, "credential_type": 1, "kind": "ssh", "summary_fields": map[string]any{"credential_type": map[string]any{"id": 1, "name": "Machine"}}},
 		"/api/v2/execution_environments/15/":    map[string]any{"id": 15, "name": "Example environment", "image": "registry.example.com/automation@sha256:" + strings.Repeat("b", 64)},
 		"/api/v2/hosts/16/":                     map[string]any{"id": 16, "inventory": 13, "name": "host01.example.com", "enabled": true, "variables": "ansible_host: 192.0.2.10\n"},
 	}
