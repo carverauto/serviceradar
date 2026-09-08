@@ -57,5 +57,30 @@ defmodule ServiceRadar.Observability.StatefulAlertRule do
     active_sort: [priority: :asc, inserted_at: :asc],
     create_validations: [ServiceRadar.Observability.Validations.WindowBucket],
     update_validations: [ServiceRadar.Observability.Validations.WindowBucket],
-    create_changes: [ServiceRadar.Observability.Changes.ScheduleAlertCleanup]
+    create_changes: [ServiceRadar.Observability.Changes.ScheduleAlertCleanup],
+    extensions: [AshJsonApi.Resource],
+    extra_code_interface: [quote(do: define(:get_by_id, action: :by_id, args: [:id]))],
+    extra_actions: [
+      quote do
+        read :by_id do
+          argument :id, :uuid, allow_nil?: false
+          get? true
+          filter expr(unquote(Macro.var(:id, nil)) == ^arg(:id))
+        end
+      end
+    ]
+
+  json_api do
+    type "stateful-alert-rule"
+
+    routes do
+      base "/stateful-alert-rules"
+      get :by_id
+      index :read
+      index :active, route: "/active"
+      post :create
+      patch :update
+      delete :destroy
+    end
+  end
 end
