@@ -56,8 +56,9 @@ paste private keys for certificate sessions.
    opaque principals are never sent to the browser). The preferred account is
    remembered per browser profile (Teleport-like default account pick). Connect
    is disabled while accounts load. If the loaded list is empty, the console
-   replaces the account field with a missing-policy warning and disables
-   certificate connect; see [SSH CA Setup](#ssh-ca-setup). If loading fails,
+   replaces the account field with a missing-policy warning. Clicking Connect
+   displays that reason without generating a key or requesting a session;
+   see [SSH CA Setup](#ssh-ca-setup). If loading fails,
    the account field remains editable, but the server still enforces policy.
    **User-present key (legacy)** under **Advanced** remains available when you
    hold a key for the target.

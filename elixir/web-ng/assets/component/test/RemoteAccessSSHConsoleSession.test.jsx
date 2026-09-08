@@ -220,12 +220,42 @@ describe("RemoteAccessSSHConsole without a certificate policy for the target", (
     )
   }
 
-  it("explains the missing policy and refuses to offer a certificate connect", async () => {
+  it("explains the missing policy without offering an account", async () => {
     const root = await renderConsole()
 
     expect(container.textContent).toContain("This target has no SSH certificate policy")
-    expect(connectButton().disabled).toBe(true)
+    expect(connectButton().disabled).toBe(false)
     expect(container.querySelector("input[autocomplete='username']")).toBeNull()
+
+    await act(async () => {
+      root.unmount()
+    })
+  })
+
+  // Regression for the reported dead control: a natively disabled button fires
+  // no click of its own, so clicking Connect for a target outside the
+  // certificate policy must still answer with the reason — and must never
+  // issue a session request the control plane would refuse.
+  it("answers a click on the blocked connect with the missing-policy reason", async () => {
+    const root = await renderConsole()
+
+    const button = connectButton()
+    expect(button.disabled).toBe(false)
+    expect(button.getAttribute("aria-describedby")).toBe("ssh-certificate-policy-warning")
+    expect(container.querySelector(".alert-error")).toBeNull()
+
+    await act(async () => {
+      button.click()
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    })
+
+    const errors = [...container.querySelectorAll(".alert-error")].map((node) => node.textContent || "")
+    expect(errors.some((text) => text.includes("This target has no SSH certificate policy"))).toBe(true)
+
+    const sessionCalls = globalThis.fetch.mock.calls.filter(
+      ([url]) => !String(url).includes("ssh-options")
+    )
+    expect(sessionCalls).toEqual([])
 
     await act(async () => {
       root.unmount()

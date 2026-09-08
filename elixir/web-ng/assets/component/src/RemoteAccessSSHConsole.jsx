@@ -14,6 +14,17 @@ const FILE_TRANSFER_CHUNK_BYTES = 65_536
 const MAX_TRANSFER_EVENTS = 48
 const TRUST_ON_FIRST_USE_POLICY = "trust_on_first_use"
 
+// Shown both in the missing-policy warning and as the inline error when the
+// blocked certificate connect is clicked. A natively disabled button fires no
+// events, so without this shared explanation a target outside the deployment's
+// certificate policy looks like a dead control (sr-4358). Keep the two in sync.
+export const MISSING_SSH_CERTIFICATE_POLICY_RECOURSE =
+  "SSO certificate access stays unavailable until an operator grants this device a " +
+  "certificate-policy account. Choose \u201cUser-present key (legacy)\u201d under Advanced " +
+  "if you already hold a key for this host."
+export const MISSING_SSH_CERTIFICATE_POLICY_MESSAGE =
+  `This target has no SSH certificate policy. ${MISSING_SSH_CERTIFICATE_POLICY_RECOURSE}`
+
 function csrfToken() {
   return document.querySelector("meta[name='csrf-token']")?.getAttribute("content") || ""
 }
@@ -840,6 +851,15 @@ export function Component({
     setApprovalRequired(false)
     setHostKeyFailure(null)
 
+    // Fail fast without any network or keygen work: the control plane refuses
+    // certificate sessions for a target with no policy accounts, so submitting
+    // here must explain rather than attempt.
+    if (certificatePolicy.status === "unconfigured") {
+      setOpening(false)
+      setError(MISSING_SSH_CERTIFICATE_POLICY_MESSAGE)
+      return
+    }
+
     // A reviewed acceptance rides on the pinned known-hosts policy: the agent
     // pins the approved target and fingerprint and refuses anything else. An
     // agent older than 1.4.52 has no approval field to read, so an acceptance
@@ -1214,15 +1234,10 @@ export function Component({
           )}
 
           {certificatePolicy.status === "unconfigured" ? (
-            <div className="alert alert-warning text-sm" role="alert">
+            <div id="ssh-certificate-policy-warning" className="alert alert-warning text-sm" role="alert">
               <div>
                 <p className="font-medium">This target has no SSH certificate policy</p>
-                <p className="mt-1 text-xs">
-                  SSO certificate access stays unavailable until an operator grants this device a
-                  certificate-policy account, so connecting here would be refused. Choose
-                  &ldquo;User-present key (legacy)&rdquo; under Advanced if you already hold a key
-                  for this host.
-                </p>
+                <p className="mt-1 text-xs">{MISSING_SSH_CERTIFICATE_POLICY_RECOURSE}</p>
               </div>
             </div>
           ) : (
@@ -1450,8 +1465,10 @@ export function Component({
             disabled={
               opening ||
               optionsLoading ||
-              certificatePolicy.blocksConnect ||
               (credentialMode === "ssh_certificate" && !ephemeralSupported)
+            }
+            aria-describedby={
+              certificatePolicy.status === "unconfigured" ? "ssh-certificate-policy-warning" : undefined
             }
           >
             {opening ? <span className="loading loading-spinner loading-sm" /> : null}
