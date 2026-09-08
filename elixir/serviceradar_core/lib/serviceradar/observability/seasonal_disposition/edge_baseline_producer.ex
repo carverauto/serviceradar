@@ -3,15 +3,10 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer do
   Builds the per-series hour-of-week `seasonal_baselines` payload and delivers it
   to the edge anomaly add-on (OpenSpec task 2.6 — edge-baseline DELIVERY).
 
-  `SeasonalDisposition.Worker` already pages the 168-bucket hour-of-week profile
-  rows and emits central disposition verdicts. This sibling worker reuses that
-  exact SRQL fetch + row hydration (`Worker.edge_baseline_rows/2`), reduces each
-  source's rows to the compact `{center, scale}` summary via `EdgeBaseline.build/2`,
-  and writes the merged payload into the anomaly `AddonProfile.params`
-  (`"seasonal_baselines"`). The profile reconciler then propagates the params onto
-  every matched `AddonAssignment`, and the agent delivers them to the add-on via
-  `configure()` — so the edge detector deseasonalizes against the long-horizon
-  central profile instead of only its short rolling window.
+  Reuses `Worker.edge_baseline_rows/2` for SRQL pagination and row hydration,
+  with chunk planning in `batched_baseline_rows/2`, then reduces profile rows via
+  `EdgeBaseline.build/2`. Delivery scope and operator-facing behavior are described
+  in `docs/docs/anomaly-engine.md` under Seasonal Baselines.
 
   ## Series-key alignment (the crux)
 
@@ -63,13 +58,8 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer do
   @default_min_bucket_samples 4
   @default_min_bucket_coverage_fraction 0.60
   @default_max_baselines_per_agent 1_000
-  # Max latest-bucket series fetched per full-profile statement. The outer SRQL
-  # `limit:` trims output rows but does nothing to bound the aggregation input,
-  # so one fleet-wide 168-bucket full-profile aggregation (180d x every series,
-  # with two `percentile_cont` passes) exceeds the database statement_timeout as
-  # the fleet grows. Each chunk statement aggregates at most this many series
-  # instead of the whole fleet. Capped by the SRQL parser's
-  # `MAX_FILTER_LIST_VALUES` for device and interface IN clauses.
+  # Series budget for batched_baseline_rows/2. Each IN list is also bounded by
+  # the SRQL parser's MAX_FILTER_LIST_VALUES.
   @default_max_combos_per_query 200
   @srql_max_filter_list_values 200
   @delivery_telemetry [:serviceradar, :seasonal_disposition, :edge_baseline, :delivery]

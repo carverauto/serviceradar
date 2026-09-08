@@ -2,13 +2,9 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducerBat
   @moduledoc """
   Database-free regression coverage for device-chunked edge baseline fetching.
 
-  A single fleet-wide 168-bucket full-profile aggregation (180d x every series,
-  with two `percentile_cont` passes) exceeds the database statement_timeout as
-  the fleet grows (issues #4391/#4393). The producer therefore fetches the full
-  profile in per-device chunks bounded by `:edge_baseline_max_combos_per_query`.
-  These tests pin the chunking contract: one latest-bucket discovery query,
-  full-profile chunk queries scoped by `device_id:(...)` IN filters, complete
-  coverage with no device fetched twice, and chunk-error propagation.
+  Covers the producer's chunking contract: latest-bucket discovery, device and
+  interface filters, complete series coverage without overlap, and chunk-error
+  propagation. The batching rationale lives in the producer.
 
   Runs in the database-free unit tier (no `:requires_app` tag): every query is
   served by the fake runners below.

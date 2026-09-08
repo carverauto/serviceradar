@@ -69,6 +69,10 @@ pub(crate) fn build_query_plan(
     })
 }
 
+/// Shared by cursor decoding, execution, and translation to avoid truncating
+/// seasonal discovery or rejecting a continuation minted by another path.
+/// The caller-visible contract lives in docs/docs/srql-language-reference.md
+/// under Sorting and pagination.
 pub(crate) fn is_exhaustive_profile_query(plan: &QueryPlan) -> bool {
     is_exhaustive_profile_stats(plan.stats.as_ref())
 }

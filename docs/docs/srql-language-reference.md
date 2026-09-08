@@ -165,6 +165,12 @@ are served from pre-computed hourly rollups.
   [Downsampling with `bucket`](#downsampling-with-bucket).
 - Pagination is cursor-based. Each response includes `next_cursor` / `prev_cursor`
   values that callers pass back to page through results.
+- The configured cursor-offset cap applies to ordinary queries. Seasonal
+  `stats:profile_hour_of_week(value)` and `stats:profile_hour_of_week_full(value)`
+  queries are exempt so cohort discovery and baseline delivery can page to
+  completion. This exception applies to both query execution and SQL translation,
+  including caller-supplied queries; it is not restricted to internal workers.
+  Per-page row limits still apply.
 
 ## Aggregation with `stats`
 

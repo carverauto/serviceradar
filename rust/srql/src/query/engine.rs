@@ -193,12 +193,8 @@ impl QueryEngine {
     fn build_pagination(&self, plan: &QueryPlan, fetched: i64) -> Result<PaginationMeta> {
         let next_offset = plan.offset.saturating_add(plan.limit);
         let next_cursor = if fetched >= plan.limit {
-            // Full hour-of-week profiles are consumed by the edge baseline
-            // producer in deterministic pages. A normal fleet needs 168 rows
-            // per series, so the generic offset cap previously turned a
-            // large-but-valid delivery into an empty failed run after 150k
-            // rows. Keep the public-query guard, but let this bounded,
-            // server-side profile aggregation paginate to completion.
+            // Share the profile classification with cursor decoding and translation;
+            // see is_exhaustive_profile_query for the pagination contract.
             if next_offset > self.config.max_cursor_offset && !is_exhaustive_profile_query(plan) {
                 return Err(ServiceError::InvalidRequest(format!(
                     "query pagination reached the configured cursor limit of {} rows; narrow the query or raise srql_max_cursor_offset",
