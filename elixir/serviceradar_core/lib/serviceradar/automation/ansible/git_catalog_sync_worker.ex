@@ -332,11 +332,19 @@ defmodule ServiceRadar.Automation.Ansible.GitCatalogSyncWorker do
   defp sanitize_git_error(other), do: other |> inspect() |> String.slice(0, 200)
 
   defp default_base_dir do
-    Application.get_env(
-      :serviceradar_core,
-      :ansible_catalog_base_dir,
-      Path.join(System.tmp_dir!(), "serviceradar_ansible_catalog")
-    )
+    # NOTE: fetch without a default on purpose. Application.get_env/3
+    # evaluates its default eagerly, so the previous
+    # `Path.join(System.tmp_dir!(), ...)` default raised "could not get a
+    # writable temporary directory" on every sync whenever TMPDIR was
+    # missing/unwritable -- even with :ansible_catalog_base_dir configured
+    # (see #4392). Only touch the temp dir when no explicit dir is set.
+    case Application.fetch_env(:serviceradar_core, :ansible_catalog_base_dir) do
+      {:ok, dir} when is_binary(dir) and dir != "" ->
+        dir
+
+      _ ->
+        Path.join(System.tmp_dir!(), "serviceradar_ansible_catalog")
+    end
   end
 
   defp schedule_next(%PlaybookRepository{} = repo) do
