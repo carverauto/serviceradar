@@ -1555,7 +1555,7 @@ here.
         fixture can no longer silently redefine this contract.
         NOT IN SCOPE: no corpus or generator work. The transcripts were already covered by the
         shared fixtures and by `pubid_reject_vectors.txt`.
-  - [ ] 1.5-k PROJECTED ROW COST covering every synchronous ledger / domain / outbox / work
+  - [x] 1.5-k PROJECTED ROW COST covering every synchronous ledger / domain / outbox / work
         / current-state mutation.
         CLOSURE CRITERION, BOUNDED BEFORE IMPLEMENTATION. "Every synchronous mutation" is
         unbounded as written: the repository contains many write sites, and enumerating them is
