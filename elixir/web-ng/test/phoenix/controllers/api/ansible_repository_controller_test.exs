@@ -5,8 +5,8 @@ defmodule ServiceRadarWebNGWeb.Api.AnsibleRepositoryControllerTest do
   import Plug.Conn
 
   alias ServiceRadarWebNG.Accounts.Scope
-  alias ServiceRadarWebNG.TestSupport.ProvisioningIdempotencyStub, as: Idempotency
   alias ServiceRadarWebNG.TestSupport.AnsibleRepositoriesStub, as: Repositories
+  alias ServiceRadarWebNG.TestSupport.ProvisioningIdempotencyStub, as: Idempotency
   alias ServiceRadarWebNGWeb.Api.AnsibleRepositoryController, as: Controller
 
   @moduletag :db_free
@@ -53,8 +53,7 @@ defmodule ServiceRadarWebNGWeb.Api.AnsibleRepositoryControllerTest do
     refute Map.has_key?(body, "last_sync_summary")
     refute Map.has_key?(body, "parse_diagnostics")
 
-    assert_receive {:repositories, :create,
-                    [^scope, %{name: "new-example", git_url: "https://git.example.com/new.git"}]}
+    assert_receive {:repositories, :create, [^scope, %{name: "new-example", git_url: "https://git.example.com/new.git"}]}
   end
 
   test "catalog readers cannot mutate and anonymous callers never reach the context", %{conn: conn, scope: scope} do

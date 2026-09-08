@@ -184,8 +184,7 @@ defmodule ServiceRadarWebNGWeb.Api.AnsibleRepositoryController do
 
   defp public_repository(_), do: :ok
 
-  defp sync_interval(%{"sync_interval_seconds" => value}) when is_integer(value) and value >= 60,
-    do: {:ok, value}
+  defp sync_interval(%{"sync_interval_seconds" => value}) when is_integer(value) and value >= 60, do: {:ok, value}
 
   defp sync_interval(%{"sync_interval_seconds" => _}),
     do: invalid("sync_interval_seconds must be an integer of at least 60")

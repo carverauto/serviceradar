@@ -63,9 +63,7 @@ defmodule ServiceRadarWebNG.AnsibleAutomation do
     with :ok <- exact_keys(params, ["controller_id", "inventory_id"]),
          {:ok, inventory_id} <- positive_integer(params["inventory_id"]),
          {:ok, memberships} <-
-           AwxHostMembership.list_current_for_inventory(params["controller_id"], inventory_id,
-             scope: scope
-           ) do
+           AwxHostMembership.list_current_for_inventory(params["controller_id"], inventory_id, scope: scope) do
       {:ok, Enum.map(memberships, &membership_view/1)}
     end
   end
@@ -86,9 +84,7 @@ defmodule ServiceRadarWebNG.AnsibleAutomation do
     with :ok <- exact_keys(params, ["controller_id", "job_template_id"]),
          {:ok, template_id} <- positive_integer(params["job_template_id"]),
          {:ok, bindings} <-
-           AwxTemplateBinding.list_versions_for_template(params["controller_id"], template_id,
-             scope: scope
-           ) do
+           AwxTemplateBinding.list_versions_for_template(params["controller_id"], template_id, scope: scope) do
       {:ok, Enum.map(bindings, &binding_view/1)}
     end
   end

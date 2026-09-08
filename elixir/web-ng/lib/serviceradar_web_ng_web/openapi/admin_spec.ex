@@ -3,11 +3,11 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AdminSpec do
   OpenAPI 3.0 spec for custom admin JSON endpoints.
   """
 
+  alias ServiceRadarWebNGWeb.OpenAPI.AnsibleRepositorySpec
+
   @portal_doc_version "v1"
   @portal_doc_surface "admin"
   @portal_doc_source "serviceradar-web-ng"
-
-  alias ServiceRadarWebNGWeb.OpenAPI.AnsibleRepositorySpec
 
   @spec document() :: map()
   def document do
@@ -137,8 +137,7 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AdminSpec do
           op("Update BMP settings", "BMP Settings",
             body: "BmpSettingsUpdate",
             response: "BmpSettings",
-            description:
-              "Updates one or more BMP settings. Triggers retention policy refresh and runtime cache refresh."
+            description: "Updates one or more BMP settings. Triggers retention policy refresh and runtime cache refresh."
           )
       },
       "/api/admin/role-profiles/catalog" => %{

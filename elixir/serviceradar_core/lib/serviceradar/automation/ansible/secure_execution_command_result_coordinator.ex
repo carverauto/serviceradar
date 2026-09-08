@@ -18,11 +18,11 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandResultCoordinato
   alias ServiceRadar.Automation.Ansible.Controller
   alias ServiceRadar.Automation.Ansible.ControllerProvenance
   alias ServiceRadar.Automation.Ansible.ControllerSecuritySnapshot
-  alias ServiceRadar.Automation.Ansible.SecureExecutionContinuationBoundary
   alias ServiceRadar.Automation.Ansible.ExecutionLifecycle
   alias ServiceRadar.Automation.Ansible.SafeFailureEvidence
   alias ServiceRadar.Automation.Ansible.SecureExecutionCommandContract, as: Contract
   alias ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcher
+  alias ServiceRadar.Automation.Ansible.SecureExecutionContinuationBoundary
   alias ServiceRadar.Automation.Ansible.SecureExecutionLifecycle
   alias ServiceRadar.Automation.CallbackGrants.CanonicalJSON
   alias ServiceRadar.Edge.AgentCommand

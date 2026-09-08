@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNG.AnsibleControllers do
   Web-facing operations for AWX/AAP controller registration.
   """
 
+  alias Ash.Error.Query.NotFound
   alias ServiceRadar.Automation.Ansible.AwxHostMembership
   alias ServiceRadar.Automation.Ansible.Controller
   alias ServiceRadar.Automation.Ansible.Playbook
@@ -38,7 +39,7 @@ defmodule ServiceRadarWebNG.AnsibleControllers do
     case Controller.get_by_id(id, scope: scope) do
       {:ok, nil} -> {:error, :not_found}
       {:ok, controller} -> {:ok, controller}
-      {:error, %Ash.Error.Query.NotFound{}} -> {:error, :not_found}
+      {:error, %NotFound{}} -> {:error, :not_found}
       {:error, error} -> {:error, error}
     end
   end
@@ -105,7 +106,7 @@ defmodule ServiceRadarWebNG.AnsibleControllers do
 
     case result do
       {:ok, nil} -> {:error, :not_found}
-      {:error, %Ash.Error.Query.NotFound{}} -> {:error, :not_found}
+      {:error, %NotFound{}} -> {:error, :not_found}
       other -> other
     end
   end

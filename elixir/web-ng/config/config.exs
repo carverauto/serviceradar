@@ -68,12 +68,12 @@ config :logger, :default_formatter,
     :viewer_id
   ]
 
-# Use Jason for JSON parsing in Phoenix
-config :phoenix, :json_library, Jason
-
 # The credentials API receives provider-specific material under `values`.
 # Filter the entire envelope before Phoenix formats request parameters.
 config :phoenix, :filter_parameters, ["password", "token", "secret", "values"]
+
+# Use Jason for JSON parsing in Phoenix
+config :phoenix, :json_library, Jason
 
 # Phoenix React NG - React rendering for components (GoRules JDM editor)
 # Bun runtime renders React components, LiveView handles the interactivity
@@ -398,16 +398,6 @@ config :serviceradar_web_ng,
 
 # Configure tailwind (the version is required).
 config :tailwind,
-  version: "4.1.12",
-  serviceradar_web_ng: [
-    args: ~w(
-      --input=assets/css/app.css
-      --output=priv/static/assets/css/app.css
-    ),
-    cd: Path.expand("..", __DIR__)
-  ]
-
-if System.get_env("SERVICERADAR_SKIP_NIF_COMPILATION") == "1" do
   # Lint-only builds opt out of building the Rustler NIFs.
   #
   # //elixir/web-ng:precommit_check runs `mix precommit_fast`, which is
@@ -429,6 +419,16 @@ if System.get_env("SERVICERADAR_SKIP_NIF_COMPILATION") == "1" do
   # Guarded by an env var so lint-only CI and the Bazel lint action are affected;
   # every other build (dev, test, prod, //elixir/web-ng:release_tar) still
   # compiles the NIFs normally.
+  version: "4.1.12",
+  serviceradar_web_ng: [
+    args: ~w(
+      --input=assets/css/app.css
+      --output=priv/static/assets/css/app.css
+    ),
+    cd: Path.expand("..", __DIR__)
+  ]
+
+if System.get_env("SERVICERADAR_SKIP_NIF_COMPILATION") == "1" do
   config :serviceradar_core, ServiceRadar.Observability.DispositionKernels, skip_compilation?: true
   config :serviceradar_core, ServiceRadar.Observability.Zen.Native, skip_compilation?: true
 

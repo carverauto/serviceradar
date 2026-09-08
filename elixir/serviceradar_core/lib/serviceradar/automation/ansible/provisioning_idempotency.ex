@@ -20,16 +20,18 @@ defmodule ServiceRadar.Automation.Ansible.ProvisioningIdempotency do
 
   @spec run(map(), map(), (-> term()), (String.t() -> term())) :: term()
   def run(identity, params, create, read) do
-    with {:ok, body} <- CanonicalJSON.encode(params) do
-      request_id = identity |> CanonicalJSON.encode!() |> CanonicalJSON.sha256()
+    case CanonicalJSON.encode(params) do
+      {:ok, body} ->
+        request_id = identity |> CanonicalJSON.encode!() |> CanonicalJSON.sha256()
 
-      case Repo.transaction(fn -> locked_request(request_id, identity, body, create, read) end) do
-        {:ok, result} -> result
-        {:error, {:request_error, result}} -> result
-        {:error, _reason} -> {:error, :idempotency_unavailable}
-      end
-    else
-      {:error, _reason} -> {:error, :invalid_idempotent_request}
+        case Repo.transaction(fn -> locked_request(request_id, identity, body, create, read) end) do
+          {:ok, result} -> result
+          {:error, {:request_error, result}} -> result
+          {:error, _reason} -> {:error, :idempotency_unavailable}
+        end
+
+      {:error, _reason} ->
+        {:error, :invalid_idempotent_request}
     end
   end
 
@@ -86,7 +88,8 @@ defmodule ServiceRadar.Automation.Ansible.ProvisioningIdempotency do
 
   defp replay(receipt, body, read) do
     with {:ok, key} <- Vault.decrypt(receipt.key_ciphertext),
-         true <- Plug.Crypto.secure_compare(receipt.request_mac, :crypto.mac(:hmac, :sha256, key, body)) do
+         true <-
+           Plug.Crypto.secure_compare(receipt.request_mac, :crypto.mac(:hmac, :sha256, key, body)) do
       case read.(receipt.resource_id) do
         {:error, :not_found} -> {:error, :idempotency_resource_deleted}
         result -> result

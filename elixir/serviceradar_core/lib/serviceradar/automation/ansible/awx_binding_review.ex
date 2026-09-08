@@ -224,7 +224,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxBindingReview do
       |> Map.new(fn {key, value} -> {key, to_string(value)} end)
       |> Map.put(
         "credential_ids",
-        Enum.sort(request["credential_ids"]) |> Enum.map(&to_string/1)
+        request["credential_ids"] |> Enum.sort() |> Enum.map(&to_string/1)
       )
       |> Map.put("selected_hosts", hosts)
       |> Map.put("schema", AwxLaunchContract.request_schema())

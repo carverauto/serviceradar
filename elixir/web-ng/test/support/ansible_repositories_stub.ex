@@ -7,8 +7,7 @@ defmodule ServiceRadarWebNG.TestSupport.AnsibleRepositoriesStub do
   def update(scope, id, attrs, opts), do: reply(:update, [scope, id, attrs, opts], Map.merge(repository(), attrs))
   def delete(scope, id, opts), do: reply(:delete, [scope, id, opts], :ok)
 
-  def sync(scope, id),
-    do: reply(:sync, [scope, id], %{repository: repository(), scheduling_status: :already_scheduled})
+  def sync(scope, id), do: reply(:sync, [scope, id], %{repository: repository(), scheduling_status: :already_scheduled})
 
   def repository do
     %{

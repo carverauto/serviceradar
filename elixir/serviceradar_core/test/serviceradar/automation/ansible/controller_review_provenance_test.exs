@@ -8,6 +8,7 @@ defmodule ServiceRadar.Automation.Ansible.ControllerReviewProvenanceTest do
   alias ServiceRadar.Plugins.SecretRefs
 
   defmodule CommandBus do
+    @moduledoc false
     def dispatch(agent_id, type, payload, opts) do
       id = Ash.UUID.generate()
 

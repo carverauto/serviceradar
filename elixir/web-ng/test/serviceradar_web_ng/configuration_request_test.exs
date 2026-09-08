@@ -30,7 +30,7 @@ defmodule ServiceRadarWebNG.ConfigurationRequestTest do
   end
 
   test "wildcards, weak tags, lists, and malformed timestamps cannot bypass the version check" do
-    for etag <- ["*", "W/\"2026-01-02T03:04:05Z\"", "\"a\", \"b\"", "\"\"", "\"invalid\"", "2026-01-02"] do
+    for etag <- ["*", "W/\"2026-01-02T03:04:05Z\"", ~s("a", "b"), "\"\"", "\"invalid\"", "2026-01-02"] do
       request = put_req_header(build_conn(), "if-match", etag)
       assert {:error, :invalid_precondition} = ConfigurationRequest.mutation_opts(request)
     end

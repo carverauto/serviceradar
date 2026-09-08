@@ -32,7 +32,8 @@ defmodule ServiceRadar.Credentials.Changes.GuardCredentialRuleLifecycle do
       id ->
         with {:ok, rule} <- lock_rule(id, context),
              :ok <- require_enabled(rule),
-             :ok <- require_current_secret(rule, Ash.Changeset.get_attribute(changeset, :secret_id)) do
+             :ok <-
+               require_current_secret(rule, Ash.Changeset.get_attribute(changeset, :secret_id)) do
           changeset
         else
           {:error, reason} -> invalid(changeset, :credential_rule_id, reason)
@@ -80,7 +81,9 @@ defmodule ServiceRadar.Credentials.Changes.GuardCredentialRuleLifecycle do
     query =
       CredentialBrokerGrant
       |> Ash.Query.for_read(:read, %{}, opts)
-      |> Ash.Query.filter(credential_rule_id == ^id and status in [:issued, :active] and expires_at > ^now)
+      |> Ash.Query.filter(
+        credential_rule_id == ^id and status in [:issued, :active] and expires_at > ^now
+      )
       |> Ash.Query.select([:id])
       |> Ash.Query.limit(1)
 
@@ -92,7 +95,8 @@ defmodule ServiceRadar.Credentials.Changes.GuardCredentialRuleLifecycle do
   end
 
   defp caller_opts(context) do
-    Enum.reject([actor: context.actor, tenant: context.tenant, tracer: context.tracer], fn {_key, value} ->
+    Enum.reject([actor: context.actor, tenant: context.tenant, tracer: context.tracer], fn {_key,
+                                                                                            value} ->
       is_nil(value)
     end)
   end

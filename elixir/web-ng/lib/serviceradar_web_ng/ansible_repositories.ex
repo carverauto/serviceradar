@@ -29,7 +29,8 @@ defmodule ServiceRadarWebNG.AnsibleRepositories do
   end
 
   def get(scope, id) do
-    PlaybookRepository.get_by_id(id, scope: scope)
+    id
+    |> PlaybookRepository.get_by_id(scope: scope)
     |> require_record()
   end
 

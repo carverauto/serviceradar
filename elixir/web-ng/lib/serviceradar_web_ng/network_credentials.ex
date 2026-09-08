@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNG.NetworkCredentials do
   Web-facing operations for network credential secrets and rules.
   """
 
+  alias Ash.Error.Invalid
   alias Ash.Error.Query.NotFound
   alias ServiceRadar.Credentials.CredentialRotation
   alias ServiceRadar.Credentials.CredentialSecretBuilder
@@ -86,7 +87,7 @@ defmodule ServiceRadarWebNG.NetworkCredentials do
     end
   end
 
-  defp normalize_secret_delete_error({:error, %Ash.Error.Invalid{errors: errors}} = result) do
+  defp normalize_secret_delete_error({:error, %Invalid{errors: errors}} = result) do
     if Enum.any?(errors, &match?(%{message: "credential_in_use"}, &1)),
       do: {:error, :credential_in_use},
       else: result
@@ -211,7 +212,7 @@ defmodule ServiceRadarWebNG.NetworkCredentials do
     end
   end
 
-  defp normalize_rule_delete_error({:error, %Ash.Error.Invalid{errors: errors}} = result) do
+  defp normalize_rule_delete_error({:error, %Invalid{errors: errors}} = result) do
     conflict =
       Enum.find_value(errors, fn
         %{message: "credential_rule_must_be_disabled"} -> :credential_rule_must_be_disabled

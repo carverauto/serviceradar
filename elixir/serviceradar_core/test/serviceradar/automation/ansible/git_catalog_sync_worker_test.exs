@@ -379,14 +379,24 @@ defmodule ServiceRadar.Automation.Ansible.GitCatalogSyncWorkerTest do
                  record_sync_fn: fn _, _, _ -> {:ok, %{}} end
                )
 
-      assert_received {:git, ["remote", "set-url", "origin", "https://git.example.com/new-catalog.git"], ^repo_dir}
-      assert_received {:git, ["fetch", "--depth", "50", "--prune", "origin", "release-example"], ^repo_dir}
+      assert_received {:git,
+                       ["remote", "set-url", "origin", "https://git.example.com/new-catalog.git"],
+                       ^repo_dir}
+
+      assert_received {:git, ["fetch", "--depth", "50", "--prune", "origin", "release-example"],
+                       ^repo_dir}
+
       assert_received {:git, ["reset", "--hard", "FETCH_HEAD"], ^repo_dir}
       refute_received {:git, ["reset", "--hard", "origin/release-example"], _}
     end
 
     test "a failed remote change never fetches or ingests the previous catalog", %{base_dir: base} do
-      repo = %PlaybookRepository{id: "repo-uuid-1", git_url: "https://git.example.com/new-catalog.git", git_ref: "main"}
+      repo = %PlaybookRepository{
+        id: "repo-uuid-1",
+        git_url: "https://git.example.com/new-catalog.git",
+        git_ref: "main"
+      }
+
       test_pid = self()
 
       assert {:error, {:git_failed, 128, _}} =

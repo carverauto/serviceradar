@@ -18,10 +18,10 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcher do
   alias ServiceRadar.Automation.Ansible.AwxClient
   alias ServiceRadar.Automation.Ansible.AwxLaunchPreflightAttestation
   alias ServiceRadar.Automation.Ansible.Controller
-  alias ServiceRadar.Automation.Ansible.SecureExecutionContinuationBoundary
   alias ServiceRadar.Automation.Ansible.SafeFailureEvidence
   alias ServiceRadar.Automation.Ansible.SecureExecutionAuthorityContraction
   alias ServiceRadar.Automation.Ansible.SecureExecutionCommandContract, as: Contract
+  alias ServiceRadar.Automation.Ansible.SecureExecutionContinuationBoundary
   alias ServiceRadar.Automation.Ansible.SecureExecutionCurrentAuthority
   alias ServiceRadar.Edge.AgentCommand
   alias ServiceRadar.Edge.AgentCommandBus

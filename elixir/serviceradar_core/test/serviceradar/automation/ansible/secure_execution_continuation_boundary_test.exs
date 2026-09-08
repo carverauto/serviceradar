@@ -12,6 +12,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionContinuationBoundaryTes
   alias ServiceRadar.Plugins.SecretRefs
 
   defmodule ObservedClient do
+    @moduledoc false
     def fetch_job(controller, job_id, opts) do
       send(self(), {:observed_read, controller.id, job_id, opts[:required_partition]})
       {:error, :synthetic_read_unavailable}
@@ -19,6 +20,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionContinuationBoundaryTes
   end
 
   defmodule FailureActions do
+    @moduledoc false
     def fail_closed(_operation, _execution, _targets, _state, diagnostics) do
       send(self(), {:failed_read, diagnostics["reason"]})
       {:ok, %{}}
@@ -26,6 +28,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionContinuationBoundaryTes
   end
 
   defmodule AttemptStore do
+    @moduledoc false
     def mark_failed(attempt, _attrs, _opts), do: {:ok, attempt}
   end
 

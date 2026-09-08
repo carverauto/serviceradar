@@ -146,18 +146,31 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRuleLifecycleDbTest do
   defp cleanup_fixture(rule) do
     # The multi-connection case commits its invented rows. Remove only this
     # test's UUIDs after both children have stopped; ordinary cases roll back.
-    Repo.query!("DELETE FROM platform.credential_broker_grants WHERE credential_rule_id = ($1::text)::uuid", [rule.id])
+    Repo.query!(
+      "DELETE FROM platform.credential_broker_grants WHERE credential_rule_id = ($1::text)::uuid",
+      [rule.id]
+    )
 
-    Repo.query!("DELETE FROM platform.network_credential_rule_versions WHERE version_source_id = ($1::text)::uuid", [
+    Repo.query!(
+      "DELETE FROM platform.network_credential_rule_versions WHERE version_source_id = ($1::text)::uuid",
+      [
+        rule.id
+      ]
+    )
+
+    Repo.query!("DELETE FROM platform.network_credential_rules WHERE id = ($1::text)::uuid", [
       rule.id
     ])
 
-    Repo.query!("DELETE FROM platform.network_credential_rules WHERE id = ($1::text)::uuid", [rule.id])
+    Repo.query!(
+      "DELETE FROM platform.network_credential_secret_versions WHERE version_source_id = ($1::text)::uuid",
+      [
+        rule.secret_id
+      ]
+    )
 
-    Repo.query!("DELETE FROM platform.network_credential_secret_versions WHERE version_source_id = ($1::text)::uuid", [
+    Repo.query!("DELETE FROM platform.network_credential_secrets WHERE id = ($1::text)::uuid", [
       rule.secret_id
     ])
-
-    Repo.query!("DELETE FROM platform.network_credential_secrets WHERE id = ($1::text)::uuid", [rule.secret_id])
   end
 end

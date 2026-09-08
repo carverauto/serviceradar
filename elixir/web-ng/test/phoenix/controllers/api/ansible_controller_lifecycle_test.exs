@@ -27,7 +27,7 @@ defmodule ServiceRadarWebNGWeb.Api.AnsibleControllerLifecycleTest do
       permissions: MapSet.new(["ansible.controllers.manage"])
     }
 
-    %{conn: build_conn() |> assign(:current_scope, scope), scope: scope}
+    %{conn: assign(build_conn(), :current_scope, scope), scope: scope}
   end
 
   test "shows current version and applies optional If-Match to existing PATCH API", %{conn: conn, scope: scope} do

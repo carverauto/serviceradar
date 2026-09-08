@@ -227,7 +227,8 @@ defmodule ServiceRadar.Automation.Ansible.GitCatalogSyncWorker do
 
     if File.dir?(Path.join(repo_dir, ".git")) do
       with {:ok, _} <- git(git_runner, ["remote", "set-url", "origin", url], cd: repo_dir),
-           {:ok, _} <- git(git_runner, ["fetch", "--depth", "50", "--prune", "origin", ref], cd: repo_dir),
+           {:ok, _} <-
+             git(git_runner, ["fetch", "--depth", "50", "--prune", "origin", ref], cd: repo_dir),
            {:ok, _} <- git(git_runner, ["reset", "--hard", "FETCH_HEAD"], cd: repo_dir) do
         :ok
       end
@@ -235,7 +236,9 @@ defmodule ServiceRadar.Automation.Ansible.GitCatalogSyncWorker do
       File.mkdir_p!(Path.dirname(repo_dir))
 
       with {:ok, _} <-
-             git(git_runner, ["clone", "--depth", "50", "--branch", ref, "--", url, repo_dir], cd: nil) do
+             git(git_runner, ["clone", "--depth", "50", "--branch", ref, "--", url, repo_dir],
+               cd: nil
+             ) do
         # Touch repo_id so future runs hit the fast path.
         _ = repo
         :ok

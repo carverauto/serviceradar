@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.Api.AnsibleAutomationControllerTest do
   @moduletag :db_free
 
   defmodule Automation do
+    @moduledoc false
     def prepare(scope, params) do
       send(self(), {:prepare, scope.user.id, params})
       {:ok, %{variables: [], targets: []}}
@@ -82,6 +83,5 @@ defmodule ServiceRadarWebNGWeb.Api.AnsibleAutomationControllerTest do
     end
   end
 
-  defp call(conn, action, params),
-    do: Controller.call(%{conn | params: params}, Controller.init(action))
+  defp call(conn, action, params), do: Controller.call(%{conn | params: params}, Controller.init(action))
 end
