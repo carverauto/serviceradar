@@ -106,13 +106,10 @@ defmodule ServiceRadar.Observability.CapacityForecast do
   end
 
   policies do
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
+    import ServiceRadar.Policies
 
-    policy action_type(:read) do
-      authorize_if always()
-    end
+    system_bypass()
+    read_viewer_plus()
 
     policy action([:upsert, :destroy]) do
       authorize_if actor_attribute_equals(:role, :system)

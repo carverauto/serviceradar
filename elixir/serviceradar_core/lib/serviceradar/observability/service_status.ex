@@ -73,12 +73,13 @@ defmodule ServiceRadar.Observability.ServiceStatus do
   end
 
   policies do
-    policy action_type(:read) do
-      authorize_if always()
-    end
+    import ServiceRadar.Policies
+
+    system_bypass()
+    read_viewer_plus()
 
     policy action([:create, :insert_once]) do
-      authorize_if always()
+      authorize_if actor_attribute_equals(:role, :system)
     end
   end
 
