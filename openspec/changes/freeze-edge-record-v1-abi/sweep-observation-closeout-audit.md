@@ -21,7 +21,7 @@ semantic rules; it does not invent constraints on descriptive fields.
 | --- | --- | --- |
 | SweepTestV1 | mode (1), protocol (2), port (3) | Exact mode/protocol/port tuple, legal combination, no duplicate tuple; configured mode bits equal the union of the dictionary. |
 | SweepObservationBatchV1 | execution_id (1), execution_plan_id (7), target_range_id (9) | Canonical UUIDs; execution or source-selected context and target range are joined to source authority at the record correlation boundary. |
-| SweepObservationBatchV1 | sweep_group_id (2), source (14), source_run_id (15) | Source matrix selects the context operand and source-run-id disposition. Group identity is a correlation operand for the sources that select it, not an unconditional second execution id. |
+| SweepObservationBatchV1 | sweep_group_id (2), source (14), source_run_id (15) | Source matrix selects the context operand and source-run-id disposition. The selected operand is execution_id or source_run_id. sweep_group_id remains descriptive grouping bytes and is not used as signed authority. |
 | SweepObservationBatchV1 | execution_shard (3), assignment_epoch (4) | uint32/uint64 respectively; correlated against producer run shard and authority epoch. |
 | SweepObservationBatchV1 | batch_sequence (5), observed_at_unix_nano (6) | Positive sequence and timestamp; batch time lies in the signed inclusive collection window. |
 | SweepObservationBatchV1 | execution_plan_sha256 (8), target_range_sha256 (10) | Exactly 32 bytes; compared to source plan/range digests and scope digest at correlation. |
