@@ -551,14 +551,14 @@ fn translate_timeseries_metric_interface_hourly_profile_uses_rate_cagg() {
 }
 
 #[test]
-fn translate_interface_full_profile_with_device_id_list_scopes_to_any() {
+fn translate_interface_full_profile_with_device_and_interface_lists_scope_to_any() {
     // The seasonal edge-baseline producer fetches the 168-bucket full profile
     // in per-device chunks (`device_id:(...)`), so each statement aggregates a
     // bounded device set instead of the whole fleet (issues #4391/#4393). The
     // chunk filter must survive translation as a bound `= ANY(...)` predicate.
     let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
     let request = QueryRequest {
-        query: "in:timeseries_metric_interface_hourly metric_name:\"ifInOctets\" time:last_180d stats:profile_hour_of_week_full(value) timezone:\"Etc/UTC\" device_id:(\"sr:router-1\",\"sr:router-2\") sort:series:asc,if_index:asc,dow:asc,hod:asc limit:50000".to_string(),
+        query: "in:timeseries_metric_interface_hourly metric_name:\"ifInOctets\" time:last_180d stats:profile_hour_of_week_full(value) timezone:\"Etc/UTC\" device_id:(\"sr:router-1\",\"sr:router-2\") if_index:(1,3,5) sort:series:asc,if_index:asc,dow:asc,hod:asc limit:50000".to_string(),
         limit: None,
         cursor: None,
         direction: QueryDirection::Next,
@@ -588,6 +588,12 @@ fn translate_interface_full_profile_with_device_id_list_scopes_to_any() {
         "expected chunk device ids as one text-array bind, got: {:?}",
         response.params
     );
+
+    assert!(response.sql.contains("if_index = ANY("));
+    assert!(response.params.iter().any(|param| matches!(
+        param,
+        BindParam::IntArray(indexes) if indexes == &vec![1, 3, 5]
+    )));
 
     let max_placeholder = super::max_dollar_placeholder(&response.sql);
     assert_eq!(

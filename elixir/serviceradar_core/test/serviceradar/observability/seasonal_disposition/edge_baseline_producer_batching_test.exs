@@ -116,6 +116,81 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducerBat
              Enum.sort(ChunkedProfileRunner.devices())
   end
 
+  defmodule WideInterfaceRunner do
+    @moduledoc false
+
+    def query(query, _opts) do
+      if String.contains?(query, "profile_hour_of_week_full(") do
+        indexes =
+          case Regex.run(~r/if_index:\(([^)]*)\)/, query) do
+            [_, values] -> values |> String.split(",") |> Enum.map(&String.to_integer/1)
+            nil -> Enum.to_list(1..512)
+          end
+
+        cap = Process.get(:interface_query_cap, 200)
+
+        if length(indexes) > cap do
+          {:error, :statement_timeout}
+        else
+          send(self(), {:fetched_interfaces, indexes})
+          {:ok, for(index <- indexes, dow <- 0..6, hod <- 0..23, do: row(index, dow, hod))}
+        end
+      else
+        {:ok, for(index <- 1..512, do: row(index, 1, 9))}
+      end
+    end
+
+    defp row(index, dow, hod) do
+      %{
+        "series" => "sr:wide-device",
+        "if_index" => index,
+        "partition" => "synthetic-partition",
+        "target_device_ip" => "192.0.2.10",
+        "metric_name" => "ifInOctets",
+        "dow" => dow,
+        "hod" => hod,
+        "sample_value" => index * 1.0,
+        "bucket" => "2026-06-22T09:00:00Z",
+        "bucket_count" => 8,
+        "center" => index * 1.0,
+        "mad" => 2.0
+      }
+    end
+  end
+
+  test "wide devices use disjoint interface chunks within the default and configured caps" do
+    source = Enum.find(Source.defaults(), &(&1.name == "interface_if_in_octets_seasonal"))
+
+    for cap <- [200, 127] do
+      Process.put(:interface_query_cap, cap)
+
+      opts = [
+        sources: [source],
+        runner: WideInterfaceRunner,
+        interface_top_k_per_device: 512
+      ]
+
+      opts = if cap == 200, do: opts, else: Keyword.put(opts, :edge_baseline_max_combos_per_query, cap)
+      assert {:ok, baselines} = EdgeBaselineProducer.build(opts)
+      assert map_size(baselines) == 512
+
+      for index <- 1..512 do
+        assert %{"centers" => centers} = baselines["192.0.2.10|ifInOctets|#{index}"]
+        assert centers == List.duplicate(index * 1.0, 168)
+      end
+
+      fetched =
+        for _ <- 1..ceil(512 / cap) do
+          assert_received {:fetched_interfaces, indexes}
+          assert length(indexes) <= cap
+          indexes
+        end
+
+      assert fetched |> List.flatten() |> Enum.sort() == Enum.to_list(1..512)
+      refute_received {:fetched_interfaces, _}
+    end
+  end
+
   defmodule FailingChunkRunner do
     @moduledoc false
 

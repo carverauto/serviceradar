@@ -69,7 +69,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer do
   # with two `percentile_cont` passes) exceeds the database statement_timeout as
   # the fleet grows. Each chunk statement aggregates at most this many series
   # instead of the whole fleet. Capped by the SRQL parser's
-  # `MAX_FILTER_LIST_VALUES` (one `device_id:(...)` IN clause per statement).
+  # `MAX_FILTER_LIST_VALUES` for device and interface IN clauses.
   @default_max_combos_per_query 200
   @srql_max_filter_list_values 200
   @delivery_telemetry [:serviceradar, :seasonal_disposition, :edge_baseline, :delivery]
@@ -216,7 +216,8 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer do
   # the source's latest-bucket query (one row per series — the same cost profile
   # as the central disposition verdict pass) to learn the device cohort, then
   # run the full-profile query once per device chunk with a `device_id:(...)`
-  # IN filter both profile routes accept. Aggregation is per series, so
+  # filter, splitting interface sources further with disjoint `if_index:(...)`
+  # filters. Aggregation is per series, so
   # concatenating chunk rows yields exactly the fleet-wide result while each
   # statement's input stays bounded by `:edge_baseline_max_combos_per_query`.
   defp batched_baseline_rows(%Source{query: query} = source, opts) when is_binary(query) do
@@ -224,7 +225,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer do
 
     with {:ok, discovery} <- Worker.edge_baseline_rows(source, opts) do
       discovery
-      |> plan_device_chunks(max_combos)
+      |> plan_device_chunks(source, max_combos)
       |> fetch_device_chunks(source, opts)
     end
   end
@@ -237,11 +238,23 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer do
     max(int_opt(opts, :edge_baseline_max_combos_per_query, @default_max_combos_per_query), 1)
   end
 
-  # Whole devices per chunk (bin-packed by latest-bucket width, widest first):
-  # a device's series must never straddle chunks or its buckets would concat
-  # twice. A device wider than the cap gets a chunk of its own rather than an
-  # empty plan.
-  defp plan_device_chunks(discovery_rows, max_combos) do
+  # Interface identities are disjoint within a device. Scope each statement to
+  # one device and a bounded IN list so even a wide device cannot exceed the cap.
+  defp plan_device_chunks(discovery_rows, %Source{resource_type: "interface"}, max_combos) do
+    discovery_rows
+    |> Enum.group_by(& &1.series_key, & &1.if_index)
+    |> Enum.sort_by(fn {device, _indexes} -> device end)
+    |> Enum.flat_map(fn {device, indexes} ->
+      indexes
+      |> Enum.uniq()
+      |> Enum.sort()
+      |> Enum.chunk_every(min(max_combos, @srql_max_filter_list_values))
+      |> Enum.map(&%{devices: [device], if_indexes: &1})
+    end)
+  end
+
+  # Host sources have one series per device; bin-pack their device filters.
+  defp plan_device_chunks(discovery_rows, _source, max_combos) do
     widths =
       discovery_rows
       |> Enum.map(& &1.series_key)
@@ -256,8 +269,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer do
         index -> List.update_at(chunks, index, &add_device(&1, device, width))
       end
     end)
-    |> Enum.map(& &1.devices)
-    |> Enum.map(&Enum.sort/1)
+    |> Enum.map(&%{devices: Enum.sort(&1.devices), if_indexes: []})
   end
 
   defp chunk_fits?(%{devices: devices, combos: combos}, width, max_combos) do
@@ -273,20 +285,22 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer do
   defp fetch_device_chunks(chunks, source, opts) do
     Logger.debug("Fetching seasonal edge baselines in device chunks",
       source: source.name,
-      devices: Enum.sum(Enum.map(chunks, &length/1)),
+      devices: chunks |> Enum.flat_map(& &1.devices) |> Enum.uniq() |> length(),
       chunks: length(chunks)
     )
 
-    Enum.reduce_while(chunks, {:ok, []}, fn devices, {:ok, acc} ->
-      case Worker.edge_baseline_rows(full_profile_source(chunk_source(source, devices)), opts) do
+    Enum.reduce_while(chunks, {:ok, []}, fn chunk, {:ok, acc} ->
+      case Worker.edge_baseline_rows(full_profile_source(chunk_source(source, chunk)), opts) do
         {:ok, rows} -> {:cont, {:ok, acc ++ rows}}
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end
 
-  defp chunk_source(%Source{query: query} = source, devices) when is_binary(query) do
-    %{source | query: query <> " " <> devices_filter(devices)}
+  defp chunk_source(%Source{query: query} = source, %{devices: devices, if_indexes: indexes})
+       when is_binary(query) do
+    interface_filter = if indexes == [], do: "", else: " if_index:(#{Enum.join(indexes, ",")})"
+    %{source | query: query <> " " <> devices_filter(devices) <> interface_filter}
   end
 
   defp devices_filter(devices) do
