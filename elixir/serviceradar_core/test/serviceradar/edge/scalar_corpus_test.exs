@@ -6,8 +6,8 @@ defmodule ServiceRadar.Edge.ScalarCorpusTest do
   are both 128 and stay SEPARATE NAMED bounds: they bound different quantities and either may
   move alone, so collapsing them would hide one bound's drift behind the other's rows.
 
-  The abort reason and signed tombstone reason retain explicit owners for their
-  absent peers; the raw record boundary now covers the producer-context principal.
+  The signed tombstone reason retains its explicit absent-peer owner; the raw record
+  principal and lifecycle abort reason now have both runtime gates.
 
   ## A lower bound needs two controls, not one
 
@@ -62,7 +62,7 @@ defmodule ServiceRadar.Edge.ScalarCorpusTest do
         "principal_edge_slot" => {"MaxPrincipalBytes", "refuse", 1, "refuse", "refuse", "-"},
         "principal_service_slot" => {"MaxPrincipalBytes", "refuse", 1, "refuse", "refuse", "-"},
         "plan_header_raw" => {"MaxPlanHeaderBytes", "n/a", nil, "refuse", "refuse", "-"},
-        "abort_reason" => {"MaxTraceStrBytes", "refuse", 1, "refuse", "n/a", "1.6-c"},
+        "abort_reason" => {"MaxTraceStrBytes", "refuse", 1, "refuse", "refuse", "-"},
         "tombstone_reason_signed" => {"MaxReasonBytes", "refuse", 1, "refuse", "n/a", "1.6-d"}
       }
 
@@ -143,6 +143,28 @@ defmodule ServiceRadar.Edge.ScalarCorpusTest do
       # vector but not one gate: deleting either leaves the other's rows green.
       assert {:error, :scope} = policy_assignment(0)
       assert :ok = policy_assignment(r.min)
+    end
+  end
+
+  test "abort_reason at the decoded lifecycle boundary has all six controls" do
+    r = row("abort_reason")
+
+    for {name, accepted} <- [
+          {"abort_0", false},
+          {"abort_#{r.min}", true},
+          {"abort_#{r.at}", true},
+          {"abort_#{r.over}", false},
+          {"start_reason_0", true},
+          {"start_reason_1", false}
+        ] do
+      event =
+        "../../../../../proto/edge/v1/testdata/lifecycle_structural_#{name}.bin"
+        |> Path.expand(__DIR__)
+        |> File.read!()
+        |> Serviceradar.Edge.V1.SweepExecutionEventV1.decode()
+
+      result = ServiceRadar.Edge.LifecycleValidate.validate(event)
+      if accepted, do: assert(result == :ok), else: assert(result == {:error, :abort_reason})
     end
   end
 

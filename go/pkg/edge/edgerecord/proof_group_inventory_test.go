@@ -93,14 +93,13 @@ func TestProofGroupInventoryIsExact(t *testing.T) {
 	got = append(got, scanDelegations(t, "scalar_corpus.txt", 0, 7, 8, 9)...)
 	got = append(got, scanDelegations(t, "lower_bound_corpus.txt", 0, 7, 8, 9)...)
 
-	// THE FOUR REMAINING DELEGATED BOUND-SITE ROWS, exhaustively. Sites recur across corpora when the
+	// THE THREE REMAINING DELEGATED BOUND-SITE ROWS, exhaustively. Sites recur across corpora when the
 	// same gap is bounded from both ends -- the single-page span site is delegated for its
 	// ceiling AND its minimum -- so the inventory is keyed by (site, owner) and counted once.
 	want := map[string]string{
 		"recovery_spans_single":    proofGroup16D, // MaxSpansPerPage on the signed single-page path
 		"tombstone_reason_signed":  proofGroup16D, // MaxReasonBytes on the signed body path
 		"tombstone_declared_count": proofGroup16D, // the signed declared page count
-		"abort_reason":             "1.6-c",       // the kind-conditional lifecycle bound
 	}
 
 	seen := map[string]string{}
