@@ -9,8 +9,16 @@
 - [x] 1.3 Implement the `clear_records_for_replay` callback module.
 - [x] 1.4 Register `ApiEvent` in `ServiceRadar.Observability`'s
       `resources do end`.
-- [ ] 1.5 `mix ash.codegen add_api_event_log`; apply it using the root
+- [x] 1.5 `mix ash.codegen add_api_event_log`; apply it using the root
       `AGENTS.md` database migration guidance; commit the generated migration.
+      Deviation: `mix ash.codegen` is currently unusable in this repo
+      (`priv/resource_snapshots/` is gitignored -- see
+      `20260512040000_add_security_resources.exs`'s moduledoc and
+      `docs/PLATFORM_SECURITY_HARDENING.md#known-follow-ups`, a
+      pre-existing, already-documented repo issue, not introduced by this
+      change). Followed that same file's established precedent: a
+      hand-written `use Ecto.Migration` matching the standard pattern.
+      Applied and verified against a real srql-fixtures scratch database.
 
 ## 2. Wire up StatefulAlertRule
 
