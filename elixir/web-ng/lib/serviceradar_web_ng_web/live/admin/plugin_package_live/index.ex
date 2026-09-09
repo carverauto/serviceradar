@@ -1898,6 +1898,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         download_token={@download_token}
         download_expires_at={@download_expires_at}
         plugins_base_path={@plugins_base_path}
+        current_scope={@current_scope}
       />
       <.repository_modal
         show_repository_modal={@show_repository_modal}
