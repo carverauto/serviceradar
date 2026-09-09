@@ -95,6 +95,16 @@ INTEGRATION_RUNTIME_DATA = glob(
     # relative path //rust/integration-db reads -- so provision, the suite and teardown
     # cannot disagree about which database they own.
     "//build:run_id_file",
+    # Module level in test/serviceradar/proto/edge_v1_golden_test.exs, which loads the SHARED
+    # cross-language fixtures -- the sweep-join corpus among them -- through
+    # Path.expand("../../../../../proto/edge/v1/testdata", __DIR__). Without this the Bazel lane
+    # runs a test whose fixtures are not staged, so the shared corpus would be proven only under
+    # `mix test`.
+    "//proto/edge/v1:edge_testdata",
+    # Module level in test/serviceradar/edge/sweep_bench_fixture_test.exs. The glob above covers
+    # config/lib/priv/test but NOT bench/, and this one file is read by a test outside bench/ --
+    # the bench_driver target's own `bench/**` glob does not stage it for this tier.
+    "bench/sweep_ingress_fixtures.exs",
     # Guarded suites resolve their endpoint from the one CI fixture identity, exactly as the Rust
     # provisioner and template migrator do. Focused workstation Mix tests use a separately created
     # srql-fixtures scratch database; a guarded Bazel lane cannot select localhost.
@@ -128,6 +138,12 @@ INTEGRATION_SELECTION_DATA = glob(
     "//go/cmd/wasm-plugins/proxmox:srcs",
     "//go/cmd/wasm-plugins/sample-northbound:srcs",
     "//go/cmd/wasm-plugins/unifi-protect:srcs",
+    # Both are MODULE-level reads, so the selection loaders hit them while merely compiling the
+    # source -- a selection runner never executes a test body, but it does compile every file it
+    # loads. Being staged in INTEGRATION_RUNTIME_DATA is not enough: that list belongs to the
+    # suites, this one to the load-only and selected runners.
+    "//proto/edge/v1:edge_testdata",
+    "bench/sweep_ingress_fixtures.exs",
 ]
 
 INTEGRATION_TEST_DEPS = [
@@ -476,6 +492,12 @@ ex_unit_tests(
         # It belongs in this tier, not the database-backed one: it reads two files and
         # asserts on their text.
         "//helm/serviceradar:values",
+        # Module level in test/serviceradar/proto/edge_v1_golden_test.exs and
+        # test/serviceradar/edge/sweep_bench_fixture_test.exs respectively. Both are read while
+        # the file is COMPILED, so no tag can skip them -- a shard that merely loads the source
+        # still needs them staged. The glob above covers lib/priv/test but not bench/.
+        "//proto/edge/v1:edge_testdata",
+        "bench/sweep_ingress_fixtures.exs",
     ],
     test_helper = "test/test_helper.exs",
     deps = [":erlang_app"],
@@ -887,4 +909,12 @@ ex_unit_test(
         "//config/manager_config/elixir:manager",
         "//config/manager_secret/elixir:secret",
     ],
+)
+
+filegroup(
+    name = "accounting_guard_sources",
+    srcs = glob(
+        ["lib/**/*.ex"],
+        exclude = ["lib/serviceradar/proto/**"],
+    ),
 )

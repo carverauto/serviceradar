@@ -2,10 +2,11 @@
 
 ## Why
 
-`unify-sweep-results-proto` is 112 tasks spanning the wire contract, the agent
-spool, the gateway relay, JetStream provisioning, projectors, migration, and
-rollout. Six are done. The wire freeze (task 1.7) cannot ship until every one of
-the other 106 is reviewed alongside it, because they are one change.
+`unify-sweep-results-proto` spans the wire contract, the agent spool, the gateway
+relay, JetStream provisioning, projectors, migration, and rollout. This split
+separates the wire freeze from that runtime work. Current completion is owned by
+the [ABI task ledger](tasks.md) and the
+[runtime task ledger](../unify-sweep-results-proto/tasks.md).
 
 That coupling is not theoretical. The 1.6a decision slice took ten review rounds,
 and a recurring cause was that each round legitimately pulled in decisions
@@ -39,6 +40,7 @@ Two structural edits, not lifts:
   allowed a frozen shape to ship without the validators that enforce it.
 - **1.3 is split.** The ABI half — the authoritative assignment-record contract,
   the `SweepObservationBatchV1` correlation matrix, and the assignment-mapping KEY
+  (the KEY ONLY -- the tagged value shape is owned downstream)
   — is here, because the span omits execution and plan identity on the strength of
   that key. The durable storage, replay/repair state machine, conflict resolution,
   retention, GC, and lookup-outcome transitions stay downstream: they are runtime
@@ -69,7 +71,8 @@ Five mixed requirements were divided:
 | Service ingress | the `service_slot` tuple, its validity rules, fresh-only scope, and three transport transcripts | the publisher journal, allocation, PubAck reclamation, lane sealing, and credential mapping |
 
 Six requirements were already wire-only and moved whole. A trimmed twelfth states
-the assignment mapping's key and tagged value; its durable behaviour is downstream
+the assignment mapping's key ONLY (the tagged value shape is owned downstream, and
+so is its durable behaviour)
 task 2.20.
 
 Two frame/lane requirements moved **up** from the sibling capabilities, because

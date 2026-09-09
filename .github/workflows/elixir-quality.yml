@@ -29,7 +29,13 @@ permissions:
 
 on:
   push:
-    branches: [staging]
+    # usp-01-proposal is the long-lived integration branch for unify-sweep-results-proto.
+    # PRs land there first and only reach staging much later, so a staging-only filter left every
+    # one of them ungated: this workflow is what runs `mix format --check-formatted` and
+    # `mix credo --strict`. It briefly ran by accident while those PRs were grouped in a GitHub
+    # stack (the stack's base is staging), and caught eight credo findings the moment it did --
+    # then stopped again when the PRs were unstacked.
+    branches: [staging, usp-01-proposal]
     paths:
       - 'elixir/**'
       - '.github/workflows/elixir-quality.yml'
@@ -38,7 +44,13 @@ on:
       - 'scripts/db/**'
       - 'proto/**'
   pull_request:
-    branches: [staging]
+    # usp-01-proposal is the long-lived integration branch for unify-sweep-results-proto.
+    # PRs land there first and only reach staging much later, so a staging-only filter left every
+    # one of them ungated: this workflow is what runs `mix format --check-formatted` and
+    # `mix credo --strict`. It briefly ran by accident while those PRs were grouped in a GitHub
+    # stack (the stack's base is staging), and caught eight credo findings the moment it did --
+    # then stopped again when the PRs were unstacked.
+    branches: [staging, usp-01-proposal]
     paths:
       - 'elixir/**'
       - '.github/workflows/elixir-quality.yml'

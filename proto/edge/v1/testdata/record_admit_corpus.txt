@@ -1,0 +1,10 @@
+record_admit_composed_sweep.bin accept
+record_admit_oversize_body.bin accept
+record_admit_encoded_size_unbound.bin encoded_size
+record_admit_digest_mismatch.bin payload_digest
+record_admit_ratio_at_ceiling.bin accept
+record_admit_ratio_over_ceiling.bin uncompressed_size
+record_admit_none_size_mismatch.bin uncompressed_size
+record_admit_codec_unspecified.bin compression
+record_admit_recursive_outer.bin accept
+record_admit_output_ceiling.bin accept

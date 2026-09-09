@@ -1,0 +1,778 @@
+/*
+ * Copyright 2026 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+syntax = "proto3";
+
+// Producer-neutral durable edge record plane (unify-sweep-results-proto).
+//
+// EdgeRecordV1 is the immutable semantic record the trusted agent sink encodes
+// once from a producer's canonical domain body. EdgeDeliveryFrameV1 is an
+// edge-only wrapper carrying mutable spool/delivery coordinates and the exact,
+// unchanged EdgeRecordV1 bytes (record_bytes). JetStream stores those exact
+// bytes; the gateway never publishes only the inner domain payload and never
+// reconstructs semantic/authorization/cost identity as NATS headers.
+//
+// The record plane is NOT sweep-specific: framing/lifecycle is a bounded payload
+// family, and semantic type + projection come from the exact output-contract
+// bundle. Topology (route profile, traffic class, lane) is finite and platform-
+// owned; it never grows with payload kind, package, plugin, or contract.
+package serviceradar.edge.v1;
+
+option go_package = "github.com/carverauto/serviceradar/proto/edge/v1;edgev1";
+
+// ---------------------------------------------------------------------------
+// Framing, routing, and authority enums (finite, platform-owned)
+// ---------------------------------------------------------------------------
+
+// EdgeRecordPayloadFamily is framing/lifecycle only. Adding a third-party output
+// contract does NOT add an enum value here; semantic type comes from the bundle.
+enum EdgeRecordPayloadFamily {
+  EDGE_RECORD_PAYLOAD_FAMILY_UNSPECIFIED = 0;
+  EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1 = 1;
+  EDGE_RECORD_PAYLOAD_FAMILY_RUN_EVENT_V1 = 2;
+  EDGE_RECORD_PAYLOAD_FAMILY_SNAPSHOT_PAGE_V1 = 3;
+  EDGE_RECORD_PAYLOAD_FAMILY_SNAPSHOT_TERMINAL_V1 = 4;
+  EDGE_RECORD_PAYLOAD_FAMILY_RECOVERY_CONTROL_V1 = 5;
+}
+
+enum EdgeRecordCompression {
+  EDGE_RECORD_COMPRESSION_UNSPECIFIED = 0;
+  EDGE_RECORD_COMPRESSION_NONE = 1;
+  EDGE_RECORD_COMPRESSION_ZSTD = 2;
+}
+
+// Payload encoding is independent of compression and output-contract identity.
+enum EdgeRecordEncoding {
+  EDGE_RECORD_ENCODING_UNSPECIFIED = 0;
+  EDGE_RECORD_ENCODING_PROTOBUF = 1;
+}
+
+// A supported contract is an immutable bundle, not an execution grant. The
+// enclosing advertisement supplies its registry epoch and snapshot digest.
+message EdgeSupportedContractV1 {
+  string contract_id = 1;
+  uint32 contract_version = 2;
+  bytes contract_bundle_sha256 = 3;
+}
+
+// Shared by AgentHelloRequest and ControlStreamHello. Repeated fields are SETS:
+// order is immaterial, duplicates are invalid, and two advertisements in one
+// session must agree on every set and scalar. No RPC has precedence. An absent
+// carrier advertises no edge-record support; legacy string capabilities cannot
+// supply any of these facts. This advertisement conveys support, not authority.
+message EdgeRecordCapabilitiesV1 {
+  repeated uint32 protocol_versions = 1;
+  repeated EdgeRecordPayloadFamily payload_families = 2;
+  repeated EdgeRecordEncoding encodings = 3;
+  repeated EdgeRecordCompression compressions = 4;
+  repeated uint32 spool_reader_versions = 5;
+  uint64 max_record_bytes = 6;
+  uint64 max_delivery_envelope_bytes = 7;
+  uint64 max_frame_bytes = 8;
+  uint64 max_client_message_bytes = 9;
+  uint64 registry_epoch = 10;
+  bytes registry_snapshot_sha256 = 11;
+  repeated EdgeSupportedContractV1 output_contracts = 12;
+}
+
+// EdgeRecordTrafficClass comes from an effective control-plane grant. It is not
+// caller-selected and is not sweep-specific.
+enum EdgeRecordTrafficClass {
+  EDGE_RECORD_TRAFFIC_CLASS_UNSPECIFIED = 0;
+  EDGE_RECORD_TRAFFIC_CLASS_BULK = 1;
+  EDGE_RECORD_TRAFFIC_CLASS_INTERACTIVE = 2;
+}
+
+// EdgeRecordRouteProfile is a finite platform deployment value, never a
+// package-defined semantic type. V1 begins with DURABLE_RECORDS_V1; another
+// profile requires an explicit benchmarked platform change.
+enum EdgeRecordRouteProfile {
+  EDGE_RECORD_ROUTE_PROFILE_UNSPECIFIED = 0;
+  EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1 = 1;
+  EDGE_RECORD_ROUTE_PROFILE_CONTINUOUS_V1 = 2;
+  EDGE_RECORD_ROUTE_PROFILE_RECOVERY_CONTROL_V1 = 3;
+}
+
+// EdgeOriginKind is the ingress-attested origin of a record, never caller truth.
+enum EdgeOriginKind {
+  EDGE_ORIGIN_KIND_UNSPECIFIED = 0;
+  EDGE_ORIGIN_KIND_AGENT = 1;
+  EDGE_ORIGIN_KIND_CLUSTER_SERVICE = 2;
+}
+
+// EdgeSourceAuthorizationKind names the kind of a source action whose authority
+// a record carries. It mirrors the producing SweepExecutionSource plus the
+// non-sweep integration/recovery actions. Its ABSENCE (the optional
+// source_authorization field unset) means only "no source authorization" -- it is
+// NOT the same as PASSIVE attribution, which asserts that a record claims no
+// produced target range. The two axes are INDEPENDENT: all four combinations of
+// {ACTIVE, PASSIVE} x {source present, source absent} are REPRESENTABLE at the
+// record and classification layers, and no component may infer one from the other.
+// That representability is SUBJECT TO PAYLOAD-SPECIFIC REQUIREMENTS: a payload
+// contract may REQUIRE source authorization, and SweepObservationBatchV1 does --
+// a sweep record without it has no signed statement of what was authorized. Read
+// as an unqualified permission, this comment would contradict that requirement.
+enum EdgeSourceAuthorizationKind {
+  EDGE_SOURCE_AUTHORIZATION_KIND_UNSPECIFIED = 0;
+  EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP = 1;
+  EDGE_SOURCE_AUTHORIZATION_KIND_SWEEP_PROFILE = 2;
+  EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_CHECK = 3;
+  EDGE_SOURCE_AUTHORIZATION_KIND_AD_HOC = 4;
+  EDGE_SOURCE_AUTHORIZATION_KIND_ON_DEMAND = 5;
+  EDGE_SOURCE_AUTHORIZATION_KIND_INTEGRATION_RUN = 6;
+  EDGE_SOURCE_AUTHORIZATION_KIND_RECOVERY_CONTROL = 7;
+}
+
+// ---------------------------------------------------------------------------
+// Signed capability envelope: domain-separated, typed, role-bound claims
+// ---------------------------------------------------------------------------
+
+// Typed claim bodies. Each capability carries exactly one, and its variant is
+// the capability's role (purpose) -- so a production grant can never be replayed
+// as source or delivery authority. The signature covers the role tag + claims.
+
+// EdgeProductionClaimsV1 authorizes a specific attested producer to emit a
+// specific output contract at a bounded cost. Every field here is compared to
+// the record's attested producer_context / output_contract by
+// validateProductionCapability, so a grant issued for one assignment, instance,
+// run, fence epoch, package, or cost ceiling cannot be replayed with another.
+message EdgeProductionClaimsV1 {
+  string contract_id = 1;
+  uint32 contract_version = 2;
+  bytes contract_bundle_sha256 = 3;
+  uint64 registry_epoch = 4;
+  bytes network_scope_id = 5;
+  bytes producer_assignment_id = 6;
+  EdgeRecordTrafficClass traffic_class = 7;
+  EdgeRecordRouteProfile route_profile = 8;
+  // Attested producer identity the grant is bound to (== producer_context).
+  EdgeOriginKind origin_kind = 9;
+  bytes origin_principal_id = 10;
+  bytes producer_instance_id = 11;
+  bytes run_id = 12;
+  uint32 run_shard = 13;
+  uint64 authority_epoch = 14;              // fence generation; monotonic
+  bytes scope_id = 15;
+  bytes scope_sha256 = 16;
+  bytes package_sha256 = 17;
+  // Bundle-registry snapshot the grant was computed against (== output_contract).
+  bytes registry_snapshot_sha256 = 18;
+  bytes effective_grant_sha256 = 19;
+  // Conservative cost ceiling; record projected_* MUST NOT exceed these.
+  uint32 max_projected_row_count = 20;
+  uint64 max_projected_write_bytes = 21;
+  uint32 cost_model_version = 22;           // MUST equal the record's
+  string package_id = 23;                   // == producer_context.package_id
+}
+
+// EdgeSourceClaimsV1 authorizes a specific attested producer to run a source
+// action (scan/check/command/run/recovery) over a bound context and coverage
+// scope for a collection window. The agent/assignment/run/shard/epoch and
+// traffic class are bound so collection authority cannot be moved to another
+// producer or lane; plan/range digests bind the authorized work.
+message EdgeSourceClaimsV1 {
+  EdgeSourceAuthorizationKind kind = 1;
+  bytes context_id = 2;                    // UUID: check/command/run/recovery id
+  bytes scope_id = 3;                      // target/coverage scope id (UUID)
+  bytes scope_sha256 = 4;                  // digest of the authorized scope/range
+  bytes network_scope_id = 5;
+  int64 collection_not_before_unix_nano = 6;
+  int64 collection_expires_unix_nano = 7;  // MUST be > not_before
+  // Attested producer identity the collection authority is bound to.
+  bytes origin_principal_id = 8;
+  bytes producer_instance_id = 9;
+  bytes producer_assignment_id = 10;
+  bytes run_id = 11;
+  uint32 run_shard = 12;
+  uint64 authority_epoch = 13;
+  EdgeRecordTrafficClass traffic_class = 14;
+  EdgeRecordRouteProfile route_profile = 15;
+  bytes execution_plan_sha256 = 16;        // authorized plan (empty if N/A)
+  bytes target_range_sha256 = 17;          // authorized range (empty if N/A)
+  EdgeOriginKind origin_kind = 18;         // == producer_context.origin_kind
+}
+
+// EdgeDeliveryClaimsV1 authorizes draining one immutable record's bytes on an
+// exact delivery coordinate. It is event/checksum bound so it cannot relax the
+// original collection-time decision. The transition oneof distinguishes the two
+// legitimate reasons a delivery grant is re-issued: an ordinary same-spool
+// RENEWAL (a collection lease expired before publication) versus a spool
+// ROLLOVER after loss. A renewal cannot masquerade as a rollover or vice versa.
+message EdgeDeliveryClaimsV1 {
+  bytes event_id = 1;                      // exact record it may deliver
+  bytes record_sha256 = 2;                 // exact record bytes it may deliver
+  bytes spool_id = 3;                      // spool it drains on (== frame spool_id)
+  uint64 sequence = 4;                     // exact sequence (== frame sequence)
+  oneof transition {
+    EdgeDeliveryRenewalV1 renewal = 5;     // same-spool lease renewal
+    EdgeDeliveryRolloverV1 rollover = 6;   // recovery rollover to a new spool
+  }
+}
+
+// EdgeDeliveryRenewalV1 is an ordinary same-spool reauthorization (e.g. the
+// original collection lease expired before the record was published). The spool
+// and sequence are unchanged; no rollover coordinate exists.
+message EdgeDeliveryRenewalV1 {
+  int64 renewed_not_before_unix_nano = 1;
+  int64 renewed_expires_unix_nano = 2;     // MUST be > not_before
+}
+
+// EdgeDeliveryRolloverV1 binds the COMPLETE old and new coordinate of a recovery
+// rollover: the recovery id, the prior spool, and the prior sequence the record
+// occupied on it.
+message EdgeDeliveryRolloverV1 {
+  bytes recovery_id = 1;                   // rollover this drain belongs to
+  bytes prior_spool_id = 2;                // old spool being recovered from
+  uint64 prior_sequence = 3;               // old sequence on the prior spool
+}
+
+// EdgeCapabilityPurpose is the role a capability may fill. It equals the set
+// claims variant and is bound into the signing input.
+enum EdgeCapabilityPurpose {
+  EDGE_CAPABILITY_PURPOSE_UNSPECIFIED = 0;
+  EDGE_CAPABILITY_PURPOSE_PRODUCTION = 1;
+  EDGE_CAPABILITY_PURPOSE_SOURCE = 2;
+  EDGE_CAPABILITY_PURPOSE_DELIVERY = 3;
+  // COLLECTION is the SCHEDULER's attestation of a compiled assignment's contents: it binds
+  // the config generation, typed result format, check-set identity, traffic class and validity
+  // window it compiled, which no pre-existing claim signs.
+  //
+  // It does NOT authorize anyone to RUN that assignment. Permission to execute is
+  // ASSIGNMENT_EXECUTION below, issued by an authority over the executing host -- two
+  // decisions by two principals. An earlier revision of this comment said COLLECTION
+  // authorized execution, which contradicted that split and would have let the scheduler
+  // grant itself host permission.
+  EDGE_CAPABILITY_PURPOSE_COLLECTION = 4;
+  // ASSIGNMENT_EXECUTION is PERMISSION FOR A HOST TO EXECUTE ONE COMPILED ASSIGNMENT.
+  //
+  // ONE MODEL, CHOSEN DELIBERATELY. An earlier revision mixed two incompatible contracts
+  // under one purpose: a scheduler ATTESTATION over reusable mapping facts, and a
+  // producer/host PERMISSION to execute compiled work. They differ in signer, in lifetime,
+  // and in whether they may be reused across carrier revisions, so no single claim can be
+  // both.
+  //
+  // This is the PERMISSION. It is signed by an authority over the executing HOST, never by
+  // the scheduler key family that signs carriers, and it binds ONE EXACT CARRIER by id and
+  // artifact digest. It is therefore NOT reusable across carrier revisions -- deliberately,
+  // because a grant that floated free would authorize a recompiled carrier's config
+  // generation, result format and check set, which is precisely what the carrier exists to
+  // pin. Recompiling requires a new grant.
+  //
+  // The alternative model -- a scheduler attestation over reusable mapping facts -- was
+  // rejected: the facts it would cover (run_id, the source identity) are producer-chosen,
+  // and if the scheduler could sign them they would belong in the carrier itself, leaving
+  // no work for a separate attestation.
+  //
+  // It is not PRODUCTION or SOURCE because those are record-plane contracts whose full
+  // semantics (contract id/version, registry epoch, package digest, cost model, projected
+  // row/write bounds, origin and instance identity) can only be interpreted against an
+  // EdgeRecordV1. A SweepAssignmentRecordV1 carries no such context, so a grant reusing
+  // them could only interpret a SUBSET -- leaving every unchecked member free, which is how
+  // a capability issued for one traffic class came to authorize another.
+  EDGE_CAPABILITY_PURPOSE_ASSIGNMENT_EXECUTION = 5;
+}
+
+// EdgeCollectionClaimsV1 is the scheduler's ATTESTATION of a COMPILED SWEEP ASSIGNMENT. It
+// ATTESTS the agent and scope the assignment was COMPILED FOR, the plan/range it covers,
+// the shard/epoch it belongs to, the SPECIFIC attempt, and -- through
+// `compiled_assignment_body_sha256` -- every compiled fact the carrier states.
+//
+// The BODY digest is what makes this tractable: signing it signs the carrier's config
+// generation, typed result format, check-set identity, traffic class and validity window
+// TRANSITIVELY, so the claim does not have to restate them and cannot drift from them.
+// It is deliberately the BODY digest and not the artifact address: the artifact address
+// covers this capability, so signing it would require the signature to cover itself.
+message EdgeCollectionClaimsV1 {
+  EdgeCapabilityPurpose purpose = 1;        // MUST be COLLECTION
+  // The scope and agent the assignment is COMPILED FOR -- an attested intent, NOT permission to
+  // run. Execution permission is a HOST's EdgeAssignmentExecutionClaimsV1; a reader that treated
+  // this as authorization would let the scheduler grant itself host rights.
+  bytes network_scope_id = 2;
+  bytes authenticated_agent_id = 3;
+  bytes execution_plan_id = 4;
+  bytes target_range_id = 5;
+  uint32 execution_shard = 6;
+  uint64 assignment_epoch = 7;
+  // Commits every compiled fact in the carrier BODY. A capability that signed those
+  // facts individually could disagree with the carrier it attests; this cannot.
+  bytes compiled_assignment_body_sha256 = 8;
+  // Restated because it is IMMUTABLE and routing-relevant: a verifier that has the
+  // claim but not yet the carrier still knows the class it attests.
+  EdgeRecordTrafficClass traffic_class = 9;
+  // SCHEDULER-KNOWN ASSIGNMENT IDENTITY. Without these the attestation covers a
+  // (plan, range, shard, epoch) tuple rather than a specific attempt, so a capability
+  // issued for one assignment would verify against another sharing that tuple.
+  //
+  // `run_id` and the SOURCE IDENTITY are deliberately absent: they are PRODUCER-chosen
+  // and later-bound, so a scheduler cannot sign them. They are bound instead by the HOST's
+  // EdgeAssignmentExecutionClaimsV1 grant.
+  bytes producer_assignment_id = 10;
+  bytes execution_id = 11;
+}
+
+// EdgeAssignmentExecutionClaimsV1 is a HOST's permission to execute ONE compiled
+// assignment. Each member is checkable against the assignment record and its compiled
+// carrier, so the claim is validated IN FULL -- the property a partially-interpreted claim
+// contract cannot offer.
+//
+// Signed by an authority over the executing host, NOT by the scheduler: the scheduler's
+// authority is the carrier's own collection capability, and a grant to run that carrier is a
+// separate decision by a separate principal.
+message EdgeAssignmentExecutionClaimsV1 {
+  EdgeCapabilityPurpose purpose = 1;        // MUST be ASSIGNMENT_EXECUTION
+
+  // --- producer key ------------------------------------------------------------------
+  bytes network_scope_id = 2;
+  bytes authenticated_agent_id = 3;
+  bytes producer_assignment_id = 4;
+  bytes execution_id = 5;
+  bytes run_id = 6;
+  // run_shard / authority_epoch are the producer-key NAMES for the record's
+  // execution_shard / assignment_epoch, which are their SOLE wire representation.
+  uint32 run_shard = 7;
+  uint64 authority_epoch = 8;
+
+  // --- production facts no scheduler carrier covers ----------------------------------
+  bytes production_scope_id = 9;
+  bytes scope_sha256 = 10;
+  bytes contract_bundle_sha256 = 11;
+
+  // --- plan / range binding ----------------------------------------------------------
+  // REQUIRED, not "empty if N/A": a sweep assignment always covers exactly one plan and
+  // one range, and treating absence as "no constraint" would let a claim opt out.
+  bytes execution_plan_sha256 = 12;
+  bytes target_range_sha256 = 13;
+
+  // --- immutable class + freshness ---------------------------------------------------
+  // MUST equal the carrier's class. Without it a grant for one traffic class authorizes
+  // work in another.
+  EdgeRecordTrafficClass traffic_class = 14;
+  // The COLLECTION window. It MUST BE CONTAINED IN the envelope's window -- a grant cannot
+  // be wider than the capability carrying it, and "tighter" is enforced rather than assumed:
+  // an inner window reaching outside the envelope would otherwise authorize instants the
+  // envelope never covered. Both bounds are REQUIRED and positive: 0 is the proto default, so
+  // accepting it would let an unset field pose as an open-ended grant.
+  int64 collection_not_before_unix_nano = 15;
+  int64 collection_expires_unix_nano = 16;
+
+  // --- optional source identity ------------------------------------------------------
+  // Present EXACTLY WHEN the record carries a source identity, so present/absent
+  // asymmetry is a structural error rather than a skipped comparison.
+  EdgeSourceSpanIdentityV1 source_identity = 17;
+
+  // --- the EXACT carrier this grant permits ------------------------------------------
+  // Both REQUIRED. The id alone names a carrier without pinning which revision, and the
+  // artifact digest (body + attached authority) is what makes the grant non-reusable across
+  // recompilations. This is the field pair that distinguishes a permission from a floating
+  // attestation.
+  bytes compiled_assignment_id = 18;
+  bytes compiled_assignment_sha256 = 19;
+}
+
+// EdgeSignedCapabilityV1 is the shared wire format for every load-bearing signed
+// capability. The signature covers a field-framed signing preimage: domain ||
+// version || issuer_id || issuer_key_id || algorithm || purpose || not_before ||
+// expires || a u64 claims-oneof discriminant (the set member's field number) ||
+// that claim framed field-by-field. Every field is length-prefixed or fixed-width
+// in a frozen order; NO protobuf serialization appears in the preimage at any depth
+// (protobuf has no canonical wire form). The typed claims oneof both carries the CLAIMED
+// VALUES AND fixes the capability's role, so a CLAIM can never be presented in a position it
+// was not issued for.
+//
+// "Claimed", not "authorized", and "claim", not "grant": the oneof spans BOTH kinds. PRODUCTION,
+// SOURCE, DELIVERY and ASSIGNMENT_EXECUTION grant permission; COLLECTION only ATTESTS what the
+// scheduler compiled. Calling every member a grant, or its contents authorized values, would
+// reintroduce in the normative schema exactly the conflation the two-principal split removes.
+message EdgeSignedCapabilityV1 {
+  uint32 capability_version = 1;       // MUST be a known version (>= 1)
+  bytes issuer_id = 2;                 // issuer identity (distinct from key id)
+  bytes issuer_key_id = 3;             // selects the verifying key (rotation)
+  string algorithm = 4;               // verifier rejects an unknown algorithm
+  int64 not_before_unix_nano = 5;      // MUST be <= expires
+  int64 expires_at_unix_nano = 6;      // MUST be > not_before
+  oneof claims {
+    EdgeProductionClaimsV1 production = 7;
+    EdgeSourceClaimsV1 source = 8;
+    EdgeDeliveryClaimsV1 delivery = 9;
+    EdgeCollectionClaimsV1 collection = 11;
+    EdgeAssignmentExecutionClaimsV1 assignment_execution = 12;
+  }
+  bytes signature = 10;               // over the canonical signing bytes
+}
+
+// EdgeSourceAuthorizationV1 is the explicit typed authority for a source action.
+// Its outer kind/context/scope MUST equal the values inside its signed source
+// claims, so no unsigned outer value can widen authority. A record with no source
+// authorization omits it entirely; that says nothing about whether the record is
+// ACTIVE or PASSIVE.
+message EdgeSourceAuthorizationV1 {
+  EdgeSourceAuthorizationKind kind = 1;
+  EdgeSignedCapabilityV1 capability = 2;   // MUST carry EdgeSourceClaimsV1
+  bytes context_id = 3;                    // MUST equal source claims context_id
+  bytes scope_id = 4;                      // MUST equal source claims scope_id
+  bytes scope_sha256 = 5;                  // MUST equal source claims scope_sha256
+}
+
+// ---------------------------------------------------------------------------
+// Output contract reference and producer context
+// ---------------------------------------------------------------------------
+
+// EdgeOutputContractRef binds a record to a complete immutable contract bundle.
+// EventWriter dispatches by exact (contract_id, contract_version,
+// contract_bundle_sha256, registry_epoch); a package cannot choose subjects,
+// streams, consumers, tables, or processors.
+message EdgeOutputContractRef {
+  string contract_id = 1;            // globally namespaced, approval-owned
+  uint32 contract_version = 2;       // MUST be >= 1
+  bytes contract_bundle_sha256 = 3;  // full immutable semantic/processing bundle
+  uint64 registry_epoch = 4;         // MUST be >= 1
+  bytes registry_snapshot_sha256 = 5;
+  bytes effective_grant_sha256 = 6;
+}
+
+// EdgeProducerContext is the host-attested producer provenance. Caller-selected
+// identifiers never create identity/capability/routing/quota namespaces.
+message EdgeProducerContext {
+  EdgeOriginKind origin_kind = 1;    // MUST NOT be UNSPECIFIED
+  bytes origin_principal_id = 2;     // gateway/direct-ingress attested
+  bytes producer_instance_id = 3;
+  bytes producer_assignment_id = 4;
+  bytes run_id = 5;
+  uint32 run_shard = 6;
+  optional uint64 authority_epoch = 7;  // presence distinguishes absent from 0
+  bytes scope_id = 8;
+  bytes scope_sha256 = 9;
+  string package_id = 10;
+  bytes package_sha256 = 11;
+}
+
+// ---------------------------------------------------------------------------
+// Immutable semantic record
+// ---------------------------------------------------------------------------
+
+// EdgeRecordV1 is the immutable semantic record. The sink encodes it once with
+// deterministic marshaling and its exact bytes are what JetStream stores.
+// semantic_envelope_sha256 covers every semantic/trust field plus the exact
+// payload digest, EXCLUDING itself and all delivery state.
+message EdgeRecordV1 {
+  bytes event_id = 1;                  // stable UUIDv7 across every semantic retry
+  EdgeRecordPayloadFamily payload_family = 2;
+  EdgeRecordCompression compression = 3;
+  uint32 encoded_size = 4;             // MUST equal len(payload)
+  uint32 uncompressed_size = 5;        // NONE: == encoded_size; ZSTD: decoded size
+  bytes payload_sha256 = 6;            // SHA-256 of exact encoded body (payload)
+  EdgeOutputContractRef output_contract = 7;
+  EdgeProducerContext producer_context = 8;
+  EdgeRecordRouteProfile route_profile = 9;
+  EdgeRecordTrafficClass traffic_class = 10;
+  bytes network_scope_id = 11;         // authoritative signed site/address namespace
+  EdgeSignedCapabilityV1 production_capability = 12; // signed effective output grant
+  optional EdgeSourceAuthorizationV1 source_authorization = 13; // absent = no source authorization
+                                                                // (NOT the same as PASSIVE)
+  uint32 projected_row_count = 14;     // trusted conservative upper bound
+  uint64 projected_write_bytes = 15;   // trusted SQL/index/WAL upper bound
+  uint32 cost_model_version = 16;      // MUST be >= 1
+  bytes semantic_envelope_sha256 = 17; // excludes this field and all delivery state
+  bytes payload = 18;                  // exact canonical contract bytes
+}
+
+// ---------------------------------------------------------------------------
+// Delivery wrapper (mutable spool/delivery state, unchanged record_bytes)
+// ---------------------------------------------------------------------------
+
+// EdgeDeliveryFrameV1 is the edge-only wrapper. Recovery/reauthorization creates
+// a NEW frame around the SAME record_bytes: only these coordinates and the
+// optional renewable delivery_capability change. Route profile and traffic class
+// are NOT duplicated here as mutable wrapper authority -- they live in the record
+// and the lane is negotiated by the RPC session.
+message EdgeDeliveryFrameV1 {
+  bytes spool_id = 1;                  // persistent UUIDv7 for one delivery lane
+  uint64 sequence = 2;                 // persistent, strictly increasing per lane
+  bytes record_sha256 = 3;             // SHA-256 of the exact record_bytes below
+  optional EdgeSignedCapabilityV1 delivery_capability = 4; // renewable drain authority
+  bytes record_bytes = 5;              // exact deterministic EdgeRecordV1 bytes
+}
+
+// ---------------------------------------------------------------------------
+// Dispositions and cumulative acknowledgement
+// ---------------------------------------------------------------------------
+
+// EdgeRecordDispositionKind is the terminal outcome the gateway reports per
+// sequence. FOUR kinds RESOLVE the spool slot (each only after its required
+// destination PubAck): accepted-authoritative (primary stream), accepted-audit-only
+// (audit stream), accepted-quarantine (quarantine DLQ), and rejected-permanent
+// (reject-audit DLQ). ONLY rejected-retryable stays unresolved and MUST NOT advance
+// the resolved prefix. Spool-resolution eligibility derives from `kind` ALONE.
+enum EdgeRecordDispositionKind {
+  EDGE_RECORD_DISPOSITION_KIND_UNSPECIFIED = 0;
+  EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE = 1; // primary stream; resolves
+  EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUDIT_ONLY = 2;    // audit stream; resolves
+  EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_QUARANTINE = 3;    // quarantine DLQ; resolves
+  EDGE_RECORD_DISPOSITION_KIND_REJECTED_PERMANENT = 4;     // reject-audit DLQ; resolves
+  EDGE_RECORD_DISPOSITION_KIND_REJECTED_RETRYABLE = 5;     // transient; NEVER resolves
+}
+
+message EdgeRecordDisposition {
+  uint64 sequence = 1;
+  // The event this disposition resolves. Present (16-byte UUID, == the transmitted
+  // event) for any accept and for a rejection made AFTER decode. MAY be absent ONLY
+  // for a rejection the gateway made BEFORE record decode (oversize/undecodable
+  // frame), which cannot read the inner id -- that disposition binds solely to the
+  // authenticated session/spool/sequence.
+  bytes event_id = 2;
+  EdgeRecordDispositionKind kind = 3; // spool-resolution eligibility derives from kind ALONE
+  string rejection_code = 4;          // human/audit annotation only; never keys watermark logic
+}
+
+// EdgeDeliveryAckV1 is the cumulative gateway->agent disposition report over one
+// lane. resolved_through_sequence advances only across a contiguous run whose
+// members each earned an authoritative PubAck (primary or audit/DLQ).
+// session_nonce and spool_id bind the ack; the agent ignores an ack whose nonce
+// or spool does not match its active session.
+message EdgeDeliveryAckV1 {
+  bytes spool_id = 1;
+  uint64 resolved_through_sequence = 2;
+  repeated EdgeRecordDisposition dispositions = 3;
+  bytes session_nonce = 4;
+}
+
+// ---------------------------------------------------------------------------
+// Generic lane/session handshake (route-profile + class, not payload kind)
+// ---------------------------------------------------------------------------
+
+// EdgeRecordLaneOpen is the agent's opening handshake for a delivery lane. A lane
+// is one (route_profile, traffic_class) pair -- never keyed by output contract,
+// payload kind, or package. session_nonce fences this sender session. Every
+// record delivered on this lane MUST declare the same route_profile and
+// traffic_class (enforced by ValidateFrameForSession).
+message EdgeRecordLaneOpen {
+  EdgeRecordRouteProfile route_profile = 1;
+  EdgeRecordTrafficClass traffic_class = 2;
+  bytes spool_id = 3;
+  uint64 sequence_base = 4;               // MUST be 1
+  uint64 first_unresolved_sequence = 5;
+  bytes session_nonce = 6;                // fresh random per session
+  uint64 requested_byte_credits = 7;
+  uint32 requested_frame_credits = 8;
+}
+
+message EdgeRecordLaneOpenAck {
+  bytes spool_id = 1;
+  bytes session_nonce = 2;                // echoes EdgeRecordLaneOpen.session_nonce
+  uint64 granted_byte_credits = 3;
+  uint32 granted_frame_credits = 4;
+  EdgeRecordRouteProfile route_profile = 5;
+  EdgeRecordTrafficClass traffic_class = 6;
+}
+
+// ---------------------------------------------------------------------------
+// Bounded recovery / spool-loss contracts
+// ---------------------------------------------------------------------------
+
+// EdgeClassificationSpanV1 is one contiguous run of lost spool sequences
+// (from_sequence <= through_sequence, from_sequence >= 1) carrying EXACTLY ONE
+// classification. It replaces the retired lost_ranges + affected pairing: those two
+// arrays described one fact from two angles and could disagree.
+//
+// A sequence covered by NO span was NOT lost. Gaps are legal within a page and at a
+// page boundary alike, so the page's first-to-last quantity is its EXTENT -- never
+// "coverage", which elsewhere is per-sequence evidence that can authorize reclaim.
+//
+// The oneof makes the CHOICE structural. It does not make every illegal state
+// unrepresentable -- proto3 still permits a set body with a nil identity -- so
+// ValidateManifestChain rejects those explicitly.
+enum EdgeUnattributableReason {
+  // Retired before first use. SEGMENT_CORRUPT is not a reason: record-byte
+  // corruption does not defeat attribution, because the binding is stored
+  // corruption-independently of record_bytes. COARSENED had no legal condition --
+  // relabelling known attribution because coarsening failed is forbidden.
+  reserved 1, 5;
+  reserved "EDGE_UNATTRIBUTABLE_REASON_SEGMENT_CORRUPT",
+           "EDGE_UNATTRIBUTABLE_REASON_COARSENED";
+
+  EDGE_UNATTRIBUTABLE_REASON_UNSPECIFIED = 0;  // rejected
+  EDGE_UNATTRIBUTABLE_REASON_BINDING_MISSING = 2;
+  EDGE_UNATTRIBUTABLE_REASON_BINDING_CORRUPT = 3;
+  EDGE_UNATTRIBUTABLE_REASON_TORN_TAIL = 4;
+  EDGE_UNATTRIBUTABLE_REASON_BINDING_VERSION_UNSUPPORTED = 6;
+  EDGE_UNATTRIBUTABLE_REASON_DISCRIMINATOR_UNREPRESENTABLE = 7;
+}
+
+// The record's SIGNED SOURCE IDENTITY. All four members travel together; a partial
+// combination is rejected. Its ABSENCE is itself part of the span identity, so the
+// digest transcript frames presence explicitly rather than defaulting to zeros --
+// otherwise a source-absent span would collide with a source-present one.
+message EdgeSourceSpanIdentityV1 {
+  EdgeSourceAuthorizationKind kind = 1;  // UNSPECIFIED rejected
+  bytes context_id = 2;                  // canonical 16-byte UUID
+  bytes source_scope_id = 3;             // canonical 16-byte UUID
+  bytes source_scope_sha256 = 4;         // exactly 32 bytes
+}
+
+// The PRODUCER's names for one assignment identity, authored from what it actually
+// wrote. run_id is INDEPENDENT of any execution identity; resolving a span to an
+// execution is a lookup against the durable assignment mapping.
+message EdgeAttributedSpanIdentityV1 {
+  bytes producer_assignment_id = 1;      // canonical 16-byte UUID
+  bytes run_id = 2;                      // canonical 16-byte UUID
+  uint32 run_shard = 3;
+  uint64 authority_epoch = 4;            // plain u64, REQUIRED, no presence marker
+  bytes production_scope_id = 5;         // canonical 16-byte UUID
+  bytes scope_sha256 = 6;                // exactly 32 bytes
+  bytes contract_bundle_sha256 = 7;      // exactly 32 bytes
+  EdgeSourceSpanIdentityV1 source = 8;   // present iff the record carried a source
+                                         // authorization; ABSENCE IS SIGNIFICANT
+}
+
+// Attributed, asserting a produced target range.
+message EdgeAttributedActiveV1 {
+  EdgeAttributedSpanIdentityV1 identity = 1;  // REQUIRED; unset identity rejected
+  bytes range_sha256 = 2;                     // REQUIRED, 32 bytes, ACTIVE only
+}
+
+// Attributed, asserting NO produced target range. Still carries its lost DELIVERY
+// interval: omitting it would leave a hole indistinguishable from undetected loss.
+message EdgeAttributedPassiveV1 {
+  EdgeAttributedSpanIdentityV1 identity = 1;  // REQUIRED; unset identity rejected
+}
+
+// Not attributable, carrying why. No assignment identity: a partial identity is
+// worse than none, because a consumer cannot tell a recovered fact from a guess.
+message EdgeUnattributableV1 {
+  EdgeUnattributableReason reason = 1;  // UNSPECIFIED and reserved values rejected
+}
+
+message EdgeClassificationSpanV1 {
+  uint64 from_sequence = 1;
+  uint64 through_sequence = 2;
+  oneof classification {
+    EdgeAttributedActiveV1 attributed_active = 3;
+    EdgeAttributedPassiveV1 attributed_passive = 4;
+    EdgeUnattributableV1 unattributable = 5;
+  }
+}
+
+// EdgeLossManifestPageV1 is one bounded, chained page of a spool-loss manifest.
+// page_sha256 is the canonical digest over EVERY field of this message except
+// page_sha256 itself (recovery id, index/count, predecessor hash, terminal state,
+// digest version, and the ordered classification spans), so a contradictory page
+// cannot masquerade as a valid one. Pages chain via
+// prev_page_sha256 (empty on page 0) and compose into the ordered manifest root.
+message EdgeLossManifestPageV1 {
+  bytes recovery_id = 1;             // UUIDv7, matches the tombstone
+  uint32 page_index = 2;             // 0-based, < page_count
+  uint32 page_count = 3;
+  bytes prev_page_sha256 = 4;        // chain to the prior page; empty on page 0
+  bytes page_sha256 = 5;             // canonical digest over all other fields
+  bool terminal = 6;                 // MUST be true iff page_index == page_count-1
+  uint32 digest_version = 8;         // canonical page/root digest algorithm version
+
+  // Retired by 1.6a, reserved by NUMBER and by NAME so stale candidate bytes cannot
+  // be reinterpreted as a future field and the names cannot be reused.
+  reserved 7, 9, 10;
+  reserved "coarsened", "lost_ranges", "affected";
+
+  // ONE ordered loss description, replacing both lost_ranges and affected: a second
+  // array would let two schemas describe the same fact and disagree.
+  repeated EdgeClassificationSpanV1 classification_spans = 11;
+}
+
+// SpoolLossTombstoneV1 is the hard-size-bounded record that part of a prior spool
+// generation was lost and re-enqueued under a new generation. The loss need NOT be
+// contiguous: it is exactly the union of the pages' classification spans, and gaps
+// within that union mean NOT LOST.
+//
+// The tombstone itself is NOT agent-signed -- no agent-signature ABI exists. What is
+// signed is the recovery-control record's SOURCE CAPABILITY, whose scope_sha256
+// equals TombstoneScopeDigest and therefore fixes this exact spool pair and manifest
+// root. That is why a loss interval must not live here: with gaps legal the manifest
+// min/max is not the loss, and the signed scope would make it an authenticated
+// second source of truth.
+//
+// It carries the ordered manifest ROOT and page count, never an inline
+// outage-sized tail. It is a RECOVERY_CONTROL payload on the reserved
+// recovery lane and MUST carry recovery source authorization.
+message SpoolLossTombstoneV1 {
+  bytes recovery_id = 1;             // UUIDv7, immutably binds the rollover
+  bytes prior_spool_id = 2;
+  bytes new_spool_id = 5;
+  bytes manifest_root_sha256 = 6;    // ordered root over the chained manifest pages
+  uint32 manifest_page_count = 7;
+  int64 detected_at_unix_nano = 9;
+  string reason = 10;                // corruption / torn-tail / enospc / etc.
+  uint32 digest_version = 11;        // canonical page/root digest algorithm version
+
+  // Retired by 1.6a: with gaps legal the manifest min/max is not the loss, and a
+  // SIGNED interval would be an authenticated second source of truth. `coarsened`
+  // had no deterministic set/clear rule, so identical spans could hash differently.
+  reserved 3, 4, 8;
+  reserved "lost_from_sequence", "lost_through_sequence", "coarsened";
+}
+
+// EdgeRecoveryControlPayloadV1 is the canonical inner payload of a
+// RECOVERY_CONTROL record: exactly one recovery body. The composed
+// ValidateRecoveryControl decodes the record's payload as this message and binds
+// the carried body's recovery_id to the record's signed recovery source context,
+// so a recovery record cannot ship a body for an unrelated recovery operation.
+message EdgeRecoveryControlPayloadV1 {
+  oneof body {
+    SpoolLossTombstoneV1 tombstone = 1;
+    EdgeLossManifestPageV1 manifest_page = 2;
+    RecoveryResolvedV1 resolved = 3;
+  }
+}
+
+// RecoveryResolvedV1 is the scheduler's signed confirmation that a recovery
+// manifest was applied. The agent retains its recovery journal until this (or an
+// idempotent query result) is durable locally; a recovery PubAck alone does NOT
+// authorize journal garbage collection.
+message RecoveryResolvedV1 {
+  bytes recovery_id = 1;
+  bytes manifest_root_sha256 = 2;
+  uint64 applied_through_sequence = 3;
+  int64 resolved_at_unix_nano = 4;
+}
+
+// ---------------------------------------------------------------------------
+// Bidirectional record-ingest transport
+// ---------------------------------------------------------------------------
+
+// EdgeRecordClientMessage is one agent->gateway message on a lane: the opening
+// handshake (first message) followed by delivery frames.
+message EdgeRecordClientMessage {
+  oneof payload {
+    EdgeRecordLaneOpen lane_open = 1;
+    EdgeDeliveryFrameV1 delivery_frame = 2;
+  }
+}
+
+// EdgeRecordServerMessage is one gateway->agent message on a lane: the handshake
+// ack (first message) followed by cumulative dispositions.
+message EdgeRecordServerMessage {
+  oneof payload {
+    EdgeRecordLaneOpenAck lane_open_ack = 1;
+    EdgeDeliveryAckV1 ack = 2;
+  }
+}
+
+service EdgeRecordIngestService {
+  // Stream carries one delivery lane. gRPC provides authenticated, flow-
+  // controlled transport only; durable acceptance is the JetStream PubAck the
+  // gateway reports inside an EdgeDeliveryAckV1, never RPC success or EOF. The
+  // client/server messages are shared streaming oneof envelopes (lane-open
+  // handshake + frames/dispositions), not per-rpc request/response wrappers.
+  rpc Stream(stream EdgeRecordClientMessage) returns (stream EdgeRecordServerMessage) {}
+}

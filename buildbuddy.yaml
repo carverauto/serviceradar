@@ -72,7 +72,13 @@ actions:
     triggers:
       pull_request:
         branches:
+          # usp-01-proposal is the long-lived unify-sweep-results-proto integration branch. PRs
+          # land there first and reach staging much later, so a staging-only filter meant NONE of
+          # this ran on them -- which is why proto-abi.yml grew a hand-maintained list of ~25
+          # sequential `mix test` steps reimplementing tests that are already Bazel targets. They
+          # took 20+ minutes with no caching and no parallelism, and covered less.
           - "staging"
+          - "usp-01-proposal"
 
     # cpu also accepts an `m` suffix for thousandths of a core ("8000m" = 8 cores).
     # UNITS: `GB` HERE MEANS GiB, NOT 10^9.

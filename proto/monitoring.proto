@@ -21,6 +21,7 @@ package monitoring;
 option go_package = "github.com/carverauto/serviceradar/proto";
 
 import "automation_launch_envelope.proto";
+import "edge/v1/record.proto";
 
 service AgentService {
   rpc GetStatus(StatusRequest) returns (StatusResponse) {}
@@ -293,6 +294,7 @@ message AgentHelloRequest {
   map<string, string> labels = 9;   // Optional labels/tags for grouping
   string config_source = 10;        // Source of sysmon config: "remote", "local", "cached", "default"
   string host_ip = 11;              // Agent's own host IP (for device correlation behind NAT)
+  optional serviceradar.edge.v1.EdgeRecordCapabilitiesV1 edge_record_capabilities = 12;
 }
 
 // AgentHelloResponse is returned by the gateway after validating the agent.
@@ -442,6 +444,7 @@ message ControlStreamHello {
   string config_source = 10;        // Source of sysmon config: "remote", "local", "cached", "default"
   string host_ip = 11;              // Agent's own host IP (for device correlation behind NAT)
   repeated PluginAssignmentPolicyAck applied_plugin_assignments = 12; // Host-parsed Proxmox assignment bindings in config_version
+  optional serviceradar.edge.v1.EdgeRecordCapabilitiesV1 edge_record_capabilities = 13;
 }
 
 // CommandRequest represents a command sent to the agent.

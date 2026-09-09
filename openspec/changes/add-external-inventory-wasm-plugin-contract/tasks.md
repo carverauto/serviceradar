@@ -43,3 +43,13 @@
 - [ ] 6.3 Import and approve the package, assign it to the selected `example-namespace` agent, and create its scoped credential rule.
 - [ ] 6.4 Compare one manual collection with a current product export and inspect DIRE convergence/conflict samples.
 - [ ] 6.5 Enable the daily schedule, verify two collections plus Run Now, and audit all outputs for credential/token leakage.
+
+## 7. Reconcile with the durable edge producer plane
+- [ ] 7.1 Replace whole-run `serviceradar.plugin_result.v1` inventory output with the assignment-approved binary inventory page and terminal-manifest contracts from `unify-sweep-results-proto`; retain `plugin_result` only for bounded action/check status.
+- [ ] 7.2 Add Wasm SDK helpers for opening an inventory run, publishing bounded pages with stable producer idempotency keys, checkpointing provider progress, and committing or aborting the run through the agent-owned producer sink.
+- [ ] 7.3 Bind every page to source, source instance, package/version digest, assignment, run, output-contract bundle, platform-derived route/cost, and authenticated network scope; prove guest claims cannot override those fields.
+- [ ] 7.4 Stage pages incrementally and atomically activate a new current-snapshot pointer only after the terminal's bounded Merkle/checkpoint proof, page counts, object uniqueness, coverage scope, and provider consistency token validate.
+- [ ] 7.5 Treat providers without a trustworthy snapshot token/revision or equivalent consistency proof as upsert-only; never infer absence or deletion from those runs.
+- [ ] 7.6 Preserve the prior current snapshot for partial, aborted, stale, conflicting, missing-page, and failed runs, and garbage-collect abandoned staged runs after an explicit retention horizon.
+- [ ] 7.7 Update the OpenText plugin, generic host fixtures, DIRE tests, and operational rollout to exercise pagination, restart/resume, duplicate pages, missed local ACKs, provider revision changes, and atomic activation.
+- [ ] 7.8 Do not publish or operate the first external plugin until the durable producer-plane contract and these reconciliation tasks are approved and implemented.

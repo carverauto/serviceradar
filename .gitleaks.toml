@@ -15,15 +15,20 @@ regexes = [
 ]
 # Both Cargo vendor trees.
 #
-# crate_mirror holds .crate archives; crates/ held the extracted cargo-vendor
-# tree and was DELETED in b23f0436a9. It is still listed because gitleaks scans
-# a push RANGE, so any branch whose remote_oid..local_oid spans that deletion
-# re-scans the removed blobs and blocks the push -- which is every new branch
-# cut from staging until the remote ref catches up.
+# crate_mirror holds .crate archives; crates/ held the extracted cargo-vendor tree and was
+# DELETED in b23f0436a9. It is still listed because gitleaks scans a push RANGE, so any branch
+# whose remote_oid..local_oid spans that deletion re-scans the removed blobs and blocks the
+# push -- which is every new branch cut from staging, and every branch that MERGES staging,
+# until the remote ref catches up.
 #
-# What it flags in there is upstream crate content, not ours: .cargo-checksum.json
-# SHA digests that pattern-match generic-api-key, and elliptic-curve's own PKCS8
-# test vector, all published on crates.io.
+# What it flags in there is upstream crate content, not ours: `.cargo-checksum.json` SHA digests
+# that pattern-match generic-api-key, plus the crates' own PKCS8 test vectors
+# (`elliptic-curve`'s and `sec1`'s p256 example), all published on crates.io.
+#
+# The whole directory rather than the individual file kinds: the narrower form this replaces
+# objected that a blanket exemption would also cover a first-party file that landed there by
+# mistake. That cannot happen now -- the tree is deleted, so nothing new can land in it, and the
+# only blobs the pattern can ever match are the historical upstream ones above.
 paths = [
   '''^third_party/crate_mirror/''',
   '''^third_party/crates/''',

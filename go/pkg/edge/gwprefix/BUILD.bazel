@@ -1,0 +1,19 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "gwprefix",
+    srcs = ["prefix.go"],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/edge/gwprefix",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//proto/edge/v1:edgev1",
+        "@org_golang_google_protobuf//reflect/protoreflect",
+    ],
+)
+
+go_test(
+    name = "gwprefix_test",
+    srcs = ["prefix_test.go"],
+    embed = [":gwprefix"],
+    deps = ["//proto/edge/v1:edgev1"],
+)

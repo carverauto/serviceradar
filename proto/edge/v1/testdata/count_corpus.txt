@@ -1,0 +1,28 @@
+# SHARED STRUCTURAL-COUNT CORPUS (task 1.5-h).
+#
+# THREE BOUND-VECTOR PAIRS, FOUR TYPED FIXTURE ADAPTERS, EIGHT SITES. The distinction is
+# load-bearing and the columns keep it visible:
+#
+#   * a BOUND is the frozen ceiling (MaxManifestPages, MaxRangesPerPage, MaxSpansPerPage);
+#   * a CARRIER is the typed list an adapter materialises. MaxManifestPages has TWO carriers
+#     -- plan pages and recovery pages -- which share the literals below and CANNOT share
+#     serialized bytes, because a plan page and a manifest page are different messages;
+#   * a SITE is an independently removable gate. Several sites reuse one carrier.
+#
+# THE LITERALS ARE STATED HERE AND NOWHERE ELSE. Deriving `over` from the production constant
+# would make every row move with the bound, so a ceiling drifting to 128 or 4096 would keep
+# the whole corpus green. Each runtime asserts the constant against these values.
+#
+# VERDICT COLUMNS are per runtime. `n/a` means that runtime has no peer for the site; the
+# `owner` column names who owns building one, so an absent peer is a recorded gap and never
+# a silent exemption.
+#
+# site                   carrier          bound              at    over  go       elixir   owner
+plan_raw                 plan_pages       MaxManifestPages   1024  1025  refuse   refuse   -
+plan_decoded             plan_pages       MaxManifestPages   1024  1025  refuse   refuse   -
+recovery_raw             recovery_pages   MaxManifestPages   1024  1025  refuse   refuse   -
+recovery_decoded         recovery_pages   MaxManifestPages   1024  1025  refuse   refuse   -
+tombstone                recovery_pages   MaxManifestPages   1024  1025  refuse   refuse   -
+plan_ranges              plan_ranges      MaxRangesPerPage   256   257   refuse   refuse   -
+recovery_spans_chain     recovery_spans   MaxSpansPerPage    256   257   refuse   refuse   -
+recovery_spans_single    recovery_spans   MaxSpansPerPage    256   257   refuse   n/a      1.6-d

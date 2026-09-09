@@ -1,0 +1,111 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "edgerecord",
+    srcs = [
+        "assignment.go",
+        "canonical.go",
+        "capability.go",
+        "claims_framing.go",
+        "compiled_assignment.go",
+        "compression.go",
+        "domain.go",
+        "hello_capabilities.go",
+        "plan.go",
+        "principal.go",
+        "publication_identity.go",
+        "raw_decode.go",
+        "recovery.go",
+        "semantic.go",
+        "sweep_labels.go",
+        "uuidv7.go",
+        "validate.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/edge/edgerecord",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//proto/edge/v1:edgev1",
+        "@com_github_klauspost_compress//zstd",
+        "@org_golang_google_protobuf//encoding/protowire",
+        "@org_golang_google_protobuf//proto",
+        "@org_golang_google_protobuf//reflect/protoreflect",
+    ],
+)
+
+go_test(
+    name = "edgerecord_test",
+    srcs = [
+        "asn_corpus_test.go",
+        "assignment_test.go",
+        "bounds_precedence_test.go",
+        "canonical_micros_corpus_test.go",
+        "capability_test.go",
+        "compression_corpus_test.go",
+        "count_corpus_test.go",
+        "domain_test.go",
+        "hello_capabilities_test.go",
+        "lower_bound_corpus_test.go",
+        "mtr_completion_corpus_test.go",
+        "optional_presence_corpus_test.go",
+        "principal_test.go",
+        "projected_cost_corpus_test.go",
+        "proof_group_inventory_test.go",
+        "provenance_corpus_test.go",
+        "publication_identity_test.go",
+        "range_string_corpus_test.go",
+        "raw_decode_test.go",
+        "record_admit_corpus_test.go",
+        "recovery_test.go",
+        "scalar_corpus_test.go",
+        "semantic_branch_guard_test.go",
+        "semantic_envelope_corpus_test.go",
+        "sweep_body_parity_test.go",
+        "sweep_ingress_benchmark_test.go",
+        "sweep_inventory_test.go",
+        "sweep_labels_external_test.go",
+        "sweep_matrix_test.go",
+        "validate_test.go",
+        "version_corpus_test.go",
+        "wire_compat_corpus_test.go",
+    ],
+    data = [
+        "//proto/edge/v1:edge_testdata",
+        # THE STATIC GUARD READS THE FRAMER SOURCES AT RUN TIME. They are compile inputs of the
+        # library, which is NOT the same as being present in the test's runfiles: without them
+        # here the guard cannot open what it is meant to police, and a prohibited branch that
+        # fails `go test` would leave the Bazel target green.
+        "claims_framing.go",
+        "semantic.go",
+    ],
+    embed = [":edgerecord"],
+    deps = [
+        "//go/pkg/edge/projection",
+        "//proto",
+        "//proto/edge/v1:edgev1",
+        "@com_github_klauspost_compress//zstd",
+        "@org_golang_google_protobuf//encoding/protowire",
+        "@org_golang_google_protobuf//proto",
+        "@org_golang_google_protobuf//reflect/protodesc",
+        "@org_golang_google_protobuf//reflect/protoreflect",
+        "@org_golang_google_protobuf//reflect/protoregistry",
+        "@org_golang_google_protobuf//types/descriptorpb",
+    ],
+)
+
+# The test files and this BUILD file, as DECLARED INPUTS for //build:go_test_inventory_test.
+# That guard compares the go_test srcs list against the *_test.go files on disk; giving it the
+# glob means a newly added test file reaches it automatically, which is the whole point.
+filegroup(
+    name = "all_test_srcs",
+    srcs = glob(["*_test.go"]) + ["BUILD.bazel"],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "accounting_guard_sources",
+    srcs = glob(
+        ["*.go"],
+        exclude = ["*_test.go"],
+    ),
+    visibility = ["//visibility:public"],
+)

@@ -5,7 +5,7 @@
 Operators run ad-hoc reachability checks from jumpservers with
 bash/PowerShell over a CSV of IPs. We want the same, self-service, from the
 web console and via API, with a durable record. The build is dominated by
-reuse — the two background investigations (Go agent side; web-ng/data side)
+reuse - the two background investigations (Go agent side; web-ng/data side)
 found the transport, engines, agent picker, RBAC, inventory add/bulk-add,
 hypertable helpers, and CSV export already present. This document records
 the two load-bearing decisions (both taken) and the concrete shapes.
@@ -15,25 +15,43 @@ the two load-bearing decisions (both taken) and the concrete shapes.
 ### D1: Durable results via JetStream, live progress via the command channel
 Ad-hoc ICMP/TCP results are telemetry (availability, RTT, port state), so
 per the AGENTS.md hard rule they MUST traverse JetStream before landing in
-CNPG. The agent emits an `adhoc-scan-metrics` `MetricBatch` on the existing
-`metrics.>` stream (reusing the `metric_envelope.go` builders that already
-produce `icmp-metrics` / `sweep-metrics`); `ResultsRouter` routes the new
-source to a new EventWriter processor that writes `adhoc_scan_results`. The
-`CommandResult`/`CommandProgress` channel drives **live UI progress only**,
-never the system of record. This keeps results subscribable and
-rule-compliant while still feeling instant in the UI.
+CNPG. The agent emits canonical `SweepObservationBatchV1` events carrying
+`source=ad_hoc` and `scan_run_id` through the durable gRPC-to-gateway-to-
+JetStream result lane defined by `unify-sweep-results-proto`; full MTR uses
+correlated `MtrTraceBatchV1`. The canonical EventWriter projectors write
+`adhoc_scan_results` and trace rows. The
+`CommandResult`/`CommandProgress` channel carries only rate-limited counters,
+watermarks, and bounded control summaries; it never carries a second copy of
+per-target/per-hop results and never republishes or persists authoritative
+results. Persisted projection notifications plus paged reads drive the live
+result table. This keeps results subscribable and rule-compliant without a
+duplicate hot path.
 
-### D2: `ScanRun` aggregate; one `scan.run_adhoc` command; MTR is a first-class sweep mode
-One `ScanRun` row models a user's scan and dispatches a **single** new
-`scan.run_adhoc` command (inline target + port list) to the chosen agent.
-The handler runs an **ephemeral** sweep supporting all requested modes and
+### D2: `ScanRun` aggregate; bounded assignments; MTR is a first-class sweep mode
+One `ScanRun` models a user's logical scan and owns an immutable target/check
+plan. A small admitted run may dispatch one `scan.run_adhoc` assignment; a large
+uploaded list is page/range-sharded into multiple independently fenced bounded
+assignments to the chosen agent. No ControlStream command carries an unbounded
+list. The handler runs an **ephemeral** sweep supporting all requested modes and
 never mutates the agent's persisted/scheduled sweep config (see D4).
+
+The scheduler, not caller input, signs the traffic class. `interactive` requires
+hard target/probe/duration/result-cost bounds; larger accepted work is `bulk` or
+is rejected before probing. Class follows results into disjoint streams and
+reserved downstream queues so a large ad-hoc upload cannot monopolize the
+gateway, EventWriter, reconciler, graph projector, or DLQ.
+
+Dispatch eligibility requires the agent to be online, meet the configured
+minimum result-path version, advertise both `scan.run_adhoc` and
+`edge-results:v1`, and have a ready gateway/stream/consumer path. The scheduler
+rejects before probing if any part is missing; it never falls back to per-target
+`CommandResult` data.
 
 MTR is promoted to a first-class `SweepMode` (`ModeMTR`) rather than a
 separate command:
 - `models.SweepMode` gains `ModeMTR`; the sweep engine runs MTR per target
   via the existing `mtr.Tracer` engine (reuse at the engine level).
-- A sweep/scan config carries `modes: [icmp, tcp, mtr]` uniformly — for
+- A sweep/scan config carries `modes: [icmp, tcp, mtr]` uniformly - for
   ad-hoc runs **and** scheduled sweep profiles (D5).
 
 MTR's richer result shape is handled by writing to two stores, keyed by
@@ -45,8 +63,15 @@ MTR's richer result shape is handled by writing to two stores, keyed by
   hypertables (reusing that schema) so the UI can expand a row to the hop
   path.
 
-Both traverse JetStream (D1). The join key makes the two stores invisible to
-users. This supersedes the earlier "dispatch a separate `mtr.bulk_run`" plan.
+Both traverse their dedicated canonical JetStream streams (D1). The join key
+makes the two stores invisible to users. This supersedes the earlier "dispatch a
+separate `mtr.bulk_run`" and generic metric-expansion plans.
+
+Every completed host and trace feeds the canonical byte/row/write-cost/timer
+builder and fsynced spool immediately, then releases producer-owned memory.
+Execution duration may be long, but agent RSS and each transport/durability/
+transaction unit remain bounded; terminal state reconciles plan ranges and
+assignment watermarks instead of transport EOF.
 
 ### D4: Ephemeral runs never clobber the scheduled sweep config
 `scan.run_adhoc` constructs throwaway scanner/sweeper instances scoped to the
@@ -67,17 +92,23 @@ follow the same JetStream + `mtr_traces` persistence as ad-hoc MTR.
 ## Data model
 
 - `ServiceRadar.Scans.ScanRun` (Ash, `platform`, Ash-managed table):
-  `id`, `agent_id`, `modes` (array), `ports` (array), `target_count`,
-  `targets` (or a child table for very large lists), `options` (map:
+  `id`, authoritative `network_scope_id`, `agent_id`, `modes` (array),
+  `ports` (array), `target_count`,
+  immutable plan identity/digest plus normalized target pages in a child table,
+  `options` (map:
   timeouts, concurrency, icmp_count, mtr protocol/max_hops), `status`,
   `requested_by`, counts (`hosts_up`, `ports_open`), `started_at`,
   `finished_at`. Ash policy: `scans.execute` on create, `scans.read` on
   read, `system_bypass()`.
 - `platform.adhoc_scan_results` (raw-SQL hypertable, `migrate? false` Ash
-  read resource `ServiceRadar.Scans.ScanResult`): `time TIMESTAMPTZ`,
-  `scan_run_id`, `agent_id`, `target_ip`, `mode`, `port` (nullable),
+  read resource `ServiceRadar.Scans.ScanResult`): scheduler-owned
+  `identity_time TIMESTAMPTZ` (hypertable partition key), semantic
+  `observed_at TIMESTAMPTZ`,
+  `scan_run_id`, `agent_id`, `target_ip`, `mode`, `port` (nullable), non-null
+  canonical `check_key` derived from mode/protocol/normalized port-or-sentinel,
   `available bool`, `response_ms`, `service` (nullable), + PK
-  `(time, scan_run_id, target_ip, mode, port)`. Reads: `by_scan_run`,
+  authoritative `network_scope_id`, with physical key
+  `(identity_time, network_scope_id, scan_run_id, target_ip, check_key)`. Reads: `by_scan_run`,
   `by_agent`, `recent`. Hypertable + 30-day retention via
   `maybe_create_hypertable` / `add_retention_policy`.
 - `ServiceRadar.Scans.ScanPolicySettings` (singleton, key `"default"`):
@@ -86,15 +117,18 @@ follow the same JetStream + `mtr_traces` persistence as ad-hoc MTR.
 
 ## Command + subject names
 
-- Agent command type: `scan.run_adhoc` (new) — the single command for all
-  requested modes. Payload:
-  `{scan_run_id, targets []string, ports []int, modes []string ("icmp"/
+- Agent command type: `scan.run_adhoc` (new) - one bounded assignment carries
+  all requested modes for one immutable plan range. Payload:
+  `{scan_run_id, plan_id, range_id, range_digest, targets []string, ports []int,
+  modes []string ("icmp"/
   "tcp"/"mtr"), timeout_ms, concurrency, icmp_count, mtr_protocol,
-  mtr_max_hops}`. The handler runs ICMP/TCP via the sweep scanners and MTR
-  via `mtr.Tracer`, all in one ephemeral pass.
-- JetStream: reuse the `metrics.>` stream; new `MetricBatch` `Source =
-  "adhoc-scan-metrics"`. New `ResultsRouter` clause + EventWriter processor
-  `event_writer/processors/adhoc_scan.ex` -> `adhoc_scan_results`.
+  mtr_max_hops, traffic_class, assignment_epoch, capability}`. `targets` is
+  hard-bounded and digest-bound. The handler runs ICMP/TCP via the sweep scanners
+  and MTR via `mtr.Tracer`, all in one ephemeral assignment pass.
+- Durable results: `SweepObservationBatchV1` on the canonical sweep stream and
+  `MtrTraceBatchV1` on the canonical MTR stream, both correlated by
+  `scan_run_id`; the sweep/MTR EventWriter projectors write
+  `adhoc_scan_results` and trace tables.
 
 ## Web-ng UI
 
@@ -128,17 +162,17 @@ mirrors the existing buckets.
 
 CSV: reuse the chunked `text/csv` `send_chunked` streaming controller
 pattern (as in `AuthoredDashboardExportController`). XLSX: add `elixlsx` to
-`web-ng/mix.exs` — the single net-new dependency — and a small workbook
+`web-ng/mix.exs` - the single net-new dependency - and a small workbook
 builder. Both stream the joined result set for a `scan_run_id`.
 
 ## Risks / Trade-offs
 
-- **Two result stores (scan_results + mtr_traces).** Mitigated by the
-  `scan_run_id` join; revisited by the follow-up that unifies MTR onto
-  JetStream.
-- **Large target lists.** Bounded by per-agent concurrency caps (as
-  `mtr.bulk_run` does) and progress batching; the ScanRun may store targets
-  in a child table rather than a single array column if lists get large.
+- **Two relational result views (scan_results + mtr_traces).** Mitigated by the
+  `scan_run_id` join; both are projected from their canonical JetStream events.
+- **Large target lists.** Stored as immutable bounded plan pages and dispatched
+  as independently fenced assignments. Per-agent concurrency, spool/downstream
+  pressure, traffic-class budgets, and progress batching bound execution; the
+  system never sends or materializes one whole-run command/result payload.
 - **New `elixlsx` dependency.** Isolated to the export module; CSV works
   without it, so XLSX can ship slightly behind if needed.
 - **`scan.run_adhoc` is a powerful primitive.** Gated by `scans.execute` +
@@ -147,18 +181,17 @@ builder. Both stream the joined result set for a `scan_run_id`.
 
 ## Target architecture: all MTR routes through the sweep engine
 
-The intended end state is that **every** MTR execution — ad-hoc, scheduled
-sweep profile, and the existing dedicated MTR automation — runs as the `mtr`
+The required architecture is that **every** MTR execution - ad-hoc, scheduled
+sweep profile, and the existing dedicated MTR automation - runs as the `mtr`
 sweep mode through the shared sweep engine, and MTR results reach CNPG via
 JetStream + the event-writer pipeline (never a direct Ash write). This change
 establishes that path for ad-hoc + scheduled-profile MTR.
 
-Retiring the **standalone** MTR paths — the `check_type: "mtr"` scheduled
+Retiring the **standalone ingestion** paths used by `check_type: "mtr"`,
 checker (`mtr_checker.go`), the `mtr.run` / `mtr.bulk_run` on-demand commands,
-and the direct-write ingestion (`StatusHandler` -> `MtrMetricsIngestor`) — and
+and the direct-write ingestion (`StatusHandler` -> `MtrMetricsIngestor`) - and
 re-pointing the existing MTR automation (baseline/consensus workers) at the
-sweep-engine path is a **phased follow-on**, because that machinery has its own
+sweep-engine path is coordinated with `unify-sweep-results-proto`, because that machinery has its own
 baseline/trigger/consensus behavior that must be preserved. It folds in the
-JetStream migration tracked as forgejo issue #4669. Until then, the legacy MTR
-checker/automation continues on its current path unchanged; this change does
-not remove it.
+JetStream migration tracked as forgejo issue #4669. This ad-hoc change SHALL NOT
+add a new direct or generic-metric result route while that migration proceeds.

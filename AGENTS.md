@@ -120,6 +120,18 @@ Keep this managed block so 'openspec update' can refresh the instructions.
   sets up) silently redirects the push to **staging**. Create feature worktrees with
   `git worktree add --no-track -b <name> origin/staging`, and verify the push line says
   `-> <name>`, never `-> staging`.
+- **`origin` is GitHub (`git@github.com:carverauto/serviceradar.git`). The Forgejo host
+  at `code.carverauto.dev` is READ-ONLY and is a trap.** It still answers `git fetch`,
+  `git ls-remote` and `git clone`, so a stale `origin` looks healthy right up to the
+  push, which is refused for "access rights" — after the work is done. Two things follow.
+  First: **git worktrees share the main clone's config**, so repointing `origin` once in
+  `~/src/serviceradar` fixes every worktree; there is no per-worktree remote to update,
+  and a worktree that pushes to Forgejo means the MAIN clone is stale. Second: **verify
+  the destination host in the push output**, not just the branch name — `-> <name>` is
+  necessary but not sufficient when two remotes carry the same refs.
+- **CI is defined in `.github/workflows/` and `buildbuddy.yaml`.** The retired
+  `.forgejo/workflows/` files do not run and are not evidence that anything is gated.
+  Consult the live definitions for job inventories and trigger conditions.
 - **After `git worktree add` (or any extra checkout), symlink the gitignored
   Bazel rc files before any `bazel` command.** `.bazelrc` try-imports
   `%workspace%/.bazelrc.remote` and `.bazelrc.local`. Both are gitignored:
@@ -445,6 +457,25 @@ Full detail: **`rust/README_RUST.md`**. The rules below are the ones an agent vi
 ## Operational Runbooks
 
 Reference `docs/docs/agents.md` for: faker deployment details, CNPG truncate/reseed steps, materialized view recreation, and stream replay commands. Use those instructions whenever resetting the demo environment or investigating canonical device counts.
+
+## Which CI gates actually run on a pull request
+
+Check `triggers.pull_request.branches` in `buildbuddy.yaml` and `on:` in
+`.github/workflows/elixir-quality.yml` before relying on a stacked PR's green
+checks. A base branch outside those filters does not receive those gates.
+Either target the PR at a listed branch or run `make test` and
+`./scripts/elixir_quality.sh --project <project> --lint-only` locally and say so
+on the PR. Verify with
+`gh api repos/carverauto/serviceradar/commits/<sha>/status` -- `BazelCI` reports
+as a commit STATUS, not a check-run, so it is absent from
+`gh api .../check-runs` output entirely.
+
+## Maintaining this file
+
+Keep this file for knowledge useful to almost every future agent session in this project.
+Do not repeat what the codebase already shows; point to the authoritative file or command instead.
+Prefer rewriting or pruning existing entries over appending new ones.
+When updating this file, preserve this bar for all agents and keep entries concise.
 
 ## Common Commands & Tips
 

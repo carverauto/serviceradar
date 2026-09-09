@@ -1,0 +1,33 @@
+# SHARED PROJECTED-COST RELATION CORPUS (task 1.5-h).
+#
+# A RELATION, NOT A CEILING, and the distinction decides everything about the shape. The
+# numbers here are NOT frozen ABI constants: the maxima are carried by the record's OWN
+# production capability, so each comparison is between two values that travel together. A
+# manifest of literals would therefore be meaningless -- what is frozen is the SHAPE of the
+# comparison, and that is what these rows pin.
+#
+# THREE CONJUNCTS, EACH INDEPENDENTLY REMOVABLE. `validateProductionCapability` refuses when the
+# cost model versions DIFFER, or when either projected quantity EXCEEDS its capability-carried maximum.
+# Deleting any one leaves the other two refusing their own inputs, so a single row cannot
+# stand in for the group.
+#
+# INCLUSIVITY IS HALF OF EACH QUANTITY ROW. "Over is refused" alone permits an implementation
+# to tighten `>` into `>=` and refuse a record projecting EXACTLY its capability-carried maximum -- a
+# conforming producer's record, refused. Each quantity therefore carries an AT-MAXIMUM
+# acceptance as well.
+#
+# PRE-SIGNATURE, AND THE ROWS SAY SO. The comparison runs inside `ValidateRecord`, which
+# performs NO cryptographic verification: the maxima it reads are unverified at that point, so
+# this is a SHAPE rule, not an authorization one. A row asserting it through a signed boundary
+# would be proving a different -- stronger -- property than the one the code has.
+#
+# BOTH RUNTIMES compare these fields through their structural record boundary.
+# Elixir RecordValidate.validate_bytes consumes the Go-authored record_boundary fixtures.
+#
+# WHAT IS EXCLUDED: whether a projected cost COVERS every real mutation is 1.5-k's. These rows
+# verify only that a DECLARED cost does not exceed its capability-carried maxima.
+#
+# conjunct              relation  accepted            refused              go      elixir  owner
+cost_model_version      equal     equal_to_claim      differs_from_claim   refuse  refuse  -
+projected_row_count     at_most   equal_to_maximum    one_over_maximum     refuse  refuse  -
+projected_write_bytes   at_most   equal_to_maximum    one_over_maximum     refuse  refuse  -

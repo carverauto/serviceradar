@@ -1,0 +1,53 @@
+# SHARED LOWER-BOUND CORPUS (task 1.5-h).
+#
+# ITS OWN INVENTORY, NOT AN EXTENSION OF THE COUNT CORPUS. The upper table proves each site's
+# ceiling with an N/N+1 pair. Extending it mechanically with one empty row per site would
+# assert eight independent proofs where the implementations provide far fewer: several local
+# emptiness predicates are SHADOWED by a later check that refuses the same input. This file
+# therefore carries a different question -- what does the BOUNDARY do, and what would removing
+# the local arm actually change -- and states the second answer per runtime.
+#
+# TWO CONTROLS PER RULE. `zero` refused alone does not pin a minimum of 1: an implementation
+# tightened to demand two elements refuses zero exactly as before. `one` ACCEPTED is what makes
+# the pair a bound rather than a prohibition.
+#
+# THE `*_removal` COLUMNS ARE MEASURED, NOT ASSUMED, and they say what a row can and cannot
+# prove in that runtime:
+#
+#   admits    removing the local arm ADMITS the empty input. The arm is load-bearing and the
+#             row kills its removal outright.
+#   crashes   removing it CRASHES the public validator on attacker-supplied input. Load-bearing;
+#             the row kills its removal.
+#   retags    the boundary still refuses, under a DIFFERENT reason. A row asserting the exact
+#             refusal reason kills the removal; one asserting "refused" does not.
+#   silent    the boundary still refuses under the SAME reason, because a later gate catches it.
+#             NO verdict-based row can kill the removal. The row records boundary behaviour and
+#             claims nothing about the local arm.
+#   combined  the runtime has no separable zero arm to remove -- the emptiness case is one
+#             conjunct of a single predicate that also enforces the ceiling and the declared
+#             count. Nothing to mutate independently, so nothing is claimed.
+#   n/a       no peer in that runtime; `owner` names who builds it.
+#
+# NORMATIVE SOURCES, one per rule, none re-authored here:
+#   * plan page list and ranges-per-page  -- the residual-bounds table's minimum column.
+#   * classification spans per page       -- "Every page SHALL carry AT LEAST ONE span".
+#   * recovery manifest page list         -- authored by THIS task; it was the only gap. The
+#                                            shared ceiling was stated for a recovery manifest
+#                                            but its minimum spoke for the PLAN list alone.
+#   * signed tombstone declared count     -- authored by THIS task, a DECLARED SCALAR rule.
+#
+# `MaxSweepHostsPerBatch` IS ABSENT ON PURPOSE. The bounds table gives it NO minimum, and both
+# runtimes admit zero hosts. It is not a gap and SHALL NOT be added here.
+#
+# THE DECLARED-SCALAR ROW carries `at`/`over` because this task freezes its ceiling too; the
+# collection rows leave them `n/a`, since the count corpus already owns their ceilings.
+#
+# site                      kind         zero    one     at    over  go_removal  ex_removal  owner
+plan_pages_decoded          collection   refuse  accept  n/a   n/a   retags      retags      -
+plan_pages_raw              collection   refuse  accept  n/a   n/a   silent      combined    -
+plan_ranges                 collection   refuse  accept  n/a   n/a   admits      admits      -
+recovery_pages_decoded      collection   refuse  accept  n/a   n/a   crashes     crashes     -
+recovery_pages_raw          collection   refuse  accept  n/a   n/a   silent      silent      -
+recovery_spans_chain        collection   refuse  accept  n/a   n/a   retags      retags      -
+recovery_spans_single       collection   refuse  accept  n/a   n/a   retags      n/a         1.6-d
+tombstone_declared_count    scalar       refuse  accept  1024  1025  admits      n/a         1.6-d

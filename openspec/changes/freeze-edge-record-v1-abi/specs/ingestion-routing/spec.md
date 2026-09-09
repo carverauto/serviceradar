@@ -53,3 +53,52 @@ this contract.
 - **WHEN** recovery rewraps the same record bytes in a new delivery frame
 - **THEN** the semantic identity and digest SHALL be unchanged
 - **AND** broker placement metadata SHALL NOT be written into `EdgeRecordV1`
+
+### Requirement: A refusal's classification decides retryability and is frozen
+A component that refuses an edge record SHALL classify the refusal as exactly one of `poison`,
+`systemic`, or `not_ready`, and that classification SHALL determine the delivery's disposition:
+
+| classification | disposition |
+|---|---|
+| `poison` | PERMANENTLY resolves the delivery. The input is bad and no retry can succeed. |
+| `systemic` | PAUSES. The input may be valid and this deployment is at fault. |
+| `not_ready` | Leaves the delivery UNRESOLVED for a later attempt. |
+
+THE CLASSIFICATION IS PART OF THE CONTRACT, NOT A LOCAL LOGGING CHOICE. Whether bytes are
+refused is one question and what the refusal is CALLED is another, and only the second decides
+whether the same bytes are retried forever. Two runtimes can agree exactly on which inputs they
+reject and still diverge here, and no accept/refuse corpus can observe it, because neither
+`systemic` nor `not_ready` is a refusal at all.
+
+MALFORMED WIRE BYTES SHALL BE CLASSIFIED `poison`. A runtime whose decoder is more lenient than
+the frozen wire rules SHALL run a STRUCTURAL PREFLIGHT it owns before that decoder, so malformed
+input is refused by this contract's rules rather than by whichever exception a third-party
+decoder happens to raise.
+
+AN AMBIGUOUS FAILURE -- one a malformed input and a deployment defect can BOTH produce -- SHALL
+be classified `systemic`, never `poison`. A deployment defect must not permanently destroy valid
+data. That default is deliberately the retryable one, so the ambiguous path SHALL be kept EMPTY
+by the preflight rather than merely tolerated, and its emptiness SHALL be MEASURED over
+malformed inputs rather than argued from the design.
+
+AN UNRECOGNISED FAILURE SHALL be classified `systemic`. Failing closed here means failing toward
+retry, not toward destruction: an unfamiliar fault is more likely a defect in the deployment
+than proof the input is bad.
+
+#### Scenario: Malformed bytes are refused permanently
+- **WHEN** an input fails the structural preflight or the decoder rejects it as malformed
+- **THEN** the refusal SHALL be classified `poison`
+- **AND** the delivery SHALL be permanently resolved rather than retried
+
+#### Scenario: An ambiguous failure pauses instead of destroying
+- **WHEN** a failure could have been caused either by malformed input or by a codegen,
+  metadata, or configuration defect in the deployment
+- **THEN** it SHALL be classified `systemic`
+- **AND** it SHALL NOT permanently resolve the delivery
+
+#### Scenario: The ambiguous path is measured empty
+- **WHEN** malformed inputs are generated against a valid record and driven through the
+  preflight and decoder
+- **THEN** the count reaching the ambiguous classification SHALL be reported
+- **AND** an input surviving the preflight to reach it SHALL be treated as a defect in the
+  preflight, because at a known delivery slot it would be retried forever

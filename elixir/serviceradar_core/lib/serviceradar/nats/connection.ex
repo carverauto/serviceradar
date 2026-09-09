@@ -38,8 +38,26 @@ defmodule ServiceRadar.NATS.Connection do
   Returns `{:ok, pid}` if connected, `{:error, reason}` otherwise.
   """
   @spec get() :: {:ok, pid()} | {:error, term()}
-  def get do
-    case Process.whereis(@connection_name) do
+  def get, do: get(@connection_name)
+
+  @doc """
+  Gets the PID of a NAMED NATS connection.
+
+  The edge publishers each own a separate connection so that a saturated lane cannot consume
+  another lane's socket or Gnat mailbox; see `ServiceRadar.Edge.PublisherLane`. Resolution is
+  per call rather than cached, because `Gnat.ConnectionSupervisor` re-registers the name across
+  a reconnect and a held PID would go stale exactly when NATS was least healthy.
+  """
+  @spec get(atom() | pid()) :: {:ok, pid()} | {:error, term()}
+  def get(pid) when is_pid(pid) do
+    # A caller that resolved the connection EARLIER and is holding that pid: it wants this exact
+    # connection, not whatever currently owns the name. That distinction is what stops a publish
+    # from crossing a lane restart -- see JetStreamPublisher.
+    if Process.alive?(pid), do: {:ok, pid}, else: {:error, :connection_dead}
+  end
+
+  def get(name) when is_atom(name) do
+    case Process.whereis(name) do
       nil ->
         {:error, :not_connected}
 
@@ -84,6 +102,57 @@ defmodule ServiceRadar.NATS.Connection do
         catch
           :exit, reason ->
             Logger.warning("NATS publish failed (connection died): #{inspect(reason)}")
+            {:error, {:nats_connection_died, reason}}
+        end
+
+      {:error, reason} ->
+        {:error, {:nats_not_connected, reason}}
+    end
+  end
+
+  @doc """
+  Sends a NATS request and waits for a single reply.
+
+  This is the request/reply primitive used for a JetStream publish that must
+  observe the server's `PubAck` (durable acknowledgement) rather than
+  fire-and-forget like `publish/3`. The reply body carries the JetStream
+  `PubAck` JSON (`{"stream", "seq", "duplicate"}`) or an error object.
+
+  Returns `{:ok, %Gnat.Message{}}` on a reply, `{:error, :timeout}` when no
+  reply arrives within `:receive_timeout`, or `{:error, reason}` otherwise.
+
+  ## Examples
+
+      {:ok, %{body: body}} =
+        Connection.request("sr.edge.v1.sweep.bulk.p07.v1", payload,
+          headers: headers, receive_timeout: 5_000)
+  """
+  @spec request(String.t(), String.t() | binary(), keyword()) ::
+          {:ok, Gnat.Message.t()} | {:error, term()}
+  def request(subject, payload, opts \\ []) do
+    request(@connection_name, subject, payload, opts)
+  end
+
+  @doc """
+  Sends a request on a NAMED connection.
+
+  Deliberately has NO default for `opts`: with one, this would also define a 3-arity clause
+  `(conn, subject, payload)` that collides with `request/3`'s `(subject, payload, opts)`, and the
+  two are indistinguishable at the call site -- three positional terms where the first is either a
+  connection or a subject. Requiring `opts` keeps the arity unambiguous.
+  """
+  @spec request(atom() | pid(), String.t(), String.t() | binary(), keyword()) ::
+          {:ok, Gnat.Message.t()} | {:error, term()}
+  def request(conn_name, subject, payload, opts) when is_atom(conn_name) or is_pid(conn_name) do
+    opts = put_trace_context(opts)
+
+    case get(conn_name) do
+      {:ok, conn} ->
+        try do
+          Gnat.request(conn, subject, payload, opts)
+        catch
+          :exit, reason ->
+            Logger.warning("NATS request failed (connection died): #{inspect(reason)}")
             {:error, {:nats_connection_died, reason}}
         end
 

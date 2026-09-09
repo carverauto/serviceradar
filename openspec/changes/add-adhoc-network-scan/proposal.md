@@ -22,16 +22,23 @@ RBAC to drive it safely.
 
 ## What Changes
 
-### Scan job model — a `ScanRun` aggregate dispatched as one command
+### Scan job model - one logical `ScanRun`, bounded assignments
 - **ADD** an Ash aggregate `ServiceRadar.Scans.ScanRun` (schema `platform`)
   capturing one user-initiated scan: chosen `agent_id`, requested `modes`
   (`icmp` / `tcp` / `mtr`), `ports`, the normalized target list, options
   (timeouts/concurrency/ICMP count/MTR protocol+max-hops), `status`
   (`pending`/`running`/`partial`/`completed`/`failed`), counts, and
-  timestamps. One ScanRun dispatches a **single** `scan.run_adhoc` command
-  (all requested modes) to the chosen agent.
+  timestamps, plus authoritative `network_scope_id` derived from the selected
+  agent/site rather than caller text. One ScanRun owns one immutable target/check plan and one or more
+  bounded `scan.run_adhoc` assignment attempts to the chosen agent; it never
+  embeds an unbounded uploaded target list in one command.
 - **ADD** `AgentCommandBus.dispatch_adhoc_scan/3` (+ concurrency caps and
-  `required_capability` gating) mirroring `dispatch_bulk_mtr/3`.
+  capability/readiness gating) mirroring `dispatch_bulk_mtr/3`. Dispatch requires
+  `scan.run_adhoc`, `edge-results:v1`, the configured minimum result-path binary
+  version, and complete gateway/stream/consumer readiness before any probe. The scheduler
+  assigns signed `interactive` class only when target/probe/duration/result
+  estimates fit the configured interactive envelope. Larger accepted runs use
+  `bulk` class (or are rejected before probing); callers cannot promote them.
 
 ### MTR becomes a first-class sweep mode
 - **ADD** `ModeMTR` to `models.SweepMode` so a sweep/scan config carries
@@ -43,40 +50,52 @@ RBAC to drive it safely.
   the Settings sweep-profile editor (alongside ICMP/TCP). Scheduled profiles
   with MTR run it on their interval through the same engine path.
 
-### Agent side (Go) — one ephemeral command handler
+### Agent side (Go) - one ephemeral command handler
 - **ADD** `commandTypeAdhocScan = "scan.run_adhoc"` to
   `go/pkg/agent/control_stream.go`, with a handler that builds
   `[]models.Target` from the payload and runs an **ephemeral** sweep for all
-  requested modes — ICMP via `NewICMPSweeper`, TCP via `NewTCPSweeper`, MTR
-  via `mtr.Tracer` — in throwaway instances scoped to the command. It MUST
+  requested modes - ICMP via `NewICMPSweeper`, TCP via `NewTCPSweeper`, MTR
+  via `mtr.Tracer` - in throwaway instances scoped to the assignment. Each
+  command carries only a bounded target-plan page/range and signed assignment
+  context. It MUST
   NOT touch the persistent `MultiSweepService`/scheduled sweep config and
-  MUST NOT reuse `sweep.run_group`. Streams `CommandProgress` result batches
-  for large lists and emits a final summary.
+  MUST NOT reuse `sweep.run_group`. It emits rate-limited `CommandProgress`
+  counters/watermarks and a bounded final control summary; it does not duplicate
+  per-target or per-hop result rows on the command channel.
 - **ADD** the `scan.run_adhoc` capability to the agent's advertised
   capability set so dispatch can gate on it.
 
-### Results — durable via JetStream (honors the metrics-through-JetStream rule)
-- **ADD** an `adhoc-scan-metrics` `MetricBatch` envelope emitted by the
-  agent onto the existing `metrics.>` JetStream stream (reusing the
-  `metric_envelope.go` builder pattern used by `icmp-metrics` /
-  `sweep-metrics`), carrying the `scan_run_id`, per-target availability,
-  RTT, and per-port state. The live `CommandResult`/`CommandProgress`
-  channel is used **only** for interactive UI progress, not as the source
-  of truth.
-- **ADD** routing in `ServiceRadar.ResultsRouter` for the
-  `adhoc-scan-metrics` source and a new EventWriter processor
-  (`event_writer/processors/adhoc_scan.ex`) that persists rows into a new
-  hypertable.
+### Results - durable via JetStream (honors the metrics-through-JetStream rule)
+- **USE** the canonical data plane from `unify-sweep-results-proto`: the agent
+  sends `SweepObservationBatchV1` with `source=ad_hoc` and `scan_run_id` plus
+  correlated `MtrTraceBatchV1` events over the durable result stream. The
+  gateway publishes them to their dedicated JetStream streams and acknowledges
+  only after PubAck. The live `CommandResult`/`CommandProgress` channel is used
+  **only** for bounded interactive progress, not as the source of truth.
+- **REQUIRE** the canonical v1 result path before dispatch; an online agent with
+  only command support is not eligible because the command channel cannot become
+  a fallback result transport.
+- **STREAM** every completed host and MTR trace immediately into the bounded
+  canonical builder/spool while later targets run. Ad-hoc execution SHALL NOT
+  accumulate a run-wide result or trace slice, and immutable traffic class SHALL
+  survive result, reconciliation, graph, DLQ, redrive, and quarantine stages.
+- **ADD** the ad-hoc projection to the canonical sweep EventWriter processor;
+  do not add an `adhoc-scan-metrics` `MetricBatch`, ResultsRouter republisher,
+  or second database writer.
 - **ADD** migration creating `platform.adhoc_scan_results` as a Timescale
   hypertable (reusing `maybe_create_hypertable` + `add_retention_policy`,
   default 30-day retention) and a read-only Ash resource
   `ServiceRadar.Scans.ScanResult` (`migrate? false`) with `by_scan_run`,
-  `by_agent`, `recent` reads. MTR mode writes a reachability summary row to
+  `by_agent`, `recent` reads. Every row and query retains authoritative
+  `network_scope_id`; a non-null canonical check key, rather than nullable port,
+  participates in physical uniqueness. The scheduler-owned ScanRun identity time
+  is the hypertable partition/uniqueness time and actual observation time remains
+  a semantic column. MTR mode writes a reachability summary row to
   `adhoc_scan_results` (`mode="mtr"`) **and** the full per-hop trace to the
   existing `mtr_traces`/`mtr_hops`; the UI and export join both under
   `scan_run_id`.
 
-### Web-ng UI — LiveView
+### Web-ng UI - LiveView
 - **ADD** a `ScanLive` LiveView: paste a target list into a textarea, or
   drag-and-drop / upload a `.csv`/`.txt` (reusing `allow_upload` + the
   existing hand-rolled CSV parser). Parse, validate, and de-dupe IPs/CIDRs;
@@ -85,7 +104,7 @@ RBAC to drive it safely.
   events; results in a `stream/3` table joined across `scan_results` +
   `mtr_traces`.
 - **ADD** export buttons: CSV (reusing the chunked `text/csv` streaming
-  controller pattern) and XLSX (via a new `elixlsx` dependency — the one
+  controller pattern) and XLSX (via a new `elixlsx` dependency - the one
   net-new library).
 
 ### Inventory-scoping guardrail + add-missing
@@ -94,17 +113,17 @@ RBAC to drive it safely.
   :boolean` (default `false`), modeled on `DeviceCleanupSettings`. When
   enabled, a scan request SHALL reject any target IP not present in
   inventory (checked via `Device.get_by_ip`), returning the offending IPs.
-- **ADD** UI affordances to add the missing IPs to inventory — single add
-  and **bulk** add (hundreds) — reusing `ManualDeviceCreator` and the
+- **ADD** UI affordances to add the missing IPs to inventory - single add
+  and **bulk** add (hundreds) - reusing `ManualDeviceCreator` and the
   existing bulk-import loop, gated on `devices.create` / `devices.import`.
   After adding, the scan can proceed.
 
 ### RBAC
 - **ADD** a `scans` section to `ServiceRadar.Identity.RBAC.Catalog`:
-  - `scans.execute` (run a scan) — default operator+admin.
-  - `scans.read` (view runs/results) — default all roles.
-  - `scans.export` (CSV/XLSX export) — default all roles.
-  - `scans.manage` (toggle the inventory-scoping policy) — default admin.
+  - `scans.execute` (run a scan) - default operator+admin.
+  - `scans.read` (view runs/results) - default all roles.
+  - `scans.export` (CSV/XLSX export) - default all roles.
+  - `scans.manage` (toggle the inventory-scoping policy) - default admin.
 - **ENFORCE** at three layers: LiveView `mount`/`handle_event`
   (`RBAC.can?`), the new API routes, and an Ash policy on `ScanRun`
   (`scans.execute` on create, `scans.read` on read).
@@ -113,12 +132,12 @@ RBAC to drive it safely.
 - **ADD** `scope "/api/v1"` `ScanController` routes under the
   `:api_key_auth` pipeline (ApiToken / OAuth client-credentials with a
   `scan.execute` scope), rate-limited via a named pipeline:
-  - `POST /api/v1/scans` — body `{agent_id, targets[], modes[], ports[],
+  - `POST /api/v1/scans` - body `{agent_id, targets[], modes[], ports[],
     options{}}`; returns the created `ScanRun` (`scans.execute` +
     `scan.execute` scope). Honors the inventory-scoping policy (409 with
     the offending IPs when it blocks).
-  - `GET /api/v1/scans/:id` — run status (`scans.read`).
-  - `GET /api/v1/scans/:id/results` — paginated results (`scans.read`).
+  - `GET /api/v1/scans/:id` - run status (`scans.read`).
+  - `GET /api/v1/scans/:id/results` - paginated results (`scans.read`).
   - `GET /api/v1/scans/:id/export?format=csv|xlsx` (`scans.export`).
 
 ## Impact
@@ -126,24 +145,19 @@ RBAC to drive it safely.
 - **Affected specs**: NEW capability `adhoc-network-scan`.
 - **Affected code (high level)**:
   - Go: `go/pkg/agent/control_stream.go` (+ handler file), `go/pkg/agent`
-    sweep/scan glue, `go/pkg/agent/metric_envelope.go` (new envelope),
-    capability advertisement; proto — **no new service**, the existing
-    `CommandRequest`/`CommandResult`/`MetricBatch` messages carry it.
+    sweep/scan glue, canonical result builders, and capability advertisement;
+    existing command messages carry live control/progress while result
+    protobufs/RPC come from `unify-sweep-results-proto`.
   - Elixir core: `ServiceRadar.Scans.*` (ScanRun, ScanResult,
     ScanPolicySettings), migration for `adhoc_scan_results`,
-    `AgentCommandBus.dispatch_adhoc_scan`, `ResultsRouter` route,
-    `event_writer/processors/adhoc_scan.ex`, RBAC catalog `scans` section,
+    `AgentCommandBus.dispatch_adhoc_scan`, canonical EventWriter ad-hoc
+    projection, RBAC catalog `scans` section,
     Ash policies.
   - Elixir web-ng: `ScanLive` + views, `ScanController` (API), export
     controller, router entries + rate-limit pipeline, `elixlsx` dep.
-- **Compatibility**: purely additive. No existing command types, tables,
-  or routes change. MTR reuses its current path unchanged (see follow-up).
-- **Follow-up (separate change)**: migrate the on-demand MTR ingestion
-  (`mtr.bulk_run` / `mtr.run` -> `StatusHandler` -> `MtrMetricsIngestor`
-  Ash write) onto the same JetStream path this change establishes, so both
-  ICMP/TCP and MTR results converge on the metrics-through-JetStream rule
-  instead of MTR keeping its direct-write exception. Tracked as forgejo
-  issue #4669; this change does not block on it.
+- **Compatibility/dependency**: additive UI/API/data resources, but result
+  implementation is blocked on the approved canonical edge-result data plane.
+  It does not introduce or preserve a direct MTR database-write exception.
 - **Relationship to paused CLI work**: the `scan.execute` API scope and the
   external-tool auth path align with the paused
   `consolidate-serviceradar-cli` device-auth/`srclient` scope model; the

@@ -1,0 +1,28 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "obsbatch",
+    srcs = [
+        "builder.go",
+        "router.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/edge/obsbatch",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//proto/edge/v1:edgev1",
+        "@org_golang_google_protobuf//proto",
+    ],
+)
+
+go_test(
+    name = "obsbatch_test",
+    srcs = [
+        "builder_test.go",
+        "router_test.go",
+    ],
+    embed = [":obsbatch"],
+    deps = [
+        "//proto/edge/v1:edgev1",
+        "@org_golang_google_protobuf//proto",
+    ],
+)
