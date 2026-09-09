@@ -206,33 +206,13 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
 
   defp get_integration_id(metadata) when is_map(metadata) do
     raw = ids_get(%{integration_id: get_trimmed(metadata, "integration_id")}, :integration_id)
-    integration_type = metadata["integration_type"] |> to_string() |> String.downcase()
+    integration_type = get_trimmed(metadata, "integration_type") || "integration"
+    candidate = source_scoped_integration_id(metadata, raw)
 
-    case integration_type do
-      "armis" ->
-        # Legacy bare Armis IDs are unscoped across provider instances and
-        # must never identify a device (the over-merge class). Values the
-        # driver already scoped ("armis:<scope>:device:<id>") carry their
-        # own provenance and flow through the generic integration_id path
-        # like every other provider.
-        if scoped_armis_integration_id?(raw) do
-          raw
-        end
-
-      "netbox" ->
-        raw
-
-      _ ->
-        source_scoped_integration_id(metadata, raw)
-    end
+    if is_binary(candidate) and self_scoped?(candidate, integration_type), do: candidate
   end
 
   defp get_integration_id(_metadata), do: nil
-
-  defp scoped_armis_integration_id?(value) when is_binary(value),
-    do: String.starts_with?(value, "armis:")
-
-  defp scoped_armis_integration_id?(_), do: false
 
   defp source_scoped_integration_id(_metadata, nil), do: nil
 
@@ -241,6 +221,11 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
     source_id = get_trimmed(metadata, "sync_service_id")
 
     cond do
+      # These drivers own their persisted identity format. Synthesizing another
+      # scope here would split driver-minted identities from existing rows.
+      String.downcase(integration_type) in ["armis", "netbox"] ->
+        raw
+
       source_id in [nil, ""] ->
         raw
 

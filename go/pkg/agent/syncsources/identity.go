@@ -29,7 +29,7 @@ import (
 // The scope must distinguish one provider instance from another; a bare
 // native ID is not a device identity because two instances routinely mint
 // the same numbers. Callers choose the stable source scope; this helper
-// does not validate Core's provider-specific admission rules.
+// does not validate Core's identity admission rules.
 //
 // It returns "" when any segment is empty after normalization, in which
 // case the caller must handle its provider's legacy behavior.

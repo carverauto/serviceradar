@@ -22,6 +22,14 @@ Validation happens at every boundary (Go agent `syncsources.NormalizeUpdate`
 and Elixir `Identity.Mac`): multi-value fields are split, malformed values
 are rejected with telemetry, and rejected values never become rows.
 
+### Integration identity admission
+
+DIRE admits a candidate `integration_id` only when it has its integration-type
+prefix (the extractor's self-scoped shape check), regardless of provider.
+Unscoped values without a sync-service scope are rejected. The generic
+sync-service path retains its source-scoping and lookup-only raw-ID bridge;
+Armis and NetBox keep their driver-owned formats without core-side synthesis.
+
 ### Armis integration identity
 
 The Armis driver emits `armis:<scope>:device:<native-id>` as `integration_id`

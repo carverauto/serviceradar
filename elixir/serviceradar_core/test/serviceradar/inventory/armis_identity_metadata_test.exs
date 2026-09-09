@@ -7,6 +7,37 @@ defmodule ServiceRadar.Inventory.ArmisIdentityMetadataTest do
   alias ServiceRadar.Inventory.Sync.Normalize
   alias ServiceRadar.Inventory.Sync.SourcePolicy
 
+  test "self-scoped admission and unscoped rejection are provider-neutral" do
+    for provider <- ["armis", "netbox", "test-integration", "future-provider"],
+        source_id <- [nil, "source-a"] do
+      scoped = "#{provider}:source-a:device:101"
+
+      metadata = %{
+        "integration_type" => provider,
+        "integration_id" => scoped,
+        "sync_service_id" => source_id
+      }
+
+      assert %{integration_id: ^scoped} = Ids.extract_strong_identifiers(%{metadata: metadata})
+
+      unscoped = metadata |> Map.put("integration_id", "101") |> Map.delete("sync_service_id")
+      assert %{integration_id: nil} = Ids.extract_strong_identifiers(%{metadata: unscoped})
+    end
+  end
+
+  test "driver-owned bare IDs are not synthesized when a sync service is present" do
+    for provider <- ["armis", "netbox"] do
+      metadata = %{
+        "integration_type" => provider,
+        "integration_id" => "101",
+        "sync_service_id" => "source-a"
+      }
+
+      assert %{integration_id: nil, legacy_integration_ids: []} =
+               Ids.extract_strong_identifiers(%{metadata: metadata})
+    end
+  end
+
   test "legacy Armis source_device_id is not promoted to strong identity" do
     update =
       Normalize.normalize_update(%{

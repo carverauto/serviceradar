@@ -724,7 +724,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
                    "hostname" => "integration-type-test",
                    "source" => "netbox",
                    "metadata" => %{
-                     "integration_id" => "netbox-reclass-#{System.unique_integer([:positive])}",
+                     "integration_id" => "netbox:source-a:device:netbox-reclass-#{System.unique_integer([:positive])}",
                      "integration_type" => "netbox",
                      "netbox_device_type" => "Switch"
                    }
@@ -798,7 +798,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
                    "hostname" => hostname,
                    "source" => "netbox",
                    "metadata" => %{
-                     "integration_id" => "netbox-converge-#{System.unique_integer([:positive])}",
+                     "integration_id" => "netbox:source-a:device:netbox-converge-#{System.unique_integer([:positive])}",
                      "integration_type" => "netbox",
                      "netbox_device_type" => "Switch"
                    }
@@ -817,7 +817,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
   test "merges an existing IP-less integration duplicate with an audit", %{actor: actor} do
     ip = "192.0.2.81"
     hostname = "merge-switch.example.com"
-    integration_id = "synthetic-netbox-#{System.unique_integer([:positive])}"
+    integration_id = "netbox:source-a:device:synthetic-netbox-#{System.unique_integer([:positive])}"
 
     holder_update = %{
       "ip" => ip,
@@ -904,7 +904,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
   test "untyped manual provenance remains reclassifiable after merging", %{actor: actor} do
     ip = "192.0.2.83"
     hostname = "untyped-merge.example.com"
-    integration_id = "synthetic-untyped-#{System.unique_integer([:positive])}"
+    integration_id = "netbox:source-a:device:synthetic-untyped-#{System.unique_integer([:positive])}"
 
     duplicate = %{
       "hostname" => hostname,
@@ -996,7 +996,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
   test "snapshot identity claims prevent adopting an unrelated holder", %{actor: actor} do
     ip = "192.0.2.82"
     hostname = "guard-switch.example.com"
-    integration_id = "synthetic-snapshot-#{System.unique_integer([:positive])}"
+    integration_id = "netbox:source-a:device:synthetic-snapshot-#{System.unique_integer([:positive])}"
 
     existing_update = %{
       "ip" => "192.0.2.84",
@@ -1078,7 +1078,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
                    "hostname" => "claimer-#{System.unique_integer([:positive])}",
                    "source" => "netbox",
                    "metadata" => %{
-                     "integration_id" => "netbox-diverge-#{System.unique_integer([:positive])}",
+                     "integration_id" => "netbox:source-a:device:netbox-diverge-#{System.unique_integer([:positive])}",
                      "integration_type" => "netbox",
                      "netbox_device_type" => "Switch"
                    }
