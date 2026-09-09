@@ -16,6 +16,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   alias ServiceRadar.Inventory.Identity.Fence
   alias ServiceRadar.Inventory.SourceFacts.Reconciler, as: SourceFactReconciler
   alias ServiceRadar.Inventory.Sync.Aliases
+  alias ServiceRadar.Inventory.Sync.BatchExecutor
   alias ServiceRadar.Inventory.Sync.DeviceRecords
   alias ServiceRadar.Inventory.Sync.DeviceWrites
   alias ServiceRadar.Inventory.Sync.IdentifierRecords
@@ -30,14 +31,15 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
 
   @batch_size 500
 
-  @spec ingest_updates([map()], keyword()) :: :ok | {:error, term()}
+  @spec ingest_updates([map()], keyword()) :: :ok | {:ok, [map()]} | {:error, term()}
   def ingest_updates(updates, opts \\ []) do
     # DB connection's search_path determines the schema
     actor = Keyword.get(opts, :actor, SystemActor.system(:sync_ingestor))
 
     updates = List.wrap(updates)
     total_count = length(updates)
-    batch_concurrency = batch_concurrency()
+    batch_concurrency = Keyword.get_lazy(opts, :batch_concurrency, &batch_concurrency/0)
+    defer_state_events? = Keyword.get(opts, :defer_state_events?, false)
 
     Logger.info("SyncIngestor: Processing #{total_count} updates in batches of #{@batch_size}")
     start_time = System.monotonic_time(:millisecond)
@@ -49,7 +51,14 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
 
     total_batches = ceil(total_count / @batch_size)
 
-    result = process_batches(batches, actor, total_batches, batch_concurrency)
+    result =
+      if defer_state_events? do
+        BatchExecutor.collect(batches, fn {batch, batch_num} ->
+          process_batch(batch, batch_num, total_batches, actor, true)
+        end)
+      else
+        process_batches(batches, actor, total_batches, batch_concurrency)
+      end
 
     elapsed = System.monotonic_time(:millisecond) - start_time
     rate = if elapsed > 0, do: Float.round(total_count / (elapsed / 1000), 1), else: 0
@@ -58,38 +67,46 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       "SyncIngestor: Completed #{total_count} updates in #{elapsed}ms (#{rate} devices/sec)"
     )
 
-    DeviceWrites.maybe_refresh_inventory_rollups(result, total_count)
+    case result do
+      {:ok, effects} ->
+        with :ok <- DeviceWrites.maybe_refresh_inventory_rollups(:ok, total_count) do
+          {:ok, effects}
+        end
+
+      other ->
+        DeviceWrites.maybe_refresh_inventory_rollups(other, total_count)
+    end
   end
 
-  defp process_batches([{batch, batch_num}], actor, total_batches, _batch_concurrency) do
-    process_batch(batch, batch_num, total_batches, actor)
+  @doc false
+  def emit_committed_state_events(effects) do
+    Enum.each(effects, fn effect ->
+      StateEvents.publish_device_state_transitions(
+        effect.device_records,
+        effect.previous_device_states,
+        effect.remap
+      )
+
+      StateEvents.invalidate_identity_cache_for_device_records(effect.device_records)
+      StateEvents.invalidate_identity_cache_for_identifier_records(effect.identifier_records)
+    end)
+
+    :ok
   end
 
   defp process_batches(batches, actor, total_batches, batch_concurrency) do
-    batches
-    |> Task.async_stream(
+    BatchExecutor.run(
+      batches,
       fn {batch, batch_num} ->
-        process_batch(batch, batch_num, total_batches, actor)
+        process_batch(batch, batch_num, total_batches, actor, false)
       end,
-      max_concurrency: batch_concurrency,
-      timeout: :infinity,
-      ordered: false
+      batch_concurrency
     )
-    |> Enum.reduce_while(:ok, fn
-      {:ok, :ok}, _acc ->
-        {:cont, :ok}
-
-      {:ok, {:error, reason}}, _acc ->
-        {:halt, {:error, reason}}
-
-      {:exit, reason}, _acc ->
-        {:halt, {:error, reason}}
-    end)
   end
 
-  defp process_batch(batch, batch_num, total_batches, actor) do
+  defp process_batch(batch, batch_num, total_batches, actor, defer_state_events?) do
     batch_start = System.monotonic_time(:millisecond)
-    result = ingest_batch(batch, actor)
+    result = ingest_batch(batch, actor, defer_state_events?)
     batch_elapsed = System.monotonic_time(:millisecond) - batch_start
 
     Logger.debug(
@@ -99,7 +116,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     result
   end
 
-  defp ingest_batch(updates, actor) do
+  defp ingest_batch(updates, actor, defer_state_events?) do
     normalized_updates = normalize_updates(updates)
 
     {resolved_updates, strong_uids, device_records, identifier_records, interface_records} =
@@ -114,13 +131,15 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
 
     case upsert_devices(device_records, strong_uids, resolved_updates) do
       {:ok, remap} ->
-        StateEvents.publish_device_state_transitions(
-          device_records,
-          previous_device_states,
-          remap
-        )
+        if !defer_state_events? do
+          StateEvents.publish_device_state_transitions(
+            device_records,
+            previous_device_states,
+            remap
+          )
 
-        StateEvents.invalidate_identity_cache_for_device_records(device_records)
+          StateEvents.invalidate_identity_cache_for_device_records(device_records)
+        end
 
         # An IP-conflict recovery may have rewritten device uids during the
         # device upsert. Apply the same mapping to identifier records and the
@@ -133,7 +152,9 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         risk_result = upsert_source_risk_contributions(resolved_updates)
         identifier_result = upsert_identifiers(identifier_records)
         interface_result = upsert_interfaces(interface_records)
-        StateEvents.invalidate_identity_cache_for_identifier_records(identifier_records)
+
+        if !defer_state_events?,
+          do: StateEvents.invalidate_identity_cache_for_identifier_records(identifier_records)
 
         _ = maybe_process_alias_conflicts(:ok, resolved_updates, actor)
         alias_result = maybe_process_alias_updates(:ok, resolved_updates, actor)
@@ -141,18 +162,22 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
 
         pins |> drop_remapped_pins(remap) |> Fence.observe_many(:sync_ingestor)
 
-        finalize_ingest_results(
-          :ok,
-          risk_result,
-          identifier_result,
-          interface_result,
-          alias_result
-        )
+        :ok
+        |> finalize_ingest_results(risk_result, identifier_result, interface_result, alias_result)
+        |> deferred_batch_result(defer_state_events?, %{
+          device_records: device_records,
+          previous_device_states: previous_device_states,
+          remap: remap,
+          identifier_records: identifier_records
+        })
 
       {:error, _} = error ->
         finalize_ingest_results(error, :ok, :ok, :ok, :ok)
     end
   end
+
+  defp deferred_batch_result(:ok, true, effect), do: {:ok, effect}
+  defp deferred_batch_result(result, _defer_state_events?, _effect), do: result
 
   # An IP-conflict recovery rewrites a device uid deliberately, which is not the
   # drift this is measuring: the pinned uid genuinely stops naming the device, so

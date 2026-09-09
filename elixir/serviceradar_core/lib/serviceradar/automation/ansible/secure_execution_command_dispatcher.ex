@@ -18,10 +18,10 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcher do
   alias ServiceRadar.Automation.Ansible.AwxClient
   alias ServiceRadar.Automation.Ansible.AwxLaunchPreflightAttestation
   alias ServiceRadar.Automation.Ansible.Controller
-  alias ServiceRadar.Automation.Ansible.ControllerSecuritySnapshot
   alias ServiceRadar.Automation.Ansible.SafeFailureEvidence
   alias ServiceRadar.Automation.Ansible.SecureExecutionAuthorityContraction
   alias ServiceRadar.Automation.Ansible.SecureExecutionCommandContract, as: Contract
+  alias ServiceRadar.Automation.Ansible.SecureExecutionContinuationBoundary
   alias ServiceRadar.Automation.Ansible.SecureExecutionCurrentAuthority
   alias ServiceRadar.Edge.AgentCommand
   alias ServiceRadar.Edge.AgentCommandBus
@@ -166,27 +166,11 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcher do
     end
   end
 
-  # Reconciliation, polling, and cancellation never route to
-  # `AwxClient.launch_job/5`. Keeping their existing legacy controller
-  # snapshot boundary permits safe cleanup of pre-attestation children while
-  # ensuring it cannot be reused to create a new job.
-  defp verify_controller_boundary(attempt, resources, _now, _opts) do
-    metadata = value(resources.execution, :metadata) || %{}
-
-    with partition when is_binary(partition) and partition != "" <-
-           value(metadata, :dispatch_partition_id),
-         true <- partition == attempt.dispatch_partition_id,
-         :ok <-
-           ControllerSecuritySnapshot.verify(
-             resources.controller,
-             value(metadata, :controller_security_snapshot)
-           ) do
-      :ok
-    else
-      false -> {:error, :secure_execution_dispatch_partition_drift}
-      {:error, _reason} = error -> error
-      _ -> {:error, :secure_execution_dispatch_partition_required}
-    end
+  # Existing children retain their immutable boundary after the launch TTL.
+  # This clause cannot dispatch a launch; that stage always uses the fresh
+  # attestation verifier above.
+  defp verify_controller_boundary(attempt, resources, now, opts) do
+    SecureExecutionContinuationBoundary.verify(resources, attempt, now, opts)
   end
 
   defp preflight_verification_opts(opts) do

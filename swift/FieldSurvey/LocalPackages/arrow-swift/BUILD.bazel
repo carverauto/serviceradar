@@ -1,0 +1,18 @@
+load("@aspect_bazel_lib//lib:write_source_files.bzl", "write_source_files")
+load("//third_party/arrow_swift:inventory.bzl", "ARROW_UPSTREAM_FILES")
+
+filegroup(
+    name = "package_sources",
+    srcs = ARROW_UPSTREAM_FILES + [
+        "Package.swift",
+        "Tests/ArrowCompatibilityTests/ArrowCompatibilityTests.swift",
+        "UPSTREAM.json",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+write_source_files(
+    name = "update_vendor",
+    files = {path: "@apache_arrow_swift//:" + path for path in ARROW_UPSTREAM_FILES},
+    visibility = ["//visibility:public"],
+)

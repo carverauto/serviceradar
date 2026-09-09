@@ -427,8 +427,8 @@ core:
     runWatchdogIntervalSeconds: 60
     # ScheduleEvaluatorWorker cron evaluation cadence.
     scheduleEvaluatorIntervalSeconds: 60
-    # Base directory for GitCatalogSyncWorker repo clones.
-    # Mount a PVC at this path if you want survival across pod restarts.
+    # Writable emptyDir for GitCatalogSyncWorker repo clones. Catalog metadata
+    # is stored in CNPG; clones are recreated after pod replacement.
     catalogBaseDir: "/var/lib/serviceradar/ansible_catalog"
   # EventWriter persists NATS JetStream records (incl. edge anomaly verdicts on
   # signals.analytics.predictions.*) into CNPG. On by default so anomaly findings
@@ -617,7 +617,7 @@ core:
     #
     # Set to "" to fall back to the old existence-only check (for operators
     # running the chart against a deliberately pinned schema).
-    expectedVersion: "20260907090000"
+    expectedVersion: "20260908180200"
   # Stale device reaper settings - controls cleanup of IP-only "ghost" devices
   reaper:
     # How often to run the reaper job

@@ -243,6 +243,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxHostMembership do
     end
 
     attribute :source_generation, :integer do
+      description "Source observation that last changed membership authority; unchanged observations only refresh last_seen_at"
       allow_nil? false
       public? true
       constraints min: 1

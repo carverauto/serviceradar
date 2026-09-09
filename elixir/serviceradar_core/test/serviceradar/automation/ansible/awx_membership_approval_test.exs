@@ -115,6 +115,66 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipApprovalTest do
     end
   end
 
+  test "approves JSON decimal generations without losing signed 64-bit precision" do
+    for generation <- [1, 9_007_199_254_740_993, 9_223_372_036_854_775_807] do
+      membership = membership(source_generation: generation)
+
+      wire_request =
+        membership
+        |> request()
+        |> Map.put(:source_generation, Integer.to_string(generation))
+        |> Jason.encode!()
+        |> Jason.decode!()
+
+      assert wire_request["source_generation"] == Integer.to_string(generation)
+      assert {:ok, _approved} = approve(wire_request, membership)
+      assert_received {:approve_membership, attrs, _actor}
+      assert attrs.source_generation == generation
+    end
+  end
+
+  test "rejects noncanonical or out-of-range generations before reading authority" do
+    membership = membership()
+
+    for generation <- [
+          "",
+          "0",
+          "01",
+          "+1",
+          "-1",
+          " 1",
+          "1 ",
+          "1\n",
+          "1.0",
+          "1e1",
+          "9223372036854775808",
+          0,
+          -1,
+          9_223_372_036_854_775_808,
+          1.0,
+          nil
+        ] do
+      assert {:error, :invalid_approval_request} =
+               approve(Map.put(request(membership), :source_generation, generation), membership)
+    end
+
+    refute_received {:load_user, _}
+    refute_received :approve_membership
+    refute_received {:approve_membership, _, _}
+  end
+
+  test "decimal generation strings retain exact stale-evidence comparison" do
+    membership = membership(source_generation: 9_007_199_254_740_993)
+
+    assert {:error, :membership_evidence_changed} =
+             approve(
+               Map.put(request(membership), :source_generation, "9007199254740992"),
+               membership
+             )
+
+    refute_received {:approve_membership, _, _}
+  end
+
   test "rejects ambiguous or quarantined linkage evidence" do
     ambiguous =
       membership(

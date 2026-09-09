@@ -45,6 +45,42 @@ defmodule ServiceRadarWebNGWeb.Api.FallbackController do
     |> render(:"403")
   end
 
+  def call(conn, {:error, :precondition_required}) do
+    conn
+    |> put_status(428)
+    |> json(%{error: "precondition_required", message: "Send the resource ETag in If-Match"})
+  end
+
+  def call(conn, {:error, :invalid_precondition}) do
+    conn
+    |> put_status(:bad_request)
+    |> json(%{error: "invalid_precondition", message: "If-Match must contain one resource ETag"})
+  end
+
+  def call(conn, {:error, :conflict}) do
+    conn
+    |> put_status(:conflict)
+    |> json(%{error: "conflict", message: "The resource changed; refresh and review the current configuration"})
+  end
+
+  def call(conn, {:error, :credential_in_use}) do
+    conn
+    |> put_status(:conflict)
+    |> json(%{error: "credential_in_use", message: "Remove credential usage before deleting it"})
+  end
+
+  def call(conn, {:error, reason}) when reason in [:idempotency_conflict, :idempotency_in_progress] do
+    conn |> put_status(:conflict) |> json(%{error: Atom.to_string(reason)})
+  end
+
+  def call(conn, {:error, :idempotency_resource_deleted}) do
+    conn |> put_status(:gone) |> json(%{error: "idempotency_resource_deleted"})
+  end
+
+  def call(conn, {:error, :idempotency_unavailable}) do
+    conn |> put_status(:service_unavailable) |> json(%{error: "idempotency_unavailable"})
+  end
+
   # Handle Ash authorization errors (policy failures)
   def call(conn, {:error, %Forbidden{} = error}) do
     AuthorizationAudit.log_failure(conn, error)

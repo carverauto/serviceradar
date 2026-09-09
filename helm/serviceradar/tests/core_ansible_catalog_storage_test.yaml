@@ -1,0 +1,49 @@
+suite: core Ansible catalog writable storage
+templates:
+  - templates/core.yaml
+tests:
+  - it: provides writable scratch and clone directories with a read-only root filesystem
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: tmp
+            mountPath: /tmp
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: ansible-catalog
+            mountPath: /var/lib/serviceradar/ansible_catalog
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: tmp
+            emptyDir: {}
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: ansible-catalog
+            emptyDir: {}
+  - it: mounts the configured clone directory at the worker's configured path
+    set:
+      core.ansible.catalogBaseDir: /var/cache/serviceradar/catalog
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: ANSIBLE_CATALOG_BASE_DIR
+            value: /var/cache/serviceradar/catalog
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: ansible-catalog
+            mountPath: /var/cache/serviceradar/catalog

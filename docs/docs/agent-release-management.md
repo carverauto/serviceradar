@@ -22,6 +22,27 @@ Before using release management in production:
 - Include per-platform artifact metadata in the release manifest, including `os`, `arch`, `url`, `sha256`, and optional `format`, `entrypoint`, `capabilities`, `helper_protocol_version`, `compatible_agent_versions`, `checksums`, `signatures`, `sbom`, `license_review`, and `deployment_requirements`.
 - If repository-hosted release assets redirect to object storage or a CDN, keep the redirect chain on HTTPS. The control plane mirrors those artifacts into internal storage at publish time, and agents still reject insecure redirects, digest mismatches, and manifest-signature failures.
 
+## Prepare a reviewed agent test artifact
+
+For an unpublished base-agent build, dispatch `.github/workflows/native-addons.yml`
+with `mode=agent-test-artifact` from the reviewed branch and set `expected_commit`
+to its full commit SHA. The workflow rejects a mismatch with its own SHA. Operators
+must configure the HTTPS `AGENT_TEST_ARTIFACT_BASE_URL` variable in the protected
+`release` environment; dispatch inputs cannot choose an arbitrary artifact origin.
+
+This mode builds only the declared Linux amd64 agent runtime archive. It derives
+a unique prerelease version without changing `VERSION` or creating a release tag,
+executes the packaged binary's `--version`, and signs the canonical manifest at
+runtime with the protected release key. The signature is verified against the
+committed agent public root; signing material is never a Bazel action input.
+The verified archive, manifest, signature, and metadata are uploaded as workflow
+artifacts retained for seven days.
+
+The workflow does not host the archive at its manifest URL, publish it into
+ServiceRadar, or roll out agents. After validation, place the archive at the
+exact signed URL and use the publication and rollout steps below. Building a
+Kubernetes agent image alone does not update native agents running plugin runners.
+
 ## Publish A Release
 
 Use the authenticated release-management page:

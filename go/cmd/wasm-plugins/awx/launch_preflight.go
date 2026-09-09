@@ -37,31 +37,33 @@ const (
 	maxLaunchPreflightTemplateTimeout      = 7 * 24 * 60 * 60
 	maxLaunchPreflightTemplateForks        = 10_000
 	maxLaunchPreflightTemplateSliceCount   = 1_000
-	maxLaunchPreflightMembershipGeneration = math.MaxInt32
+	maxLaunchPreflightMembershipGeneration = math.MaxInt64 // Inventory generations are Unix nanoseconds, not AWX resource IDs.
 )
 
-var launchPreflightRequestKeys = map[string]struct{}{
-	"schema":                   {},
-	"controller_id":            {},
-	"template_id":              {},
-	"project_id":               {},
-	"inventory_id":             {},
-	"credential_ids":           {},
-	"execution_environment_id": {},
-	"selected_hosts":           {},
+// Static arrays keep validation available when the host calls an exported
+// TinyGo entrypoint without running WASI _start and its map initializers.
+var launchPreflightRequestKeys = [...]string{ //nolint:gochecknoglobals // Static data must work before TinyGo/WASI initialization.
+	"schema",
+	"controller_id",
+	"template_id",
+	"project_id",
+	"inventory_id",
+	"credential_ids",
+	"execution_environment_id",
+	"selected_hosts",
 }
 
-var launchPreflightTargetKeys = map[string]struct{}{
-	"membership_id":         {},
-	"controller_id":         {},
-	"inventory_id":          {},
-	"awx_host_id":           {},
-	"canonical_device_uid":  {},
-	"host_name":             {},
-	"ansible_host":          {},
-	"enabled":               {},
-	"membership_generation": {},
-	"source_fingerprint":    {},
+var launchPreflightTargetKeys = [...]string{ //nolint:gochecknoglobals // Static data must work before TinyGo/WASI initialization.
+	"membership_id",
+	"controller_id",
+	"inventory_id",
+	"awx_host_id",
+	"canonical_device_uid",
+	"host_name",
+	"ansible_host",
+	"enabled",
+	"membership_generation",
+	"source_fingerprint",
 }
 
 // launchPreflightRequest is a secret-free, fully reviewed selector set. It is
@@ -324,7 +326,7 @@ func runFetchLaunchPreflight(cfg Config) *sdk.Result {
 }
 
 func decodeLaunchPreflightRequest(args map[string]any) (launchPreflightRequest, error) {
-	if !exactAnyKeys(args, launchPreflightRequestKeys) {
+	if !exactAnyKeys(args, launchPreflightRequestKeys[:]) {
 		return launchPreflightRequest{}, fmt.Errorf("preflight request contains unreviewed fields")
 	}
 	schema, ok := exactStringArg(args, "schema")
@@ -372,12 +374,12 @@ func decodeLaunchPreflightRequest(args map[string]any) (launchPreflightRequest, 
 	}, nil
 }
 
-func exactAnyKeys(values map[string]any, allowed map[string]struct{}) bool {
+func exactAnyKeys(values map[string]any, allowed []string) bool {
 	if len(values) != len(allowed) {
 		return false
 	}
 	for key := range values {
-		if _, ok := allowed[key]; !ok {
+		if !stringIn(key, allowed...) {
 			return false
 		}
 	}
@@ -393,9 +395,9 @@ func exactStringArg(args map[string]any, key string) (string, bool) {
 	return stringValue, ok
 }
 
-func canonicalPositiveIDArg(args map[string]any, key string, max int) (string, bool) {
+func canonicalPositiveIDArg(args map[string]any, key string, max int64) (string, bool) {
 	value, ok := exactStringArg(args, key)
-	if !ok || !canonicalPositiveID(value, int64(max)) {
+	if !ok || !canonicalPositiveID(value, max) {
 		return "", false
 	}
 	return value, true
@@ -454,7 +456,7 @@ func launchPreflightTargets(args map[string]any, controllerID, inventoryID strin
 	seenMemberships := make(map[string]struct{}, len(values))
 	for _, rawTarget := range values {
 		value, ok := rawTarget.(map[string]any)
-		if !ok || !exactAnyKeys(value, launchPreflightTargetKeys) {
+		if !ok || !exactAnyKeys(value, launchPreflightTargetKeys[:]) {
 			return nil, false
 		}
 		target, ok := decodeLaunchPreflightTarget(value, controllerID, inventoryID)
@@ -1014,7 +1016,12 @@ func projectLaunchPreflightCredential(row map[string]json.RawMessage) (launchPre
 	summary, summaryOK := rawObject(row["summary_fields"])
 	typeSummary, typeSummaryOK := rawObject(summary["credential_type"])
 	typeName, typeNameOK := reviewedRawText(typeSummary["name"], maxAWXCatalogNameBytes, false)
-	typeKind, typeKindOK := rawBoundedString(typeSummary["kind"], 64, false)
+	// AWX returns kind on the credential itself; its type summary omits it.
+	typeKind, typeKindOK := rawBoundedString(row["kind"], 64, false)
+	if summaryKindRaw, present := typeSummary["kind"]; present {
+		summaryKind, valid := rawBoundedString(summaryKindRaw, 64, false)
+		typeKindOK = typeKindOK && valid && summaryKind == typeKind
+	}
 	typeSummaryID, typeSummaryIDOK := rawCanonicalPositiveID(typeSummary["id"], math.MaxInt32)
 	if !idOK || !nameOK || !modifiedOK || !typeIDOK || !summaryOK || !typeSummaryOK || !typeNameOK || !typeKindOK ||
 		!typeSummaryIDOK || typeID != typeSummaryID {

@@ -408,7 +408,7 @@ defmodule ServiceRadar.Automation.Ansible.LiveAwxLaunchPreflight do
          true <-
            canonical_inventory_id == inventory_id || {:error, :awx_preflight_target_mismatch},
          {:ok, canonical_host_id} <- canonical_awx_id(awx_host_id),
-         {:ok, canonical_generation} <- canonical_awx_id(membership_generation),
+         {:ok, canonical_generation} <- canonical_membership_generation(membership_generation),
          true <- is_binary(canonical_device_uid) || {:error, :invalid_awx_preflight_membership},
          true <- is_binary(host_name) || {:error, :invalid_awx_preflight_membership},
          true <- is_binary(ansible_host) || {:error, :invalid_awx_preflight_membership},
@@ -693,6 +693,16 @@ defmodule ServiceRadar.Automation.Ansible.LiveAwxLaunchPreflight do
   end
 
   defp canonical_awx_id(_value), do: {:error, :invalid_awx_preflight_membership}
+
+  defp canonical_membership_generation(value) when is_integer(value),
+    do: canonical_membership_generation(Integer.to_string(value))
+
+  defp canonical_membership_generation(value) do
+    case AwxLaunchContract.validate_membership_generation(value) do
+      :ok -> {:ok, value}
+      {:error, _reason} -> {:error, :invalid_awx_preflight_membership}
+    end
+  end
 
   defp exact_string_keys(map, expected) when is_map(map) do
     if Enum.all?(Map.keys(map), &is_binary/1) and MapSet.new(Map.keys(map)) == expected,

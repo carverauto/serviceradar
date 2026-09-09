@@ -1810,18 +1810,18 @@ const (
 	awxEventFetchFailure  = "awx_event_fetch_failed"
 )
 
-var handledAWXEventNames = map[string]struct{}{
-	"playbook_on_play_start":         {},
-	"playbook_on_task_start":         {},
-	"playbook_on_handler_task_start": {},
-	"runner_on_ok":                   {},
-	"runner_on_failed":               {},
-	"runner_on_skipped":              {},
-	"runner_on_unreachable":          {},
-	"runner_item_on_ok":              {},
-	"runner_item_on_failed":          {},
-	"runner_item_on_skipped":         {},
-	"playbook_on_stats":              {},
+var handledAWXEventNames = [...]string{ //nolint:gochecknoglobals // Static data must work before TinyGo/WASI initialization.
+	"playbook_on_play_start",
+	"playbook_on_task_start",
+	"playbook_on_handler_task_start",
+	"runner_on_ok",
+	"runner_on_failed",
+	"runner_on_skipped",
+	"runner_on_unreachable",
+	"runner_item_on_ok",
+	"runner_item_on_failed",
+	"runner_item_on_skipped",
+	"playbook_on_stats",
 }
 
 // runFetchEventsForJobs handles `awx.fetch_events_for_jobs` verb — the bulk
@@ -1980,7 +1980,7 @@ func projectAWXJobEvent(raw json.RawMessage) (int, json.RawMessage, bool, error)
 	if !ok {
 		return counter, nil, false, nil
 	}
-	if _, handled := handledAWXEventNames[eventName]; !handled {
+	if !stringIn(eventName, handledAWXEventNames[:]...) {
 		return counter, nil, false, nil
 	}
 
@@ -2768,36 +2768,36 @@ func stringIn(value string, allowed ...string) bool {
 	return false
 }
 
-var reservedAWXSurveyVariables = map[string]struct{}{
-	"allowed_callback_origin": {}, "allowed_origin": {}, "callback_manifest_sha256": {},
-	"callback_operation": {}, "callback_origin": {}, "callback_phase": {},
-	"callback_policy": {}, "callback_response_policy_provider": {}, "callback_state": {},
-	"callback_url": {}, "desired_state": {}, "manifest_sha256": {}, "operation": {},
-	"phase": {}, "remote_access_operation": {}, "response_policy_provider": {},
-	"serviceradar_dispatch_id": {}, "serviceradar_snapshot_digest": {}, "state": {},
-	"group_names": {}, "groups": {}, "hostvars": {}, "inventory_dir": {},
-	"inventory_file": {}, "inventory_hostname": {}, "inventory_hostname_short": {},
-	"omit": {}, "play_hosts": {}, "playbook_dir": {}, "role_name": {}, "role_path": {},
+var reservedAWXSurveyVariables = [...]string{ //nolint:gochecknoglobals // Static data must work before TinyGo/WASI initialization.
+	"allowed_callback_origin", "allowed_origin", "callback_manifest_sha256",
+	"callback_operation", "callback_origin", "callback_phase",
+	"callback_policy", "callback_response_policy_provider", "callback_state",
+	"callback_url", "desired_state", "manifest_sha256", "operation",
+	"phase", "remote_access_operation", "response_policy_provider",
+	"serviceradar_dispatch_id", "serviceradar_snapshot_digest", "state",
+	"group_names", "groups", "hostvars", "inventory_dir",
+	"inventory_file", "inventory_hostname", "inventory_hostname_short",
+	"omit", "play_hosts", "playbook_dir", "role_name", "role_path",
 }
 
-var sensitiveAWXSurveyVariableTokens = map[string]struct{}{
-	"authorization": {}, "bearer": {}, "credential": {}, "credentials": {},
-	"passwd": {}, "password": {}, "secret": {}, "token": {},
+var sensitiveAWXSurveyVariableTokens = [...]string{ //nolint:gochecknoglobals // Static data must work before TinyGo/WASI initialization.
+	"authorization", "bearer", "credential", "credentials",
+	"passwd", "password", "secret", "token",
 }
 
-var sensitiveAWXSurveyVariableTokenPairs = map[string]struct{}{
-	"access_key": {}, "access_token": {}, "api_key": {}, "api_token": {},
-	"bearer_token": {}, "client_secret": {}, "credential_value": {},
-	"private_key": {},
+var sensitiveAWXSurveyVariableTokenPairs = [...]string{ //nolint:gochecknoglobals // Static data must work before TinyGo/WASI initialization.
+	"access_key", "access_token", "api_key", "api_token",
+	"bearer_token", "client_secret", "credential_value",
+	"private_key",
 }
 
 // Compact compounds cover all-uppercase or otherwise unsegmentable spellings
 // such as APIKEY. Token-level matching remains the primary classifier so safe
 // names containing an unrelated word such as "tokenizer" stay allowed.
-var sensitiveAWXSurveyVariableCompounds = map[string]struct{}{
-	"accesskey": {}, "accesstoken": {}, "apikey": {}, "apitoken": {},
-	"bearertoken": {}, "clientsecret": {}, "credentialvalue": {},
-	"privatekey": {},
+var sensitiveAWXSurveyVariableCompounds = [...]string{ //nolint:gochecknoglobals // Static data must work before TinyGo/WASI initialization.
+	"accesskey", "accesstoken", "apikey", "apitoken",
+	"bearertoken", "clientsecret", "credentialvalue",
+	"privatekey",
 }
 
 func projectAWXSurvey(raw []byte) (map[string]any, bool) {
@@ -2936,22 +2936,22 @@ func reviewedAWXSurveyVariable(value string) bool {
 	if strings.HasPrefix(normalized, "ansible_") {
 		return false
 	}
-	if _, reserved := reservedAWXSurveyVariables[normalized]; reserved {
+	if stringIn(normalized, reservedAWXSurveyVariables[:]...) {
 		return false
 	}
 	compact := strings.ReplaceAll(normalized, "_", "")
-	for compound := range sensitiveAWXSurveyVariableCompounds {
+	for _, compound := range sensitiveAWXSurveyVariableCompounds {
 		if strings.Contains(compact, compound) {
 			return false
 		}
 	}
 	tokens := awxSurveyVariableTokens(value)
 	for index, token := range tokens {
-		if _, sensitive := sensitiveAWXSurveyVariableTokens[token]; sensitive {
+		if stringIn(token, sensitiveAWXSurveyVariableTokens[:]...) {
 			return false
 		}
 		if index+1 < len(tokens) {
-			if _, sensitive := sensitiveAWXSurveyVariableTokenPairs[token+"_"+tokens[index+1]]; sensitive {
+			if stringIn(token+"_"+tokens[index+1], sensitiveAWXSurveyVariableTokenPairs[:]...) {
 				return false
 			}
 		}
@@ -3013,7 +3013,7 @@ func projectAWXSurveyChoices(raw json.RawMessage, fieldType string) (any, bool, 
 			return nil, false, false
 		}
 		if text == "" {
-			return text, true, true
+			return []string{}, true, true
 		}
 		if !stringIn(fieldType, "multiplechoice", "multiselect") {
 			return nil, false, false
