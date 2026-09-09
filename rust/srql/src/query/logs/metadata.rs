@@ -95,38 +95,65 @@ fn device_id_field(field: &str) -> bool {
     matches!(field, "device_id" | "uid")
 }
 
+/// Device-page identity match as uncorrelated `IN` subqueries.
+///
+/// An earlier revision expressed this as correlated `EXISTS` subqueries
+/// (including a `CROSS JOIN LATERAL unnest(...)` over the device's interface
+/// addresses). Correlated means per-log-row: over a `last_24h` window the
+/// database re-evaluated the inventory join for every candidate row, and when
+/// the device's syslog rows were sparse or absent the scan ran to the end of
+/// the window and died to `statement_timeout` (Postgrex `:query_canceled`).
+///
+/// The subqueries below reference no `logs` columns, so the planner evaluates
+/// each once — a handful of indexed inventory lookups yielding a small set of
+/// IPs/hostnames — and probes `logs` through its `source_ip`/`source` indexes
+/// instead of scanning the window. `IS NOT NULL` guards on the inner selects
+/// preserve the original `= NULL`-never-matches semantics exactly.
 fn device_inventory_identity_clause(value: &str) -> String {
     let device_value = sql_string_literal(value);
 
     format!(
-        "EXISTS (\
-           SELECT 1 \
+        "logs.source_ip IN (\
+           SELECT d.ip \
            FROM platform.ocsf_devices AS d \
            WHERE (d.uid = {device_value} OR d.uid_alt = {device_value}) \
-             AND ( \
-               (logs.source_ip IS NOT NULL AND logs.source_ip = d.ip) \
-               OR (logs.source IS NOT NULL AND logs.source = d.ip) \
-               OR (logs.source IS NOT NULL AND logs.source = d.hostname) \
-               OR (logs.source IS NOT NULL AND logs.source = d.name) \
-             ) \
-         ) OR EXISTS (\
-           SELECT 1 \
+             AND d.ip IS NOT NULL \
+         ) OR logs.source IN (\
+           SELECT d.ip \
+           FROM platform.ocsf_devices AS d \
+           WHERE (d.uid = {device_value} OR d.uid_alt = {device_value}) \
+             AND d.ip IS NOT NULL \
+         ) OR logs.source IN (\
+           SELECT d.hostname \
+           FROM platform.ocsf_devices AS d \
+           WHERE (d.uid = {device_value} OR d.uid_alt = {device_value}) \
+             AND d.hostname IS NOT NULL \
+         ) OR logs.source IN (\
+           SELECT d.name \
+           FROM platform.ocsf_devices AS d \
+           WHERE (d.uid = {device_value} OR d.uid_alt = {device_value}) \
+             AND d.name IS NOT NULL \
+         ) OR logs.source_ip IN (\
+           SELECT di.identifier_value \
            FROM platform.device_identifiers AS di \
-           WHERE (di.device_id = {device_value}) \
+           WHERE di.device_id = {device_value} \
              AND di.identifier_type IN ('ip', 'hostname') \
-             AND ( \
-               (logs.source_ip IS NOT NULL AND logs.source_ip = di.identifier_value) \
-               OR (logs.source IS NOT NULL AND logs.source = di.identifier_value) \
-             ) \
-         ) OR EXISTS (\
-           SELECT 1 \
+             AND di.identifier_value IS NOT NULL \
+         ) OR logs.source IN (\
+           SELECT di.identifier_value \
+           FROM platform.device_identifiers AS di \
+           WHERE di.device_id = {device_value} \
+             AND di.identifier_type IN ('ip', 'hostname') \
+             AND di.identifier_value IS NOT NULL \
+         ) OR logs.source_ip IN (\
+           SELECT unnest(di_if.ip_addresses) \
            FROM platform.discovered_interfaces AS di_if \
-           CROSS JOIN LATERAL unnest(COALESCE(di_if.ip_addresses, ARRAY[]::text[])) AS if_ip \
            WHERE di_if.device_id = {device_value} \
-             AND ( \
-               (logs.source_ip IS NOT NULL AND logs.source_ip = if_ip) \
-               OR (logs.source_ip IS NOT NULL AND logs.source_ip = di_if.device_ip) \
-             ) \
+         ) OR logs.source_ip IN (\
+           SELECT di_if.device_ip \
+           FROM platform.discovered_interfaces AS di_if \
+           WHERE di_if.device_id = {device_value} \
+             AND di_if.device_ip IS NOT NULL \
          )"
     )
 }
@@ -140,4 +167,51 @@ fn escape_like_fragment(value: &str) -> String {
 
 fn sql_string_literal(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::test_support::{data_plan, scalar_filter};
+    use super::super::to_sql_and_params;
+    use crate::parser::FilterOp;
+
+    #[test]
+    fn device_id_eq_uses_uncorrelated_inventory_lookups() {
+        let plan = data_plan(vec![scalar_filter("device_id", FilterOp::Eq, "sr:test-uid")]);
+
+        let (sql, _params) = to_sql_and_params(&plan).expect("sql should generate");
+
+        assert!(sql.contains("logs.source_ip IN ("), "{sql}");
+        assert!(sql.contains("platform.ocsf_devices"), "{sql}");
+        assert!(sql.contains("platform.device_identifiers"), "{sql}");
+        assert!(sql.contains("platform.discovered_interfaces"), "{sql}");
+        // Correlated EXISTS (and the per-row lateral unnest) scanned the whole
+        // time window and timed out; the replacements must stay uncorrelated.
+        assert!(!sql.contains("EXISTS ("), "{sql}");
+        assert!(!sql.contains("CROSS JOIN LATERAL"), "{sql}");
+    }
+
+    #[test]
+    fn uid_eq_routes_to_inventory_lookups() {
+        let plan = data_plan(vec![scalar_filter("uid", FilterOp::Eq, "sr:test-uid")]);
+
+        let (sql, _params) = to_sql_and_params(&plan).expect("sql should generate");
+
+        assert!(sql.contains("logs.source_ip IN ("), "{sql}");
+        assert!(!sql.contains("EXISTS ("), "{sql}");
+    }
+
+    #[test]
+    fn source_device_uid_keeps_metadata_identity_path() {
+        let plan = data_plan(vec![scalar_filter(
+            "source_device_uid",
+            FilterOp::Eq,
+            "sr:test-uid",
+        )]);
+
+        let (sql, _params) = to_sql_and_params(&plan).expect("sql should generate");
+
+        assert!(sql.contains("ILIKE"), "{sql}");
+        assert!(!sql.contains("platform.ocsf_devices"), "{sql}");
+    }
 }

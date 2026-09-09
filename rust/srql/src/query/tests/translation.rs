@@ -214,10 +214,13 @@ fn translate_logs_device_id_resolves_inventory_aliases() {
         response.sql
     );
     assert!(
-        response
-            .sql
-            .contains("logs.source_ip IS NOT NULL AND logs.source_ip = d.ip"),
+        response.sql.contains("logs.source_ip IN ("),
         "device-scoped logs should match inventory IPs on source_ip, got: {}",
+        response.sql
+    );
+    assert!(
+        !response.sql.contains("EXISTS ("),
+        "device-scoped logs identity must stay uncorrelated, got: {}",
         response.sql
     );
     assert!(
