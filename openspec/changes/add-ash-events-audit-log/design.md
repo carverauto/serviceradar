@@ -29,13 +29,9 @@ compatible with this repo's Ash `~> 3.31.3`):
   single, queryable-by-actor-or-resource-or-time table -- the "what did this
   actor do, across everything, in order" shape that motivated picking this
   over PaperTrail's per-resource versions tables.
-- **Actor capture**: the existing authentication mechanism for
-  `/api/v2/*` generally -- an OAuth2 client-credentials bearer token resolves
-  to the real `%ServiceRadar.Identity.User{}` via `Guardian.verify_token` ->
-  `set_ash_actor`, and that's the `actor:` Ash sees on the changeset. AshEvents
-  persists whatever `persist_actor_primary_key` names, so `user_id` is
-  populated correctly for both interactive-session and API-token-driven
-  requests with zero special-casing needed for the new API surface.
+- **Actor capture**: the actor shape, metadata fallback, and requirement to
+  supply the actor at changeset construction are owned by
+  [StampEventSource's module documentation](../../../elixir/serviceradar_core/lib/serviceradar/observability/changes/stamp_event_source.ex).
 - **Replay**: `Ash.ActionInput.for_action(:replay, %{})` on the event log
   resource, filterable by `last_event_id`/`point_in_time`; lifecycle hooks
   are skipped during replay to avoid side effects. Not a goal of this
@@ -47,10 +43,10 @@ compatible with this repo's Ash `~> 3.31.3`):
   is recorded for whatever action actually ran, after policy checks passed --
   it observes, it doesn't gate. No conflict with `PresetRuleResource`'s
   existing `operator_action([:create, :update, :destroy])` policy.
-- **Migration**: no hand-written Ecto migration -- this repo's established
-  `mix ash.codegen` generates the schema migration. Apply it using the
-  database migration command owned by the root `AGENTS.md` Build & Test
-  Commands section.
+- **Migration**: this change uses the hand-written
+  `20260909100000_add_api_event_log.exs` migration. The codegen limitation
+  is tracked in [Platform Security Hardening](../../../docs/PLATFORM_SECURITY_HARDENING.md#6-known-follow-ups).
+  Apply it using the root `AGENTS.md` database migration guidance.
 
 ## Goals / Non-Goals
 
@@ -90,17 +86,9 @@ compatible with this repo's Ash `~> 3.31.3`):
 - **`StatefulAlertRule` is the only resource wired up in this change.** It's
   the resource the motivating API surface (`add-alert-rule-json-api`)
   exposes; wiring up unrelated resources speculatively is scope creep.
-- **Stamp `metadata["source"]` with the request transport** (`"api"` vs.
-  `"web"`), following AshEvents' own documented `metadata` example
-  (`%{"source" => "api", "request_id" => "req-abc123"}`). Since the stated
-  motivation is specifically "audit logs when people are using APIs," being
-  able to filter `ApiEvent` rows down to API-originated changes -- not just
-  "any change to this resource" -- is the difference between this actually
-  answering that question and merely being AshPaperTrail with extra steps.
-  Implementation: a changeset context value set by the JSON:API controller
-  path (present) vs. absent (LiveView path), read by an `Ash.Resource.Change`
-  on `StatefulAlertRule`'s create/update/destroy actions that writes it into
-  `metadata`.
+- **Distinguish API-originated mutations.** The source metadata contract
+  is owned by
+  [StampEventSource](../../../elixir/serviceradar_core/lib/serviceradar/observability/changes/stamp_event_source.ex).
 
 ## Risks / Trade-offs
 
@@ -119,8 +107,7 @@ compatible with this repo's Ash `~> 3.31.3`):
 2. Create `ServiceRadar.Observability.ApiEvent` (the event log resource) and
    its `ClearForReplay` implementation; register it in the `Observability`
    domain.
-3. `mix ash.codegen add_api_event_log`; apply the generated migration using
-   the root `AGENTS.md` database migration guidance.
+3. Apply the committed migration as described in Context above.
 4. Add `AshEvents.Events` + `events do end` to `stateful_alert_rule.ex`.
 5. Confirm (via test) that creating/updating/destroying a `StatefulAlertRule`
    -- through either the existing LiveView or the new JSON:API route from

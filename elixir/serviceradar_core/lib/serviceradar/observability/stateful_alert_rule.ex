@@ -57,8 +57,13 @@ defmodule ServiceRadar.Observability.StatefulAlertRule do
     active_sort: [priority: :asc, inserted_at: :asc],
     create_validations: [ServiceRadar.Observability.Validations.WindowBucket],
     update_validations: [ServiceRadar.Observability.Validations.WindowBucket],
-    create_changes: [ServiceRadar.Observability.Changes.ScheduleAlertCleanup],
-    extensions: [AshJsonApi.Resource],
+    create_changes: [
+      ServiceRadar.Observability.Changes.ScheduleAlertCleanup,
+      ServiceRadar.Observability.Changes.StampEventSource
+    ],
+    update_changes: [ServiceRadar.Observability.Changes.StampEventSource],
+    destroy_changes: [ServiceRadar.Observability.Changes.StampEventSource],
+    extensions: [AshJsonApi.Resource, AshEvents.Events],
     extra_code_interface: [quote(do: define(:get_by_id, action: :by_id, args: [:id]))],
     extra_actions: [
       quote do
@@ -82,5 +87,9 @@ defmodule ServiceRadar.Observability.StatefulAlertRule do
       patch :update
       delete :destroy
     end
+  end
+
+  events do
+    event_log(ServiceRadar.Observability.ApiEvent)
   end
 end
