@@ -1,3 +1,36 @@
+# ServiceRadar v1.4.55
+
+Plugin package details open correctly again, including manifests
+with credential profiles and timezone-aware timestamps. This
+release also adds alert-rule and telemetry JSON:API endpoints,
+restores inventory tag display, and fixes upload and identifier
+lookup errors.
+
+## Whats New
+
+**1.4.55**
+- Plugins Manager: fixes the View/details rendering crash by
+  passing the authenticated user scope into the details modal.
+  Synthetic regression coverage exercises credential profiles
+  and timestamp rendering.
+- Inventory: displays device tags in sorted, read-only chips in
+  inventory tables and device summaries, including key-only tags.
+- JSON:API: adds stateful alert-rule list, read, create, update,
+  delete, and enabled-rule endpoints, plus bounded read-only
+  telemetry collections and refreshed OpenAPI documentation.
+  Reads require viewer access; writes require operator access.
+  OAuth token scopes remain unenforced in this JSON:API pipeline;
+  restrict the credential owner's role to limit access.
+- Web: fixes filename sanitization for accepted uploads and
+  preserves typed MCP authorization and not-found errors.
+- Identity: fixes persisted device-identifier lookups while
+  preserving identifier-type and partition matching.
+- Quality: maintains narrow Dialyzer exclusions and isolates
+  generated PLTs from Bazel source inputs. Documents conditional
+  CNPG 1.30 upgrade compatibility without changing the operator.
+- Schema: no new migrations; `migrations.expectedVersion`
+  remains `20260908180200`.
+
 # ServiceRadar v1.4.54
 
 ServiceRadar gains a Terraform provider and public configuration
