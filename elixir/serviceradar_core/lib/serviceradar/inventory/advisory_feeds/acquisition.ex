@@ -73,6 +73,12 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Acquisition do
   @ubuntu_archive_limits %{compressed_bytes: 256 * 1_024 * 1_024}
   @ubuntu_combined_compressed_bytes 512 * 1_024 * 1_024
 
+  # Re-acquisitions after a publication rolls mid-download. Each round fully
+  # re-downloads both archives, so keep this small: a roll usually settles on
+  # the next round, and a persistently rolling publication should fail the job
+  # rather than burn bandwidth inside one attempt.
+  @publication_settle_attempts 3
+
   @type acquired :: %{
           extracted_dir: Path.t(),
           run_dir: Path.t(),
@@ -142,56 +148,90 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Acquisition do
     end
   end
 
-  @doc "Download and validator-pin Canonical's compact OSV/VEX publication pair."
+  @doc """
+  Download and validator-pin Canonical's compact OSV/VEX publication pair.
+
+  A plain revalidation HEAD after each download pins the publication the bytes
+  came from; the pair only loads when both files still carry the same
+  validators. Canonical publishes continuously, so a publication that rolls
+  between a download and its revalidation is re-acquired (bounded by
+  `@publication_settle_attempts`) instead of failing the job.
+  """
   def acquire_ubuntu_pair(feed, osv_url, vex_url, run_id, opts \\ []) do
     with {:ok, paths} <- Staging.prepare_run(feed, run_id) do
-      osv_path = Path.join(paths.run_dir, "osv-all.tar.xz")
-      vex_path = Path.join(paths.run_dir, "vex-all.tar.xz")
-
-      download_opts =
-        Keyword.update(opts, :limits, @ubuntu_archive_limits, fn limits ->
-          Map.merge(@ubuntu_archive_limits, Map.new(limits))
-        end)
-
-      combined_limit =
-        Keyword.get(opts, :combined_compressed_bytes, @ubuntu_combined_compressed_bytes)
-
       result =
-        with {:ok, %{osv: osv_response, vex: vex_response}} <-
-               download_ubuntu_pair(
-                 [{:osv, osv_url, osv_path}, {:vex, vex_url, vex_path}],
-                 download_opts
-               ),
-             :ok <- combined_archive_cap(osv_path, vex_path, combined_limit),
-             {:ok, osv_current} <- revalidate_archive(osv_url, osv_response, opts),
-             {:ok, vex_current} <- revalidate_archive(vex_url, vex_response, opts),
-             {:ok, publication} <-
-               validate_ubuntu_publication(
-                 %{osv: osv_response, vex: vex_response},
-                 %{osv: osv_current, vex: vex_current},
-                 Keyword.get(opts, :now, DateTime.utc_now())
-               ) do
-          artifacts = %{
-            osv: artifact_provenance(osv_url, osv_path, osv_response, publication.osv),
-            vex: artifact_provenance(vex_url, vex_path, vex_response, publication.vex)
-          }
-
-          generation_provenance = combined_generation_provenance(artifacts)
-
-          {:ok,
-           %{
-             run_dir: paths.run_dir,
-             osv_path: osv_path,
-             vex_path: vex_path,
-             prepared_dir: Path.join(paths.run_dir, "prepared"),
-             artifacts: artifacts,
-             acquired_at: DateTime.utc_now(),
-             generation_provenance: generation_provenance,
-             format: :ubuntu_tar_xz_pair
-           }}
-        end
+        acquire_settled_pair(paths, feed, osv_url, vex_url, opts, @publication_settle_attempts)
 
       cleanup_failed_run(paths.run_dir, result)
+    end
+  end
+
+  # A `{:validator_changed, _}` means the origin published a new archive
+  # mid-download — the bytes on disk are a valid snapshot, just not of the
+  # current publication. Re-acquire immediately: the next round pins the new
+  # publication. Anything else (transport, limits, skew) is not a roll and
+  # fails the attempt.
+  defp acquire_settled_pair(paths, feed, osv_url, vex_url, opts, attempts_left) do
+    case acquire_pair_once(paths, osv_url, vex_url, opts) do
+      {:error, {:validator_changed, which}} = _error when attempts_left > 1 ->
+        require Logger
+
+        Logger.info(
+          "advisory_feeds: #{feed} publication rolled mid-download " <>
+            "(#{which} changed), re-acquiring (#{attempts_left - 1} left)"
+        )
+
+        acquire_settled_pair(paths, feed, osv_url, vex_url, opts, attempts_left - 1)
+
+      other ->
+        other
+    end
+  end
+
+  defp acquire_pair_once(paths, osv_url, vex_url, opts) do
+    osv_path = Path.join(paths.run_dir, "osv-all.tar.xz")
+    vex_path = Path.join(paths.run_dir, "vex-all.tar.xz")
+
+    download_opts =
+      Keyword.update(opts, :limits, @ubuntu_archive_limits, fn limits ->
+        Map.merge(@ubuntu_archive_limits, Map.new(limits))
+      end)
+
+    combined_limit =
+      Keyword.get(opts, :combined_compressed_bytes, @ubuntu_combined_compressed_bytes)
+
+    with {:ok, %{osv: osv_response, vex: vex_response}} <-
+           download_ubuntu_pair(
+             [{:osv, osv_url, osv_path}, {:vex, vex_url, vex_path}],
+             download_opts
+           ),
+         :ok <- combined_archive_cap(osv_path, vex_path, combined_limit),
+         {:ok, osv_current} <- revalidate_archive(osv_url, osv_response, opts),
+         {:ok, vex_current} <- revalidate_archive(vex_url, vex_response, opts),
+         {:ok, publication} <-
+           validate_ubuntu_publication(
+             %{osv: osv_response, vex: vex_response},
+             %{osv: osv_current, vex: vex_current},
+             Keyword.get(opts, :now, DateTime.utc_now())
+           ) do
+      artifacts = %{
+        osv: artifact_provenance(osv_url, osv_path, osv_response, publication.osv),
+        vex: artifact_provenance(vex_url, vex_path, vex_response, publication.vex)
+      }
+
+      generation_provenance = combined_generation_provenance(artifacts)
+
+      {:ok,
+       %{
+         run_dir: paths.run_dir,
+         osv_path: osv_path,
+         vex_path: vex_path,
+         prepared_dir: Path.join(paths.run_dir, "prepared"),
+         artifacts: artifacts,
+         acquired_at: DateTime.utc_now(),
+         generation_provenance: generation_provenance,
+         format: :ubuntu_tar_xz_pair
+       }}
     end
   end
 
@@ -286,32 +326,33 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Acquisition do
 
   defp combined_archive_cap(_, _, _), do: {:error, :invalid_combined_compressed_limit}
 
-  defp revalidate_archive(url, download_response, opts) do
+  # The revalidation HEAD is deliberately unconditional. A conditional HEAD
+  # (`If-Match`/`If-Unmodified-Since`) turns the expected event it guards
+  # against — the origin publishing a new archive between the download and the
+  # revalidation — into `{:revalidation_status, 412}`, discarding the current
+  # validators the 412 withholds. A plain HEAD always returns the current
+  # `ETag`/`Last-Modified`, and `validate_ubuntu_publication/3` already
+  # compares them against the downloaded pair, reporting a roll as
+  # `{:validator_changed, _}` (which `acquire_ubuntu_pair/5` re-acquires).
+  # Preconditions here would also fail closed forever against weak ETags,
+  # which can never satisfy `If-Match` strong comparison (RFC 9110 13.1.1).
+  defp revalidate_archive(url, _download_response, opts) do
     http_head = Keyword.get(opts, :http_head, &default_archive_head/2)
     timeout = Keyword.get(opts, :timeout_ms, @default_timeout_ms)
 
-    with {:ok, validator} <- publication_validator(download_response) do
-      headers = [
-        {"if-match", validator.etag},
-        {"if-unmodified-since", validator.last_modified}
-      ]
-
-      case http_head.(url, receive_timeout: timeout, headers: headers) do
-        {:ok, %{status: status} = response} when status in 200..299 -> {:ok, response}
-        {:ok, %{status: status}} -> {:error, {:revalidation_status, status}}
-        {:error, reason} -> {:error, {:revalidation_failed, reason}}
-        other -> {:error, {:invalid_revalidation_result, other}}
-      end
+    case http_head.(url, receive_timeout: timeout) do
+      {:ok, %{status: status} = response} when status in 200..299 -> {:ok, response}
+      {:ok, %{status: status}} -> {:error, {:revalidation_status, status}}
+      {:error, reason} -> {:error, {:revalidation_failed, reason}}
+      other -> {:error, {:invalid_revalidation_result, other}}
     end
   end
 
   defp default_archive_head(url, opts) do
-    {headers, opts} = Keyword.pop(opts, :headers, [])
-
     OutboundFetch.request(
       :head,
       url,
-      [headers: [{"user-agent", @user_agent} | headers], retry: false] ++ opts
+      [headers: [{"user-agent", @user_agent}], retry: false] ++ opts
     )
   end
 
