@@ -15,7 +15,7 @@ defmodule ServiceRadar.Observability.StatefulAlertRulePolicyTest do
   operator cannot destroy, which is wrong for every `PresetRuleResource`
   caller including this one (tasks.md 5.5 / design.md Risks).
   """
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias Ash.Error.Forbidden
   alias ServiceRadar.Actors.SystemActor
