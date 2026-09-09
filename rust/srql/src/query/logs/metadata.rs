@@ -177,7 +177,11 @@ mod tests {
 
     #[test]
     fn device_id_eq_uses_uncorrelated_inventory_lookups() {
-        let plan = data_plan(vec![scalar_filter("device_id", FilterOp::Eq, "sr:test-uid")]);
+        let plan = data_plan(vec![scalar_filter(
+            "device_id",
+            FilterOp::Eq,
+            "sr:test-uid",
+        )]);
 
         let (sql, _params) = to_sql_and_params(&plan).expect("sql should generate");
 
