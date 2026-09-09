@@ -320,9 +320,8 @@ Example for RENAMED:
 - Don't use bullet points or bold for scenario headers
 
 **"ADDED/MODIFIED ... must contain SHALL or MUST" (under `--strict`)**
-- This check is positional: it reads only the FIRST substantial line of the
-  requirement (see Requirement Wording above), not the whole block. Move the
-  SHALL/MUST sentence to the first line instead of adding more verbs elsewhere.
+- See [Requirement Wording](#requirement-wording) for the positional rule and
+  examples of how to fix this error.
 
 **Silent scenario parsing failures**
 - Exact format required: `#### Scenario: Name`
