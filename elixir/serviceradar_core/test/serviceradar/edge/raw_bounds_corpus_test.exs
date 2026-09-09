@@ -11,6 +11,22 @@ defmodule ServiceRadar.Edge.RawBoundsCorpusTest do
   @external_resource @bounds
   @external_resource @relational
 
+  test "client messages require a payload" do
+    assert {:error, :poison} = WireDecode.decode_client_message(<<>>)
+    assert {:error, :poison} = WireDecode.decode_client_message(<<24, 1>>)
+  end
+
+  test "oversized frames are rejected without scanning their fields" do
+    raw = :binary.copy(<<32, 1>>, 540_672)
+    WireDecode.decode_frame(<<>>)
+    {:reductions, before_decode} = Process.info(self(), :reductions)
+    result = WireDecode.decode_frame(raw)
+    {:reductions, after_decode} = Process.info(self(), :reductions)
+
+    assert {:error, :too_large} = result
+    assert after_decode - before_decode < 1_000
+  end
+
   test "all four raw budgets admit N and refuse N+1 before decoding" do
     rows = rows(@bounds)
     assert Enum.count(rows) == 11

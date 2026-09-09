@@ -427,6 +427,10 @@ defmodule ServiceRadar.Edge.WireDecode do
   # which is CORRECT -- every byte then IS overhead -- so the relational budget legitimately applies to it.
   # NOTE: groups NESTED inside the record bytes or inside capabilities are opaque to this top-level peel;
   # rejecting those recursively at every message depth is task 1.5's protobuf-elixir patch.
+  defp raw_frame_envelope_check(frame_raw)
+       when is_binary(frame_raw) and byte_size(frame_raw) > @max_frame_bytes,
+       do: {:error, :too_large}
+
   defp raw_frame_envelope_check(frame_raw) when is_binary(frame_raw) do
     peeled = peel_last_field(frame_raw, @frame_record_bytes_field)
 
@@ -437,7 +441,6 @@ defmodule ServiceRadar.Edge.WireDecode do
       end
 
     cond do
-      byte_size(frame_raw) > @max_frame_bytes -> {:error, :too_large}
       peeled == :malformed -> {:error, :poison}
       byte_size(frame_raw) - record_len > @max_delivery_envelope_bytes -> {:error, :too_large}
       true -> :ok
@@ -445,7 +448,7 @@ defmodule ServiceRadar.Edge.WireDecode do
   end
 
   # scan_client_message/1: enforce the outer ONEOF and extract the single delivery_frame. Returns
-  # {:frame, value} (exactly one delivery_frame payload) | :no_frame (one lane_open, or an empty message)
+  # {:frame, value} (exactly one delivery_frame payload) | :no_frame (one lane_open)
   # | :reject. It FAILS CLOSED to :reject on: MORE THAN ONE payload occurrence (a duplicate outer oneof,
   # incl. a bloated frame + a decoy tiny frame); a delivery_frame with the wrong wire type; a GROUP
   # (wire type 3/4); an out-of-range/OVERFLOW field number a generated decoder might reinterpret; or
@@ -454,7 +457,7 @@ defmodule ServiceRadar.Edge.WireDecode do
 
   defp scan_client_message(<<>>, payloads, frame) do
     cond do
-      payloads > 1 -> :reject
+      payloads != 1 -> :reject
       frame != nil -> {:frame, frame}
       true -> :no_frame
     end
