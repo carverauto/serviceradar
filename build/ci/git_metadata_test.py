@@ -35,7 +35,8 @@ class GitMetadataTest(unittest.TestCase):
             elif args[:2] == ["rev-parse", "--verify"]:
                 output, status = OID.encode() + b"\n", 0
             elif args[:1] == ["diff-index"]:
-                self.assertEqual(args, ["diff-index", "--cached", "--quiet", expected, "--"])
+                self.assertEqual(args, ["diff-index", "--cached", "--quiet",
+                                        "--ignore-submodules=none", expected, "--"])
                 output, status = b"", diff_status
             else:
                 self.fail("Unexpected Git command")
@@ -83,6 +84,21 @@ class GitMetadataTest(unittest.TestCase):
                      "a\\core", "-core", "a\ncore"):
             with self.subTest(path=path), self.assertRaises(MetadataError):
                 self.verify(indexed(path) + indexed(".gitmodules", "100644"), mapping(path))
+
+    def test_unsafe_submodule_names(self):
+        for name in ("", "..", "../core", "core/..", "a/../core",
+                     "..\\core", "core\\..", "a\\..\\core", "a/..\\core"):
+            with self.subTest(name=name), self.assertRaisesRegex(MetadataError, "Unsafe submodule name"):
+                self.verify(indexed("Local Packages/core") + indexed(".gitmodules", "100644"),
+                            mapping().replace(b"submodule.core.", f"submodule.{name}.".encode()))
+
+    def test_dotted_submodule_names(self):
+        for name in ("core.v2", "core..v2", "...", "group/core.v2"):
+            with self.subTest(name=name):
+                count, _ = self.verify(
+                    indexed("Local Packages/core") + indexed(".gitmodules", "100644"),
+                    mapping().replace(b"submodule.core.", f"submodule.{name}.".encode()))
+                self.assertEqual(count, 1)
 
     def test_index_must_match_expected_commit(self):
         with self.assertRaises(MetadataError):

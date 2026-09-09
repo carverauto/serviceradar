@@ -36,7 +36,8 @@ class GitMetadata:
             actual = self.git("rev-parse", "--verify", expected_commit + "^{commit}").stdout.strip()
             if actual != expected_commit.encode():
                 raise MetadataError("Expected source revision is not a commit")
-            self.git("diff-index", "--cached", "--quiet", expected_commit, "--")
+            self.git("diff-index", "--cached", "--quiet", "--ignore-submodules=none",
+                     expected_commit, "--")
         links = {path for path, (mode, _) in entries.items() if mode == "160000"}
         modules = entries.get(".gitmodules")
         config = b""
@@ -91,6 +92,9 @@ def validate_mappings(links, config):
             raise MetadataError("Malformed indexed submodule configuration") from error
         if not section.startswith("submodule.") or field not in ("path", "url"):
             raise MetadataError("Unexpected submodule configuration key")
+        name = section[len("submodule."):]
+        if not name or ".." in re.split(r"[/\\]", name):
+            raise MetadataError("Unsafe submodule name")
         fields = sections.setdefault(section, {})
         if field in fields:
             raise MetadataError("Duplicate submodule mapping")

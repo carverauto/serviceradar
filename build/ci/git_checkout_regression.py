@@ -131,6 +131,59 @@ class CheckoutRegression(unittest.TestCase):
         with self.assertRaises(MetadataError):
             self.validator(worktree / "Local Packages").verify()
 
+    def test_expected_revision_rejects_ignored_gitlink_change(self):
+        self.stage_modules(self.valid + " ignore = all\n")
+        self.commit(self.repo)
+        sha = self.git(self.repo, "rev-parse", "HEAD").stdout.decode().strip()
+        self.assertEqual(self.validator().verify(sha), 1)
+        (self.child / "ordinary.txt").write_text("next synthetic revision\n")
+        self.git(self.child, "add", "ordinary.txt")
+        self.commit(self.child)
+        next_oid = self.git(self.child, "rev-parse", "HEAD").stdout.decode().strip()
+        self.assertNotEqual(next_oid, self.oid)
+        self.git(self.repo, "update-index", "--cacheinfo", f"160000,{next_oid},{self.path}")
+        for local_override in (False, True):
+            with self.subTest(local_override=local_override):
+                if local_override:
+                    self.git(self.repo, "config", "submodule.core.ignore", "all")
+                self.assertEqual(self.git(self.repo, "diff-index", "--cached", "--quiet",
+                                          sha, "--", check=False).returncode, 0)
+                self.assertEqual(self.git(self.repo, "diff-index", "--cached", "--quiet",
+                                          "--ignore-submodules=none", sha, "--",
+                                          check=False).returncode, 1)
+                with self.assertRaises(MetadataError):
+                    self.validator().verify(sha)
+
+    def test_git_ignores_unsafe_submodule_name(self):
+        self.git(self.repo, "update-index", "--force-remove", self.path)
+        self.git(self.repo, "update-index", "--add", "--cacheinfo",
+                 f"160000,{self.oid},LocalPackages/core")
+        self.stage_modules('[submodule "../core"]\n path = LocalPackages/core\n'
+                           f' url = "{self.child}"\n')
+        result = self.git(self.repo, "-c", "protocol.file.allow=always", "submodule",
+                          "update", "--init", check=False)
+        self.assertEqual(result.returncode, 128)
+        self.assertIn(b"No url found for submodule path", result.stderr)
+        with self.assertRaisesRegex(MetadataError, "Unsafe submodule name"):
+            self.validator().verify()
+
+    def test_portable_submodule_names(self):
+        for name in ("", "..", "core/..", "a/../core", "..\\core", "a\\..\\core"):
+            with self.subTest(name=name):
+                escaped = name.replace("\\", "\\\\")
+                self.stage_modules(self.valid.replace('"core"', f'"{escaped}"'))
+                with self.assertRaisesRegex(MetadataError, "Unsafe submodule name"):
+                    self.validator().verify()
+        for name in ("core.v2", "core..v2", "...", "group/core.v2"):
+            with self.subTest(name=name):
+                self.stage_modules(self.valid.replace('"core"', f'"{name}"'))
+                self.assertEqual(self.validator().verify(), 1)
+
+    def test_unused_registration_is_valid(self):
+        self.stage_modules(self.valid + '[submodule "unused.v2"]\n'
+                           ' path = LocalPackages/unused\n url = ../child\n')
+        self.assertEqual(self.validator().verify(), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
