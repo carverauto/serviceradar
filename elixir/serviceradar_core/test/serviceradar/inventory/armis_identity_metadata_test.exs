@@ -7,7 +7,7 @@ defmodule ServiceRadar.Inventory.ArmisIdentityMetadataTest do
   alias ServiceRadar.Inventory.Sync.Normalize
   alias ServiceRadar.Inventory.Sync.SourcePolicy
 
-  test "self-scoped admission and unscoped rejection are provider-neutral" do
+  test "self-scoped admission and bare numeric rejection are provider-neutral" do
     for provider <- ["armis", "netbox", "test-integration", "future-provider"],
         source_id <- [nil, "source-a"] do
       scoped = "#{provider}:source-a:device:101"
@@ -22,6 +22,20 @@ defmodule ServiceRadar.Inventory.ArmisIdentityMetadataTest do
 
       unscoped = metadata |> Map.put("integration_id", "101") |> Map.delete("sync_service_id")
       assert %{integration_id: nil} = Ids.extract_strong_identifiers(%{metadata: unscoped})
+    end
+  end
+
+  test "existing opaque and hypervisor integration identities retain their values" do
+    for {provider, value} <- [
+          {"test-integration", "integration-device-a"},
+          {"hypervisor", "testhv:node:host-a"},
+          {"hypervisor", "proxmox:v2:cluster-a:node:host-a"}
+        ] do
+      update = %{
+        metadata: %{"integration_type" => provider, "integration_id" => value}
+      }
+
+      assert %{integration_id: ^value} = Ids.extract_strong_identifiers(update)
     end
   end
 

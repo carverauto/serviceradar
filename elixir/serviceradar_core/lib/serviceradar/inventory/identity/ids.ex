@@ -206,10 +206,9 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
 
   defp get_integration_id(metadata) when is_map(metadata) do
     raw = ids_get(%{integration_id: get_trimmed(metadata, "integration_id")}, :integration_id)
-    integration_type = get_trimmed(metadata, "integration_type") || "integration"
     candidate = source_scoped_integration_id(metadata, raw)
 
-    if is_binary(candidate) and self_scoped?(candidate, integration_type), do: candidate
+    if is_binary(candidate) and not Regex.match?(~r/\A[0-9]+\z/, candidate), do: candidate
   end
 
   defp get_integration_id(_metadata), do: nil

@@ -307,7 +307,7 @@ The system SHALL make identity reconciliation diagnostics reachable through SRQL
 - **AND** the operator SHALL be able to see whether the run stopped at its configured work cap
 
 ### Requirement: Provider-Neutral Integration Identity Evidence
-The system SHALL admit an integration `integration_id` as device identity based on whether the value carries its own source scope, and SHALL NOT admit or reject it based on the provider name. Bare provider-native IDs that carry no source scope SHALL NOT become `:integration_id` identifiers; source-scoped values SHALL resolve through the generic `:integration_id` path for any provider.
+The system SHALL NOT admit or reject an integration `integration_id` based on the provider name. Bare numeric provider-native IDs SHALL NOT become `:integration_id` identifiers; source-scoped values and existing opaque identifiers SHALL resolve through the generic `:integration_id` path for any provider. An identifier's prefix need not match `integration_type`, since hypervisor updates carry provider-owned identifiers.
 
 #### Scenario: Scoped provider ID resolves generically
 - **GIVEN** a sync update with `integration_type: "armis"` and `integration_id: "armis:source-a:device:18497"`
@@ -320,4 +320,3 @@ The system SHALL admit an integration `integration_id` as device identity based 
 - **WHEN** DIRE extracts strong identifiers
 - **THEN** no `:integration_id` identifier SHALL be produced from the bare value
 - **AND** resolution SHALL rely on the provider's typed identifier (`armis_device_id`) and other evidence
-

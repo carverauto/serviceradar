@@ -24,9 +24,9 @@ are rejected with telemetry, and rejected values never become rows.
 
 ### Integration identity admission
 
-DIRE admits a candidate `integration_id` only when it has its integration-type
-prefix (the extractor's self-scoped shape check), regardless of provider.
-Unscoped values without a sync-service scope are rejected. The generic
+DIRE rejects bare numeric `integration_id` values regardless of provider.
+Existing opaque IDs and provider-scoped IDs retain their values, including
+hypervisor IDs whose provider prefix differs from `integration_type`. The generic
 sync-service path retains its source-scoping and lookup-only raw-ID bridge;
 Armis and NetBox keep their driver-owned formats without core-side synthesis.
 
