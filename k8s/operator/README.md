@@ -14,17 +14,27 @@ This snapshot is kept here for reference and potential future bundling; it shoul
 
 ## Deployment record (reviewed for issue #221)
 
-- **Currently deployed:** operator **1.27.1** via Helm chart `cloudnative-pg-0.26.1`
-  (release `cnpg-operator` in `cnpg-system`; Helm-managed, not Argo-managed).
+GitOps was rechecked on 2026-09-09 at
+[revision `fd1ddc3`](https://github.com/carverauto/gitops/tree/fd1ddc3bbfadd40c2ac72c03bf4e9168c7dbdc29).
+The [plugin manifest](https://github.com/carverauto/gitops/blob/fd1ddc3bbfadd40c2ac72c03bf4e9168c7dbdc29/k8s/cnpg-barman-cloud/base/kustomization.yaml)
+records the plugin pin and mentions operator 1.27.1 in a comment; it does not
+declare the operator release or its Helm chart version. No operator chart pin
+was found in that review. GitOps therefore does not establish the installed
+operator/chart versions, and the deployment compatibility verdict remains
+conditional until the cluster owners confirm the current Helm release.
+
+- **Unverified review baseline:** operator **1.27.1** via Helm chart
+  `cloudnative-pg-0.26.1` (reported release `cnpg-operator` in `cnpg-system`,
+  Helm-managed). Confirm both versions and management ownership before rollout.
 - **Reviewed target:** operator **1.30.0** (released Jun 29, 2026) via Helm chart
-  `cloudnative-pg-0.29.0`. Not yet deployed; the rollout itself belongs in a
+  `cloudnative-pg-0.29.0`. Deployment status is unverified; the rollout belongs in a
   gitops change applied via Helm/Argo by the cluster owners -- never from this repo.
 - **Cluster floor:** Kubernetes v1.34 (e.g. v1.34.4+k3s1), inside the 1.30.0
   supported range (1.34, 1.35, 1.36).
 - **Companion plugin:** `plugin-barman-cloud` v0.13.0 (Argo app `cnpg-barman-cloud`),
   which requires operator >= 1.26 -- compatible with both 1.27.1 and 1.30.0.
 
-## Compatibility verdict: safe to upgrade 1.27.1 -> 1.30.0
+## Conditional compatibility review: 1.27.1 -> 1.30.0
 
 - Chart manifests use only `postgresql.cnpg.io/v1` (Cluster, Pooler,
   ScheduledBackup) -- all stable in 1.30.0.
