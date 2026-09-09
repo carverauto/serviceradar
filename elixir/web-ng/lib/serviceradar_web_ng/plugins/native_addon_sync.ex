@@ -17,24 +17,19 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
   core conflict guard still fires after verification. Either way the
   replacement bundle is fully verified (Cosign + sha256 + agent-release ed25519)
   before it can restage the row, review status is preserved the same way
-  (denied/revoked stay; approved returns to staged unless the add-on is in
-  `auto_approve_addon_ids` or a single enabled, unpinned `track_latest_approved`
-  profile's capability ceiling covers the rebuild's request, in which case it
-  is re-approved), and rows owned by another source type (`:upload`/`:github`)
-  are never touched.
+  (denied/revoked stay, approved returns to staged), and rows owned by another
+  source type (`:upload`/`:github`) are never touched.
   """
-
-  import Ash.Expr, only: [expr: 1]
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Plugins.AddonPackage
   alias ServiceRadar.Plugins.AddonProfile
   alias ServiceRadar.Plugins.NativeAddonArtifactMirror
   alias ServiceRadar.Plugins.RetiredNativeAddons
-  alias ServiceRadarWebNG.Plugins.AddonFleet
   alias ServiceRadarWebNG.Plugins.NativeAddonImporter
 
   require Ash.Query
+  require Logger
 
   @type sync_result ::
           {:imported, AddonPackage.t()}
@@ -57,16 +52,12 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
   def import_or_reuse(addon, opts \\ []) when is_map(addon) do
     case existing_package(addon.addon_id, addon.version, opts) do
       {:ok, nil} ->
-        sync_import(addon, opts, nil)
+        sync_import(addon, opts)
 
       {:ok, %AddonPackage{} = package} ->
         case import_decision(package, addon, opts) do
-          :skip ->
-            {:skipped, package}
-
           :reuse ->
-            with {:ok, package} <- refresh_release_provenance(package, addon),
-                 {:ok, package} <- maybe_approve(package, opts) do
+            with {:ok, package} <- maybe_approve(package, opts) do
               {:skipped, package}
             end
 
@@ -75,15 +66,15 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
               addon,
               opts
               |> Keyword.put(:existing_review_status, package.status)
-              |> Keyword.put(:replace_existing, true),
-              package.source_release_tag
+              |> Keyword.put(:replace_existing, true)
+              |> Keyword.put(:prior_approved_capabilities, prior_approved_capabilities(package))
             )
 
           :import ->
-            sync_import(addon, opts, package.source_release_tag)
+            sync_import(addon, opts)
 
-          {:conflict, reason} ->
-            {:error, source_conflict(package, addon, reason)}
+          {:conflict, _reason} ->
+            {:error, source_conflict(package, addon)}
         end
 
       {:error, _reason} = error ->
@@ -93,20 +84,16 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
 
   @doc """
   Pure import-or-reuse decision for one discovered add-on against its already
-  imported package row.
+  imported package row, if any.
 
-  Returns `:skip` (an older release has identical verified content; keep the
-  existing row without changing provenance or review state), `:reuse` (the row already reflects this
+  Returns `:import_new` (no row yet), `:reuse` (the row already reflects this
   exact build), `:replace` (same `addon_id` + `version` rebuilt under a new
   envelope with complete provenance on the existing row: restage the row onto
   the release's build), `:import` (a first-party row with partial provenance:
   run a plain import and let the core verifier decide — an unclaimed seeder
   placeholder heals, a genuinely mismatched claim still conflicts), or
-  `{:conflict, reason}`: `:source_type_owned` (the row belongs to another
-  source and must never be overwritten), `:older_release` (the row already
-  comes from a newer release; importing would roll it back), or
-  `:unknown_release_order` (the two release tags cannot be ordered, so the
-  existing release is kept).
+  `{:conflict, :source_type_owned}` (the row belongs to another source and must
+  never be overwritten).
 
   Only first-party rows are replaceable. That subsumes the old
   unclaimed-placeholder carve-out (GitHub #4039): a seeder-created row carries
@@ -118,38 +105,19 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
   the same version, the newer release wins through the replace path (which
   restages the row for review) rather than failing the whole Import All
   (GitHub #335). An explicit `replace: true` (the per-row Replace button)
-  takes the replace path only when release ordering permits it.
+  always takes the replace path.
   """
-  @spec import_decision(AddonPackage.t(), map(), keyword()) ::
-          :skip | :reuse | :replace | :import | {:conflict, atom()}
+  @spec import_decision(AddonPackage.t() | nil, map(), keyword()) ::
+          :import_new | :reuse | :replace | :import | {:conflict, :source_type_owned}
+  def import_decision(nil, _addon, _opts), do: :import_new
 
   def import_decision(%AddonPackage{} = package, addon, opts) do
-    order = release_order(package.source_release_tag, addon.release_tag)
-
     cond do
-      source_type_owned?(package) ->
-        {:conflict, :source_type_owned}
-
-      order == :lt and verified_content_matches?(package, addon) ->
-        :skip
-
-      order == :lt ->
-        {:conflict, :older_release}
-
-      order == :unknown ->
-        {:conflict, :unknown_release_order}
-
-      reusable_package?(package, addon) ->
-        :reuse
-
-      replace_forced?(opts) ->
-        :replace
-
-      provenance_complete?(package) ->
-        :replace
-
-      true ->
-        :import
+      source_type_owned?(package) -> {:conflict, :source_type_owned}
+      reusable_package?(package, addon) -> :reuse
+      replace_forced?(opts) -> :replace
+      provenance_complete?(package) -> :replace
+      true -> :import
     end
   end
 
@@ -163,61 +131,21 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
   defp present?(value) when is_binary(value), do: String.trim(value) != ""
   defp present?(_value), do: false
 
-  @doc """
-  Orders an incoming release tag against the tag an imported row came from.
-
-  Returns `:gt` when the incoming release is newer (or the row is a legacy row
-  without a tag), `:eq` for the same tag, `:lt` when the row already comes from
-  a newer release, and `:unknown` when the tags cannot be ordered. Release order
-  is independent of blob identity: only `:gt` and `:eq` may touch the row.
-  """
-  @spec release_order(String.t() | nil, String.t() | nil) :: :gt | :eq | :lt | :unknown
-  def release_order(nil, incoming) when is_binary(incoming), do: :gt
-  def release_order(tag, tag) when is_binary(tag), do: :eq
-
-  def release_order(existing, incoming) when is_binary(existing) and is_binary(incoming) do
-    case AddonFleet.compare_versions(String.trim_leading(incoming, "v"), String.trim_leading(existing, "v")) do
-      :incomparable -> :unknown
-      order -> order
-    end
+  # Approval carried on a row about to be replaced. Only an `:approved` row
+  # contributes: it is the operator's reviewed capability set for these bytes,
+  # and it lets a same-version rebuild of the only approved version still
+  # auto-approve through a tracking profile (GitHub #337). Anything else
+  # contributes nothing, so a staged/denied/revoked row can never widen the
+  # auto-approval ceiling on its way out.
+  defp prior_approved_capabilities(%AddonPackage{status: :approved} = package) do
+    List.wrap(package.approved_capabilities)
   end
 
-  def release_order(_existing, _incoming), do: :unknown
-
-  defp refresh_release_provenance(package, addon) do
-    case release_order(package.source_release_tag, addon.release_tag) do
-      :gt ->
-        package
-        |> Ash.Changeset.for_update(
-          :update,
-          %{
-            source_release_tag: addon.release_tag,
-            source_oci_ref: addon.oci_ref,
-            source_oci_digest: addon.oci_digest
-          },
-          actor: SystemActor.system(:native_addon_sync)
-        )
-        |> pin_release_tag(package.source_release_tag)
-        |> Ash.update()
-
-      :eq ->
-        {:ok, package}
-
-      order ->
-        reason = if order == :lt, do: :older_release, else: :unknown_release_order
-        {:error, source_conflict(package, addon, reason)}
-    end
-  end
-
-  defp pin_release_tag(changeset, nil), do: Ash.Changeset.filter(changeset, expr(is_nil(source_release_tag)))
-
-  defp pin_release_tag(changeset, tag), do: Ash.Changeset.filter(changeset, expr(source_release_tag == ^tag))
+  defp prior_approved_capabilities(_package), do: []
 
   @spec summary([map()], [{map(), sync_result()}]) :: map()
   def summary(discovered, results) do
-    imported =
-      Enum.count(results, fn {_addon, result} -> match?({:imported, _package}, result) end)
-
+    imported = Enum.count(results, fn {_addon, result} -> match?({:imported, _package}, result) end)
     skipped = Enum.count(results, fn {_addon, result} -> match?({:skipped, _package}, result) end)
 
     failed =
@@ -259,17 +187,12 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
     end
   end
 
-  defp sync_import(addon, opts, expected_release_tag) do
-    attrs =
-      addon
-      |> import_attrs()
-      |> Map.put(:expected_source_release_tag, expected_release_tag)
-
+  defp sync_import(addon, opts) do
     attrs =
       if Keyword.get(opts, :replace_existing, false) do
-        Map.put(attrs, :replace_existing, true)
+        Map.put(import_attrs(addon), :replace_existing, true)
       else
-        attrs
+        import_attrs(addon)
       end
 
     case NativeAddonImporter.import_with_disposition(attrs) do
@@ -284,11 +207,16 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
         end
 
       {:ok, package, :reused} ->
-        with {:ok, package} <- refresh_release_provenance(package, addon) do
-          {:skipped, package}
-        end
+        {:skipped, package}
 
-      {:error, _reason} = error ->
+      {:error, reason} = error ->
+        Logger.warning("Native add-on import failed",
+          addon_id: addon.addon_id,
+          version: addon.version,
+          release_tag: addon.release_tag,
+          reason: inspect(reason, limit: 16)
+        )
+
         error
     end
   end
@@ -307,7 +235,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
       addon_id in Keyword.get(opts, :auto_approve_addon_ids, []) ->
         approve_package(package)
 
-      tracking_profile_auto_approves?(package) ->
+      tracking_profile_auto_approves?(package, opts) ->
         approve_package(package)
 
       true ->
@@ -321,10 +249,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
     package
     |> Ash.Changeset.for_update(
       :approve,
-      %{
-        approved_capabilities: package.capabilities || [],
-        approved_by: "system:native_addon_sync"
-      },
+      %{approved_capabilities: package.capabilities || [], approved_by: "system:native_addon_sync"},
       actor: SystemActor.system(:native_addon_sync)
     )
     |> Ash.update()
@@ -337,42 +262,68 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
   default for verified first-party packages) has opted that add-on into
   automatic updates, so a newly imported build of the same `addon_id` can be
   approved without another click — but only when it asks for no capability the
-  operator has not already reviewed. `ceiling` is one qualifying profile's
-  capability ceiling. Historical package approvals and other profiles do not
-  widen it; any expansion beyond that ceiling stays staged for human review.
+  operator has not already reviewed. `ceiling` is the set of capabilities
+  approved on earlier builds (plus the replaced row's own prior approval, when
+  this build is a same-version rebuild); any expansion beyond it stays staged
+  for human review.
   """
-  @spec auto_approve_eligible?([String.t()] | nil, MapSet.t()) :: boolean()
-  def auto_approve_eligible?(requested, %MapSet{} = ceiling) when is_list(requested) do
+  @spec auto_approve_eligible?([String.t()] | nil, boolean(), MapSet.t()) :: boolean()
+  def auto_approve_eligible?(requested, true, %MapSet{} = ceiling) when is_list(requested) do
     MapSet.subset?(MapSet.new(requested), ceiling)
   end
 
-  def auto_approve_eligible?(_requested, _ceiling), do: false
+  def auto_approve_eligible?(_requested, _tracking, _ceiling), do: false
 
-  # Fails closed: any lookup error means "do not auto-approve". Each profile
-  # must independently cover the entire request; never union reviewed scopes.
-  defp tracking_profile_auto_approves?(%AddonPackage{source_type: :first_party, addon_id: addon_id} = package) do
+  # Fails closed: any lookup error means "do not auto-approve".
+  defp tracking_profile_auto_approves?(%AddonPackage{addon_id: addon_id} = package, opts) do
+    with {:ok, true} <- tracking_profile_present?(addon_id),
+         {:ok, ceiling} <- auto_approve_ceiling(addon_id, package.id, opts) do
+      auto_approve_eligible?(package.capabilities, true, ceiling)
+    else
+      _ -> false
+    end
+  end
+
+  defp tracking_profile_present?(addon_id) do
+    actor = SystemActor.system(:native_addon_sync)
+
     AddonProfile
     |> Ash.Query.for_read(:read)
     |> Ash.Query.filter(
       addon_id == ^addon_id and enabled == true and update_policy == :track_latest_approved and
         explicit_version_pin == false
     )
-    |> Ash.read(actor: SystemActor.system(:native_addon_sync))
+    |> Ash.read(actor: actor)
     |> case do
-      {:ok, profiles} ->
-        Enum.any?(profiles, fn profile ->
-          auto_approve_eligible?(
-            package.capabilities,
-            MapSet.new(profile.capability_ceiling || [])
-          )
-        end)
-
-      {:error, _reason} ->
-        false
+      {:ok, [_ | _]} -> {:ok, true}
+      {:ok, []} -> {:ok, false}
+      {:error, _reason} = error -> error
     end
   end
 
-  defp tracking_profile_auto_approves?(_package), do: false
+  defp auto_approve_ceiling(addon_id, exclude_package_id, opts) do
+    actor = SystemActor.system(:native_addon_sync)
+    prior = opts |> Keyword.get(:prior_approved_capabilities, []) |> List.wrap()
+
+    AddonPackage
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(addon_id == ^addon_id and status == :approved)
+    |> Ash.read(actor: actor)
+    |> case do
+      {:ok, packages} ->
+        ceiling =
+          packages
+          |> Enum.reject(&(to_string(&1.id) == to_string(exclude_package_id)))
+          |> Enum.flat_map(&List.wrap(&1.approved_capabilities))
+          |> Kernel.++(prior)
+          |> MapSet.new()
+
+        {:ok, ceiling}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
 
   defp maybe_approve_repaired(%AddonPackage{} = package, opts) do
     case Keyword.get(opts, :existing_review_status) do
@@ -417,11 +368,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
   end
 
   defp reusable_package?(%AddonPackage{} = package, addon) do
-    source_matches?(package, addon) and verified_content_matches?(package, addon)
-  end
-
-  defp verified_content_matches?(%AddonPackage{} = package, addon) do
-    package.source_type == :first_party and
+    package.source_type == :first_party and source_matches?(package, addon) and
       package.verification_status == "verified" and is_nil(package.verification_error) and
       source_bundle_digest_matches?(package, addon) and
       artifact_contract_matches?(
@@ -450,15 +397,18 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
   # It flows through the `:import` decision, and the core reconciler heals it
   # there (empty provenance can never disagree), so the verified build
   # overwrites the unverified announcement rather than conflicting with it.
-  defp source_conflict(%AddonPackage{} = package, addon, reason) do
+  defp source_conflict(%AddonPackage{} = package, addon) do
+    reason =
+      if package.source_type == :first_party,
+        do: :oci_source_mismatch,
+        else: :source_type_owned
+
     {:native_addon_version_source_conflict,
      %{
        reason: reason,
        addon_id: addon.addon_id,
        version: addon.version,
        existing_source_type: package.source_type,
-       existing_release_tag: package.source_release_tag,
-       discovered_release_tag: addon.release_tag,
        existing_oci_ref: package.source_oci_ref,
        existing_oci_digest: package.source_oci_digest,
        discovered_oci_ref: addon.oci_ref,
@@ -548,9 +498,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
          signature when is_binary(signature) <- signature,
          {:ok, signature_digest} <- signature_digest_result do
       [os, arch] = String.split(platform, "/", parts: 2)
-
-      expected_object_key =
-        NativeAddonArtifactMirror.object_key(addon_id, version, os, arch, sha256)
+      expected_object_key = NativeAddonArtifactMirror.object_key(addon_id, version, os, arch, sha256)
 
       if object_key == expected_object_key do
         {:ok, platform,
@@ -681,7 +629,6 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
   end
 
   defp normalize_string(value) when is_atom(value), do: value |> Atom.to_string() |> normalize_string()
-
   defp normalize_string(_value), do: nil
 
   defp map_value(map, key) when is_map(map) and is_atom(key) do
