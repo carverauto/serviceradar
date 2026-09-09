@@ -124,5 +124,4 @@ defmodule ServiceRadarWebNGWeb.Auth.ErrorHandler do
       conn
     end
   end
-
 end
