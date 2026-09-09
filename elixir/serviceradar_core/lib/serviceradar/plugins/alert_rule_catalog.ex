@@ -120,7 +120,7 @@ defmodule ServiceRadar.Plugins.AlertRuleCatalog do
           |> drop_nils()
 
         StatefulAlertRule
-        |> Ash.Changeset.for_create(:create, attrs)
+        |> Ash.Changeset.for_create(:create, attrs, actor: actor)
         |> Ash.create(actor: actor)
 
       {:ok, rule_row} ->
@@ -133,7 +133,7 @@ defmodule ServiceRadar.Plugins.AlertRuleCatalog do
 
   defp update_rule(rule_row, attrs, actor) do
     rule_row
-    |> Ash.Changeset.for_update(:update, attrs)
+    |> Ash.Changeset.for_update(:update, attrs, actor: actor)
     |> Ash.update(actor: actor)
   end
 

@@ -30,6 +30,8 @@ defmodule ServiceRadar.Observability.StatefulAlertRuleEventsTest do
   alias ServiceRadar.Identity.Users
   alias ServiceRadar.Observability.ApiEvent
   alias ServiceRadar.Observability.StatefulAlertRule
+  alias ServiceRadar.Plugins.AlertRuleCatalog
+  alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadar.Security.AuditHistory
 
   require Ash.Query
@@ -85,6 +87,71 @@ defmodule ServiceRadar.Observability.StatefulAlertRuleEventsTest do
     |> Ash.Query.filter(record_id == ^record_id)
     |> Ash.Query.sort(occurred_at: :asc)
     |> Ash.read!(actor: @system)
+  end
+
+  test "catalog sync attributes create and update events to its system actor" do
+    plugin_id = "audit-catalog-#{System.unique_integer([:positive])}"
+    declaration = %{
+      "name" => "log-match",
+      "signal" => "log",
+      "match" => %{"body_contains" => "synthetic failure"},
+      "group_by" => ["service.name"],
+      "description" => "Initial definition"
+    }
+
+    manifest = %{
+      "id" => plugin_id,
+      "name" => "Audit Catalog",
+      "version" => "0.1.0",
+      "entrypoint" => "run_check",
+      "runtime" => "wasi-preview1",
+      "capabilities" => ["submit_result"],
+      "outputs" => "serviceradar.plugin_result.v1",
+      "resources" => %{"requested_memory_mb" => 32, "requested_cpu_ms" => 100},
+      "alert_rules" => [declaration]
+    }
+
+    package =
+      PluginPackage
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          plugin_id: plugin_id,
+          name: "Audit Catalog",
+          version: "0.1.0",
+          entrypoint: "run_check",
+          runtime: "wasi-preview1",
+          outputs: "serviceradar.plugin_result.v1",
+          manifest: manifest,
+          alert_rules: [declaration],
+          config_schema: %{},
+          display_contract: %{},
+          content_hash: "sha256:#{plugin_id}",
+          signature: %{},
+          source_type: :upload
+        },
+        actor: @system
+      )
+      |> Ash.create!()
+
+    assert :ok = AlertRuleCatalog.sync_package(package)
+
+    assert [rule] =
+             StatefulAlertRule
+             |> Ash.Query.filter(plugin_package_id == ^package.id)
+             |> Ash.read!(actor: @system)
+
+    assert [created] = events_for(rule.id)
+    assert created.action_type == :create
+    assert created.metadata["actor_id"] == "system:alert_rule_catalog"
+
+    updated_declaration = Map.put(declaration, "description", "Updated definition")
+    assert :ok = AlertRuleCatalog.sync_package(%{package | alert_rules: [updated_declaration]})
+
+    assert [_, updated] = events_for(rule.id)
+    assert updated.action_type == :update
+    assert updated.data["description"] == "Updated definition"
+    assert updated.metadata["actor_id"] == "system:alert_rule_catalog"
   end
 
   describe "create" do
