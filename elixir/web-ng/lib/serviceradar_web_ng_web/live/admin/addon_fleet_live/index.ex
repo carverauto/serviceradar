@@ -123,9 +123,20 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
       socket.assigns.show_finished_rollouts or
         (is_map(rollout) and not rollout.active?)
 
+    finished_index =
+      socket.assigns.rollouts
+      |> Enum.reject(& &1.active?)
+      |> Enum.find_index(&(&1.id == id))
+
+    page =
+      if is_integer(finished_index),
+        do: div(finished_index, socket.assigns.finished_rollout_page_size) + 1,
+        else: socket.assigns.finished_rollout_page
+
     {:noreply,
      socket
      |> assign(:show_finished_rollouts, show_finished)
+     |> assign(:finished_rollout_page, page)
      |> assign(:expanded_rollouts, MapSet.put(socket.assigns.expanded_rollouts, id))}
   end
 
@@ -158,6 +169,8 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
     show_finished = Map.get(socket.assigns, :show_finished_rollouts, false)
     finished_page = Map.get(socket.assigns, :finished_rollout_page, 1)
     rollouts = AddonRollouts.list(scope: socket.assigns.current_scope)
+    finished_count = Enum.count(rollouts, &(not &1.active?))
+    finished_page = clamp_page(finished_page, finished_count, @finished_rollout_page_size)
 
     socket
     |> assign(:page_title, "Add-on Fleet")

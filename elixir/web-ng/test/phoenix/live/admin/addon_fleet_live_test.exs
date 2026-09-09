@@ -379,7 +379,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
     base = DateTime.utc_now()
 
     finished_ids =
-      for i <- 1..12 do
+      for i <- 1..22 do
         attrs = %{
           addon_id: addon_id,
           source_type: :assignment,
@@ -421,28 +421,50 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
 
     # One active rollout visible; finished history stays behind the toggle.
     assert count_occurrences(html, ~s(data-role="addon-rollout-row")) == 1
-    assert html =~ "Show finished (12)"
+    assert html =~ "Show finished (22)"
 
     html = render_click(lv, "toggle_finished_rollouts")
 
     # First page: the active rollout plus the 10 newest finished ones.
     assert count_occurrences(html, ~s(data-role="addon-rollout-row")) == 11
-    assert html =~ "Showing 1-10 of 12"
-    assert html =~ "Page 1 of 2"
+    assert html =~ "Showing 1-10 of 22"
+    assert html =~ "Page 1 of 3"
     refute html =~ oldest_id
 
-    html = render_click(lv, "finished_rollout_page", %{"page" => "2"})
+    html = render_click(lv, "finished_rollout_page", %{"page" => "3"})
 
-    # Second page: the active rollout plus the 2 remaining finished ones,
+    # Last page: the active rollout plus the 2 remaining finished ones,
     # including the oldest, which was unreachable before pagination.
     assert count_occurrences(html, ~s(data-role="addon-rollout-row")) == 3
-    assert html =~ "Showing 11-12 of 12"
-    assert html =~ "Page 2 of 2"
+    assert html =~ "Showing 21-22 of 22"
+    assert html =~ "Page 3 of 3"
     assert html =~ oldest_id
 
     html = render_click(lv, "finished_rollout_page", %{"page" => "1"})
-    assert html =~ "Showing 1-10 of 12"
+    assert html =~ "Showing 1-10 of 22"
     refute html =~ oldest_id
+    render_click(lv, "toggle_finished_rollouts")
+    render_click(lv, "focus_rollout", %{"id" => oldest_id})
+
+    assert has_element?(lv, "#addon-rollout-#{oldest_id}")
+    assert has_element?(lv, "[data-role='addon-rollout-detail']")
+    assert has_element?(lv, "button", "Page 3 of 3")
+
+    import Ecto.Query
+
+    removed_ids = Enum.take(finished_ids, 2)
+    assert {2, _} = ServiceRadar.Repo.delete_all(from(r in AddonRollout, where: r.id in ^removed_ids))
+
+    render_click(lv, "refresh")
+
+    assert has_element?(lv, "button", "Page 2 of 2")
+    assert has_element?(lv, "#addon-finished-rollouts-next-page[disabled]")
+    assert has_element?(lv, "#addon-rollout-#{Enum.at(finished_ids, 2)}")
+
+    lv |> element("#addon-finished-rollouts-prev-page") |> render_click()
+
+    assert has_element?(lv, "button", "Page 1 of 2")
+    refute has_element?(lv, "#addon-rollout-#{Enum.at(finished_ids, 2)}")
   end
 
   # The fleet matrix table markup (everything before the catalog inventory
