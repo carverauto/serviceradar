@@ -600,7 +600,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
       severity: Map.get(alert, "severity"),
       secondary: stream_secondary(alert),
       timestamp: alert_timestamp_value(alert),
-      preview: message_preview(title || Map.get(alert, "description") || "")
+      preview: message_preview(title)
     }
   end
 
@@ -633,7 +633,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
   attr :alert_id, :string, required: true
 
   defp alert_detail_header(assigns) do
-    title = EventTitle.alert_title(assigns.alert) || "Alert"
+    title = EventTitle.alert_title(assigns.alert)
 
     assigns =
       assigns
@@ -1238,9 +1238,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
             Stateful incident
           </span>
           <h2 class="text-base font-semibold leading-tight text-sr-ink sm:text-lg">
-            {EventTitle.alert_title(@alert) ||
-              humanize_rule(diagnostic_value(@diagnostics, ["rule_name"])) ||
-              "Rule threshold fired"}
+            {EventTitle.alert_title(@alert)}
           </h2>
         </div>
         <.severity_badge value={Map.get(@alert, "severity")} />

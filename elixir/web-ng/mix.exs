@@ -9,7 +9,17 @@ defmodule ServiceRadarWebNG.MixProject do
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
-      dialyzer: [ignore_warnings: ".dialyzer_ignore.exs", plt_add_apps: [:mix]],
+      # Deterministic PLT locations under priv/plts (gitignored) so local and
+      # CI runs share one cacheable path instead of MIX_HOME/_build defaults.
+      # list_unused_filters keeps .dialyzer_ignore.exs honest: stale entries
+      # fail the run instead of rotting silently.
+      dialyzer: [
+        ignore_warnings: ".dialyzer_ignore.exs",
+        plt_add_apps: [:mix],
+        plt_core_path: "priv/plts/core",
+        plt_local_path: "priv/plts/project",
+        list_unused_filters: true
+      ],
       deps: deps(),
       compilers: boundary_compilers() ++ [:phoenix_live_view] ++ Mix.compilers(),
       listeners: [Phoenix.CodeReloader],

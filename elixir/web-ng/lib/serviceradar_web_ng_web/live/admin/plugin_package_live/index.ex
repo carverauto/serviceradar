@@ -1108,9 +1108,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       id
       |> list_assignments(scope)
       |> Enum.reduce([], fn assignment, errors ->
+        # Assignments.delete/2 normalizes destroys to {:ok, _} | {:error, _}.
         case Assignments.delete(assignment.id, scope: scope) do
           {:ok, _} -> errors
-          :ok -> errors
           {:error, error} -> [format_error(error) | errors]
         end
       end)
