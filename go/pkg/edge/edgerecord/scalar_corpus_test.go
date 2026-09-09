@@ -142,11 +142,11 @@ func TestScalarCorpusInventory(t *testing.T) {
 	want := map[string]scalarRow{
 		"policy_plan_header":         {bound: "MaxPolicyIDBytes", zero: verdictRefuse, min: 1, hasMin: true, goVerdict: verdictRefuse, exVerdict: verdictRefuse, owner: "-"},
 		"policy_assignment_record":   {bound: "MaxPolicyIDBytes", zero: verdictRefuse, min: 1, hasMin: true, goVerdict: verdictRefuse, exVerdict: verdictRefuse, owner: "-"},
-		"principal_producer_context": {bound: "MaxPrincipalBytes", zero: verdictRefuse, min: 1, hasMin: true, goVerdict: verdictRefuse, exVerdict: verdictNA, owner: proofGroup15N},
+		"principal_producer_context": {bound: "MaxPrincipalBytes", zero: verdictRefuse, min: 1, hasMin: true, goVerdict: verdictRefuse, exVerdict: verdictRefuse, owner: "-"},
 		"principal_edge_slot":        {bound: "MaxPrincipalBytes", zero: verdictRefuse, min: 1, hasMin: true, goVerdict: verdictRefuse, exVerdict: verdictRefuse, owner: "-"},
 		"principal_service_slot":     {bound: "MaxPrincipalBytes", zero: verdictRefuse, min: 1, hasMin: true, goVerdict: verdictRefuse, exVerdict: verdictRefuse, owner: "-"},
 		"plan_header_raw":            {bound: "MaxPlanHeaderBytes", zero: verdictNA, goVerdict: verdictRefuse, exVerdict: verdictRefuse, owner: "-"},
-		"abort_reason":               {bound: "MaxTraceStrBytes", zero: verdictRefuse, min: 1, hasMin: true, goVerdict: verdictRefuse, exVerdict: verdictNA, owner: "1.6-c"},
+		"abort_reason":               {bound: "MaxTraceStrBytes", zero: verdictRefuse, min: 1, hasMin: true, goVerdict: verdictRefuse, exVerdict: verdictRefuse, owner: "-"},
 		"tombstone_reason_signed":    {bound: "MaxReasonBytes", zero: verdictRefuse, min: 1, hasMin: true, goVerdict: verdictRefuse, exVerdict: verdictNA, owner: proofGroup16D},
 	}
 
@@ -341,14 +341,14 @@ func TestScalarSitePrincipalServiceSlot(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// MaxTraceStrBytes at abort_reason -- GO ONLY, owner 1.6-c
+// MaxTraceStrBytes at abort_reason -- both runtimes
 // ---------------------------------------------------------------------------
 
 func TestScalarSiteAbortReason(t *testing.T) {
 	r := scalarRowFor(t, "abort_reason")
 
-	if r.exVerdict != verdictNA || r.owner != "1.6-c" {
-		t.Fatalf("abort_reason must stay Go-only with owner 1.6-c, manifest says %s/%s", r.exVerdict, r.owner)
+	if r.exVerdict != verdictRefuse || r.owner != "-" {
+		t.Fatalf("abort_reason must have both runtime verdicts, manifest says %s/%s", r.exVerdict, r.owner)
 	}
 
 	// CONDITIONAL ON KIND, AND BOTH ARMS ARE RULES. An ABORTED event must carry a bounded
@@ -514,8 +514,8 @@ func TestScalarSitePolicyAssignmentRecord(t *testing.T) {
 func TestScalarSitePrincipalProducerContext(t *testing.T) {
 	r := scalarRowFor(t, "principal_producer_context")
 
-	if r.exVerdict != verdictNA || r.owner != proofGroup15N {
-		t.Fatalf("the producer-context principal has no peer here; manifest says %s/%s", r.exVerdict, r.owner)
+	if r.exVerdict != verdictRefuse || r.owner != "-" {
+		t.Fatalf("the producer-context principal requires both peers; manifest says %s/%s", r.exVerdict, r.owner)
 	}
 
 	rec := func(id []byte) *edgev1.EdgeRecordV1 {

@@ -21,15 +21,13 @@
 # this is a SHAPE rule, not an authorization one. A row asserting it through a signed boundary
 # would be proving a different -- stronger -- property than the one the code has.
 #
-# GO ONLY. This runtime is the only one that COMPARES these fields; the Elixir side digests
-# them in `SemanticDigest` and `ClaimsFraming` and never compares. The peer needs the
-# structural record boundary 1.5-n creates, so every row records `n/a` with that owner and the
-# guards refuse an unowned `n/a`.
+# BOTH RUNTIMES compare these fields through their structural record boundary.
+# Elixir RecordValidate.validate_bytes consumes the Go-authored record_boundary fixtures.
 #
 # WHAT IS EXCLUDED: whether a projected cost COVERS every real mutation is 1.5-k's. These rows
 # verify only that a DECLARED cost does not exceed its capability-carried maxima.
 #
 # conjunct              relation  accepted            refused              go      elixir  owner
-cost_model_version      equal     equal_to_claim      differs_from_claim   refuse  n/a     1.5-n
-projected_row_count     at_most   equal_to_maximum    one_over_maximum     refuse  n/a     1.5-n
-projected_write_bytes   at_most   equal_to_maximum    one_over_maximum     refuse  n/a     1.5-n
+cost_model_version      equal     equal_to_claim      differs_from_claim   refuse  refuse  -
+projected_row_count     at_most   equal_to_maximum    one_over_maximum     refuse  refuse  -
+projected_write_bytes   at_most   equal_to_maximum    one_over_maximum     refuse  refuse  -

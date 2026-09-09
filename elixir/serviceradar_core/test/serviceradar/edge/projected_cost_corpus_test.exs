@@ -1,28 +1,12 @@
 defmodule ServiceRadar.Edge.ProjectedCostCorpusTest do
-  @moduledoc """
-  Task 1.5-h: the PROJECTED-COST RELATION, this runtime's half -- which is a RECORDED GAP.
-
-  THIS RUNTIME DOES NOT COMPARE THESE FIELDS. `cost_model_version`, `projected_row_count` and
-  `projected_write_bytes` are DIGESTED here -- by `SemanticDigest` and `ClaimsFraming` -- and
-  never checked against the production capability's declared maxima. Go performs that
-  comparison inside `ValidateRecord`; there is no peer here to run the same vectors against,
-  because there is no structural record boundary for it to live in yet. 1.5-n creates one.
-
-  ## Why this file exists at all
-
-  A gap that is only WRITTEN DOWN drifts. If the manifest's `n/a` rows were ever quietly given
-  a peer verdict, or their owner dropped, nothing in this runtime would notice -- the vectors
-  do not exist here to fail. This module therefore asserts the SHAPE OF THE GAP: every conjunct
-  is Go-only, every one names 1.5-n, and the conjunct set is exactly the three the relation has.
-
-  When 1.5-n lands, these rows flip to both-runtime and this module gains real vectors; until
-  then it is the thing that keeps the delegation honest.
-  """
+  @moduledoc "Shared pre-signature cost relations through the raw record boundary."
   use ExUnit.Case, async: true
+
+  alias ServiceRadar.Edge.RecordValidate
 
   @corpus "projected_cost_corpus.txt"
 
-  test "every conjunct is recorded Go-only with 1.5-n named" do
+  test "every conjunct has both runtime verdicts" do
     rows = corpus()
 
     # EXACTLY the three conjuncts the relation has. A fourth arriving without a peer, or one
@@ -33,13 +17,8 @@ defmodule ServiceRadar.Edge.ProjectedCostCorpusTest do
     assert length(rows) == 3, "the manifest repeats a conjunct"
 
     for r <- rows do
-      assert r.elixir == "n/a",
-             "#{r.conjunct}: this runtime does not compare projected cost; a peer verdict here " <>
-               "would claim a comparison that does not exist"
-
-      assert r.owner == "1.5-n",
-             "#{r.conjunct}: the peer needs the structural record boundary 1.5-n creates"
-
+      assert r.elixir == "refuse"
+      assert r.owner == "-"
       assert r.go == "refuse"
     end
   end
@@ -58,6 +37,35 @@ defmodule ServiceRadar.Edge.ProjectedCostCorpusTest do
         other ->
           flunk("#{r.conjunct}: relation #{other} is not recognised")
       end
+    end
+  end
+
+  test "each manifest relation accepts equality and refuses its independent mismatch" do
+    base = Path.dirname(corpus_path())
+
+    for r <- corpus() do
+      assert {:ok, control} =
+               base
+               |> Path.join("record_boundary_control.bin")
+               |> File.read!()
+               |> RecordValidate.validate_bytes()
+
+      {:production, claims} = control.production_capability.claims
+
+      field =
+        case r.conjunct do
+          "cost_model_version" -> :cost_model_version
+          "projected_row_count" -> :max_projected_row_count
+          "projected_write_bytes" -> :max_projected_write_bytes
+        end
+
+      assert Map.fetch!(control, String.to_existing_atom(r.conjunct)) == Map.fetch!(claims, field)
+
+      assert {:error, :production_grant} =
+               base
+               |> Path.join("record_boundary_production_#{field}.bin")
+               |> File.read!()
+               |> RecordValidate.validate_bytes()
     end
   end
 

@@ -69,41 +69,65 @@ func CanonicalMicros(unixNanos int64) int64 {
 	return q
 }
 
-// SweepHostRows returns the number of synchronous database rows one host
-// observation projects: one reachability row, one per open port, one per port
-// error, and one MTR-summary row when present.
-func SweepHostRows(h *edgev1.SweepHostObservationV1) int {
-	rows := 1
-	rows += len(h.GetOpenPorts())
-	rows += len(h.GetPortErrors())
-	if h.GetMtr() != nil {
-		rows++
+// Row identifies one synchronous domain mutation by its kind and position in
+// the decoded batch. ElementIndex is -1 for a host or trace's own row.
+// These are projection coordinates, not new wire identifiers or table names.
+type Row struct {
+	Kind         string
+	BatchIndex   int
+	ElementIndex int
+}
+
+// SweepProjectionRows enumerates reachability, open-port, port-error and MTR
+// summary rows in host order. Callers validate the batch before enumerating it.
+func SweepProjectionRows(b *edgev1.SweepObservationBatchV1) []Row {
+	var rows []Row
+	for i, h := range b.GetHosts() {
+		rows = append(rows, Row{"reachability", i, -1})
+		for j := range h.GetOpenPorts() {
+			rows = append(rows, Row{"open_port", i, j})
+		}
+		for j := range h.GetPortErrors() {
+			rows = append(rows, Row{"port_error", i, j})
+		}
+		if h.GetMtr() != nil {
+			rows = append(rows, Row{"mtr_summary", i, -1})
+		}
 	}
 	return rows
 }
 
-// SweepRows returns the total projected rows for a sweep observation batch.
+// MtrProjectionRows enumerates each trace followed by its hop rows, in batch
+// order. Callers validate the batch before enumerating it.
+func MtrProjectionRows(b *edgev1.MtrTraceBatchV1) []Row {
+	var rows []Row
+	for i, tr := range b.GetTraces() {
+		rows = append(rows, Row{"mtr_trace", i, -1})
+		for j := range tr.GetHops() {
+			rows = append(rows, Row{"mtr_hop", i, j})
+		}
+	}
+	return rows
+}
+
+// SweepHostRows derives the count from the enumerated mutations for one host.
+func SweepHostRows(h *edgev1.SweepHostObservationV1) int {
+	return len(SweepProjectionRows(&edgev1.SweepObservationBatchV1{Hosts: []*edgev1.SweepHostObservationV1{h}}))
+}
+
+// SweepRows derives the count from the enumerated mutations for the batch.
 func SweepRows(b *edgev1.SweepObservationBatchV1) int {
-	total := 0
-	for _, h := range b.GetHosts() {
-		total += SweepHostRows(h)
-	}
-	return total
+	return len(SweepProjectionRows(b))
 }
 
-// MtrTraceRows returns the projected rows for one MTR trace: one trace row plus
-// one row per hop.
+// MtrTraceRows derives the count from the enumerated mutations for one trace.
 func MtrTraceRows(t *edgev1.MtrTraceEventV1) int {
-	return 1 + len(t.GetHops())
+	return len(MtrProjectionRows(&edgev1.MtrTraceBatchV1{Traces: []*edgev1.MtrTraceEventV1{t}}))
 }
 
-// MtrRows returns the total projected rows for an MTR trace batch.
+// MtrRows derives the count from the enumerated mutations for the batch.
 func MtrRows(b *edgev1.MtrTraceBatchV1) int {
-	total := 0
-	for _, tr := range b.GetTraces() {
-		total += MtrTraceRows(tr)
-	}
-	return total
+	return len(MtrProjectionRows(b))
 }
 
 // RowKey derives a stable idempotency key for the row at ordinal within a frame

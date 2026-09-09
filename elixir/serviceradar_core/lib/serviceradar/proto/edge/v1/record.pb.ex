@@ -49,6 +49,29 @@ defmodule Serviceradar.Edge.V1.EdgeRecordCompression do
   field :EDGE_RECORD_COMPRESSION_ZSTD, 2
 end
 
+defmodule Serviceradar.Edge.V1.EdgeRecordEncoding do
+  @moduledoc false
+
+  use Protobuf,
+    enum: true,
+    full_name: "serviceradar.edge.v1.EdgeRecordEncoding",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  # SERVICERADAR EDGE ENUM PARITY (task 1.5) -- injected by scripts/patch_edge_enum_negatives.exs.
+  # Go RETAINS an unknown/negative int32 enum as its integer and rejects it in the explicit
+  # semantic validator; the generated `key/1`/`value/1` catchalls are guarded `tag >= 0` and
+  # would RAISE, making Elixir reject a message Go accepts (last-one-wins: `-1` followed by a
+  # valid value has the VALID effective value). Declared in the module BODY on purpose: the
+  # Protobuf DSL appends its clauses at `@before_compile`, so these win for negatives while
+  # every other tag falls through to the generated clauses unchanged.
+  def key(tag) when is_integer(tag) and tag < 0, do: tag
+  def value(tag) when is_integer(tag) and tag < 0, do: tag
+
+  field :EDGE_RECORD_ENCODING_UNSPECIFIED, 0
+  field :EDGE_RECORD_ENCODING_PROTOBUF, 1
+end
+
 defmodule Serviceradar.Edge.V1.EdgeRecordTrafficClass do
   @moduledoc false
 
@@ -230,6 +253,56 @@ defmodule Serviceradar.Edge.V1.EdgeUnattributableReason do
   field :EDGE_UNATTRIBUTABLE_REASON_TORN_TAIL, 4
   field :EDGE_UNATTRIBUTABLE_REASON_BINDING_VERSION_UNSUPPORTED, 6
   field :EDGE_UNATTRIBUTABLE_REASON_DISCRIMINATOR_UNREPRESENTABLE, 7
+end
+
+defmodule Serviceradar.Edge.V1.EdgeSupportedContractV1 do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "serviceradar.edge.v1.EdgeSupportedContractV1",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :contract_id, 1, type: :string, json_name: "contractId"
+  field :contract_version, 2, type: :uint32, json_name: "contractVersion"
+  field :contract_bundle_sha256, 3, type: :bytes, json_name: "contractBundleSha256"
+end
+
+defmodule Serviceradar.Edge.V1.EdgeRecordCapabilitiesV1 do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "serviceradar.edge.v1.EdgeRecordCapabilitiesV1",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :protocol_versions, 1, repeated: true, type: :uint32, json_name: "protocolVersions"
+
+  field :payload_families, 2,
+    repeated: true,
+    type: Serviceradar.Edge.V1.EdgeRecordPayloadFamily,
+    json_name: "payloadFamilies",
+    enum: true
+
+  field :encodings, 3, repeated: true, type: Serviceradar.Edge.V1.EdgeRecordEncoding, enum: true
+
+  field :compressions, 4,
+    repeated: true,
+    type: Serviceradar.Edge.V1.EdgeRecordCompression,
+    enum: true
+
+  field :spool_reader_versions, 5, repeated: true, type: :uint32, json_name: "spoolReaderVersions"
+  field :max_record_bytes, 6, type: :uint64, json_name: "maxRecordBytes"
+  field :max_delivery_envelope_bytes, 7, type: :uint64, json_name: "maxDeliveryEnvelopeBytes"
+  field :max_frame_bytes, 8, type: :uint64, json_name: "maxFrameBytes"
+  field :max_client_message_bytes, 9, type: :uint64, json_name: "maxClientMessageBytes"
+  field :registry_epoch, 10, type: :uint64, json_name: "registryEpoch"
+  field :registry_snapshot_sha256, 11, type: :bytes, json_name: "registrySnapshotSha256"
+
+  field :output_contracts, 12,
+    repeated: true,
+    type: Serviceradar.Edge.V1.EdgeSupportedContractV1,
+    json_name: "outputContracts"
 end
 
 defmodule Serviceradar.Edge.V1.EdgeProductionClaimsV1 do
