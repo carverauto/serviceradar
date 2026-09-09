@@ -11,14 +11,8 @@
       `resources do end`.
 - [x] 1.5 `mix ash.codegen add_api_event_log`; apply it using the root
       `AGENTS.md` database migration guidance; commit the generated migration.
-      Deviation: `mix ash.codegen` is currently unusable in this repo
-      (`priv/resource_snapshots/` is gitignored -- see
-      `20260512040000_add_security_resources.exs`'s moduledoc and
-      `docs/PLATFORM_SECURITY_HARDENING.md#known-follow-ups`, a
-      pre-existing, already-documented repo issue, not introduced by this
-      change). Followed that same file's established precedent: a
-      hand-written `use Ecto.Migration` matching the standard pattern.
-      Applied and verified against a real srql-fixtures scratch database.
+      Implementation uses the committed migration; see
+      [design.md](design.md#context) for the codegen deviation.
 
 ## 2. Wire up StatefulAlertRule
 
@@ -51,30 +45,17 @@
       `PresetRuleResource`'s existing policy block -- actions still require
       `operator`/`admin`/`system` to succeed; AshEvents only observes
       already-authorized actions.
-      Verified against a real srql-fixtures scratch database (all 9 tests
-      in stateful_alert_rule_events_test.exs pass, plus the existing
-      stateful_alert_rule_policy_test.exs's 11 tests still pass unchanged).
 
 ## 4. Surface it
 
 - [x] 4.1 Implement the audit UI integration in
       [design.md](design.md#decisions), preserving the existing History view.
-      Adapter: `ApiEvent` rows are wrapped in an `AuditHistory.ApiEventVersion`
-      struct exposing PaperTrail's field names, unioned into `list_recent/2`.
-      Added a new `@ash_events_resources` allow-list (distinct from
-      `@default_resources`) and `all_resources/0`; the LiveView's
-      `resource_options/0`/`resolve_resource/1` use `all_resources/0`. Added
-      a new "Origin" table column (`api`/`web`/`—`) rather than repurposing
-      "Source row" -- named "Origin" (not literally "Source") to avoid
-      clashing with the existing PaperTrail "Source row" column.
+      See `ServiceRadar.Security.AuditHistory` for the adapter contract
+      and resource configuration.
 - [x] 4.2 Preserve the adoption boundary in [design.md](design.md#decisions)
       when archiving into `openspec/specs/ash-events-audit-log`; point code
       documentation to that owner rather than copying its resource inventory.
-      `ApiEvent`, `ApiEventVersion`, and `ClearForReplay`'s moduledocs all
-      reference `design.md#decisions` by path rather than restating the
-      resource inventory inline. Archiving itself (moving this change's
-      spec delta into `openspec/specs/`) is a separate, later step this
-      task does not perform.
+      Archiving into `openspec/specs/` remains a separate, later step.
 
 ## 5. Close out
 

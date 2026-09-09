@@ -14,7 +14,8 @@ defmodule ServiceRadar.Observability.Changes.StampEventSource do
   it onto the changeset with `Ash.Changeset.set_context/2` before
   `for_create`/`for_update`/`for_destroy` runs. The existing
   `Settings.RulesLive` (LiveView) path never sets this context, so it falls
-  back to `"web"`.
+  back to `"web"`. Background catalog writes also use this default;
+  `"web"` does not prove that a browser initiated the action.
 
   ## `metadata["actor_id"]`
 
@@ -36,7 +37,15 @@ defmodule ServiceRadar.Observability.Changes.StampEventSource do
   `ServiceRadar.Security.AuditHistory`'s adapter has a shape-independent
   fallback (see `adapt_ash_event/1`) even though `persist_actor_primary_key`
   stays configured on `ApiEvent` as a defense-in-depth path for callers that
-  do pass a real `%User{}` struct (e.g. system/background actors).
+  do pass a real `%User{}` struct.
+
+  Pass `actor:` when constructing the changeset with
+  `Ash.Changeset.for_create/for_update/for_destroy`: this change runs then.
+  Supplying the actor only to the final `Ash.create/update/destroy` call
+  does not rerun changes on an already validated action. The catalog
+  attribution regression is in `stateful_alert_rule_events_test.exs`.
+  System actors from `ServiceRadar.Actors.SystemActor` are maps and use
+  the same metadata fallback.
 
   Both are written into `changeset.context[:ash_events_metadata]`, which
   `AshEvents.Events.ActionWrapperHelpers.create_event!/5` reads directly

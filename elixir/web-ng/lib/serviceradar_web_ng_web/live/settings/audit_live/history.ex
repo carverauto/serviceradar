@@ -6,7 +6,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.History do
   `ServiceRadar.Security.AuditHistory`'s two allow-lists: AshPaperTrail
   version rows (`resources/0`) and AshEvents `ApiEvent` rows
   (`ash_events_resources/0`, adapted to the same shape by
-  `AuditHistory.list_recent/2`). Operators filter by resource type, actor
+  `AuditHistory.list_recent/1`). Operators filter by resource type, actor
   identifier, action type, and time range, and drill into a single row's
   `changes` map for the diff detail. The "Origin" column shows `api` / `web`
   for AshEvents rows and "—" for PaperTrail rows, which have no transport

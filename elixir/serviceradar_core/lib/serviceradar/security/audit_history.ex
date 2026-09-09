@@ -23,13 +23,14 @@ defmodule ServiceRadar.Security.AuditHistory do
   `version_action_inputs`, `version_source_id`), so the existing History
   LiveView template and its `extract_actor/1` helper need no changes to
   render either kind of row. The one addition is `origin` on the merged
-  entry (`"api"` / `"web"` / `nil`), read from the AshEvents
-  `metadata["source"]` field.
+  entry, read from AshEvents `metadata["source"]` (or `"—"` when absent),
+  and `nil` for PaperTrail rows. The adapter maps `changed_attributes` to
+  `changes` and preserves `data` in `version_action_inputs` alongside actor
+  attribution.
 
-  Per-resource Ash policies still gate the version/event reads — calling
-  `list_recent/2` with an actor that can't read a particular resource's
-  history transparently drops those rows from the result. Pagination keeps
-  its shape because the merge happens after the per-resource reads.
+  PaperTrail version policies gate each version read; the shared ApiEvent
+  policy gates event reads with `settings.audit.view`. Failed reads contribute
+  no rows. The merged results are sorted and sliced after the source reads.
   """
 
   alias ServiceRadar.Observability.ApiEvent
@@ -123,10 +124,12 @@ defmodule ServiceRadar.Security.AuditHistory do
   ## Options
 
     * `:resource_types` — list of resource modules to restrict the
-      query to. Defaults to the full allow-list.
+      query to. Defaults to both allow-lists via `all_resources/0`.
     * `:actor_id` — string identifier to match against
       `version_action_inputs` (looked up under common shapes:
-      `actor.id`, `actor.email`, or top-level `actor`).
+      `actor.id`, `actor.email`, or top-level `actor`). For ApiEvent
+      rows, matches `user_id` or the `metadata["actor_id"]` fallback
+      before the event query limit is applied.
     * `:action_types` — list of strings (e.g. `["create", "update",
       "destroy"]`). Defaults to all.
     * `:since`, `:until` — `DateTime` bounds against
@@ -185,8 +188,8 @@ defmodule ServiceRadar.Security.AuditHistory do
       |> case do
         {:ok, versions} ->
           # `origin` is nil for PaperTrail rows -- rendered as "—" by the
-          # LiveView's Source column, distinct from AshEvents rows below
-          # which always carry "api" or "web".
+          # LiveView's Origin column. AshEvents rows use metadata source,
+          # with "—" when that metadata is absent.
           Enum.map(versions, &%{resource: resource, version: &1, origin: nil})
 
         {:error, _reason} ->
