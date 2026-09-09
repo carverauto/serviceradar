@@ -48,6 +48,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.LockoutCheck do
 
   alias ServiceRadar.Security.Events
   alias ServiceRadar.Security.Lockouts
+  alias ServiceRadarWebNGWeb.ClientIP
 
   @default_html_redirect "/users/log-in"
   @default_html_flash "Account temporarily locked. Try again later."
@@ -217,13 +218,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.LockoutCheck do
     _ -> :ok
   end
 
-  defp client_ip(conn) do
-    case get_req_header(conn, "x-forwarded-for") do
-      [forwarded | _] ->
-        forwarded |> String.split(",", parts: 2) |> List.first() |> String.trim()
-
-      [] ->
-        conn.remote_ip |> :inet.ntoa() |> List.to_string()
-    end
-  end
+  # Centralized extraction: honors x-forwarded-for only from trusted
+  # proxies (see ServiceRadarWebNG.ClientIP).
+  defp client_ip(conn), do: ClientIP.get(conn)
 end

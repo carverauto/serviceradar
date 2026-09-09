@@ -1233,6 +1233,19 @@ webNg:
   auth:
     forceLocalLogin: false
     disableSso: false
+  # Real client IP extraction behind the envoy Gateway API proxy.
+  # web-ng only honors x-forwarded-for when the direct peer is inside
+  # trustedProxyCidrs (see ServiceRadarWebNG.ClientIP). Leave
+  # trustXForwardedFor false for deployments exposed without a proxy;
+  # otherwise audit logs record the proxy/LB address instead of the client.
+  # Gateway-fronted deployments (gatewayApi.enabled or attach mode) should
+  # set trustXForwardedFor: true and list the envoy pod / service CIDRs.
+  # Envoy appends the downstream address to x-forwarded-for by default, so
+  # no gateway-side change is needed for chart-managed gateways; shared
+  # gateways owned outside this chart must be checked separately.
+  clientIp:
+    trustXForwardedFor: false
+    trustedProxyCidrs: []
   # Trusted Ed25519 public key used to verify signed agent release manifests.
   agentReleasePublicKey: "ZY2//cpkD3oVdC6q4Cg6lN1I2M6SgmDMzL4QyQjptH8="
   # Extra environment variables for the web-ng pod.

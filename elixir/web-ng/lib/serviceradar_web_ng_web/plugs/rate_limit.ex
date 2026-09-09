@@ -47,6 +47,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.RateLimit do
 
   alias ServiceRadar.Security.Events
   alias ServiceRadar.Security.RateLimiter
+  alias ServiceRadarWebNGWeb.ClientIP
 
   @default_html_redirect "/users/log-in"
   # The template uses a literal `{retry_after}` placeholder (no `\#`) —
@@ -207,15 +208,10 @@ defmodule ServiceRadarWebNGWeb.Plugs.RateLimit do
     {client_ip(conn), current_actor_id(conn) || :anonymous}
   end
 
-  defp client_ip(conn) do
-    case get_req_header(conn, "x-forwarded-for") do
-      [forwarded | _] ->
-        forwarded |> String.split(",", parts: 2) |> List.first() |> String.trim()
-
-      [] ->
-        conn.remote_ip |> :inet.ntoa() |> List.to_string()
-    end
-  end
+  # Centralized extraction: honors x-forwarded-for only from trusted
+  # proxies (see ServiceRadarWebNG.ClientIP), so audit/rate-limit keys
+  # cannot be spoofed by untrusted clients.
+  defp client_ip(conn), do: ClientIP.get(conn)
 
   defp current_actor_id(conn) do
     case conn.assigns do
