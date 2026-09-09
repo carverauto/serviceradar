@@ -14,6 +14,7 @@ defmodule ServiceRadar.Security.AuditHistoryAshEventsTest do
   alias ServiceRadar.Identity.Users
   alias ServiceRadar.Observability.StatefulAlertRule
   alias ServiceRadar.Security.AuditHistory
+  alias ServiceRadar.Security.AuthLockout
 
   @system SystemActor.system(:audit_history_ash_events_test)
   @viewer %{id: Ecto.UUID.generate(), role: :viewer}
@@ -87,6 +88,88 @@ defmodule ServiceRadar.Security.AuditHistoryAshEventsTest do
       assert entry.version.version_action_type == "create"
       assert %{"actor" => %{"id" => actor_id}} = entry.version.version_action_inputs
       assert actor_id == operator.id
+    end
+
+    test "default history includes events while a PaperTrail filter stays scoped" do
+      operator = user_fixture(:operator)
+
+      rule =
+        StatefulAlertRule
+        |> Ash.Changeset.for_create(:create, rule_params(), actor: operator)
+        |> Ash.create!()
+
+      lock =
+        AuthLockout
+        |> Ash.Changeset.for_create(:lock, %{actor_id: Ecto.UUID.generate()}, actor: @system)
+        |> Ash.create!()
+
+      entries = AuditHistory.list_recent(actor: operator)
+      assert Enum.any?(entries, &(&1.version.version_source_id == rule.id))
+      assert Enum.any?(entries, &(&1.version.version_source_id == lock.id))
+
+      entries = AuditHistory.list_recent(actor: operator, resource_types: [AuthLockout])
+      assert Enum.any?(entries, &(&1.version.version_source_id == lock.id))
+      assert Enum.all?(entries, &(&1.resource == AuthLockout))
+    end
+
+    test "update inputs retain mutation values alongside actor attribution" do
+      operator = user_fixture(:operator)
+
+      rule =
+        StatefulAlertRule
+        |> Ash.Changeset.for_create(:create, rule_params(), actor: operator)
+        |> Ash.create!()
+
+      rule
+      |> Ash.Changeset.for_update(:update, %{priority: 7}, actor: operator)
+      |> Ash.update!()
+
+      assert [entry] =
+               AuditHistory.list_recent(
+                 actor: operator,
+                 resource_types: [StatefulAlertRule],
+                 action_types: ["update"]
+               )
+
+      assert %{"priority" => 7, "actor" => %{"id" => actor_id}} =
+               entry.version.version_action_inputs
+
+      assert actor_id == operator.id
+    end
+
+    test "actor filtering precedes pagination for user and metadata identities" do
+      operator = user_fixture(:operator)
+      other_operator = user_fixture(:operator)
+
+      for event_actor <- [operator, Map.from_struct(operator)] do
+        rule =
+          StatefulAlertRule
+          |> Ash.Changeset.for_create(:create, rule_params(), actor: event_actor)
+          |> Ash.create!()
+
+        rule
+        |> Ash.Changeset.for_update(:update, %{priority: 7}, actor: event_actor)
+        |> Ash.update!()
+
+        StatefulAlertRule
+        |> Ash.Changeset.for_create(:create, rule_params(), actor: other_operator)
+        |> Ash.create!()
+
+        opts = [
+          actor: operator,
+          actor_id: operator.id,
+          resource_types: [StatefulAlertRule],
+          limit: 1
+        ]
+
+        assert [entry] = AuditHistory.list_recent(opts)
+        assert entry.version.version_source_id == rule.id
+        assert entry.version.version_action_type == "update"
+
+        assert [entry] = AuditHistory.list_recent(Keyword.put(opts, :offset, 1))
+        assert entry.version.version_source_id == rule.id
+        assert entry.version.version_action_type == "create"
+      end
     end
 
     test "an actor without settings.audit.view sees no rows for that resource" do

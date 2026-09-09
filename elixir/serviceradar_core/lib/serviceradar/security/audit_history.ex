@@ -139,7 +139,7 @@ defmodule ServiceRadar.Security.AuditHistory do
   @spec list_recent(keyword()) :: [%{resource: module(), version: struct()}]
   def list_recent(opts \\ []) do
     actor = Keyword.get(opts, :actor)
-    resource_types = Keyword.get(opts, :resource_types, resources())
+    resource_types = Keyword.get(opts, :resource_types, all_resources())
     actor_id = Keyword.get(opts, :actor_id)
     action_types = Keyword.get(opts, :action_types)
     since = Keyword.get(opts, :since)
@@ -160,7 +160,7 @@ defmodule ServiceRadar.Security.AuditHistory do
     ash_events_entries =
       resource_types
       |> Enum.filter(&(&1 in ash_events_resources()))
-      |> read_ash_events(actor, since, until_, action_types, per_source)
+      |> read_ash_events(actor, actor_id, since, until_, action_types, per_source)
 
     (paper_trail_entries ++ ash_events_entries)
     |> Enum.filter(&matches_actor?(&1, actor_id))
@@ -203,14 +203,15 @@ defmodule ServiceRadar.Security.AuditHistory do
 
   ## AshEvents reads (ApiEvent, adapted to the PaperTrail Version shape)
 
-  defp read_ash_events([], _actor, _since, _until_, _action_types, _n), do: []
+  defp read_ash_events([], _actor, _actor_id, _since, _until_, _action_types, _n), do: []
 
-  defp read_ash_events(wanted_resources, actor, since, until_, action_types, n) do
+  defp read_ash_events(wanted_resources, actor, actor_id, since, until_, action_types, n) do
     ApiEvent
     |> Ash.Query.for_read(:read, %{}, actor: actor)
     |> Ash.Query.filter(resource in ^wanted_resources)
     |> apply_ash_events_time_filters(since, until_)
     |> apply_ash_events_action_filter(action_types)
+    |> apply_ash_events_actor_filter(actor_id)
     |> Ash.Query.limit(n)
     |> Ash.read(actor: actor)
     |> case do
@@ -252,10 +253,22 @@ defmodule ServiceRadar.Security.AuditHistory do
       end
 
     if actor_id do
-      %{"actor" => %{"id" => actor_id}}
+      Map.put(event.data || %{}, "actor", %{"id" => actor_id})
     else
-      %{}
+      event.data || %{}
     end
+  end
+
+  defp apply_ash_events_actor_filter(query, actor_id) when actor_id in [nil, ""], do: query
+
+  defp apply_ash_events_actor_filter(query, actor_id) do
+    actor_id = to_string(actor_id)
+
+    Ash.Query.filter(
+      query,
+      type(user_id, :string) == ^actor_id or
+        (is_nil(user_id) and get_path(metadata, ["actor_id"]) == ^actor_id)
+    )
   end
 
   defp apply_ash_events_time_filters(query, nil, nil), do: query
