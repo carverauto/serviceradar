@@ -70,4 +70,4 @@ semantic rules; it does not invent constraints on descriptive fields.
 
 This closes a contract-and-validator audit. It does not claim deployment of a
 live edge ingress, implementation of every downstream merge writer, or an ABI
-freeze approval. Those claims have their own owners; task 1.7 remains open.
+freeze approval. See [task 1.7](tasks.md) for the current freeze status.

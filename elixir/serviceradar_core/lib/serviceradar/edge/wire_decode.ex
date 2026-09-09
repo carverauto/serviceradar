@@ -449,8 +449,8 @@ defmodule ServiceRadar.Edge.WireDecode do
 
   # scan_client_message/1: enforce the outer ONEOF and extract the single delivery_frame. Returns
   # {:frame, value} (exactly one delivery_frame payload) | :no_frame (one lane_open)
-  # | :reject. It FAILS CLOSED to :reject on: MORE THAN ONE payload occurrence (a duplicate outer oneof,
-  # incl. a bloated frame + a decoy tiny frame); a delivery_frame with the wrong wire type; a GROUP
+  # | :reject. It FAILS CLOSED to :reject on: ZERO payloads or MORE THAN ONE payload occurrence
+  # (incl. a bloated frame + a decoy tiny frame); a delivery_frame with the wrong wire type; a GROUP
   # (wire type 3/4); an out-of-range/OVERFLOW field number a generated decoder might reinterpret; or
   # truncation. It NEVER falls through to the generated decode on a scan failure.
   defp scan_client_message(bin), do: scan_client_message(bin, 0, nil)
