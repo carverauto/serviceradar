@@ -38,10 +38,14 @@ defmodule ServiceRadar.Inventory.Identity.HardwareSerialTest do
     for provider <- ["armis", "netbox", "test-integration", "future-provider"],
         serial_location <- [:metadata, :hw_info] do
       update =
-        %{metadata: %{"vendor" => "Cisco", "integration_type" => provider}}
-        |> Map.update(serial_location, %{"serial_number" => "SYNTH101"}, fn fields ->
-          Map.put(fields, "serial_number", "SYNTH101")
-        end)
+        Map.update(
+          %{metadata: %{"vendor" => "Cisco", "integration_type" => provider}},
+          serial_location,
+          %{"serial_number" => "SYNTH101"},
+          fn fields ->
+            Map.put(fields, "serial_number", "SYNTH101")
+          end
+        )
 
       typed_only = Ids.extract_strong_identifiers(update)
 
