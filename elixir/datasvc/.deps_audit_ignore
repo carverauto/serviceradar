@@ -3,10 +3,13 @@
 # EEF-CVE-2026-43971 / cowlib Link header directive smuggling have no patched
 # Hex release as of cowlib 2.19.0. That release fixed only the HPACK/QPACK
 # decoder DoS (EEF-CVE-2026-59248). 43966/43969 still list every release from
-# 2.9.0 as affected. 43971 (published 2026-08-18) is the same story: a git
-# fix exists at ninenines/cowlib@89da27ee but Hex has not published a package
-# that closes the range. Keep these waivers until cowlib publishes a patched
-# release or the dependency is replaced.
+# 2.9.0 as affected. Re-verified 2026-09-09: cowlib 2.20.0 ships the 43971 git
+# fix (ninenines/cowlib@89da27ee, confirmed in the 2.19.0...2.20.0 compare),
+# but the advisory DB still flags 2.20.0 for all three, and 2.20.0 leaves the
+# 43966 escape_string/2 and 43969 cookie-encoder paths unchanged (checked
+# against the Hex tarball), so no upgrade closes the gate yet. Keep these
+# waivers until the advisory DB recognizes a patched release or the
+# dependency is replaced.
 EEF-CVE-2026-43966
 EEF-CVE-2026-43969
 EEF-CVE-2026-43971
