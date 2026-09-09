@@ -100,20 +100,20 @@ defmodule ServiceRadar.Inventory.DeviceIdentifier do
         if Enum.empty?(identifiers) do
           query
         else
-          # Build OR conditions for each identifier
+          # Build OR conditions for each identifier. The identifiers arrive
+          # as runtime data, so they go through the input-style filter API
+          # (`Ash.Query.filter/2` is a macro with no runtime function and
+          # would raise `UndefinedFunctionError` here).
           conditions =
             Enum.map(identifiers, fn %{type: type, value: value, partition: partition} ->
-              partition = partition || "default"
-
-              {:and,
-               [
-                 {:==, [:identifier_type], type},
-                 {:==, [:identifier_value], value},
-                 {:==, [:partition], partition}
-               ]}
+              [
+                identifier_type: type,
+                identifier_value: value,
+                partition: partition || "default"
+              ]
             end)
 
-          Ash.Query.filter(query, {:or, conditions})
+          Ash.Query.filter_input(query, or: conditions)
         end
       end
     end

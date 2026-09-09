@@ -26,18 +26,24 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
     :mac
   ]
 
+  # Every reader (`ids_get/2`, `ids_get_string/2`, `ids_get_partition/1`,
+  # `generate_deterministic_device_id/1`) is `Map.get`-based with a default,
+  # so callers routinely pass partial maps (e.g. `%{integration_id: id,
+  # partition: partition}` in remediation decisions). All keys are therefore
+  # optional in the type; `extract_strong_identifiers/1` still returns the
+  # full shape.
   @type strong_identifiers :: %{
-          agent_id: String.t() | nil,
-          armis_id: String.t() | nil,
-          integration_id: String.t() | nil,
-          netbox_id: String.t() | nil,
-          hardware_serial: String.t() | nil,
-          mac: String.t() | nil,
-          macs: [String.t()],
-          legacy_mac: String.t() | nil,
-          legacy_integration_ids: [String.t()],
-          ip: String.t() | nil,
-          partition: String.t()
+          optional(:agent_id) => String.t() | nil,
+          optional(:armis_id) => String.t() | nil,
+          optional(:integration_id) => String.t() | nil,
+          optional(:netbox_id) => String.t() | nil,
+          optional(:hardware_serial) => String.t() | nil,
+          optional(:mac) => String.t() | nil,
+          optional(:macs) => [String.t()],
+          optional(:legacy_mac) => String.t() | nil,
+          optional(:legacy_integration_ids) => [String.t()],
+          optional(:ip) => String.t() | nil,
+          optional(:partition) => String.t() | nil
         }
 
   @type device_update :: %{
