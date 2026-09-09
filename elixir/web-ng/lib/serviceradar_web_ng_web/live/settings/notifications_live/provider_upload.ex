@@ -310,7 +310,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.ProviderUpload do
 
   # NOTE: truncate/1 takes binaries only. display_body/2 normalizes every
   # non-binary preview through encode/1 (Jason or inspect) before calling it,
-  # so no to_string/1 fallback is needed here.
+  # so truncate/1 needs no to_string/1 fallback.
 
   # Every path a template in this document may address, resolved to a marker
   # naming itself. Built from the closed catalog plus the two namespaces the

@@ -198,7 +198,7 @@ defmodule ServiceRadarWebNG.Observability.SignalDisplay do
     end
   end
 
-  # NOTE: contract_key/1 always builds a 4-tuple, so this clause set is
+  # NOTE: contract_key/1 always builds a 4-tuple, so runtime_contract/1 is
   # total without a catch-all. Do not re-add one: a non-tuple key would be a
   # caller bug that should raise, not silently resolve to nil.
   defp contract_map(%{} = contract), do: contract

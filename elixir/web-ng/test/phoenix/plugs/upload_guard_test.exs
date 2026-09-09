@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.Plugs.UploadGuardTest do
   use ExUnit.Case, async: false
 
+  @moduletag :db_free
+
   import Plug.Conn
 
   alias ServiceRadarWebNGWeb.Plugs.UploadGuard
@@ -149,6 +151,12 @@ defmodule ServiceRadarWebNGWeb.Plugs.UploadGuardTest do
   end
 
   defp add_param(conn, key, value) do
-    %{conn | params: Map.put(conn.params || %{}, key, value)}
+    params =
+      case conn.params do
+        %Plug.Conn.Unfetched{} -> %{}
+        params -> params
+      end
+
+    %{conn | params: Map.put(params, key, value)}
   end
 end
