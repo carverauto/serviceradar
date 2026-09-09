@@ -43,10 +43,11 @@ This snapshot is kept here for reference and potential future bundling; it shoul
   CNPG image base (`18.4-system-bookworm` in `MODULE.bazel`).
 - No repo manifests reference the deprecated `status.latestGeneratedNode`
   field, and nothing depends on instance-serial monotonicity.
-- Upgrade motivation beyond currency: 1.30.0 ships operator security fixes that
-  are not backported (authenticated operator-to-instance-manager calls,
-  `search_path` pinning on operator-issued connections, SCRAM-SHA-256 password
-  encoding).
+- Upgrade motivation beyond currency: 1.30.0 adds authenticated
+  operator-to-instance-manager calls, which are not backported. `search_path`
+  hardening and operator-side SCRAM-SHA-256 password encoding are also included
+  in 1.29.2 and 1.28.4. See the
+  [upstream upgrade notes](https://cloudnative-pg.io/docs/1.30/installation_upgrade/).
 
 ## Migration steps (for the gitops rollout, not this repo)
 
