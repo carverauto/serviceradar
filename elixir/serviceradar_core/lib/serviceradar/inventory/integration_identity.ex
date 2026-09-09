@@ -59,6 +59,17 @@ defmodule ServiceRadar.Inventory.IntegrationIdentity do
           optional(atom() | String.t()) => term()
         }
 
+  def scoped_device_id(provider, scope, native_id) do
+    scope =
+      scope
+      |> to_string()
+      |> String.downcase()
+      |> String.split(~r/[:\s]+/u, trim: true)
+      |> Enum.join("-")
+
+    if scope != "", do: "#{provider}:#{scope}:device:#{native_id}"
+  end
+
   ## Minting
 
   @doc """

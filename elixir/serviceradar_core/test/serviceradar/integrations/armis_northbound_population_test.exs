@@ -61,6 +61,38 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundPopulationTest do
                classify(observation(), ["101"], true, false)
     end
 
+    test "scoped integration identity must match the source and native ID" do
+      for integration_id <- ["101", "armis:source-a:device:101"] do
+        observation =
+          Map.update!(observation(), :metadata, fn metadata ->
+            Map.merge(metadata, %{
+              "integration_type" => "armis",
+              "integration_id" => integration_id
+            })
+          end)
+
+        assert %{disposition: :eligible} = classify(observation, ["101"], true, false)
+      end
+
+      for integration_id <- [
+            "armis:source-b:device:101",
+            "armis:source-a:device:202",
+            "armis:source-a:guest:101",
+            "armis::device:101"
+          ] do
+        observation =
+          Map.update!(observation(), :metadata, fn metadata ->
+            Map.merge(metadata, %{
+              "integration_type" => "armis",
+              "integration_id" => integration_id
+            })
+          end)
+
+        assert %{disposition: :withheld, reason: "metadata_identifier_disagreement"} =
+                 classify(observation, ["101"], true, false)
+      end
+    end
+
     test "same canonical UID with multiple distinct Armis IDs is withheld" do
       assert %{disposition: :withheld, reason: "multiple_typed_ids_per_device"} =
                classify(observation(), ["101", "202"], true, false)
