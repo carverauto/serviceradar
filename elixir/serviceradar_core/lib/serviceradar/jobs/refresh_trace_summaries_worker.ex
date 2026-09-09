@@ -27,7 +27,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   use Oban.Worker,
     queue: :maintenance,
     max_attempts: 3,
-    unique: [period: :infinity, states: :incomplete]
+    unique: [period: :infinity, states: [:available, :scheduled, :retryable]]
 
   alias Ecto.Adapters.SQL
   alias ServiceRadar.Observability.OtelPubSub
