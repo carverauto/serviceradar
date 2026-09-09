@@ -145,7 +145,7 @@ func TestBuildUpdateMapsSdkAttributesToInventoryFields(t *testing.T) {
 		"integration_type": "armis",
 		"armis_device_id":  "18497",
 		"source_device_id": "42",
-		"integration_id":   "armis:default:device:18497",
+		"integration_id":   "18497",
 		"type":             "PLC",
 		"device_type":      "PLC",
 		"category":         "OT",
@@ -348,20 +348,36 @@ func TestBuildUpdateScopesIntegrationIDBySyncServiceID(t *testing.T) {
 	}
 }
 
-func TestBuildUpdateFallsBackToSourceKeyScope(t *testing.T) {
-	run := syncsources.RunContext{
-		AgentID:   "agent-1",
-		GatewayID: "agent-1",
-		Partition: "default",
-		SourceKey: "Site Armis",
-	}
+func TestBuildUpdateKeepsBareIntegrationIDWithoutSyncServiceID(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		sourceKey     string
+		partition     string
+		syncServiceID string
+	}{
+		{name: "source key and partition", sourceKey: "source-a", partition: "partition-a"},
+		{name: "partition only", partition: "partition-a"},
+		{name: "no scope"},
+		{name: "blank sync service ID", sourceKey: "source-a", partition: "partition-a", syncServiceID: " \t "},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			run := syncsources.RunContext{
+				Partition: tc.partition,
+				SourceKey: tc.sourceKey,
+				Source:    models.SourceConfig{SyncServiceID: tc.syncServiceID},
+			}
 
-	update := buildUpdate(run, device{ID: 18497, IPAddress: "10.0.0.2", Name: "PLC-01"}, managedQueryLabel)
-	metadata, ok := update["metadata"].(map[string]string)
-	if !ok {
-		t.Fatalf("metadata has type %T, want map[string]string", update["metadata"])
-	}
-	if got := metadata["integration_id"]; got != "armis:site-armis:device:18497" {
-		t.Fatalf("metadata[integration_id] = %q, want source-key-scoped value", got)
+			update := buildUpdate(run, device{ID: 101, IPAddress: "192.0.2.2"}, managedQueryLabel)
+			metadata, ok := update["metadata"].(map[string]string)
+			if !ok {
+				t.Fatalf("metadata has type %T, want map[string]string", update["metadata"])
+			}
+			if got := metadata["integration_id"]; got != "101" {
+				t.Fatalf("metadata[integration_id] = %q, want bare native ID", got)
+			}
+			if got := metadata["armis_device_id"]; got != "101" {
+				t.Fatalf("metadata[armis_device_id] = %q, want native provider key preserved", got)
+			}
+		})
 	}
 }

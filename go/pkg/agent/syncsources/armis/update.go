@@ -34,7 +34,7 @@ func buildUpdate(run syncsources.RunContext, item device, queryLabel string) map
 		return nil
 	}
 
-	metadata := buildMetadata(item, queryLabel, metadataFieldsForSource(run.Source), integrationScope(run))
+	metadata := buildMetadata(item, queryLabel, metadataFieldsForSource(run.Source), run.Source.SyncServiceID)
 	update := map[string]interface{}{
 		"agent_id":   run.AgentID,
 		"gateway_id": run.GatewayID,
@@ -53,20 +53,6 @@ func buildUpdate(run syncsources.RunContext, item device, queryLabel string) map
 
 func formatSecondTimestamp(t time.Time) string {
 	return t.UTC().Truncate(time.Second).Format(time.RFC3339)
-}
-
-// integrationScope resolves the source scope embedded in the scoped
-// integration_id: the configured sync service ID when present, otherwise
-// the source key, otherwise the partition. The scope is what keeps two
-// Armis instances from minting the same device identity.
-func integrationScope(run syncsources.RunContext) string {
-	if scope := syncsources.NormalizeIdentityScope(run.Source.SyncServiceID); scope != "" {
-		return scope
-	}
-	if scope := syncsources.NormalizeIdentityScope(run.SourceKey); scope != "" {
-		return scope
-	}
-	return syncsources.NormalizeIdentityScope(run.Partition)
 }
 
 func buildMetadata(item device, queryLabel string, rawMetadataFields []string, scope string) map[string]string {
