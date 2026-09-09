@@ -7,7 +7,7 @@ We do **not** currently include this operator in the demo kustomize overlays or 
 
 ```bash
 helm repo add cnpg https://cloudnative-pg.github.io/charts
-helm upgrade --install cnpg-operator cnpg/cloudnative-pg -n cnpg-system --create-namespace --skip-crds
+helm upgrade --install cnpg-operator cnpg/cloudnative-pg -n cnpg-system --create-namespace
 ```
 
 This snapshot is kept here for reference and potential future bundling; it should not be applied directly without reconciling RBAC/webhook resources for your cluster.
@@ -51,12 +51,19 @@ This snapshot is kept here for reference and potential future bundling; it shoul
 
 ## Migration steps (for the gitops rollout, not this repo)
 
-1. Upgrade the Helm release so CRDs move with the operator (do not pass
-   `--skip-crds` on this upgrade -- 1.30.0 adds CEL rules and new CRDs such as
-   `DatabaseRole`):
+1. Upgrade the Helm release with its reviewed deployment values and
+   `crds.create=true` so CRDs move with the operator. The chart manages CRDs
+   through [Helm templates](https://github.com/cloudnative-pg/charts/blob/cloudnative-pg-v0.29.0/charts/cloudnative-pg/templates/crds/crds.yaml);
+   `--skip-crds` does not control these templates. Version 1.30.0 adds CEL rules
+   and new CRDs such as `DatabaseRole`. Base command (supply the deployment's
+   values file when applying):
    `helm upgrade cnpg-operator cnpg/cloudnative-pg --version 0.29.0 -n cnpg-system`
-2. Wait for the operator Deployment to roll, then confirm every Cluster reports
-   a Healthy phase before and after.
+2. Confirm every Cluster is healthy before starting, then wait for the operator
+   Deployment and instance-manager upgrades to finish and re-check every Cluster.
+   By default, the latter rolls PostgreSQL instances and ends with a switchover;
+   applications must reconnect. Review the
+   [upstream upgrade procedure](https://cloudnative-pg.io/docs/1.30/installation_upgrade/#upgrades)
+   for supervised primary updates and in-place instance-manager updates.
 3. Confirm the `cnpg-barman-cloud` Argo app still syncs (operator 1.30.0
    auto-reloads CNPG-i plugins on pod roll; no plugin bump required).
 4. Before any future 1.31 upgrade: migrate `cnpg.backup` off in-tree
