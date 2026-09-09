@@ -14,50 +14,59 @@ defmodule ServiceRadar.Observability.OtelMetric do
     extensions: [AshJsonApi.Resource]
 
   postgres do
-    table "otel_metrics"
-    repo ServiceRadar.Repo
-    schema "platform"
+    table("otel_metrics")
+    repo(ServiceRadar.Repo)
+    schema("platform")
     # Don't generate migrations - table is managed by raw SQL migration
     # that creates TimescaleDB hypertable with composite primary key
-    migrate? false
+    migrate?(false)
   end
 
   json_api do
-    type "otel_metric"
+    type("otel_metric")
     # Composite primary key requires specifying which fields to use
     primary_key do
-      keys [:timestamp, :span_name, :service_name, :span_id]
+      keys([:timestamp, :span_name, :service_name, :span_id])
     end
 
     routes do
-      base "/otel_metrics"
+      base("/otel_metrics")
 
-      index :read
+      index(:read)
     end
   end
 
   # DB connection's search_path determines the schema
 
   actions do
-    defaults [:read]
+    read :read do
+      primary?(true)
+
+      pagination do
+        offset?(true)
+        default_limit(100)
+        max_page_size(1000)
+        required?(true)
+      end
+    end
 
     read :by_service do
-      argument :service_name, :string, allow_nil?: false
-      filter expr(service_name == ^arg(:service_name))
+      argument(:service_name, :string, allow_nil?: false)
+      filter(expr(service_name == ^arg(:service_name)))
     end
 
     read :recent do
-      description "Metrics from the last 24 hours"
-      filter expr(timestamp > ago(24, :hour))
+      description("Metrics from the last 24 hours")
+      filter(expr(timestamp > ago(24, :hour)))
     end
 
     read :slow_operations do
-      description "Slow operations only"
-      filter expr(is_slow == true)
+      description("Slow operations only")
+      filter(expr(is_slow == true))
     end
 
     create :create do
-      accept [
+      accept([
         :timestamp,
         :span_name,
         :service_name,
@@ -80,7 +89,7 @@ defmodule ServiceRadar.Observability.OtelMetric do
         :ingest_identity,
         :ingest_agent_id,
         :ingest_partition
-      ]
+      ])
     end
   end
 
@@ -91,144 +100,146 @@ defmodule ServiceRadar.Observability.OtelMetric do
     read_viewer_plus()
 
     policy action(:create) do
-      authorize_if actor_attribute_equals(:role, :system)
+      authorize_if(actor_attribute_equals(:role, :system))
     end
   end
 
   attributes do
     # Composite primary key matching Go schema
     attribute :timestamp, :utc_datetime_usec do
-      primary_key? true
-      allow_nil? false
-      public? true
-      description "When the metric was collected (part of composite PK)"
+      primary_key?(true)
+      allow_nil?(false)
+      public?(true)
+      description("When the metric was collected (part of composite PK)")
     end
 
     attribute :span_name, :string do
-      primary_key? true
-      allow_nil? false
-      public? true
-      description "Name of the span (part of composite PK)"
+      primary_key?(true)
+      allow_nil?(false)
+      public?(true)
+      description("Name of the span (part of composite PK)")
     end
 
     attribute :service_name, :string do
-      primary_key? true
-      allow_nil? false
-      public? true
-      description "Service name (part of composite PK)"
+      primary_key?(true)
+      allow_nil?(false)
+      public?(true)
+      description("Service name (part of composite PK)")
     end
 
     attribute :span_id, :string do
-      primary_key? true
-      allow_nil? false
-      public? true
-      description "Span ID (part of composite PK)"
+      primary_key?(true)
+      allow_nil?(false)
+      public?(true)
+      description("Span ID (part of composite PK)")
     end
 
     # Other attributes matching Go schema exactly
     attribute :trace_id, :string do
-      public? true
-      description "Trace ID for correlation"
+      public?(true)
+      description("Trace ID for correlation")
     end
 
     attribute :span_kind, :string do
-      public? true
-      description "Kind of span (client, server, producer, consumer, internal)"
+      public?(true)
+      description("Kind of span (client, server, producer, consumer, internal)")
     end
 
     attribute :duration_ms, :float do
-      public? true
-      description "Duration in milliseconds"
+      public?(true)
+      description("Duration in milliseconds")
     end
 
     attribute :duration_seconds, :float do
-      public? true
-      description "Duration in seconds"
+      public?(true)
+      description("Duration in seconds")
     end
 
     attribute :metric_type, :string do
-      public? true
-      description "Type of metric"
+      public?(true)
+      description("Type of metric")
     end
 
     attribute :http_method, :string do
-      public? true
-      description "HTTP method (GET, POST, etc.)"
+      public?(true)
+      description("HTTP method (GET, POST, etc.)")
     end
 
     attribute :http_route, :string do
-      public? true
-      description "HTTP route/path"
+      public?(true)
+      description("HTTP route/path")
     end
 
     attribute :http_status_code, :string do
-      public? true
-      description "HTTP response status code"
+      public?(true)
+      description("HTTP response status code")
     end
 
     attribute :grpc_service, :string do
-      public? true
-      description "gRPC service name"
+      public?(true)
+      description("gRPC service name")
     end
 
     attribute :grpc_method, :string do
-      public? true
-      description "gRPC method name"
+      public?(true)
+      description("gRPC method name")
     end
 
     # TEXT in Go schema, not INTEGER
     attribute :grpc_status_code, :string do
-      public? true
-      description "gRPC status code (as string)"
+      public?(true)
+      description("gRPC status code (as string)")
     end
 
     attribute :is_slow, :boolean do
-      public? true
-      description "Whether this metric represents a slow operation"
+      public?(true)
+      description("Whether this metric represents a slow operation")
     end
 
     attribute :component, :string do
-      public? true
-      description "Component name"
+      public?(true)
+      description("Component name")
     end
 
     attribute :level, :string do
-      public? true
-      description "Log level or severity"
+      public?(true)
+      description("Log level or severity")
     end
 
     attribute :unit, :string do
-      public? true
-      description "Unit of measurement"
+      public?(true)
+      description("Unit of measurement")
     end
 
     # Ingest attribution (stamped by the agent gateway at publish time)
     attribute :ingest_identity, :string do
-      allow_nil? false
-      default ""
-      public? true
+      allow_nil?(false)
+      default("")
+      public?(true)
 
-      description "Publisher identity that ingested the sample (Sr-Ingest-Identity header, '' when absent)"
+      description(
+        "Publisher identity that ingested the sample (Sr-Ingest-Identity header, '' when absent)"
+      )
     end
 
     attribute :ingest_agent_id, :string do
-      allow_nil? false
-      default ""
-      public? true
-      description "Agent that ingested the sample (Sr-Agent-Id header, '' when absent)"
+      allow_nil?(false)
+      default("")
+      public?(true)
+      description("Agent that ingested the sample (Sr-Agent-Id header, '' when absent)")
     end
 
     attribute :ingest_partition, :string do
-      allow_nil? false
-      default ""
-      public? true
-      description "Partition/site of the ingesting agent (Sr-Partition header, '' when absent)"
+      allow_nil?(false)
+      default("")
+      public?(true)
+      description("Partition/site of the ingesting agent (Sr-Partition header, '' when absent)")
     end
 
     attribute :created_at, :utc_datetime_usec do
-      allow_nil? false
-      public? true
-      description "When the record was created"
+      allow_nil?(false)
+      public?(true)
+      description("When the record was created")
     end
   end
 end

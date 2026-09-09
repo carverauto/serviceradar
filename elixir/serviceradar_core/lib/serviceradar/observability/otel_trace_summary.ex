@@ -13,20 +13,24 @@ defmodule ServiceRadar.Observability.OtelTraceSummary do
     extensions: [AshJsonApi.Resource]
 
   postgres do
-    table "otel_trace_summaries"
-    repo ServiceRadar.Repo
-    schema "platform"
+    table("otel_trace_summaries")
+    repo(ServiceRadar.Repo)
+    schema("platform")
     # Don't generate migrations - this table is managed by raw SQL migrations
-    migrate? false
+    migrate?(false)
   end
 
   json_api do
-    type "otel_trace_summary"
+    type("otel_trace_summary")
+
+    primary_key do
+      keys([:trace_id])
+    end
 
     routes do
-      base "/otel_trace_summaries"
+      base("/otel_trace_summaries")
 
-      index :read
+      index(:read)
     end
   end
 
@@ -34,21 +38,30 @@ defmodule ServiceRadar.Observability.OtelTraceSummary do
 
   actions do
     # Read-only - this table is populated by RefreshTraceSummariesWorker
-    defaults [:read]
+    read :read do
+      primary?(true)
+
+      pagination do
+        offset?(true)
+        default_limit(100)
+        max_page_size(1000)
+        required?(true)
+      end
+    end
 
     read :by_service do
-      argument :service_name, :string, allow_nil?: false
-      filter expr(root_service_name == ^arg(:service_name))
+      argument(:service_name, :string, allow_nil?: false)
+      filter(expr(root_service_name == ^arg(:service_name)))
     end
 
     read :recent do
-      description "Traces from the last 24 hours"
-      filter expr(timestamp > ago(24, :hour))
+      description("Traces from the last 24 hours")
+      filter(expr(timestamp > ago(24, :hour)))
     end
 
     read :with_errors do
-      description "Traces that have errors"
-      filter expr(error_count > 0)
+      description("Traces that have errors")
+      filter(expr(error_count > 0))
     end
   end
 
@@ -62,94 +75,96 @@ defmodule ServiceRadar.Observability.OtelTraceSummary do
   attributes do
     # Primary key is trace_id
     attribute :trace_id, :string do
-      primary_key? true
-      allow_nil? false
-      public? true
-      description "Unique trace identifier"
+      primary_key?(true)
+      allow_nil?(false)
+      public?(true)
+      description("Unique trace identifier")
     end
 
     attribute :timestamp, :utc_datetime_usec do
-      public? true
-      description "Max timestamp from spans in this trace"
+      public?(true)
+      description("Max timestamp from spans in this trace")
     end
 
     attribute :root_span_id, :string do
-      public? true
-      description "Span ID of the root span"
+      public?(true)
+      description("Span ID of the root span")
     end
 
     attribute :root_span_name, :string do
-      public? true
-      description "Name of the root span"
+      public?(true)
+      description("Name of the root span")
     end
 
     attribute :root_service_name, :string do
-      public? true
-      description "Service name of the root span"
+      public?(true)
+      description("Service name of the root span")
     end
 
     attribute :root_service_namespace, :string do
-      public? true
-      description "Service namespace of the root span ('' when unset)"
+      public?(true)
+      description("Service namespace of the root span ('' when unset)")
     end
 
     attribute :deployment_environment, :string do
-      public? true
-      description "Deployment environment of the root span ('' when unset)"
+      public?(true)
+      description("Deployment environment of the root span ('' when unset)")
     end
 
     attribute :root_span_kind, :integer do
-      public? true
-      description "Kind of the root span"
+      public?(true)
+      description("Kind of the root span")
     end
 
     attribute :start_time_unix_nano, :integer do
-      public? true
-      description "Start time in nanoseconds since Unix epoch"
+      public?(true)
+      description("Start time in nanoseconds since Unix epoch")
     end
 
     attribute :end_time_unix_nano, :integer do
-      public? true
-      description "End time in nanoseconds since Unix epoch"
+      public?(true)
+      description("End time in nanoseconds since Unix epoch")
     end
 
     attribute :duration_ms, :float do
-      public? true
-      description "Total trace duration in milliseconds"
+      public?(true)
+      description("Total trace duration in milliseconds")
     end
 
     attribute :status_code, :integer do
-      public? true
-      description "Status code of the root span"
+      public?(true)
+      description("Status code of the root span")
     end
 
     attribute :status_message, :string do
-      public? true
-      description "Status message of the root span"
+      public?(true)
+      description("Status message of the root span")
     end
 
     # Array of service names involved in this trace
     attribute :service_set, {:array, :string} do
-      public? true
-      description "List of services involved in this trace"
+      public?(true)
+      description("List of services involved in this trace")
     end
 
     attribute :span_count, :integer do
-      public? true
-      description "Total number of spans in this trace"
+      public?(true)
+      description("Total number of spans in this trace")
     end
 
     attribute :error_count, :integer do
-      public? true
-      description "Number of spans with errors"
+      public?(true)
+      description("Number of spans with errors")
     end
   end
 
   calculations do
-    calculate :error_rate,
-              :float,
-              expr(if(span_count == 0, do: 0.0, else: error_count * 100.0 / span_count))
+    calculate(
+      :error_rate,
+      :float,
+      expr(if(span_count == 0, do: 0.0, else: error_count * 100.0 / span_count))
+    )
 
-    calculate :has_errors, :boolean, expr(error_count > 0)
+    calculate(:has_errors, :boolean, expr(error_count > 0))
   end
 end

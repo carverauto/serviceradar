@@ -567,7 +567,7 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
       assert Map.has_key?(response, "openapi")
       assert Map.has_key?(response, "info")
       assert Map.has_key?(response, "paths")
-      assert Map.has_key?(response["paths"], "/stateful-alert-rules")
+      assert Map.has_key?(response["paths"], "/api/v2/stateful-alert-rules")
     end
   end
 

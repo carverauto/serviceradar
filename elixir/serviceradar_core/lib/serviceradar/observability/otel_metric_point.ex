@@ -17,46 +17,55 @@ defmodule ServiceRadar.Observability.OtelMetricPoint do
     extensions: [AshJsonApi.Resource]
 
   postgres do
-    table "otel_metric_points"
-    repo ServiceRadar.Repo
-    schema "platform"
+    table("otel_metric_points")
+    repo(ServiceRadar.Repo)
+    schema("platform")
     # Don't generate migrations - table is managed by raw SQL migration
     # that creates TimescaleDB hypertable with composite primary key
-    migrate? false
+    migrate?(false)
   end
 
   json_api do
-    type "otel_metric_point"
+    type("otel_metric_point")
     # Composite primary key requires specifying which fields to use
     primary_key do
-      keys [:timestamp, :metric_name, :service_name, :attributes_hash]
+      keys([:timestamp, :metric_name, :service_name, :attributes_hash])
     end
 
     routes do
-      base "/otel_metric_points"
+      base("/otel_metric_points")
 
-      index :read
+      index(:read)
     end
   end
 
   # DB connection's search_path determines the schema
 
   actions do
-    defaults [:read]
+    read :read do
+      primary?(true)
+
+      pagination do
+        offset?(true)
+        default_limit(100)
+        max_page_size(1000)
+        required?(true)
+      end
+    end
 
     read :by_metric do
-      argument :metric_name, :string, allow_nil?: false
-      filter expr(metric_name == ^arg(:metric_name))
+      argument(:metric_name, :string, allow_nil?: false)
+      filter(expr(metric_name == ^arg(:metric_name)))
     end
 
     read :by_service do
-      argument :service_name, :string, allow_nil?: false
-      filter expr(service_name == ^arg(:service_name))
+      argument(:service_name, :string, allow_nil?: false)
+      filter(expr(service_name == ^arg(:service_name)))
     end
 
     read :recent do
-      description "Metric points from the last 24 hours"
-      filter expr(timestamp > ago(24, :hour))
+      description("Metric points from the last 24 hours")
+      filter(expr(timestamp > ago(24, :hour)))
     end
   end
 
@@ -70,131 +79,135 @@ defmodule ServiceRadar.Observability.OtelMetricPoint do
   attributes do
     # Composite primary key matching the raw SQL schema
     attribute :timestamp, :utc_datetime_usec do
-      primary_key? true
-      allow_nil? false
-      public? true
-      description "Data point time (part of composite PK)"
+      primary_key?(true)
+      allow_nil?(false)
+      public?(true)
+      description("Data point time (part of composite PK)")
     end
 
     attribute :metric_name, :string do
-      primary_key? true
-      allow_nil? false
-      public? true
-      description "OTLP metric name (part of composite PK)"
+      primary_key?(true)
+      allow_nil?(false)
+      public?(true)
+      description("OTLP metric name (part of composite PK)")
     end
 
     attribute :service_name, :string do
-      primary_key? true
-      allow_nil? false
-      public? true
-      description "Resource service.name (part of composite PK)"
+      primary_key?(true)
+      allow_nil?(false)
+      public?(true)
+      description("Resource service.name (part of composite PK)")
     end
 
     attribute :attributes_hash, :string do
-      primary_key? true
-      allow_nil? false
-      public? true
+      primary_key?(true)
+      allow_nil?(false)
+      public?(true)
 
-      description "Recipe-v2 identity hash: MD5 of canonical attribute bytes + " <>
-                    "service_instance_id + scope_name (part of composite PK)"
+      description(
+        "Recipe-v2 identity hash: MD5 of canonical attribute bytes + " <>
+          "service_instance_id + scope_name (part of composite PK)"
+      )
     end
 
     attribute :metric_type, :string do
-      public? true
-      description "Metric type: sum, gauge, or histogram"
+      public?(true)
+      description("Metric type: sum, gauge, or histogram")
     end
 
     attribute :unit, :string do
-      public? true
-      description "Unit of measurement"
+      public?(true)
+      description("Unit of measurement")
     end
 
     attribute :temporality, :string do
-      public? true
-      description "Aggregation temporality (delta, cumulative, unspecified)"
+      public?(true)
+      description("Aggregation temporality (delta, cumulative, unspecified)")
     end
 
     attribute :is_monotonic, :boolean do
-      public? true
-      description "Whether a sum metric is monotonic (sums only)"
+      public?(true)
+      description("Whether a sum metric is monotonic (sums only)")
     end
 
     attribute :attributes, :string do
-      public? true
-      description "Data point attributes as JSON text (keys sorted at every nesting level)"
+      public?(true)
+      description("Data point attributes as JSON text (keys sorted at every nesting level)")
     end
 
     attribute :service_instance_id, :string do
-      allow_nil? false
-      default ""
-      public? true
-      description "Resource service.instance.id ('' when absent); folded into attributes_hash"
+      allow_nil?(false)
+      default("")
+      public?(true)
+      description("Resource service.instance.id ('' when absent); folded into attributes_hash")
     end
 
     attribute :scope_name, :string do
-      allow_nil? false
-      default ""
-      public? true
-      description "Instrumentation scope name ('' when absent); folded into attributes_hash"
+      allow_nil?(false)
+      default("")
+      public?(true)
+      description("Instrumentation scope name ('' when absent); folded into attributes_hash")
     end
 
     attribute :start_time_unix_nano, :integer do
-      public? true
-      description "Data point start time in unix nanoseconds (NULL when absent/zero)"
+      public?(true)
+      description("Data point start time in unix nanoseconds (NULL when absent/zero)")
     end
 
     attribute :value, :float do
-      public? true
-      description "Point value for sums and gauges"
+      public?(true)
+      description("Point value for sums and gauges")
     end
 
     attribute :count, :integer do
-      public? true
-      description "Histogram observation count"
+      public?(true)
+      description("Histogram observation count")
     end
 
     attribute :sum, :float do
-      public? true
-      description "Histogram sum of observations"
+      public?(true)
+      description("Histogram sum of observations")
     end
 
     attribute :bucket_counts, :string do
-      public? true
-      description "Histogram bucket counts as JSON text"
+      public?(true)
+      description("Histogram bucket counts as JSON text")
     end
 
     attribute :explicit_bounds, :string do
-      public? true
-      description "Histogram explicit bucket bounds as JSON text"
+      public?(true)
+      description("Histogram explicit bucket bounds as JSON text")
     end
 
     # Ingest attribution (stamped by the agent gateway at publish time)
     attribute :ingest_identity, :string do
-      allow_nil? false
-      default ""
-      public? true
+      allow_nil?(false)
+      default("")
+      public?(true)
 
-      description "Publisher identity that ingested the point (Sr-Ingest-Identity header, '' when absent)"
+      description(
+        "Publisher identity that ingested the point (Sr-Ingest-Identity header, '' when absent)"
+      )
     end
 
     attribute :ingest_agent_id, :string do
-      allow_nil? false
-      default ""
-      public? true
-      description "Agent that ingested the point (Sr-Agent-Id header, '' when absent)"
+      allow_nil?(false)
+      default("")
+      public?(true)
+      description("Agent that ingested the point (Sr-Agent-Id header, '' when absent)")
     end
 
     attribute :ingest_partition, :string do
-      allow_nil? false
-      default ""
-      public? true
-      description "Partition/site of the ingesting agent (Sr-Partition header, '' when absent)"
+      allow_nil?(false)
+      default("")
+      public?(true)
+      description("Partition/site of the ingesting agent (Sr-Partition header, '' when absent)")
     end
 
     attribute :created_at, :utc_datetime_usec do
-      allow_nil? false
-      public? true
-      description "When the record was ingested"
+      allow_nil?(false)
+      public?(true)
+      description("When the record was ingested")
     end
   end
 end
