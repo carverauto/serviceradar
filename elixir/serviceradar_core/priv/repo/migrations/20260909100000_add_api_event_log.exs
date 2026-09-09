@@ -29,7 +29,7 @@ defmodule ServiceRadar.Repo.Migrations.AddApiEventLog do
     create_if_not_exists table(:api_events, primary_key: false, prefix: @prefix) do
       add(:id, :uuid, null: false, default: fragment("uuid_generate_v7()"), primary_key: true)
       add(:record_id, :uuid, null: false)
-      add(:version, :bigint, null: false, default: 1)
+      add(:version, :integer, null: false, default: 1)
       add(:occurred_at, :utc_datetime_usec, null: false, default: fragment("now()"))
       add(:resource, :text, null: false)
       add(:action, :text, null: false)

@@ -230,15 +230,32 @@ defmodule ServiceRadar.Security.AuditHistory do
         version_inserted_at: event.occurred_at,
         version_action_type: to_string(event.action_type),
         changes: event.changed_attributes,
-        version_action_inputs:
-          if event.user_id do
-            %{"actor" => %{"id" => to_string(event.user_id)}}
-          else
-            %{}
-          end,
+        version_action_inputs: version_action_inputs(event),
         version_source_id: event.record_id
       }
     }
+  end
+
+  # `event.user_id` is only populated when the actor passed to the action was
+  # a real `%ServiceRadar.Identity.User{}` struct (AshEvents'
+  # `persist_actor_primary_key` requires an exact struct-type match -- see
+  # `ServiceRadar.Observability.Changes.StampEventSource`'s moduledoc). Real
+  # requests build a plain-map actor instead, so fall back to
+  # `metadata["actor_id"]`, which that change stamps independently of actor
+  # shape.
+  defp version_action_inputs(event) do
+    actor_id =
+      cond do
+        event.user_id -> to_string(event.user_id)
+        is_binary(event.metadata["actor_id"]) -> event.metadata["actor_id"]
+        true -> nil
+      end
+
+    if actor_id do
+      %{"actor" => %{"id" => actor_id}}
+    else
+      %{}
+    end
   end
 
   defp apply_ash_events_time_filters(query, nil, nil), do: query

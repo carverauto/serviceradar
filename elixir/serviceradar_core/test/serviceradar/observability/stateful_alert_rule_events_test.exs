@@ -6,20 +6,31 @@ defmodule ServiceRadar.Observability.StatefulAlertRuleEventsTest do
   `metadata["source"]` from the transport (`"api"` vs. `"web"`), and none of
   this changes `PresetRuleResource`'s existing authorization behavior.
 
-  A real `%ServiceRadar.Identity.User{}` actor is required here (rather than
-  the plain-map actors `stateful_alert_rule_policy_test.exs` uses) because
+  A real `%ServiceRadar.Identity.User{}` actor is used for the assertions in
+  this file that check `event.user_id` directly, because
   `persist_actor_primary_key` only captures `user_id` when the actor struct
-  matches the configured destination resource -- see
-  `AshEvents.Events.ActionWrapperHelpers.create_event!/5`.
+  matches the configured destination resource exactly -- see
+  `AshEvents.Events.ActionWrapperHelpers.create_event!/5`. Real production
+  traffic never passes that struct, though: both actor-construction paths
+  (`set_ash_actor` in the `:ash_json_api` router pipeline, and the
+  `Ash.Scope.ToOpts` implementation for `Scope` on the LiveView path) build a
+  plain map instead, so `user_id` is `nil` there and attribution instead
+  comes from `metadata["actor_id"]` (stamped by
+  `ServiceRadar.Observability.Changes.StampEventSource` independently of
+  actor shape) -- see the "the actor shape real requests actually use"
+  describe block below, which deliberately uses that map shape instead of a
+  `%User{}` struct.
   """
   use ServiceRadar.DataCase, async: true
 
   alias Ash.Error.Forbidden
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Identity.RBAC
   alias ServiceRadar.Identity.User
   alias ServiceRadar.Identity.Users
   alias ServiceRadar.Observability.ApiEvent
   alias ServiceRadar.Observability.StatefulAlertRule
+  alias ServiceRadar.Security.AuditHistory
 
   require Ash.Query
 
@@ -255,6 +266,65 @@ defmodule ServiceRadar.Observability.StatefulAlertRuleEventsTest do
 
       assert [create_event] = events_for(rule.id)
       assert create_event.action_type == :create
+    end
+  end
+
+  describe "the actor shape real requests actually use (map, not %User{} struct)" do
+    test "create/update/destroy attribute via metadata[\"actor_id\"], and AuditHistory surfaces it" do
+      user = user_fixture(:operator)
+
+      # Exactly the shape `set_ash_actor/2` builds on the `:ash_json_api`
+      # router pipeline (`elixir/web-ng/lib/serviceradar_web_ng_web/router.ex`)
+      # and the `Ash.Scope.ToOpts` implementation for `Scope` builds on the
+      # LiveView path (`elixir/web-ng/lib/serviceradar_web_ng/ash_scope.ex`)
+      # -- both build this plain map for a real user, never the raw
+      # `%User{}` struct. `permissions` is a real, DB-resolved `MapSet`, just
+      # like both of those call sites produce (via
+      # `RBAC.permissions_for_user/1,2` or a pre-loaded `Scope`).
+      actor = %{
+        id: user.id,
+        role: user.role,
+        email: user.email,
+        role_profile_id: user.role_profile_id,
+        permissions: RBAC.permissions_for_user(user, actor: @system)
+      }
+
+      assert {:ok, rule} =
+               StatefulAlertRule
+               |> Ash.Changeset.for_create(:create, rule_params(), actor: actor)
+               |> Ash.create()
+
+      assert {:ok, updated} =
+               rule
+               |> Ash.Changeset.for_update(:update, %{priority: 4}, actor: actor)
+               |> Ash.update()
+
+      result =
+        updated
+        |> Ash.Changeset.for_destroy(:destroy, %{}, actor: actor)
+        |> Ash.destroy()
+
+      refute match?({:error, _}, result)
+
+      assert [create_event, update_event, destroy_event] = events_for(rule.id)
+
+      # Before the fix, none of this was captured: `persist_actor_primary_key`
+      # requires an exact `%User{}` struct match, so `user_id` is correctly
+      # nil for this actor shape -- but `metadata["actor_id"]` was *also*
+      # unset (the change only ever wrote `metadata["source"]`), so actor
+      # attribution was silently and completely lost for this actor shape,
+      # which is what every real request through either transport uses.
+      for event <- [create_event, update_event, destroy_event] do
+        assert event.user_id == nil
+        assert event.metadata["actor_id"] == user.id
+      end
+
+      entries =
+        AuditHistory.list_recent(actor: actor, resource_types: [StatefulAlertRule], limit: 50)
+
+      assert entry = Enum.find(entries, &(&1.version.version_source_id == rule.id))
+      assert %{"actor" => %{"id" => actor_id}} = entry.version.version_action_inputs
+      assert actor_id == user.id
     end
   end
 end

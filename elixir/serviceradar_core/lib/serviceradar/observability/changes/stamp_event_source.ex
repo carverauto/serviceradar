@@ -1,7 +1,10 @@
 defmodule ServiceRadar.Observability.Changes.StampEventSource do
   @moduledoc """
-  Stamps the AshEvents `metadata["source"]` field with the request
-  transport ("api" or "web") for actions AshEvents records.
+  Stamps the AshEvents `metadata` map with the request transport
+  (`metadata["source"]`, `"api"` or `"web"`) and the acting actor's id
+  (`metadata["actor_id"]`), for actions AshEvents records.
+
+  ## `metadata["source"]`
 
   Reads a `:source` changeset-context flag. The `:ash_json_api` router
   pipeline (`elixir/web-ng/lib/serviceradar_web_ng_web/router.ex`) sets that
@@ -13,7 +16,29 @@ defmodule ServiceRadar.Observability.Changes.StampEventSource do
   `Settings.RulesLive` (LiveView) path never sets this context, so it falls
   back to `"web"`.
 
-  Written into `changeset.context[:ash_events_metadata]`, which
+  ## `metadata["actor_id"]`
+
+  `AshEvents.Events.ActionWrapperHelpers.create_event!/5`'s
+  `persist_actor_primary_key` (configured on
+  `ServiceRadar.Observability.ApiEvent` as `:user_id` /
+  `ServiceRadar.Identity.User`) only captures the actor's id when the actor
+  is a struct whose `__struct__` exactly matches that destination resource.
+  Neither real actor-construction path builds that struct: `set_ash_actor`
+  (`elixir/web-ng/lib/serviceradar_web_ng_web/router.ex`, the `:ash_json_api`
+  pipeline) and the `Ash.Scope.ToOpts` implementation for `Scope`
+  (`elixir/web-ng/lib/serviceradar_web_ng/ash_scope.ex`, the LiveView path)
+  both build a plain map (`%{id:, role:, email:, role_profile_id:,
+  permissions:}`), so `ApiEvent.user_id` ends up `nil` on real requests
+  through either transport. This change reads `context.actor` -- the third,
+  `%Ash.Resource.Change.Context{}`, argument to `change/3` (not private
+  `changeset.context` internals) -- and pulls an `:id` out of it regardless
+  of whether the actor is that map or a genuine `%User{}` struct, so
+  `ServiceRadar.Security.AuditHistory`'s adapter has a shape-independent
+  fallback (see `adapt_ash_event/1`) even though `persist_actor_primary_key`
+  stays configured on `ApiEvent` as a defense-in-depth path for callers that
+  do pass a real `%User{}` struct (e.g. system/background actors).
+
+  Both are written into `changeset.context[:ash_events_metadata]`, which
   `AshEvents.Events.ActionWrapperHelpers.create_event!/5` reads directly
   (`Map.get(changeset.context, :ash_events_metadata, %{})`) as the `metadata`
   attribute on the recorded `ServiceRadar.Observability.ApiEvent` row.
@@ -22,13 +47,21 @@ defmodule ServiceRadar.Observability.Changes.StampEventSource do
   use Ash.Resource.Change
 
   @impl true
-  def change(changeset, _opts, _context) do
+  def change(changeset, _opts, context) do
     source =
       case Map.get(changeset.context, :source) do
         value when is_binary(value) -> value
         _ -> "web"
       end
 
-    Ash.Changeset.set_context(changeset, %{ash_events_metadata: %{"source" => source}})
+    actor_id =
+      case context.actor do
+        %{id: id} -> to_string(id)
+        _ -> nil
+      end
+
+    Ash.Changeset.set_context(changeset, %{
+      ash_events_metadata: %{"source" => source, "actor_id" => actor_id}
+    })
   end
 end
