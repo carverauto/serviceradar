@@ -29,7 +29,7 @@ defmodule ServiceRadar.Observability.CpuClusterMetric do
     routes do
       base("/cpu_cluster_metrics")
 
-      index(:read)
+      index(:api_index)
     end
   end
 
@@ -38,9 +38,9 @@ defmodule ServiceRadar.Observability.CpuClusterMetric do
   end
 
   actions do
-    read :read do
-      primary?(true)
+    defaults([:read])
 
+    read :api_index do
       pagination do
         offset?(true)
         default_limit(100)

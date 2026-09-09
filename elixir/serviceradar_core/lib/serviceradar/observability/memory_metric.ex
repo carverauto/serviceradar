@@ -13,6 +13,8 @@ defmodule ServiceRadar.Observability.MemoryMetric do
     primary_key: [:timestamp, :gateway_id]
 
   actions do
+    defaults([:read])
+
     read :by_device do
       argument(:device_id, :string, allow_nil?: false)
       filter(expr(device_id == ^arg(:device_id)))

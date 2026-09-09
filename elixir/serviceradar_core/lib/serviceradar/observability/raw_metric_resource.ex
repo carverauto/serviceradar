@@ -37,7 +37,7 @@ defmodule ServiceRadar.Observability.RawMetricResource do
 
         routes do
           base(route)
-          index(:read)
+          index(:api_index)
         end
       end
 
@@ -46,9 +46,7 @@ defmodule ServiceRadar.Observability.RawMetricResource do
       end
 
       actions do
-        read :read do
-          primary?(true)
-
+        read :api_index do
           pagination do
             offset?(true)
             default_limit(100)

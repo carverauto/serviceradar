@@ -32,16 +32,16 @@ defmodule ServiceRadar.Observability.OtelMetric do
     routes do
       base("/otel_metrics")
 
-      index(:read)
+      index(:api_index)
     end
   end
 
   # DB connection's search_path determines the schema
 
   actions do
-    read :read do
-      primary?(true)
+    defaults([:read])
 
+    read :api_index do
       pagination do
         offset?(true)
         default_limit(100)

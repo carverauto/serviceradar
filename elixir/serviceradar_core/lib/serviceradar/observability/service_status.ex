@@ -26,14 +26,14 @@ defmodule ServiceRadar.Observability.ServiceStatus do
     routes do
       base("/service_status")
 
-      index(:read)
+      index(:api_index)
     end
   end
 
   actions do
-    read :read do
-      primary?(true)
+    defaults([:read])
 
+    read :api_index do
       pagination do
         offset?(true)
         default_limit(100)

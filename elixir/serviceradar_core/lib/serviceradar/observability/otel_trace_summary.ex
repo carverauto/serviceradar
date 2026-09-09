@@ -30,7 +30,7 @@ defmodule ServiceRadar.Observability.OtelTraceSummary do
     routes do
       base("/otel_trace_summaries")
 
-      index(:read)
+      index(:api_index)
     end
   end
 
@@ -38,9 +38,9 @@ defmodule ServiceRadar.Observability.OtelTraceSummary do
 
   actions do
     # Read-only - this table is populated by RefreshTraceSummariesWorker
-    read :read do
-      primary?(true)
+    defaults([:read])
 
+    read :api_index do
       pagination do
         offset?(true)
         default_limit(100)

@@ -72,11 +72,23 @@ defmodule ServiceRadar.Observability.TelemetryJsonApiTest do
     resources = [Observability.Log | Enum.map(@identities, &elem(&1, 0))]
 
     for resource <- resources do
-      action = Ash.Resource.Info.action(resource, :read, :read)
+      [route] = AshJsonApi.Resource.Info.routes(resource)
+      assert route.action == :api_index, inspect(resource)
+      action = Ash.Resource.Info.action(resource, route.action, :read)
       assert action.pagination.offset?, inspect(resource)
       assert action.pagination.required?, inspect(resource)
       assert action.pagination.default_limit == 100, inspect(resource)
       assert action.pagination.max_page_size == 1000, inspect(resource)
+    end
+  end
+
+  test "internal telemetry reads remain unpaginated primary actions" do
+    resources = [Observability.Log | Enum.map(@identities, &elem(&1, 0))]
+
+    for resource <- resources do
+      action = Ash.Resource.Info.primary_action(resource, :read)
+      assert action.name == :read, inspect(resource)
+      refute action.pagination, inspect(resource)
     end
   end
 end

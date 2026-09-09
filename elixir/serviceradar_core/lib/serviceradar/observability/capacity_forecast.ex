@@ -30,16 +30,14 @@ defmodule ServiceRadar.Observability.CapacityForecast do
 
     routes do
       base("/capacity_forecasts")
-      index(:read)
+      index(:api_index)
     end
   end
 
   actions do
-    defaults([:destroy])
+    defaults([:read, :destroy])
 
-    read :read do
-      primary?(true)
-
+    read :api_index do
       pagination do
         offset?(true)
         default_limit(100)
