@@ -9,6 +9,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Table do
   import ServiceRadarWebNGWeb.DeviceLive.IndexView.Stats, only: [format_stat_number: 1]
   import ServiceRadarWebNGWeb.UIComponents
 
+  alias ServiceRadarWebNGWeb.Components.PrefixTagChips
+  alias ServiceRadarWebNGWeb.DeviceLive.DeviceFormData
   alias ServiceRadarWebNGWeb.DeviceLive.IndexPath
 
   def render(assigns) do
@@ -53,6 +55,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Table do
               <th title="OCSF Device Type">Type</th>
               <th>Vendor</th>
               <th>Model</th>
+              <th>Tags</th>
               <th title="GRPC Health Check Status">Status</th>
               <th title="ICMP Network Tests">Network</th>
               <th title="Telemetry availability for this device">Metrics</th>
@@ -66,7 +69,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Table do
           <tbody>
             <tr :if={@devices == []}>
               <td
-                colspan={if @composite_verdicts_by_device == %{}, do: 10, else: 11}
+                colspan={if @composite_verdicts_by_device == %{}, do: 11, else: 12}
                 class="py-8 text-center text-sm text-sr-muted"
               >
                 No devices found.
@@ -147,6 +150,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Table do
                 </td>
                 <td class="text-xs max-w-[12rem] truncate">
                   {display_model(Map.get(row, "model"))}
+                </td>
+                <% tag_list = DeviceFormData.format_tag_list(Map.get(row, "tags")) %>
+                <td class="text-xs max-w-[12rem]">
+                  <PrefixTagChips.static :if={tag_list != []} tags={tag_list} />
+                  <span :if={tag_list == []} class="text-sr-muted">—</span>
                 </td>
                 <td class="text-xs">
                   <.availability_badge available={

@@ -1,6 +1,6 @@
 defmodule ServiceRadarWebNGWeb.Components.PrefixTagChips do
   @moduledoc """
-  Shared prefix-tag chip rendering for flow listing, detail, and preview UIs.
+  Shared tag chip rendering for device inventory and flow listing, detail, and preview UIs.
   """
   use ServiceRadarWebNGWeb, :html
 
