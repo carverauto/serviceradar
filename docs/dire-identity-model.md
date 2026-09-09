@@ -24,11 +24,17 @@ are rejected with telemetry, and rejected values never become rows.
 
 ### Integration identity admission
 
-DIRE rejects bare numeric `integration_id` values regardless of provider.
-Existing opaque IDs and provider-scoped IDs retain their values, including
-hypervisor IDs whose provider prefix differs from `integration_type`. The generic
-sync-service path retains its source-scoping and lookup-only raw-ID bridge;
-Armis and NetBox keep their driver-owned formats without core-side synthesis.
+DIRE rejects bare numeric `integration_id` candidates regardless of provider.
+An unscoped opaque candidate is also excluded when the update carries
+`armis_device_id`, `netbox_device_id`, or a validated `hardware_serial`: it is
+a legacy compatibility echo, not a second identity. Without typed evidence,
+opaque candidates retain legacy admission. The extractor
+[`Ids`](../elixir/serviceradar_core/lib/serviceradar/inventory/identity/ids.ex)
+owns the scope recognition and admission rules.
+
+The generic sync-service path scopes raw IDs before admission and retains a
+lookup-only raw-ID bridge. Armis and NetBox keep their driver-owned formats
+without core-side synthesis.
 
 ### Armis integration identity
 
@@ -39,8 +45,8 @@ dashes. Without that scope, the driver retains the legacy bare native ID;
 it does not substitute the source key or partition.
 
 DIRE admits the scoped Armis value through the generic integration lookup
-and registration path, alongside `armis_device_id`. Bare Armis values remain
-excluded from `integration_id` identifiers. The typed identifier remains
+and registration path, alongside `armis_device_id`. The driver's legacy bare
+value follows the admission rules above. The typed identifier remains
 source-authoritative for northbound write-back and drift repair. Northbound
 selection accepts either the legacy bare metadata value or the scoped value
 matching the source and typed ID; drift repair preserves valid scoped identities.
