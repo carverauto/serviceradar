@@ -522,6 +522,117 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
     assert html =~ "Capacity forecast is after this chart window"
   end
 
+  test "sorts recent anomaly findings newest-first regardless of finding state" do
+    rows = [
+      confirmed_finding("Confirmed medium finding", "Medium", "2026-09-09T00:21:00Z"),
+      cleared_finding("Older cleared low finding", "Low", "2026-09-09T00:19:00Z"),
+      cleared_finding("Newest cleared low finding", "Low", "2026-09-09T00:24:00Z")
+    ]
+
+    html = render_findings(rows, %{"severity" => "all", "status" => "all", "sort" => "newest"})
+
+    assert_finding_order(html, [
+      "Newest cleared low finding",
+      "Confirmed medium finding",
+      "Older cleared low finding"
+    ])
+  end
+
+  test "sorts recent anomaly findings oldest-first regardless of finding state" do
+    rows = [
+      confirmed_finding("Confirmed medium finding", "Medium", "2026-09-09T00:21:00Z"),
+      cleared_finding("Older cleared low finding", "Low", "2026-09-09T00:19:00Z"),
+      cleared_finding("Newest cleared low finding", "Low", "2026-09-09T00:24:00Z")
+    ]
+
+    html = render_findings(rows, %{"severity" => "all", "status" => "all", "sort" => "oldest"})
+
+    assert_finding_order(html, [
+      "Older cleared low finding",
+      "Confirmed medium finding",
+      "Newest cleared low finding"
+    ])
+  end
+
+  test "sorts recent anomaly findings by severity before recency" do
+    rows = [
+      cleared_finding("Older cleared low finding", "Low", "2026-09-09T00:19:00Z"),
+      cleared_finding("Newest cleared low finding", "Low", "2026-09-09T00:24:00Z"),
+      confirmed_finding("Confirmed medium finding", "Medium", "2026-09-09T00:21:00Z"),
+      cleared_finding("Old cleared high finding", "High", "2026-09-08T23:58:00Z")
+    ]
+
+    html = render_findings(rows, %{"severity" => "all", "status" => "all", "sort" => "severity"})
+
+    assert_finding_order(html, [
+      "Old cleared high finding",
+      "Confirmed medium finding",
+      "Newest cleared low finding",
+      "Older cleared low finding"
+    ])
+  end
+
+  defp render_findings(rows, filters) do
+    overview = %{
+      status: :ok,
+      anomaly_rows: rows,
+      capacity_rows: [],
+      anomaly_query: "in:events limit:20",
+      capacity_query: "in:capacity_forecasts limit:12",
+      anomaly_filter: %{field: "service_radar_device_uid", label: "device", value: "router-1"},
+      capacity_filter: %{field: "resource_id", label: "device", value: "router-1"},
+      anomaly_error: nil,
+      capacity_error: nil,
+      metric_statuses: []
+    }
+
+    render_component(&AnomalyCapacityComponents.anomaly_capacity_section/1,
+      overview: overview,
+      anomaly_filters: filters,
+      timezone: "Etc/UTC"
+    )
+  end
+
+  defp confirmed_finding(title, severity, time) do
+    %{
+      "finding_title" => title,
+      "metric_name" => "ifInUcastPkts",
+      "if_index" => 30,
+      "score" => 4.98,
+      "severity" => severity,
+      "status" => "anomaly_open",
+      "state" => "confirmed",
+      "time" => time
+    }
+  end
+
+  defp cleared_finding(title, severity, time) do
+    %{
+      "finding_title" => title,
+      "episode_uid" => "episode-#{Base.encode16(title, case: :lower)}",
+      "metric_name" => "ifOutUcastPkts",
+      "if_index" => 3,
+      "score" => 3.22,
+      "severity" => severity,
+      "status" => "cleared",
+      "state" => "cleared",
+      "time" => time
+    }
+  end
+
+  defp assert_finding_order(html, titles) do
+    positions =
+      Enum.map(titles, fn title ->
+        case :binary.match(html, title) do
+          {position, _} -> position
+          :nomatch -> flunk("expected finding #{inspect(title)} in rendered findings")
+        end
+      end)
+
+    assert positions == Enum.sort(positions),
+           "expected findings in order #{inspect(titles)}"
+  end
+
   defp series_component(name, value), do: "#{name}=#{series_hex(value)}"
   defp series_tag_component(name, value), do: "tag_#{series_hex(name)}=#{series_hex(value)}"
   defp series_hex(value), do: value |> to_string() |> Base.encode16(case: :lower)
