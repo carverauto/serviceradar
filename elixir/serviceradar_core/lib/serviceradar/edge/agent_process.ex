@@ -107,7 +107,7 @@ defmodule ServiceRadar.Edge.AgentProcess do
   @doc """
   Push gateway status to the sync service.
   """
-  @spec push_status(String.t() | pid(), [Monitoring.ServiceStatus.t()], map()) ::
+  @spec push_status(String.t() | pid(), [Monitoring.GatewayServiceStatus.t()], map()) ::
           {:ok, Monitoring.GatewayStatusResponse.t()} | {:error, term()}
   def push_status(agent, services, opts) when is_binary(agent) do
     case lookup_pid(agent) do

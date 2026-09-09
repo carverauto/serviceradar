@@ -45,6 +45,18 @@ defmodule ServiceRadar.Core.StatsAggregator do
   # Snapshot type
   defmodule Snapshot do
     @moduledoc "Device statistics snapshot"
+    @type t :: %__MODULE__{
+            timestamp: DateTime.t() | nil,
+            total_devices: non_neg_integer(),
+            available_devices: non_neg_integer(),
+            unavailable_devices: non_neg_integer(),
+            active_devices: non_neg_integer(),
+            devices_with_collectors: non_neg_integer(),
+            devices_with_icmp: non_neg_integer(),
+            devices_with_snmp: non_neg_integer(),
+            devices_with_sysmon: non_neg_integer(),
+            partitions: list()
+          }
     defstruct [
       :timestamp,
       total_devices: 0,
@@ -71,6 +83,16 @@ defmodule ServiceRadar.Core.StatsAggregator do
 
   defmodule Meta do
     @moduledoc "Aggregation metadata for diagnostics"
+    @type t :: %__MODULE__{
+            raw_records: non_neg_integer(),
+            processed_records: non_neg_integer(),
+            skipped_nil_records: non_neg_integer(),
+            skipped_tombstoned_records: non_neg_integer(),
+            skipped_service_components: non_neg_integer(),
+            skipped_non_canonical: non_neg_integer(),
+            skipped_sweep_only_records: non_neg_integer(),
+            inferred_canonical_fallback: non_neg_integer()
+          }
     defstruct raw_records: 0,
               processed_records: 0,
               skipped_nil_records: 0,
