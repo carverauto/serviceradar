@@ -26,59 +26,37 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageDetailsModalTest do
   # profile offering an api_token method and an ssh_private_key method that
   # carries ssh_host_key_policies.
   @manifest %{
-    "id" => "proxmox-inventory",
-    "description" => "Enriches Proxmox PVE hosts and guests using the Proxmox VE REST API",
+    "id" => "example-inventory",
+    "description" => "Collects synthetic inventory for rendering tests",
     "entrypoint" => "run_check",
-    "capabilities" => ["get_config", "log", "submit_result", "emit_telemetry", "http_request"],
-    "permissions" => %{"allowed_domains" => [], "allowed_ports" => [8006]},
-    "resources" => %{
-      "requested_memory_mb" => 256,
-      "requested_cpu_ms" => 10_000,
-      "max_open_connections" => 2
-    },
     "integrations" => %{
       "credential_profiles" => [
         %{
-          "provider" => "proxmox",
-          "label" => "Proxmox VE",
-          "description" => "Inventory enrichment and explicitly authorized remote console access for Proxmox VE.",
+          "provider" => "example",
+          "label" => "Example inventory service",
           "default" => true,
           "auth_methods" => [
             %{
-              "id" => "proxmox_api_token",
+              "id" => "example_api_token",
               "label" => "API token",
               "credential_kind" => "api_token",
-              "tls_policies" => ["verify"],
               "fields" => [
                 %{
-                  "id" => "user",
-                  "label" => "User",
-                  "control" => "text",
-                  "required" => true,
-                  "secret" => false,
-                  "public" => true,
-                  "default" => "root"
-                },
-                %{
-                  "id" => "token_secret",
-                  "label" => "Token secret",
+                  "id" => "access_token",
+                  "label" => "Access token",
                   "control" => "password",
                   "required" => true,
                   "secret" => true,
                   "public" => false
                 }
               ],
-              "payload" => %{
-                "format" => "template",
-                "template" => "{{user}}@{{realm}}!{{token_id}}={{token_secret}}",
-                "username_field" => "user"
-              }
+              "payload" => %{"format" => "json"}
             },
             %{
               "id" => "ssh_private_key",
               "label" => "SSH private key",
               "credential_kind" => "ssh_private_key",
-              "ssh_host_key_policies" => ["known_hosts", "trust_on_first_use"],
+              "ssh_host_key_policies" => ["known_hosts"],
               "fields" => [
                 %{
                   "id" => "username",
@@ -86,8 +64,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageDetailsModalTest do
                   "control" => "text",
                   "required" => true,
                   "secret" => false,
-                  "public" => true,
-                  "default" => "root"
+                  "public" => true
                 },
                 %{
                   "id" => "private_key",
@@ -128,15 +105,15 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageDetailsModalTest do
       |> Index.render()
       |> rendered_to_string()
 
-    assert html =~ "Proxmox Inventory"
-    assert html =~ "proxmox-inventory"
-    assert html =~ "Version 0.1.6"
+    assert html =~ "Example Inventory"
+    assert html =~ "example-inventory"
+    assert html =~ "Version 2.3.4"
     # Manifest JSON (HTML-escaped) carries both auth methods.
-    assert html =~ "proxmox_api_token"
+    assert html =~ "example_api_token"
     assert html =~ "ssh_private_key"
     assert html =~ "ssh_host_key_policies"
     # Display contract key, config schema, and every modal section render.
-    assert html =~ "com.carverauto.proxmox.resource_event.display@1.0.0"
+    assert html =~ "com.example.inventory.display@1.0.0"
     assert html =~ "Timeout"
     assert html =~ "Upload Wasm Blob"
     assert html =~ "Wasm Package Requests"
@@ -147,14 +124,14 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageDetailsModalTest do
   end
 
   defp package_fixture do
-    now = DateTime.truncate(DateTime.utc_now(), :second)
+    now = ~U[2024-01-02 03:04:05Z]
 
     struct(PluginPackage,
-      id: "ff70cbe8-2807-457d-b146-4500d61a4096",
-      plugin_id: "proxmox-inventory",
-      name: "Proxmox Inventory",
-      version: "0.1.6",
-      description: "Enriches Proxmox PVE hosts and guests using the Proxmox VE REST API",
+      id: "00000000-0000-4000-8000-000000000042",
+      plugin_id: "example-inventory",
+      name: "Example Inventory",
+      version: "2.3.4",
+      description: "Collects synthetic inventory for rendering tests",
       entrypoint: "run_check",
       runtime: "wasi-preview1",
       outputs: "serviceradar.plugin_result.v1",
@@ -162,9 +139,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageDetailsModalTest do
       config_schema: @config_schema,
       display_contract: %{},
       display_contracts: %{
-        "com.carverauto.proxmox.resource_event.display@1.0.0" => %{
+        "com.example.inventory.display@1.0.0" => %{
           "surface" => "signal",
-          "schema_id" => "com.carverauto.proxmox.resource_event"
+          "schema_id" => "com.example.inventory"
         }
       },
       signal_schemas: [],
