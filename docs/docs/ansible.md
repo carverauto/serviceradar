@@ -408,7 +408,7 @@ The token is wrong, expired, or missing scope. Check `Controller.last_health_sum
 ### No playbooks appear in `/ansible/catalog`
 
 - **AWX-sourced**: `AwxCatalogSyncWorker` ticks every 600s by default. The first sync after registering a controller can take that long. Lower `catalog_sync_interval_seconds` on the controller if you want faster turnaround for setup.
-- **Git-sourced**: `GitCatalogSyncWorker` ticks every 600s by default. Confirm core has the Git runtime and writable storage described in [Configure environment variables](#configure-environment-variables). Look for `[warning] AWX GitCatalogSyncWorker: git sync failed` in logs — the `PlaybookRepository.last_sync_summary` field surfaces the sanitized error.
+- **Git-sourced**: `GitCatalogSyncWorker` ticks every 600s by default. Confirm core has the Git runtime and writable storage described in [Configure environment variables](#configure-environment-variables). Look for `[warning] AWX GitCatalogSyncWorker: git sync failed` in logs; the `PlaybookRepository.last_sync_summary` field surfaces the sanitized error.
 
 ### Devices don't flip to `ansible_managed: true`
 

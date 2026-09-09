@@ -46,8 +46,8 @@ resource "serviceradar_ansible_controller" "example" {
   name                            = "Example AWX controller"
   base_url                        = "https://awx.example.com"
   agent_id                        = var.agent_id
-  sync_credential_secret_id        = serviceradar_network_credential_secret.awx_sync.id
-  execution_credential_secret_id   = data.serviceradar_network_credential_secret.execution.id
+  sync_credential_secret_id       = serviceradar_network_credential_secret.awx_sync.id
+  execution_credential_secret_id  = data.serviceradar_network_credential_secret.execution.id
   inventory_sync_interval_seconds = 600
   catalog_sync_interval_seconds   = 600
   enabled                         = true

@@ -1,6 +1,10 @@
-## Existing Surface
+## Surface before this change
 
-Source inspection found these capabilities:
+The following is the pre-implementation gap analysis. For the implemented subset,
+see the [provisioning API contract](../../../docs/docs/ansible-provisioning-api.md)
+and [Terraform reference](../../../docs/docs/terraform-provider.md).
+
+Source inspection before implementation found these capabilities:
 
 | Area | Existing public API | Missing contract |
 | --- | --- | --- |
@@ -23,9 +27,9 @@ Relevant source anchors are
 
 User-bound API keys and OAuth client credentials already resolve to an account
 and its role profile. Reuse that account identity. Legacy static keys without
-an accountable user cannot provision. Existing controller endpoints require
-RBAC but do not consistently intersect coarse token scopes with mutation
-authority; the completed configuration API must close that gap.
+an accountable user cannot provision. Before this change, controller endpoints
+required RBAC but did not consistently intersect coarse token scopes with mutation authority; closing that gap is part
+of the configuration API contract.
 
 ## Public Boundary
 
