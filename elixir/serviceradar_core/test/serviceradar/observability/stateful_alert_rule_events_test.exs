@@ -91,6 +91,7 @@ defmodule ServiceRadar.Observability.StatefulAlertRuleEventsTest do
 
   test "catalog sync attributes create and update events to its system actor" do
     plugin_id = "audit-catalog-#{System.unique_integer([:positive])}"
+
     declaration = %{
       "name" => "log-match",
       "signal" => "log",
@@ -112,7 +113,11 @@ defmodule ServiceRadar.Observability.StatefulAlertRuleEventsTest do
     }
 
     ServiceRadar.Plugins.Plugin
-    |> Ash.Changeset.for_create(:create, %{plugin_id: plugin_id, name: "Audit Catalog"}, actor: @system)
+    |> Ash.Changeset.for_create(
+      :create,
+      %{plugin_id: plugin_id, name: "Audit Catalog"},
+      actor: @system
+    )
     |> Ash.create!()
 
     package =
