@@ -72,6 +72,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
        |> assign(:first_party_catalog_synced_at, nil)
        |> assign(:assignments, [])
        |> assign(:addon_profiles, [])
+       |> assign(:sibling_addon_profiles, [])
        |> assign(:assignment_preview, empty_assignment_preview())
        |> assign(:assignment_form, default_assignment_form())
        |> assign(:profile_form, default_profile_form())
@@ -99,6 +100,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     |> assign(:show_details_modal, false)
     |> assign(:selected_package, nil)
     |> assign(:newer_approved_package, nil)
+    |> assign(:sibling_addon_profiles, [])
   end
 
   defp apply_action(socket, :show, %{"id" => id}) do
@@ -117,6 +119,10 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
         )
         |> assign(:assignments, list_assignments_for_package(package.id, scope))
         |> assign(:addon_profiles, list_profiles_for_package(package.id, scope))
+        |> assign(
+          :sibling_addon_profiles,
+          list_sibling_profiles(package, socket.assigns.packages, scope)
+        )
         |> assign(:profile_form, default_profile_form(package))
 
       _ ->
@@ -143,7 +149,8 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
          socket
          |> put_flash(:info, import_summary_message(summary, release_label))
          |> assign(:packages, list_addon_packages(socket.assigns.current_scope))
-         |> load_first_party_catalog()}
+         |> load_first_party_catalog()
+         |> refresh_open_package_state()}
 
       {:error, reason} ->
         {:noreply,
@@ -191,7 +198,11 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     {:noreply,
      socket
      |> assign(:packages, packages)
-     |> assign_first_party_catalog_view(socket.assigns.first_party_catalog_all, socket.assigns.first_party_release_tag)}
+     |> assign_first_party_catalog_view(
+       socket.assigns.first_party_catalog_all,
+       socket.assigns.first_party_release_tag
+     )
+     |> refresh_open_package_state()}
   end
 
   def handle_event("sync_first_party_catalog", _params, %{assigns: %{sync_running?: true}} = socket) do
@@ -487,8 +498,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                socket.assigns.first_party_catalog_all,
                socket.assigns.first_party_release_tag
              )
-             |> assign(:selected_package, updated)
-             |> assign(:assignment_preview, build_assignment_preview(socket.assigns.assignment_form, updated, scope))}
+             |> assign_modal_package_state(scope, updated)}
 
           {:error, error} ->
             {:noreply, put_flash(socket, :error, "Failed to approve: #{format_error(error)}")}
@@ -512,7 +522,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
              socket.assigns.first_party_catalog_all,
              socket.assigns.first_party_release_tag
            )
-           |> assign(:selected_package, updated)}
+           |> assign_modal_package_state(scope, updated)}
 
         {:error, error} ->
           {:noreply, put_flash(socket, :error, "Failed to deny: #{format_error(error)}")}
@@ -614,7 +624,10 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                   :if={@can_review_addons}
                   variant="primary"
                   size="sm"
-                  disabled={@import_running? or @sync_running? or import_state.importable == 0}
+                  disabled={
+                    @import_running? or @sync_running? or
+                      import_state.importable + import_state.replaceable == 0
+                  }
                   phx-click="import_first_party_catalog"
                 >
                   <span :if={@import_running?} class="sr-ui-spinner sr-ui-spinner-xs"></span>
@@ -652,8 +665,9 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
           >
             {import_state.replaceable}
             {if import_state.replaceable == 1, do: "add-on is", else: "add-ons are"} already imported at this version from an earlier release, with a
-            different build. Import All will not overwrite them. Use Replace on
-            those rows if you want this release's binaries.
+            different build. Import All replaces them with this release's build
+            (a replaced package goes back to staged and must be approved again);
+            use Replace on a row to do it individually.
           </div>
 
           <%= cond do %>
@@ -1056,6 +1070,11 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
 
               <%= if @addon_profiles == [] do %>
                 <p class="text-xs text-sr-muted">No profiles for this add-on package.</p>
+                <p :if={@sibling_addon_profiles != []} class="text-xs text-sr-muted">
+                  Profiles exist on other versions of this add-on
+                  ({sibling_profile_versions(@sibling_addon_profiles)}). Approve
+                  this package so automatic-update profiles can move to it.
+                </p>
               <% else %>
                 <ul class="divide-y divide-sr-line">
                   <%= for profile <- @addon_profiles do %>
@@ -1639,7 +1658,8 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
              )
            )
            |> assign(:packages, list_addon_packages(socket.assigns.current_scope))
-           |> load_first_party_catalog()}
+           |> load_first_party_catalog()
+           |> refresh_open_package_state()}
 
         {:ok, package, :skipped} ->
           {:noreply,
@@ -2008,12 +2028,14 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
 
   defp import_all_label(true, _state), do: "Importing…"
 
-  defp import_all_label(false, %{importable: 0, imported: imported}) when imported > 0 do
+  defp import_all_label(false, %{importable: 0, replaceable: 0, imported: imported}) when imported > 0 do
     "All #{imported} imported"
   end
 
-  defp import_all_label(false, %{importable: 0}), do: "Import All"
-  defp import_all_label(false, %{importable: importable}), do: "Import All (#{importable})"
+  defp import_all_label(false, %{importable: 0, replaceable: 0}), do: "Import All"
+
+  defp import_all_label(false, %{importable: importable, replaceable: replaceable}),
+    do: "Import All (#{importable + replaceable})"
 
   defp import_summary_message(summary, release_label) do
     skipped = Map.get(summary, :skipped, 0)
@@ -2086,6 +2108,62 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
 
   defp list_profiles_for_package(package_id, scope) do
     AddonProfiles.list(%{addon_package_id: package_id}, scope: scope)
+  end
+
+  # Review and import actions must leave an open details modal showing what is
+  # persisted, not what it showed when it opened (GitHub #336): approving,
+  # denying, or replacing a package changes its status and the assignments and
+  # profiles around it, so reload all of them together.
+  defp refresh_open_package_state(socket) do
+    case socket.assigns[:selected_package] do
+      %{id: id} ->
+        scope = socket.assigns.current_scope
+
+        case AddonPackages.get(id, scope: scope) do
+          {:ok, package} -> assign_modal_package_state(socket, scope, package)
+          {:error, _reason} -> socket
+        end
+
+      _ ->
+        socket
+    end
+  end
+
+  defp assign_modal_package_state(socket, scope, package) do
+    socket
+    |> assign(:selected_package, package)
+    |> assign(:newer_approved_package, newer_approved_package(socket.assigns.packages, package))
+    |> assign(
+      :assignment_preview,
+      build_assignment_preview(socket.assigns.assignment_form, package, scope)
+    )
+    |> assign(:assignments, list_assignments_for_package(package.id, scope))
+    |> assign(:addon_profiles, list_profiles_for_package(package.id, scope))
+    |> assign(:sibling_addon_profiles, list_sibling_profiles(package, socket.assigns.packages, scope))
+  end
+
+  # Profiles pinned to other versions of the same add-on. The modal lists the
+  # current package's profiles, so without this an add-on with a profile on an
+  # older version reads as "nothing assigned" at the point of approval
+  # (GitHub #336).
+  defp list_sibling_profiles(package, packages, scope) do
+    versions_by_package_id = Map.new(packages, &{&1.id, &1.version})
+
+    package.addon_id
+    |> list_addon_profiles(scope)
+    |> Enum.reject(&(&1.addon_package_id == package.id))
+    |> Enum.map(&%{name: &1.name, version: Map.get(versions_by_package_id, &1.addon_package_id)})
+    |> Enum.sort_by(& &1.name)
+  end
+
+  defp list_addon_profiles(addon_id, scope) do
+    AddonProfiles.list(%{addon_id: addon_id}, scope: scope)
+  end
+
+  defp sibling_profile_versions(siblings) do
+    Enum.map_join(siblings, ", ", fn %{name: name, version: version} ->
+      if version, do: "#{name} (v#{version})", else: name
+    end)
   end
 
   defp list_agents(scope) do
@@ -2940,15 +3018,29 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     error |> Exception.message() |> strip_ash_breadcrumbs() |> truncate_error()
   end
 
+  # Same-version rebuilds of coherent first-party rows no longer reach this
+  # error: Import All takes them through the replace path automatically
+  # (GitHub #335). What remains is a row owned by another source, or a row
+  # whose partial provenance genuinely mismatches — both need an explicit
+  # Replace on that catalog row.
   defp format_error({:native_addon_version_source_conflict, details}) when is_map(details) do
     addon = Map.get(details, :addon_id) || "addon"
     version = Map.get(details, :version) || "unknown"
 
-    truncate_error(
-      "#{addon} #{version} is already imported from an earlier release that " <>
-        "rebuilt the same version. Use Replace on that catalog row to take this " <>
-        "release's build; Import All will not overwrite it."
-    )
+    if Map.get(details, :reason) == :source_type_owned do
+      existing = Map.get(details, :existing_source_type) || "another source"
+
+      truncate_error(
+        "#{addon} #{version} is managed from #{existing} and cannot be overwritten " <>
+          "by a first-party import."
+      )
+    else
+      truncate_error(
+        "#{addon} #{version} is already imported from an earlier release that " <>
+          "rebuilt the same version. Use Replace on that catalog row to take this " <>
+          "release's build; Import All will not overwrite it."
+      )
+    end
   end
 
   defp format_error(error) do
