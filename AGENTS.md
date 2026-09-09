@@ -410,12 +410,21 @@ Add a tab-separated row: `source\tmodule\tcase_kind\tmode\treason\tevidence`.
 Two dispositions cover almost everything:
 
 - **Database-free** (plain `ExUnit.Case`, no `:integration`/`:requires_app`
-  tag, no `Repo`/data-layer call): `module` = `-`, `case_kind` = `mode` =
-  `reason` = the literal string `not_selected`/`load_only` pairing (copy an
-  existing row exactly, e.g. any neighboring `not_selected` row in the same
-  directory) — this is the default for most simple unit tests and needs
+  tag, no `Repo`/data-layer call): set `source` to the new test's path relative
+  to `elixir/serviceradar_core/`, `module` = `-`, `case_kind` = `not_selected`,
+  `mode` = `load_only`, and `reason` = `not_selected`. For `evidence`, copy the
+  standard audit sentence from a neighboring `not_selected` row, as shown
+  below. This is the default for most simple unit tests and needs
   **no** change to `build/integration_test_dispositions.bzl`, which only
   tracks `selected` (async/serial) tests.
+
+  Example with all six fields in order, separated by literal tabs (replace
+  the example source path with your new test's path):
+
+  ```tsv
+  test/example_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
+  ```
+
 - **DB-backed** (`ServiceRadar.DataCase` or a real data-layer call): needs a
   real `case_kind`/`mode`/`reason` reflecting actual transaction/sandbox
   ownership (`data_case`/`async`/`transaction_owner`, or `serial` with a
