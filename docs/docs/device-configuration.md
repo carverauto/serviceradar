@@ -13,6 +13,11 @@ ServiceRadar can collect data from network devices through multiple protocols:
 
 ## Device Details Metadata
 
+Device tags appear as read-only chips in the device list's **Tags** column and
+the device detail summary. Tags display as `key=value`, or just `key` when the
+value is empty. A device without tags shows a dash in the list and no Tags row
+in its summary.
+
 The device details page groups enrichment metadata by source instead of dumping raw integration keys. SNMP, Armis, UniFi, MikroTik, Proxmox, NetBox, discovery, classification, inventory, and sweep fields are shown in separate sections when there is evidence that the source actually contributed useful data.
 
 Redundant alias summaries and opaque "additional metadata keys" counts are intentionally hidden. IP aliases are shown in the dedicated IP Aliases table, and raw/debug payload keys stay out of the details card.
