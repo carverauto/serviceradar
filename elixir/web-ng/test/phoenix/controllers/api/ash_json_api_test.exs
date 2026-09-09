@@ -445,7 +445,9 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
   end
 
   describe "POST /api/v2/stateful-alert-rules" do
-    test "creates a new stateful alert rule", %{conn: conn} do
+    test "operator provisions, updates, and removes a stateful alert rule" do
+      conn = log_in_api_user(build_conn(), operator_user_fixture())
+
       params = %{
         "data" => %{
           "type" => "stateful-alert-rule",
@@ -458,13 +460,47 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
         }
       }
 
-      conn =
+      created_conn =
         conn
         |> put_req_header("content-type", "application/vnd.api+json")
         |> post(~p"/api/v2/stateful-alert-rules", params)
 
-      # Should return 201 Created or an error if policies prevent creation
-      assert conn.status in [201, 403]
+      created = json_response(created_conn, 201)["data"]
+      assert created["type"] == "stateful-alert-rule"
+      assert created["attributes"]["name"] == params["data"]["attributes"]["name"]
+      id = created["id"]
+      assert is_binary(id) and byte_size(id) > 0
+
+      fetched = conn |> get("/api/v2/stateful-alert-rules/#{id}") |> json_response(200)
+      assert fetched["data"]["id"] == id
+
+      active = conn |> get("/api/v2/stateful-alert-rules/active") |> json_response(200)
+      assert Enum.any?(active["data"], &(&1["id"] == id))
+
+      updated =
+        conn
+        |> put_req_header("content-type", "application/vnd.api+json")
+        |> patch("/api/v2/stateful-alert-rules/#{id}", %{
+          "data" => %{
+            "type" => "stateful-alert-rule",
+            "id" => id,
+            "attributes" => %{"enabled" => false, "priority" => 5}
+          }
+        })
+        |> json_response(200)
+
+      assert updated["data"]["attributes"]["enabled"] == false
+      fetched = conn |> get("/api/v2/stateful-alert-rules/#{id}") |> json_response(200)
+      assert fetched["data"]["attributes"]["priority"] == 5
+      assert fetched["data"]["attributes"]["enabled"] == false
+
+      active = conn |> get("/api/v2/stateful-alert-rules/active") |> json_response(200)
+      refute Enum.any?(active["data"], &(&1["id"] == id))
+
+      deleted = delete(conn, "/api/v2/stateful-alert-rules/#{id}")
+      assert deleted.status == 200
+      remaining = conn |> get("/api/v2/stateful-alert-rules") |> json_response(200)
+      refute Enum.any?(remaining["data"], &(&1["id"] == id))
     end
 
     test "returns error for unauthenticated request" do

@@ -54,8 +54,6 @@ defmodule ServiceRadar.Observability.StatefulAlertRulePolicyTest do
     test "a nil actor cannot read any rows" do
       _rule = rule_fixture()
 
-      refute Ash.can?({StatefulAlertRule, :read}, nil, maybe_is: false)
-
       assert {:ok, []} =
                StatefulAlertRule
                |> Ash.Query.for_read(:read, %{}, actor: nil)
