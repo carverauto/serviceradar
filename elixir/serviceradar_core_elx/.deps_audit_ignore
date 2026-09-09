@@ -1,14 +1,7 @@
-# EEF-CVE-2026-43966 / cowlib HTTP response splitting,
-# EEF-CVE-2026-43969 / GHSA-g2wm-735q-3f56 / cowlib cookie encoder, and
-# EEF-CVE-2026-43971 / cowlib Link header directive smuggling have no patched
-# Hex release as of cowlib 2.19.0. That release fixed only the HPACK/QPACK
-# decoder DoS (EEF-CVE-2026-59248). 43971 (published 2026-08-18) has a git
-# fix at ninenines/cowlib@89da27ee, shipped in cowlib 2.20.0, but the advisory
-# DB still flags 2.20.0 (re-verified 2026-09-09; the 43966/43969 code paths are
-# unchanged in 2.20.0), so no upgrade closes the gate yet.
+# Cowlib waiver rationale and removal criteria:
+# ../serviceradar_core/.deps_audit_ignore (EEF-CVE-2026-43966 block).
 # core_elx does not call the affected structured-header, cookie, or Link
 # encoders; its Gun 2.4.1 transport also rejects CR/LF request headers.
-# Remove these waivers as soon as cowlib publishes a patched Hex release.
 EEF-CVE-2026-43966
 EEF-CVE-2026-43969
 EEF-CVE-2026-43971
