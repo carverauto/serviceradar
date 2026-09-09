@@ -2,21 +2,21 @@ defmodule Mix.Tasks.Serviceradar.Openapi.Dump do
   @shortdoc "Dump the AshJsonApi OpenAPI spec to a committed JSON file"
 
   @moduledoc """
-  Renders the OpenAPI (Swagger) document served at `/api/v2/open_api` and writes
-  it to a committed file so external consumers (e.g. the developer portal) can
-  fetch the spec straight from the repository instead of a live site.
+  Renders `ServiceRadarWebNGWeb.AshJsonApiRouter.spec/0` to a committed file
+  for external consumers such as the developer portal. Paths in this artifact
+  are relative to `/api/v2`.
 
-  The document is produced by `ServiceRadarWebNGWeb.AshJsonApiRouter.spec/0` —
-  the exact same code path the live endpoint uses — so the committed file always
-  matches what the API serves. Rendering is pure DSL introspection: no database,
-  network, or running endpoint is required.
+  The live document is generated separately by
+  `ServiceRadarWebNGWeb.Api.OpenApiV2Controller`; its paths include `/api/v2`.
+  Rendering uses compiled resource DSL without starting the application or
+  connecting to a database. Use `--check` to detect committed artifact drift.
 
   ## Usage
 
       # (re)generate priv/static/openapi.json
       mix serviceradar.openapi.dump
 
-      # verify the committed file is up to date (used in CI); exits non-zero on drift
+      # verify the committed file is up to date; exits non-zero on drift
       mix serviceradar.openapi.dump --check
 
   ## Options

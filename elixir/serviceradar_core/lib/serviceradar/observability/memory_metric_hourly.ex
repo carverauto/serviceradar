@@ -6,40 +6,41 @@ defmodule ServiceRadar.Observability.MemoryMetricHourly do
   use ServiceRadar.Observability.HourlyMetricResource,
     table: "memory_metrics_hourly",
     type: "memory_metric_hourly",
-    route: "/memory_metrics_hourly"
+    route: "/memory_metrics_hourly",
+    primary_key: [:bucket, :device_id, :host_id]
 
   attributes do
     attribute :bucket, :utc_datetime_usec do
-      allow_nil? false
-      public? true
+      allow_nil?(false)
+      public?(true)
     end
 
     attribute :device_id, :string do
-      public? true
+      public?(true)
     end
 
     attribute :host_id, :string do
-      public? true
+      public?(true)
     end
 
     attribute :avg_usage_percent, :float do
-      public? true
+      public?(true)
     end
 
     attribute :max_usage_percent, :float do
-      public? true
+      public?(true)
     end
 
     attribute :avg_used_bytes, :float do
-      public? true
+      public?(true)
     end
 
     attribute :avg_available_bytes, :float do
-      public? true
+      public?(true)
     end
 
     attribute :sample_count, :integer do
-      public? true
+      public?(true)
     end
   end
 end

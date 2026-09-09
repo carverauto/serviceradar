@@ -17,10 +17,17 @@ defmodule ServiceRadarWebNGWeb.Api.OpenApiV2Controller do
   use ServiceRadarWebNGWeb, :controller
 
   # Keep in sync with `ServiceRadarWebNGWeb.AshJsonApiRouter`.
+  #
+  # NOTE: this list is already missing `ServiceRadar.Notifications`, which the
+  # router does mount -- a pre-existing drift bug, not introduced by adding
+  # `Observability` here. Tracked as its own follow-up:
+  # https://github.com/carverauto/serviceradar/issues/328 -- intentionally
+  # not fixed as a drive-by in this diff.
   @domains [
     ServiceRadar.Inventory,
     ServiceRadar.Infrastructure,
-    ServiceRadar.Monitoring
+    ServiceRadar.Monitoring,
+    ServiceRadar.Observability
   ]
 
   def show(conn, _params) do

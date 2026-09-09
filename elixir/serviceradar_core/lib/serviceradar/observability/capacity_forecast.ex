@@ -30,12 +30,21 @@ defmodule ServiceRadar.Observability.CapacityForecast do
 
     routes do
       base "/capacity_forecasts"
-      index :read
+      index :api_index
     end
   end
 
   actions do
     defaults [:read, :destroy]
+
+    read :api_index do
+      pagination do
+        offset? true
+        default_limit 100
+        max_page_size 1000
+        required? true
+      end
+    end
 
     read :by_resource do
       argument :resource_key, :string, allow_nil?: false
@@ -106,13 +115,10 @@ defmodule ServiceRadar.Observability.CapacityForecast do
   end
 
   policies do
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :system)
-    end
+    import ServiceRadar.Policies
 
-    policy action_type(:read) do
-      authorize_if always()
-    end
+    system_bypass()
+    read_viewer_plus()
 
     policy action([:upsert, :destroy]) do
       authorize_if actor_attribute_equals(:role, :system)
