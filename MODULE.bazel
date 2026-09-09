@@ -2358,6 +2358,7 @@ http_archive(
     patches = ["//third_party/arrow_swift:validity.patch"],
     sha256 = "09cb4a3fb9ea60acbb9219f6c3c1a7960a718647e4645f548dfcb5294efb4ecf",
     strip_prefix = "arrow-swift-20dac0a2c4049915eeed09aab13a617763788a55",
+    type = "tar.gz",
     urls = ["https://codeload.github.com/apache/arrow-swift/tar.gz/20dac0a2c4049915eeed09aab13a617763788a55"],
 )
 

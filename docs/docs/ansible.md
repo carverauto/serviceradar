@@ -429,6 +429,12 @@ Open `/ansible/operations/:id`, refresh it, and inspect the operation and child-
 
 Refresh the operation evidence and inspect each child execution's AWX job ID, scope-verification state, and diagnostics. Then inspect the correlated secure fetch/status commands in `platform.agent_commands`. Do not infer success from AWX alone: ServiceRadar keeps an execution non-terminal when it cannot prove that the returned job and hosts match the immutable scope.
 
+Existing child jobs can still be observed and reconciled after the launch
+preflight expires. Continuation verifies the persisted immutable evidence and
+controller/edge boundary; it does not authorize another launch. A changed
+controller or dispatch principal can therefore block recovery even when the
+AWX job is terminal.
+
 ### "AWX rejected the request" 401 / 403 on launch
 
 The plugin surfaces these as operator-safe typed errors with `"check controller token"` in the message. Either:

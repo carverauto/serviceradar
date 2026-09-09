@@ -25,10 +25,9 @@ Set `SERVICERADAR_ENDPOINT` to the ServiceRadar HTTPS origin and
 API keys use `X-API-Key`, while bearer tokens use `Authorization`. The matching
 provider arguments are `api_key` and `api_token`. The account and token
 must both authorize the requested operation. Legacy static tokens without an
-account are not suitable. Credential resources require
-`settings.credentials.manage`; controller and repository resources require
-`ansible.controllers.manage` and `ansible.repositories.manage`, respectively.
-Repository refresh and data sources also require `ansible.catalog.view`.
+account are not suitable. Use the permissions in the
+[provisioning API contract](./ansible-provisioning-api.md#authentication-and-permissions),
+including catalog read authority for controller deletion dependency checks.
 
 The provider verifies TLS using the system trust store. The optional
 `ca_certificate` provider argument adds a PEM CA certificate. HTTP origins,
