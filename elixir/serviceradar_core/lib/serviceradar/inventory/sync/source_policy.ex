@@ -52,12 +52,8 @@ defmodule ServiceRadar.Inventory.Sync.SourcePolicy do
   Return the identifier types that may be looked up and registered for an
   update.
 
-  No provider is special-cased here, Armis included: the extractor (`Ids`)
-  rejects legacy bare Armis values as unscoped and admits only source-scoped
-  `armis:...` values, so `:integration_id` is offered exactly when it
-  carries usable lookup values, like every other provider. Armis keeps its
-  typed, source-authoritative identifier (`armis_device_id`) for northbound
-  write-back and drift repair.
+  Integration admission belongs to the extractor (`Ids`), so lookup and
+  registration share its decision without a second provider-specific veto.
   """
   def identifier_types(update, ids) do
     Ids.identifier_priority()

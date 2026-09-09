@@ -28,13 +28,11 @@ import (
 //
 // The scope must distinguish one provider instance from another; a bare
 // native ID is not a device identity because two instances routinely mint
-// the same numbers. Core accepts a provider integration_id only when it
-// carries its own scope, so drivers must route identity evidence through
-// this helper instead of emitting the raw native ID as integration_id.
+// the same numbers. Callers choose the stable source scope; this helper
+// does not validate Core's provider-specific admission rules.
 //
 // It returns "" when any segment is empty after normalization, in which
-// case the caller must fall back to legacy behavior (core rejects the
-// unscoped value rather than merging on it).
+// case the caller must handle its provider's legacy behavior.
 func ScopedIntegrationID(sourceType, scope, objectKind, nativeID string) string {
 	sourceType = NormalizeType(sourceType)
 	scope = NormalizeIdentityScope(scope)
@@ -47,8 +45,8 @@ func ScopedIntegrationID(sourceType, scope, objectKind, nativeID string) string 
 }
 
 // NormalizeIdentityScope canonicalizes an operator-configured source scope
-// (a sync service ID, source key, or partition) so it is safe to embed in a
-// scoped integration identifier: trimmed, lowercased, with runs of colons
+// so it is safe to embed in a scoped integration identifier: trimmed,
+// lowercased, with runs of colons
 // and whitespace collapsed to a single dash. Colons are the identifier
 // segment separator, so they must never survive inside a segment.
 func NormalizeIdentityScope(scope string) string {

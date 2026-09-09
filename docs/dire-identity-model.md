@@ -22,6 +22,21 @@ Validation happens at every boundary (Go agent `syncsources.NormalizeUpdate`
 and Elixir `Identity.Mac`): multi-value fields are split, malformed values
 are rejected with telemetry, and rejected values never become rows.
 
+### Armis integration identity
+
+The Armis driver emits `armis:<scope>:device:<native-id>` as `integration_id`
+when `SyncServiceID` supplies a nonempty normalized scope. Scope normalization
+lowercases the value and joins colon- or whitespace-separated segments with
+dashes. Without that scope, the driver retains the legacy bare native ID;
+it does not substitute the source key or partition.
+
+DIRE admits the scoped Armis value through the generic integration lookup
+and registration path, alongside `armis_device_id`. Bare Armis values remain
+excluded from `integration_id` identifiers. The typed identifier remains
+source-authoritative for northbound write-back and drift repair. Northbound
+selection accepts either the legacy bare metadata value or the scoped value
+matching the source and typed ID; drift repair preserves valid scoped identities.
+
 ## Resolution order (single and batch)
 
 Before allocating a new device, ingestion applies the source-specific
