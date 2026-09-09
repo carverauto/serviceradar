@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadarWebNG.Observability.SignalDisplay
   alias ServiceRadarWebNGWeb.AnomalySeriesKey
+  alias ServiceRadarWebNGWeb.Components.PromotionRuleBuilder
   alias ServiceRadarWebNGWeb.Dashboard.Engine
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Table, as: TablePlugin
   alias ServiceRadarWebNGWeb.Observability.DetailStreamComponents
@@ -38,6 +39,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
      |> assign(:device_ref, nil)
      |> assign(:related, %{log_id: nil, alert: nil})
      |> assign(:error, nil)
+     |> assign(:show_rule_builder, false)
      |> assign(:stream_entries, [])
      |> assign(:stream_severity, "all")
      |> assign(:stream_query, nil)
@@ -138,6 +140,10 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   end
 
   @impl true
+  def handle_event("open_rule_builder", _params, socket) do
+    {:noreply, assign(socket, :show_rule_builder, true)}
+  end
+
   def handle_event("set_stream_severity", %{"severity" => severity}, socket)
       when severity in ~w(all critical high medium low info) do
     {:noreply, assign(socket, :stream_severity, severity)}
@@ -247,6 +253,23 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   end
 
   @impl true
+  def handle_info({:rule_builder_closed}, socket) do
+    {:noreply, assign(socket, :show_rule_builder, false)}
+  end
+
+  def handle_info({:rule_created, rule}, socket) do
+    {:noreply,
+     socket
+     |> assign(:show_rule_builder, false)
+     |> put_flash(:info, "Rule \"#{rule.name}\" created successfully.")
+     |> push_navigate(to: ~p"/settings/rules?#{%{tab: "events"}}")}
+  end
+
+  def handle_info({:rule_creation_failed, reason}, socket) do
+    {:noreply, put_flash(socket, :error, "Failed to create rule: #{format_error(reason)}")}
+  end
+
+  @impl true
   def render(assigns) do
     assigns =
       assign(
@@ -293,7 +316,11 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
           />
 
           <section class="flex min-h-0 min-w-0 flex-col overflow-hidden lg:border-l lg:border-sr-line">
-            <.event_detail_header event={@event} event_id={@event_id} />
+            <.event_detail_header
+              event={@event}
+              event_id={@event_id}
+              can_create_rules?={can_create_rules?(@current_scope)}
+            />
             <.event_meta_strip event={@event} timezone={@current_scope.user.timezone} />
 
             <div class="min-h-0 min-w-0 flex-1 space-y-5 overflow-x-hidden overflow-y-auto px-3 py-5 sm:px-5">
@@ -333,6 +360,14 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
           </section>
         </div>
       </div>
+
+      <.live_component
+        :if={@show_rule_builder}
+        module={PromotionRuleBuilder}
+        id="rule-builder"
+        log={@event}
+        current_scope={@current_scope}
+      />
     </Layouts.app>
     """
   end
@@ -562,6 +597,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
 
   attr :event, :map, required: true
   attr :event_id, :string, required: true
+  attr :can_create_rules?, :boolean, default: false
 
   defp event_detail_header(assigns) do
     title = event_headline(assigns.event) || "Event"
@@ -591,6 +627,14 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
           </.ui_button>
           <.ui_button type="button" variant="outline" size="xs" phx-click="copy_json">
             Copy JSON
+          </.ui_button>
+          <.ui_button
+            :if={@can_create_rules?}
+            phx-click="open_rule_builder"
+            variant="primary"
+            size="xs"
+          >
+            <.icon name="hero-plus" class="size-3.5" /> Create event rule
           </.ui_button>
         </div>
       </div>
@@ -2880,6 +2924,11 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   defp format_error(%ArgumentError{} = err), do: Exception.message(err)
   defp format_error(reason) when is_binary(reason), do: reason
   defp format_error(reason), do: inspect(reason)
+
+  # RBAC check - only operators and admins can create rules
+  defp can_create_rules?(%{user: _} = scope), do: ServiceRadarWebNG.RBAC.can?(scope, "observability.rules.create")
+
+  defp can_create_rules?(_), do: false
 
   defp build_related(nil, _scope), do: %{log_id: nil, alert: nil}
 

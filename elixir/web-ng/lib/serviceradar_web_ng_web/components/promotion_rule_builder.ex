@@ -147,11 +147,13 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
     assigns = assign(assigns, :severity_options, @severity_options)
 
     ~H"""
-    <.ui_modal
-      id="rule_builder_modal"
-      on_cancel="close"
-      on_cancel_target={@myself}
-    >
+    <%!-- Single static root: stateful LiveComponents cannot root at a function component. --%>
+    <div id="rule-builder-root" class="contents">
+      <.ui_modal
+        id="rule_builder_modal"
+        on_cancel="close"
+        on_cancel_target={@myself}
+      >
       <:title>
         {if @mode == :edit, do: "Edit Event Rule", else: "Create Event Rule"}
       </:title>
@@ -436,7 +438,8 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
           </.ui_button>
         </div>
       </.form>
-    </.ui_modal>
+      </.ui_modal>
+    </div>
     """
   end
 
