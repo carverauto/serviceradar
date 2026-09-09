@@ -17,6 +17,8 @@ defmodule ServiceRadarWebNGWeb.Auth.ErrorHandler do
 
   use ServiceRadarWebNGWeb, :controller
 
+  alias ServiceRadarWebNGWeb.ClientIP
+
   require Logger
 
   @impl Guardian.Plug.ErrorHandler
@@ -32,7 +34,7 @@ defmodule ServiceRadarWebNGWeb.Auth.ErrorHandler do
       reason: inspect(reason),
       path: conn.request_path,
       method: conn.method,
-      remote_ip: format_ip(conn.remote_ip)
+      remote_ip: ClientIP.get(conn)
     )
 
     conn
@@ -122,10 +124,4 @@ defmodule ServiceRadarWebNGWeb.Auth.ErrorHandler do
       conn
     end
   end
-
-  defp format_ip(ip) when is_tuple(ip) do
-    ip |> Tuple.to_list() |> Enum.join(".")
-  end
-
-  defp format_ip(ip), do: inspect(ip)
 end

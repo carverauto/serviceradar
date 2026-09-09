@@ -499,6 +499,16 @@ webNg:
   auth:
     forceLocalLogin: false
     disableSso: false
+  # Demo attaches to the shared envoy gateway in serviceradar-system, so
+  # trust its x-forwarded-for for audit logging. Narrow these CIDRs to the
+  # cluster pod/service ranges if they are known; the RFC1918 default covers
+  # envoy pod IPs and kube-proxy SNAT addresses.
+  clientIp:
+    trustXForwardedFor: true
+    trustedProxyCidrs:
+      - "10.0.0.0/8"
+      - "172.16.0.0/12"
+      - "192.168.0.0/16"
   publicUrl: "https://demo.serviceradar.cloud"
   # MCP OAuth AS for Authentik SSO testing. Chart default is off. Keep this
   # on the demo overlay so /mcp survives Image Updater rewrite of
