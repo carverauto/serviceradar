@@ -360,7 +360,6 @@ func TestMtrIdentityTimeOverflow(t *testing.T) {
 // SNAPSHOT_PAGE_V1 rather than RECOVERY_CONTROL_V1, because the recovery-lane biconditional
 // would refuse the latter earlier and the proof would be vacuous.
 func TestMtrEntrypointEnforcesFramingFamily(t *testing.T) {
-
 	ok := canonicalMtrRecord(t, edgev1.EdgeRecordPayloadFamily_EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1)
 	if err := edgerecord.ValidateMtrRecord(ok, ok.GetOutputContract(), goldenPolicy()); err != nil {
 		t.Fatalf("the canonical MTR record must be admitted: %v", err)

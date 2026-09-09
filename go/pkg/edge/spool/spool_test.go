@@ -34,7 +34,11 @@ func TestReadRecordPreservesStorageErrors(t *testing.T) {
 	for offset := 0; offset < len(encoded); offset++ {
 		t.Run(fmt.Sprint(offset), func(t *testing.T) {
 			reader, writer := io.Pipe()
-			defer reader.Close()
+			defer func() {
+				if err := reader.Close(); err != nil {
+					t.Error(err)
+				}
+			}()
 			if err := writer.CloseWithError(syscall.EIO); err != nil {
 				t.Fatal(err)
 			}

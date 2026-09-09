@@ -27,6 +27,11 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
+const (
+	boundarySourceRole = "source"
+	boundaryFirstSide  = "first"
+)
+
 func TestRecordStructuralBoundaryCorpus(t *testing.T) {
 	var manifest strings.Builder
 	emit := func(name string, accept bool, r *edgev1.EdgeRecordV1) {
@@ -119,9 +124,9 @@ func TestRecordStructuralBoundaryCorpus(t *testing.T) {
 }
 
 func recordBoundaryClaimCases(control *edgev1.EdgeRecordV1, emit func(string, bool, *edgev1.EdgeRecordV1)) {
-	for _, role := range []string{"production", "source"} {
+	for _, role := range []string{"production", boundarySourceRole} {
 		var claims proto.Message = control.ProductionCapability.GetProduction()
-		if role == "source" {
+		if role == boundarySourceRole {
 			claims = control.SourceAuthorization.Capability.GetSource()
 		}
 		fields := claims.ProtoReflect().Descriptor().Fields()
@@ -130,23 +135,23 @@ func recordBoundaryClaimCases(control *edgev1.EdgeRecordV1, emit func(string, bo
 			name := string(f.Name())
 			// Plan/range joins belong to the typed payload boundary; collection
 			// time has its own signed-window vectors below.
-			if role == "source" && (name == "execution_plan_sha256" || name == "target_range_sha256" || strings.HasPrefix(name, "collection_")) {
+			if role == boundarySourceRole && (name == "execution_plan_sha256" || name == "target_range_sha256" || strings.HasPrefix(name, "collection_")) {
 				continue
 			}
 			r := proto.Clone(control).(*edgev1.EdgeRecordV1)
 			var changed proto.Message = r.ProductionCapability.GetProduction()
-			if role == "source" {
+			if role == boundarySourceRole {
 				changed = r.SourceAuthorization.Capability.GetSource()
 			}
 			m := changed.ProtoReflect()
-			switch f.Kind() {
-			case protoreflect.BytesKind:
+			switch {
+			case f.Kind() == protoreflect.BytesKind:
 				b := append([]byte(nil), m.Get(f).Bytes()...)
 				b[0] ^= 0xff
 				m.Set(f, protoreflect.ValueOfBytes(b))
-			case protoreflect.StringKind:
+			case f.Kind() == protoreflect.StringKind:
 				m.Set(f, protoreflect.ValueOfString(m.Get(f).String()+"x"))
-			case protoreflect.EnumKind:
+			case f.Kind() == protoreflect.EnumKind:
 				other := protoreflect.EnumNumber(1)
 				if m.Get(f).Enum() == other {
 					other = 2
@@ -168,32 +173,33 @@ func recordBoundaryClaimCases(control *edgev1.EdgeRecordV1, emit func(string, bo
 func recordBoundaryTimeCases(control *edgev1.EdgeRecordV1, emit func(string, bool, *edgev1.EdgeRecordV1)) {
 	// Each signed time window is independently necessary. Equality at either
 	// endpoint is legal, and a one-nanosecond exclusion must refuse.
-	for _, window := range []string{"production", "source", "collection"} {
-		for _, side := range []string{"first", "last"} {
+	for _, window := range []string{"production", boundarySourceRole, "collection"} {
+		for _, side := range []string{boundaryFirstSide, "last"} {
 			for _, accepted := range []bool{true, false} {
 				r := proto.Clone(control).(*edgev1.EdgeRecordV1)
 				value := fixedNanos
 				if !accepted {
-					if side == "first" {
+					if side == boundaryFirstSide {
 						value++
 					} else {
 						value--
 					}
 				}
 				cap := r.ProductionCapability
-				if window == "source" {
+				if window == boundarySourceRole {
 					cap = r.SourceAuthorization.Capability
 				}
-				if window == "collection" {
+				switch {
+				case window == "collection":
 					claims := r.SourceAuthorization.Capability.GetSource()
-					if side == "first" {
+					if side == boundaryFirstSide {
 						claims.CollectionNotBeforeUnixNano = value
 					} else {
 						claims.CollectionExpiresUnixNano = value
 					}
-				} else if side == "first" {
+				case side == boundaryFirstSide:
 					cap.NotBeforeUnixNano = value
-				} else {
+				default:
 					cap.ExpiresAtUnixNano = value
 				}
 				r.SemanticEnvelopeSha256 = edgerecord.SemanticEnvelopeDigest(r)

@@ -34,7 +34,7 @@ func TestMtrCompletionDispositionSharedCorpus(t *testing.T) {
 		trace  []byte
 		accept bool
 	}
-	var vectors []vector
+	vectors := make([]vector, 0, 12)
 	for _, value := range []int32{1, 2, 3, 4, 5, 0, -1, 6, 999} {
 		v := vector{value: value, accept: value >= 1 && value <= 5}
 		if value == 1 {

@@ -64,10 +64,10 @@ func TestHelloCapabilitiesSharedCorpus(t *testing.T) {
 		filename := "hello_capabilities_" + name + ".bin"
 		goldenBytesLocal(t, filename, raw)
 		verdict := "equal"
-		if want == ErrCapabilityConflict {
+		if errors.Is(want, ErrCapabilityConflict) {
 			verdict = "conflict"
 		}
-		if want == ErrCapabilityDuplicate {
+		if errors.Is(want, ErrCapabilityDuplicate) {
 			verdict = "duplicate"
 		}
 		manifest += filename + " " + verdict + "\n"
@@ -93,7 +93,8 @@ func TestHelloCapabilitiesSharedCorpus(t *testing.T) {
 		name := string(field.Name())
 		changed := proto.Clone(control).(*edgev1.EdgeRecordCapabilitiesV1)
 		m := changed.ProtoReflect()
-		if field.IsList() {
+		switch {
+		case field.IsList():
 			list := m.Mutable(field).List()
 			list.Append(list.Get(0))
 			check("duplicate_"+name, changed, ErrCapabilityDuplicate)
@@ -101,9 +102,9 @@ func TestHelloCapabilitiesSharedCorpus(t *testing.T) {
 				t.Fatalf("identical duplicates accepted: %s", name)
 			}
 			list.Truncate(0)
-		} else if field.Kind() == protoreflect.BytesKind {
+		case field.Kind() == protoreflect.BytesKind:
 			m.Set(field, protoreflect.ValueOfBytes(bytes.Repeat([]byte{0x32}, 32)))
-		} else {
+		default:
 			m.Set(field, protoreflect.ValueOfUint64(m.Get(field).Uint()+1))
 		}
 		check("different_"+name, changed, ErrCapabilityConflict)
