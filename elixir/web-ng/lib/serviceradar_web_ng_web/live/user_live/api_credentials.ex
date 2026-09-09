@@ -552,11 +552,11 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
   end
 
   def handle_event("copy_client_id", %{"id" => id}, socket) do
-    {:noreply, push_event(socket, "copy_to_clipboard", %{text: id})}
+    {:noreply, push_event(socket, "clipboard", %{text: id})}
   end
 
   def handle_event("copy_value", %{"value" => value}, socket) do
-    {:noreply, push_event(socket, "copy_to_clipboard", %{text: value})}
+    {:noreply, push_event(socket, "clipboard", %{text: value})}
   end
 
   def handle_event("open_revoke_modal", %{"id" => id}, socket) do
