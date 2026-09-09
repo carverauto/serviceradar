@@ -192,19 +192,53 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.History do
 
   defp extract_actor(version) do
     # Not every version record carries `version_action_inputs` — e.g. an
-    # `ActionInvocation.Version` shape omits it — so read it defensively via
-    # `Map.get/2` (returns nil for a missing struct key) rather than struct
-    # access, which would raise `KeyError`.
+    # `ActionInvocation.Version` (`store_action_inputs? false`) omits the
+    # attribute entirely, so `ServiceRadar.Security.Changes.StampAuditActor`
+    # can only reach it there through the dedicated `:actor`/`:actor_id`
+    # attributes it also sets. Check those first, then fall back to
+    # `version_action_inputs` for resources that only carry it there.
+    # `Map.get/2` (rather than struct access, which would raise `KeyError`)
+    # handles both a missing struct key and a resource with neither.
+    case Map.get(version, :actor) do
+      %{"id" => "system:" <> _ = id} ->
+        system_actor_label(id)
+
+      %{"email" => email} when is_binary(email) ->
+        email
+
+      %{"id" => id} when is_binary(id) ->
+        id
+
+      _ ->
+        case Map.get(version, :actor_id) do
+          actor_id when is_binary(actor_id) -> actor_label(actor_id)
+          _ -> extract_actor_from_inputs(version)
+        end
+    end
+  end
+
+  defp extract_actor_from_inputs(version) do
     inputs = Map.get(version, :version_action_inputs) || %{}
 
     case inputs do
+      %{"actor" => %{"id" => "system:" <> _ = id}} -> system_actor_label(id)
       %{"actor" => %{"email" => email}} when is_binary(email) -> email
       %{"actor" => %{"id" => id}} when is_binary(id) -> id
-      %{"actor" => actor} when is_binary(actor) -> actor
-      %{"actor_id" => actor_id} when is_binary(actor_id) -> actor_id
+      %{"actor" => actor} when is_binary(actor) -> actor_label(actor)
+      %{"actor_id" => actor_id} when is_binary(actor_id) -> actor_label(actor_id)
       _ -> "—"
     end
   end
+
+  # `ServiceRadar.Actors.SystemActor.system/1` builds ids as "system:<component>"
+  # -- a stable, id-only signal (present even when only `actor_id` survived,
+  # e.g. via `ApiEvent`'s `metadata["actor_id"]` fallback) that a row was
+  # written by a background/plugin actor rather than a person, so it's worth
+  # calling out explicitly instead of showing the raw id.
+  defp actor_label("system:" <> _ = id), do: system_actor_label(id)
+  defp actor_label(id), do: id
+
+  defp system_actor_label("system:" <> component), do: "System · #{component}"
 
   @impl true
   def render(assigns) do
@@ -310,33 +344,33 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.History do
             </table>
           </div>
 
-          <%= if @selected_version do %>
-            <div class="space-y-3 rounded-lg border border-sr-line bg-sr-surface p-4">
-              <div class="flex items-center justify-between">
-                <h2 class="font-semibold">
-                  {resource_label(@selected_version.resource)} · {@selected_version.version.version_action_type} ·
-                  <.user_time
-                    id={"settings-audit-selected-version-#{@selected_version.version.id}-inserted-at"}
-                    value={@selected_version.version.version_inserted_at}
-                    timezone={@current_scope.user.timezone || "Etc/UTC"}
-                    style={:compact}
-                    fallback="—"
-                  />
-                </h2>
-                <button type="button" class="ui-button" phx-click="close-version">Close</button>
-              </div>
+          <.ui_modal
+            :if={@selected_version}
+            id="audit-history-version-modal"
+            size="lg"
+            on_cancel="close-version"
+          >
+            <:title>
+              {resource_label(@selected_version.resource)} · {@selected_version.version.version_action_type} ·
+              <.user_time
+                id={"settings-audit-selected-version-#{@selected_version.version.id}-inserted-at"}
+                value={@selected_version.version.version_inserted_at}
+                timezone={@current_scope.user.timezone || "Etc/UTC"}
+                style={:compact}
+                fallback="—"
+              />
+            </:title>
 
-              <div>
-                <h3 class="mb-1 text-sm text-sr-muted">Changes</h3>
-                <pre class="overflow-x-auto rounded bg-sr-subtle/70 p-3 text-xs">{truncate_json(@selected_version.version.changes)}</pre>
-              </div>
-
-              <div>
-                <h3 class="mb-1 text-sm text-sr-muted">Action inputs</h3>
-                <pre class="overflow-x-auto rounded bg-sr-subtle/70 p-3 text-xs">{truncate_json(@selected_version.version.version_action_inputs)}</pre>
-              </div>
+            <div>
+              <h3 class="mb-1 text-sm text-sr-muted">Changes</h3>
+              <pre class="overflow-x-auto rounded bg-sr-subtle/70 p-3 text-xs">{truncate_json(@selected_version.version.changes)}</pre>
             </div>
-          <% end %>
+
+            <div>
+              <h3 class="mb-1 text-sm text-sr-muted">Action inputs</h3>
+              <pre class="overflow-x-auto rounded bg-sr-subtle/70 p-3 text-xs">{truncate_json(@selected_version.version.version_action_inputs)}</pre>
+            </div>
+          </.ui_modal>
         <% else %>
           <p class="text-sm text-error">
             You need <code>settings.audit.view</code> to see version history.

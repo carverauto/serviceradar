@@ -52,7 +52,7 @@ defmodule ServiceRadar.Automation.Northbound.ActionDescriptor do
   paper_trail do
     primary_key_type :uuid_v7
     table_name "northbound_action_descriptor_versions"
-    mixin {ServiceRadar.Credentials.PaperTrailMixin, :mixin, []}
+    mixin {ServiceRadar.Credentials.PaperTrailMixin, :mixin_with_audit_actor, []}
     change_tracking_mode :changes_only
     store_action_name? true
     store_action_inputs? true

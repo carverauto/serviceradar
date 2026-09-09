@@ -56,7 +56,7 @@ defmodule ServiceRadar.Dashboards.AuthoredDashboard do
   paper_trail do
     primary_key_type :uuid
     table_name "authored_dashboard_versions"
-    mixin {ServiceRadar.Dashboards.PaperTrailMixin, :mixin, []}
+    mixin {ServiceRadar.Dashboards.PaperTrailMixin, :mixin_with_audit_actor, []}
     change_tracking_mode :changes_only
     store_action_name? true
     store_action_inputs? true
