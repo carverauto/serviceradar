@@ -22,7 +22,7 @@ proto_library(
     ],
     # Match the Makefile's `protoc -I=proto`: the descriptor source path (and the
     # generated file-level registration symbols) must be `edge/v1/*.proto`, not
-    # `proto/edge/v1/*.proto`. Safe because no proto imports these edge protos.
+    # `proto/edge/v1/*.proto`, including the import from monitoring.proto.
     strip_import_prefix = "/proto",
     visibility = ["//visibility:public"],
 )
@@ -66,6 +66,14 @@ go_test(
     name = "edgev1_golden_test",
     srcs = [
         "golden_test.go",
+        "mtr_bounds_test.go",
+        "projection_corpus_test.go",
+        "record_boundary_corpus_test.go",
+        "raw_bounds_corpus_test.go",
+        "lifecycle_corpus_test.go",
+        "lane_bounds_corpus_test.go",
+        "ack_bounds_corpus_test.go",
+        "freeze_coverage_test.go",
         # The SHARED corpus builder and its gate assertions. Without this Bazel stages the
         # fixtures as data but never EXECUTES the code that writes or checks them, so the
         # required shard would verify nothing about the corpus.
@@ -76,8 +84,10 @@ go_test(
     deps = [
         ":edgev1",
         "//go/pkg/edge/edgerecord",
+        "//go/pkg/edge/projection",
         "@org_golang_google_protobuf//encoding/protowire",
         "@org_golang_google_protobuf//proto",
+        "@org_golang_google_protobuf//reflect/protoreflect",
     ],
 )
 

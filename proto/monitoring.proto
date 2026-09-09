@@ -21,6 +21,7 @@ package monitoring;
 option go_package = "github.com/carverauto/serviceradar/proto";
 
 import "automation_launch_envelope.proto";
+import "edge/v1/record.proto";
 
 service AgentService {
   rpc GetStatus(StatusRequest) returns (StatusResponse) {}
@@ -321,6 +322,7 @@ message AgentHelloRequest {
   repeated string host_macs = 12;
   repeated HostInterface host_interfaces = 13; // The host's own interface inventory, classified
   repeated HostTlsFingerprint host_tls_fingerprints = 14; // Certificates the host's own services present
+  optional serviceradar.edge.v1.EdgeRecordCapabilitiesV1 edge_record_capabilities = 15;
 }
 
 // The kind of a local interface, as the agent's operating system describes it.
@@ -539,6 +541,7 @@ message ControlStreamHello {
   repeated ConfigSectionStatus config_section_statuses = 14;
   repeated HostInterface host_interfaces = 15; // The host's own interface inventory, classified
   repeated HostTlsFingerprint host_tls_fingerprints = 16; // Certificates the host's own services present
+  optional serviceradar.edge.v1.EdgeRecordCapabilitiesV1 edge_record_capabilities = 17;
 }
 
 // CommandRequest represents a command sent to the agent.

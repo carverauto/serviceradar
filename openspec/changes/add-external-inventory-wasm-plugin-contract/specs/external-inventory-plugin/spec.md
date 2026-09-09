@@ -10,6 +10,7 @@ The system SHALL support signed external Go/TinyGo Wasm packages that acquire pr
 - **AND** its inventory SHALL enter ServiceRadar as bounded typed records through the common durable producer sink
 - **AND** the command result SHALL contain only bounded status, counts, identifiers, and hashes
 - **AND** any source credential or derived access token SHALL remain inside trusted host adapters
+- **AND** the command result SHALL contain only bounded status, counts, identifiers, and hashes
 
 #### Scenario: Unapproved capability is requested
 - **GIVEN** the package was not approved for a requested host capability or endpoint

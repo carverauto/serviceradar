@@ -35,6 +35,7 @@ defmodule PatchEdgeEnumNegatives do
     Serviceradar.Edge.V1.EdgeCapabilityPurpose
     Serviceradar.Edge.V1.EdgeOriginKind
     Serviceradar.Edge.V1.EdgeRecordCompression
+    Serviceradar.Edge.V1.EdgeRecordEncoding
     Serviceradar.Edge.V1.EdgeRecordDispositionKind
     Serviceradar.Edge.V1.EdgeRecordPayloadFamily
     Serviceradar.Edge.V1.EdgeRecordRouteProfile

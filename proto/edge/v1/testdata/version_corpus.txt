@@ -11,7 +11,7 @@ tombstone_scope B version_tombstone_scope_ok.bin version_tombstone_scope_alt.bin
 manifest_page_scope B version_manifest_page_scope_ok.bin version_manifest_page_scope_alt.bin version_recovery_scope_issuer.pub both
 resolved_scope B version_resolved_scope_ok.bin version_resolved_scope_alt.bin version_recovery_scope_issuer.pub both
 compiled_assignment A version_compiled_assignment_ok.bin version_compiled_assignment_alt.bin - both
-mtr_completion A version_mtr_completion_ok.bin version_mtr_completion_alt.bin - go_only
+mtr_completion A version_mtr_completion_ok.bin version_mtr_completion_alt.bin - both
 nats_msgid_edge B version_nats_msgid_edge_ok.txt version_nats_msgid_edge_alt.txt - both
 nats_msgid_service B version_nats_msgid_service_ok.txt version_nats_msgid_service_alt.txt - both
 delivery_id_edge B version_delivery_id_edge_ok.txt version_delivery_id_edge_alt.txt - both

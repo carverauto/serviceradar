@@ -515,6 +515,16 @@ INTEGRATION_RUNTIME_DATA = _TEST_RUNTIME_DATA + glob(
     # relative path //rust/integration-db reads -- so provision, the suite and teardown
     # cannot disagree about which database they own.
     "//build:run_id_file",
+    # Module level in test/serviceradar/proto/edge_v1_golden_test.exs, which loads the SHARED
+    # cross-language fixtures -- the sweep-join corpus among them -- through
+    # Path.expand("../../../../../proto/edge/v1/testdata", __DIR__). Without this the Bazel lane
+    # runs a test whose fixtures are not staged, so the shared corpus would be proven only under
+    # `mix test`.
+    "//proto/edge/v1:edge_testdata",
+    # Module level in test/serviceradar/edge/sweep_bench_fixture_test.exs. The glob above covers
+    # config/lib/priv/test but NOT bench/, and this one file is read by a test outside bench/ --
+    # the bench_driver target's own `bench/**` glob does not stage it for this tier.
+    "bench/sweep_ingress_fixtures.exs",
     # Guarded suites resolve their endpoint from the one CI fixture identity, exactly as the Rust
     # provisioner and template migrator do. Focused workstation Mix tests use a separately created
     # srql-fixtures scratch database; a guarded Bazel lane cannot select localhost.
@@ -1401,4 +1411,12 @@ elixir_quality(
 filegroup(
     name = "credo_checks",
     srcs = glob(["credo/**/*.ex"]),
+)
+
+filegroup(
+    name = "accounting_guard_sources",
+    srcs = glob(
+        ["lib/**/*.ex"],
+        exclude = ["lib/serviceradar/proto/**"],
+    ),
 )

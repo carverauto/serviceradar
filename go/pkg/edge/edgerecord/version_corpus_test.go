@@ -848,14 +848,8 @@ func compiledAssignmentVersionVector() versionVector {
 func mtrCompletionVersionVector() versionVector {
 	return versionVector{
 		object: "mtr_completion", class: "A",
-		// NO ELIXIR CONSUMER EXISTS. `mtr_completion_digest_version` appears in the Elixir tree
-		// only in the generated struct and in golden assertions that read it; nothing refuses an
-		// unsupported value. Writing a version check into the peer suite would be inventing a
-		// validator for the corpus, so the asymmetry is RECORDED instead -- and it is why parent
-		// 1.6, whose rule is that BOTH runtimes prove every member, cannot close on this slice.
-		goOnly: true,
-		ok:     "version_mtr_completion_ok.bin",
-		alt:    "version_mtr_completion_alt.bin",
+		ok:  "version_mtr_completion_ok.bin",
+		alt: "version_mtr_completion_alt.bin",
 		build: func(t *testing.T) ([]byte, []byte, []byte) {
 			t.Helper()
 			planRoot := d32domain(0x90)
@@ -1219,18 +1213,14 @@ var expectedVersionInventory = map[string]string{
 }
 
 // expectedGoOnlyObjects is the CLOSED set of inventory members no Elixir consumer enforces.
-// ONE of nineteen today, which is why parent task 1.6 stays open: its rule is that BOTH
-// runtimes prove every member, and eighteen do. The three recovery scope transcripts left this
-// set when 1.6-d gave this peer a signed recovery-control boundary to run them through.
+// All nineteen members now have both peers. Keep the closed empty exemption set.
 //
 // Membership here is a CONTRACT statement, not bookkeeping. An object may only appear if the
 // peer runtime has no production verifier that trusts the value -- never because writing one
 // would be inconvenient, and never as a standing exemption.
 //
 //nolint:gochecknoglobals // frozen inventory, not state
-var expectedGoOnlyObjects = map[string]bool{
-	"mtr_completion": true, // task 1.6-c
-}
+var expectedGoOnlyObjects = map[string]bool{}
 
 type manifestRow struct {
 	class, ok, alt, peer, runtimes string
