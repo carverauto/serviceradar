@@ -204,7 +204,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.AcquisitionTest do
 
     http_head = fn url, opts ->
       body = if String.contains?(url, "/osv/"), do: "osv-body", else: "vex-body"
-      send(test_pid, {:revalidated, url, opts[:headers]})
+      send(test_pid, {:revalidated, url, opts[:headers] || []})
       {:ok, %{status: 200, headers: %{"etag" => ["\"#{body}\""], "last-modified" => [modified]}}}
     end
 
@@ -240,7 +240,11 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.AcquisitionTest do
 
     assert File.read!(acquired.osv_path) == "osv-body"
     assert File.read!(acquired.vex_path) == "vex-body"
-    assert_received {:revalidated, _, [{"if-match", _}, {"if-unmodified-since", ^modified}]}
+
+    # The revalidation HEAD is unconditional: no If-Match/If-Unmodified-Since
+    # preconditions, so a publication that rolls mid-download surfaces as
+    # {:validator_changed, _} instead of {:revalidation_status, 412}.
+    assert_received {:revalidated, _, []}
 
     assert {:error, {:download_failed, {:archive_limit_exceeded, :compressed_bytes}}} =
              Acquisition.acquire_ubuntu_pair(
@@ -255,7 +259,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.AcquisitionTest do
              )
 
     refute File.exists?(Path.join([root, "ubuntu-osv-vex", "pair-file-too-large"]))
-    assert_received {:revalidated, _, [{"if-match", _}, {"if-unmodified-since", ^modified}]}
+    assert_received {:revalidated, _, []}
 
     assert {:error, {:archive_limit_exceeded, :combined_compressed_bytes}} =
              Acquisition.acquire_ubuntu_pair(
@@ -270,6 +274,97 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.AcquisitionTest do
              )
 
     refute File.exists?(Path.join([root, "ubuntu-osv-vex", "pair-too-large"]))
+  end
+
+  test "re-acquires the pair when the publication rolls mid-download", %{root: _root} do
+    modified = "Wed, 02 Sep 2026 18:05:00 GMT"
+    test_pid = self()
+
+    # Downloads run in concurrent tasks, so the round trip count lives in an
+    # Agent: the first GET round pins v1, the origin publishes v2 before the
+    # HEAD, and the re-acquired round pins v2.
+    {:ok, gets} = Agent.start_link(fn -> 0 end)
+
+    http_get = fn url, opts ->
+      n = Agent.get_and_update(gets, fn n -> {n, n + 1} end)
+      body = if n < 2, do: "v1", else: "v2"
+      Enum.into([body], opts[:into])
+
+      {:ok,
+       %{
+         status: 200,
+         resolved_url: url,
+         headers: %{"etag" => ["\"#{body}\""], "last-modified" => [modified]}
+       }}
+    end
+
+    http_head = fn url, opts ->
+      send(test_pid, {:revalidated, url, opts[:headers] || []})
+
+      {:ok, %{status: 200, headers: %{"etag" => ["\"v2\""], "last-modified" => [modified]}}}
+    end
+
+    assert {:ok, acquired} =
+             Acquisition.acquire_ubuntu_pair(
+               "ubuntu-osv-vex",
+               "https://example.invalid/osv/feed.tar.xz",
+               "https://example.invalid/vex/feed.tar.xz",
+               "pair-roll",
+               http_get: http_get,
+               http_head: http_head,
+               now: ~U[2026-09-02 18:05:10Z]
+             )
+
+    # Settled on v2: both artifacts carry the revalidated publication.
+    assert acquired.artifacts.osv.etag == "\"v2\""
+    assert acquired.artifacts.vex.etag == "\"v2\""
+
+    # Two full download rounds (osv+vex each), and every HEAD unconditional.
+    assert Agent.get(gets, & &1) == 4
+    assert_received {:revalidated, _, []}
+    assert_received {:revalidated, _, []}
+    assert_received {:revalidated, _, []}
+    assert_received {:revalidated, _, []}
+  end
+
+  test "fails bounded when the publication keeps rolling", %{root: root} do
+    modified = "Wed, 02 Sep 2026 18:05:00 GMT"
+
+    # Every GET pins a fresh etag the HEAD never matches: the publication
+    # rolls faster than one download round, so acquisition must give up
+    # instead of re-acquiring forever.
+    {:ok, gets} = Agent.start_link(fn -> 0 end)
+
+    http_get = fn url, opts ->
+      n = Agent.get_and_update(gets, fn n -> {n, n + 1} end)
+      Enum.into(["v#{n}"], opts[:into])
+
+      {:ok,
+       %{
+         status: 200,
+         resolved_url: url,
+         headers: %{"etag" => ["\"v#{n}\""], "last-modified" => [modified]}
+       }}
+    end
+
+    http_head = fn _url, _opts ->
+      {:ok, %{status: 200, headers: %{"etag" => ["\"head\""], "last-modified" => [modified]}}}
+    end
+
+    assert {:error, {:validator_changed, :osv}} =
+             Acquisition.acquire_ubuntu_pair(
+               "ubuntu-osv-vex",
+               "https://example.invalid/osv/feed.tar.xz",
+               "https://example.invalid/vex/feed.tar.xz",
+               "pair-roll-forever",
+               http_get: http_get,
+               http_head: http_head,
+               now: ~U[2026-09-02 18:05:10Z]
+             )
+
+    # Bounded: 3 rounds x 2 files, then the run dir is cleaned up.
+    assert Agent.get(gets, & &1) == 6
+    refute File.exists?(Path.join([root, "ubuntu-osv-vex", "pair-roll-forever"]))
   end
 
   describe "download failures" do
