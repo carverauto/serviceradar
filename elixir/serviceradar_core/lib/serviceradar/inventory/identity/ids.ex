@@ -210,7 +210,14 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
 
     case integration_type do
       "armis" ->
-        nil
+        # Legacy bare Armis IDs are unscoped across provider instances and
+        # must never identify a device (the over-merge class). Values the
+        # driver already scoped ("armis:<scope>:device:<id>") carry their
+        # own provenance and flow through the generic integration_id path
+        # like every other provider.
+        if scoped_armis_integration_id?(raw) do
+          raw
+        end
 
       "netbox" ->
         raw
@@ -221,6 +228,11 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
   end
 
   defp get_integration_id(_metadata), do: nil
+
+  defp scoped_armis_integration_id?(value) when is_binary(value),
+    do: String.starts_with?(value, "armis:")
+
+  defp scoped_armis_integration_id?(_), do: false
 
   defp source_scoped_integration_id(_metadata, nil), do: nil
 

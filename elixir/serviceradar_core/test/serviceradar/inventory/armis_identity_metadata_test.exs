@@ -106,6 +106,62 @@ defmodule ServiceRadar.Inventory.ArmisIdentityMetadataTest do
            end)
   end
 
+  test "source-scoped Armis integration IDs resolve through the generic path" do
+    update =
+      Normalize.normalize_update(%{
+        "hostname" => "armis-scoped",
+        "source" => "armis",
+        "metadata" => %{
+          "integration_type" => "armis",
+          "armis_device_id" => "18497",
+          "integration_id" => "armis:source-a:device:18497"
+        },
+        "sync_meta" => %{"sync_service_id" => "source-a"}
+      })
+
+    ids = Ids.extract_strong_identifiers(update)
+
+    assert ids.armis_id == "18497"
+    assert ids.integration_id == "armis:source-a:device:18497"
+    assert ids.partition == "default:armis:source-a"
+    assert Ids.highest_priority_identifier(ids) == {:armis_device_id, "18497"}
+
+    assert {:armis_device_id, "18497", "default:armis:source-a"} in Lookups.extract_all_identifiers(
+             [
+               update
+             ]
+           )
+
+    assert {:integration_id, "armis:source-a:device:18497", "default:armis:source-a"} in Lookups.extract_all_identifiers(
+             [
+               update
+             ]
+           )
+
+    records = IdentifierRecords.build_identifier_records([{update, "sr:test-device"}])
+
+    assert Enum.any?(records, fn record ->
+             record.identifier_type == :armis_device_id and
+               record.identifier_value == "18497" and
+               record.partition == "default:armis:source-a"
+           end)
+
+    assert Enum.any?(records, fn record ->
+             record.identifier_type == :integration_id and
+               record.identifier_value == "armis:source-a:device:18497" and
+               record.partition == "default:armis:source-a"
+           end)
+
+    # Policy check, mirroring how Lookups/IdentifierRecords derive `ids`:
+    # a scoped value carries its own provenance, so the generic type is
+    # offered alongside the typed Armis identifier.
+    ids = SourcePolicy.effective_identifiers(update)
+    id_types = SourcePolicy.identifier_types(update, ids)
+
+    assert :armis_device_id in id_types
+    assert :integration_id in id_types
+  end
+
   test "Armis typed identifiers are partition-scoped by sync source" do
     update =
       Normalize.normalize_update(%{

@@ -145,7 +145,7 @@ func TestBuildUpdateMapsSdkAttributesToInventoryFields(t *testing.T) {
 		"integration_type": "armis",
 		"armis_device_id":  "18497",
 		"source_device_id": "42",
-		"integration_id":   "18497",
+		"integration_id":   "armis:default:device:18497",
 		"type":             "PLC",
 		"device_type":      "PLC",
 		"category":         "OT",
@@ -323,5 +323,45 @@ func TestBuildUpdateFallsBackToMACListWhenMACFieldIsGarbage(t *testing.T) {
 func TestBuildUpdateSkipsDevicesWithoutIP(t *testing.T) {
 	if update := buildNormalizedUpdate(device{DeviceID: 42}); update != nil {
 		t.Fatalf("update = %#v, want nil for device without IP", update)
+	}
+}
+
+func TestBuildUpdateScopesIntegrationIDBySyncServiceID(t *testing.T) {
+	run := syncsources.RunContext{
+		AgentID:   "agent-1",
+		GatewayID: "agent-1",
+		Partition: "default",
+		SourceKey: "site-armis",
+		Source:    models.SourceConfig{SyncServiceID: " Svc-1 "},
+	}
+
+	update := buildUpdate(run, device{ID: 18497, IPAddress: "10.0.0.2", Name: "PLC-01"}, managedQueryLabel)
+	metadata, ok := update["metadata"].(map[string]string)
+	if !ok {
+		t.Fatalf("metadata has type %T, want map[string]string", update["metadata"])
+	}
+	if got := metadata["integration_id"]; got != "armis:svc-1:device:18497" {
+		t.Fatalf("metadata[integration_id] = %q, want source-scoped value", got)
+	}
+	if got := metadata["armis_device_id"]; got != "18497" {
+		t.Fatalf("metadata[armis_device_id] = %q, want native provider key preserved", got)
+	}
+}
+
+func TestBuildUpdateFallsBackToSourceKeyScope(t *testing.T) {
+	run := syncsources.RunContext{
+		AgentID:   "agent-1",
+		GatewayID: "agent-1",
+		Partition: "default",
+		SourceKey: "Site Armis",
+	}
+
+	update := buildUpdate(run, device{ID: 18497, IPAddress: "10.0.0.2", Name: "PLC-01"}, managedQueryLabel)
+	metadata, ok := update["metadata"].(map[string]string)
+	if !ok {
+		t.Fatalf("metadata has type %T, want map[string]string", update["metadata"])
+	}
+	if got := metadata["integration_id"]; got != "armis:site-armis:device:18497" {
+		t.Fatalf("metadata[integration_id] = %q, want source-key-scoped value", got)
 	}
 }

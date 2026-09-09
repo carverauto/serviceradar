@@ -164,12 +164,22 @@ defmodule ServiceRadar.Integrations.ArmisDireE2ETest do
            ) ==
              expected_devices
 
+    # Driver-scoped Armis identity flows through the generic integration_id
+    # contract: one scoped row per device, never a bare numeric value.
     assert scalar!("""
            SELECT COUNT(*)
            FROM platform.device_identifiers
            WHERE identifier_type = 'integration_id'
              AND COALESCE(metadata->>'integration_type', '') = 'armis'
-           """) == 0
+           """) == expected_devices
+
+    assert scalar!("""
+           SELECT COUNT(*)
+           FROM platform.device_identifiers
+           WHERE identifier_type = 'integration_id'
+             AND COALESCE(metadata->>'integration_type', '') = 'armis'
+             AND identifier_value LIKE 'armis:%'
+           """) == expected_devices
 
     assert {:ok, candidates} = ArmisNorthboundRunner.load_candidates(source)
     assert length(candidates) == expected_devices

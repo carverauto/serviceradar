@@ -702,7 +702,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
 
   # Anchor identifier claims on a record or holder map, extracted with the
   # same vocabulary registrations are written in (`Ids`). Values the
-  # extractor rejects (armis `integration_id`, placeholder serials,
+  # extractor rejects (bare armis `integration_id`, placeholder serials,
   # unparseable MACs) never become claims, exactly as they never become rows.
   defp record_identity_pairs(%{identity_claims: claims}, _partition), do: claims
 
