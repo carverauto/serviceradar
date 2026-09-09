@@ -586,6 +586,13 @@ The ServiceRadar UI classifies each effective row into exactly one operator stat
 Every non-healthy row includes a stable reason code and evidence age. Offline or
 stale evidence is never mislabeled as a current runtime failure.
 
+In **Add-on Fleet > Automatic rollouts**, use **Show finished** to reveal history
+when active rollouts are present. When none are active, history appears automatically.
+Use **Previous** and **Next** beneath the table to browse finished rollouts; active
+rollouts remain visible on every page. **Review rollout** opens the page containing
+the linked rollout and expands its details. Pagination covers the recent rollouts
+loaded by the view, not the complete historical archive.
+
 You can also inspect current add-on status through SRQL:
 
 ```text
