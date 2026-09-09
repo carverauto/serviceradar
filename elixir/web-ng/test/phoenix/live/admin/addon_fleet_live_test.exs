@@ -362,6 +362,89 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
     refute row_html =~ "profile ·"
   end
 
+  test "finished rollouts paginate so a long tail stays reachable", %{
+    conn: conn,
+    actor: actor
+  } do
+    unique = System.unique_integer([:positive])
+    addon_id = "fleet-rollout-pages-#{unique}"
+    gateway = gateway_fixture(%{id: "fleet-pages-gw-#{unique}", component_id: "fleet-pages-#{unique}"})
+    agent = agent_fixture(gateway, %{uid: "fleet-pages-agent-#{unique}", name: "Pages Agent #{unique}"})
+
+    previous = create_addon_package!(actor, addon_id, "1.0.0")
+    candidate = create_addon_package!(actor, addon_id, "1.1.0")
+    assignment = create_assignment!(actor, agent.uid, previous.id, enabled: true)
+    active_assignment = create_assignment!(actor, agent.uid, candidate.id, enabled: true)
+
+    base = DateTime.utc_now()
+
+    finished_ids =
+      for i <- 1..12 do
+        attrs = %{
+          addon_id: addon_id,
+          source_type: :assignment,
+          source_id: assignment.id,
+          previous_package_id: previous.id,
+          candidate_package_id: candidate.id,
+          trigger: :track_latest,
+          state: :completed,
+          policy: %{},
+          target_snapshot: %{"eligible" => 1},
+          started_at: DateTime.add(base, i, :second)
+        }
+
+        attrs
+        |> then(&Ash.Changeset.for_create(AddonRollout, :create, &1, actor: actor))
+        |> Ash.create!()
+        |> Map.fetch!(:id)
+      end
+
+    oldest_id = List.first(finished_ids)
+
+    _active =
+      %{
+        addon_id: addon_id,
+        source_type: :assignment,
+        source_id: active_assignment.id,
+        previous_package_id: previous.id,
+        candidate_package_id: candidate.id,
+        trigger: :track_latest,
+        state: :running,
+        policy: %{},
+        target_snapshot: %{"eligible" => 1},
+        started_at: DateTime.add(base, 60, :second)
+      }
+      |> then(&Ash.Changeset.for_create(AddonRollout, :create, &1, actor: actor))
+      |> Ash.create!()
+
+    {:ok, lv, html} = live(conn, ~p"/settings/agents/addons/fleet")
+
+    # One active rollout visible; finished history stays behind the toggle.
+    assert count_occurrences(html, ~s(data-role="addon-rollout-row")) == 1
+    assert html =~ "Show finished (12)"
+
+    html = render_click(lv, "toggle_finished_rollouts")
+
+    # First page: the active rollout plus the 10 newest finished ones.
+    assert count_occurrences(html, ~s(data-role="addon-rollout-row")) == 11
+    assert html =~ "Showing 1-10 of 12"
+    assert html =~ "Page 1 of 2"
+    refute html =~ oldest_id
+
+    html = render_click(lv, "finished_rollout_page", %{"page" => "2"})
+
+    # Second page: the active rollout plus the 2 remaining finished ones,
+    # including the oldest, which was unreachable before pagination.
+    assert count_occurrences(html, ~s(data-role="addon-rollout-row")) == 3
+    assert html =~ "Showing 11-12 of 12"
+    assert html =~ "Page 2 of 2"
+    assert html =~ oldest_id
+
+    html = render_click(lv, "finished_rollout_page", %{"page" => "1"})
+    assert html =~ "Showing 1-10 of 12"
+    refute html =~ oldest_id
+  end
+
   # The fleet matrix table markup (everything before the catalog inventory
   # panel), so assertions can scope to fleet rows only.
   defp fleet_table_html(html) do
