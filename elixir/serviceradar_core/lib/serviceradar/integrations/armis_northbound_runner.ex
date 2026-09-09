@@ -1019,6 +1019,17 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
           COALESCE(?->>'integration_type', '') <> 'armis'
           OR NULLIF(?->>'integration_id', '') IS NULL
           OR ?->>'integration_id' = ?
+          OR ?->>'integration_id' = (
+            'armis:' || NULLIF(
+              array_to_string(
+                array_remove(
+                  regexp_split_to_array(lower(COALESCE(NULLIF(?->>'sync_service_id', ''), NULLIF(?->>'sync_service_id', ''))), '[[:space:]:]+'),
+                  ''
+                ),
+                '-'
+              ), ''
+            ) || ':device:' || ?
+          )
         )
         AND NOT EXISTS (
           SELECT 1
@@ -1050,6 +1061,10 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
         d.metadata,
         d.metadata,
         d.metadata,
+        di.identifier_value,
+        d.metadata,
+        d.metadata,
+        di.metadata,
         di.identifier_value,
         d.uid,
         di.identifier_value,

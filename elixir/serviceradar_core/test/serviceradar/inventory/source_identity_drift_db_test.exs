@@ -113,6 +113,31 @@ defmodule ServiceRadar.Inventory.SourceIdentityDriftDbTest do
     assert is_map(loaded)
   end
 
+  test "audit and repair preserve scoped integration identities", %{actor: actor} do
+    source_id = unique("drift-src")
+    typed_id = unique("armis-typed")
+    scoped_id = "armis:#{source_id}:device:#{typed_id}"
+    device = create_disagreeing_device!(actor, source_id, typed_id, typed_id)
+    metadata = Map.put(device.metadata, "integration_id", scoped_id)
+    device = update_metadata!(actor, device, metadata)
+
+    SourceIdentityDrift.audit_and_persist()
+    assert conflict_status(device.uid, "metadata_identifier_disagreement") == nil
+    assert %{repairs: []} = SourceIdentityDrift.repair_armis(source_id: source_id)
+
+    update_metadata!(actor, device, Map.put(metadata, "armis_device_id", unique("stale")))
+
+    assert %{applied_repairs: [repair]} =
+             SourceIdentityDrift.repair_armis(apply: true, source_id: source_id)
+
+    assert repair.device_uid == device.uid
+    repaired = device_metadata(device.uid)
+    assert repaired["armis_device_id"] == typed_id
+    assert repaired["integration_id"] == scoped_id
+    assert repaired["source_identity_repair"]["repaired"]["integration_id"] == scoped_id
+    assert %{repairs: []} = SourceIdentityDrift.repair_armis(source_id: source_id)
+  end
+
   test "reconcile leaves sync-written active_ip_conflict rows open" do
     source_id = unique("drift-src")
     device_uid = "sr:" <> Ecto.UUID.generate()
