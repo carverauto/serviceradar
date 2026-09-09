@@ -28,6 +28,8 @@ lookup errors.
 - Quality: maintains narrow Dialyzer exclusions and isolates
   generated PLTs from Bazel source inputs. Documents conditional
   CNPG 1.30 upgrade compatibility without changing the operator.
+- Documentation: refreshes Cowlib/ESAML advisory-waiver rationale
+  and clarifies OpenSpec requirement validation guidance.
 - Schema: no new migrations; `migrations.expectedVersion`
   remains `20260908180200`.
 
