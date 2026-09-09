@@ -17,6 +17,9 @@ updates may schedule the server's normal catalog synchronization. Its observed
 synchronization completed. The broader declarative provisioning API remains
 tracked in `add-declarative-ansible-provisioning`.
 
+For staged bootstrap, environment isolation, recovery ownership, and secure secret
+delivery, follow [Declarative environments](./declarative-environments.md).
+
 ## Authentication and trust
 
 Set `SERVICERADAR_ENDPOINT` to the ServiceRadar HTTPS origin and

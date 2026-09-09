@@ -12,6 +12,9 @@ only**. The [Terraform provider](./terraform-provider.md) currently covers four
 families: credential secrets, credential rules, controllers, and repositories.
 It does not approve authority or launch operations.
 
+For installation versus post-install configuration, ordered verification, and
+recovery boundaries, see [Declarative environments](./declarative-environments.md).
+
 ## Authentication and permissions
 
 Use a user-bound API key in `X-API-Key`, or an access/API bearer token in

@@ -38,6 +38,12 @@ be a client of that API, with no database access or privileged RPC dependency.
 
 ## Delivery Order
 
+The initial delivery is bounded to credentials, credential rules, controller
+registrations, and playbook repository registrations. Upstream AWX provisioning
+and adoption in the longer-term order below are deferred from that delivery.
+See the [customer guide](../../../docs/docs/declarative-environments.md) for the
+current staged workflow. Full bootstrap and live/canary acceptance remain pending.
+
 1. Complete and test the API/authentication contract for existing ServiceRadar
    resources and current review/launch services.
 2. Add bounded upstream AWX provisioning and resumable reconciliation.

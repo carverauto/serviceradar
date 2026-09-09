@@ -8,6 +8,30 @@ External secret servers also change failure and trust behavior:
 - checks should fail closed when a secret cannot be resolved
 - plugins should not receive plaintext even when the resolved credential is needed for an HTTP/database request
 
+## Implementation status and remaining integration
+
+The original adapter-free scope below has been superseded by built-in stub,
+OpenBao KV, and Vault-alias support. The external-reference model exists; Delinea
+is only an enum placeholder and resolves to `adapter_unavailable` without an
+adapter. Consumer migration, lease/renewal, audit, and UI/API coverage remain
+partial, including legacy scheduled paths that materialize runtime parameters.
+The current four-resource Terraform/public API surface creates internal encrypted
+credentials, not external provider/reference records.
+
+OpenBao bootstrap currently uses options/environment tokens or Kubernetes login;
+canonical `internal_credential` lookup is not implemented by that adapter. New
+provider bootstrap material must follow canonical encrypted credential custody,
+not extend deployment-secret storage for integration credentials.
+
+Delinea's reference-only adapter, declarative provider/reference management, and
+secure credential handoff remain follow-up work. Separate runner delivery of an
+existing ServiceRadar API identity from runtime broker resolution. The latter
+requires scoped grants, field/version mapping, least-privilege authentication,
+audited resolution/rotation, and explicit cache, lease, revocation, and outage
+policy. Acceptance must test compatibility, rotation/revocation, provider outage,
+failover reachability, and leakage in plans/state/logs/plugin configuration.
+See the [customer workflow](../../../docs/docs/declarative-environments.md).
+
 ## Goals
 - Treat "internal encrypted secret" and "external secret reference" as interchangeable credential sources for consumers.
 - Keep plugins untrusted with respect to credential custody.
@@ -17,7 +41,7 @@ External secret servers also change failure and trust behavior:
 - Keep mapper/discovery, plugins, remote access, SNMP, and service monitoring on one credential resolution interface.
 
 ## Non-Goals
-- No specific external secret server adapter in the first implementation.
+- No additional concrete adapter in this documentation follow-up; OpenBao/Vault support already exists.
 - No generic "run arbitrary provider script" escape hatch.
 - No plaintext external secret values in CNPG except optional encrypted local cache entries with strict TTL, when policy allows.
 - No browser-side secret resolution.
@@ -25,8 +49,8 @@ External secret servers also change failure and trust behavior:
 ## Core Model
 Add these concepts:
 
-- `SecretProvider`: configured external secret server connection metadata. Examples: `delinea`, `cyberark`, `vault`, `aws_secrets_manager`, `azure_key_vault`, `gcp_secret_manager`, `custom_future`. Initial implementation may only support provider records and test stubs.
-- `SecretProviderAuth`: how ServiceRadar authenticates to the provider. The provider bootstrap credential is itself internally encrypted or supplied by deployment runtime secret, never by plugin config.
+- `SecretProvider`: configured external secret server connection metadata. Examples: `delinea`, `cyberark`, `vault`, `aws_secrets_manager`, `azure_key_vault`, `gcp_secret_manager`, `custom_future`. The implemented subset is described in the status note above.
+- `SecretProviderAuth`: how ServiceRadar authenticates to the provider. New provider bootstrap credentials must use canonical internally encrypted custody, never plugin config. Existing OpenBao deployment-sourced authentication is a legacy limitation, as noted above.
 - `CredentialSource`: either `internal_encrypted` or `external_reference`.
 - `ExternalSecretReference`: provider ID, object/path identifier, optional field mapping, version selector, expected credential kind, redaction hints, cache/lease policy, and test status.
 - `CredentialBrokerGrant`: target-bound, purpose-bound, consumer-bound, time-bound permission for an agent or control-plane worker to resolve a credential and use it in a specific adapter.

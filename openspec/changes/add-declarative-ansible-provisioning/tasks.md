@@ -40,7 +40,10 @@ The first provider delivery manages ServiceRadar credentials, credential rules,
 controllers, and playbook repositories. Real Terraform CLI acceptance covers
 their import, no-op apply, drift repair, rotation, guarded deletion, and secret
 absence from plan/state artifacts. Upstream AWX object provisioning and adoption
-remain pending, so the complete bootstrap tasks above are not yet checked.
+are deferred from the initial delivery scope, so the complete bootstrap tasks
+above are not yet checked. The [customer guide](../../../docs/docs/declarative-environments.md)
+documents staged installation/configuration, state ownership, recovery boundaries,
+and proposed secret-server integration; it does not establish live acceptance.
 
 Membership review and non-callback binding prepare/create/revoke APIs are
 implemented. Canonical operation prepare/launch/status are exposed; cancellation
