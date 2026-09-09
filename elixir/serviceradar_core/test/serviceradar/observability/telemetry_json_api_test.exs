@@ -88,6 +88,7 @@ defmodule ServiceRadar.Observability.TelemetryJsonApiTest do
     for resource <- resources do
       action = Ash.Resource.Info.primary_action(resource, :read)
       assert action.name == :read, inspect(resource)
+
       if action.pagination do
         refute action.pagination.required?, inspect(resource)
         refute action.pagination.paginate_by_default?, inspect(resource)
