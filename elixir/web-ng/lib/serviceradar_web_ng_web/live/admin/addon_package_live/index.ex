@@ -24,7 +24,6 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
   alias ServiceRadarWebNG.Plugins.AddonPackages
   alias ServiceRadarWebNG.Plugins.AddonProfiles
   alias ServiceRadarWebNG.Plugins.NativeAddonImporter
-  alias ServiceRadarWebNG.Plugins.NativeAddonSync
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Settings.Shell
 
@@ -667,7 +666,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
             {import_state.replaceable}
             {if import_state.replaceable == 1, do: "add-on is", else: "add-ons are"} already imported at this version from an earlier release, with a
             different build. Import All replaces them with this release's build
-            (replacement builds follow your automatic approval settings and may require review);
+            (a replaced package goes back to staged and must be approved again);
             use Replace on a row to do it individually.
           </div>
 
@@ -1553,8 +1552,8 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     """
   end
 
-  attr(:prefix, :string, required: true)
-  attr(:form, :map, required: true)
+  attr :prefix, :string, required: true
+  attr :form, :map, required: true
 
   defp update_policy_fields(assigns) do
     ~H"""
@@ -1616,11 +1615,11 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     """
   end
 
-  attr(:prefix, :string, required: true)
-  attr(:form, :map, required: true)
-  attr(:field, :string, required: true)
-  attr(:label, :string, required: true)
-  attr(:min, :string, required: true)
+  attr :prefix, :string, required: true
+  attr :form, :map, required: true
+  attr :field, :string, required: true
+  attr :label, :string, required: true
+  attr :min, :string, required: true
 
   defp rollout_number(assigns) do
     ~H"""
@@ -2023,12 +2022,9 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     }
   end
 
-  defp replaceable_catalog_row?(%{version_package: %{} = version_package} = row) do
-    row.import_ready and is_nil(row.package) and
-      NativeAddonSync.release_order(version_package.source_release_tag, row.release_tag) in [:gt, :eq]
+  defp replaceable_catalog_row?(row) do
+    row.import_ready and is_nil(row.package) and not is_nil(row.version_package)
   end
-
-  defp replaceable_catalog_row?(_row), do: false
 
   defp import_all_label(true, _state), do: "Importing…"
 
@@ -3024,15 +3020,27 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
 
   # Same-version rebuilds of coherent first-party rows no longer reach this
   # error: Import All takes them through the replace path automatically
-  # (GitHub #335). What remains is a row owned by another source, a row that
-  # already comes from a newer (or unorderable) release and must not be rolled
-  # back, a row whose release changed while the import ran, or a row whose
-  # partial provenance genuinely mismatches — only the last one is resolved by
-  # an explicit Replace on that catalog row.
+  # (GitHub #335). What remains is a row owned by another source, or a row
+  # whose partial provenance genuinely mismatches — both need an explicit
+  # Replace on that catalog row.
   defp format_error({:native_addon_version_source_conflict, details}) when is_map(details) do
-    details
-    |> source_conflict_message(Map.get(details, :addon_id) || "addon", Map.get(details, :version) || "unknown")
-    |> truncate_error()
+    addon = Map.get(details, :addon_id) || "addon"
+    version = Map.get(details, :version) || "unknown"
+
+    if Map.get(details, :reason) == :source_type_owned do
+      existing = Map.get(details, :existing_source_type) || "another source"
+
+      truncate_error(
+        "#{addon} #{version} is managed from #{existing} and cannot be overwritten " <>
+          "by a first-party import."
+      )
+    else
+      truncate_error(
+        "#{addon} #{version} is already imported from an earlier release that " <>
+          "rebuilt the same version. Use Replace on that catalog row to take this " <>
+          "release's build; Import All will not overwrite it."
+      )
+    end
   end
 
   defp format_error(error) do
@@ -3040,34 +3048,6 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     |> inspect(limit: 8, printable_limit: 400)
     |> truncate_error()
   end
-
-  defp source_conflict_message(%{reason: :source_type_owned} = details, addon, version) do
-    existing = Map.get(details, :existing_source_type) || "another source"
-    "#{addon} #{version} is managed from #{existing} and cannot be overwritten by a first-party import."
-  end
-
-  defp source_conflict_message(%{reason: :older_release} = details, addon, version) do
-    "#{addon} #{version} is already installed from newer release #{release_label(details, :existing_release_tag)}; " <>
-      "importing it from #{release_label(details, :discovered_release_tag)} would roll it back, which is not allowed."
-  end
-
-  defp source_conflict_message(%{reason: :unknown_release_order} = details, addon, version) do
-    "#{addon} #{version} is installed from release #{release_label(details, :existing_release_tag)}, which cannot be " <>
-      "ordered against #{release_label(details, :discovered_release_tag)}; the installed release is kept."
-  end
-
-  defp source_conflict_message(%{reason: :release_changed} = details, addon, version) do
-    "#{addon} #{version} moved to release #{release_label(details, :existing_release_tag)} while this import was " <>
-      "running. Refresh the catalog and try again."
-  end
-
-  defp source_conflict_message(_details, addon, version) do
-    "#{addon} #{version} is already imported from an earlier release that " <>
-      "rebuilt the same version. Use Replace on that catalog row to take this " <>
-      "release's build; Import All will not overwrite it."
-  end
-
-  defp release_label(details, key), do: Map.get(details, key) || "an untagged release"
 
   defp ash_error_message(%{message: message}) when is_binary(message), do: String.trim(message)
   defp ash_error_message(error), do: error |> Exception.message() |> strip_ash_breadcrumbs()
