@@ -52,6 +52,32 @@ defmodule ServiceRadar.Inventory.ArmisIdentityMetadataTest do
     end
   end
 
+  test "bare integration_id coexisting with a typed identifier is its legacy echo" do
+    cases = [
+      {"armis", "armis", "armis_device_id", "armis-legacy-101", :armis_id},
+      {"netbox", "netbox", "netbox_device_id", "netbox-legacy-101", :netbox_id}
+    ]
+
+    for {source, integration_type, type_key, typed_value, typed_field} <- cases do
+      update =
+        Normalize.normalize_update(%{
+          "hostname" => "legacy-echo",
+          "source" => source,
+          "metadata" => %{
+            "integration_type" => integration_type,
+            type_key => typed_value,
+            "integration_id" => typed_value
+          }
+        })
+
+      ids = Ids.extract_strong_identifiers(update)
+
+      assert ids.integration_id == nil
+      assert Ids.get_identifier_values(:integration_id, ids) == []
+      assert Map.fetch!(ids, typed_field) == typed_value
+    end
+  end
+
   test "legacy Armis source_device_id is not promoted to strong identity" do
     update =
       Normalize.normalize_update(%{

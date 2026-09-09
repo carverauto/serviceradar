@@ -208,10 +208,30 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
     raw = ids_get(%{integration_id: get_trimmed(metadata, "integration_id")}, :integration_id)
     candidate = source_scoped_integration_id(metadata, raw)
 
-    if is_binary(candidate) and not Regex.match?(~r/\A[0-9]+\z/, candidate), do: candidate
+    cond do
+      not is_binary(candidate) -> nil
+      Regex.match?(~r/\A[0-9]+\z/, candidate) -> nil
+      self_scoped_value?(metadata, candidate) -> candidate
+      typed_identifier_present?(metadata) -> nil
+      true -> candidate
+    end
   end
 
   defp get_integration_id(_metadata), do: nil
+
+  # A bare integration_id coexisting with a typed provider identifier is the
+  # legacy compatibility echo of that identifier, not a second device
+  # identity: the typed identifier wins outright. Without a typed identifier
+  # the value stands on its own under legacy raw admission.
+  defp typed_identifier_present?(metadata) do
+    get_trimmed(metadata, "armis_device_id") != nil or
+      get_trimmed(metadata, "netbox_device_id") != nil
+  end
+
+  defp self_scoped_value?(metadata, value) do
+    integration_type = get_trimmed(metadata, "integration_type") || "integration"
+    self_scoped?(value, integration_type)
+  end
 
   defp source_scoped_integration_id(_metadata, nil), do: nil
 
