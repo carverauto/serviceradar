@@ -52,7 +52,7 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestorTest do
     assert update["source"] == "wifi-network-map"
     assert update["partition"] == "local"
     assert update["hostname"] == "SITE01-MDF001-WAP001"
-    assert update["metadata"]["integration_type"] == "plugin_device_discovery"
+    assert update["metadata"]["integration_type"] == "wifi-network-map"
     assert update["metadata"]["integration_id"] == "wifi-network-map:access_point:SN0000000001"
     assert update["metadata"]["device_type"] == "access_point"
     assert update["metadata"]["device_role"] == "ap_bridge"

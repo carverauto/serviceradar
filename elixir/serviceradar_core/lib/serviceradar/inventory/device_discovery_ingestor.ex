@@ -379,7 +379,7 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
     base = stringify_map(map_value(device, ["metadata"]) || %{})
 
     base
-    |> maybe_put_new("integration_type", "plugin_device_discovery")
+    |> maybe_put_new("integration_type", string_value(envelope, ["source"]) || "plugin")
     |> maybe_put_new("integration_id", integration_id(device, envelope))
     |> maybe_put("plugin_discovery_schema", @schema)
     |> maybe_put("plugin_discovery_source", string_value(envelope, ["source"]))
