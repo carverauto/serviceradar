@@ -11,6 +11,8 @@ defmodule ServiceRadar.Observability do
   ## Resources
 
   - `ServiceRadar.Observability.Log` - Log entries (OCSF-aligned)
+  - `ServiceRadar.Observability.ApiEvent` - Centralized AshEvents audit log for
+    API-first mutable resources (see `add-ash-events-audit-log` design doc)
   - `ServiceRadar.Observability.TimeseriesMetric` - Generic time-series metrics
   - `ServiceRadar.Observability.CpuMetric` - CPU utilization metrics
   - `ServiceRadar.Observability.MemoryMetric` - Memory usage metrics
@@ -35,6 +37,7 @@ defmodule ServiceRadar.Observability do
 
   resources do
     resource ServiceRadar.Observability.Log
+    resource ServiceRadar.Observability.ApiEvent
     resource ServiceRadar.Observability.ZenRule
     resource ServiceRadar.Observability.ZenRuleTemplate
     resource ServiceRadar.Observability.EventRule

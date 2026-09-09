@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.Router do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Mcp
   alias ServiceRadarWebNGWeb.Plugs.ApiAuth
+  alias ServiceRadarWebNGWeb.Plugs.ApiSourceContext
   alias ServiceRadarWebNGWeb.Plugs.ConfineNarrowScope
   alias ServiceRadarWebNGWeb.Plugs.GatewayAuth
   alias ServiceRadarWebNGWeb.Plugs.LockoutCheck
@@ -460,6 +461,10 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug(:protect_from_forgery)
     plug(:fetch_current_scope_for_user)
     plug(:set_ash_actor)
+    # Marks every action reachable through this pipeline as API-originated so
+    # AshEvents (`ServiceRadar.Observability.Changes.StampEventSource`) can
+    # stamp `metadata["source"] == "api"` -- see that module's moduledoc.
+    plug(ApiSourceContext)
     plug(ServiceRadarWebNGWeb.Plugs.ApiErrorHandler)
   end
 
