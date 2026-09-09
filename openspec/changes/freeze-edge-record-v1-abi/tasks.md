@@ -57,19 +57,6 @@ IT DOES NOT APPLY TO B1-B4. A missing CI or Bazel registration (B3) and ambiguou
 text (B4) are reported and fixed on sight, with no reproducer, in any area -- a rule that
 suppressed them would suppress exactly the findings that keep being right.
 
-### What #4780 finishes, and what it does NOT
-
-#4780 CLOSES with: the current review corrections (Bazel registration, the error-only decode
-propagation helper, exact mode-bit membership, the sentinel claim narrowed to ONE
-REPRESENTATIVE PER FAMILY rather than an exhaustive branch matrix); 1.2-c step 3 integration
-under the translation frozen in that subtask; the five remaining time pairs; non-vacuous
-overflow fixtures; 1.3-c's trace vector; and the shared corpus. The transitive golden
-changes are reviewed ATOMICALLY, the required gates run, and it merges.
-
-#4780 does NOT wait for 1.5-f. The critical path is `1.5-f -> 1.2-c -> 1.3-f -> 1.15-b`, and
-the blocked checkboxes stay UNCHECKED rather than dragging compression admission into this
-PR. Compression is the NEXT PR.
-
 ### Estimate discipline
 
 The checkbox ledger is the current completion record. All implementation and fixture
@@ -88,12 +75,8 @@ here.
 - [x] 1.1 Add a producer-neutral authoritative `EdgeRecordV1`, a separate
   `EdgeDeliveryFrameV1`, the typed disposition and resolved-watermark
   contracts, and lane-opening/session handshake.
-  ASSIGNED HERE BY TASK 1.3: the OUTER RECORD `event_id` UUIDv7 OVERFLOW vector.
-  `validateIdentityTime` now calls the shared CHECKED helper `UUIDv7Nanos`, delivered by 1.3.
-  What is still OWED here is the VECTOR: a shared helper proves nothing about a caller that
-  does not use it, and nothing currently fails if this call site stops using it. The vector
-  must carry a 48-bit timestamp whose unchecked product would WRAP into the production/source
-  windows. The disposition enum on the wire
+  The outer-record `event_id` UUIDv7 overflow vector is owned by subtask 1.1-b below.
+  The disposition enum on the wire
   is `EdgeRecordDispositionKind`, and its GENERATED members are the only wire
   values: `EDGE_RECORD_DISPOSITION_KIND_UNSPECIFIED` plus
   `EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE`, `EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUDIT_ONLY`, `EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_QUARANTINE`,
@@ -159,10 +142,9 @@ here.
 
   SUBTASKS (parent stays unchecked until all close)
   - [x] 1.1-a the typed Hello carrier
-  - [x] 1.1-b the outer-record `event_id` UUIDv7 overflow vector (assigned by 1.3). The
-        shared checked helper `UUIDv7Nanos` exists and `validateIdentityTime` calls it, so
-        what is owed is the VECTOR proving this call site rejects rather than wraps -- not
-        the fix
+  - [x] 1.1-b the outer-record `event_id` UUIDv7 overflow vector (assigned by 1.3),
+        proving that `validateIdentityTime` uses the checked `UUIDv7Nanos` helper
+        rather than wrapping a 48-bit timestamp into the signed windows.
         CLOSED: `TestGoldenOuterEventTimeOverflow` consumes `record_event_time_overflow.bin`; its unchecked product lands inside all three signed windows, and replacing only the outer caller with unchecked multiplication makes the test fail (af52136833).
 
 - [x] 1.2 Add compact `SweepObservationBatchV1` and mergeable
@@ -180,8 +162,8 @@ here.
     VALIDATOR (`SweepBodyValidate` -- exact shapes, per-width bounds, enum/domain checks).
     INTEGRATION HAS LANDED TOO: `SweepCorrelate.ingest_own_payload/1` composes the curated
     decode, the full body validator and correlation into ONE call, so a body rejection and a
-    correlation rejection no longer reach callers from two places. What keeps 1.2 open is
-    1.2-a's closeout audit -- not missing work. 1.2-c's 1.5-f dependency is satisfied.
+    correlation rejection no longer reach callers from two places. Completion and
+    dependencies are recorded below.
   - REMAINING: nothing; all 1.2-a..c subtasks are reviewed and closed.
   - DEPENDS ON: nothing open. The 1.5-f CLOSURE dependency is DISCHARGED -- 1.5-f is closed
     and 1.2-c is checked; see 1.5-f for the ownership and the original reason.

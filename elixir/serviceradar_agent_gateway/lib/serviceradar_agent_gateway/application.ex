@@ -306,9 +306,8 @@ defmodule ServiceRadarAgentGateway.Application do
     end
   end
 
-  # The edge publisher pools: one window owner per lane. Gated on the same switch as the NATS
-  # connections, because a pool without a connection has nothing to bound, and started AFTER them
-  # so the connection a lane publishes on exists before its window admits anything.
+  # Use the same enablement gate as the shared NATS connection. PublisherSupervisor owns
+  # lane connections and pools; LaneSupervisor owns their startup and readiness ordering.
   defp edge_publisher_pools_child do
     if gateway_publisher_enabled?() do
       if Process.whereis(PublisherSupervisor) do

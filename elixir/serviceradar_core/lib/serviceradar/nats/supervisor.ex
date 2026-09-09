@@ -85,9 +85,8 @@ defmodule ServiceRadar.NATS.Supervisor do
 
   Public so ID UNIQUENESS can be tested without a NATS server, and shared with
   `PublisherSupervisor` so both build their connections the same way.
-  `Gnat.ConnectionSupervisor`'s default child id is the MODULE, so N of them under one supervisor
-  collide on id and `Supervisor.init/2` starts only the first -- silently, because the first one
-  works. The registered name is unique already, so it is the id.
+  `Gnat.ConnectionSupervisor`'s default child id is the module, so multiple children would
+  collide and prevent supervisor startup. Use each unique registered name as its child id.
   """
   def child_specs(names, connection_settings, backoff_period) do
     Enum.map(names, fn name ->
