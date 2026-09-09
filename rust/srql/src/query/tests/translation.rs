@@ -220,8 +220,7 @@ fn translate_logs_device_id_resolves_inventory_aliases() {
     );
     assert!(
         !response.sql.contains("EXISTS ("),
-        "device-scoped logs identity must stay uncorrelated, got: {}",
-        response.sql
+        "device-scoped logs identity must stay uncorrelated"
     );
     assert!(
         !response.sql.contains("ILIKE"),
