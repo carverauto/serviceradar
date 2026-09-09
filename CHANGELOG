@@ -1,3 +1,69 @@
+# ServiceRadar v1.4.54
+
+ServiceRadar gains a Terraform provider and public configuration
+APIs for credentials, credential rules, Ansible controllers, and
+playbook repositories. Ansible execution recovers from AWX bridge
+and inventory ordering failures without weakening launch review.
+Also: Proxmox agent compatibility, authenticated API rate limits,
+database bootstrap fixes, and reproducible Arrow source imports.
+
+## Whats New
+
+**1.4.54**
+- Declarative configuration: a first-party Terraform provider adds
+  four resource and data source families: credential secrets,
+  credential rules, Ansible controllers, and Git playbook
+  repositories. Supports import, refresh, drift reconciliation,
+  guarded deletion, and write-only credential rotation with
+  Terraform 1.11+. The provider is available from source; it is
+  not yet published to the Terraform Registry.
+- Configuration API: lifecycle endpoints enforce token scopes
+  and account RBAC, support ETag concurrency checks and durable
+  idempotent retries, and preserve configuration history after
+  deletion. Credential-rule deletion coordinates with grant
+  issuance and retains historical grants.
+- Ansible API: adds operation preparation, launch, and observation,
+  exact inventory-membership approval, and two-phase template
+  binding review. Review and launch require a human principal.
+  Binding review supports non-callback bindings; upstream AWX
+  provisioning remains outside this release, and operation
+  cancellation explicitly returns 501.
+- AWX bridge 0.1.16: fixes validation under the agent's Wasm
+  entrypoint lifecycle, credential-kind projection, and empty
+  survey choices. Membership generations retain signed 64-bit
+  precision through decimal-string API boundaries while AWX
+  object IDs keep their existing bounds.
+- Ansible inventory: unchanged observations preserve approved
+  membership authority. A durable observation fence rejects old
+  or conflicting snapshots before device and membership writes;
+  deferred discovery effects run only after the transaction
+  commits. Existing jobs can be polled and reconciled after launch
+  preflight expires while retaining controller, dispatch, and
+  evidence checks.
+- Ansible catalogs: core images include Git and CA certificates,
+  the Helm chart provides writable catalog and temporary storage,
+  and synchronization honors changed repository origins and refs.
+- Agent: accepts the exact legacy and purpose-qualified Proxmox
+  inventory policy IDs emitted by core, restoring compatibility
+  with the existing Proxmox Inventory 0.1.8 plugin. Proxmox Console
+  remains 0.1.4 with its purpose-specific authority checks.
+  Adds `--version` and an isolated signed test-artifact workflow.
+- Security and operations docs: new API, Terraform, and declarative
+  environment guides cover staged bootstrap, state-safe credential
+  inputs, permissions, recovery ownership, and current provider
+  limits. Authenticated API routes now receive the default rate
+  limit, including SRQL queries.
+- Build reliability: replaces the orphan Arrow Swift gitlink with
+  a pinned, licensed source import and compatibility coverage.
+  Git metadata and synthetic checkout checks guard release jobs;
+  Debian package overlays support Zstandard-compressed payloads.
+- Database bootstrap honors the configured migration ledger
+  instead of recording baseline versions in a hard-coded schema.
+- Schema: `20260908180000` (provisioning retry receipts),
+  `20260908180100` (retained configuration history), and
+  `20260908180200` (AWX observation ordering).
+  `migrations.expectedVersion` is `20260908180200`.
+
 # ServiceRadar v1.4.53
 
 Advisory-feed downloads (CISA KEV, presigned VulnCheck fetches) and
