@@ -14,6 +14,7 @@ HEX_PACKAGES = [
     ("ash_ai", "ash_ai", "0.8.2", "49f56828f4ed7fc9f7acc00d57ebf704ff9f8967885cf48e23352f9025a14e76"),
     ("ash_cloak", "ash_cloak", "0.3.1", "83a3c73bb7f941a04e7329273e6123d5beb5f1cd3be73e84e609a37884ad0320"),
     ("ash_credo", "ash_credo", "0.16.1", "1199c82cac53153c3929be1ce4136dd8512a7fcc9d632aab45502f2b471125de"),
+    ("ash_events", "ash_events", "0.7.0", "336b3b22da849d1a121dd536d0020c236ddd183507b78491a7420a5bc7925cd5"),
     ("ash_json_api", "ash_json_api", "1.7.1", "0ff72b51d99c93f7ee655d2d5e10b29f5561ad36a0ee11dadcbcec7a4b995368"),
     ("ash_oban", "ash_oban", "0.8.10", "e60992bd6df3a264cac0fd25e43358396d4fe92357210450d94c29e818eb469c"),
     ("ash_paper_trail", "ash_paper_trail", "0.6.0", "0bbcf8c735593669aecb0cf0d3dd21bdfc3e07706513a1a58b55623a68faf9f2"),

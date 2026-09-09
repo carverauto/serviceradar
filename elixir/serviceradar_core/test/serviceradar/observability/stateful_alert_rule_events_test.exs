@@ -53,7 +53,7 @@ defmodule ServiceRadar.Observability.StatefulAlertRuleEventsTest do
 
   defp register_user! do
     unique = System.unique_integer([:positive])
-    password = "Sup3rSecretPassw0rd!#{unique}"
+    password = Base.url_encode64(:crypto.strong_rand_bytes(24))
 
     {:ok, user} =
       Users.register_with_password(
