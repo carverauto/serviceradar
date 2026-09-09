@@ -17,6 +17,7 @@ defmodule ServiceRadar.Integrations.ArmisDireE2ETest do
   alias ServiceRadar.Integrations.IntegrationUpdateRun
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.IntegrationIdentity
   alias ServiceRadar.Inventory.SourceIdentityDrift
   alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadar.Repo
@@ -519,8 +520,19 @@ defmodule ServiceRadar.Integrations.ArmisDireE2ETest do
   defp rebind_page(page, source_id) do
     updates =
       Enum.map(page["updates"], fn update ->
+        metadata = Map.fetch!(update, "metadata")
+        native_id = Map.fetch!(metadata, "armis_device_id")
+        original_source_id = Map.fetch!(update["sync_meta"], "sync_service_id")
+
+        assert metadata["integration_id"] ==
+                 IntegrationIdentity.scoped_device_id("armis", original_source_id, native_id)
+
+        integration_id = IntegrationIdentity.scoped_device_id("armis", source_id, native_id)
         sync_meta = Map.put(update["sync_meta"], "sync_service_id", source_id)
-        Map.put(update, "sync_meta", sync_meta)
+
+        update
+        |> Map.put("sync_meta", sync_meta)
+        |> Map.put("metadata", Map.put(metadata, "integration_id", integration_id))
       end)
 
     Map.put(page, "updates", updates)
