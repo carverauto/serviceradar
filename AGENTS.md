@@ -445,11 +445,8 @@ Prefer Socket Firewall for supported dependency-fetching commands. Prefix JavaSc
 - **Rust**: run `cargo fmt` + `cargo clippy` on touched crates (notably `rust/srql`); leverage existing Diesel helpers + CNPG pooling utilities before adding new abstractions.
 - **Elixir / Dialyzer**: prefer idiomatic Elixir (`MapSet.new/1`, direct `GRPC.Stub.connect/2`, normal Ash reads). Treat Dialyzer as advisory for false positives (opaque types, incomplete PLT success typing). See **Hard Rules** — never degrade APIs to silence the type checker. Use `mix dialyzer --format dialyzer` when Dialyxir short format crashes on unknown warning kinds.
 - **Docs**: place new operational runbooks under `docs/docs/`; keep Markdown ASCII only.
-- **OpenSpec**: `openspec validate <change> --strict` reads a requirement's FIRST
-  line as its normative statement, not the whole block. A `### Requirement:` that
-  opens with narrative -- a "CORRECTED while implementing" note, a rationale
-  paragraph -- is reported as containing no SHALL or MUST even when it contains
-  several. Lead with the SHALL/MUST sentence and put the narrative below it.
+- **OpenSpec**: See [Requirement Wording](openspec/AGENTS.md#requirement-wording)
+  for the SHALL/MUST positional validation rule and examples.
 
   **Editing a requirement in `openspec/specs/` is not enough.** A pending change
   under `openspec/changes/` may carry its own `## MODIFIED Requirements` copy of
