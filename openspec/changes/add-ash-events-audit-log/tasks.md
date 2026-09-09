@@ -39,18 +39,21 @@
 
 ## 3. Verification
 
-- [ ] 3.1 Test: creating a `StatefulAlertRule` via `Ash.Changeset.for_create`
+- [x] 3.1 Test: creating a `StatefulAlertRule` via `Ash.Changeset.for_create`
       with an actor writes exactly one `ApiEvent` row with the correct
       `user_id`, `resource`, `action`, and `data`.
-- [ ] 3.2 Test: `metadata["source"]` is `"api"` when created through the
+- [x] 3.2 Test: `metadata["source"]` is `"api"` when created through the
       JSON:API route (once `add-alert-rule-json-api` lands) and `"web"`
       through the existing LiveView path.
-- [ ] 3.3 Test: destroy and update actions each produce their own `ApiEvent`
+- [x] 3.3 Test: destroy and update actions each produce their own `ApiEvent`
       row (not just create).
-- [ ] 3.4 Confirm no interaction/ordering issue with
+- [x] 3.4 Confirm no interaction/ordering issue with
       `PresetRuleResource`'s existing policy block -- actions still require
       `operator`/`admin`/`system` to succeed; AshEvents only observes
       already-authorized actions.
+      Verified against a real srql-fixtures scratch database (all 9 tests
+      in stateful_alert_rule_events_test.exs pass, plus the existing
+      stateful_alert_rule_policy_test.exs's 11 tests still pass unchanged).
 
 ## 4. Surface it
 

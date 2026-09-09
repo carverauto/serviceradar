@@ -27,6 +27,18 @@ defmodule ServiceRadar.Observability.StatefulAlertRuleEventsTest do
   @viewer %{id: Ecto.UUID.generate(), role: :viewer}
 
   defp user_fixture(role) do
+    # `AssignFirstUserRole` grants :admin to the first user registered in an
+    # empty `ng_users` table -- true for a fresh async transaction -- and
+    # `DisallowLastAdminLockout` then refuses to demote the *only* admin.
+    # Register a throwaway admin first so the real fixture user below can be
+    # freely assigned any role.
+    register_user!()
+
+    {:ok, user} = User.update_role(register_user!(), %{role: role}, actor: @system)
+    user
+  end
+
+  defp register_user! do
     unique = System.unique_integer([:positive])
     password = "Sup3rSecretPassw0rd!#{unique}"
 
@@ -40,7 +52,6 @@ defmodule ServiceRadar.Observability.StatefulAlertRuleEventsTest do
         actor: @system
       )
 
-    {:ok, user} = User.update_role(user, %{role: role}, actor: @system)
     user
   end
 
