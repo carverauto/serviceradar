@@ -2,7 +2,8 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
   @moduledoc """
   Tests for the Event Details LiveView (EventLive.Show), focused on the
   "Affected Device" link for device-scoped signals (e.g. Proxmox guest
-  bottlenecks).
+  bottlenecks) and the "Create Event Rule" flow restored from the log
+  details page.
   """
 
   use ServiceRadarWebNGWeb.ConnCase, async: false
@@ -150,6 +151,116 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
     assert html_after =~ "event-anomaly-metric-0"
     assert html_after =~ ~s(data-timezone="America/Chicago")
   end
+
+  # NOTE: the header button renders sentence case ("Create event rule",
+  # matching the log details page); only the modal title uses title case.
+  describe "Create Event Rule from event details" do
+    @tag :web_ng_shared_fixture_db
+    test "operator can see Create event rule button", %{conn: conn} do
+      {:ok, lv, html} = live(conn, ~p"/events/#{@event_id}")
+
+      assert has_element?(lv, "button", "Create event rule") or
+               String.contains?(html, "Create event rule")
+    end
+
+    @tag :web_ng_shared_fixture_db
+    test "admin can see Create event rule button", %{conn: conn} do
+      conn = log_in_user(conn, admin_user_fixture())
+
+      {:ok, lv, html} = live(conn, ~p"/events/#{@event_id}")
+
+      assert has_element?(lv, "button", "Create event rule") or
+               String.contains?(html, "Create event rule")
+    end
+
+    @tag :web_ng_shared_fixture_db
+    test "viewer cannot see Create event rule button", %{conn: conn} do
+      conn = log_in_user(conn, viewer_user_fixture())
+
+      {:ok, lv, html} = live(conn, ~p"/events/#{@event_id}")
+
+      refute has_element?(lv, "button", "Create event rule")
+      refute String.contains?(html, "Create event rule")
+    end
+
+    @tag :web_ng_shared_fixture_db
+    test "opens rule builder modal when clicking Create event rule", %{conn: conn} do
+      {:ok, lv, _html} = live(conn, ~p"/events/#{@event_id}")
+
+      lv
+      |> element("button", "Create event rule")
+      |> render_click()
+
+      assert has_element?(lv, "#rule_builder_modal")
+      assert has_element?(lv, "h3", "Create Event Rule")
+    end
+
+    @tag :web_ng_shared_fixture_db
+    test "pre-populates rule builder from event data", %{conn: conn} do
+      {:ok, lv, _html} = live(conn, ~p"/events/#{@event_id}")
+
+      lv
+      |> element("button", "Create event rule")
+      |> render_click()
+
+      html = render(lv)
+      assert html =~ "Proxmox guest memory bottleneck 95%"
+    end
+
+    @tag :web_ng_shared_fixture_db
+    test "creates promotion rule from event entry", %{conn: conn} do
+      user = operator_user_fixture()
+      conn = log_in_user(conn, user)
+      scope = ServiceRadarWebNG.Accounts.Scope.for_user(user)
+
+      {:ok, lv, _html} = live(conn, ~p"/events/#{@event_id}")
+
+      lv
+      |> element("button", "Create event rule")
+      |> render_click()
+
+      unique = System.unique_integer([:positive])
+      rule_name = "event-promote-#{unique}"
+
+      lv
+      |> form("#rule-builder-form", %{
+        "rule" => %{
+          "name" => rule_name,
+          "body_contains_enabled" => "true",
+          "body_contains" => "Proxmox guest memory bottleneck 95%"
+        }
+      })
+      |> render_submit()
+
+      assert_redirect(lv, ~p"/settings/rules?#{%{tab: "events"}}")
+
+      rules = unwrap_page(Ash.read(ServiceRadar.Observability.EventRule, scope: scope))
+      rule = Enum.find(rules, &(&1.name == rule_name))
+      assert rule
+      assert rule.match["body_contains"] == "Proxmox guest memory bottleneck 95%"
+    end
+
+    @tag :web_ng_shared_fixture_db
+    test "closes modal when clicking cancel", %{conn: conn} do
+      {:ok, lv, _html} = live(conn, ~p"/events/#{@event_id}")
+
+      lv
+      |> element("button", "Create event rule")
+      |> render_click()
+
+      assert has_element?(lv, "#rule_builder_modal")
+
+      lv
+      |> element("button", "Cancel")
+      |> render_click()
+
+      refute has_element?(lv, "#rule_builder_modal")
+    end
+  end
+
+  defp unwrap_page({:ok, %Ash.Page.Keyset{results: results}}), do: results
+  defp unwrap_page({:ok, results}) when is_list(results), do: results
+  defp unwrap_page(_), do: []
 
   defmodule EventShowSRQLStub do
     @moduledoc false
