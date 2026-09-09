@@ -111,6 +111,10 @@ defmodule ServiceRadar.Observability.StatefulAlertRuleEventsTest do
       "alert_rules" => [declaration]
     }
 
+    ServiceRadar.Plugins.Plugin
+    |> Ash.Changeset.for_create(:create, %{plugin_id: plugin_id, name: "Audit Catalog"}, actor: @system)
+    |> Ash.create!()
+
     package =
       PluginPackage
       |> Ash.Changeset.for_create(
