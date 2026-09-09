@@ -252,12 +252,9 @@
 > resources now correctly scope by actor); proceeding with the mount below.
 
 - [x] 4.1 Added `ServiceRadar.Observability` to `ash_json_api_router.ex`'s
-      `domains:` list; updated its moduledoc's endpoint listing with
-      `/api/v2/stateful-alert-rules`'s 6 routes and all 19 newly-live
-      read-only paths (each annotated with the `system_bypass() +
-      read_viewer_plus()` gating from section 3.2). `mix compile
-      --warnings-as-errors` in `web-ng` confirms the mount compiles clean
-      (module resolves, no new warnings — see Verification below).
+      `domains:` list; its moduledoc points to the API reference and generated
+      OpenAPI inventory. Original compilation evidence is recorded under
+      Verification below.
 - [x] 4.2 Added `ServiceRadar.Observability` to `OpenApiV2Controller`'s
       hardcoded `@domains` list, with a code comment noting the pre-existing
       missing-`Notifications` gap (not touched) and pointing at the GitHub
@@ -265,24 +262,15 @@
 - [x] 4.3 Filed https://github.com/carverauto/serviceradar/issues/328 for
       `OpenApiV2Controller`'s pre-existing missing-`Notifications` entry —
       not fixed as a drive-by in this change.
-- [x] 4.4 Ran `mix serviceradar.openapi.dump` (from `elixir/web-ng`);
-      `priv/static/openapi.json` grew from 57 to 79 paths (the 6
-      `stateful-alert-rules` paths + the 19 newly-reachable dormant read
-      paths — `/logs`, `/service_status`, `/capacity_forecasts`,
-      `/cpu_cluster_metrics`, `/otel_metrics`, `/otel_metric_points`,
-      `/otel_traces`, `/otel_trace_summaries`, `/cpu_metrics`,
-      `/memory_metrics`, `/disk_metrics`, `/process_metrics`,
-      `/timeseries_metrics`, and their 6 `*_hourly`/
-      `timeseries_metrics_interface_hourly` counterparts). Committed the
-      diff (1,578,913 bytes; +34,585/-12,062 lines vs. the prior committed
-      spec — mostly Ash's `x-*` extension metadata reformatting across
-      existing paths, not just the new ones — confirmed the new paths are a
-      strict superset addition, nothing existing was removed).
-- [x] 4.5 Extended the `GET /api/v2/open_api` test in `ash_json_api_test.exs`
-      to assert `Map.has_key?(response["paths"], "/stateful-alert-rules")`
-      (confirmed the OpenAPI spec's path keys are prefix-relative, e.g.
-      `/service-checks` not `/api/v2/service-checks`, by inspecting the
-      committed `openapi.json` directly before writing the assertion).
+- [x] 4.4 Regenerated `elixir/web-ng/priv/static/openapi.json` from
+      `AshJsonApiRouter.spec/0` and compared it with a fresh DSL render.
+      Consult the generated artifact for the route inventory and pagination
+      schemas, and the dump task's module documentation for generation details.
+- [x] 4.5 Extended the live OpenAPI assertion in `ash_json_api_test.exs`.
+      See the live-document scenario in
+      [the capability spec](specs/alert-rule-json-api/spec.md) for the path
+      contract; the dump task's module documentation explains how the committed
+      artifact differs.
 
 ## 5. Tests
 

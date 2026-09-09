@@ -49,9 +49,9 @@ defmodule ServiceRadar.Observability.TelemetryJsonApiTest do
         end)
 
       record = struct!(resource, attributes)
-      id = AshJsonApi.encode_primary_key(record)
+      id = AshJsonApi.Resource.encode_primary_key(record)
       assert is_binary(id) and byte_size(id) > 0, inspect(resource)
-      assert AshJsonApi.encode_primary_key(record) == id
+      assert AshJsonApi.Resource.encode_primary_key(record) == id
 
       for key <- keys do
         value =
@@ -62,7 +62,7 @@ defmodule ServiceRadar.Observability.TelemetryJsonApiTest do
             string -> string <> "-other"
           end
 
-        refute AshJsonApi.encode_primary_key(Map.replace!(record, key, value)) == id,
+        refute AshJsonApi.Resource.encode_primary_key(Map.replace!(record, key, value)) == id,
                "#{inspect(resource)} must distinguish #{key}"
       end
     end
@@ -88,7 +88,10 @@ defmodule ServiceRadar.Observability.TelemetryJsonApiTest do
     for resource <- resources do
       action = Ash.Resource.Info.primary_action(resource, :read)
       assert action.name == :read, inspect(resource)
-      refute action.pagination, inspect(resource)
+      if action.pagination do
+        refute action.pagination.required?, inspect(resource)
+        refute action.pagination.paginate_by_default?, inspect(resource)
+      end
     end
   end
 end

@@ -37526,15 +37526,10 @@
             "required": false,
             "schema": {
               "example": {
-                "limit": 25
+                "limit": 100,
+                "offset": 0
               },
               "properties": {
-                "after": {
-                  "type": "string"
-                },
-                "before": {
-                  "type": "string"
-                },
                 "count": {
                   "default": false,
                   "type": "boolean"
@@ -37767,15 +37762,10 @@
             "required": false,
             "schema": {
               "example": {
-                "limit": 25
+                "limit": 100,
+                "offset": 0
               },
               "properties": {
-                "after": {
-                  "type": "string"
-                },
-                "before": {
-                  "type": "string"
-                },
                 "count": {
                   "default": false,
                   "type": "boolean"
@@ -37904,15 +37894,10 @@
             "required": false,
             "schema": {
               "example": {
-                "limit": 25
+                "limit": 100,
+                "offset": 0
               },
               "properties": {
-                "after": {
-                  "type": "string"
-                },
-                "before": {
-                  "type": "string"
-                },
                 "count": {
                   "default": false,
                   "type": "boolean"
@@ -38406,15 +38391,10 @@
             "required": false,
             "schema": {
               "example": {
-                "limit": 25
+                "limit": 100,
+                "offset": 0
               },
               "properties": {
-                "after": {
-                  "type": "string"
-                },
-                "before": {
-                  "type": "string"
-                },
                 "count": {
                   "default": false,
                   "type": "boolean"
@@ -38543,15 +38523,10 @@
             "required": false,
             "schema": {
               "example": {
-                "limit": 25
+                "limit": 100,
+                "offset": 0
               },
               "properties": {
-                "after": {
-                  "type": "string"
-                },
-                "before": {
-                  "type": "string"
-                },
                 "count": {
                   "default": false,
                   "type": "boolean"
@@ -41706,15 +41681,10 @@
             "required": false,
             "schema": {
               "example": {
-                "limit": 25
+                "limit": 100,
+                "offset": 0
               },
               "properties": {
-                "after": {
-                  "type": "string"
-                },
-                "before": {
-                  "type": "string"
-                },
                 "count": {
                   "default": false,
                   "type": "boolean"
@@ -42522,15 +42492,10 @@
             "required": false,
             "schema": {
               "example": {
-                "limit": 25
+                "limit": 100,
+                "offset": 0
               },
               "properties": {
-                "after": {
-                  "type": "string"
-                },
-                "before": {
-                  "type": "string"
-                },
                 "count": {
                   "default": false,
                   "type": "boolean"
@@ -42659,15 +42624,10 @@
             "required": false,
             "schema": {
               "example": {
-                "limit": 25
+                "limit": 100,
+                "offset": 0
               },
               "properties": {
-                "after": {
-                  "type": "string"
-                },
-                "before": {
-                  "type": "string"
-                },
                 "count": {
                   "default": false,
                   "type": "boolean"
@@ -44080,15 +44040,10 @@
             "required": false,
             "schema": {
               "example": {
-                "limit": 25
+                "limit": 100,
+                "offset": 0
               },
               "properties": {
-                "after": {
-                  "type": "string"
-                },
-                "before": {
-                  "type": "string"
-                },
                 "count": {
                   "default": false,
                   "type": "boolean"
@@ -45667,15 +45622,10 @@
             "required": false,
             "schema": {
               "example": {
-                "limit": 25
+                "limit": 100,
+                "offset": 0
               },
               "properties": {
-                "after": {
-                  "type": "string"
-                },
-                "before": {
-                  "type": "string"
-                },
                 "count": {
                   "default": false,
                   "type": "boolean"
@@ -45804,15 +45754,10 @@
             "required": false,
             "schema": {
               "example": {
-                "limit": 25
+                "limit": 100,
+                "offset": 0
               },
               "properties": {
-                "after": {
-                  "type": "string"
-                },
-                "before": {
-                  "type": "string"
-                },
                 "count": {
                   "default": false,
                   "type": "boolean"
@@ -45941,15 +45886,10 @@
             "required": false,
             "schema": {
               "example": {
-                "limit": 25
+                "limit": 100,
+                "offset": 0
               },
               "properties": {
-                "after": {
-                  "type": "string"
-                },
-                "before": {
-                  "type": "string"
-                },
                 "count": {
                   "default": false,
                   "type": "boolean"
@@ -46542,15 +46482,10 @@
             "required": false,
             "schema": {
               "example": {
-                "limit": 25
+                "limit": 100,
+                "offset": 0
               },
               "properties": {
-                "after": {
-                  "type": "string"
-                },
-                "before": {
-                  "type": "string"
-                },
                 "count": {
                   "default": false,
                   "type": "boolean"
@@ -47902,15 +47837,10 @@
             "required": false,
             "schema": {
               "example": {
-                "limit": 25
+                "limit": 100,
+                "offset": 0
               },
               "properties": {
-                "after": {
-                  "type": "string"
-                },
-                "before": {
-                  "type": "string"
-                },
                 "count": {
                   "default": false,
                   "type": "boolean"
@@ -48143,15 +48073,10 @@
             "required": false,
             "schema": {
               "example": {
-                "limit": 25
+                "limit": 100,
+                "offset": 0
               },
               "properties": {
-                "after": {
-                  "type": "string"
-                },
-                "before": {
-                  "type": "string"
-                },
                 "count": {
                   "default": false,
                   "type": "boolean"
@@ -48280,15 +48205,10 @@
             "required": false,
             "schema": {
               "example": {
-                "limit": 25
+                "limit": 100,
+                "offset": 0
               },
               "properties": {
-                "after": {
-                  "type": "string"
-                },
-                "before": {
-                  "type": "string"
-                },
                 "count": {
                   "default": false,
                   "type": "boolean"
@@ -49185,15 +49105,10 @@
             "required": false,
             "schema": {
               "example": {
-                "limit": 25
+                "limit": 100,
+                "offset": 0
               },
               "properties": {
-                "after": {
-                  "type": "string"
-                },
-                "before": {
-                  "type": "string"
-                },
                 "count": {
                   "default": false,
                   "type": "boolean"
@@ -49426,15 +49341,10 @@
             "required": false,
             "schema": {
               "example": {
-                "limit": 25
+                "limit": 100,
+                "offset": 0
               },
               "properties": {
-                "after": {
-                  "type": "string"
-                },
-                "before": {
-                  "type": "string"
-                },
                 "count": {
                   "default": false,
                   "type": "boolean"
@@ -49692,15 +49602,10 @@
             "required": false,
             "schema": {
               "example": {
-                "limit": 25
+                "limit": 100,
+                "offset": 0
               },
               "properties": {
-                "after": {
-                  "type": "string"
-                },
-                "before": {
-                  "type": "string"
-                },
                 "count": {
                   "default": false,
                   "type": "boolean"

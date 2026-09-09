@@ -97,9 +97,8 @@ mechanics are more involved than "add one domain to a list":
   end
   ```
 - Add `ServiceRadar.Observability` to `ash_json_api_router.ex`'s `domains:`
-  list; update its moduledoc endpoint listing to include
-  `/api/v2/stateful-alert-rules` **and** all 19 newly-activated read-only
-  paths.
+  list; point its moduledoc to the API reference and generated OpenAPI
+  inventory for the newly exposed routes.
 - Deliberately let all 19 already-declared, dormant, read-only Observability
   resources go live alongside `StatefulAlertRule` (see Why) rather than find
   a way to suppress them. Audit each one's `policy action_type(:read)` block

@@ -10,42 +10,42 @@ defmodule ServiceRadar.Observability.ServiceStatus do
     extensions: [AshJsonApi.Resource]
 
   postgres do
-    table("service_status")
-    repo(ServiceRadar.Repo)
-    schema("platform")
-    migrate?(false)
+    table "service_status"
+    repo ServiceRadar.Repo
+    schema "platform"
+    migrate? false
   end
 
   json_api do
-    type("service_status")
+    type "service_status"
 
     primary_key do
-      keys([:timestamp, :gateway_id, :service_name])
+      keys [:timestamp, :gateway_id, :service_name]
     end
 
     routes do
-      base("/service_status")
+      base "/service_status"
 
-      index(:api_index)
+      index :api_index
     end
   end
 
   actions do
-    defaults([:read])
+    defaults [:read]
 
     read :api_index do
       pagination do
-        offset?(true)
-        default_limit(100)
-        max_page_size(1000)
-        required?(true)
+        offset? true
+        default_limit 100
+        max_page_size 1000
+        required? true
       end
     end
 
     create :create do
-      primary?(true)
+      primary? true
 
-      accept([
+      accept [
         :timestamp,
         :gateway_id,
         :agent_id,
@@ -57,11 +57,11 @@ defmodule ServiceRadar.Observability.ServiceStatus do
         :details,
         :partition,
         :created_at
-      ])
+      ]
     end
 
     create :insert_once do
-      accept([
+      accept [
         :timestamp,
         :gateway_id,
         :agent_id,
@@ -73,11 +73,11 @@ defmodule ServiceRadar.Observability.ServiceStatus do
         :details,
         :partition,
         :created_at
-      ])
+      ]
 
-      upsert?(true)
-      upsert_fields([])
-      return_skipped_upsert?(true)
+      upsert? true
+      upsert_fields []
+      return_skipped_upsert? true
     end
   end
 
@@ -88,72 +88,72 @@ defmodule ServiceRadar.Observability.ServiceStatus do
     read_viewer_plus()
 
     policy action([:create, :insert_once]) do
-      authorize_if(actor_attribute_equals(:role, :system))
+      authorize_if actor_attribute_equals(:role, :system)
     end
   end
 
   attributes do
     attribute :timestamp, :utc_datetime_usec do
-      primary_key?(true)
-      allow_nil?(false)
-      public?(true)
-      description("When the status was observed")
+      primary_key? true
+      allow_nil? false
+      public? true
+      description "When the status was observed"
     end
 
     attribute :gateway_id, :string do
-      primary_key?(true)
-      allow_nil?(false)
-      public?(true)
-      description("Gateway that reported the status")
+      primary_key? true
+      allow_nil? false
+      public? true
+      description "Gateway that reported the status"
     end
 
     attribute :service_name, :string do
-      primary_key?(true)
-      allow_nil?(false)
-      public?(true)
-      description("Service name")
+      primary_key? true
+      allow_nil? false
+      public? true
+      description "Service name"
     end
 
     attribute :service_id, :uuid do
-      public?(true)
-      description("Stable service identity UUID")
+      public? true
+      description "Stable service identity UUID"
     end
 
     attribute :agent_id, :string do
-      public?(true)
-      description("Agent that reported the status")
+      public? true
+      description "Agent that reported the status"
     end
 
     attribute :service_type, :string do
-      public?(true)
-      description("Service type")
+      public? true
+      description "Service type"
     end
 
     attribute :available, :boolean do
-      allow_nil?(false)
-      public?(true)
-      description("Availability status")
+      allow_nil? false
+      public? true
+      description "Availability status"
     end
 
     attribute :message, :string do
-      public?(true)
-      description("Short status summary")
+      public? true
+      description "Short status summary"
     end
 
     attribute :details, :string do
-      public?(true)
-      description("Structured details (JSON encoded)")
+      public? true
+      description "Structured details (JSON encoded)"
     end
 
     attribute :partition, :string do
-      public?(true)
-      description("Partition identifier")
+      public? true
+      description "Partition identifier"
     end
 
     attribute :created_at, :utc_datetime_usec do
-      allow_nil?(false)
-      public?(true)
-      description("When the record was created")
+      allow_nil? false
+      public? true
+      description "When the record was created"
     end
   end
 end
