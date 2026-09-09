@@ -24,7 +24,6 @@
 # only attempts filtering for known warning types, so warnings of those two
 # classes bypass this file entirely -- entries naming them never match and
 # show up as unnecessary skips. Do not add them; upgrade dialyxir instead.
-# (30 warnings fall in this gap today: 5 exact_compare, 25 opaque_compare.)
 #
 # Entry sections below group exclusions by false-positive class. Entries
 # added or re-verified during the issue #222 cleanup carry an inline reason;
@@ -133,7 +132,7 @@
   # Verified (#222): RunLauncher.launch/2 spec requires a full intent; the seam accepts anything and fails closed.
   {"lib/serviceradar/automation/ansible/schedule_evaluator_worker.ex", :call},
 
-  # Verified (#222): Dead with the contracted :proxmox_api-only mode above; kept with it.
+  # Verified (#222): Dead with the contracted :proxmox_api-only mode; see Exact-comparison dead branches below.
   {"lib/serviceradar/plugins/proxmox_host_authority.ex",
    "Function int_value/2 will never be called."},
 
@@ -184,16 +183,13 @@
 
   # Exact-comparison dead branches. A comparison Dialyzer proves
   # constant, kept deliberately (contracted behavior or defence in
-  # depth). NOTE: dialyxir 1.4.7 does not know the OTP 28 `:exact_compare`
-  # warning type, so these warnings bypass filtering entirely (see the
-  # header note on unknown warning types) and are currently UNSUPPRESSED:
+  # depth). These warnings bypass filtering; see the header note on
+  # unknown warning types:
   # - device_metadata.ex:81 (`reason == :stale`; unknown/2 is never called
   #   with :stale today but resolution() admits it; defensive).
   # - proxmox_host_authority.ex:432,433,438 (`mode == :ssh`; mode is always
   #   :proxmox_api by construction, SSH keeps the PVE identity -- pinned by
   #   the "SSH console keeps the PVE controller identity" test).
-  # They need a dialyxir upgrade that learns OTP 28 warning types, not
-  # ignore entries (entries for unknown types never match).
 
   # Unreachable-clause narrowing. Dialyzer proves a later clause is
   # covered by earlier ones given inferred Ash/domain types. These are
