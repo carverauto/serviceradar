@@ -268,7 +268,6 @@
   {"lib/serviceradar_web_ng_web/live/settings/rules_live/index.ex", :unused_fun, {896, 8}},
   {"lib/serviceradar_web_ng_web/live/settings/rules_live/index.ex", :unused_fun, {922, 8}},
   {"lib/serviceradar_web_ng_web/live/spatial_live/field_survey_review.ex", :pattern_match, {744, 21}},
-  {"lib/serviceradar_web_ng_web/plugs/upload_guard.ex", :call, {184, 7}},
   {"lib/serviceradar_web_ng_web/plugs/upload_guard.ex", :guard_fail, 225},
   {"lib/serviceradar_web_ng_web/srql/builder.ex", :pattern_match_cov, {275, 8}},
   {"lib/serviceradar_web_ng_web/srql/page.ex", :pattern_match_cov, {938, 8}},
