@@ -392,6 +392,49 @@ A first-party native add-on (`addons/<name>/addon.yaml` + a Go/Rust binary) must
 
 Verify locally before pushing: `bash scripts/check-native-addon-version-bumps.sh origin/staging <commit-sha>` (with jj, git `HEAD` is the parent — pass the real commit, e.g. `jj log -r @ --no-graph -T commit_id`) AND `bazel test //build/native_addons:build_gates_test` (this is the gate the release publish runs; a plain bundle build does not).
 
+### Adding a new `elixir/serviceradar_core` test file
+
+Every test source selected by
+[`ordinary_core_test_sources()`](ci_heavy_gate_contract_test.py) must have a row in
+`elixir/serviceradar_core/test/INTEGRATION_SOURCE_DISPOSITIONS.tsv`, or
+`ci_heavy_gate_contract_test.py`'s
+`test_integration_disposition_inventory_is_exhaustive_and_concrete` fails.
+This check runs in **`make test` / BazelCI**, but not in `mix test` or the
+Elixir Quality GitHub Action. A new test file can therefore look completely green
+through normal local iteration and PR checks, then fail BazelCI alone.
+`build/integration_selection_equivalence_test.exs` fails downstream of the
+same gap, since the pruned/all-source test selection it compares is derived
+from this same inventory.
+
+Add a tab-separated row: `source\tmodule\tcase_kind\tmode\treason\tevidence`.
+Two dispositions cover almost everything:
+
+- **Database-free** (plain `ExUnit.Case`, no `:integration`/`:requires_app`
+  tag, no `Repo`/data-layer call): set `source` to the new test's path relative
+  to `elixir/serviceradar_core/`, `module` = `-`, `case_kind` = `not_selected`,
+  `mode` = `load_only`, and `reason` = `not_selected`. For `evidence`, copy the
+  standard audit sentence from a neighboring `not_selected` row, as shown
+  below. This is the default for most simple unit tests and needs
+  **no** change to `build/integration_test_dispositions.bzl`, which only
+  tracks `selected` (async/serial) tests.
+
+  Example with all six fields in order, separated by literal tabs (replace
+  the example source path with your new test's path):
+
+  ```tsv
+  test/example_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
+  ```
+
+- **DB-backed** (`ServiceRadar.DataCase` or a real data-layer call): needs a
+  real `case_kind`/`mode`/`reason` reflecting actual transaction/sandbox
+  ownership (`data_case`/`async`/`transaction_owner`, or `serial` with a
+  specific reason from `SERIAL_REASONS`) — read a few neighboring rows for an
+  analogous test and match their reasoning style; the `evidence` column must
+  describe the actual file, not just repeat the reason.
+
+Verify locally before pushing (no Bazel/Docker required):
+`python3 -m unittest ci_heavy_gate_contract_test` from the repo root.
+
 ## Socket Firewall
 
 Prefer Socket Firewall for supported dependency-fetching commands. Prefix JavaScript/TypeScript package manager calls with `sfw`, especially `npm` commands such as `sfw npm ci`, `sfw npm install`, and `sfw npm run ...` when the command may fetch packages. Also use `sfw` for supported Python and Rust package managers (`pip`, `uv`, and `cargo`) when they may download dependencies. Web-NG uses Bun for asset builds; prefix Bun package-manager invocations with `sfw` in CI and Bazel release tooling as a best-effort firewall even though Socket Firewall Free only officially guarantees npm/yarn/pnpm for JavaScript. Socket Firewall Free does not currently support Go, Bazel, or Hex/Mix, so do not wrap those commands unless Socket adds support.
