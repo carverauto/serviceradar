@@ -5,10 +5,25 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
   Both scheduled synchronization and authenticated admin imports delegate here so
   source ownership, artifact integrity, repair, and approval semantics cannot
   diverge between entry points.
+
+  Same-version rebuild policy (GitHub #335): when a release re-wraps an already
+  imported `addon_id` + `version` under a new OCI envelope, Import All takes the
+  release's build through the same replace path as the per-row Replace button
+  instead of failing with a source conflict — but only when the existing row
+  carries complete provenance (both `source_oci_ref` and `source_oci_digest`).
+  A coherent claim from an earlier release is superseded by the verified new
+  build; a row with partial provenance (a nil ref, a digest that matches
+  nothing) is not silently overwritten — it flows through a plain import so the
+  core conflict guard still fires after verification. Either way the
+  replacement bundle is fully verified (Cosign + sha256 + agent-release ed25519)
+  before it can restage the row, review status is preserved the same way
+  (denied/revoked stay, approved returns to staged), and rows owned by another
+  source type (`:upload`/`:github`) are never touched.
   """
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Plugins.AddonPackage
+  alias ServiceRadar.Plugins.AddonProfile
   alias ServiceRadar.Plugins.NativeAddonArtifactMirror
   alias ServiceRadar.Plugins.RetiredNativeAddons
   alias ServiceRadarWebNG.Plugins.NativeAddonImporter
@@ -40,32 +55,25 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
         sync_import(addon, opts)
 
       {:ok, %AddonPackage{} = package} ->
-        cond do
-          source_type_owned?(package) ->
-            {:error, source_conflict(package, addon)}
-
-          reusable_package?(package, addon) ->
+        case import_decision(package, addon, opts) do
+          :reuse ->
             with {:ok, package} <- maybe_approve(package, opts) do
               {:skipped, package}
             end
 
-          Keyword.get(opts, :replace, false) == true ->
+          :replace ->
             sync_import(
               addon,
               opts
               |> Keyword.put(:existing_review_status, package.status)
               |> Keyword.put(:replace_existing, true)
+              |> Keyword.put(:prior_approved_capabilities, prior_approved_capabilities(package))
             )
 
-          unclaimed_placeholder?(package) ->
-            sync_import(
-              addon,
-              opts
-              |> Keyword.put(:existing_review_status, package.status)
-              |> Keyword.put(:replace_existing, true)
-            )
+          :import ->
+            sync_import(addon, opts)
 
-          true ->
+          {:conflict, _reason} ->
             {:error, source_conflict(package, addon)}
         end
 
@@ -73,6 +81,67 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
         error
     end
   end
+
+  @doc """
+  Pure import-or-reuse decision for one discovered add-on against its already
+  imported package row, if any.
+
+  Returns `:import_new` (no row yet), `:reuse` (the row already reflects this
+  exact build), `:replace` (same `addon_id` + `version` rebuilt under a new
+  envelope with complete provenance on the existing row: restage the row onto
+  the release's build), `:import` (a first-party row with partial provenance:
+  run a plain import and let the core verifier decide — an unclaimed seeder
+  placeholder heals, a genuinely mismatched claim still conflicts), or
+  `{:conflict, :source_type_owned}` (the row belongs to another source and must
+  never be overwritten).
+
+  Only first-party rows are replaceable. That subsumes the old
+  unclaimed-placeholder carve-out (GitHub #4039): a seeder-created row carries
+  no source identity and no verification, so it flows through `:import` and the
+  core reconciler heals it (empty provenance can never disagree). A row with
+  partial provenance — a nil ref next to a digest that matches nothing — keeps
+  the conflict guard: the core fires it after verification rather than
+  overwriting silently. And when both sides are coherent first-party claims for
+  the same version, the newer release wins through the replace path (which
+  restages the row for review) rather than failing the whole Import All
+  (GitHub #335). An explicit `replace: true` (the per-row Replace button)
+  always takes the replace path.
+  """
+  @spec import_decision(AddonPackage.t() | nil, map(), keyword()) ::
+          :import_new | :reuse | :replace | :import | {:conflict, :source_type_owned}
+  def import_decision(nil, _addon, _opts), do: :import_new
+
+  def import_decision(%AddonPackage{} = package, addon, opts) do
+    cond do
+      source_type_owned?(package) -> {:conflict, :source_type_owned}
+      reusable_package?(package, addon) -> :reuse
+      replace_forced?(opts) -> :replace
+      provenance_complete?(package) -> :replace
+      true -> :import
+    end
+  end
+
+  defp replace_forced?(opts), do: Keyword.get(opts, :replace, false) == true
+
+  defp provenance_complete?(%AddonPackage{} = package) do
+    present?(package.source_oci_ref) and present?(package.source_oci_digest)
+  end
+
+  defp present?(nil), do: false
+  defp present?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present?(_value), do: false
+
+  # Approval carried on a row about to be replaced. Only an `:approved` row
+  # contributes: it is the operator's reviewed capability set for these bytes,
+  # and it lets a same-version rebuild of the only approved version still
+  # auto-approve through a tracking profile (GitHub #337). Anything else
+  # contributes nothing, so a staged/denied/revoked row can never widen the
+  # auto-approval ceiling on its way out.
+  defp prior_approved_capabilities(%AddonPackage{status: :approved} = package) do
+    List.wrap(package.approved_capabilities)
+  end
+
+  defp prior_approved_capabilities(_package), do: []
 
   @spec summary([map()], [{map(), sync_result()}]) :: map()
   def summary(discovered, results) do
@@ -162,20 +231,99 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
   end
 
   defp maybe_approve(%AddonPackage{addon_id: addon_id, status: :staged} = package, opts) do
-    if addon_id in Keyword.get(opts, :auto_approve_addon_ids, []) do
-      package
-      |> Ash.Changeset.for_update(
-        :approve,
-        %{approved_capabilities: package.capabilities || [], approved_by: "system:native_addon_sync"},
-        actor: SystemActor.system(:native_addon_sync)
-      )
-      |> Ash.update()
-    else
-      {:ok, package}
+    cond do
+      addon_id in Keyword.get(opts, :auto_approve_addon_ids, []) ->
+        approve_package(package)
+
+      tracking_profile_auto_approves?(package, opts) ->
+        approve_package(package)
+
+      true ->
+        {:ok, package}
     end
   end
 
   defp maybe_approve(%AddonPackage{} = package, _opts), do: {:ok, package}
+
+  defp approve_package(package) do
+    package
+    |> Ash.Changeset.for_update(
+      :approve,
+      %{approved_capabilities: package.capabilities || [], approved_by: "system:native_addon_sync"},
+      actor: SystemActor.system(:native_addon_sync)
+    )
+    |> Ash.update()
+  end
+
+  @doc """
+  Pure auto-approval eligibility for a staged first-party build (GitHub #337).
+
+  An operator who leaves an enabled profile on `track_latest_approved` (the
+  default for verified first-party packages) has opted that add-on into
+  automatic updates, so a newly imported build of the same `addon_id` can be
+  approved without another click — but only when it asks for no capability the
+  operator has not already reviewed. `ceiling` is the set of capabilities
+  approved on earlier builds (plus the replaced row's own prior approval, when
+  this build is a same-version rebuild); any expansion beyond it stays staged
+  for human review.
+  """
+  @spec auto_approve_eligible?([String.t()] | nil, boolean(), MapSet.t()) :: boolean()
+  def auto_approve_eligible?(requested, true, %MapSet{} = ceiling) when is_list(requested) do
+    MapSet.subset?(MapSet.new(requested), ceiling)
+  end
+
+  def auto_approve_eligible?(_requested, _tracking, _ceiling), do: false
+
+  # Fails closed: any lookup error means "do not auto-approve".
+  defp tracking_profile_auto_approves?(%AddonPackage{addon_id: addon_id} = package, opts) do
+    with {:ok, true} <- tracking_profile_present?(addon_id),
+         {:ok, ceiling} <- auto_approve_ceiling(addon_id, package.id, opts) do
+      auto_approve_eligible?(package.capabilities, true, ceiling)
+    else
+      _ -> false
+    end
+  end
+
+  defp tracking_profile_present?(addon_id) do
+    actor = SystemActor.system(:native_addon_sync)
+
+    AddonProfile
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(
+      addon_id == ^addon_id and enabled == true and update_policy == :track_latest_approved and
+        explicit_version_pin == false
+    )
+    |> Ash.read(actor: actor)
+    |> case do
+      {:ok, [_ | _]} -> {:ok, true}
+      {:ok, []} -> {:ok, false}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp auto_approve_ceiling(addon_id, exclude_package_id, opts) do
+    actor = SystemActor.system(:native_addon_sync)
+    prior = opts |> Keyword.get(:prior_approved_capabilities, []) |> List.wrap()
+
+    AddonPackage
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(addon_id == ^addon_id and status == :approved)
+    |> Ash.read(actor: actor)
+    |> case do
+      {:ok, packages} ->
+        ceiling =
+          packages
+          |> Enum.reject(&(to_string(&1.id) == to_string(exclude_package_id)))
+          |> Enum.flat_map(&List.wrap(&1.approved_capabilities))
+          |> Kernel.++(prior)
+          |> MapSet.new()
+
+        {:ok, ceiling}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
 
   defp maybe_approve_repaired(%AddonPackage{} = package, opts) do
     case Keyword.get(opts, :existing_review_status) do
@@ -244,30 +392,11 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
 
   defp source_type_owned?(%AddonPackage{source_type: source_type}), do: source_type != :first_party
 
-  # A row an in-cluster seeder created for a version it cannot verify: first-party,
-  # never verified, and carrying NO source identity at all.
-  #
-  # The source-conflict guard exists so a package's source cannot be swapped
-  # underneath it. That reasoning does not reach this row, because there is no
-  # recorded source to conflict with -- `source_oci_ref` and `source_oci_digest`
-  # are both empty. Treating it as a conflicting first-party claim is what froze
-  # every seeded add-on at its last pre-seeder version: the seeder pre-created the
-  # very version the importer was trying to deliver, and the importer then refused
-  # its own artifact. See GitHub #4039.
-  #
-  # Deliberately narrow. A row that HAS a source, or that was verified, still takes
-  # the conflict path -- those are real claims and must not be overwritten silently.
-  defp unclaimed_placeholder?(%AddonPackage{} = package) do
-    package.source_type == :first_party and
-      package.verification_status != "verified" and
-      blank?(package.source_oci_ref) and
-      blank?(package.source_oci_digest)
-  end
-
-  defp blank?(nil), do: true
-  defp blank?(value) when is_binary(value), do: String.trim(value) == ""
-  defp blank?(_value), do: false
-
+  # A row an in-cluster seeder created for a version it cannot verify (GitHub
+  # #4039): first-party, never verified, carrying NO source identity at all.
+  # It flows through the `:import` decision, and the core reconciler heals it
+  # there (empty provenance can never disagree), so the verified build
+  # overwrites the unverified announcement rather than conflicting with it.
   defp source_conflict(%AddonPackage{} = package, addon) do
     reason =
       if package.source_type == :first_party,
