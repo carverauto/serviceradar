@@ -67,10 +67,15 @@
       a new "Origin" table column (`api`/`web`/`—`) rather than repurposing
       "Source row" -- named "Origin" (not literally "Source") to avoid
       clashing with the existing PaperTrail "Source row" column.
-- [ ] 4.2 Preserve the adoption boundary in [design.md](design.md#decisions)
+- [x] 4.2 Preserve the adoption boundary in [design.md](design.md#decisions)
       when archiving into `openspec/specs/ash-events-audit-log`; point code
       documentation to that owner rather than copying its resource inventory.
+      `ApiEvent`, `ApiEventVersion`, and `ClearForReplay`'s moduledocs all
+      reference `design.md#decisions` by path rather than restating the
+      resource inventory inline. Archiving itself (moving this change's
+      spec delta into `openspec/specs/`) is a separate, later step this
+      task does not perform.
 
 ## 5. Close out
 
-- [ ] 5.1 `openspec validate add-ash-events-audit-log --strict`.
+- [x] 5.1 `openspec validate add-ash-events-audit-log --strict`.
