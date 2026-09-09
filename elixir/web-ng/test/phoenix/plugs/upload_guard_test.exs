@@ -1,11 +1,11 @@
 defmodule ServiceRadarWebNGWeb.Plugs.UploadGuardTest do
   use ExUnit.Case, async: false
 
-  @moduletag :db_free
-
   import Plug.Conn
 
   alias ServiceRadarWebNGWeb.Plugs.UploadGuard
+
+  @moduletag :db_free
 
   @png_header <<0x89, "PNG", 0x0D, 0x0A, 0x1A, 0x0A>>
   @jpeg_header <<0xFF, 0xD8, 0xFF, 0xE0>>
