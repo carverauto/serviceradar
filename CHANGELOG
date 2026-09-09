@@ -23,6 +23,7 @@ lookup errors.
   restrict the credential owner's role to limit access.
 - Web: fixes filename sanitization for accepted uploads and
   preserves typed MCP authorization and not-found errors.
+  Restores copy buttons for generated API credentials.
 - Identity: fixes persisted device-identifier lookups while
   preserving identifier-type and partition matching.
 - Quality: maintains narrow Dialyzer exclusions and isolates
@@ -30,8 +31,12 @@ lookup errors.
   CNPG 1.30 upgrade compatibility without changing the operator.
 - Documentation: refreshes Cowlib/ESAML advisory-waiver rationale
   and clarifies OpenSpec requirement validation guidance.
-- Schema: no new migrations; `migrations.expectedVersion`
-  remains `20260908180200`.
+- Audit history: records stateful alert-rule creates, updates, and
+  deletions with actor attribution and changed attributes alongside
+  existing PaperTrail history.
+- Schema: adds the shared API event store in migration
+  `20260909100000`; `migrations.expectedVersion` advances to
+  `20260909100000`.
 
 # ServiceRadar v1.4.54
 
