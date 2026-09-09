@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Guest Availability State-Change Event
-The Proxmox plugin SHALL treat a monitored guest's `running` → `stopped`
+The Proxmox plugin SHALL treat a monitored guest's `running` -> `stopped`
 transition as a distinct, alertable condition event, independent of the
 periodic ok/warning/critical resource-pressure summaries it already emits.
 

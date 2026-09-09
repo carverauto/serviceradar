@@ -9,24 +9,24 @@
 - [ ] 1.3 Implement the `clear_records_for_replay` callback module.
 - [ ] 1.4 Register `ApiEvent` in `ServiceRadar.Observability`'s
       `resources do end`.
-- [ ] 1.5 `mix ash.codegen add_api_event_log`; `mix ash.migrate`; commit the
-      generated migration.
+- [ ] 1.5 `mix ash.codegen add_api_event_log`; apply it using the root
+      `AGENTS.md` database migration guidance; commit the generated migration.
 
 ## 2. Wire up StatefulAlertRule
 
 - [ ] 2.1 Add `AshEvents.Events` to `stateful_alert_rule.ex`'s extensions
       (alongside `AshJsonApi.Resource` from `add-alert-rule-json-api`, if
-      that change has landed first — otherwise just this one) and an
+      that change has landed first -- otherwise just this one) and an
       `events do event_log ServiceRadar.Observability.ApiEvent end` block.
       Note: this requires the SAME macro-opt-in mechanism
       `add-alert-rule-json-api` adds to `preset_rule_resource.ex` (an
-      `extensions:`-threading opt-in) — extend that opt-in to accept
+      `extensions:`-threading opt-in) -- extend that opt-in to accept
       `AshEvents.Events` too rather than inventing a second mechanism.
 - [ ] 2.2 Add an `Ash.Resource.Change` on create/update/destroy that reads a
       changeset-context transport flag and writes `metadata["source"]` as
       `"api"` or `"web"`.
 - [ ] 2.3 Set that changeset-context flag from the JSON:API request path
-      (present) — confirm the LiveView path leaves it absent, defaulting to
+      (present) -- confirm the LiveView path leaves it absent, defaulting to
       `"web"`.
 
 ## 3. Verification
@@ -40,21 +40,17 @@
 - [ ] 3.3 Test: destroy and update actions each produce their own `ApiEvent`
       row (not just create).
 - [ ] 3.4 Confirm no interaction/ordering issue with
-      `PresetRuleResource`'s existing policy block — actions still require
+      `PresetRuleResource`'s existing policy block -- actions still require
       `operator`/`admin`/`system` to succeed; AshEvents only observes
       already-authorized actions.
 
 ## 4. Surface it
 
-- [ ] 4.1 Ship a minimal Settings → Audit list view for `ApiEvent` rows
-      (actor, resource, action, source, occurred_at), or — if
-      `add-audit-history-page` has landed by this point — extend its
-      History view to also merge `ApiEvent` alongside AshPaperTrail
-      versions.
-- [ ] 4.2 Document, in code and in `openspec/specs/ash-events-audit-log`,
-      the boundary: AshEvents for new API-first resources going forward
-      (starting with `StatefulAlertRule`), AshPaperTrail unchanged for the
-      9 existing resources.
+- [ ] 4.1 Implement the audit UI integration in
+      [design.md](design.md#decisions), preserving the existing History view.
+- [ ] 4.2 Preserve the adoption boundary in [design.md](design.md#decisions)
+      when archiving into `openspec/specs/ash-events-audit-log`; point code
+      documentation to that owner rather than copying its resource inventory.
 
 ## 5. Close out
 

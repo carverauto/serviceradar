@@ -3,30 +3,22 @@
 ## Why
 
 Closes [#276](https://github.com/carverauto/serviceradar/issues/276)
-("chore: use AshEvents — Evaluate AshEvents to improve auditing of operator
+("chore: use AshEvents -- Evaluate AshEvents to improve auditing of operator
 actions").
 
-`add-alert-rule-json-api` (same session) exposes `StatefulAlertRule` — and,
-as a forced side effect of how Ash's JSON:API router mounts, 19 other
-Observability resources — over `/api/v2/*` for the first time. Immediately
-after scoping that, the question came up: how do we get an audit trail of
-who used these APIs and what they did?
+The separately scoped `add-alert-rule-json-api` proposal motivates an audit
+trail for mutations to `StatefulAlertRule` over JSON:API. That proposal owns
+the API route scope; confirm its final contract when integrating it.
 
-The codebase already has an audit mechanism, **AshPaperTrail**
-(`ash_paper_trail ~> 0.6.0`), adopted on 9 resources today
-(`NetworkCredentialSecret`, `NetworkCredentialRule`,
-`ProxmoxConsoleSession`, the four Ansible automation resources,
-`AuthLockout`), with a UI in flight to surface it
-(`add-audit-history-page`, 10/15 tasks) — each PaperTrail-enabled resource
-writes a `<table>_versions` row per create/update/destroy with a
-before/after diff.
+The codebase already uses AshPaperTrail for per-resource version history.
+See [design.md](design.md#context) for the existing audit surface and
+[adoption decision](design.md#decisions) for how this proposal coexists with it.
 
-Offered PaperTrail-extension as the default recommendation, but the choice
-was **AshEvents** instead — a different model: a single centralized,
+This proposal chooses **AshEvents** -- a different model: a single centralized,
 replayable event log across every opted-in resource and action, keyed by
 actor, rather than a per-resource versions table. That fits "audit logs for
 API usage" more directly: one place to query "what did this actor do,
-across every resource, in what order" — which is exactly the shape of
+across every resource, in what order" -- which is exactly the shape of
 question an API audit trail needs to answer, and which PaperTrail's
 per-resource tables don't answer without joining N tables.
 
@@ -46,18 +38,14 @@ per-resource tables don't answer without joining N tables.
   ```
   registered in the `ServiceRadar.Observability` domain, with its own
   Ash-codegen migration (per this repo's established `mix ash.codegen`
-  workflow — no hand-written Ecto migration).
+  workflow -- no hand-written Ecto migration).
 - Opt `StatefulAlertRule` into it via the `AshEvents.Events` extension and an
-  `events do event_log ServiceRadar.Observability.ApiEvent end` block —
+  `events do event_log ServiceRadar.Observability.ApiEvent end` block --
   the first (and, for this change, only) resource wired up, since it's the
   resource `add-alert-rule-json-api` is putting behind a new API surface.
-- Add a minimal Settings → Audit surface (or extend the existing
-  `add-audit-history-page` History view, if that change has landed by the
-  time this one is implemented) to list `ApiEvent` rows: actor, resource,
-  action, `occurred_at`, and the `data`/`changed_attributes` maps.
-- Document the adoption boundary explicitly (see Decisions): AshEvents is
-  for resources newly exposed over JSON:API going forward; it does not
-  replace PaperTrail on the 9 resources already using it.
+- Extend the audit surface with an `ApiEvent` list, following the integration
+  decision in [design.md](design.md#decisions).
+- Apply the adoption boundary defined in [design.md](design.md#decisions).
 
 ## Impact
 
@@ -71,12 +59,11 @@ per-resource tables don't answer without joining N tables.
   - `elixir/serviceradar_core/lib/serviceradar/observability.ex` (register
     `ApiEvent` in the domain's `resources do end`)
   - A new Ash-codegen migration for the `api_events` table
-  - A minimal audit-log list view (new or folded into
-    `add-audit-history-page` if that's landed)
+  - An audit-log list view integrated with the existing audit surface
 - Depends on `add-alert-rule-json-api` for `StatefulAlertRule` actually being
-  reachable over `/api/v2/*` — this change is about auditing that surface,
+  reachable over `/api/v2/*` -- this change is about auditing that surface,
   not a prerequisite for it. Order doesn't strictly matter (AshEvents records
   actions regardless of transport, so it works before the JSON:API mount
   lands too), but the motivating use case is that API surface.
-- Does not touch the 9 existing AshPaperTrail resources or
-  `add-audit-history-page`'s in-flight work.
+- Existing resource audit extensions remain governed by the adoption boundary
+  in [design.md](design.md#decisions).

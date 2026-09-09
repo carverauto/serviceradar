@@ -2,8 +2,8 @@
 
 ### Requirement: Centralized API Event Log
 The system SHALL record every create, update, and destroy action performed
-against `StatefulAlertRule` — regardless of whether it originated from the
-web UI or from the JSON:API surface — as a row in a single, centralized
+against `StatefulAlertRule` -- regardless of whether it originated from the
+web UI or from the JSON:API surface -- as a row in a single, centralized
 event log resource, keyed by the actor who performed it.
 
 #### Scenario: An action is performed via the JSON:API route
