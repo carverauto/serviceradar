@@ -394,13 +394,13 @@ Verify locally before pushing: `bash scripts/check-native-addon-version-bumps.sh
 
 ### Adding a new `elixir/serviceradar_core` test file
 
-Every `*_test.exs` under `elixir/serviceradar_core/test/` (except `test/db/`,
-`test/release_gates/`, and two hardcoded exclusions) must have a row in
+Every test source selected by
+[`ordinary_core_test_sources()`](ci_heavy_gate_contract_test.py) must have a row in
 `elixir/serviceradar_core/test/INTEGRATION_SOURCE_DISPOSITIONS.tsv`, or
 `ci_heavy_gate_contract_test.py`'s
-`test_integration_disposition_inventory_is_exhaustive_and_concrete` fails —
-and it fails **only in `make test` / BazelCI**, never in `mix test` or the
-Elixir Quality GitHub Action, so a new test file can look completely green
+`test_integration_disposition_inventory_is_exhaustive_and_concrete` fails.
+This check runs in **`make test` / BazelCI**, but not in `mix test` or the
+Elixir Quality GitHub Action. A new test file can therefore look completely green
 through normal local iteration and PR checks, then fail BazelCI alone.
 `build/integration_selection_equivalence_test.exs` fails downstream of the
 same gap, since the pruned/all-source test selection it compares is derived
