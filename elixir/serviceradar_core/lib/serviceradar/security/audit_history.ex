@@ -1,23 +1,56 @@
 defmodule ServiceRadar.Security.AuditHistory do
   @moduledoc """
   Cross-resource read surface over the AshPaperTrail `<Resource>.Version`
-  sibling modules. Returns a merged, time-ordered list of version
-  rows from every resource in a configurable allow-list so the
-  Settings → Audit → History LiveView can render one timeline.
+  sibling modules, unioned with `ServiceRadar.Observability.ApiEvent`
+  (AshEvents) rows for resources opted into that mechanism. Returns a
+  merged, time-ordered list so the Settings → Audit → History LiveView can
+  render one timeline regardless of which auditing mechanism a resource
+  uses.
 
-  The allow-list lives at
-  `config :serviceradar_core, #{__MODULE__}, resources: [...]`.
-  Operators may include or exclude specific resources without
-  touching this module.
+  The PaperTrail allow-list lives at
+  `config :serviceradar_core, #{__MODULE__}, resources: [...]`; the
+  AshEvents allow-list at
+  `config :serviceradar_core, #{__MODULE__}, ash_events_resources: [...]`.
+  These are deliberately separate lists (`resources/0` is PaperTrail-only)
+  because the two mechanisms have different adoption boundaries — see
+  `openspec/changes/add-ash-events-audit-log/design.md#decisions`. Operators
+  may include or exclude specific resources in either without touching this
+  module.
 
-  Per-resource Ash policies still gate the version reads — calling
-  `list_recent/2` with an actor that can't read a particular
-  resource's versions transparently drops those rows from the
-  result. Pagination keeps its shape because the merge happens
-  after the per-resource reads.
+  Every `ApiEvent` row is adapted into an `ApiEventVersion` struct exposing
+  the same field names AshPaperTrail's `<Resource>.Version` modules use
+  (`version_inserted_at`, `version_action_type`, `changes`,
+  `version_action_inputs`, `version_source_id`), so the existing History
+  LiveView template and its `extract_actor/1` helper need no changes to
+  render either kind of row. The one addition is `origin` on the merged
+  entry (`"api"` / `"web"` / `nil`), read from the AshEvents
+  `metadata["source"]` field.
+
+  Per-resource Ash policies still gate the version/event reads — calling
+  `list_recent/2` with an actor that can't read a particular resource's
+  history transparently drops those rows from the result. Pagination keeps
+  its shape because the merge happens after the per-resource reads.
   """
 
+  alias ServiceRadar.Observability.ApiEvent
+
   require Ash.Query
+
+  defmodule ApiEventVersion do
+    @moduledoc """
+    Adapts an `ApiEvent` row to the field names AshPaperTrail's
+    `<Resource>.Version` modules use, so the History LiveView template and
+    `extract_actor/1` can render both kinds of row identically.
+    """
+    defstruct [
+      :id,
+      :version_inserted_at,
+      :version_action_type,
+      :changes,
+      :version_action_inputs,
+      :version_source_id
+    ]
+  end
 
   @default_limit 50
   @default_offset 0
@@ -41,6 +74,15 @@ defmodule ServiceRadar.Security.AuditHistory do
     ServiceRadar.Dashboards.DashboardReportSchedule
   ]
 
+  # AshEvents-backed resources, distinct from `@default_resources` (which is
+  # PaperTrail-specific). Only resources with an `events do event_log
+  # ServiceRadar.Observability.ApiEvent end` block belong here -- currently
+  # only `StatefulAlertRule`, per the adoption boundary in
+  # `openspec/changes/add-ash-events-audit-log/design.md#decisions`.
+  @default_ash_events_resources [
+    ServiceRadar.Observability.StatefulAlertRule
+  ]
+
   @doc """
   Returns the configured allow-list of AshPaperTrail-enabled
   resources. Operators override via
@@ -52,6 +94,27 @@ defmodule ServiceRadar.Security.AuditHistory do
     |> Application.get_env(__MODULE__, [])
     |> Keyword.get(:resources, @default_resources)
   end
+
+  @doc """
+  Returns the configured allow-list of AshEvents-enabled resources
+  (resources that record into `ServiceRadar.Observability.ApiEvent`).
+  Operators override via
+  `config :serviceradar_core, #{__MODULE__}, ash_events_resources: [...]`.
+  """
+  @spec ash_events_resources() :: [module()]
+  def ash_events_resources do
+    :serviceradar_core
+    |> Application.get_env(__MODULE__, [])
+    |> Keyword.get(:ash_events_resources, @default_ash_events_resources)
+  end
+
+  @doc """
+  Returns the union of both allow-lists, for callers (the History
+  LiveView's resource filter) that don't need to distinguish which
+  auditing mechanism a resource uses.
+  """
+  @spec all_resources() :: [module()]
+  def all_resources, do: Enum.uniq(resources() ++ ash_events_resources())
 
   @doc """
   Returns the most recent version rows across the allow-list,
@@ -89,9 +152,17 @@ defmodule ServiceRadar.Security.AuditHistory do
     # globally sort and slice.
     per_source = offset + limit
 
-    resource_types
-    |> Enum.filter(&(&1 in resources()))
-    |> Enum.flat_map(&read_versions(&1, actor, since, until_, action_types, per_source))
+    paper_trail_entries =
+      resource_types
+      |> Enum.filter(&(&1 in resources()))
+      |> Enum.flat_map(&read_versions(&1, actor, since, until_, action_types, per_source))
+
+    ash_events_entries =
+      resource_types
+      |> Enum.filter(&(&1 in ash_events_resources()))
+      |> read_ash_events(actor, since, until_, action_types, per_source)
+
+    (paper_trail_entries ++ ash_events_entries)
     |> Enum.filter(&matches_actor?(&1, actor_id))
     |> Enum.sort_by(& &1.version.version_inserted_at, {:desc, DateTime})
     |> Enum.drop(offset)
@@ -113,7 +184,10 @@ defmodule ServiceRadar.Security.AuditHistory do
       |> Ash.read(actor: actor)
       |> case do
         {:ok, versions} ->
-          Enum.map(versions, &%{resource: resource, version: &1})
+          # `origin` is nil for PaperTrail rows -- rendered as "—" by the
+          # LiveView's Source column, distinct from AshEvents rows below
+          # which always carry "api" or "web".
+          Enum.map(versions, &%{resource: resource, version: &1, origin: nil})
 
         {:error, _reason} ->
           # Per-resource read may fail under RBAC — treat as empty.
@@ -125,6 +199,88 @@ defmodule ServiceRadar.Security.AuditHistory do
   rescue
     # Never let a single resource's failure poison the whole timeline.
     _ -> []
+  end
+
+  ## AshEvents reads (ApiEvent, adapted to the PaperTrail Version shape)
+
+  defp read_ash_events([], _actor, _since, _until_, _action_types, _n), do: []
+
+  defp read_ash_events(wanted_resources, actor, since, until_, action_types, n) do
+    ApiEvent
+    |> Ash.Query.for_read(:read, %{}, actor: actor)
+    |> Ash.Query.filter(resource in ^wanted_resources)
+    |> apply_ash_events_time_filters(since, until_)
+    |> apply_ash_events_action_filter(action_types)
+    |> Ash.Query.limit(n)
+    |> Ash.read(actor: actor)
+    |> case do
+      {:ok, events} -> Enum.map(events, &adapt_ash_event/1)
+      {:error, _reason} -> []
+    end
+  rescue
+    _ -> []
+  end
+
+  defp adapt_ash_event(event) do
+    %{
+      resource: event.resource,
+      origin: event.metadata["source"] || "—",
+      version: %ApiEventVersion{
+        id: event.id,
+        version_inserted_at: event.occurred_at,
+        version_action_type: to_string(event.action_type),
+        changes: event.changed_attributes,
+        version_action_inputs:
+          if event.user_id do
+            %{"actor" => %{"id" => to_string(event.user_id)}}
+          else
+            %{}
+          end,
+        version_source_id: event.record_id
+      }
+    }
+  end
+
+  defp apply_ash_events_time_filters(query, nil, nil), do: query
+
+  defp apply_ash_events_time_filters(query, since, nil) do
+    require Ash.Expr
+
+    Ash.Query.filter(query, Ash.Expr.expr(occurred_at >= ^since))
+  end
+
+  defp apply_ash_events_time_filters(query, nil, until_) do
+    require Ash.Expr
+
+    Ash.Query.filter(query, Ash.Expr.expr(occurred_at <= ^until_))
+  end
+
+  defp apply_ash_events_time_filters(query, since, until_) do
+    require Ash.Expr
+
+    Ash.Query.filter(
+      query,
+      Ash.Expr.expr(occurred_at >= ^since and occurred_at <= ^until_)
+    )
+  end
+
+  defp apply_ash_events_action_filter(query, nil), do: query
+  defp apply_ash_events_action_filter(query, []), do: query
+
+  defp apply_ash_events_action_filter(query, types) when is_list(types) do
+    require Ash.Expr
+
+    atom_types = Enum.map(types, &safe_to_atom/1)
+
+    Ash.Query.filter(query, Ash.Expr.expr(action_type in ^atom_types))
+  end
+
+  defp safe_to_atom(value) when is_atom(value), do: value
+
+  defp safe_to_atom(value) when is_binary(value) do
+    String.to_existing_atom(value)
+  rescue
+    ArgumentError -> nil
   end
 
   defp apply_time_filters(query, nil, nil), do: query

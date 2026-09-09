@@ -2,11 +2,15 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.History do
   @moduledoc """
   Settings → Audit → History.
 
-  Unified AshPaperTrail version timeline across the resources in
-  the `ServiceRadar.Security.AuditHistory` allow-list. Operators
-  filter by resource type, actor identifier, action type, and
-  time range, and drill into a single version's `changes` map for
-  the diff detail. Gated by `settings.audit.view`.
+  Unified timeline across the resources in
+  `ServiceRadar.Security.AuditHistory`'s two allow-lists: AshPaperTrail
+  version rows (`resources/0`) and AshEvents `ApiEvent` rows
+  (`ash_events_resources/0`, adapted to the same shape by
+  `AuditHistory.list_recent/2`). Operators filter by resource type, actor
+  identifier, action type, and time range, and drill into a single row's
+  `changes` map for the diff detail. The "Origin" column shows `api` / `web`
+  for AshEvents rows and "—" for PaperTrail rows, which have no transport
+  concept. Gated by `settings.audit.view`.
   """
 
   use ServiceRadarWebNGWeb, :live_view
@@ -108,7 +112,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.History do
   defp blank_to_nil(value), do: value
 
   defp resource_options do
-    AuditHistory.resources()
+    AuditHistory.all_resources()
     |> Enum.map(fn module ->
       label = module |> Module.split() |> List.last()
       {label, to_string(module)}
@@ -157,12 +161,18 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.History do
   defp maybe_put_actor_filter(opts, actor), do: Keyword.put(opts, :actor_id, actor)
 
   defp resolve_resource(resource_str) when is_binary(resource_str) do
-    Enum.find(AuditHistory.resources(), &(to_string(&1) == resource_str))
+    Enum.find(AuditHistory.all_resources(), &(to_string(&1) == resource_str))
   end
 
   defp resolve_resource(_), do: nil
 
   defp resource_label(module), do: module |> Module.split() |> List.last()
+
+  # `entry.origin` is "api"/"web" for an AshEvents-adapted row (see
+  # `AuditHistory.adapt_ash_event/1`) and nil for a PaperTrail row, which has
+  # no transport concept.
+  defp origin_label(nil), do: "—"
+  defp origin_label(origin) when is_binary(origin), do: origin
 
   defp truncate_json(nil), do: ""
 
@@ -213,7 +223,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.History do
         <header class="space-y-1">
           <h1 class="text-2xl font-semibold">Audit · History</h1>
           <p class="text-sm text-sr-muted">
-            Cross-resource AshPaperTrail timeline. Filter by resource, actor, action, and time range; click a row for the diff.
+            Cross-resource timeline (AshPaperTrail versions and AshEvents API events). Filter by resource, actor, action, and time range; click a row for the diff.
           </p>
         </header>
 
@@ -261,6 +271,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.History do
                   <th class="px-4 py-2 text-left">Resource</th>
                   <th class="px-4 py-2 text-left">Action</th>
                   <th class="px-4 py-2 text-left">Actor</th>
+                  <th class="px-4 py-2 text-left">Origin</th>
                   <th class="px-4 py-2 text-left">Source row</th>
                 </tr>
               </thead>
@@ -284,12 +295,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.History do
                     <td class="px-4 py-2">{resource_label(entry.resource)}</td>
                     <td class="px-4 py-2">{entry.version.version_action_type}</td>
                     <td class="px-4 py-2 font-mono text-xs">{extract_actor(entry.version)}</td>
+                    <td class="px-4 py-2 font-mono text-xs">{origin_label(entry.origin)}</td>
                     <td class="px-4 py-2 font-mono text-xs">{entry.version.version_source_id}</td>
                   </tr>
                 <% end %>
                 <%= if Enum.empty?(@versions) do %>
                   <tr>
-                    <td colspan="5" class="px-4 py-8 text-center text-sr-muted">
+                    <td colspan="6" class="px-4 py-8 text-center text-sr-muted">
                       No version history for the current filters.
                     </td>
                   </tr>

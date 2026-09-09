@@ -57,8 +57,16 @@
 
 ## 4. Surface it
 
-- [ ] 4.1 Implement the audit UI integration in
+- [x] 4.1 Implement the audit UI integration in
       [design.md](design.md#decisions), preserving the existing History view.
+      Adapter: `ApiEvent` rows are wrapped in an `AuditHistory.ApiEventVersion`
+      struct exposing PaperTrail's field names, unioned into `list_recent/2`.
+      Added a new `@ash_events_resources` allow-list (distinct from
+      `@default_resources`) and `all_resources/0`; the LiveView's
+      `resource_options/0`/`resolve_resource/1` use `all_resources/0`. Added
+      a new "Origin" table column (`api`/`web`/`—`) rather than repurposing
+      "Source row" -- named "Origin" (not literally "Source") to avoid
+      clashing with the existing PaperTrail "Source row" column.
 - [ ] 4.2 Preserve the adoption boundary in [design.md](design.md#decisions)
       when archiving into `openspec/specs/ash-events-audit-log`; point code
       documentation to that owner rather than copying its resource inventory.

@@ -139,6 +139,7 @@ ASYNC_INTEGRATION_SRCS = [
     "test/serviceradar/prefix_tags/manual_test.exs",
     "test/serviceradar/scans/adhoc_scan_nats_fixture_config_test.exs",
     "test/serviceradar/scans/scan_run_test.exs",
+    "test/serviceradar/security/audit_history_ash_events_test.exs",
     "test/serviceradar/sweep_jobs/oban_support_db_test.exs",
     "test/serviceradar/sweep_jobs/sweep_compiler_test.exs",
     "test/serviceradar/sysmon_profiles/sysmon_compiler_test.exs",
