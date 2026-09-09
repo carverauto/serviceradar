@@ -17,12 +17,44 @@
 package spool
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 )
+
+func TestReadRecordPreservesStorageErrors(t *testing.T) {
+	encoded := encodeRecord(1, evid(1), []byte("synthetic frame"))
+	for offset := 0; offset < len(encoded); offset++ {
+		t.Run(fmt.Sprint(offset), func(t *testing.T) {
+			reader, writer := io.Pipe()
+			defer reader.Close()
+			if err := writer.CloseWithError(syscall.EIO); err != nil {
+				t.Fatal(err)
+			}
+			input := io.MultiReader(bytes.NewReader(encoded[:offset]), reader)
+			_, size, err := readRecord(bufio.NewReader(input))
+			if !errors.Is(err, syscall.EIO) || size != 0 {
+				t.Fatalf("readRecord = size %d, error %v; want 0, EIO", size, err)
+			}
+
+			_, size, err = readRecord(bufio.NewReader(bytes.NewReader(encoded[:offset])))
+			want := io.ErrUnexpectedEOF
+			if offset == 0 {
+				want = io.EOF
+			}
+			if !errors.Is(err, want) || size != 0 {
+				t.Fatalf("truncated readRecord = size %d, error %v; want 0, %v", size, err, want)
+			}
+		})
+	}
+}
 
 func evid(b byte) []byte {
 	out := make([]byte, 16)

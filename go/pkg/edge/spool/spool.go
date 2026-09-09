@@ -307,12 +307,9 @@ func encodeRecord(seq uint64, eventID, body []byte) []byte {
 // io.ErrUnexpectedEOF; a present-but-invalid header returns ErrCorruptHeader.
 func readRecord(r *bufio.Reader) (Record, int, error) {
 	header := make([]byte, headerLen+headerCRC)
-	n, err := io.ReadFull(r, header)
+	_, err := io.ReadFull(r, header)
 	if err != nil {
-		if n == 0 && errors.Is(err, io.EOF) {
-			return Record{}, 0, io.EOF
-		}
-		return Record{}, 0, io.ErrUnexpectedEOF
+		return Record{}, 0, err
 	}
 
 	if binary.LittleEndian.Uint32(header[0:]) != recordMagic {
@@ -328,11 +325,17 @@ func readRecord(r *bufio.Reader) (Record, int, error) {
 
 	body := make([]byte, bodyLen)
 	if _, err := io.ReadFull(r, body); err != nil {
-		return Record{}, 0, io.ErrUnexpectedEOF
+		if errors.Is(err, io.EOF) {
+			err = io.ErrUnexpectedEOF
+		}
+		return Record{}, 0, err
 	}
 	crcBuf := make([]byte, bodyCRCLen)
 	if _, err := io.ReadFull(r, crcBuf); err != nil {
-		return Record{}, 0, io.ErrUnexpectedEOF
+		if errors.Is(err, io.EOF) {
+			err = io.ErrUnexpectedEOF
+		}
+		return Record{}, 0, err
 	}
 	if binary.LittleEndian.Uint32(crcBuf) != crc32.Checksum(body, crcTable) {
 		// Header, body, and CRC were all fully present but the CRC does not match:
