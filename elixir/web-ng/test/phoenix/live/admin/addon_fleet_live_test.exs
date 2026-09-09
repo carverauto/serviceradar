@@ -366,6 +366,8 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
     conn: conn,
     actor: actor
   } do
+    import Ecto.Query
+
     unique = System.unique_integer([:positive])
     addon_id = "fleet-rollout-pages-#{unique}"
     gateway = gateway_fixture(%{id: "fleet-pages-gw-#{unique}", component_id: "fleet-pages-#{unique}"})
@@ -449,8 +451,6 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
     assert has_element?(lv, "#addon-rollout-#{oldest_id}")
     assert has_element?(lv, "[data-role='addon-rollout-detail']")
     assert has_element?(lv, "button", "Page 3 of 3")
-
-    import Ecto.Query
 
     removed_ids = Enum.take(finished_ids, 2)
     assert {2, _} = ServiceRadar.Repo.delete_all(from(r in AddonRollout, where: r.id in ^removed_ids))
