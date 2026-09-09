@@ -66,7 +66,8 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
     partition = identifier_partition(update, metadata)
     raw_mac = update[:mac]
     macs = extract_mac_values(update, metadata)
-    integration_id = get_integration_id(metadata)
+    hardware_serial = HardwareSerial.from_update(update)
+    integration_id = get_integration_id(metadata, hardware_serial)
     legacy_integration_ids = get_legacy_integration_ids(metadata, integration_id)
 
     emit_rejected_mac_telemetry(raw_mac, macs, update)
@@ -78,7 +79,7 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
       armis_id: get_armis_id(metadata),
       integration_id: integration_id,
       netbox_id: get_trimmed(metadata, "netbox_device_id"),
-      hardware_serial: HardwareSerial.from_update(update),
+      hardware_serial: hardware_serial,
       mac: List.first(macs),
       macs: macs,
       legacy_mac: legacy_mac_blob(raw_mac),
@@ -204,7 +205,7 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
     end
   end
 
-  defp get_integration_id(metadata) when is_map(metadata) do
+  defp get_integration_id(metadata, hardware_serial) when is_map(metadata) do
     raw = ids_get(%{integration_id: get_trimmed(metadata, "integration_id")}, :integration_id)
     candidate = source_scoped_integration_id(metadata, raw)
 
@@ -212,19 +213,20 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
       not is_binary(candidate) -> nil
       Regex.match?(~r/\A[0-9]+\z/, candidate) -> nil
       self_scoped_value?(metadata, candidate) -> candidate
-      typed_identifier_present?(metadata) -> nil
+      typed_identifier_present?(metadata, hardware_serial) -> nil
       true -> candidate
     end
   end
 
-  defp get_integration_id(_metadata), do: nil
+  defp get_integration_id(_metadata, _hardware_serial), do: nil
 
   # A bare integration_id coexisting with a typed provider identifier is the
   # legacy compatibility echo of that identifier, not a second device
   # identity: the typed identifier wins outright. Without a typed identifier
   # the value stands on its own under legacy raw admission.
-  defp typed_identifier_present?(metadata) do
-    get_trimmed(metadata, "armis_device_id") != nil or
+  defp typed_identifier_present?(metadata, hardware_serial) do
+    hardware_serial != nil or
+      get_trimmed(metadata, "armis_device_id") != nil or
       get_trimmed(metadata, "netbox_device_id") != nil
   end
 
