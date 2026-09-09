@@ -24,12 +24,22 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerIdentifiersTest do
     {:ok, actor: actor}
   end
 
-  test "lookup_any matches alternatives while preserving identifier type and partition", %{actor: actor} do
+  test "lookup_any matches alternatives while preserving identifier type and partition", %{
+    actor: actor
+  } do
     {:ok, device} =
-      create_device_with_uid(actor, "sr:" <> Ecto.UUID.generate(), "host01.example.com", "192.0.2.10")
+      create_device_with_uid(
+        actor,
+        "sr:" <> Ecto.UUID.generate(),
+        "host01.example.com",
+        "192.0.2.10"
+      )
 
     {:ok, first} = register_identifier(actor, device.uid, :agent_id, "synthetic-agent-01")
-    {:ok, second} = register_identifier(actor, device.uid, :netbox_device_id, "synthetic-object-02")
+
+    {:ok, second} =
+      register_identifier(actor, device.uid, :netbox_device_id, "synthetic-object-02")
+
     {:ok, _decoy} = register_identifier(actor, device.uid, :agent_id, "synthetic-object-02")
 
     query =
