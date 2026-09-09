@@ -1,0 +1,42 @@
+load("@rules_python//python:py_test.bzl", "py_test")
+
+[
+    py_test(
+        name = name,
+        timeout = "long",
+        srcs = ["swift_regression_test.py"],
+        args = [
+            "--package",
+            "$(rlocationpaths //swift/FieldSurvey/LocalPackages/arrow-swift:package_sources)",
+            "--flatbuffers",
+            "$(rlocationpath @arrow_flatbuffers_source//file)",
+            "--atomics",
+            "$(rlocationpath @arrow_atomics_source//file)",
+        ] + (["--ios"] if ios else [
+            "--upstream",
+            "$(rlocationpaths @apache_arrow_swift//:core_tests)",
+        ]),
+        data = [
+            "//swift/FieldSurvey/LocalPackages/arrow-swift:package_sources",
+            "@arrow_atomics_source//file",
+            "@arrow_flatbuffers_source//file",
+        ] + ([] if ios else ["@apache_arrow_swift//:core_tests"]),
+        main = "swift_regression_test.py",
+        tags = ["no-remote-exec"],
+        target_compatible_with = ["@platforms//os:macos"],
+        deps = ["@rules_python//python/runfiles"],
+    )
+    for name, ios in [
+        ("swift_regression_test", False),
+        ("ios_compile_test", True),
+    ]
+]
+
+py_test(
+    name = "runner_test",
+    srcs = [
+        "runner_test.py",
+        "swift_regression_test.py",
+    ],
+    main = "runner_test.py",
+)

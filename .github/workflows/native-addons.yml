@@ -186,6 +186,11 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Verify indexed Git metadata
+        run: >-
+          bazel run -c opt --config=remote //build/ci:verify_git_metadata --
+          --expected-commit "${GITHUB_SHA}"
+
       - name: Run hermetic native add-on gate fixtures
         run: bazel test -c opt --config=remote //build/native_addons:build_gates_test
 
@@ -448,6 +453,14 @@ jobs:
           test -n "${BUILDBUDDY_ORG_API_KEY}"
           umask 077
           printf 'common --remote_header=x-buildbuddy-api-key=%s\n' "${BUILDBUDDY_ORG_API_KEY}" > .bazelrc.remote
+
+      - name: Verify indexed Git metadata
+        run: >-
+          bazel run -c opt --config=remote //build/ci:verify_git_metadata --
+          --expected-commit "${EXPECTED_COMMIT}"
+
+      - name: Exercise synthetic checkout cleanup
+        run: bazel run -c opt --config=remote //build/ci:git_checkout_regression
 
       - name: Derive reviewed agent test artifact metadata
         id: metadata

@@ -1,0 +1,22 @@
+--- a/Sources/Arrow/ArrowData.swift
++++ b/Sources/Arrow/ArrowData.swift
+@@ -16,6 +16,9 @@
+ // under the License.
+ 
+ import Foundation
++
++// Local modification: skip validity-bitmap access when nullCount is zero.
++// This supports omitted validity buffers; see UPSTREAM.json and upstream issue #186.
+ 
+ public class ArrowData {
+     public let type: ArrowType
+@@ -61,6 +64,9 @@
+     }
+ 
+     public func isNull(_ at: UInt) -> Bool {
++        if nullCount == 0 {
++            return false
++        }
+         let nullBuffer = buffers[0]
+         return nullBuffer.length > 0 && !BitUtility.isSet(at, buffer: nullBuffer)
+     }

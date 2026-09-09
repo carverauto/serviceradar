@@ -2350,3 +2350,25 @@ exports_files(["bun"])
 
 # Additional module extensions will be layered in as language owners migrate to
 # Bazel (e.g., http_file for binary deps).
+
+http_archive(
+    name = "apache_arrow_swift",
+    build_file = "//third_party/arrow_swift:upstream.BUILD.bazel",
+    patch_args = ["-p1"],
+    patches = ["//third_party/arrow_swift:validity.patch"],
+    sha256 = "09cb4a3fb9ea60acbb9219f6c3c1a7960a718647e4645f548dfcb5294efb4ecf",
+    strip_prefix = "arrow-swift-20dac0a2c4049915eeed09aab13a617763788a55",
+    urls = ["https://codeload.github.com/apache/arrow-swift/tar.gz/20dac0a2c4049915eeed09aab13a617763788a55"],
+)
+
+http_file(
+    name = "arrow_flatbuffers_source",
+    sha256 = "efac5e331f544cac1fa13a6a4cb18823e31c5709997971b8744e86573fe45dc9",
+    urls = ["https://codeload.github.com/google/flatbuffers/tar.gz/1c514626e83c20fffa8557e75641848e1e15cd5e"],
+)
+
+http_file(
+    name = "arrow_atomics_source",
+    sha256 = "0abae8e56d69b1208e6a44912d4080f2dbeb5447de7f2b55f2f8b6e1d01dc312",
+    urls = ["https://codeload.github.com/apple/swift-atomics/tar.gz/b601256eab081c0f92f059e12818ac1d4f178ff7"],
+)

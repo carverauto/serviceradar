@@ -1,0 +1,156 @@
+{
+  "repository": "https://github.com/apache/arrow-swift",
+  "commit": "20dac0a2c4049915eeed09aab13a617763788a55",
+  "tree": "47c08927e5811da1d596afcc13f4dcaa5c4b4f94",
+  "archive_url": "https://codeload.github.com/apache/arrow-swift/tar.gz/20dac0a2c4049915eeed09aab13a617763788a55",
+  "archive_sha256": "09cb4a3fb9ea60acbb9219f6c3c1a7960a718647e4645f548dfcb5294efb4ecf",
+  "upstream_files": [
+    {
+      "path": "LICENSE.txt",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "path": "NOTICE.txt",
+      "sha256": "8faee86b17956beb41d0bb582fc49e7e3d28308284eff7a8c4ca023581d5f753"
+    },
+    {
+      "path": "Sources/Arrow/Arrow.docc/Arrow.md",
+      "sha256": "fd2b19e117e0e073f64f573ed340e779743f76ff08f04b2b170810de4044bb5c"
+    },
+    {
+      "path": "Sources/Arrow/ArrowArray.swift",
+      "sha256": "3d67efe12f26e9e2d8aaf3dae6c3caeaa2d33f0c8a78f6436b02dded043582e5"
+    },
+    {
+      "path": "Sources/Arrow/ArrowArrayBuilder.swift",
+      "sha256": "97034448089f5815ca46cc75d792c4843ae6ae95cb704f0380ccf557be16aa18"
+    },
+    {
+      "path": "Sources/Arrow/ArrowBuffer.swift",
+      "sha256": "892b12785feaa923b8f0d014078e12c5397e053e1fbc6adc357381d7a2461574"
+    },
+    {
+      "path": "Sources/Arrow/ArrowBufferBuilder.swift",
+      "sha256": "6de0fe4bc88288b70bae67995d2c878e5296e737f87ac3df1aef1e38fc58a818"
+    },
+    {
+      "path": "Sources/Arrow/ArrowCExporter.swift",
+      "sha256": "8271f9cb16f2b88199b9ce424451e53373564edf9365bd666c795089dedb06d8"
+    },
+    {
+      "path": "Sources/Arrow/ArrowCImporter.swift",
+      "sha256": "45245ee88f0939400033c0d9bc0ed6c80778d51a53fde6c09e3bf181612191d0"
+    },
+    {
+      "path": "Sources/Arrow/ArrowData.swift",
+      "sha256": "ff20fe8bfbc14d383cb6b1cbc81346014c860cdf1d23deee632b668fffeb9026"
+    },
+    {
+      "path": "Sources/Arrow/ArrowDecoder.swift",
+      "sha256": "6c166c2875973da9f636f38a628568d2537df079f406a47dae2722708384fd0c"
+    },
+    {
+      "path": "Sources/Arrow/ArrowEncoder.swift",
+      "sha256": "e229574fb01b27e6eb07e4afbaf6b37856daf262644c17570432b962b8031054"
+    },
+    {
+      "path": "Sources/Arrow/ArrowReader.swift",
+      "sha256": "e0842c1367b6ce0f0cc3721e98fdb7ea53f9762242c7ffec784b4f05e2ff1fa4"
+    },
+    {
+      "path": "Sources/Arrow/ArrowReaderHelper.swift",
+      "sha256": "e6e68899ea0a15c6718059668659afe7fee2a0ca92f574e4b38a93922efaa02c"
+    },
+    {
+      "path": "Sources/Arrow/ArrowSchema.swift",
+      "sha256": "97a8cb3a001a36cd4b62bc38b71ac7e5341ae30083332d63fc9504e60efd9cd5"
+    },
+    {
+      "path": "Sources/Arrow/ArrowTable.swift",
+      "sha256": "93cb6604bbde32b797d86ad411d433b07956b5e5690ca4dc2202c8a77de89ff6"
+    },
+    {
+      "path": "Sources/Arrow/ArrowType.swift",
+      "sha256": "a18cc836d956cb8f17c1763da22affc7d9e7e315862a88982bd4ee9f83936e5a"
+    },
+    {
+      "path": "Sources/Arrow/ArrowWriter.swift",
+      "sha256": "8c2dada4ee732963a41ae94e757b9500254d31f4a8bc5c124b97590b8b477d4b"
+    },
+    {
+      "path": "Sources/Arrow/ArrowWriterHelper.swift",
+      "sha256": "8db567e92cb3b148adbdb5e567cc61662a5c63d05d5863a10c0d3001e091aaa9"
+    },
+    {
+      "path": "Sources/Arrow/BitUtility.swift",
+      "sha256": "a14f333f79bd77f28d823eaae31f693570756204bdd8140e3cc2fe3de8b2ca09"
+    },
+    {
+      "path": "Sources/Arrow/ChunkedArray.swift",
+      "sha256": "4c97e6253c114a2bc2040c8c24cb126af71274d06c4825ca21ee21bf8177403f"
+    },
+    {
+      "path": "Sources/Arrow/File_generated.swift",
+      "sha256": "92c02c0905f693bdf7a695308edc2818eb9a1f7c2e40798c4a43a655aa43f1f4"
+    },
+    {
+      "path": "Sources/Arrow/MemoryAllocator.swift",
+      "sha256": "42c1628df368cf88ef3996ae856615089023bfe21c44fd412da1c6ab6c41c49d"
+    },
+    {
+      "path": "Sources/Arrow/Message_generated.swift",
+      "sha256": "e275d27c2a5f52be1558e73295eecc4410f8206f186b23570159ad4976bc375e"
+    },
+    {
+      "path": "Sources/Arrow/ProtoUtil.swift",
+      "sha256": "7138dbaec2ac5c9190170a3a78a106949507d77abe3a0f678ff55c92cd6278b5"
+    },
+    {
+      "path": "Sources/Arrow/README.md",
+      "sha256": "2d43d23d2a2b953fa8da1fa78a7bda12befe1d9205050f5c1437906f1a3e75e0"
+    },
+    {
+      "path": "Sources/Arrow/Schema_generated.swift",
+      "sha256": "f68418496468b28ff773b978ac6dc899a27f760a5407ffe71be1842ee4383c9b"
+    },
+    {
+      "path": "Sources/Arrow/SparseTensor_generated.swift",
+      "sha256": "c1a60079b5ba35d798aa12e0446fe497ddf1ccef973fc6608e67f64418c78c38"
+    },
+    {
+      "path": "Sources/Arrow/Tensor_generated.swift",
+      "sha256": "97ad11dcbbf1e2d6ef1934a73113e28624cdc5346b529d59819201901972146b"
+    },
+    {
+      "path": "Sources/ArrowC/ArrowCData.c",
+      "sha256": "f3b29069c2bf22043bd73ea7ae31cd3aa689711b1f7cb90f674c20fe094d15ed"
+    },
+    {
+      "path": "Sources/ArrowC/include/ArrowCData.h",
+      "sha256": "c42a1ea61d6fd86d24b007e25547744f6496ff77209656ffc24d3bdae5ab2c1b"
+    }
+  ],
+  "local_changes": [
+    "Core-only package manifest with exact dependency versions",
+    "ArrowData.isNull short-circuits when nullCount is zero; see upstream issue186",
+    "Synthetic API and omitted-validity IPC tests"
+  ],
+  "patched_arrow_data_sha256": "e1b79ad848bf73aca48014f4f3faf5bf33345f1ca9bcd03d23f3efc2147bb403",
+  "restores_original_gitlink_commit": false,
+  "modified_files": [
+    {
+      "path": "Sources/Arrow/ArrowData.swift",
+      "sha256": "e1b79ad848bf73aca48014f4f3faf5bf33345f1ca9bcd03d23f3efc2147bb403",
+      "notice": "Local modification comment before ArrowData declaration",
+      "change": "Return false before bitmap access when nullCount is zero"
+    },
+    {
+      "path": "Package.swift",
+      "upstream_sha256": "2d89cff926bd1df95941941c9cfa44996330eaa47c532ae097ebd3c1f927c7d6",
+      "sha256": "f65c35787ad6eeb390dc3ad4a598e75f40d239b0507a8c0dbfe06decc533c35b",
+      "notice": "Local modifications comment before PackageDescription import",
+      "change": "Core-only package, pinned dependencies, iOS platform and synthetic tests"
+    }
+  ],
+  "synthetic_test_sha256": "9f1cc5bbe1c057ff61ed9a1088745a32e7474d5837de1420e9814c4511a60959"
+}

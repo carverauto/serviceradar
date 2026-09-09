@@ -2,15 +2,6 @@
   "originHash" : "374431dad4a3a85c71ff16d2ff0a82a412602a4e9a3a0ed724bdd7d8146fbbf4",
   "pins" : [
     {
-      "identity" : "arrow-swift",
-      "kind" : "localSourceControl",
-      "location" : "/Users/mfreeman/src/serviceradar/swift/FieldSurvey/LocalPackages/arrow-swift",
-      "state" : {
-        "branch" : "fix-flatbuffers",
-        "revision" : "4d020e1174c627a021da930409befcf6ea2633d2"
-      }
-    },
-    {
       "identity" : "flatbuffers",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/google/flatbuffers.git",

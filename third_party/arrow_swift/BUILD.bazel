@@ -1,0 +1,10 @@
+exports_files([
+    "upstream.BUILD.bazel",
+    "inventory.bzl",
+    "validity.patch",
+])
+
+test_suite(
+    name = "vendor_drift_test",
+    tests = ["//swift/FieldSurvey/LocalPackages/arrow-swift:update_vendor_tests"],
+)
