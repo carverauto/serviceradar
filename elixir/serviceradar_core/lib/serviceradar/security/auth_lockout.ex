@@ -31,7 +31,7 @@ defmodule ServiceRadar.Security.AuthLockout do
   paper_trail do
     primary_key_type :uuid_v7
     table_name "auth_lockout_versions"
-    mixin {ServiceRadar.Security.PaperTrailMixin, :mixin, []}
+    mixin {ServiceRadar.Security.PaperTrailMixin, :mixin_with_audit_actor, []}
     change_tracking_mode :changes_only
     store_action_name? true
     store_action_inputs? true
