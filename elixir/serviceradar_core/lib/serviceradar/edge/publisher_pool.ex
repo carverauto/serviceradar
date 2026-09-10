@@ -63,9 +63,9 @@ defmodule ServiceRadar.Edge.PublisherPool do
   holds its credits for exactly as long as its request is outstanding, so what the grant bounds is
   the number of requests on the wire.
 
-  STILL NOT wired: nothing in the application offers to a pipeline yet. The gateway's per-lane
-  session is task 3.1's, and `JetStreamPublisher.publish_record/2` has no production caller
-  either, so the whole chain is exercised by tests.
+  NOW OFFERED TO: task 3.1's gateway per-lane session,
+  `ServiceRadarAgentGateway.EdgeRecordIngestServer`, is `JetStreamPublisher.publish_record/2`'s
+  first production caller.
 
   STILL NOT this module's: 3.4 owns exact-byte and retained-memory binding; 3.5 owns
   outcome-specific PubAck validation and prefix advancement. This module also does not bind byte
