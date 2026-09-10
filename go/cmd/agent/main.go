@@ -223,6 +223,10 @@ func runPushMode(
 		errChan <- pushLoop.Start(pushCtx)
 	}()
 
+	// Optionally start the minimum edge-record spool sender (task 0.12 of
+	// openspec/changes/unify-sweep-results-proto). No-op unless configured.
+	go runEdgeRecordSender(pushCtx, cfg, log)
+
 	// Wait for shutdown signal or error
 	select {
 	case sig := <-sigChan:
