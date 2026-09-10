@@ -50,4 +50,38 @@ defmodule ServiceRadar.Edge.ProjectionRowsTest do
 
     assert Enum.sort(names) == Enum.sort(fixtures)
   end
+
+  describe "row_key/2" do
+    # Golden vectors captured directly from go/pkg/edge/projection.RowKey (the
+    # same inputs as its own TestRowKeyStableAndDistinct), so this is a
+    # cross-language parity check, not merely a self-consistency one.
+    @digest "semantic-digest-32-bytes-example"
+    @other_digest "different-digest-32-bytes-exampl"
+
+    test "matches the Go implementation's golden vectors" do
+      assert Base.encode16(ProjectionRows.row_key(@digest, 0), case: :lower) ==
+               "b15d4c18d460640db54232a474ecda7980de296369a3bbed866a55e56fb4ba86"
+
+      assert Base.encode16(ProjectionRows.row_key(@digest, 1), case: :lower) ==
+               "b8bd58e77693553bd9fb2aba6b82278167c688f551782b184c98bbcb4179e683"
+
+      assert Base.encode16(ProjectionRows.row_key(@digest, 42), case: :lower) ==
+               "5e281ad86f1c2c8080029a892c31321fe04780e2e93f71c0c22754f830b02355"
+
+      assert Base.encode16(ProjectionRows.row_key(@other_digest, 0), case: :lower) ==
+               "85a98ec14d56c748d5020e962897f3378cf5c2e7f1988130499f42a5349086d5"
+
+      assert Base.encode16(ProjectionRows.row_key("", 0), case: :lower) ==
+               "374708fff7719dd5979ec875d56cd2286f6d3cf7ec317a3b25632aab28ec37bb"
+    end
+
+    test "stable for the same (digest, ordinal), distinct across ordinals and digests" do
+      a = ProjectionRows.row_key(@digest, 0)
+
+      assert a == ProjectionRows.row_key(@digest, 0)
+      assert a != ProjectionRows.row_key(@digest, 1)
+      assert a != ProjectionRows.row_key(@other_digest, 0)
+      assert byte_size(a) == 32
+    end
+  end
 end
