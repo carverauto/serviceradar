@@ -127,6 +127,26 @@ func TestResolveExcludesAckedRecords(t *testing.T) {
 	}
 }
 
+func TestResolvedReportsWatermark(t *testing.T) {
+	dir := t.TempDir()
+	s, _ := Open(dir)
+	defer func() { _ = s.Close() }()
+
+	if got := s.Resolved(); got != 0 {
+		t.Fatalf("Resolved() on empty spool = %d, want 0", got)
+	}
+
+	mustAppend(t, s, 1, "a")
+	mustAppend(t, s, 2, "b")
+
+	if err := s.Resolve(1); err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if got := s.Resolved(); got != 1 {
+		t.Fatalf("Resolved() = %d, want 1", got)
+	}
+}
+
 func TestRecoveryPreservesSequenceAndData(t *testing.T) {
 	dir := t.TempDir()
 

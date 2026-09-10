@@ -42,10 +42,10 @@ go_library(
         "errors.go",
         "gateway_artifact_download.go",
         "icmp_checker.go",
-        "k8s_public_endpoints_spool_service.go",
         "interfaces.go",
         "ipv4_sorter.go",
         "json_helpers.go",
+        "k8s_public_endpoints_spool_service.go",
         "kv.go",
         "mapper_config_gateway.go",
         "mapper_service.go",
@@ -134,14 +134,13 @@ go_library(
         "//go/pkg/config",
         "//go/pkg/config/kv",
         "//go/pkg/endpointinventory",
-        "//go/pkg/k8sinventory",
         "//go/pkg/grpc",
         "//go/pkg/hashutil",
+        "//go/pkg/k8sinventory",
         "//go/pkg/logger",
         "//go/pkg/mapper",
         "//go/pkg/models",
         "//go/pkg/mtr",
-        "//go/pkg/natsutil",
         "//go/pkg/scan",
         "//go/pkg/scan/banner_grab",
         "//go/pkg/sweeper",
@@ -173,21 +172,6 @@ go_library(
 
 go_test(
     name = "agent_test",
-    # keep
-    #
-    # The largest Go test target in the repo by a wide margin: 77 files, 702 test functions,
-    # ~33k lines. Unsharded it is a single test action, so it is one executor doing all of it
-    # while the rest of the fleet idles -- and under the race pass in //buildbuddy.yaml, which
-    # repeats every function, that is ~3,500 executions serialised into one action.
-    #
-    # Sharding splits it into 8 independent test actions that RBE runs concurrently. Bazel
-    # assigns functions to shards by index, so this is not a source-layout change and no test
-    # needs to know about it. Both the plain sweep and the race pass benefit.
-    #
-    # 8 rather than more: each shard loads the whole test binary, so shard count trades
-    # parallelism against repeated startup. Bazel caps this at 50; going near that for a binary
-    # this size spends more on loading than it saves.
-    shard_count = 8,
     srcs = [
         "addon_activation_test.go",
         "addon_capabilities_test.go",
@@ -271,6 +255,8 @@ go_test(
         "sysmon_drain_test.go",
         "sysmon_service_test.go",
         "telemetry_local_test.go",
+        "k8s_public_endpoints_spool_service_test.go",
+        "plugin_host_authority_ca_test.go",
     ],
     data = [
         "testdata/camera_stream_plugin.wasm",
@@ -292,6 +278,21 @@ go_test(
         "//go/cmd/wasm-plugins/unifi-protect:plugin.yaml",
     ],
     embed = [":agent"],
+    # keep
+    #
+    # The largest Go test target in the repo by a wide margin: 77 files, 702 test functions,
+    # ~33k lines. Unsharded it is a single test action, so it is one executor doing all of it
+    # while the rest of the fleet idles -- and under the race pass in //buildbuddy.yaml, which
+    # repeats every function, that is ~3,500 executions serialised into one action.
+    #
+    # Sharding splits it into 8 independent test actions that RBE runs concurrently. Bazel
+    # assigns functions to shards by index, so this is not a source-layout change and no test
+    # needs to know about it. Both the plain sweep and the race pass benefit.
+    #
+    # 8 rather than more: each shard loads the whole test binary, so shard count trades
+    # parallelism against repeated startup. Bazel caps this at 50; going near that for a binary
+    # this size spends more on loading than it saves.
+    shard_count = 8,
     deps = [
         "//go/pkg/addon",
         "//go/pkg/addon/sdk",
@@ -305,6 +306,7 @@ go_test(
         "//go/pkg/bumblebee",
         "//go/pkg/config",
         "//go/pkg/endpointinventory",
+        "//go/pkg/k8sinventory",
         "//go/pkg/logger",
         "//go/pkg/mapper",
         "//go/pkg/models",
@@ -328,7 +330,9 @@ go_test(
         "@com_github_tetratelabs_wazero//imports/wasi_snapshot_preview1",
         "@com_github_tetratelabs_wazero//sys",
         "@in_gopkg_yaml_v3//:yaml_v3",
+        "@org_golang_google_grpc//codes",
         "@org_golang_google_grpc//metadata",
+        "@org_golang_google_grpc//status",
         "@org_golang_google_protobuf//encoding/protowire",
         "@org_golang_google_protobuf//proto",
         "@org_golang_x_crypto//ssh",

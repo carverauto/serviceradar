@@ -3,15 +3,22 @@ load("@serviceradar_version//:defs.bzl", "FULL_VERSION")
 
 go_library(
     name = "agent_lib",
-    srcs = ["main.go"],
+    srcs = [
+        "edge_record_sender.go",
+        "main.go",
+    ],
     embedsrcs = ["config.json"],
     importpath = "github.com/carverauto/serviceradar/go/cmd/agent",
     visibility = ["//visibility:private"],
     deps = [
         "//go/pkg/agent",
         "//go/pkg/agentgateway",
+        "//go/pkg/edge/sender",
+        "//go/pkg/edge/spool",
+        "//go/pkg/grpc",
         "//go/pkg/lifecycle",
         "//go/pkg/logger",
+        "//proto/edge/v1:edgev1",
     ],
 )
 
@@ -28,11 +35,18 @@ go_binary(
 
 go_test(
     name = "agent_test",
-    srcs = ["main_test.go"],
+    srcs = [
+        "edge_record_sender_test.go",
+        "main_test.go",
+    ],
     data = [":agent"],
     embed = [":agent_lib"],
     env = {
         "SERVICERADAR_TEST_AGENT_BINARY": "$(rootpath :agent)",
         "SERVICERADAR_TEST_AGENT_VERSION": FULL_VERSION,
     },
+    deps = [
+        "//go/pkg/agent",
+        "//go/pkg/logger",
+    ],
 )
