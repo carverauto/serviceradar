@@ -29,5 +29,10 @@ go_binary(
 go_test(
     name = "agent_test",
     srcs = ["main_test.go"],
+    data = [":agent"],
     embed = [":agent_lib"],
+    env = {
+        "SERVICERADAR_TEST_AGENT_BINARY": "$(rootpath :agent)",
+        "SERVICERADAR_TEST_AGENT_VERSION": FULL_VERSION,
+    },
 )

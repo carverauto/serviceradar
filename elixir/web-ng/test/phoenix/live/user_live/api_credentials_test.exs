@@ -113,6 +113,37 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentialsTest do
     end
   end
 
+  describe "copy handlers" do
+    setup %{conn: conn} do
+      user = user_fixture()
+      conn = conn |> log_in_user(user) |> put_sudo_mode()
+      %{conn: conn, user: user}
+    end
+
+    test "copy_client_id pushes the clipboard event the client listens for",
+         %{conn: conn, user: user} do
+      client = create_client!(user, "Copyable Client")
+
+      {:ok, lv, _html} = live(conn, ~p"/settings/api-credentials")
+
+      render_click(lv, "copy_client_id", %{"id" => to_string(client.id)})
+
+      # The client-side hook listens on "phx:clipboard" (see
+      # assets/js/utils/window_events.js); pushing any other event name
+      # silently does nothing, which was the reported bug.
+      assert_push_event(lv, "clipboard", %{text: text})
+      assert text == to_string(client.id)
+    end
+
+    test "copy_value pushes the clipboard event with the secret", %{conn: conn} do
+      {:ok, lv, _html} = live(conn, ~p"/settings/api-credentials")
+
+      render_click(lv, "copy_value", %{"value" => "super-secret-value"})
+
+      assert_push_event(lv, "clipboard", %{text: "super-secret-value"})
+    end
+  end
+
   defp restrict_user(user, permissions) do
     actor = SystemActor.system(:api_credentials_rbac_test)
 

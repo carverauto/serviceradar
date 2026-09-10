@@ -875,7 +875,8 @@ bazel build //elixir/...
 
 ### Quality gates
 
-Formatting, Credo and Dialyzer are not Bazel targets; they run through Mix.
+Formatting, Credo and Dialyzer run through Mix; web-ng also wraps its fast lint
+tasks in the Bazel target described below.
 
 Pull requests gate `mix format --check-formatted` and `mix credo --strict` via
 `.github/workflows/elixir-quality.yml` (`--lint-only`). Compile warnings, xref,
@@ -887,6 +888,10 @@ dependency audits, Sobelow, and the OpenAPI dump check run daily from
 ./scripts/elixir_quality.sh --project elixir/web-ng --lint-only
 ./scripts/elixir_quality.sh --all --skip-dialyzer --skip-nif
 ```
+
+For web-ng Dialyzer, run `mix dialyzer` from `elixir/web-ng`.
+[`web-ng/mix.exs`](web-ng/mix.exs) owns PLT locations and unused-filter checking;
+[the ignore list](web-ng/.dialyzer_ignore.exs) owns suppression maintenance guidance.
 
 web-ng additionally has `//elixir/web-ng:precommit`, which runs `mix precommit_fast` (three
 source-level lint tasks) as a **cacheable build action** rather than a test: `precommit_check`

@@ -109,6 +109,7 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
     scratch_db = "sr_core_test_bootstrap_#{suffix}"
 
     create_database!(admin_opts, scratch_db)
+    install_required_extensions!(admin_opts, scratch_db)
 
     on_exit(fn ->
       drop_database!(admin_opts, scratch_db)
@@ -785,6 +786,97 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
         timeout: @admin_query_timeout
       )
     end)
+  end
+
+  # `bootstrap_app_role!/2` (`ServiceRadar.Cluster.StartupMigrations`) hands this database's
+  # ownership to an ordinary, non-superuser application role before the baseline or any
+  # migration runs (`ALTER DATABASE ... OWNER TO`). `age`/`postgis`/`vector` (and, in some
+  # Postgres installs, `timescaledb` itself) genuinely require superuser to CREATE from
+  # scratch -- confirmed by reproducing this directly: a fresh database owned by a plain
+  # `CREATE ROLE ... LOGIN` role gets `permission denied to create extension "age"` (etc.) on
+  # `CREATE EXTENSION`, even though `CREATE EXTENSION IF NOT EXISTS` on an ALREADY-installed
+  # extension is a permission-free no-op for any role. Every other consumer of a scratch
+  # database in this repo (`//rust/integration-db`'s `install_extensions`, and real deployments
+  # via CNPG/Helm's extension-update job) pre-installs these as an admin/superuser before
+  # anything runs as the unprivileged app role; this test's own `create_database!/2` never did,
+  # so its ordinary-role baseline application could hit that same permission wall, or a
+  # confusing downstream error far from the real cause once some object an extension created
+  # (e.g. `_timescaledb_internal`) turns out not to be reachable by the app role that inherited
+  # this database only after those objects already existed. Installing every required extension
+  # here, as the same admin role `create_database!/2` already uses, and pre-creating (or
+  # updating) the exact app role `ServiceRadar.Cluster.StartupMigrations.bootstrap_app_role!/2`
+  # will use (`subprocess_env/4` pins it to a fixed name/password for this test) so ownership of
+  # the schemas the extensions and later migrations live in is right from the start, matches
+  # `//rust/integration-db`'s `install_extensions` instead of assuming a fresh database
+  # inherited any of this from `template1`.
+  @required_extensions ~w(pgcrypto pg_trgm citext timescaledb age postgis vector)
+  @bootstrap_app_user "serviceradar_bootstrap_test"
+  @bootstrap_app_password "serviceradar_bootstrap_test"
+
+  defp install_required_extensions!(admin_opts, database) do
+    ensure_app_role!(admin_opts)
+
+    opts = Keyword.put(admin_opts, :database, database)
+
+    with_admin_connection!(opts, fn conn ->
+      for schema <- ["platform", "ag_catalog"] do
+        Postgrex.query!(
+          conn,
+          "CREATE SCHEMA IF NOT EXISTS #{schema} AUTHORIZATION #{quote_ident(@bootstrap_app_user)}",
+          [],
+          timeout: @admin_query_timeout
+        )
+      end
+
+      Enum.each(@required_extensions, fn extension ->
+        target_schema = if extension == "age", do: "ag_catalog", else: "platform"
+
+        Postgrex.query!(
+          conn,
+          "CREATE EXTENSION IF NOT EXISTS #{quote_ident(extension)} WITH SCHEMA #{target_schema}",
+          [],
+          timeout: @admin_query_timeout
+        )
+      end)
+
+      # Mirrors //rust/integration-db's install_extensions: AGE keeps its catalogue in
+      # ag_catalog and the application role reaches it as a non-superuser, so these grants are
+      # what make graphs usable at all.
+      for statement <- [
+            "GRANT USAGE ON SCHEMA ag_catalog TO #{quote_ident(@bootstrap_app_user)}",
+            "GRANT ALL ON ALL TABLES IN SCHEMA ag_catalog TO #{quote_ident(@bootstrap_app_user)}",
+            "GRANT ALL ON ALL SEQUENCES IN SCHEMA ag_catalog TO #{quote_ident(@bootstrap_app_user)}",
+            "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA ag_catalog TO #{quote_ident(@bootstrap_app_user)}"
+          ] do
+        Postgrex.query!(conn, statement, [], timeout: @admin_query_timeout)
+      end
+    end)
+  end
+
+  defp ensure_app_role!(admin_opts) do
+    with_admin_connection!(admin_opts, fn conn ->
+      case Postgrex.query(
+             conn,
+             "SELECT 1 FROM pg_roles WHERE rolname = $1",
+             [@bootstrap_app_user],
+             timeout: @admin_query_timeout
+           ) do
+        {:ok, %{num_rows: 0}} ->
+          Postgrex.query!(
+            conn,
+            "CREATE ROLE #{quote_ident(@bootstrap_app_user)} LOGIN PASSWORD #{quote_literal(@bootstrap_app_password)}",
+            [],
+            timeout: @admin_query_timeout
+          )
+
+        {:ok, _} ->
+          :ok
+      end
+    end)
+  end
+
+  defp quote_literal(value) do
+    "'#{String.replace(value, "'", "''")}'"
   end
 
   defp drop_database!(admin_opts, database) do

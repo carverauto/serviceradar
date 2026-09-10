@@ -121,13 +121,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
   def handle_event("delete_assignment", %{"id" => id}, socket) do
     scope = socket.assigns.current_scope
 
+    # Assignments.delete/2 normalizes destroys to {:ok, _} | {:error, _}.
     case Assignments.delete(id, scope: scope) do
-      :ok ->
-        {:noreply,
-         socket
-         |> reload_assignments()
-         |> put_flash(:info, "Assignment removed")}
-
       {:ok, _assignment} ->
         {:noreply,
          socket

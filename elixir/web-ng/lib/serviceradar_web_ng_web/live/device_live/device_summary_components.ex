@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSummaryComponents do
 
   use ServiceRadarWebNGWeb, :html
 
+  alias ServiceRadarWebNGWeb.Components.PrefixTagChips
+  alias ServiceRadarWebNGWeb.DeviceLive.DeviceFormData
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceStateData
 
   attr(:device_row, :map, default: nil)
@@ -38,6 +40,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSummaryComponents do
                 label="Classification"
                 value={classification_provenance_label(@device_row)}
               />
+              <% tag_list = DeviceFormData.format_tag_list(Map.get(@device_row, "tags")) %>
+              <div :if={tag_list != []} class="flex items-start gap-2">
+                <span class="shrink-0 text-sr-muted">Tags:</span>
+                <span class="min-w-0 flex-1">
+                  <PrefixTagChips.static tags={tag_list} />
+                </span>
+              </div>
               <.kv_inline
                 :if={agent_device?(@device_row)}
                 label="Agent"

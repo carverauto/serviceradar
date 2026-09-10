@@ -21,8 +21,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelRuntime do
   alias ServiceRadar.Automation.Ansible.SafeFailureEvidence
   alias ServiceRadar.Automation.Ansible.SecureLaunchService
   alias ServiceRadar.Automation.Ansible.VariableSchema.Var
+  alias ServiceRadarWebNG.AnsibleAutomation.History, as: AutomationHistory
   alias ServiceRadarWebNG.RBAC
-  alias ServiceRadarWebNGWeb.AnsibleLive.AutomationHistory
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceStateData
 
   require Logger

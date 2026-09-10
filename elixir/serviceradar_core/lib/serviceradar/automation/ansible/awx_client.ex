@@ -16,6 +16,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
   ("AWX API token lives in the credential broker").
   """
 
+  alias ServiceRadar.Automation.Ansible.AwxLaunchContract
   alias ServiceRadar.Automation.Ansible.Controller
   alias ServiceRadar.Automation.Ansible.VariableSchema
   alias ServiceRadar.Credentials.CredentialBrokerGrant
@@ -1234,7 +1235,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
          true <- target["controller_id"] == controller_id,
          true <- target["inventory_id"] == inventory_id,
          :ok <- canonical_positive_decimal(target["awx_host_id"]),
-         :ok <- canonical_positive_decimal(target["membership_generation"]),
+         :ok <- AwxLaunchContract.validate_membership_generation(target["membership_generation"]),
          :ok <- safe_launch_preflight_text(target["canonical_device_uid"], 1_024),
          :ok <- canonical_preflight_host_name(target["host_name"]),
          :ok <- canonical_preflight_address(target["ansible_host"]),

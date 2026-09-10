@@ -66,6 +66,7 @@ filegroup(
             "deps/**",
             "native/**/target/**",
             "node_modules/**",
+            "priv/plts/**",
             "tmp/**",
             ".git/**",
         ],
@@ -102,6 +103,7 @@ filegroup(
             "deps/**",
             "native/**/target/**",
             "node_modules/**",
+            "priv/plts/**",
             "tmp/**",
             ".git/**",
             "test/**",
@@ -373,6 +375,7 @@ ex_unit_tests(
         exclude = [
             # Named explicitly below as an audit runfile.
             "lib/**/*.heex",
+            "priv/plts/**",
             "test/**/*_test.exs",
             # Named explicitly below so the timestamp audit cannot lose its
             # checked classification artifact in a broad data-glob refactor.
@@ -433,6 +436,8 @@ ex_unit_test(
         "test/phoenix/controllers/api/admin_authorization_test.exs",
         "test/phoenix/controllers/api/api_endpoint_integration_test.exs",
         "test/phoenix/controllers/api/api_rate_limit_test.exs",
+        "test/phoenix/controllers/api/configuration_authentication_db_test.exs",
+        "test/phoenix/controllers/api/configuration_lifecycle_db_test.exs",
         "test/phoenix/live/alert_live/show_test.exs",
         "test/phoenix/live/authored_dashboard_live_test.exs",
         "test/phoenix/live/camera_analysis_worker_live_test.exs",
@@ -462,7 +467,10 @@ ex_unit_test(
             "test/**",
         ],
         allow_empty = True,
-        exclude = ["test/**/*_test.exs"],
+        exclude = [
+            "priv/plts/**",
+            "test/**/*_test.exs",
+        ],
     ) + [
         "//build:elixir_test_config_loader.exs",
         "//build:run_id_file",

@@ -119,6 +119,52 @@ defmodule ServiceRadar.Automation.Ansible.LiveAwxLaunchPreflightTest do
     refute_received {:evidence, _, _}
   end
 
+  test "attests signed 64-bit source generations as exact decimal strings" do
+    for generation <- [2_147_483_648, 1_800_000_000_000_000_001, 9_223_372_036_854_775_807],
+        source_generation <- [generation, Integer.to_string(generation)] do
+      expected_generation = Integer.to_string(generation)
+
+      context =
+        put_in(context(), [:memberships, Access.at(0), :source_generation], source_generation)
+
+      provenance = fn _controller, request, _opts ->
+        assert [%{"membership_generation" => ^expected_generation}] = request["selected_hosts"]
+        assert request == request |> Jason.encode!() |> Jason.decode!()
+        {:ok, valid_result(request)}
+      end
+
+      assert {:ok, _attestation} =
+               LiveAwxLaunchPreflight.attest(context, options(provenance, evidence_resource()))
+
+      assert_receive {:evidence, _, _}
+    end
+  end
+
+  test "rejects invalid source generations before reading the controller" do
+    no_call = fn _controller, _request, _opts ->
+      flunk("invalid generations must not dispatch a preflight command")
+    end
+
+    for generation <- [
+          0,
+          -1,
+          1.0,
+          9_223_372_036_854_775_808,
+          "0",
+          "01",
+          "1e9",
+          "9223372036854775808",
+          nil
+        ] do
+      context = put_in(context(), [:memberships, Access.at(0), :source_generation], generation)
+
+      assert {:error, :invalid_awx_preflight_membership} =
+               LiveAwxLaunchPreflight.attest(context, options(no_call, evidence_resource()))
+    end
+
+    refute_received {:evidence, _, _}
+  end
+
   test "fails before evidence when AWX returns a different selected target tuple" do
     provenance = fn _controller, request, _opts ->
       result = valid_result(request)

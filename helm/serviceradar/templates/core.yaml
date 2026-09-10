@@ -801,6 +801,10 @@ spec:
         {{- end }}
         {{- end }}
         volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        - name: ansible-catalog
+          mountPath: {{ default "/var/lib/serviceradar/ansible_catalog" $ansibleVals.catalogBaseDir | quote }}
         - name: cert-data
           mountPath: /etc/serviceradar/certs
           readOnly: true
@@ -878,6 +882,10 @@ spec:
           timeoutSeconds: 5
           failureThreshold: 3
       volumes:
+      - name: tmp
+        emptyDir: {}
+      - name: ansible-catalog
+        emptyDir: {}
       - name: cert-data
         secret:
           secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}

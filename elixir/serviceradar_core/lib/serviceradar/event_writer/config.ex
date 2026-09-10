@@ -144,7 +144,9 @@ defmodule ServiceRadar.EventWriter.Config do
           optional(:consumer_ack_wait_ns) => pos_integer() | nil,
           optional(:consumer_pull_batch_size) => pos_integer() | nil,
           optional(:consumer_deliver_policy) => atom() | nil,
-          optional(:consumer_inactive_threshold) => non_neg_integer() | nil
+          optional(:consumer_inactive_threshold) => non_neg_integer() | nil,
+          optional(:allow_stream_fallback) => boolean() | nil,
+          optional(:reconcile_stream_shape) => boolean() | nil
         }
 
   @doc """

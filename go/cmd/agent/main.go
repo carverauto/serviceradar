@@ -60,7 +60,13 @@ func main() {
 func run() error {
 	// Parse command line flags
 	configPath := flag.String("config", "/etc/serviceradar/agent.json", "Path to agent config file")
+	showVersion := flag.Bool("version", false, "Print agent version and exit")
 	flag.Parse()
+
+	if *showVersion {
+		_, err := fmt.Fprintln(os.Stdout, Version)
+		return err
+	}
 
 	// Setup a context we can use for loading the config and running the server
 	ctx := context.Background()

@@ -1,0 +1,54 @@
+suite: web-ng client IP trust environment
+templates:
+  - templates/web.yaml
+tests:
+  - it: disables x-forwarded-for trust by default
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_TRUST_X_FORWARDED_FOR
+            value: "false"
+          count: 1
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_TRUSTED_PROXY_CIDRS
+            value: ""
+          count: 1
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: renders trusted proxy settings for gateway-fronted deployments
+    set:
+      webNg.clientIp.trustXForwardedFor: true
+      webNg.clientIp.trustedProxyCidrs:
+        - "10.0.0.0/8"
+        - "192.168.0.0/16"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_TRUST_X_FORWARDED_FOR
+            value: "true"
+          count: 1
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_TRUSTED_PROXY_CIDRS
+            value: "10.0.0.0/8,192.168.0.0/16"
+          count: 1
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment

@@ -3,7 +3,11 @@ defmodule ServiceRadarWebNG.AnsibleControllers do
   Web-facing operations for AWX/AAP controller registration.
   """
 
+  alias ServiceRadar.Automation.Ansible.AwxHostMembership
   alias ServiceRadar.Automation.Ansible.Controller
+  alias ServiceRadar.Automation.Ansible.Playbook
+  alias ServiceRadar.Repo
+  alias ServiceRadarWebNG.ConfigurationRequest
 
   require Ash.Query
 
@@ -31,12 +35,9 @@ defmodule ServiceRadarWebNG.AnsibleControllers do
   def get(id, opts \\ []) when is_binary(id) do
     scope = Keyword.fetch!(opts, :scope)
 
-    case Controller.get_by_id(id, scope: scope) do
-      {:ok, nil} -> {:error, :not_found}
-      {:ok, controller} -> {:ok, controller}
-      {:error, %Ash.Error.Query.NotFound{}} -> {:error, :not_found}
-      {:error, error} -> {:error, error}
-    end
+    id
+    |> Controller.get_by_id(scope: scope)
+    |> ConfigurationRequest.require_record()
   end
 
   @spec create(map(), keyword()) :: {:ok, struct()} | {:error, term()}
@@ -51,7 +52,11 @@ defmodule ServiceRadarWebNG.AnsibleControllers do
     scope = Keyword.fetch!(opts, :scope)
 
     with {:ok, controller} <- get(id, scope: scope) do
-      Controller.update_controller(controller, attrs, scope: scope)
+      controller
+      |> Ash.Changeset.for_update(:update, attrs, scope: scope)
+      |> ConfigurationRequest.constrain(opts)
+      |> Ash.update(scope: scope)
+      |> ConfigurationRequest.normalize_result()
     end
   end
 
@@ -61,11 +66,72 @@ defmodule ServiceRadarWebNG.AnsibleControllers do
     scope = Keyword.fetch!(opts, :scope)
 
     with {:ok, controller} <- get(id, scope: scope) do
-      if enabled do
-        Controller.enable_controller(controller, scope: scope)
+      action = if enabled, do: :enable, else: :disable
+
+      controller
+      |> Ash.Changeset.for_update(action, %{}, scope: scope)
+      |> ConfigurationRequest.constrain(opts)
+      |> Ash.update(scope: scope)
+      |> ConfigurationRequest.normalize_result()
+    end
+  end
+
+  @doc "Deletes a disabled controller only when its catalog and membership records are absent."
+  def delete(id, opts) do
+    scope = Keyword.fetch!(opts, :scope)
+
+    fn ->
+      with {:ok, controller} <- locked_controller(id, scope),
+           :ok <- require_disabled(controller),
+           :ok <- require_no_cascading_dependents(Playbook, id, scope),
+           :ok <- require_no_cascading_dependents(AwxHostMembership, id, scope),
+           :ok <- destroy_controller(controller, scope, opts) do
+        :ok
       else
-        Controller.disable_controller(controller, scope: scope)
+        {:error, reason} -> Repo.rollback(reason)
       end
+    end
+    |> Repo.transaction()
+    |> ConfigurationRequest.normalize_result()
+  end
+
+  defp locked_controller(id, scope) do
+    Controller
+    |> Ash.Query.for_read(:by_id, %{id: id}, scope: scope)
+    |> Ash.Query.lock(:for_update)
+    |> Ash.read_one(scope: scope)
+    |> ConfigurationRequest.require_record()
+  end
+
+  defp require_disabled(%{enabled: false}), do: :ok
+  defp require_disabled(_controller), do: {:error, :controller_must_be_disabled}
+
+  defp require_no_cascading_dependents(resource, id, scope) do
+    query =
+      resource
+      |> Ash.Query.for_read(:read, %{}, scope: scope)
+      |> Ash.Query.filter(controller_id == ^id)
+      |> Ash.Query.select([:id])
+      |> Ash.Query.limit(1)
+
+    case Ash.read(query, scope: scope) do
+      {:ok, []} -> :ok
+      {:ok, [_]} -> {:error, :controller_in_use}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp destroy_controller(controller, scope, opts) do
+    result =
+      controller
+      |> Ash.Changeset.for_destroy(:destroy, %{}, scope: scope)
+      |> ConfigurationRequest.constrain(opts)
+      |> Ash.destroy(scope: scope)
+      |> ConfigurationRequest.normalize_result()
+
+    case result do
+      {:error, %Ash.Error.Invalid{}} -> {:error, :controller_in_use}
+      other -> other
     end
   end
 

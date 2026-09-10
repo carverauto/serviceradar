@@ -65,12 +65,12 @@ A single playbook can appear via both sources; both source types coexist in the 
 
 ### Apply the schema migration
 
-The Ansible tables are added via a single named Ash migration. From a freshly checked out copy with the runtime running against your target database:
+Apply the committed migrations using the application's database migration task,
+with the runtime configured for your target database:
 
 ```bash
 cd elixir/serviceradar_core
-mix ash.codegen add_ansible_integration   # generates the migration
-mix ash.migrate                           # applies it
+mix serviceradar.db.migrate
 ```
 
 Verify with:
@@ -109,7 +109,10 @@ ServiceRadar exposes the operator-tunable knobs as env vars surfaced in both `do
 | Env var | Default | What it does |
 |---|---|---|
 | `AWX_CONTROLLER_HEALTH_INTERVAL_SECONDS` | `30` | `ControllerHealthWorker` cadence (one `awx.ping` per registered controller). |
-| `ANSIBLE_CATALOG_BASE_DIR` | `/var/lib/serviceradar/ansible_catalog` (Helm and Compose) | Base directory for `GitCatalogSyncWorker` repo clones. Mount a PVC at this path in Kubernetes to keep the cache warm across pod restarts. |
+| `ANSIBLE_CATALOG_BASE_DIR` | `/var/lib/serviceradar/ansible_catalog` (Helm and Compose) | Base directory for `GitCatalogSyncWorker` repo clones. The Helm chart mounts a writable `emptyDir` here; clones are recreated after pod replacement, while catalog metadata remains in CNPG. |
+
+Core images include Git for catalog synchronization. The Helm chart also mounts
+a writable `/tmp` for Git and other temporary files.
 
 Set `ANSIBLE_CATALOG_BASE_DIR` to a non-empty path writable by core. It populates
 the `:serviceradar_core` application setting `:ansible_catalog_base_dir`; a
@@ -235,7 +238,7 @@ Navigate to **Settings → Ansible → Repositories** and click **+ Add reposito
 | Ref | Branch or tag. Default `main`. |
 | Description | Optional. |
 | Git URL | HTTPS only. SSH is a v2 feature. |
-| Deploy token secret ID | Optional. Public repos: leave blank. Private repos: create a NetworkCredentialSecret with the HTTPS deploy token (same shape as the AWX API secret) and paste the UUID here. |
+| Deploy token secret ID | Leave blank. See the supported repository constraints in the [provisioning API](./ansible-provisioning-api.md#configuration-lifecycle). |
 | Sync interval (s) | `GitCatalogSyncWorker` cadence. Min 60s; default 600s. |
 
 Save. `GitCatalogSyncWorker` clones the repo to `$ANSIBLE_CATALOG_BASE_DIR/<repository_id>/`, walks `.yml` / `.yaml` files, parses each as an Ansible playbook (the first play's metadata becomes the row), and upserts one `Playbook` row per file with `source_type: :git`.
@@ -405,7 +408,7 @@ The token is wrong, expired, or missing scope. Check `Controller.last_health_sum
 ### No playbooks appear in `/ansible/catalog`
 
 - **AWX-sourced**: `AwxCatalogSyncWorker` ticks every 600s by default. The first sync after registering a controller can take that long. Lower `catalog_sync_interval_seconds` on the controller if you want faster turnaround for setup.
-- **Git-sourced**: `GitCatalogSyncWorker` ticks every 600s by default. Confirm the agent / pod has filesystem write access to `ANSIBLE_CATALOG_BASE_DIR`. Look for `[warning] AWX GitCatalogSyncWorker: git sync failed` in logs — the `PlaybookRepository.last_sync_summary` field surfaces the sanitized error.
+- **Git-sourced**: `GitCatalogSyncWorker` ticks every 600s by default. Confirm core has the Git runtime and writable storage described in [Configure environment variables](#configure-environment-variables). Look for `[warning] AWX GitCatalogSyncWorker: git sync failed` in logs; the `PlaybookRepository.last_sync_summary` field surfaces the sanitized error.
 
 ### Devices don't flip to `ansible_managed: true`
 
@@ -425,6 +428,12 @@ Open `/ansible/operations/:id`, refresh it, and inspect the operation and child-
 ### Operation remains `:running` after AWX is terminal
 
 Refresh the operation evidence and inspect each child execution's AWX job ID, scope-verification state, and diagnostics. Then inspect the correlated secure fetch/status commands in `platform.agent_commands`. Do not infer success from AWX alone: ServiceRadar keeps an execution non-terminal when it cannot prove that the returned job and hosts match the immutable scope.
+
+Existing child jobs can still be observed and reconciled after the launch
+preflight expires. Continuation verifies the persisted immutable evidence and
+controller/edge boundary; it does not authorize another launch. A changed
+controller or dispatch principal can therefore block recovery even when the
+AWX job is terminal.
 
 ### "AWX rejected the request" 401 / 403 on launch
 
@@ -447,7 +456,6 @@ If a user has `ansible.runs.launch` but cannot use the launch workflow or its re
 These are documented constraints, not bugs. Each is tracked for a future v2:
 
 - **AWX-sourced execution only.** The hardened launch picker accepts only AWX-sourced catalog rows with a current approved binding. Git-sourced rows remain searchable catalog metadata, even when an older row carries an AWX template ID. Direct `ansible-playbook` execution by a ServiceRadar agent is reserved for a follow-up.
-- **Public HTTPS git repos.** The `GitCatalogSyncWorker` supports HTTPS deploy tokens via the credential broker but not SSH keys yet.
+- **Git repository access.** See the supported URL and credential constraints in the [provisioning API](./ansible-provisioning-api.md#configuration-lifecycle).
 - **Scheduled execution unavailable.** The current UI supports interactive launches only. A future delegated design will use canonical operations.
 - **Multi-device UI launches require a single controller.** AWX uses `limit:` to scope to specific hosts; mixed-controller selections are rejected at submit time. Multi-controller fan-out is a v2 design question.
-- **Manual UUID paste for credential secret references.** Both controller and repository forms expect operators to paste a credential UUID from **Settings -> Networks -> Credential Rules** (`/settings/networks/credentials`). A picker UX is a planned v2 improvement.

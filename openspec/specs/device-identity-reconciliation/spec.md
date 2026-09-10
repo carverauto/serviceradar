@@ -306,3 +306,17 @@ The system SHALL make identity reconciliation diagnostics reachable through SRQL
 - **AND** the operator SHALL be able to see the merge reason, source, timestamp, and supporting evidence
 - **AND** the operator SHALL be able to see whether the run stopped at its configured work cap
 
+### Requirement: Provider-Neutral Integration Identity Evidence
+The system SHALL NOT admit or reject an integration `integration_id` based on the provider name. Bare numeric provider-native IDs SHALL NOT become `:integration_id` identifiers; source-scoped values and existing opaque identifiers SHALL resolve through the generic `:integration_id` path for any provider. An identifier's prefix need not match `integration_type`, since hypervisor updates carry provider-owned identifiers.
+
+#### Scenario: Scoped provider ID resolves generically
+- **GIVEN** a sync update with `integration_type: "armis"` and `integration_id: "armis:source-a:device:18497"`
+- **WHEN** DIRE extracts strong identifiers
+- **THEN** the update SHALL carry an `:integration_id` identifier with the scoped value
+- **AND** the identifier SHALL be looked up and registered like any other provider's scoped ID
+
+#### Scenario: Bare provider-native ID is rejected
+- **GIVEN** a sync update with `integration_type: "armis"` and a bare numeric `integration_id` such as `"18497"`
+- **WHEN** DIRE extracts strong identifiers
+- **THEN** no `:integration_id` identifier SHALL be produced from the bare value
+- **AND** resolution SHALL rely on the provider's typed identifier (`armis_device_id`) and other evidence

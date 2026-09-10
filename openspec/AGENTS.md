@@ -256,6 +256,27 @@ Every requirement MUST have at least one scenario.
 
 ### Requirement Wording
 - Use SHALL/MUST for normative requirements (avoid should/may unless intentionally non-normative)
+- Positional rule: `openspec validate [change] --strict` checks only the FIRST
+  substantial line of each requirement (the first non-blank line after the
+  `### Requirement:` header, skipping `**Key**: value` metadata lines and
+  stopping at the first `#### Scenario:`). Lead with the SHALL/MUST sentence
+  and put narrative below it. A requirement whose first line is context and
+  whose SHALL/MUST appears only on a later line FAILS strict validation even
+  though the block contains the verb.
+
+**CORRECT** (normative verb on the first line):
+```markdown
+### Requirement: Session Timeout
+The system SHALL terminate idle sessions after 30 minutes.
+Sessions idle past the limit cannot issue further requests.
+```
+
+**WRONG** (verb only on a later line -- fails `--strict`):
+```markdown
+### Requirement: Session Timeout
+Sessions idle past the limit cannot issue further requests.
+The system SHALL terminate idle sessions after 30 minutes.
+```
 
 ### Delta Operations
 
@@ -297,6 +318,10 @@ Example for RENAMED:
 **"Requirement must have at least one scenario"**
 - Check scenarios use `#### Scenario:` format (4 hashtags)
 - Don't use bullet points or bold for scenario headers
+
+**"ADDED/MODIFIED ... must contain SHALL or MUST" (under `--strict`)**
+- See [Requirement Wording](#requirement-wording) for the positional rule and
+  examples of how to fix this error.
 
 **Silent scenario parsing failures**
 - Exact format required: `#### Scenario: Name`

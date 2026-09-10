@@ -74,6 +74,41 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
     assert Enum.map(candidates, & &1.is_available) == [false]
   end
 
+  test "legacy candidate queries accept only matching scoped metadata", %{actor: actor} do
+    source = create_source!(actor, "scoped-source")
+    ingest_armis_update(actor, source.id, "192.0.2.19", "301", true)
+    {:ok, device} = Device.get_by_ip("192.0.2.19", false, actor: actor)
+    device = single_result(device)
+    create_agent_availability!(actor, device.uid, "agent-scoped", true)
+
+    for {integration_id, eligible?} <- [
+          {"301", true},
+          {"armis:#{source.id}:device:301", true},
+          {"armis:other-source:device:301", false},
+          {"armis:#{source.id}:device:302", false}
+        ] do
+      update_device_metadata!(actor, device, %{
+        "armis_device_id" => "301",
+        "integration_type" => "armis",
+        "integration_id" => integration_id,
+        "sync_service_id" => source.id
+      })
+
+      for candidate_source <- [
+            source,
+            %{source | northbound_availability_source_agent_id: "agent-scoped"}
+          ] do
+        candidates =
+          ServiceRadar.Repo.all(ArmisNorthboundRunner.candidates_query(candidate_source))
+
+        assert Enum.any?(candidates, &(&1.armis_device_id == "301")) == eligible?
+      end
+
+      assert {:ok, candidates} = ArmisNorthboundRunner.load_candidates(source)
+      assert Enum.any?(candidates, &(&1.armis_device_id == "301")) == eligible?
+    end
+  end
+
   test "load_candidates skips typed Armis identifiers when device metadata disagrees", %{
     actor: actor
   } do

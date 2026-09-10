@@ -14,7 +14,7 @@
 - [ ] 3.4 LiveView tests live in the DB-backed integration suite (web-ng's `MaybeTest` gate). Plug/unit-level RBAC behavior is covered by the AuditHistory module tests; the LiveView shell is thin enough that the integration tests cover it end-to-end.
 
 ## 4. Diff view
-- [x] 4.1 The History LiveView renders `version.changes` and `version.version_action_inputs` as pretty-printed JSON blocks in the selected-version panel. The map shape (per AshPaperTrail: `%{attribute => %{from: ..., to: ...}}`) renders sensibly across create/update/destroy actions through Jason's pretty encoder.
+- [x] 4.1 The History LiveView renders `version.changes` and `version.version_action_inputs` as pretty-printed JSON blocks inside a modal (`ui_modal`) opened from the selected row. The map shape (per AshPaperTrail: `%{attribute => %{from: ..., to: ...}}`) renders sensibly across create/update/destroy actions through Jason's pretty encoder.
 - [x] 4.2 `truncate_json/1` swaps any value larger than 8 KB serialized for a `(<bytes> bytes, truncated)` placeholder so massive payloads don't blow up the render.
 - [ ] 4.3 Component-level diff tests deferred: the `truncate_json/1` helper is exercised indirectly by the LiveView integration tests in section 3.4. A dedicated rich diff component (proper side-by-side `from`/`to` columns) is a follow-up if operators ask for it.
 

@@ -23,7 +23,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
         anomaly_pagination(
           assigns.overview.anomaly_rows,
           assigns.anomaly_page,
-          Map.get(assigns.overview, :anomaly_pagination, %{})
+          Map.get(assigns.overview, :anomaly_pagination, %{}),
+          assigns.anomaly_filters
         )
       )
 
@@ -741,8 +742,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
 
   defp filter_label(_), do: "Device identity fallback"
 
-  defp anomaly_pagination(rows, page, pagination) when is_list(rows) do
-    paged_rows = actionable_anomaly_rows(rows)
+  defp anomaly_pagination(rows, page, pagination, filters) when is_list(rows) do
+    paged_rows = actionable_anomaly_rows(rows, filters)
     local_total = length(paged_rows)
 
     %{
@@ -755,17 +756,59 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
     }
   end
 
-  defp anomaly_pagination(_rows, page, _pagination) do
+  defp anomaly_pagination(_rows, page, _pagination, _filters) do
     %{rows: [], page: page, page_count: nil, filtered_total: 0, range_start: 0, range_end: 0}
   end
 
-  defp actionable_anomaly_rows(rows) do
+  defp actionable_anomaly_rows(rows, filters) do
+    sort = anomaly_sort_mode(filters)
+
     rows
     |> Enum.with_index()
     |> Enum.filter(fn {row, _index} -> actionable_anomaly_row?(row) end)
-    |> Enum.sort_by(fn {row, index} ->
-      {finding_priority(row), timestamp_sort(value(row, "time")), index}
-    end)
+    |> Enum.sort_by(fn {row, index} -> anomaly_display_key(row, index, sort) end)
+  end
+
+  # The displayed findings follow the user-selected Sort control (Newest,
+  # Oldest, Severity). Sorting by finding state first would float e.g. a
+  # confirmed finding above a newer cleared one even with Sort=Newest.
+  defp anomaly_display_key(row, index, :oldest) do
+    {capacity_notice_last(row), timestamp_sort_asc(value(row, "time")), index}
+  end
+
+  defp anomaly_display_key(row, index, :severity) do
+    {capacity_notice_last(row), severity_rank(row), timestamp_sort(value(row, "time")), index}
+  end
+
+  defp anomaly_display_key(row, index, _newest) do
+    {capacity_notice_last(row), timestamp_sort(value(row, "time")), index}
+  end
+
+  defp capacity_notice_last(row) do
+    if capacity_notice?(row), do: 1, else: 0
+  end
+
+  defp anomaly_sort_mode(filters) when is_map(filters) do
+    sort = Map.get(filters, "sort") || Map.get(filters, :sort)
+
+    case normalize_text(sort) do
+      "oldest" -> :oldest
+      "severity" -> :severity
+      _ -> :newest
+    end
+  end
+
+  defp anomaly_sort_mode(_filters), do: :newest
+
+  defp severity_rank(row) do
+    case normalize_text(value(row, "severity")) do
+      "critical" -> 0
+      "high" -> 1
+      "medium" -> 2
+      "warning" -> 2
+      "low" -> 3
+      _ -> 4
+    end
   end
 
   defp actionable_anomaly_row?(row) when is_map(row) do
@@ -790,16 +833,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
     end
   end
 
-  defp finding_priority(row) do
-    cond do
-      capacity_notice?(row) -> 4
-      finding_state(row) in ["confirmed", "anomalous"] -> 0
-      finding_state(row) in ["pending", "pending_anomaly"] -> 1
-      normalize_text(value(row, "status")) == "suppressed" -> 3
-      true -> 2
-    end
-  end
-
   defp filter_value(filters, key) when is_map(filters) do
     atom_value =
       case key do
@@ -821,6 +854,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
     case parse_timestamp(value) do
       %DateTime{} = dt -> -DateTime.to_unix(dt, :microsecond)
       nil -> 0
+    end
+  end
+
+  # Ascending companion for Oldest sort. Missing timestamps sort last:
+  # in Erlang term order atoms sort after numbers, so nil never wins.
+  defp timestamp_sort_asc(value) do
+    case parse_timestamp(value) do
+      %DateTime{} = dt -> DateTime.to_unix(dt, :microsecond)
+      nil -> nil
     end
   end
 

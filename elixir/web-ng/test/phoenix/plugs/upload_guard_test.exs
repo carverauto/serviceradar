@@ -5,6 +5,8 @@ defmodule ServiceRadarWebNGWeb.Plugs.UploadGuardTest do
 
   alias ServiceRadarWebNGWeb.Plugs.UploadGuard
 
+  @moduletag :db_free
+
   @png_header <<0x89, "PNG", 0x0D, 0x0A, 0x1A, 0x0A>>
   @jpeg_header <<0xFF, 0xD8, 0xFF, 0xE0>>
   @zip_header <<"PK", 0x03, 0x04>>
@@ -149,6 +151,12 @@ defmodule ServiceRadarWebNGWeb.Plugs.UploadGuardTest do
   end
 
   defp add_param(conn, key, value) do
-    %{conn | params: Map.put(conn.params || %{}, key, value)}
+    params =
+      case conn.params do
+        %Plug.Conn.Unfetched{} -> %{}
+        params -> params
+      end
+
+    %{conn | params: Map.put(params, key, value)}
   end
 end

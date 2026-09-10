@@ -57,6 +57,10 @@ duplicate typed identifiers, multiple typed identifiers on one device, and the
 same numeric Armis ID in separate sources. Armis typed identifiers are scoped
 by source, so an ID such as `91001` in source A cannot select source B's device.
 
+The suite also requires one scoped `integration_id` row per fixture device,
+alongside its typed `armis_device_id` row. The identity contract and legacy
+fallback are documented in the [DIRE identity model](../dire-identity-model.md#armis-integration-identity).
+
 An `active_ip_conflict` audit entry during the churn case is expected evidence
 that the old IP was reused. It is not an identity-conflict skip and must not
 reduce the northbound candidate count. The test fails if any other conflict

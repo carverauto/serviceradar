@@ -1,0 +1,63 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "terraformprovider",
+    srcs = [
+        "attributes.go",
+        "client.go",
+        "data_source.go",
+        "definitions.go",
+        "provider.go",
+        "resource.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/terraformprovider",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@com_github_google_uuid//:uuid",
+        "@com_github_hashicorp_terraform_plugin_framework//datasource",
+        "@com_github_hashicorp_terraform_plugin_framework//datasource/schema",
+        "@com_github_hashicorp_terraform_plugin_framework//diag",
+        "@com_github_hashicorp_terraform_plugin_framework//path",
+        "@com_github_hashicorp_terraform_plugin_framework//provider",
+        "@com_github_hashicorp_terraform_plugin_framework//provider/schema",
+        "@com_github_hashicorp_terraform_plugin_framework//resource",
+        "@com_github_hashicorp_terraform_plugin_framework//resource/schema",
+        "@com_github_hashicorp_terraform_plugin_framework//resource/schema/int64default",
+        "@com_github_hashicorp_terraform_plugin_framework//resource/schema/planmodifier",
+        "@com_github_hashicorp_terraform_plugin_framework//resource/schema/stringplanmodifier",
+        "@com_github_hashicorp_terraform_plugin_framework//types",
+    ],
+)
+
+go_test(
+    name = "terraformprovider_test",
+    srcs = [
+        "provider_test.go",
+        "test_fixture_test.go",
+    ],
+    embed = [":terraformprovider"],
+    deps = [
+        "@com_github_hashicorp_terraform_plugin_framework//providerserver",
+        "@com_github_hashicorp_terraform_plugin_go//tfprotov6",
+        "@com_github_hashicorp_terraform_plugin_go//tftypes",
+    ],
+)
+
+go_test(
+    name = "terraform_cli_acceptance_test",
+    size = "medium",
+    srcs = [
+        "terraform_cli_test.go",
+        "test_fixture_test.go",
+    ],
+    data = [
+        "//go/cmd/terraform-provider-serviceradar",
+        "//third_party/terraform",
+    ],
+    embed = [":terraformprovider"],
+    x_defs = {
+        "github.com/carverauto/serviceradar/go/pkg/terraformprovider.providerBinaryRlocation": "$(rlocationpath //go/cmd/terraform-provider-serviceradar)",
+        "github.com/carverauto/serviceradar/go/pkg/terraformprovider.terraformBinaryRlocation": "$(rlocationpath //third_party/terraform:terraform)",
+    },
+    deps = ["@io_bazel_rules_go//go/runfiles"],
+)

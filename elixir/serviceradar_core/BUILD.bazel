@@ -341,6 +341,7 @@ CORE_DEPS = [
     "@hexpm//:ash",
     "@hexpm//:ash_admin",
     "@hexpm//:ash_cloak",
+    "@hexpm//:ash_events",
     "@hexpm//:ash_json_api",
     "@hexpm//:ash_oban",
     "@hexpm//:ash_paper_trail",

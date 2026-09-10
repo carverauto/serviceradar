@@ -1,5 +1,5 @@
 import {filterHistory, pushHistory} from "../lib/srql/queryHistory.js"
-import {isDynamicKeyField, tokenize} from "../lib/srql/tokenizer.js"
+import {baseFieldName, isDynamicKeyField, tokenize} from "../lib/srql/tokenizer.js"
 
 const BOOLEAN_VALUES = ["true", "false"]
 const SORT_DIRECTIONS = ["asc", "desc"]
@@ -347,15 +347,16 @@ export default {
 
   valueCandidates(state) {
     const field = nearestField(state.tokens, state.activeRange?.start ?? 0)
+    const fieldName = field ? baseFieldName(field.text) : null
 
-    if (field) {
-      const enumValues = this.enumValues(state.entity, field.text)
+    if (fieldName) {
+      const enumValues = this.enumValues(state.entity, fieldName)
       if (enumValues.length > 0) {
         return enumValues.map(value => ({value, label: value, detail: "Value", slot: "value"}))
       }
     }
 
-    if (field && this.booleanFields(state.entity).includes(field.text)) {
+    if (fieldName && this.booleanFields(state.entity).includes(fieldName)) {
       return BOOLEAN_VALUES.map(value => ({value, label: value, detail: "Boolean", slot: "value"}))
     }
 
@@ -479,14 +480,14 @@ export default {
   hintValues(token) {
     if (token.kind === "entity") return Object.keys(this.catalog.entities || {})
     if (token.kind === "field") {
-      const enumValues = this.enumValues(this.state.entity, token.text)
+      const enumValues = this.enumValues(this.state.entity, baseFieldName(token.text))
       if (enumValues.length > 0) return enumValues
       return this.fieldsForEntity(this.state.entity)
     }
     if (token.kind === "op") return this.catalog.operators || []
     if (token.kind === "value") {
       const field = nearestField(this.state.tokens, token.start)
-      const enumValues = field ? this.enumValues(this.state.entity, field.text) : []
+      const enumValues = field ? this.enumValues(this.state.entity, baseFieldName(field.text)) : []
       if (enumValues.length > 0) return enumValues
       return []
     }
@@ -524,14 +525,18 @@ export default {
 
   isUnknown(token) {
     if (token.kind === "entity") return !this.catalog.entities?.[token.text]
+    // Resolve the engine's `!` negation prefix before every catalog lookup so
+    // `!discovery_sources:(armis)` validates against `discovery_sources`.
     // `metadata.<key>` / `tags.<key>` are dynamic JSONB-key filters the engine
     // accepts but the catalog can't enumerate — never flag them as unknown.
-    if (token.kind === "field" && isDynamicKeyField(token.text)) return false
+    if (token.kind === "field" && isDynamicKeyField(baseFieldName(token.text))) return false
     if (token.kind === "field" && isSortFieldContext(this.state.tokens, token.start)) {
+      // No `!` stripping here: negation is a filter op, meaningless on a sort
+      // key, and the engine rejects `sort:!field`.
       return Boolean(this.state.entity) && !this.sortableFieldsForEntity(this.state.entity).includes(token.text)
     }
 
-    if (token.kind === "field") return Boolean(this.state.entity) && !this.fieldsForEntity(this.state.entity).includes(token.text)
+    if (token.kind === "field") return Boolean(this.state.entity) && !this.fieldsForEntity(this.state.entity).includes(baseFieldName(token.text))
     if (token.kind === "op") return !(this.catalog.operators || []).includes(token.text)
     if (token.kind === "value" && isSortDirectionContext(this.state.tokens, token.start)) {
       return !SORT_DIRECTIONS.includes(token.text.toLowerCase())

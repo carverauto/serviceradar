@@ -89,6 +89,71 @@ func TestProxmoxAssignmentPolicyFingerprintGoldenVector(t *testing.T) {
 	}
 }
 
+func TestProxmoxHostAuthorityAcceptsOnlyExactPurposePolicyForms(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name    string
+		console bool
+		suffix  string
+		wantOK  bool
+	}{
+		{name: "materialized inventory", suffix: "", wantOK: true},
+		{name: "explicit inventory", suffix: ":inventory_enrichment", wantOK: true},
+		{name: "inventory console purpose", suffix: ":console_access"},
+		{name: "inventory extra suffix", suffix: ":inventory_enrichment:extra"},
+		{name: "inventory different rule", suffix: "-other"},
+		{name: "explicit console", console: true, suffix: ":console_access", wantOK: true},
+		{name: "console without purpose", console: true},
+		{name: "console inventory purpose", console: true, suffix: ":inventory_enrichment"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			options := testInventoryAuthorityOptions()
+			purpose := "inventory_enrichment"
+			if tc.console {
+				options = testConsoleAuthorityOptions()
+				purpose = "console_access"
+			}
+			policyID := "network-credential-rule:" + testProxmoxCredentialRuleID + tc.suffix
+			options.paramsJSON = strings.ReplaceAll(options.paramsJSON,
+				"network-credential-rule:"+testProxmoxCredentialRuleID+":"+purpose, policyID)
+			var envelope pluginHostAuthorityEnvelope
+			if err := json.Unmarshal(testProxmoxHostAuthorityJSON(t, options), &envelope); err != nil {
+				t.Fatal(err)
+			}
+			envelope.Bindings[0].AssignmentPolicyFingerprint = proxmoxAssignmentPolicyFingerprint(
+				options.assignmentID, options.pluginID, options.entrypoint,
+				policyID, options.policyVersion, testProxmoxCredentialRuleID,
+			)
+			hostJSON, err := json.Marshal(envelope)
+			if err != nil {
+				t.Fatal(err)
+			}
+			assignment := &pluginAssignment{
+				AssignmentID: options.assignmentID,
+				PluginID:     options.pluginID,
+				Entrypoint:   options.entrypoint,
+				ParamsJSON:   []byte(options.paramsJSON),
+			}
+			err = assignment.preparePluginHostAuthority(hostJSON)
+			if !tc.wantOK {
+				if !errors.Is(err, errPluginHostAuthorityMalformed) {
+					t.Fatalf("invalid purpose policy returned %v", err)
+				}
+				assertProxmoxAssignmentFailedClosed(t, assignment)
+				return
+			}
+			if err != nil {
+				t.Fatalf("valid purpose policy rejected: %v", err)
+			}
+			bindings, _ := assignment.pluginHostAuthoritySnapshot()
+			if string(assignment.ParamsJSON) != options.paramsJSON || len(bindings) != 1 {
+				t.Fatal("valid purpose policy did not preserve configuration and host authority")
+			}
+		})
+	}
+}
+
 func TestProxmoxHostAuthorityStaysOutsideWasmAndRejectsSmuggling(t *testing.T) {
 	t.Parallel()
 

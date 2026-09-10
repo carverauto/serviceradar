@@ -21,7 +21,9 @@ defmodule ServiceRadarWebNG.Mcp.Runner do
     run_tool(context, :execute_srql, input.arguments, [query: query], fn ->
       case Access.execute_query(scope!(context), %{"query" => query, "limit" => limit}) do
         {:ok, response} -> {:ok, response, row_count(response)}
-        {:error, reason} -> {:error, format_error(reason)}
+        # Keep the raw reason: run_tool formats a copy for the audit log and
+        # lets tool_error/2 dispatch on the struct (Forbidden, NotFound).
+        {:error, reason} -> {:error, reason}
       end
     end)
   end

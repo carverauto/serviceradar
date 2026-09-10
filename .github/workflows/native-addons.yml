@@ -9,6 +9,18 @@ on:
       - 'v*'
   workflow_dispatch:
     inputs:
+      mode:
+        description: "Publish add-ons or prepare a signed agent test artifact without publishing a release."
+        required: true
+        default: addons
+        type: choice
+        options:
+          - addons
+          - agent-test-artifact
+      expected_commit:
+        description: "Full reviewed commit SHA, required for agent-test-artifact mode."
+        required: false
+        type: string
       tag:
         description: "Optional extra tag to apply to published native add-on artifacts."
         required: false
@@ -20,7 +32,7 @@ on:
         type: boolean
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref || github.run_id }}
+  group: ${{ github.workflow }}-${{ inputs.mode == 'agent-test-artifact' && 'agent-test-artifact' || 'addons' }}-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref || github.run_id }}
   cancel-in-progress: true
 
 permissions:
@@ -29,6 +41,7 @@ permissions:
 
 jobs:
   publish:
+    if: github.event_name != 'workflow_dispatch' || inputs.mode != 'agent-test-artifact'
     runs-on: serviceradar-signing
     environment: release
     env:
@@ -172,6 +185,11 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # actions/setup-go@v7.0.0
         with:
           go-version-file: go.mod
+
+      - name: Verify indexed Git metadata
+        run: >-
+          bazel run -c opt --config=remote //build/ci:verify_git_metadata --
+          --expected-commit "${GITHUB_SHA}"
 
       - name: Run hermetic native add-on gate fixtures
         run: bazel test -c opt --config=remote //build/native_addons:build_gates_test
@@ -400,3 +418,84 @@ jobs:
             "${index_path}" \
             serviceradar-native-addon-index.json
           echo "Uploaded serviceradar-native-addon-index.json to ${release_tag}"
+
+  agent_test_artifact:
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'agent-test-artifact'
+    runs-on: serviceradar-signing
+    environment: release
+    permissions:
+      contents: read
+    env:
+      EXPECTED_COMMIT: ${{ inputs.expected_commit }}
+      # Operators configure this HTTPS directory in the protected release environment.
+      # The helper derives the complete artifact URL from this directory and GITHUB_SHA.
+      AGENT_TEST_ARTIFACT_BASE_URL: ${{ vars.AGENT_TEST_ARTIFACT_BASE_URL }}
+    steps:
+      - name: Checkout exact workflow commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up pinned Bazelisk
+        uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # 0.19.0
+        with:
+          bazelisk-version: 1.28.1
+          bazelisk-cache: true
+
+      # Runtime credential material cannot be a Bazel action input. This is the
+      # credential-bootstrap exception; all artifact work below is a declared target.
+      - name: Configure remote build authentication
+        env:
+          BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY || secrets.BUILDBUDDY_API_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "${BUILDBUDDY_ORG_API_KEY}"
+          umask 077
+          printf 'common --remote_header=x-buildbuddy-api-key=%s\n' "${BUILDBUDDY_ORG_API_KEY}" > .bazelrc.remote
+
+      - name: Verify indexed Git metadata
+        run: >-
+          bazel run -c opt --config=remote //build/ci:verify_git_metadata --
+          --expected-commit "${EXPECTED_COMMIT}"
+
+      - name: Exercise synthetic checkout cleanup
+        run: bazel run -c opt --config=remote //build/ci:git_checkout_regression
+
+      - name: Derive reviewed agent test artifact metadata
+        id: metadata
+        run: >-
+          bazel run -c opt --config=remote
+          //build/release:agent_test_artifact_metadata -- agent-test-metadata
+          --expected-commit "${EXPECTED_COMMIT}"
+          --workflow-commit "${GITHUB_SHA}"
+          --artifact-base-url "${AGENT_TEST_ARTIFACT_BASE_URL}"
+          --github-output "${GITHUB_OUTPUT}"
+
+      - name: Verify agent artifact tooling
+        run: >-
+          bazel test -c opt --config=remote
+          //build/release:agent_test_artifact_test
+          //build/release:agent_test_runtime_archive_test
+          //go/cmd/agent:agent_test
+
+      - name: Build and sign agent test artifact
+        env:
+          AGENT_TEST_VERSION: ${{ steps.metadata.outputs.version }}
+          SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY: ${{ secrets.SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY }}
+        run: >-
+          bazel run -c opt --config=remote
+          "--@io_bazel_rules_go//go/config:gc_linkopts=-X=main.Version=${AGENT_TEST_VERSION}"
+          //build/release:agent_test_artifact -- agent-test-artifact
+          --expected-commit "${EXPECTED_COMMIT}"
+          --workflow-commit "${GITHUB_SHA}"
+          --artifact-base-url "${AGENT_TEST_ARTIFACT_BASE_URL}"
+          --output-dir "${RUNNER_TEMP}/serviceradar-agent-test-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+
+      - name: Upload verified test artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: serviceradar-agent-test-${{ github.sha }}
+          path: ${{ runner.temp }}/serviceradar-agent-test-${{ github.run_id }}-${{ github.run_attempt }}/*
+          if-no-files-found: error
+          retention-days: 7

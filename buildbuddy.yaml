@@ -19,6 +19,9 @@ actions:
       disk: "40GB"
     steps:
       - run: >-
+          bazel run -c opt --config=ci //build/ci:verify_git_metadata --
+          --expected-commit "$(git rev-parse HEAD)"
+      - run: >-
           bazel run -c opt --config=ci --//build:enable_integration_tests //:buildbuddy_setup_docker_auth
       - run: |
           set -euo pipefail
@@ -87,6 +90,10 @@ actions:
       disk: "40GB"
 
     steps:
+      - run: >-
+          bazel run -c opt --config=ci //build/ci:verify_git_metadata --
+          --expected-commit "$(git rev-parse HEAD)"
+      - run: bazel run -c opt --config=ci //build/ci:git_checkout_regression
       # Put Harbor credentials into ~/.docker/config.json, for rules_oci's registry fetches.
       # See buildbuddy_setup_docker_auth.sh for details
       - run: >-
@@ -454,6 +461,9 @@ actions:
       disk: "40GB"
     steps:
       - run: >-
+          bazel run -c opt --config=ci //build/ci:verify_git_metadata --
+          --expected-commit "$(git rev-parse HEAD)"
+      - run: >-
           bazel run -c opt --config=ci --//build:enable_integration_tests //:buildbuddy_setup_docker_auth --verbose_failures
 
       # Warm the exact integration-enabled configuration while leaving the test selection focused.
@@ -692,6 +702,9 @@ actions:
       memory: "50GB"
       disk: "40GB"
     steps: &integration_benchmark_steps
+      - run: >-
+          bazel run -c opt --config=ci //build/ci:verify_git_metadata --
+          --expected-commit "$(git rev-parse HEAD)"
       # Refuse a synthetic or stale checkout before spending any build capacity.
       - run: |
           set -euo pipefail
@@ -974,6 +987,9 @@ actions:
       HEX_HTTP_CONCURRENCY: "1"
       HEX_HTTP_TIMEOUT: "120"
     steps:
+      - run: >-
+          bazel run -c opt --config=ci //build/ci:verify_git_metadata --
+          --expected-commit "$(git rev-parse HEAD)"
       - run: |
           set -euo pipefail
 

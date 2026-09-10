@@ -56,6 +56,14 @@ the default) or an `external_reference` (ServiceRadar holds a pointer into an
 external secret provider and resolves it at use time). Both look the same to a
 rule.
 
+This external-reference foundation does not imply Delinea support or public
+provider/reference CRUD. The broker includes OpenBao and a Vault alias; Delinea
+remains an unimplemented adapter placeholder. The current Terraform and public
+credential creation surface accepts internal encrypted material only. Consumer
+migration and UI/API coverage remain partial. See
+[Declarative environments](./declarative-environments.md#future-delinea-secret-server-integration)
+for the proposed runtime integration and the separate runner credential handoff.
+
 Not every provider takes a rule. A provider's descriptor declares
 `supports_rules`, and three of the providers on this page are credential-only:
 

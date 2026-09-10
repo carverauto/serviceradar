@@ -8,6 +8,21 @@ defmodule ServiceRadar.Inventory.IntegrationIdentityTest do
   @tonka_integration_id "33333333-3333-4333-8333-333333333333"
   @tonka_controller_id "44444444-4444-4444-8444-444444444444"
 
+  @tag :scoped_identity_contract
+  test "scoped device identities normalize source boundaries and retain native IDs" do
+    assert IntegrationIdentity.scoped_device_id("armis", " : SOURCE : A : ", "101") ==
+             "armis:source-a:device:101"
+
+    assert IntegrationIdentity.scoped_device_id("netbox", "Source B", "101") ==
+             "netbox:source-b:device:101"
+
+    assert IntegrationIdentity.scoped_device_id("armis", nil, "101") == nil
+    assert IntegrationIdentity.scoped_device_id("armis", " : ", "101") == nil
+
+    refute IntegrationIdentity.scoped_device_id("armis", "source-a", "101") ==
+             IntegrationIdentity.scoped_device_id("armis", "source-b", "101")
+  end
+
   describe "proxmox v3 source-scoped identities" do
     test "renders and parses canonical cluster, node, and guest refs" do
       assert {:ok, cluster} =

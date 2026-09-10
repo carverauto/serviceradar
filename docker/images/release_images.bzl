@@ -119,6 +119,7 @@ EOF
 
 def elixir_release_rootfs_amd64(name, release_tar, visibility = None):
     """Wrap an Elixir release tarball under /app for OCI packaging."""
+
     # Still gzipped, via extension, to keep the layer bytes' shape as close to the previous
     # behaviour as possible -- the win here is the removed extract and touch passes, not the
     # compression. Consumers take this by LABEL (image_rootfs_tar below), so the output file
@@ -144,24 +145,26 @@ def elixir_release_rootfs_with_debs_amd64(
         release_tar,
         deb_packages,
         overlay_tool = "//docker/images:overlay_deb_packages.py",
+        zstd_tool = "@zstd//:zstd_cli",
         visibility = None):
     """Wrap an Elixir release under /app and overlay Debian packages into rootfs."""
 
     deb_args = ""
     if deb_packages:
         deb_args = """
-python3 "$(location {overlay_tool})" "$${{ROOT}}" \\
+python3 "$(location {overlay_tool})" --zstd "$(location {zstd_tool})" "$${{ROOT}}" \\
   {deb_locations}
 """.format(
             overlay_tool = overlay_tool,
-            deb_locations = " \\\n  ".join(['"$(location {})"'.format(pkg) for pkg in deb_packages]),
+            zstd_tool = zstd_tool,
+            deb_locations = " \\\n  ".join(["$(locations {})".format(pkg) for pkg in deb_packages]),
         )
 
     native.genrule(
         name = name,
         srcs = [release_tar] + deb_packages,
         outs = ["{}.tar".format(name)],
-        tools = [overlay_tool],
+        tools = [overlay_tool, zstd_tool],
         cmd = """
 set -euo pipefail
 TAR=$(location ___RELEASE_TAR___)
@@ -404,14 +407,10 @@ def declare_web_ng_release_container_amd64(
             bun_layer_name = name + "_bun_runtime_layer_amd64"
 
     cosign_layer_name = (
-        name[:-len("_image_amd64")] + "_cosign_runtime_layer_amd64"
-        if name.endswith("_image_amd64")
-        else name + "_cosign_runtime_layer_amd64"
+        name[:-len("_image_amd64")] + "_cosign_runtime_layer_amd64" if name.endswith("_image_amd64") else name + "_cosign_runtime_layer_amd64"
     )
     ca_bundle_layer_name = (
-        name[:-len("_image_amd64")] + "_ca_bundle_layer_amd64"
-        if name.endswith("_image_amd64")
-        else name + "_ca_bundle_layer_amd64"
+        name[:-len("_image_amd64")] + "_ca_bundle_layer_amd64" if name.endswith("_image_amd64") else name + "_ca_bundle_layer_amd64"
     )
     base_digest = ":{}.digest".format(base_image_name) if base_image_name else ":{}.digest".format(name)
 

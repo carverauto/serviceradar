@@ -1,0 +1,18 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library")
+
+go_library(
+    name = "terraform-provider-serviceradar_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/carverauto/serviceradar/go/cmd/terraform-provider-serviceradar",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//go/pkg/terraformprovider",
+        "@com_github_hashicorp_terraform_plugin_framework//providerserver",
+    ],
+)
+
+go_binary(
+    name = "terraform-provider-serviceradar",
+    embed = [":terraform-provider-serviceradar_lib"],
+    visibility = ["//visibility:public"],
+)

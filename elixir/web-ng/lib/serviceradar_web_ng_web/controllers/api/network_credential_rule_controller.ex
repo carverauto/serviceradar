@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNGWeb.Api.NetworkCredentialRuleController do
   use ServiceRadarWebNGWeb, :controller
 
   alias ServiceRadarWebNG.Accounts.Scope
+  alias ServiceRadarWebNG.ConfigurationRequest
   alias ServiceRadarWebNG.NetworkCredentials
   alias ServiceRadarWebNG.RBAC
 
@@ -36,7 +37,7 @@ defmodule ServiceRadarWebNGWeb.Api.NetworkCredentialRuleController do
     with :ok <- require_authenticated(conn),
          :ok <- require_permission(conn, @permission) do
       case credentials().get_rule(id, scope: get_scope(conn)) do
-        {:ok, rule} -> json(conn, rule_to_json(rule))
+        {:ok, rule} -> rule_response(conn, rule)
         {:error, :not_found} -> {:error, :not_found}
         {:error, error} -> {:error, error}
       end
@@ -47,11 +48,20 @@ defmodule ServiceRadarWebNGWeb.Api.NetworkCredentialRuleController do
     with :ok <- require_authenticated(conn),
          :ok <- require_permission(conn, @permission),
          {:ok, attrs} <- normalize_rule_attrs(params) do
-      case credentials().create_rule(attrs, scope: get_scope(conn)) do
+      result =
+        ConfigurationRequest.create(
+          conn,
+          params,
+          fn -> credentials().create_rule(attrs, scope: get_scope(conn)) end,
+          fn id -> credentials().get_rule(id, scope: get_scope(conn)) end,
+          required: false
+        )
+
+      case result do
         {:ok, rule} ->
           conn
           |> put_status(:created)
-          |> json(rule_to_json(rule))
+          |> rule_response(rule)
 
         {:error, error} ->
           {:error, error}
@@ -70,9 +80,10 @@ defmodule ServiceRadarWebNGWeb.Api.NetworkCredentialRuleController do
   def update(conn, %{"id" => id} = params) do
     with :ok <- require_authenticated(conn),
          :ok <- require_permission(conn, @permission),
-         {:ok, attrs} <- normalize_rule_attrs(params, partial: true) do
-      case credentials().update_rule(id, attrs, scope: get_scope(conn)) do
-        {:ok, rule} -> json(conn, rule_to_json(rule))
+         {:ok, attrs} <- normalize_rule_attrs(params, partial: true),
+         {:ok, mutation_opts} <- ConfigurationRequest.mutation_opts(conn, required: false) do
+      case credentials().update_rule(id, attrs, [scope: get_scope(conn)] ++ mutation_opts) do
+        {:ok, rule} -> rule_response(conn, rule)
         {:error, :not_found} -> {:error, :not_found}
         {:error, error} -> {:error, error}
       end
@@ -95,15 +106,37 @@ defmodule ServiceRadarWebNGWeb.Api.NetworkCredentialRuleController do
     set_enabled(conn, id, false)
   end
 
+  def delete(conn, %{"id" => id}) do
+    with :ok <- require_authenticated(conn),
+         :ok <- require_permission(conn, @permission),
+         {:ok, opts} <- ConfigurationRequest.mutation_opts(conn),
+         :ok <- credentials().delete_rule(id, Keyword.put(opts, :scope, get_scope(conn))) do
+      send_resp(conn, :no_content, "")
+    else
+      {:error, reason} when reason in [:credential_rule_must_be_disabled, :credential_rule_in_use] ->
+        conn |> put_status(:conflict) |> json(%{error: reason})
+
+      error ->
+        error
+    end
+  end
+
   defp set_enabled(conn, id, enabled) do
     with :ok <- require_authenticated(conn),
-         :ok <- require_permission(conn, @permission) do
-      case credentials().set_rule_enabled(id, enabled, scope: get_scope(conn)) do
-        {:ok, rule} -> json(conn, rule_to_json(rule))
+         :ok <- require_permission(conn, @permission),
+         {:ok, mutation_opts} <- ConfigurationRequest.mutation_opts(conn, required: false) do
+      case credentials().set_rule_enabled(id, enabled, [scope: get_scope(conn)] ++ mutation_opts) do
+        {:ok, rule} -> rule_response(conn, rule)
         {:error, :not_found} -> {:error, :not_found}
         {:error, error} -> {:error, error}
       end
     end
+  end
+
+  defp rule_response(conn, rule) do
+    conn
+    |> ConfigurationRequest.put_etag(rule)
+    |> json(rule_to_json(rule))
   end
 
   defp normalize_rule_attrs(params, opts \\ []) do
@@ -137,7 +170,7 @@ defmodule ServiceRadarWebNGWeb.Api.NetworkCredentialRuleController do
         }
         |> Enum.reject(fn {key, value} ->
           is_nil(value) and
-            (key not in [:ca_bundle_pem, :server_cert_fingerprint] or
+            (key not in [:description, :ca_bundle_pem, :server_cert_fingerprint] or
                not Map.has_key?(params, Atom.to_string(key)))
         end)
         |> Map.new()

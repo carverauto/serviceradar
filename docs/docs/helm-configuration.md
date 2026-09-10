@@ -489,11 +489,17 @@ Each deployment is self-contained. In managed environments, a separate control
 plane provisions namespaces, CNPG accounts, and NATS accounts, then installs the
 chart for that deployment.
 
+After the application is ready, use the supported
+[provisioning API](./ansible-provisioning-api.md) or
+[Terraform provider](./terraform-provider.md) for its bounded application resources.
+Follow [Declarative environments](./declarative-environments.md) for the ordered
+installation, identity bootstrap, configuration, and recovery workflow.
+
 ## Mapper Discovery Settings
 
 Mapper discovery is embedded in `serviceradar-agent` and configured via Settings → Networks → Discovery. Discovery jobs, seeds, and credentials are stored in CNPG and delivered to agents through the GetConfig pipeline.
 
-If you need to bootstrap discovery configuration in an automated fashion, use the admin API or seed the CNPG data directly, then trigger an agent config refresh.
+Configure discovery through Settings or its supported admin API, then trigger an agent config refresh. Do not seed CNPG directly. The current Terraform provider does not manage mapper discovery resources.
 
 ## Device Enrichment Rule Overrides
 

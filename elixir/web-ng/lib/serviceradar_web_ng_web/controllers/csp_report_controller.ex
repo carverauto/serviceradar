@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.CspReportController do
   use ServiceRadarWebNGWeb, :controller
 
   alias ServiceRadar.Security.Events
+  alias ServiceRadarWebNGWeb.ClientIP
 
   @max_detail_bytes 4_096
 
@@ -33,15 +34,9 @@ defmodule ServiceRadarWebNGWeb.CspReportController do
   defp extract_report(%{"report" => report}), do: report
   defp extract_report(other), do: other
 
-  defp client_ip(conn) do
-    case Plug.Conn.get_req_header(conn, "x-forwarded-for") do
-      [forwarded | _] ->
-        forwarded |> String.split(",", parts: 2) |> List.first() |> String.trim()
-
-      [] ->
-        conn.remote_ip |> :inet.ntoa() |> List.to_string()
-    end
-  end
+  # Centralized extraction: honors x-forwarded-for only from trusted
+  # proxies (see ServiceRadarWebNG.ClientIP).
+  defp client_ip(conn), do: ClientIP.get(conn)
 
   defp user_agent(conn) do
     case Plug.Conn.get_req_header(conn, "user-agent") do

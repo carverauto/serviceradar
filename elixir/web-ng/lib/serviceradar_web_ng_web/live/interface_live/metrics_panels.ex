@@ -78,7 +78,8 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.MetricsPanels do
       present?(first, preferred) -> preferred
       present?(first, "timestamp") -> "timestamp"
       present?(first, "time") -> "time"
-      true -> preferred || "timestamp"
+      # spec.x is always binary here (guard-pinned by parse_timeseries_spec).
+      true -> preferred
     end
   end
 

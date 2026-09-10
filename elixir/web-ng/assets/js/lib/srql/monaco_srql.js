@@ -1,4 +1,4 @@
-import {tokenize} from "./tokenizer.js"
+import {baseFieldName, tokenize} from "./tokenizer.js"
 
 const SRQL_LANGUAGE_ID = "serviceradar-srql"
 const SRQL_MARKER_OWNER = "serviceradar-srql"
@@ -234,18 +234,19 @@ function valueItems(catalog, state) {
   const entity = catalog.entities[state.entity]
   const position = state.activeRange?.start ?? 0
   const field = nearestField(state.tokens, position)
+  const fieldName = field ? baseFieldName(field.text) : null
 
-  if (field && entity?.enums?.[field.text]) {
-    return entity.enums[field.text].map(value => ({
+  if (fieldName && entity?.enums?.[fieldName]) {
+    return entity.enums[fieldName].map(value => ({
       label: value,
       insert: value,
       kind: "enum",
-      detail: `${field.text} value`,
-      documentation: `Known value for ${field.text}.`,
+      detail: `${fieldName} value`,
+      documentation: `Known value for ${fieldName}.`,
     }))
   }
 
-  if (field && (entity?.fields?.boolean || []).includes(field.text)) {
+  if (fieldName && (entity?.fields?.boolean || []).includes(fieldName)) {
     return BOOLEAN_VALUES.map(value => ({label: value, insert: value, kind: "value", detail: "boolean"}))
   }
 

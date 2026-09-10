@@ -27,6 +27,9 @@ const sidebars: SidebarsConfig = {
         {type: 'doc', id: 'cloud-quickstart', label: 'Cloud Quickstart'},
         {type: 'doc', id: 'docker-setup', label: 'Docker Compose'},
         {type: 'doc', id: 'helm-configuration', label: 'Kubernetes (Helm)'},
+        {type: 'doc', id: 'declarative-environments', label: 'Declarative Environments'},
+        {type: 'doc', id: 'terraform-provider', label: 'Terraform Provider'},
+        {type: 'doc', id: 'ansible-provisioning-api', label: 'Ansible Provisioning API'},
         {type: 'doc', id: 'kubernetes-ingestion', label: 'Kubernetes Ingestion'},
         {
           type: 'doc',
