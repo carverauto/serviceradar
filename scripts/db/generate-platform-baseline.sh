@@ -55,6 +55,7 @@ hypertable_calls="$(
     FROM timescaledb_information.hypertables h
     JOIN timescaledb_information.dimensions d
       ON d.hypertable_schema = h.hypertable_schema AND d.hypertable_name = h.hypertable_name
+      AND d.dimension_number = 1
     ORDER BY h.hypertable_name
   "
 )"
