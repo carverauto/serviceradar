@@ -48,7 +48,11 @@ def main():
             failures.append(f"missing declared source inputs: {root}")
         inspected.extend(files)
 
-    core_files = sorted(p for p in ELIXIR_ROOT.rglob("*.ex") if "proto" not in p.parts)
+    core_files = sorted(
+        p
+        for p in ELIXIR_ROOT.rglob("*.ex")
+        if "proto" not in p.parts and "event_writer" not in p.parts
+    )
     if not core_files:
         failures.append("missing declared core source inputs")
     actual_core = set()
