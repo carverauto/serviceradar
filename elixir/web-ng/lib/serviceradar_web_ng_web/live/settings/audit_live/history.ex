@@ -10,19 +10,26 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.History do
   identifier, action type, and time range, and drill into a single row's
   `changes` map for the diff detail. The "Origin" column shows `api` / `web`
   for AshEvents rows and "—" for PaperTrail rows, which have no transport
-  concept. Gated by `settings.audit.view`.
+  concept. The "Actor" column resolves the recorded actor UUID to the
+  user's login email (linked to the user detail page for viewers holding
+  `settings.auth.manage`), falling back to the raw recorded value when the
+  user cannot be read. Gated by `settings.audit.view`.
   """
 
   use ServiceRadarWebNGWeb, :live_view
 
   alias ServiceRadar.Identity.RBAC
+  alias ServiceRadar.Identity.User
   alias ServiceRadar.Security.AuditHistory
   alias ServiceRadarWebNGWeb.Settings.Shell
+
+  require Ash.Query
 
   on_mount {ServiceRadarWebNGWeb.UserAuth, :require_authenticated}
 
   @page_size 50
   @action_types ~w(create update destroy)
+  @uuid_re ~r/\A[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\z/
 
   @impl true
   def mount(_params, _session, socket) do
@@ -136,7 +143,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.History do
           _ -> []
         end
 
-      assign(socket, :versions, versions)
+      socket
+      |> assign(:versions, versions)
+      |> assign_actor_users()
     else
       assign(socket, :versions, [])
     end
@@ -189,6 +198,78 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.History do
 
     truncate_json(json)
   end
+
+  # Resolves the actor UUIDs on the current page to `%User{}` records so
+  # the Actor column can show the login email (linked to the user detail
+  # page) instead of a bare UUID. Reads go through the viewer's own actor,
+  # so the `User` read policies stay in force: rows this viewer may not
+  # read simply stay unresolved and fall back to `extract_actor/1`.
+  defp assign_actor_users(socket) do
+    users = load_actor_users(socket.assigns.versions, socket.assigns.ash_actor)
+    assign(socket, :actor_users, users)
+  end
+
+  defp load_actor_users(_versions, nil), do: %{}
+
+  defp load_actor_users(versions, ash_actor) do
+    ids =
+      versions
+      |> Enum.map(&actor_uuid(&1.version))
+      |> Enum.filter(&is_binary/1)
+      |> Enum.uniq()
+
+    case ids do
+      [] ->
+        %{}
+
+      _ ->
+        User
+        |> Ash.Query.for_read(:read, %{}, actor: ash_actor)
+        |> Ash.Query.filter(id in ^ids)
+        |> Ash.read(actor: ash_actor)
+        |> case do
+          {:ok, users} -> Map.new(users, &{to_string(&1.id), &1})
+          {:error, _} -> %{}
+        end
+    end
+  rescue
+    _ -> %{}
+  end
+
+  # Pulls the raw actor identifier out of a version row for user lookup.
+  # Returns the UUID string when the row carries one, else nil (an email
+  # actor or a missing actor needs no lookup). Reads the stamped action
+  # inputs first, then the version row's own actor attributes, which the
+  # `StampAuditContext` mixins populate on the same write.
+  defp actor_uuid(version) do
+    inputs = Map.get(version, :version_action_inputs) || %{}
+
+    candidate =
+      case inputs do
+        %{"actor" => %{"id" => id}} when is_binary(id) -> id
+        %{"actor" => actor} when is_binary(actor) -> actor
+        %{"actor_id" => actor_id} when is_binary(actor_id) -> actor_id
+        _ -> top_level_actor_id(version)
+      end
+
+    if is_binary(candidate) and Regex.match?(@uuid_re, candidate), do: candidate
+  end
+
+  defp top_level_actor_id(version) do
+    case Map.get(version, :actor_id) do
+      id when is_binary(id) ->
+        id
+
+      _ ->
+        case Map.get(version, :actor) do
+          %{"id" => id} when is_binary(id) -> id
+          %{id: id} when is_binary(id) -> id
+          _ -> nil
+        end
+    end
+  end
+
+  defp user_email(%{email: email}), do: to_string(email)
 
   defp extract_actor(version) do
     # Not every version record carries `version_action_inputs` — e.g. an
@@ -328,7 +409,23 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.History do
                     </td>
                     <td class="px-4 py-2">{resource_label(entry.resource)}</td>
                     <td class="px-4 py-2">{entry.version.version_action_type}</td>
-                    <td class="px-4 py-2 font-mono text-xs">{extract_actor(entry.version)}</td>
+                    <td class="px-4 py-2 font-mono text-xs">
+                      <%= case @actor_users[actor_uuid(entry.version)] do %>
+                        <% nil -> %>
+                          {extract_actor(entry.version)}
+                        <% user -> %>
+                          <%= if MapSet.member?(@permissions, "settings.auth.manage") do %>
+                            <.link
+                              navigate={~p"/settings/auth/users/#{user.id}"}
+                              class="underline decoration-dotted underline-offset-2"
+                            >
+                              {user_email(user)}
+                            </.link>
+                          <% else %>
+                            {user_email(user)}
+                          <% end %>
+                      <% end %>
+                    </td>
                     <td class="px-4 py-2 font-mono text-xs">{origin_label(entry.origin)}</td>
                     <td class="px-4 py-2 font-mono text-xs">{entry.version.version_source_id}</td>
                   </tr>
