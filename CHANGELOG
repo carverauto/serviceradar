@@ -1,3 +1,44 @@
+# ServiceRadar v1.4.56
+
+Settings > Audit > History now captures and resolves an actor for
+every audited resource, linking human actors to their login email
+and labeling background actors explicitly, and opens row diffs in
+a modal. Also: negated SRQL array-membership filters, out-of-order
+anomaly findings, unbounded device-log/sysmon queries, noisy Ubuntu
+vulnerability candidates, unpaginated add-on rollouts, and the real
+client IP now reaching audit logs behind the shared gateway.
+
+## Whats New
+
+**1.4.56**
+- Audit history: AshPaperTrail-only resources (Controller, Playbook,
+  AuthLockout, and 12 others) now capture an actor instead of always
+  showing "-", resolved to a linked login email or an explicit
+  "System - <component>" label for background actors; row clicks
+  open the diff in a modal instead of an inline panel below the
+  table. Schema: adds actor/actor_id/request_id columns to the
+  affected version tables in migration `20260909150000`;
+  `migrations.expectedVersion` advances to `20260909150000`.
+- Web: passes the real client IP from X-Forwarded-For into audit
+  logs, rate limiting, and lockout checks instead of the shared
+  gateway's own address.
+- Inventory: sorts a device's Recent Anomaly Findings by the
+  selected order (Newest, Oldest, Severity) instead of ignoring it.
+- SRQL: accepts negated array-membership filters (for example
+  `!discovery_sources:(armis)`) in the query editor instead of
+  flagging them as invalid; adds time-bounded indexes so device-log
+  and sysmon probe queries no longer time out.
+- Security: stops noisy, unverifiable Ubuntu advisory candidates
+  from padding the endpoint vulnerability tab.
+- Web: paginates finished add-on automatic rollouts instead of
+  rendering all of them unreachably on one page.
+- Integrations: makes integration-identity admission
+  provider-neutral instead of hardcoding Armis-specific
+  identifiers.
+- Documentation: proposes a retention and compression plan for the
+  audit history tables (api_events, security_events, and the
+  AshPaperTrail version tables), none of which currently have one.
+
 # ServiceRadar v1.4.55
 
 Plugin package details open correctly again, including manifests
