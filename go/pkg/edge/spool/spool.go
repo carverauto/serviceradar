@@ -271,6 +271,15 @@ func (s *Spool) NextSequence() uint64 {
 	return s.nextSeq
 }
 
+// Resolved returns the durable resolved watermark: every sequence at or below
+// it is excluded from Unresolved/ScanFrom. A sender opening a new lane session
+// reports Resolved()+1 as its first unresolved sequence.
+func (s *Spool) Resolved() uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.resolved
+}
+
 // Close closes the underlying segment file.
 func (s *Spool) Close() error {
 	s.mu.Lock()
