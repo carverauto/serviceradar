@@ -829,11 +829,20 @@
 
 ## 3. Make the gateway a durable authenticated relay
 
-- [ ] 3.1 Add the dedicated mTLS bidirectional record RPC and advertise the
+- [x] 3.1 Add the dedicated mTLS bidirectional record RPC and advertise the
   `edge-records:v1` capability only when all required streams are writable. The
   RPC SHALL carry the small delivery wrapper plus each already encoded canonical
   `record_bytes` as an opaque bounded byte string, so transport decoding does
   not reconstruct or re-encode the semantic record before publication.
+  LANDED: `ServiceRadarAgentGateway.EdgeRecordIngestServer` terminates the RPC,
+  requires an authenticated `:agent` identity, gates `lane_open` on
+  `ServiceRadarAgentGateway.EdgeRecordCapability` readiness, and is
+  `JetStreamPublisher.publish_record/2`'s first production caller. See that
+  module's moduledoc for its deliberately narrow scope: it does NOT discharge
+  3.2 (full grant/contract verification), 3.4 (exact-byte/retained-memory
+  binding), 3.5 (complete outcome-to-disposition mapping), 3.9 (transport-
+  provenance stamping), or 3.10 (two-watermark reclaim state machine), all of
+  which remain unchecked below and are required before 0.12 can close.
 - [ ] 3.2 Derive installation trust, network scope, agent, gateway, and partition
   authority from the canonical deployment-CA/certificate-subject edge identity
   resolver without

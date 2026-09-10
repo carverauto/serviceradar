@@ -328,7 +328,8 @@ defmodule ServiceRadarAgentGateway.Application do
         :rperf_metrics_publisher,
         :mtr_metrics_publisher,
         :sweep_metrics_publisher,
-        :otlp_relay_publisher
+        :otlp_relay_publisher,
+        :edge_records_publisher
       ],
       fn key ->
         :serviceradar_agent_gateway

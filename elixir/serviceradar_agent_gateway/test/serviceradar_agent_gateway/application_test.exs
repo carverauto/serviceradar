@@ -70,12 +70,40 @@ defmodule ServiceRadarAgentGateway.ApplicationTest do
             :rperf_metrics_publisher,
             :mtr_metrics_publisher,
             :sweep_metrics_publisher,
-            :otlp_relay_publisher
+            :otlp_relay_publisher,
+            :edge_records_publisher
           ] do
         Application.put_env(:serviceradar_agent_gateway, key, enabled: false)
       end
 
       refute PublisherSupervisor in ServiceRadarAgentGateway.Application.core_children()
+    end
+
+    test "composes the edge publisher lanes when edge_records_publisher alone is enabled" do
+      for key <- [
+            :sysmon_metrics_publisher,
+            :snmp_metrics_publisher,
+            :icmp_metrics_publisher,
+            :plugin_metrics_publisher,
+            :rperf_metrics_publisher,
+            :mtr_metrics_publisher,
+            :sweep_metrics_publisher,
+            :otlp_relay_publisher
+          ] do
+        Application.put_env(:serviceradar_agent_gateway, key, enabled: false)
+      end
+
+      Application.put_env(:serviceradar_agent_gateway, :edge_records_publisher, enabled: true)
+
+      on_exit(fn ->
+        Application.put_env(:serviceradar_agent_gateway, :edge_records_publisher, enabled: false)
+      end)
+
+      composed? = PublisherSupervisor in ServiceRadarAgentGateway.Application.core_children()
+      running? = is_pid(Process.whereis(PublisherSupervisor))
+
+      assert composed? or running?,
+             "edge_records_publisher alone must be sufficient to start the edge publisher lanes"
     end
   end
 

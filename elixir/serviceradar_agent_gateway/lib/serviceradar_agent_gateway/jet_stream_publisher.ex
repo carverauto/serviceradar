@@ -244,12 +244,15 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
       # record the fact -- the lane restarted, or this reservation was superseded. Reporting it
       # durable would be reporting a fact nothing can account for, so a RETRYABLE error is
       # returned instead. This function does not resolve or withhold a source sequence -- it has
-      # no such state; withholding progress on a retryable error is the future caller's
-      # obligation.
+      # no such state; withholding progress on a retryable error is the caller's obligation
+      # (`ServiceRadarAgentGateway.EdgeRecordIngestServer` withholds the ack rather than resolving
+      # the sequence).
       #
       # Stated carefully, because a looser version of this comment claimed more: this function
-      # returns an error, it does not itself republish -- there is no production caller yet. And
-      # if a caller does retry, broker deduplication is not a general answer: `Nats-Msg-Id` dedup
+      # returns an error, it does not itself republish -- retrying is the caller's job
+      # (`ServiceRadarAgentGateway.EdgeRecordIngestServer` withholds the ack and lets the agent's
+      # own deadline drive the retry). If a caller does retry, broker deduplication is not a
+      # general answer: `Nats-Msg-Id` dedup
       # is scoped to one stream and one duplicate window, so a copy landing outside that window,
       # or on a different stream, is not deduplicated there. The proposal names database
       # idempotency as the backstop for exactly that.
