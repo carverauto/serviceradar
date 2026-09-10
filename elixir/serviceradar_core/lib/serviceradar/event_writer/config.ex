@@ -461,6 +461,37 @@ defmodule ServiceRadar.EventWriter.Config do
   end
 
   @doc """
+  The `EDGE_RECORD` stream/consumer definition (task 0.12's one real durable
+  route -- minimum slice only).
+
+  Subject/stream naming matches `ServiceRadar.Edge.StreamRoute`'s already-frozen
+  placement exactly (`telemetry.edge-record.v1.bulk.pNN` ->
+  `TELEMETRY_EDGE_RECORD_V1_BULK`), not an independently invented convention.
+  Only the BULK traffic class is wired: 0.12's own acceptance scope is "ONE
+  committed BULK `SweepObservationBatchV1` fixture"; INTERACTIVE is a separate,
+  not-yet-provisioned stream this task does not touch. `batch_size: 1` because
+  `ServiceRadar.EventWriter.Processors.EdgeRecord` runs one real,
+  all-or-nothing CNPG transaction per record -- a redelivered message must
+  never be folded into another record's batch outcome.
+  """
+  @spec edge_record_stream() :: stream_config()
+  def edge_record_stream do
+    %{
+      name: "EDGE_RECORD",
+      stream_name: "TELEMETRY_EDGE_RECORD_V1_BULK",
+      subject: "telemetry.edge-record.v1.bulk.>",
+      processor: ServiceRadar.EventWriter.Processors.EdgeRecord,
+      batch_size: 1,
+      batch_timeout: 1_000,
+      stream_retention: "limits",
+      stream_storage: "file",
+      stream_discard: "old",
+      stream_max_bytes: 1_073_741_824,
+      stream_max_age: 86_400_000_000_000
+    }
+  end
+
+  @doc """
   Returns the default stream configurations.
 
   Subjects are unprefixed in single-deployment deployments.
@@ -612,7 +643,8 @@ defmodule ServiceRadar.EventWriter.Config do
         batch_size: 100,
         batch_timeout: 1_000
       },
-      analytics_predictions_stream()
+      analytics_predictions_stream(),
+      edge_record_stream()
       # Raw flows live in default_flow_streams/0 (dedicated Broadway demand domain).
     ]
   end
