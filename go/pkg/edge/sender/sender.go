@@ -64,6 +64,12 @@ var ErrUnexpectedPayload = errors.New("sender: unexpected server message payload
 // send; callers may treat this as a no-op rather than an error.
 var ErrNoUnresolvedRecords = errors.New("sender: no unresolved spool records")
 
+// ErrInsufficientCredits is returned by RunOnce when the spool has unresolved
+// records but the gateway's granted credit window is too small to send even
+// the first one. Unlike ErrNoUnresolvedRecords, this is a stall condition
+// callers must not silently ignore.
+var ErrInsufficientCredits = errors.New("sender: granted credit window too small for smallest unresolved record")
+
 // StreamClient is the subset of edgev1.EdgeRecordIngestServiceClient the
 // sender needs, so tests can inject a fake without a real gRPC connection.
 type StreamClient interface {
@@ -131,7 +137,10 @@ func New(sp *spool.Spool, client StreamClient, cfg Config) (*Sender, error) {
 // until every sent sequence is resolved, the stream ends, or ctx is done. It
 // never calls (*spool.Spool).Resolve -- see the package doc for why.
 func (s *Sender) RunOnce(ctx context.Context) (Result, error) {
-	stream, err := s.client.Stream(ctx)
+	streamCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	stream, err := s.client.Stream(streamCtx)
 	if err != nil {
 		return Result{}, fmt.Errorf("sender: open stream: %w", err)
 	}
@@ -180,12 +189,15 @@ func (s *Sender) RunOnce(ctx context.Context) (Result, error) {
 		SentEvents:      make(map[uint64][]byte),
 	}
 
-	sent, err := s.sendUnresolved(stream, &sess, openAck)
+	sent, hadUnresolved, err := s.sendUnresolved(stream, &sess, openAck)
 	if err != nil {
 		return Result{}, err
 	}
 
 	if len(sent) == 0 {
+		if hadUnresolved {
+			return Result{RemoteResolvedThrough: sess.ResolvedThrough}, ErrInsufficientCredits
+		}
 		return Result{RemoteResolvedThrough: sess.ResolvedThrough}, ErrNoUnresolvedRecords
 	}
 
@@ -235,15 +247,17 @@ func (s *Sender) sendUnresolved(
 	stream grpc.BidiStreamingClient[edgev1.EdgeRecordClientMessage, edgev1.EdgeRecordServerMessage],
 	sess *edgerecord.Session,
 	ack *edgev1.EdgeRecordLaneOpenAck,
-) ([]uint64, error) {
+) ([]uint64, bool, error) {
 	var (
-		sent       []uint64
-		framesUsed uint32
-		bytesUsed  uint64
-		sendErr    error
+		sent          []uint64
+		framesUsed    uint32
+		bytesUsed     uint64
+		sendErr       error
+		hadUnresolved bool
 	)
 
 	scanErr := s.spool.ScanFrom(0, func(rec spool.Record) bool {
+		hadUnresolved = true
 		if framesUsed >= ack.GetGrantedFrameCredits() {
 			return false
 		}
@@ -276,13 +290,13 @@ func (s *Sender) sendUnresolved(
 		return true
 	})
 	if scanErr != nil {
-		return sent, fmt.Errorf("sender: scan spool: %w", scanErr)
+		return sent, hadUnresolved, fmt.Errorf("sender: scan spool: %w", scanErr)
 	}
 	if sendErr != nil {
-		return sent, sendErr
+		return sent, hadUnresolved, sendErr
 	}
 
-	return sent, nil
+	return sent, hadUnresolved, nil
 }
 
 func buildFrame(spoolID []byte, rec spool.Record) (*edgev1.EdgeDeliveryFrameV1, error) {
