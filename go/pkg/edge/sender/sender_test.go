@@ -333,6 +333,151 @@ func TestRunOnceReturnsErrNoUnresolvedRecordsOnEmptySpool(t *testing.T) {
 	}
 }
 
+// TestRunOnceReturnsErrInsufficientCreditsWhenFirstRecordExceedsGrant proves
+// that a granted byte-credit window smaller than the first unresolved
+// record's body is reported as a distinct stall (ErrInsufficientCredits),
+// not silently conflated with an empty spool (ErrNoUnresolvedRecords).
+func TestRunOnceReturnsErrInsufficientCreditsWhenFirstRecordExceedsGrant(t *testing.T) {
+	sp := newTestSpool(t)
+	// Body is 16 bytes (UUIDv7 event id reused as body); grant a window
+	// smaller than that so even the first record cannot fit.
+	id := mustEventID(t)
+	if _, err := sp.Append(id, id); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+
+	srv := &fakeIngestServer{
+		grantedByteCredits:  4, // smaller than the 16-byte record body
+		grantedFrameCredits: 100,
+	}
+	client := dialFakeIngest(t, srv)
+
+	s, err := New(sp, client, testConfig(t))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	result, err := s.RunOnce(ctx)
+	if !errors.Is(err, ErrInsufficientCredits) {
+		t.Fatalf("RunOnce err = %v, want ErrInsufficientCredits", err)
+	}
+	if errors.Is(err, ErrNoUnresolvedRecords) {
+		t.Fatalf("RunOnce err must not also satisfy ErrNoUnresolvedRecords: %v", err)
+	}
+	if len(result.Sent) != 0 {
+		t.Fatalf("Sent = %v, want empty", result.Sent)
+	}
+	if got := sp.Resolved(); got != 0 {
+		t.Fatalf("spool.Resolved() = %d, want 0", got)
+	}
+}
+
+// TestRunOnceCancelsStreamContextOnSendError proves that when sendUnresolved
+// fails partway through (a local validation or Send error), RunOnce's
+// streamCtx is canceled rather than left open indefinitely, so the
+// server-side stream goroutine is torn down instead of leaking.
+func TestRunOnceCancelsStreamContextOnSendError(t *testing.T) {
+	sp := newTestSpool(t)
+	for i := 0; i < 2; i++ {
+		id := mustEventID(t)
+		if _, err := sp.Append(id, id); err != nil {
+			t.Fatalf("append: %v", err)
+		}
+	}
+
+	streamCtxDone := make(chan struct{})
+	srv := &erroringIngestServer{
+		fakeIngestServer: fakeIngestServer{
+			grantedByteCredits:  1 << 20,
+			grantedFrameCredits: 100,
+		},
+		failAfterFrames: 1,
+		onServerCtxDone: streamCtxDone,
+	}
+	client := dialFakeIngest(t, srv)
+
+	s, err := New(sp, client, testConfig(t))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if _, err := s.RunOnce(ctx); err == nil {
+		t.Fatal("RunOnce err = nil, want error from mid-stream server failure")
+	}
+
+	select {
+	case <-streamCtxDone:
+		// Expected: RunOnce's defer cancel() tore down the stream, so the
+		// server observed its stream context end.
+	case <-time.After(5 * time.Second):
+		t.Fatal("server-side stream context was not canceled after RunOnce returned an error")
+	}
+}
+
+// erroringIngestServer acks the handshake normally, then fails the stream
+// after receiving failAfterFrames delivery_frame messages, and signals
+// onServerCtxDone once its stream context is Done (proving the client tore
+// the stream down rather than leaving it open).
+type erroringIngestServer struct {
+	fakeIngestServer
+
+	failAfterFrames int
+	onServerCtxDone chan struct{}
+}
+
+func (f *erroringIngestServer) Stream(
+	stream grpc.BidiStreamingServer[edgev1.EdgeRecordClientMessage, edgev1.EdgeRecordServerMessage],
+) error {
+	go func() {
+		<-stream.Context().Done()
+		close(f.onServerCtxDone)
+	}()
+
+	first, err := stream.Recv()
+	if err != nil {
+		return err
+	}
+	open := first.GetLaneOpen()
+	if open == nil {
+		return status.Error(codes.InvalidArgument, "expected lane_open")
+	}
+
+	ack := &edgev1.EdgeRecordLaneOpenAck{
+		SpoolId:             open.GetSpoolId(),
+		SessionNonce:        open.GetSessionNonce(),
+		GrantedByteCredits:  minU64(f.grantedByteCredits, open.GetRequestedByteCredits()),
+		GrantedFrameCredits: minU32(f.grantedFrameCredits, open.GetRequestedFrameCredits()),
+		RouteProfile:        open.GetRouteProfile(),
+		TrafficClass:        open.GetTrafficClass(),
+	}
+	if err := stream.Send(&edgev1.EdgeRecordServerMessage{
+		Payload: &edgev1.EdgeRecordServerMessage_LaneOpenAck{LaneOpenAck: ack},
+	}); err != nil {
+		return err
+	}
+
+	frames := 0
+	for {
+		msg, err := stream.Recv()
+		if err != nil {
+			return err
+		}
+		if msg.GetDeliveryFrame() == nil {
+			return status.Error(codes.InvalidArgument, "expected delivery_frame")
+		}
+		frames++
+		if frames >= f.failAfterFrames {
+			return status.Error(codes.Internal, "injected mid-stream failure")
+		}
+	}
+}
+
 func TestNewRejectsInvalidConfig(t *testing.T) {
 	sp := newTestSpool(t)
 	srv := &fakeIngestServer{}

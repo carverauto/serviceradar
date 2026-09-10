@@ -70,6 +70,21 @@ var ErrNoUnresolvedRecords = errors.New("sender: no unresolved spool records")
 // callers must not silently ignore.
 var ErrInsufficientCredits = errors.New("sender: granted credit window too small for smallest unresolved record")
 
+// errByteCreditsOutOfRange and errFrameCreditsOutOfRange are returned by
+// Config.validate when the requested credit window is zero or exceeds the
+// edgerecord-defined maximum.
+var (
+	errByteCreditsOutOfRange  = errors.New("sender: requested byte credits out of range")
+	errFrameCreditsOutOfRange = errors.New("sender: requested frame credits out of range")
+)
+
+// errSpoolRequired and errClientRequired are returned by New when a required
+// dependency is nil.
+var (
+	errSpoolRequired  = errors.New("sender: spool is required")
+	errClientRequired = errors.New("sender: client is required")
+)
+
 // StreamClient is the subset of edgev1.EdgeRecordIngestServiceClient the
 // sender needs, so tests can inject a fake without a real gRPC connection.
 type StreamClient interface {
@@ -94,10 +109,10 @@ func (c Config) validate() error {
 		return fmt.Errorf("sender: spool id: %w", err)
 	}
 	if c.RequestedByteCredits == 0 || c.RequestedByteCredits > edgerecord.MaxByteCredits {
-		return fmt.Errorf("sender: requested byte credits out of range")
+		return errByteCreditsOutOfRange
 	}
 	if c.RequestedFrameCredits == 0 || c.RequestedFrameCredits > edgerecord.MaxFrameCredits {
-		return fmt.Errorf("sender: requested frame credits out of range")
+		return errFrameCreditsOutOfRange
 	}
 	return nil
 }
@@ -121,10 +136,10 @@ type Sender struct {
 // New builds a Sender for the given spool, client, and lane configuration.
 func New(sp *spool.Spool, client StreamClient, cfg Config) (*Sender, error) {
 	if sp == nil {
-		return nil, errors.New("sender: spool is required")
+		return nil, errSpoolRequired
 	}
 	if client == nil {
-		return nil, errors.New("sender: client is required")
+		return nil, errClientRequired
 	}
 	if err := cfg.validate(); err != nil {
 		return nil, err
@@ -265,11 +280,7 @@ func (s *Sender) sendUnresolved(
 			return false
 		}
 
-		frame, err := buildFrame(s.cfg.SpoolID, rec)
-		if err != nil {
-			sendErr = err
-			return false
-		}
+		frame := buildFrame(s.cfg.SpoolID, rec)
 		if err := edgerecord.ValidateDeliveryFrame(frame, false); err != nil {
 			sendErr = fmt.Errorf("sender: built frame failed local validation: %w", err)
 			return false
@@ -299,14 +310,14 @@ func (s *Sender) sendUnresolved(
 	return sent, hadUnresolved, nil
 }
 
-func buildFrame(spoolID []byte, rec spool.Record) (*edgev1.EdgeDeliveryFrameV1, error) {
+func buildFrame(spoolID []byte, rec spool.Record) *edgev1.EdgeDeliveryFrameV1 {
 	sum := sha256.Sum256(rec.Body)
 	return &edgev1.EdgeDeliveryFrameV1{
 		SpoolId:      spoolID,
 		Sequence:     rec.Sequence,
 		RecordSha256: sum[:],
 		RecordBytes:  rec.Body,
-	}, nil
+	}
 }
 
 // drainAcks reads dispositions until every sent sequence is resolved, the
