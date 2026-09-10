@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict SzBR0CMfAXUhT8hWPFHCjY82Won46u0S0WgmypDAHz2yrYiEw8oPqDcaWrEXpBv
+\restrict nxcUI9Bh5rZb4qxTGeuTp6sCibZp0WtWZsLIBLHshWXubNoRsvvgdnshUEekhDq
 
 -- Dumped from database version 18.4 (Debian 18.4-1.pgdg12+1)
 -- Dumped by pg_dump version 18.4 (Homebrew)
@@ -26670,4 +26670,43 @@ ALTER TABLE ONLY platform.wifi_sites
 -- PostgreSQL database dump complete
 --
 
-\unrestrict SzBR0CMfAXUhT8hWPFHCjY82Won46u0S0WgmypDAHz2yrYiEw8oPqDcaWrEXpBv
+\unrestrict nxcUI9Bh5rZb4qxTGeuTp6sCibZp0WtWZsLIBLHshWXubNoRsvvgdnshUEekhDq
+
+--
+-- ServiceRadar: restore TimescaleDB hypertable registration.
+--
+-- pg_dump --schema-only does not capture hypertable catalog state (see
+-- comment above). Re-establish it here so a database bootstrapped from
+-- this baseline has the same hypertables, on the same time column and
+-- chunk interval, as the database this baseline was generated from.
+--
+SELECT platform.create_hypertable('platform.adhoc_scan_results', 'time', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.bgp_routing_info', 'timestamp', chunk_time_interval => '1 day'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.bmp_routing_events', 'time', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.capacity_forecasts', 'forecasted_at', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.cpu_cluster_metrics', 'timestamp', chunk_time_interval => '1 day'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.cpu_metrics', 'timestamp', chunk_time_interval => '1 day'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.disk_metrics', 'timestamp', chunk_time_interval => '1 day'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.endpoint_inventory_cpe_count_history', 'scan_time', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.endpoint_inventory_package_count_history', 'scan_time', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.endpoint_inventory_package_events', 'scan_time', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.endpoint_inventory_scan_history', 'scan_time', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.events', 'event_timestamp', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.logs', 'timestamp', chunk_time_interval => '06:00:00'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.memory_metrics', 'timestamp', chunk_time_interval => '1 day'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.mtr_hops', 'time', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.mtr_traces', 'time', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.ocsf_events', 'time', chunk_time_interval => '1 day'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.ocsf_network_activity', 'time', chunk_time_interval => '1 day'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.otel_metric_points', 'timestamp', chunk_time_interval => '06:00:00'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.otel_metrics', 'timestamp', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.otel_traces', 'timestamp', chunk_time_interval => '01:00:00'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.process_metrics', 'timestamp', chunk_time_interval => '1 day'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.service_status', 'timestamp', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.stateful_alert_rule_histories', 'event_time', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.survey_arrow_ipc_frames', 'received_at', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.survey_pose_samples', 'captured_at', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.survey_rf_observations', 'captured_at', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.survey_samples', 'timestamp', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.survey_spectrum_observations', 'captured_at', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.timeseries_metrics', 'timestamp', chunk_time_interval => '1 day'::interval, migrate_data => true, if_not_exists => true);
