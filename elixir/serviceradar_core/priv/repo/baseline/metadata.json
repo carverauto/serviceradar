@@ -2,7 +2,7 @@
   "version": 1,
   "included_through": 20260909150000,
   "schema_file": "platform_schema.sql",
-  "schema_sha256": "92fa0acd4725fee30b1619b779c7c9cd224fbe7aedbc8a309f93296ff6d9aaa3",
+  "schema_sha256": "8ad28c888f2ec55f2ef9764ad6ed555edb53c8d79d5b256d9eafe7942243513b",
   "postgres_major": 18,
   "generated_from": "migration-replayed empty database"
 }
