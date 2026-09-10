@@ -24,14 +24,39 @@ defmodule ServiceRadar.Repo.Migrations.AddTimeseriesMetricsProbeIndex do
   @disable_migration_lock true
 
   def up do
+    build_options =
+      if timeseries_metrics_hypertable?(),
+        do: "WITH (timescaledb.transaction_per_chunk)",
+        else: ""
+
     execute("""
     CREATE INDEX IF NOT EXISTS idx_timeseries_metrics_probe
     ON platform.timeseries_metrics (metric_type, metric_name, device_id, timestamp DESC)
-    WITH (timescaledb.transaction_per_chunk)
+    #{build_options}
     """)
   end
 
   def down do
     execute("DROP INDEX IF EXISTS platform.idx_timeseries_metrics_probe")
+  end
+
+  defp timeseries_metrics_hypertable? do
+    case repo().query!("SELECT to_regclass('timescaledb_information.hypertables')") do
+      %{rows: [[nil]]} ->
+        false
+
+      %{rows: [[_hypertables_view]]} ->
+        %{rows: [[hypertable?]]} =
+          repo().query!("""
+          SELECT EXISTS (
+            SELECT 1
+            FROM timescaledb_information.hypertables
+            WHERE hypertable_schema = 'platform'
+              AND hypertable_name = 'timeseries_metrics'
+          )
+          """)
+
+        hypertable?
+    end
   end
 end
