@@ -25,10 +25,13 @@ Concretely, the resources already on AshPaperTrail are:
 Each one has a `*_versions` row per change with `version_action_type`,
 `version_action_name`, `version_action_inputs`, `version_source_id`,
 `changes`, and `version_inserted_at`. The actor that performed the
-change is captured in `version_action_inputs[:actor_id]` /
-`changes[:actor]` depending on the resource (Ash records it
-automatically when the action runs with an actor). What's missing
-is a UI surface that knits them together.
+change is captured via `ServiceRadar.Security.Changes.StampAuditActor`,
+a shared change wired into each resource's `paper_trail_mixin` that
+stamps dedicated `:actor`/`:actor_id` attributes on the version row —
+`version_action_inputs`/`changes[:actor]` alone are not reliable,
+since some version shapes (e.g. `ActionInvocation.Version`) omit
+`version_action_inputs` entirely. What's missing is a UI surface
+that knits them together.
 
 ## What Changes
 
