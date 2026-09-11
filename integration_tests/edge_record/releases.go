@@ -37,7 +37,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -55,6 +54,14 @@ type ReleaseProcess struct {
 	stdoutPath string
 	stderrPath string
 	secrets    []string
+}
+
+// ReleaseEnv is what StartRelease needs from a release's configuration: the
+// environment to boot it with, and which of those values must never reach a
+// log that leaves this test.
+type ReleaseEnv interface {
+	Env() map[string]string
+	Secrets() []string
 }
 
 // GatewayEnvConfig documents and builds every environment variable this
@@ -152,19 +159,22 @@ func (c GatewayEnvConfig) Env() map[string]string {
 	}
 }
 
+// Secrets returns every rendering of the shard password Env places in the
+// gateway's environment: URL-escaped inside DATABASE_URL, and the raw form
+// its bundled serviceradar_core holds once it has parsed that URL.
+func (c GatewayEnvConfig) Secrets() []string {
+	return cnpgPasswordForms(c.CNPGPassword)
+}
+
 // CoreEnvConfig documents and builds every environment variable this harness
 // needs to boot elixir/serviceradar_core_elx's release with
 // ServiceRadar.EventWriter.Pipeline actually running, confirmed by reading
 // elixir/serviceradar_core_elx/config/runtime.exs.
 //
-// CNPGHost/Port/Database/Username/Password below come from ShardCNPGConfig in
-// the required BazelCI check: this test's own sr_core_test_<run>_edge_record
-// clone of the schema generation, created and described by //rust/integration-db
-// binaries the harness executes (vertical_slice_test.go's
-// provisionAndDescribeShard). A local, non-Bazel `go test` run falls back to
-// plain CNPG_* env vars (CNPG_SSL_MODE defaults to "disable" in runtime.exs,
-// so the "Local Development with Docker CNPG" playbook's non-TLS Postgres on
-// localhost:5455 works).
+// CNPGHost/Port/Database/Username/Password below come from ShardCNPGConfig:
+// this test's own sr_core_test_<run>_edge_record clone of the schema
+// generation, created and described by //rust/integration-db binaries the
+// harness executes (vertical_slice_test.go's provisionAndDescribeShard).
 type CoreEnvConfig struct {
 	MetricsPort   int
 	CNPGHost      string
@@ -180,11 +190,9 @@ type CoreEnvConfig struct {
 	// GenerateCloakKey below, it never needs to decrypt anything real.
 	CloakKey string
 	// CNPGSSLMode is CNPG_SSL_MODE (elixir/serviceradar_core_elx/config/runtime.exs:651,
-	// default "disable"). Local `bazel test`/dev runs against the Docker CNPG playbook
-	// leave this "disable"; the required BazelCI check's shard database is
-	// password+TLS-verified (see ShardCNPGConfig and vertical_slice_test.go's
-	// provisionAndDescribeShard), so the harness sets
-	// this to the value describe_shard reported ("require"/"verify-ca"/"verify-full").
+	// default "disable"). The shard database is password+TLS-verified (see
+	// ShardCNPGConfig and vertical_slice_test.go's provisionAndDescribeShard), so the
+	// harness sets this to the value describe_shard reported ("require"/"verify-ca"/"verify-full").
 	CNPGSSLMode string
 	// CNPGCAFile is CNPG_CA_FILE (runtime.exs:656-660) -- the CA the connection verifies
 	// the server certificate against. Empty omits the env var (falls back to
@@ -209,8 +217,6 @@ func GenerateCloakKey() (string, error) {
 
 // Env returns the environment variables StartRelease should merge in to boot
 // the core_elx release with EventWriter enabled for this test.
-// CNPGHostFromEnv/CNPGPortFromEnv provide the local-dev fallback documented
-// on CoreEnvConfig.
 func (c CoreEnvConfig) Env() map[string]string {
 	sslMode := c.CNPGSSLMode
 	if sslMode == "" {
@@ -241,6 +247,26 @@ func (c CoreEnvConfig) Env() map[string]string {
 		env["CNPG_TLS_SERVER_NAME"] = c.CNPGTLSServerName
 	}
 	return env
+}
+
+// Secrets returns every rendering of the shard password Env places in the
+// core release's environment: raw as CNPG_PASSWORD, and URL-escaped inside
+// the DATABASE_URL runtime.exs assembles from it.
+func (c CoreEnvConfig) Secrets() []string {
+	return cnpgPasswordForms(c.CNPGPassword)
+}
+
+// cnpgPasswordForms returns password in every rendering the release
+// environments carry it, URL-escaped first because that form can contain the
+// raw one as a substring.
+func cnpgPasswordForms(password string) []string {
+	if password == "" {
+		return nil
+	}
+	if escaped := url.QueryEscape(password); escaped != password {
+		return []string{escaped, password}
+	}
+	return []string{password}
 }
 
 // ShardCNPGConfig is the JSON shape
@@ -288,40 +314,18 @@ func (cfg *ShardCNPGConfig) WriteCAPEMFile(dir string) (string, error) {
 	return path, nil
 }
 
-// CNPGHostFromEnv returns CNPG_HOST from the current process environment,
-// falling back to "localhost" (the Local Development with Docker CNPG
-// playbook's default) when unset -- see the OPEN ITEM documented on
-// CoreEnvConfig for why this is a local-only fallback, not a CI answer.
-func CNPGHostFromEnv() string {
-	if v := os.Getenv("CNPG_HOST"); v != "" {
-		return v
-	}
-	return "localhost"
-}
-
-// CNPGPortFromEnv returns CNPG_PORT from the current process environment as
-// an int, falling back to 5455 (the Local Development with Docker CNPG
-// playbook's published port) when unset or invalid.
-func CNPGPortFromEnv() int {
-	if v := os.Getenv("CNPG_PORT"); v != "" {
-		if p, err := strconv.Atoi(v); err == nil {
-			return p
-		}
-	}
-	return 5455
-}
-
 // StartRelease extracts releaseTarPath (a gzipped tar produced by Bazel's
 // elixir_release rule) into workDir/<releaseName>, then execs
 // "<extracted>/bin/<releaseName> start" as a background process with env
-// merged from a minimal host passthrough (PATH, HOME, LANG) plus baseEnv
+// merged from a minimal host passthrough (PATH, HOME, LANG) plus cfg.Env()
 // plus RELEASE_NODE/RELEASE_COOKIE, and polls healthURL (a plain HTTP GET
 // expected to return 200) until ready or timeout elapses. stdout/stderr are
-// captured to files under workDir for postmortem debugging; on a startup
-// timeout the returned error includes their tails.
+// captured raw to files under workDir for postmortem debugging; every reader
+// that carries them out of workDir (the tails in a startup-failure error, the
+// harness's preserved test outputs) scrubs cfg.Secrets() first.
 func StartRelease(
 	releaseTarPath, releaseName, workDir string,
-	baseEnv map[string]string,
+	cfg ReleaseEnv,
 	healthURL string,
 	timeout time.Duration,
 ) (*ReleaseProcess, error) {
@@ -341,7 +345,7 @@ func StartRelease(
 	nodeName := fmt.Sprintf("%s_vslice_%d@127.0.0.1", releaseName, time.Now().UnixNano())
 	cookie := randomCookie()
 
-	env := mergedEnv(baseEnv, map[string]string{
+	env := mergedEnv(cfg.Env(), map[string]string{
 		"RELEASE_NODE":         nodeName,
 		"RELEASE_COOKIE":       cookie,
 		"RELEASE_DISTRIBUTION": "name",
@@ -377,7 +381,7 @@ func StartRelease(
 		cmd:        cmd,
 		stdoutPath: stdoutPath,
 		stderrPath: stderrPath,
-		secrets:    secretsFromEnv(baseEnv),
+		secrets:    cfg.Secrets(),
 	}
 
 	if err := p.waitHealthy(timeout); err != nil {
@@ -585,20 +589,6 @@ func tailFile(path string, maxBytes int, secrets []string) string {
 		data = data[len(data)-maxBytes:]
 	}
 	return redactSecrets(string(data), secrets)
-}
-
-// secretsFromEnv extracts the actual DATABASE_URL and CNPG_PASSWORD values a
-// release's child process was booted with, so log tails captured from that
-// process's stdout/stderr can be scrubbed of them in case its boot logging
-// ever echoes them verbatim.
-func secretsFromEnv(env map[string]string) []string {
-	var secrets []string
-	for _, k := range []string{"DATABASE_URL", "CNPG_PASSWORD"} {
-		if v := env[k]; v != "" {
-			secrets = append(secrets, v)
-		}
-	}
-	return secrets
 }
 
 // redactSecrets replaces every occurrence of each non-empty secret in s with
