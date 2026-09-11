@@ -215,7 +215,7 @@ jobs:
     env:
       BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY || secrets.BUILDBUDDY_API_KEY }}
     steps:
-      - name: Checkout release commit
+      - name: Check out release commit for Windows staging
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout@v7.0.1
         with:
           ref: ${{ needs.macos.outputs.commit }}
