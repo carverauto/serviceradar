@@ -361,21 +361,15 @@ actions:
           # 0.12) is a plain Go test, not an Elixir/Rust integration lane, so it cannot resolve
           # the typed SERVICERADAR_ENV=ci fixture identity itself -- it spawns two real Elixir
           # Mix releases as OS subprocesses, each reading plain CNPG_* env vars from its own
-          # runtime.exs. Rather than the generation system's per-lane shard clones (which the
-          # Elixir suite's own async/serial partitioning owns, see build/integration_shards.bzl),
-          # this target uses the SEPARATE, unsharded "run base" (sr_core_test_<run>,
-          # //rust/integration-db:provision_base) -- the same one //elixir/serviceradar_core's
-          # own migrate_run brings up to this checkout. provision_base is idempotent and
-          # advisory-locked, so running it here is safe even though nothing else in this job
-          # calls it today. The target itself resolves this database's connection identity at
-          # test time via //rust/integration-db:describe_run_base (its own declared data
-          # dependency), NOT via an env var this step exports -- a --test_env value naming a
-          # host filesystem path would not be visible inside a remotely-executed test sandbox.
-          PROVISION_BASE_OUTPUT="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:provision_base)"
-          echo "$PROVISION_BASE_OUTPUT"
-          if echo "$PROVISION_BASE_OUTPUT" | grep -q "migration(s) pending"; then
-            bazel test $FLAGS //elixir/serviceradar_core:migrate_run
-          fi
+          # runtime.exs. It connects to RUN_DATABASE (sr_core_test_$RUN_ID) -- the SAME database
+          # the generation lifecycle below already creates and migrates as its clone source (see
+          # `validate_lifecycle_json cloned "$GENERATION_DIGEST" "$RUN_DATABASE"` further down) --
+          # so no separate provisioning step is needed here. The target resolves this database's
+          # connection identity at test time via //rust/integration-db:describe_run_base (its own
+          # declared data dependency), NOT via an env var this step exports -- a --test_env value
+          # naming a host filesystem path would not be visible inside a remotely-executed test
+          # sandbox. Do NOT reintroduce the retired run-base provisioning/migration targets
+          # here -- ci_heavy_gate_contract_test.py forbids them in this action.
 
           bazel test $FLAGS //rust/integration-db:sweep_stale_dbs
           CLEANUP_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:cleanup_generations)"
@@ -399,12 +393,7 @@ actions:
           echo "SERVICERADAR_SCHEMA_GENERATION_PREFLIGHT status=ready digest=$GENERATION_DIGEST migrator_started=$GENERATION_MIGRATOR_STARTED"
 
           START_NS="$(date +%s%N)"
-          # 114 (build/integration_shards.bzl's checked-in topology budget) + 12: two extra
-          # Postgres pools now run inside this wildcard step for
-          # //integration_tests/edge_record:vertical_slice_test's two real Elixir releases
-          # (POOL_SIZE=2 + CONTROL_REPO_POOL_SIZE=2 each, plus headroom), neither counted in
-          # that static topology since neither is an elixir/serviceradar_core test lane.
-          bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:observe_connections -- --ready-file "$READY_FILE" --suite-complete-file "$SUITE_COMPLETE_FILE" --quiescent-file "$QUIESCENT_FILE" --stop-file "$STOP_FILE" --max-seconds 1800 --required-pool-slots 126 &
+          bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:observe_connections -- --ready-file "$READY_FILE" --suite-complete-file "$SUITE_COMPLETE_FILE" --quiescent-file "$QUIESCENT_FILE" --stop-file "$STOP_FILE" --max-seconds 1800 --required-pool-slots 114 &
           OBSERVER_PID=$!
           wait_for_observer_ready 30 || exit 1
 
