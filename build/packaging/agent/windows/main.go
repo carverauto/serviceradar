@@ -97,6 +97,8 @@ func declaredInputs() (stageInputs, error) {
 	for key, target := range map[string]*string{
 		"SERVICERADAR_WINDOWS_AGENT_AMD64_RUNFILE": &in.AgentAMD64,
 		"SERVICERADAR_WINDOWS_AGENT_ARM64_RUNFILE": &in.AgentARM64,
+		"SERVICERADAR_WINDOWS_SRCTL_AMD64_RUNFILE": &in.SrctlAMD64,
+		"SERVICERADAR_WINDOWS_SRCTL_ARM64_RUNFILE": &in.SrctlARM64,
 		"SERVICERADAR_WINDOWS_CONFIG_RUNFILE":      &in.Config,
 		"SERVICERADAR_WINDOWS_PACKAGER_RUNFILE":    &in.Packager,
 	} {

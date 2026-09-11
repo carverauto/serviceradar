@@ -10,7 +10,7 @@ import (
 // serviceName must match go/cmd/agent's Windows service name.
 const serviceName = "ServiceRadarAgent"
 
-type wxsValues struct{ MSIVersion, UpgradeCode, AgentPath, ConfigPath string }
+type wxsValues struct{ MSIVersion, UpgradeCode, AgentPath, SrctlPath, ConfigPath string }
 
 // The service is installed to start automatically but a fresh install does not
 // start it: the default config names a placeholder gateway and certificates, so
@@ -51,6 +51,10 @@ var wxsTemplate = template.Must(template.New("agent.wxs").Parse(`<?xml version="
         </ServiceInstall>
         <ServiceControl Id="StopAndRemove" Name="` + serviceName + `" Stop="both" Remove="uninstall" Wait="yes" />
       </Component>
+      <Component Id="Srctl" Directory="INSTALLFOLDER">
+        <File Id="SrctlExe" Source="{{.SrctlPath}}" Name="srctl.exe" KeyPath="yes" />
+        <Environment Id="SrctlOnPath" Name="PATH" Value="[INSTALLFOLDER]" Action="set" Part="last" System="yes" Permanent="no" />
+      </Component>
       <Component Id="StartAfterUpgrade" Directory="INSTALLFOLDER" Condition="WIX_UPGRADE_DETECTED">
         <RegistryValue Root="HKLM" Key="Software\ServiceRadar\Agent" Name="StartAfterUpgrade" Type="integer" Value="1" KeyPath="yes" />
         <ServiceControl Id="StartAfterUpgrade" Name="` + serviceName + `" Start="install" Wait="no" />
@@ -64,7 +68,7 @@ var wxsTemplate = template.Must(template.New("agent.wxs").Parse(`<?xml version="
 `))
 
 func renderWXS(v wxsValues) ([]byte, error) {
-	for _, value := range []string{v.MSIVersion, v.UpgradeCode, v.AgentPath, v.ConfigPath} {
+	for _, value := range []string{v.MSIVersion, v.UpgradeCode, v.AgentPath, v.SrctlPath, v.ConfigPath} {
 		if value == "" || strings.ContainsAny(value, "\"&<>'\r\n") {
 			return nil, fmt.Errorf("%w: WiX template value %q is empty or needs escaping", errInvalidPackage, value)
 		}

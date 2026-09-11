@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 )
 
-type stageInputs struct{ AgentAMD64, AgentARM64, Config, Packager string }
+type stageInputs struct{ AgentAMD64, AgentARM64, SrctlAMD64, SrctlARM64, Config, Packager string }
 
 // stage copies the MSI inputs into outputDir with an inputs.json recording
 // their digests, for the Windows job that runs the packager.
@@ -25,6 +25,8 @@ func stage(outputDir, version, commit string, in stageInputs) error {
 	for name, source := range map[string]string{
 		agentInputName("amd64"): in.AgentAMD64,
 		agentInputName("arm64"): in.AgentARM64,
+		srctlInputName("amd64"): in.SrctlAMD64,
+		srctlInputName("arm64"): in.SrctlARM64,
 		configFileName:          in.Config,
 		packagerFileName:        in.Packager,
 	} {
@@ -44,6 +46,10 @@ func stage(outputDir, version, commit string, in stageInputs) error {
 	for _, arch := range architectures {
 		if err := verifyPE(filepath.Join(outputDir, agentInputName(arch)), arch); err != nil {
 			return err
+		}
+
+		if err := verifyPE(filepath.Join(outputDir, srctlInputName(arch)), arch); err != nil {
+			return fmt.Errorf("srctl: %w", err)
 		}
 	}
 

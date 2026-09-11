@@ -476,12 +476,25 @@ func TestAgentRestartCommandMatchesEachInstaller(t *testing.T) {
 	cases := map[string][]string{
 		"linux":   {"systemctl", "restart", "serviceradar-agent"},
 		"darwin":  {"launchctl", "kickstart", "-k", "system/com.serviceradar.agent"},
-		"windows": nil,
+		"windows": {"powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "Restart-Service -Name ServiceRadarAgent"},
+		"plan9":   nil,
 	}
 	for goos, want := range cases {
 		got := agentRestartCommand(goos)
 		if strings.Join(got, " ") != strings.Join(want, " ") {
 			t.Errorf("agentRestartCommand(%q) = %q, want %q", goos, got, want)
 		}
+	}
+}
+
+func TestAgentOverridesPathStaysBesideTheWindowsConfig(t *testing.T) {
+	if got := agentOverridesPathFor("windows", "", `C:\ProgramData\ServiceRadar\config\agent.json`); got != `C:\ProgramData\ServiceRadar\config\kv-overrides.env` {
+		t.Fatalf("windows overrides path = %q", got)
+	}
+	if got := agentOverridesPathFor("linux", "", "/etc/serviceradar/agent.json"); got != defaultAgentOverridesPath {
+		t.Fatalf("linux overrides path = %q, want %q", got, defaultAgentOverridesPath)
+	}
+	if got := agentOverridesPathFor("windows", "  /custom/overrides.env ", `C:\x\agent.json`); got != "/custom/overrides.env" {
+		t.Fatalf("explicit overrides path ignored: %q", got)
 	}
 }

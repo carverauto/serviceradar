@@ -181,6 +181,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLiveTest do
 
       assert html =~ "srctl enroll --core-url &#39;http://localhost:4002&#39; --token &#39;edgepkg-v3:"
       refute html =~ "/usr/local/bin/srctl enroll --token &#39;edgepkg-v3:"
+      assert html =~ "ServiceRadar\\srctl.exe&quot; enroll --core-url &#39;http://localhost:4002&#39;"
     end
   end
 

@@ -735,6 +735,11 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
         "sudo " <> BundleGenerator.agent_enroll_command(onboarding_token, base_url)
       end
 
+    windows_enroll_cmd =
+      if component_type == "agent" and is_binary(onboarding_token) do
+        BundleGenerator.windows_agent_enroll_command(onboarding_token, base_url)
+      end
+
     docker_cmd =
       if component_type == "agent" do
         nil
@@ -758,6 +763,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       |> assign(:systemd_cmd, systemd_cmd)
       |> assign(:onboarding_token, onboarding_token)
       |> assign(:enroll_cmd, enroll_cmd)
+      |> assign(:windows_enroll_cmd, windows_enroll_cmd)
       |> assign(:enroll_cmd_error, enroll_cmd_error(onboarding_token, enroll_cmd))
       |> assign(:component_type, component_type)
 
@@ -777,7 +783,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
         <div class="sr-ui-divider">Enroll Agent</div>
         <div class="space-y-3">
           <p class="text-sm text-sr-muted">
-            Run this command on the target host to enroll the agent. Uses sudo to write
+            Linux and macOS: run this command on the target host to enroll the agent. Uses sudo to write
             <code class="bg-sr-subtle px-1 rounded text-xs">/etc/serviceradar</code>
             and restart the agent.
           </p>
@@ -803,6 +809,27 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
             <div class={ui_alert_class(variant: "error", class: "alert-soft")}>
               <.icon name="hero-exclamation-triangle" class="size-5 shrink-0" />
               <span>{@enroll_cmd_error}</span>
+            </div>
+          <% end %>
+          <%= if is_binary(@windows_enroll_cmd) and @windows_enroll_cmd != "" do %>
+            <p class="text-sm text-sr-muted">
+              Windows: run this in PowerShell as Administrator. It writes
+              <code class="bg-sr-subtle px-1 rounded text-xs">%ProgramData%\ServiceRadar\config</code>
+              and starts the ServiceRadarAgent service.
+            </p>
+            <div class="relative">
+              <pre class="bg-sr-subtle p-3 rounded-lg text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all"><code>{@windows_enroll_cmd}</code></pre>
+              <.ui_button
+                type="button"
+                phx-click="copy_token"
+                phx-value-token={@windows_enroll_cmd}
+                title="Copy Windows enroll command"
+                size="sm"
+                variant="ghost"
+                class="absolute top-2 right-2"
+              >
+                <.icon name="hero-clipboard" class="size-4" />
+              </.ui_button>
             </div>
           <% end %>
         </div>
