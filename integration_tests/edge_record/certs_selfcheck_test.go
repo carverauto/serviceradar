@@ -43,12 +43,14 @@ func TestGenerateCertSetSPIFFEShape(t *testing.T) {
 	gwCert := loadCert(t, cs.GatewayCertPath)
 	roots := x509.NewCertPool()
 	roots.AddCert(loadCert(t, cs.CACertPath))
-	if _, err := gwCert.Verify(x509.VerifyOptions{
-		Roots:     roots,
-		DNSName:   "localhost",
-		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-	}); err != nil {
-		t.Fatalf("gateway leaf does not verify against CA for DNSName localhost: %v", err)
+	for _, name := range []string{"localhost", cs.GatewayServerName} {
+		if _, err := gwCert.Verify(x509.VerifyOptions{
+			Roots:     roots,
+			DNSName:   name,
+			KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		}); err != nil {
+			t.Fatalf("gateway leaf does not verify against CA for DNSName %s: %v", name, err)
+		}
 	}
 
 	// Client leaves must also chain to the CA (mirrors what the gRPC TLS

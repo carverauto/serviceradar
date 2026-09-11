@@ -85,3 +85,44 @@ func TestStartEmbeddedNATSJetStreamRoundTrip(t *testing.T) {
 		t.Fatalf("Ack: %v", err)
 	}
 }
+
+// TestStartEmbeddedNATSAcceptsEventWriterReservations creates file streams
+// with the max_bytes the core EventWriter declares for its largest streams
+// (ServiceRadar.EventWriter.Config: flows 10 GiB, events 8 GiB, the
+// edge-record stream 1 GiB). The EventWriter treats a rejected stream as a
+// failed connection and then consumes nothing, so each must be accepted.
+func TestStartEmbeddedNATSAcceptsEventWriterReservations(t *testing.T) {
+	dir := t.TempDir()
+
+	h, err := StartEmbeddedNATS(filepath.Join(dir, "store"), filepath.Join(dir, "creds"))
+	if err != nil {
+		t.Fatalf("StartEmbeddedNATS: %v", err)
+	}
+	t.Cleanup(h.Shutdown)
+
+	nc, err := nats.Connect(h.URL, nats.UserCredentials(h.CredsPath))
+	if err != nil {
+		t.Fatalf("nats.Connect: %v", err)
+	}
+	t.Cleanup(nc.Close)
+
+	js, err := jetstream.New(nc)
+	if err != nil {
+		t.Fatalf("jetstream.New: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	const gib = int64(1024 * 1024 * 1024)
+	for _, cfg := range []jetstream.StreamConfig{
+		{Name: "flows", Subjects: []string{"flows.raw.>"}, MaxBytes: 10 * gib},
+		{Name: "events", Subjects: []string{"events.>"}, MaxBytes: 8 * gib},
+		{Name: "TELEMETRY_EDGE_RECORD_V1_BULK", Subjects: []string{"telemetry.edge-record.v1.bulk.>"}, MaxBytes: gib},
+	} {
+		cfg.Storage = jetstream.FileStorage
+		if _, err := js.CreateStream(ctx, cfg); err != nil {
+			t.Fatalf("CreateStream %s (max_bytes %d): %v", cfg.Name, cfg.MaxBytes, err)
+		}
+	}
+}

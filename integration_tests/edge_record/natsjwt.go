@@ -47,15 +47,12 @@ import (
 // jwt/v2 (both already production dependencies, go.mod) keeps this account
 // a flat, unmapped, full-access single tenant.
 
-const (
-	jetStreamMemoryBytes    int64 = 512 * 1024 * 1024
-	jetStreamDiskBytes      int64 = 2 * 1024 * 1024 * 1024
-	jetStreamStreamLimit    int64 = 64
-	jetStreamConsumerLimit  int64 = 64
-	jetStreamMaxAckPending  int64 = 1_000_000
-	jetStreamMemoryMaxBytes int64 = 512 * 1024 * 1024
-	jetStreamDiskMaxBytes   int64 = 2 * 1024 * 1024 * 1024
-)
+// jetStreamMaxStore is the server's file-storage ceiling. JetStream counts
+// every stream's max_bytes against it at creation, without allocating disk,
+// and the core EventWriter creates its production streams (flows alone
+// reserves 10 GiB) and refuses to consume any of them if one is rejected.
+// Left unset, the ceiling is 75% of the executor's free disk.
+const jetStreamMaxStore int64 = 1024 * 1024 * 1024 * 1024
 
 // NATSHarness is one embedded, JetStream-enabled nats-server instance with a
 // minimal single-account JWT trust chain (full ">" publish/subscribe
@@ -124,15 +121,14 @@ func StartEmbeddedNATS(storeDir, credsDir string) (*NATSHarness, error) {
 	accountClaims.Issuer = operatorPub
 	// Full, unmapped access: no Exports/Imports/Mappings, matching a flat
 	// single-tenant test account rather than the production partition model.
+	// JetStream is enabled with no account limits; the server's
+	// jetStreamMaxStore is the only storage ceiling.
 	accountClaims.Limits.JetStreamLimits = jwt.JetStreamLimits{
-		MemoryStorage:        jetStreamMemoryBytes,
-		DiskStorage:          jetStreamDiskBytes,
-		Streams:              jetStreamStreamLimit,
-		Consumer:             jetStreamConsumerLimit,
-		MaxAckPending:        jetStreamMaxAckPending,
-		MemoryMaxStreamBytes: jetStreamMemoryMaxBytes,
-		DiskMaxStreamBytes:   jetStreamDiskMaxBytes,
-		MaxBytesRequired:     false,
+		MemoryStorage: jwt.NoLimit,
+		DiskStorage:   jwt.NoLimit,
+		Streams:       jwt.NoLimit,
+		Consumer:      jwt.NoLimit,
+		MaxAckPending: jwt.NoLimit,
 	}
 
 	accountJWT, err := accountClaims.Encode(operatorKP)
@@ -194,15 +190,16 @@ func StartEmbeddedNATS(storeDir, credsDir string) (*NATSHarness, error) {
 	}
 
 	opts := &server.Options{
-		Host:             "127.0.0.1",
-		Port:             -1, // random free port
-		JetStream:        true,
-		StoreDir:         storeDir,
-		TrustedOperators: []*jwt.OperatorClaims{decodedOperatorClaims},
-		AccountResolver:  resolver,
-		SystemAccount:    sysAccountPub,
-		NoLog:            true,
-		NoSigs:           true,
+		Host:              "127.0.0.1",
+		Port:              -1, // random free port
+		JetStream:         true,
+		JetStreamMaxStore: jetStreamMaxStore,
+		StoreDir:          storeDir,
+		TrustedOperators:  []*jwt.OperatorClaims{decodedOperatorClaims},
+		AccountResolver:   resolver,
+		SystemAccount:     sysAccountPub,
+		NoLog:             true,
+		NoSigs:            true,
 	}
 
 	srv, err := server.NewServer(opts)

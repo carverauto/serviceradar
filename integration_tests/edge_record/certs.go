@@ -73,6 +73,10 @@ type CertSet struct {
 	AgentComponentID    string
 	MismatchComponentID string
 
+	// GatewayServerName is the TLS server name clients verify the gateway
+	// leaf against: "gateway.<PartitionID>.serviceradar".
+	GatewayServerName string
+
 	caCert *x509.Certificate
 	caKey  *ecdsa.PrivateKey
 }
@@ -108,11 +112,12 @@ func GenerateCertSet(dir, gatewayBindHost string) (*CertSet, error) {
 
 	// Gateway server leaf: no SPIFFE component identity is required (the
 	// resolver only runs against CLIENT certs), but it does need SANs
-	// covering gatewayBindHost so client-side TLS server-name verification
-	// succeeds.
+	// covering GatewayServerName and gatewayBindHost so client-side TLS
+	// server-name verification succeeds.
+	cs.GatewayServerName = "gateway." + cs.PartitionID + ".serviceradar"
 	cs.GatewayCertPath = filepath.Join(dir, "gateway.pem")
 	cs.GatewayKeyPath = filepath.Join(dir, "gateway-key.pem")
-	if err := cs.issueServerLeaf(cs.GatewayCertPath, cs.GatewayKeyPath, "gateway."+cs.PartitionID+".serviceradar", gatewayBindHost); err != nil {
+	if err := cs.issueServerLeaf(cs.GatewayCertPath, cs.GatewayKeyPath, cs.GatewayServerName, gatewayBindHost); err != nil {
 		return nil, fmt.Errorf("verticalslice: issue gateway leaf: %w", err)
 	}
 
@@ -188,7 +193,8 @@ func (c *CertSet) issueServerLeaf(certPath, keyPath, cn, bindHost string) error 
 		NotAfter:     time.Now().Add(certValidity),
 		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		DNSNames:     []string{"localhost"},
+		// Go verifies the server name against SANs only, never the CN.
+		DNSNames: []string{cn, "localhost"},
 	}
 
 	if ip := net.ParseIP(bindHost); ip != nil {
