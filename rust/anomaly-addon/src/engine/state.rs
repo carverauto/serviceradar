@@ -39,6 +39,14 @@ pub(crate) struct SeriesState {
     /// gets winsorized values while a spike is active; this ring is the trusted
     /// source used when a stable new regime is explicitly adopted.
     pub(crate) raw_tail: Vec<f64>,
+    /// Index into `raw_tail` where the current breaching run (pending or open
+    /// spike episode) began. The recent-burst envelope is computed from raw
+    /// history BEFORE this index only, so a sustained surge cannot train the
+    /// envelope on itself and clear early as "recovered"; the marker is dropped
+    /// once the run ends (recovered, adopted, or a blip that never confirmed),
+    /// at which point the run's samples become ordinary burst history. Not
+    /// checkpointed: a restart mid-run simply starts a fresh run.
+    pub(crate) burst_run_start: Option<usize>,
     pub(crate) spike_active_samples: u64,
     pub(crate) spike_last_emitted_at_unix_nano: Option<u64>,
     pub(crate) spike_last_cleared_at_unix_nano: Option<u64>,
@@ -104,6 +112,7 @@ impl SeriesState {
             active_episode_peak_value: None,
             active_episode_peak_at_unix_nano: None,
             raw_tail: Vec::new(),
+            burst_run_start: None,
             spike_active_samples: 0,
             spike_last_emitted_at_unix_nano: None,
             spike_last_cleared_at_unix_nano: None,

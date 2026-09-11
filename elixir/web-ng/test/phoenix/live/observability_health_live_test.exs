@@ -54,6 +54,25 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLiveTest do
     assert html =~ "3 series skipped in last 24h (top: no_projected_exhaustion 2, trend_not_significant 1)"
   end
 
+  test "the default runway shows the newest forecast per resource, nearest exhaustion first", %{conn: conn} do
+    Application.put_env(:serviceradar_web_ng, :srql_module, __MODULE__.SRQLStubHourlyRuns)
+
+    {:ok, view, _html} = live(conn, ~p"/observability/health")
+    html = render_async(view, 5_000)
+
+    assert html =~ "Root disk"
+    assert html =~ "97.30"
+    refute html =~ "90.10"
+
+    {wan_at, _} = :binary.match(html, "WAN uplink")
+    {disk_at, _} = :binary.match(html, "Root disk")
+    assert wan_at < disk_at
+
+    # The default query is bounded to recent runs so retired projections cannot
+    # linger for months.
+    assert has_element?(view, "a[href*='time%3Alast_24h']", "Open SRQL")
+  end
+
   test "hides the skipped-series summary when no series were skipped", %{conn: conn} do
     Application.put_env(:serviceradar_web_ng, :srql_module, __MODULE__.SRQLStubNoSkips)
 
@@ -200,6 +219,56 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLiveTest do
          ]
        }}
     end
+  end
+
+  defmodule SRQLStubHourlyRuns do
+    @moduledoc false
+    # Two hourly runs for the same disk plus one other resource: the runway must
+    # show each resource once (its newest run) and order by exhaustion.
+    def query("in:capacity_forecasts status:skipped" <> _rest, _opts), do: {:ok, %{"results" => []}}
+
+    def query("in:capacity_forecasts status:projected" <> _rest, _opts) do
+      disk = %{
+        "resource_id" => "dev-1",
+        "resource_key" => "disk:/",
+        "resource_label" => "Root disk",
+        "metric_name" => "usage_percent",
+        "status" => "projected",
+        "current_value" => 75.1,
+        "exhaustion_threshold" => 80.0,
+        "metadata" => %{"forecast_value_unit" => "percent"}
+      }
+
+      {:ok,
+       %{
+         "results" => [
+           Map.merge(disk, %{
+             "forecasted_at" => "2026-06-13T08:00:00Z",
+             "projected_value" => 90.1,
+             "projected_exhaustion_at" => "2026-06-24T12:00:00Z"
+           }),
+           Map.merge(disk, %{
+             "forecasted_at" => "2026-06-13T09:00:00Z",
+             "projected_value" => 97.3,
+             "projected_exhaustion_at" => "2026-06-25T12:00:00Z"
+           }),
+           %{
+             "forecasted_at" => "2026-06-13T09:00:00Z",
+             "resource_id" => "dev-2",
+             "resource_key" => "interface:edge-rtr-1:wan",
+             "resource_label" => "WAN uplink",
+             "metric_name" => "ifHCOutOctets",
+             "status" => "projected",
+             "current_value" => 72.4,
+             "projected_value" => 96.8,
+             "exhaustion_threshold" => 95.0,
+             "projected_exhaustion_at" => "2026-06-20T12:00:00Z"
+           }
+         ]
+       }}
+    end
+
+    def query(query, opts), do: ServiceRadarWebNGWeb.ObservabilityHealthLiveTest.SRQLStub.query(query, opts)
   end
 
   defmodule SRQLStubNoSkips do

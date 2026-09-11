@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict nxcUI9Bh5rZb4qxTGeuTp6sCibZp0WtWZsLIBLHshWXubNoRsvvgdnshUEekhDq
+\restrict DBT8UkIoS4go88RNdTooplqShUD4pfoyplEDAbRNgGQ6LbN2GSobDtdB91Cnhm0
 
 -- Dumped from database version 18.4 (Debian 18.4-1.pgdg12+1)
 -- Dumped by pg_dump version 18.4 (Homebrew)
@@ -26670,7 +26670,7 @@ ALTER TABLE ONLY platform.wifi_sites
 -- PostgreSQL database dump complete
 --
 
-\unrestrict nxcUI9Bh5rZb4qxTGeuTp6sCibZp0WtWZsLIBLHshWXubNoRsvvgdnshUEekhDq
+\unrestrict DBT8UkIoS4go88RNdTooplqShUD4pfoyplEDAbRNgGQ6LbN2GSobDtdB91Cnhm0
 
 --
 -- ServiceRadar: restore TimescaleDB hypertable registration.
@@ -26710,3 +26710,258 @@ SELECT platform.create_hypertable('platform.survey_rf_observations', 'captured_a
 SELECT platform.create_hypertable('platform.survey_samples', 'timestamp', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
 SELECT platform.create_hypertable('platform.survey_spectrum_observations', 'captured_at', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
 SELECT platform.create_hypertable('platform.timeseries_metrics', 'timestamp', chunk_time_interval => '1 day'::interval, migrate_data => true, if_not_exists => true);
+
+--
+-- ServiceRadar: restore TimescaleDB continuous aggregates.
+--
+-- Same gap as hypertables above, for continuous aggregates: schema-only
+-- pg_dump does not capture this catalog registration. Recreate each cagg
+-- from its own view_definition, then restore its refresh policy, so a
+-- database bootstrapped from this baseline has the same continuous
+-- aggregates as the database this baseline was generated from.
+--
+-- view_definition's own table references are unqualified (Postgres omits
+-- the schema when the object is on the rendering connection's own
+-- search_path), so this block needs platform on search_path -- unlike the
+-- rest of this file, which pg_dump already schema-qualifies throughout.
+SET search_path = platform, public;
+DROP VIEW IF EXISTS platform.cpu_metrics_hourly CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._direct_view_23 CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._partial_view_23 CASCADE; DROP TABLE IF EXISTS _timescaledb_internal._materialized_hypertable_23 CASCADE;
+DROP VIEW IF EXISTS platform.disk_metrics_hourly CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._direct_view_25 CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._partial_view_25 CASCADE; DROP TABLE IF EXISTS _timescaledb_internal._materialized_hypertable_25 CASCADE;
+DROP VIEW IF EXISTS platform.endpoint_inventory_cpe_counts_hourly CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._direct_view_53 CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._partial_view_53 CASCADE; DROP TABLE IF EXISTS _timescaledb_internal._materialized_hypertable_53 CASCADE;
+DROP VIEW IF EXISTS platform.endpoint_inventory_package_counts_hourly CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._direct_view_52 CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._partial_view_52 CASCADE; DROP TABLE IF EXISTS _timescaledb_internal._materialized_hypertable_52 CASCADE;
+DROP VIEW IF EXISTS platform.flow_traffic_1d CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._direct_view_70 CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._partial_view_70 CASCADE; DROP TABLE IF EXISTS _timescaledb_internal._materialized_hypertable_70 CASCADE;
+DROP VIEW IF EXISTS platform.flow_traffic_1h CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._direct_view_69 CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._partial_view_69 CASCADE; DROP TABLE IF EXISTS _timescaledb_internal._materialized_hypertable_69 CASCADE;
+DROP VIEW IF EXISTS platform.logs_severity_stats_5m CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._direct_view_72 CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._partial_view_72 CASCADE; DROP TABLE IF EXISTS _timescaledb_internal._materialized_hypertable_72 CASCADE;
+DROP VIEW IF EXISTS platform.memory_metrics_hourly CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._direct_view_24 CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._partial_view_24 CASCADE; DROP TABLE IF EXISTS _timescaledb_internal._materialized_hypertable_24 CASCADE;
+DROP VIEW IF EXISTS platform.ocsf_events_hourly_stats CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._direct_view_38 CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._partial_view_38 CASCADE; DROP TABLE IF EXISTS _timescaledb_internal._materialized_hypertable_38 CASCADE;
+DROP VIEW IF EXISTS platform.ocsf_network_activity_5m_traffic CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._direct_view_63 CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._partial_view_63 CASCADE; DROP TABLE IF EXISTS _timescaledb_internal._materialized_hypertable_63 CASCADE;
+DROP VIEW IF EXISTS platform.ocsf_network_activity_hourly_conversations CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._direct_view_68 CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._partial_view_68 CASCADE; DROP TABLE IF EXISTS _timescaledb_internal._materialized_hypertable_68 CASCADE;
+DROP VIEW IF EXISTS platform.ocsf_network_activity_hourly_listeners CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._direct_view_67 CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._partial_view_67 CASCADE; DROP TABLE IF EXISTS _timescaledb_internal._materialized_hypertable_67 CASCADE;
+DROP VIEW IF EXISTS platform.ocsf_network_activity_hourly_ports CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._direct_view_66 CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._partial_view_66 CASCADE; DROP TABLE IF EXISTS _timescaledb_internal._materialized_hypertable_66 CASCADE;
+DROP VIEW IF EXISTS platform.ocsf_network_activity_hourly_proto CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._direct_view_64 CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._partial_view_64 CASCADE; DROP TABLE IF EXISTS _timescaledb_internal._materialized_hypertable_64 CASCADE;
+DROP VIEW IF EXISTS platform.ocsf_network_activity_hourly_talkers CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._direct_view_65 CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._partial_view_65 CASCADE; DROP TABLE IF EXISTS _timescaledb_internal._materialized_hypertable_65 CASCADE;
+DROP VIEW IF EXISTS platform.otel_metrics_hourly_stats CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._direct_view_37 CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._partial_view_37 CASCADE; DROP TABLE IF EXISTS _timescaledb_internal._materialized_hypertable_37 CASCADE;
+DROP VIEW IF EXISTS platform.process_metrics_hourly CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._direct_view_26 CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._partial_view_26 CASCADE; DROP TABLE IF EXISTS _timescaledb_internal._materialized_hypertable_26 CASCADE;
+DROP VIEW IF EXISTS platform.spans_red_1h CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._direct_view_57 CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._partial_view_57 CASCADE; DROP TABLE IF EXISTS _timescaledb_internal._materialized_hypertable_57 CASCADE;
+DROP VIEW IF EXISTS platform.timeseries_metrics_hourly CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._direct_view_27 CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._partial_view_27 CASCADE; DROP TABLE IF EXISTS _timescaledb_internal._materialized_hypertable_27 CASCADE;
+DROP VIEW IF EXISTS platform.timeseries_metrics_interface_hourly CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._direct_view_62 CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._partial_view_62 CASCADE; DROP TABLE IF EXISTS _timescaledb_internal._materialized_hypertable_62 CASCADE;
+DROP VIEW IF EXISTS platform.traces_stats_5m CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._direct_view_54 CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._partial_view_54 CASCADE; DROP TABLE IF EXISTS _timescaledb_internal._materialized_hypertable_54 CASCADE;
+CREATE MATERIALIZED VIEW platform.cpu_metrics_hourly WITH (timescaledb.continuous) AS  SELECT time_bucket('01:00:00'::interval, "timestamp") AS bucket,
+    device_id,
+    host_id,
+    avg(usage_percent) AS avg_usage_percent,
+    max(usage_percent) AS max_usage_percent,
+    count(*) AS sample_count
+   FROM cpu_metrics
+  GROUP BY (time_bucket('01:00:00'::interval, "timestamp")), device_id, host_id WITH NO DATA;
+CREATE MATERIALIZED VIEW platform.disk_metrics_hourly WITH (timescaledb.continuous) AS  SELECT time_bucket('01:00:00'::interval, "timestamp") AS bucket,
+    device_id,
+    host_id,
+    mount_point,
+    avg(usage_percent) AS avg_usage_percent,
+    max(usage_percent) AS max_usage_percent,
+    (avg(used_bytes))::double precision AS avg_used_bytes,
+    (avg(available_bytes))::double precision AS avg_available_bytes,
+    count(*) AS sample_count
+   FROM disk_metrics
+  GROUP BY (time_bucket('01:00:00'::interval, "timestamp")), device_id, host_id, mount_point WITH NO DATA;
+CREATE MATERIALIZED VIEW platform.endpoint_inventory_cpe_counts_hourly WITH (timescaledb.continuous) AS  SELECT time_bucket('01:00:00'::interval, scan_time) AS bucket,
+    cpe,
+    max(host_count) AS max_host_count,
+    min(host_count) AS min_host_count,
+    (sum(count_delta))::integer AS net_count_delta,
+    count(*) AS sample_count
+   FROM endpoint_inventory_cpe_count_history
+  GROUP BY (time_bucket('01:00:00'::interval, scan_time)), cpe WITH NO DATA;
+CREATE MATERIALIZED VIEW platform.endpoint_inventory_package_counts_hourly WITH (timescaledb.continuous) AS  SELECT time_bucket('01:00:00'::interval, scan_time) AS bucket,
+    coordinate_hash,
+    package_manager,
+    COALESCE(ecosystem, ''::text) AS ecosystem,
+    name,
+    COALESCE(version, ''::text) AS version,
+    COALESCE(architecture, ''::text) AS architecture,
+    COALESCE(purl_canonical, ''::text) AS purl_canonical,
+    max(host_count) AS max_host_count,
+    min(host_count) AS min_host_count,
+    (sum(count_delta))::integer AS net_count_delta,
+    count(*) AS sample_count
+   FROM endpoint_inventory_package_count_history
+  GROUP BY (time_bucket('01:00:00'::interval, scan_time)), coordinate_hash, package_manager, COALESCE(ecosystem, ''::text), name, COALESCE(version, ''::text), COALESCE(architecture, ''::text), COALESCE(purl_canonical, ''::text) WITH NO DATA;
+CREATE MATERIALIZED VIEW platform.logs_severity_stats_5m WITH (timescaledb.continuous) AS  SELECT time_bucket('00:05:00'::interval, "timestamp") AS bucket,
+    service_name,
+    count(*) AS total_count,
+    count(*) FILTER (WHERE (serviceradar_log_severity_bucket(severity_text, severity_number) = 'fatal'::text)) AS fatal_count,
+    count(*) FILTER (WHERE (serviceradar_log_severity_bucket(severity_text, severity_number) = 'error'::text)) AS error_count,
+    count(*) FILTER (WHERE (serviceradar_log_severity_bucket(severity_text, severity_number) = 'warning'::text)) AS warning_count,
+    count(*) FILTER (WHERE (serviceradar_log_severity_bucket(severity_text, severity_number) = 'info'::text)) AS info_count,
+    count(*) FILTER (WHERE (serviceradar_log_severity_bucket(severity_text, severity_number) = 'debug'::text)) AS debug_count
+   FROM logs
+  GROUP BY (time_bucket('00:05:00'::interval, "timestamp")), service_name WITH NO DATA;
+CREATE MATERIALIZED VIEW platform.memory_metrics_hourly WITH (timescaledb.continuous) AS  SELECT time_bucket('01:00:00'::interval, "timestamp") AS bucket,
+    device_id,
+    host_id,
+    avg(usage_percent) AS avg_usage_percent,
+    max(usage_percent) AS max_usage_percent,
+    (avg(used_bytes))::double precision AS avg_used_bytes,
+    (avg(available_bytes))::double precision AS avg_available_bytes,
+    count(*) AS sample_count
+   FROM memory_metrics
+  GROUP BY (time_bucket('01:00:00'::interval, "timestamp")), device_id, host_id WITH NO DATA;
+CREATE MATERIALIZED VIEW platform.ocsf_events_hourly_stats WITH (timescaledb.continuous) AS  SELECT time_bucket('01:00:00'::interval, "time") AS bucket,
+    COALESCE(severity_id, 0) AS severity_id,
+    count(*) AS total_count
+   FROM ocsf_events
+  GROUP BY (time_bucket('01:00:00'::interval, "time")), COALESCE(severity_id, 0) WITH NO DATA;
+CREATE MATERIALIZED VIEW platform.ocsf_network_activity_5m_traffic WITH (timescaledb.continuous) AS  SELECT time_bucket('00:05:00'::interval, "time") AS bucket,
+    (COALESCE(sum(((bytes_total)::numeric * (GREATEST(COALESCE(sampling_rate, (1)::bigint), (1)::bigint))::numeric)), (0)::numeric))::bigint AS bytes_total,
+    (COALESCE(sum(((packets_total)::numeric * (GREATEST(COALESCE(sampling_rate, (1)::bigint), (1)::bigint))::numeric)), (0)::numeric))::bigint AS packets_total,
+    COALESCE(count(*), (0)::bigint) AS flow_count
+   FROM ocsf_network_activity
+  GROUP BY (time_bucket('00:05:00'::interval, "time")) WITH NO DATA;
+CREATE MATERIALIZED VIEW platform.ocsf_network_activity_hourly_conversations WITH (timescaledb.continuous) AS  SELECT time_bucket('01:00:00'::interval, "time") AS bucket,
+    COALESCE(src_endpoint_ip, 'Unknown'::text) AS src_endpoint_ip,
+    COALESCE(dst_endpoint_ip, 'Unknown'::text) AS dst_endpoint_ip,
+    (COALESCE(sum(((bytes_total)::numeric * (GREATEST(COALESCE(sampling_rate, (1)::bigint), (1)::bigint))::numeric)), (0)::numeric))::bigint AS bytes_total,
+    (COALESCE(sum(((packets_total)::numeric * (GREATEST(COALESCE(sampling_rate, (1)::bigint), (1)::bigint))::numeric)), (0)::numeric))::bigint AS packets_total,
+    COALESCE(count(*), (0)::bigint) AS flow_count
+   FROM ocsf_network_activity
+  GROUP BY (time_bucket('01:00:00'::interval, "time")), COALESCE(src_endpoint_ip, 'Unknown'::text), COALESCE(dst_endpoint_ip, 'Unknown'::text) WITH NO DATA;
+CREATE MATERIALIZED VIEW platform.ocsf_network_activity_hourly_listeners WITH (timescaledb.continuous) AS  SELECT time_bucket('01:00:00'::interval, "time") AS bucket,
+    COALESCE(dst_endpoint_ip, 'Unknown'::text) AS dst_endpoint_ip,
+    (COALESCE(sum(((bytes_total)::numeric * (GREATEST(COALESCE(sampling_rate, (1)::bigint), (1)::bigint))::numeric)), (0)::numeric))::bigint AS bytes_total,
+    (COALESCE(sum(((packets_total)::numeric * (GREATEST(COALESCE(sampling_rate, (1)::bigint), (1)::bigint))::numeric)), (0)::numeric))::bigint AS packets_total,
+    COALESCE(count(*), (0)::bigint) AS flow_count
+   FROM ocsf_network_activity
+  GROUP BY (time_bucket('01:00:00'::interval, "time")), COALESCE(dst_endpoint_ip, 'Unknown'::text) WITH NO DATA;
+CREATE MATERIALIZED VIEW platform.ocsf_network_activity_hourly_ports WITH (timescaledb.continuous) AS  SELECT time_bucket('01:00:00'::interval, "time") AS bucket,
+    COALESCE(dst_endpoint_port, 0) AS dst_endpoint_port,
+    (COALESCE(sum(((bytes_total)::numeric * (GREATEST(COALESCE(sampling_rate, (1)::bigint), (1)::bigint))::numeric)), (0)::numeric))::bigint AS bytes_total,
+    (COALESCE(sum(((packets_total)::numeric * (GREATEST(COALESCE(sampling_rate, (1)::bigint), (1)::bigint))::numeric)), (0)::numeric))::bigint AS packets_total,
+    COALESCE(count(*), (0)::bigint) AS flow_count
+   FROM ocsf_network_activity
+  GROUP BY (time_bucket('01:00:00'::interval, "time")), COALESCE(dst_endpoint_port, 0) WITH NO DATA;
+CREATE MATERIALIZED VIEW platform.ocsf_network_activity_hourly_proto WITH (timescaledb.continuous) AS  SELECT time_bucket('01:00:00'::interval, "time") AS bucket,
+    COALESCE(protocol_num, 0) AS protocol_num,
+    (COALESCE(sum(((bytes_total)::numeric * (GREATEST(COALESCE(sampling_rate, (1)::bigint), (1)::bigint))::numeric)), (0)::numeric))::bigint AS bytes_total,
+    (COALESCE(sum(((packets_total)::numeric * (GREATEST(COALESCE(sampling_rate, (1)::bigint), (1)::bigint))::numeric)), (0)::numeric))::bigint AS packets_total,
+    COALESCE(count(*), (0)::bigint) AS flow_count
+   FROM ocsf_network_activity
+  GROUP BY (time_bucket('01:00:00'::interval, "time")), COALESCE(protocol_num, 0) WITH NO DATA;
+CREATE MATERIALIZED VIEW platform.ocsf_network_activity_hourly_talkers WITH (timescaledb.continuous) AS  SELECT time_bucket('01:00:00'::interval, "time") AS bucket,
+    COALESCE(src_endpoint_ip, 'Unknown'::text) AS src_endpoint_ip,
+    (COALESCE(sum(((bytes_total)::numeric * (GREATEST(COALESCE(sampling_rate, (1)::bigint), (1)::bigint))::numeric)), (0)::numeric))::bigint AS bytes_total,
+    (COALESCE(sum(((packets_total)::numeric * (GREATEST(COALESCE(sampling_rate, (1)::bigint), (1)::bigint))::numeric)), (0)::numeric))::bigint AS packets_total,
+    COALESCE(count(*), (0)::bigint) AS flow_count
+   FROM ocsf_network_activity
+  GROUP BY (time_bucket('01:00:00'::interval, "time")), COALESCE(src_endpoint_ip, 'Unknown'::text) WITH NO DATA;
+CREATE MATERIALIZED VIEW platform.otel_metrics_hourly_stats WITH (timescaledb.continuous) AS  SELECT time_bucket('01:00:00'::interval, "timestamp") AS bucket,
+    COALESCE(service_name, ''::text) AS service_name,
+    count(*) AS total_count,
+    count(*) FILTER (WHERE ((COALESCE(level, ''::text) = ANY (ARRAY['error'::text, 'ERROR'::text])) OR (COALESCE(http_status_code, ''::text) ~~ '4%'::text) OR (COALESCE(http_status_code, ''::text) ~~ '5%'::text) OR ((COALESCE(grpc_status_code, ''::text) <> ''::text) AND (COALESCE(grpc_status_code, ''::text) <> '0'::text)))) AS error_count,
+    count(*) FILTER (WHERE (is_slow IS TRUE)) AS slow_count,
+    count(*) FILTER (WHERE (COALESCE(http_status_code, ''::text) ~~ '4%'::text)) AS http_4xx_count,
+    count(*) FILTER (WHERE (COALESCE(http_status_code, ''::text) ~~ '5%'::text)) AS http_5xx_count,
+    count(*) FILTER (WHERE ((COALESCE(grpc_status_code, ''::text) <> ''::text) AND (COALESCE(grpc_status_code, ''::text) <> '0'::text))) AS grpc_error_count,
+    avg(duration_ms) AS avg_duration_ms,
+    percentile_cont((0.95)::double precision) WITHIN GROUP (ORDER BY duration_ms) FILTER (WHERE (duration_ms IS NOT NULL)) AS p95_duration_ms,
+    max(duration_ms) AS max_duration_ms
+   FROM otel_metrics
+  GROUP BY (time_bucket('01:00:00'::interval, "timestamp")), COALESCE(service_name, ''::text) WITH NO DATA;
+CREATE MATERIALIZED VIEW platform.process_metrics_hourly WITH (timescaledb.continuous) AS  SELECT time_bucket('01:00:00'::interval, "timestamp") AS bucket,
+    device_id,
+    host_id,
+    name,
+    avg(cpu_usage) AS avg_cpu_usage,
+    (max(cpu_usage))::double precision AS max_cpu_usage,
+    (avg(memory_usage))::double precision AS avg_memory_usage,
+    (max(memory_usage))::double precision AS max_memory_usage,
+    count(*) AS sample_count
+   FROM process_metrics
+  GROUP BY (time_bucket('01:00:00'::interval, "timestamp")), device_id, host_id, name WITH NO DATA;
+CREATE MATERIALIZED VIEW platform.spans_red_1h WITH (timescaledb.continuous) AS  SELECT time_bucket('01:00:00'::interval, "timestamp") AS bucket,
+    COALESCE(service_name, ''::text) AS service_name,
+    COALESCE(service_namespace, ''::text) AS service_namespace,
+    COALESCE(deployment_environment, ''::text) AS deployment_environment,
+    count(*) AS total_count,
+    count(*) FILTER (WHERE (status_code = 2)) AS error_count,
+    count(*) FILTER (WHERE ((((end_time_unix_nano - start_time_unix_nano))::double precision / (1000000.0)::double precision) > (100)::double precision)) AS slow_count,
+    avg((((end_time_unix_nano - start_time_unix_nano))::double precision / (1000000.0)::double precision)) AS avg_duration_ms,
+    percentile_cont((0.5)::double precision) WITHIN GROUP (ORDER BY (((end_time_unix_nano - start_time_unix_nano))::double precision / (1000000.0)::double precision)) FILTER (WHERE ((((end_time_unix_nano - start_time_unix_nano))::double precision / (1000000.0)::double precision) IS NOT NULL)) AS p50_duration_ms,
+    percentile_cont((0.95)::double precision) WITHIN GROUP (ORDER BY (((end_time_unix_nano - start_time_unix_nano))::double precision / (1000000.0)::double precision)) FILTER (WHERE ((((end_time_unix_nano - start_time_unix_nano))::double precision / (1000000.0)::double precision) IS NOT NULL)) AS p95_duration_ms,
+    max((((end_time_unix_nano - start_time_unix_nano))::double precision / (1000000.0)::double precision)) AS max_duration_ms
+   FROM otel_traces
+  GROUP BY (time_bucket('01:00:00'::interval, "timestamp")), COALESCE(service_name, ''::text), COALESCE(service_namespace, ''::text), COALESCE(deployment_environment, ''::text) WITH NO DATA;
+CREATE MATERIALIZED VIEW platform.timeseries_metrics_hourly WITH (timescaledb.continuous) AS  SELECT time_bucket('01:00:00'::interval, "timestamp") AS bucket,
+    device_id,
+    metric_type,
+    metric_name,
+    avg(value) AS avg_value,
+    min(value) AS min_value,
+    max(value) AS max_value,
+    count(*) AS sample_count
+   FROM timeseries_metrics
+  GROUP BY (time_bucket('01:00:00'::interval, "timestamp")), device_id, metric_type, metric_name WITH NO DATA;
+CREATE MATERIALIZED VIEW platform.timeseries_metrics_interface_hourly WITH (timescaledb.continuous) AS  SELECT time_bucket('01:00:00'::interval, "timestamp") AS bucket,
+    partition,
+    device_id,
+    target_device_ip,
+    if_index,
+    metric_type,
+    metric_name,
+    series_key,
+    avg(value) AS avg_value,
+    min(value) AS min_value,
+    max(value) AS max_value,
+    GREATEST((max(value) - min(value)), (0)::double precision) AS delta_value,
+    (EXTRACT(epoch FROM (max("timestamp") - min("timestamp"))))::double precision AS duration_seconds,
+        CASE
+            WHEN ((max("timestamp") > min("timestamp")) AND (max(value) >= min(value))) THEN ((max(value) - min(value)) / (EXTRACT(epoch FROM (max("timestamp") - min("timestamp"))))::double precision)
+            ELSE NULL::double precision
+        END AS avg_rate_per_second,
+    count(*) AS sample_count
+   FROM timeseries_metrics
+  WHERE ((if_index IS NOT NULL) AND (COALESCE((metadata ->> 'kind'::text), (metadata ->> 'metric_type'::text)) = ANY (ARRAY['sum'::text, 'counter'::text])) AND ((metadata ->> 'temporality'::text) = 'cumulative'::text) AND (lower(COALESCE((metadata ->> 'is_monotonic'::text), 'false'::text)) = ANY (ARRAY['true'::text, '1'::text])) AND (metadata ? 'raw_value'::text))
+  GROUP BY (time_bucket('01:00:00'::interval, "timestamp")), partition, device_id, target_device_ip, if_index, metric_type, metric_name, series_key WITH NO DATA;
+CREATE MATERIALIZED VIEW platform.traces_stats_5m WITH (timescaledb.continuous) AS  SELECT time_bucket('00:05:00'::interval, "timestamp") AS bucket,
+    service_name,
+    count(*) AS total_count,
+    count(*) FILTER (WHERE (status_code = 2)) AS error_count,
+    avg((((end_time_unix_nano - start_time_unix_nano))::double precision / (1000000.0)::double precision)) AS avg_duration_ms,
+    percentile_cont((0.95)::double precision) WITHIN GROUP (ORDER BY (((end_time_unix_nano - start_time_unix_nano))::double precision / (1000000.0)::double precision)) AS p95_duration_ms
+   FROM otel_traces
+  WHERE (parent_span_id IS NULL)
+  GROUP BY (time_bucket('00:05:00'::interval, "timestamp")), service_name WITH NO DATA;
+CREATE MATERIALIZED VIEW platform.flow_traffic_1h WITH (timescaledb.continuous) AS  SELECT time_bucket('01:00:00'::interval, bucket) AS bucket,
+    (sum(bytes_total))::bigint AS bytes_total,
+    (sum(packets_total))::bigint AS packets_total,
+    (sum(flow_count))::bigint AS flow_count
+   FROM ocsf_network_activity_5m_traffic
+  GROUP BY (time_bucket('01:00:00'::interval, bucket)) WITH NO DATA;
+CREATE MATERIALIZED VIEW platform.flow_traffic_1d WITH (timescaledb.continuous) AS  SELECT time_bucket('1 day'::interval, bucket) AS bucket,
+    (sum(bytes_total))::bigint AS bytes_total,
+    (sum(packets_total))::bigint AS packets_total,
+    (sum(flow_count))::bigint AS flow_count
+   FROM flow_traffic_1h
+  GROUP BY (time_bucket('1 day'::interval, bucket)) WITH NO DATA;
+
+SELECT add_continuous_aggregate_policy('platform.cpu_metrics_hourly', start_offset => '5 days'::interval, end_offset => '00:10:00'::interval, schedule_interval => '00:10:00'::interval, if_not_exists => true);
+SELECT add_continuous_aggregate_policy('platform.disk_metrics_hourly', start_offset => '5 days'::interval, end_offset => '00:10:00'::interval, schedule_interval => '00:10:00'::interval, if_not_exists => true);
+SELECT add_continuous_aggregate_policy('platform.endpoint_inventory_cpe_counts_hourly', start_offset => '31 days'::interval, end_offset => '00:05:00'::interval, schedule_interval => '00:05:00'::interval, if_not_exists => true);
+SELECT add_continuous_aggregate_policy('platform.endpoint_inventory_package_counts_hourly', start_offset => '31 days'::interval, end_offset => '00:05:00'::interval, schedule_interval => '00:05:00'::interval, if_not_exists => true);
+SELECT add_continuous_aggregate_policy('platform.logs_severity_stats_5m', start_offset => '03:00:00'::interval, end_offset => '00:30:00'::interval, schedule_interval => '00:10:00'::interval, if_not_exists => true);
+SELECT add_continuous_aggregate_policy('platform.memory_metrics_hourly', start_offset => '5 days'::interval, end_offset => '00:10:00'::interval, schedule_interval => '00:10:00'::interval, if_not_exists => true);
+SELECT add_continuous_aggregate_policy('platform.ocsf_events_hourly_stats', start_offset => '26:00:00'::interval, end_offset => '00:05:00'::interval, schedule_interval => '00:05:00'::interval, if_not_exists => true);
+SELECT add_continuous_aggregate_policy('platform.ocsf_network_activity_5m_traffic', start_offset => '31 days'::interval, end_offset => '00:05:00'::interval, schedule_interval => '00:05:00'::interval, if_not_exists => true);
+SELECT add_continuous_aggregate_policy('platform.ocsf_network_activity_hourly_conversations', start_offset => '31 days'::interval, end_offset => '00:05:00'::interval, schedule_interval => '00:05:00'::interval, if_not_exists => true);
+SELECT add_continuous_aggregate_policy('platform.ocsf_network_activity_hourly_listeners', start_offset => '31 days'::interval, end_offset => '00:05:00'::interval, schedule_interval => '00:05:00'::interval, if_not_exists => true);
+SELECT add_continuous_aggregate_policy('platform.ocsf_network_activity_hourly_ports', start_offset => '31 days'::interval, end_offset => '00:05:00'::interval, schedule_interval => '00:05:00'::interval, if_not_exists => true);
+SELECT add_continuous_aggregate_policy('platform.ocsf_network_activity_hourly_proto', start_offset => '31 days'::interval, end_offset => '00:05:00'::interval, schedule_interval => '00:05:00'::interval, if_not_exists => true);
+SELECT add_continuous_aggregate_policy('platform.ocsf_network_activity_hourly_talkers', start_offset => '31 days'::interval, end_offset => '00:05:00'::interval, schedule_interval => '00:05:00'::interval, if_not_exists => true);
+SELECT add_continuous_aggregate_policy('platform.otel_metrics_hourly_stats', start_offset => '28 days'::interval, end_offset => '00:10:00'::interval, schedule_interval => '00:10:00'::interval, if_not_exists => true);
+SELECT add_continuous_aggregate_policy('platform.process_metrics_hourly', start_offset => '5 days'::interval, end_offset => '00:10:00'::interval, schedule_interval => '00:10:00'::interval, if_not_exists => true);
+SELECT add_continuous_aggregate_policy('platform.spans_red_1h', start_offset => '1 day'::interval, end_offset => '00:10:00'::interval, schedule_interval => '00:10:00'::interval, if_not_exists => true);
+SELECT add_continuous_aggregate_policy('platform.timeseries_metrics_hourly', start_offset => '5 days'::interval, end_offset => '00:10:00'::interval, schedule_interval => '00:10:00'::interval, if_not_exists => true);
+SELECT add_continuous_aggregate_policy('platform.timeseries_metrics_interface_hourly', start_offset => '5 days'::interval, end_offset => '00:10:00'::interval, schedule_interval => '00:10:00'::interval, if_not_exists => true);
+SELECT add_continuous_aggregate_policy('platform.traces_stats_5m', start_offset => '1 day'::interval, end_offset => '00:05:00'::interval, schedule_interval => '00:05:00'::interval, if_not_exists => true);
+
+RESET search_path;

@@ -107,8 +107,23 @@ pub struct CapacityForecast {
     pub projection_bounded: bool,
     /// `projected_exhaustion_at` as unix microseconds (`model.ex:91` / `170`), or
     /// `None` for the no-ETA cases (non-positive slope, missing threshold,
-    /// already-crossed, beyond-`10×`-horizon).
+    /// already-crossed, beyond-`10×`-horizon, or beyond the history-relative
+    /// extrapolation cap).
     pub projected_exhaustion_at_unix_micros: Option<i64>,
+    /// The projected crossing before the history-relative extrapolation cap is
+    /// applied: `Some` whenever the fitted trend crosses the threshold after the
+    /// last sample and inside the `10×`-horizon noise cap, even when
+    /// [`Self::projected_exhaustion_at_unix_micros`] is `None`. Lets the worker
+    /// report *when* a capped series would cross instead of "no exhaustion".
+    pub raw_projected_exhaustion_at_unix_micros: Option<i64>,
+    /// `true` when the ETA was withheld ONLY because the crossing lies beyond the
+    /// history-relative extrapolation cap (twice the observed span). Never `true`
+    /// for a series with no crossing or one beyond the noise cap.
+    pub exhaustion_history_capped: bool,
+    /// The extrapolation cap the ETA was checked against, in seconds past the last
+    /// sample: `min(2 × observed span, 10 × horizon)`. Surfaced so the worker's
+    /// diagnostics carry the kernel's number rather than re-deriving it.
+    pub exhaustion_extrapolation_cap_seconds: i64,
     /// The emitted prediction interval's nominal coverage level (`0.95`). Surfaced in
     /// this field for ABI stability, but it is the INTERVAL's coverage level — NOT a
     /// fit-quality probability. The old `clamp(1 - rmse/scale)` heuristic was an

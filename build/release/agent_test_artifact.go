@@ -202,7 +202,7 @@ func prepareAgentTestArtifact(metadata agentTestArtifactMetadata, archivePath, o
 		return err
 	}
 	defer func() { _ = os.RemoveAll(staging) }()
-	binaryPath := filepath.Join(staging, "serviceradar-agent")
+	binaryPath := filepath.Join(staging, defaultAgentRuntimeEntrypoint)
 	if err := extractAgentTestRuntime(archivePath, binaryPath); err != nil {
 		return err
 	}
@@ -287,7 +287,7 @@ func extractAgentTestRuntime(archivePath, binaryPath string) error {
 		if header.Typeflag == tar.TypeDir && (header.Name == "." || header.Name == "./" || header.Name == "/") {
 			continue
 		}
-		if found || (header.Name != "serviceradar-agent" && header.Name != "./serviceradar-agent") || header.Typeflag != tar.TypeReg || header.Size <= 0 || header.Size > agentTestExecutableLimit || header.Mode&0o111 == 0 {
+		if found || (header.Name != defaultAgentRuntimeEntrypoint && header.Name != "./serviceradar-agent") || header.Typeflag != tar.TypeReg || header.Size <= 0 || header.Size > agentTestExecutableLimit || header.Mode&0o111 == 0 {
 			return errAgentTestArchive
 		}
 		binary, err := os.OpenFile(binaryPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o700)

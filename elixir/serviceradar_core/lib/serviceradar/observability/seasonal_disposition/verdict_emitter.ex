@@ -42,7 +42,12 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.VerdictEmitter do
       "class_uid" => 2004,
       "signal_domain" => "health",
       "signal_domains" => ["health"],
-      "timestamp" => iso8601(Map.get(attrs, :bucket_ended_at) || Map.get(attrs, :evaluated_at)),
+      # The evaluation time is the producer's heartbeat: the episode registry
+      # stamps `last_seen_at` from it and the stale sweep judges liveness by it.
+      # A bucket-end stamp is already >= 47 min old when the hourly worker emits
+      # it, which stale-closed every central seasonal episode before its next
+      # evaluation. The bucket window stays in `seasonal_disposition`.
+      "timestamp" => iso8601(Map.get(attrs, :evaluated_at) || Map.get(attrs, :bucket_ended_at)),
       "severity_id" => severity_id(attrs),
       "provider" => @provider,
       "source" => "serviceradar",
@@ -203,18 +208,34 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.VerdictEmitter do
     end
   end
 
+  # Rendered as the finding's detection trigger / resolution in the UI, so it is
+  # a sentence. The machine fields (disposition, score, consecutive buckets, dow,
+  # hod) are carried structurally in `seasonal_disposition`.
   defp reason(attrs) do
-    Enum.join(
-      [
-        "disposition=#{string_value(Map.get(attrs, :disposition))}",
-        "score=#{format_number(Map.get(attrs, :score))}",
-        "consecutive_anomalous=#{format_number(Map.get(attrs, :consecutive_anomalous))}",
-        "dow=#{format_number(Map.get(attrs, :dow))}",
-        "hod=#{format_number(Map.get(attrs, :hod))}"
-      ],
-      " "
-    )
+    bucket =
+      "hour-of-week baseline for dow #{format_number(Map.get(attrs, :dow))} " <>
+        "hod #{format_number(Map.get(attrs, :hod))}"
+
+    cond do
+      active?(attrs) ->
+        "Residual z #{format_score(Map.get(attrs, :score))} breached the #{bucket} " <>
+          "(#{consecutive_buckets_text(Map.get(attrs, :consecutive_anomalous))})"
+
+      status(attrs) == "cleared" ->
+        "Within the #{bucket}; the breach cleared"
+
+      true ->
+        "Within the #{bucket}"
+    end
   end
+
+  defp consecutive_buckets_text(1), do: "1 consecutive bucket"
+  defp consecutive_buckets_text(count) when is_integer(count), do: "#{count} consecutive buckets"
+  defp consecutive_buckets_text(_count), do: "confirmation count unknown"
+
+  defp format_score(value) when is_float(value), do: :erlang.float_to_binary(value, decimals: 2)
+  defp format_score(value) when is_integer(value), do: format_score(value * 1.0)
+  defp format_score(_value), do: "unknown"
 
   defp status(attrs), do: attrs |> Map.get(:status) |> string_value() |> default_status()
 

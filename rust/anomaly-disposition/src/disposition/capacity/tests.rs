@@ -58,6 +58,9 @@ fn linear_forecast_projects_and_etas() {
             // ETA at +70 hours from window start.
             let expected = START_MICROS + 70 * 3_600 * MICROS_PER_SECOND;
             assert_eq!(f.projected_exhaustion_at_unix_micros, Some(expected));
+            // A crossing inside every cap reports the same raw and capped ETA.
+            assert_eq!(f.raw_projected_exhaustion_at_unix_micros, Some(expected));
+            assert!(!f.exhaustion_history_capped);
             // `confidence` now carries the prediction interval's nominal coverage
             // level (0.95), not the old `clamp(1 - rmse/scale)` heuristic (D2).
             assert!((f.confidence - 0.95).abs() < 1e-9);
@@ -66,8 +69,13 @@ fn linear_forecast_projects_and_etas() {
     }
 }
 
+/// The history-relative extrapolation cap still withholds the ETA, but the kernel
+/// now says WHICH cap fired and where the uncapped crossing lies, so the worker can
+/// record `exhaustion_beyond_history_cap` (with the date) instead of the misleading
+/// `no_projected_exhaustion`. Here: slope 0.1/h from 10 crosses 82 at +720 h, while
+/// 168 h of history only supports extrapolating to +501 h.
 #[test]
-fn linear_eta_beyond_two_history_spans_is_suppressed() {
+fn linear_eta_beyond_two_history_spans_is_suppressed_but_reported() {
     let points: Vec<CapacityPoint> = (0..(7 * 24))
         .map(|h| point(h, 10.0 + h as f64 * 0.1))
         .collect();
@@ -84,6 +92,14 @@ fn linear_eta_beyond_two_history_spans_is_suppressed() {
         Disposition::Projected(f) => {
             assert_eq!(f.projected_exhaustion_at_unix_micros, None);
             assert!(f.raw_projected_value > 200.0);
+            let raw_crossing = START_MICROS + 720 * 3_600 * MICROS_PER_SECOND;
+            assert_eq!(
+                f.raw_projected_exhaustion_at_unix_micros,
+                Some(raw_crossing)
+            );
+            assert!(f.exhaustion_history_capped);
+            // 168 h of history (last_x = 167 h) supports 2 × 167 h of extrapolation.
+            assert_eq!(f.exhaustion_extrapolation_cap_seconds, 2 * 167 * 3_600);
         }
         other => panic!("expected Projected, got {other:?}"),
     }
@@ -297,6 +313,10 @@ fn beyond_horizon_crossing_collapses_to_no_eta() {
         Disposition::Projected(f) => {
             assert!(f.slope_per_second > 0.0);
             assert_eq!(f.projected_exhaustion_at_unix_micros, None);
+            // Noise beyond 10x the horizon is not a crossing at all, so it is
+            // neither reported raw nor blamed on the history cap.
+            assert_eq!(f.raw_projected_exhaustion_at_unix_micros, None);
+            assert!(!f.exhaustion_history_capped);
         }
         other => panic!("expected Projected, got {other:?}"),
     }
@@ -316,7 +336,9 @@ fn already_crossed_has_no_eta() {
     );
     match out.disposition {
         Disposition::Projected(f) => {
-            assert_eq!(f.projected_exhaustion_at_unix_micros, None)
+            assert_eq!(f.projected_exhaustion_at_unix_micros, None);
+            assert_eq!(f.raw_projected_exhaustion_at_unix_micros, None);
+            assert!(!f.exhaustion_history_capped);
         }
         other => panic!("expected Projected, got {other:?}"),
     }

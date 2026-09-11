@@ -9,7 +9,7 @@
 use addon_sdk::metric_pb::{Metric, MetricKind, MetricPoint, MetricTemporality};
 use serviceradar_anomaly_core::SaturationGate;
 
-use crate::engine::{DriftMode, SeriesProfile};
+use crate::engine::{BurstEnvelope, DriftMode, SeriesProfile};
 use crate::identity::{metadata_f64_value, metadata_u32_value};
 
 pub(crate) const CPU_EVALUATION_INTERVAL_NS: u64 = 30 * 1_000_000_000;
@@ -118,6 +118,7 @@ pub(crate) fn series_profile_for(metric: &Metric) -> SeriesProfile {
             drift_mode: DriftMode::Off,
             drift_min_cv: 0.0,
             spike_adopt_after_samples: None,
+            burst_envelope: None,
         },
         // Memory used_percent: commonly runs 60-80% benignly (caches, buffers).
         // Same dispersion floors; only sustained pressure above 80% breaches.
@@ -133,6 +134,7 @@ pub(crate) fn series_profile_for(metric: &Metric) -> SeriesProfile {
             drift_mode: DriftMode::DeseasonalizedOnly,
             drift_min_cv: 0.0,
             spike_adopt_after_samples: None,
+            burst_envelope: None,
         },
         // CPU used_percent (per-core): the noisiest gauge — individual cores spike
         // to 100% constantly and benignly. A higher absolute floor + std/CV floor
@@ -150,6 +152,7 @@ pub(crate) fn series_profile_for(metric: &Metric) -> SeriesProfile {
             drift_mode: DriftMode::DeseasonalizedOnly,
             drift_min_cv: 0.0,
             spike_adopt_after_samples: None,
+            burst_envelope: None,
         },
         None => SeriesProfile::default(),
     }
@@ -207,6 +210,10 @@ pub(crate) fn counter_series_profile(metric: &Metric) -> SeriesProfile {
         drift_mode: DriftMode::DeseasonalizedOnly,
         drift_min_cv: 0.05,
         spike_adopt_after_samples: Some(300),
+        // Traffic rates are the class with recurring sub-hour bursts (backups,
+        // syncs) that a rolling z-score flags every time; the recent-burst
+        // envelope makes a burst no taller than recent ones expected.
+        burst_envelope: Some(BurstEnvelope::default()),
         ..SeriesProfile::default()
     }
 }
@@ -224,6 +231,7 @@ pub(crate) fn host_cpu_aggregate_profile() -> SeriesProfile {
         drift_mode: DriftMode::DeseasonalizedOnly,
         drift_min_cv: 0.0,
         spike_adopt_after_samples: None,
+        burst_envelope: None,
     }
 }
 

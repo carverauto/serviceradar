@@ -73,6 +73,43 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.VerdictEmitterTest do
     assert decoded["seasonal_disposition"]["bucket_ended_at"] == "2026-06-09T10:00:00Z"
   end
 
+  test "event time is the evaluation time, with the bucket window kept in the disposition" do
+    payload = VerdictEmitter.payload(@breach)
+
+    # The stale sweep keys off this timestamp. A bucket-end stamp is already
+    # 47+ minutes old when the hourly worker emits it, which stale-closed every
+    # central seasonal episode before its next evaluation.
+    assert payload["timestamp"] == "2026-06-12T12:00:00Z"
+    assert payload["seasonal_disposition"]["evaluated_at"] == "2026-06-12T12:00:00Z"
+    assert payload["seasonal_disposition"]["bucket_started_at"] == "2026-06-09T09:00:00Z"
+    assert payload["seasonal_disposition"]["bucket_ended_at"] == "2026-06-09T10:00:00Z"
+  end
+
+  test "reason is an operator-readable sentence, not a key=value dump" do
+    breach = VerdictEmitter.payload(@breach)
+
+    assert breach["explainability"]["reason"] ==
+             "Residual z 7.50 breached the hour-of-week baseline for dow 2 hod 9 (3 consecutive buckets)"
+
+    assert breach["anomaly"]["reason"] == breach["explainability"]["reason"]
+    refute breach["explainability"]["reason"] =~ "disposition="
+
+    cleared =
+      @breach
+      |> Map.merge(%{
+        status: "cleared",
+        disposition: "suppress",
+        score: 0.0,
+        consecutive_anomalous: 0
+      })
+      |> VerdictEmitter.payload()
+
+    assert cleared["explainability"]["reason"] ==
+             "Within the hour-of-week baseline for dow 2 hod 9; the breach cleared"
+
+    refute cleared["explainability"]["reason"] =~ "score="
+  end
+
   test "inactive seasonal payload clears causal evidence" do
     subject = VerdictEmitter.subject(@breach)
     payload = @breach |> Map.put(:status, "cleared") |> VerdictEmitter.payload(subject)

@@ -180,6 +180,46 @@ pub struct AnomalyEpisode {
     pub peak_at_unix_nano: u64,
 }
 
+/// Default burst-envelope knobs. Quantile 0.99 of the lagged raw history is the
+/// series' recent burst magnitude; 1.25x leaves headroom for ordinary jitter on
+/// top of it; 10 lagged samples (2x the default confirm slots) keep a sustained
+/// surge's first samples above the envelope so it still confirms; 30 samples of
+/// history is the rolling detector's own warm-up.
+pub const DEFAULT_BURST_ENVELOPE_QUANTILE: f64 = 0.99;
+pub const DEFAULT_BURST_ENVELOPE_MULTIPLIER: f64 = 1.25;
+pub const DEFAULT_BURST_ENVELOPE_LAG_SAMPLES: usize = 10;
+pub const DEFAULT_BURST_ENVELOPE_MIN_SAMPLES: usize = 30;
+
+/// Recent-burst envelope for the spike path: an UPWARD sample no taller than
+/// `multiplier x quantile(lagged raw history, quantile)` is within what the
+/// series has recently done and does not breach, however far over the z
+/// threshold it lands. A recurring bulk transfer leaves its own samples in the
+/// lagged history, so the next one is expected; a taller-than-recent burst still
+/// breaches; a level change is drift's job. Downward moves are never gated.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BurstEnvelope {
+    /// Quantile of the lagged raw history taken as the recent burst magnitude.
+    pub quantile: f64,
+    /// Headroom multiplier applied to that quantile.
+    pub multiplier: f64,
+    /// Newest raw samples excluded from the history (the engine raises this to
+    /// at least twice `confirm_slots`).
+    pub lag_samples: usize,
+    /// Minimum lagged history before the envelope is trusted at all.
+    pub min_samples: usize,
+}
+
+impl Default for BurstEnvelope {
+    fn default() -> Self {
+        Self {
+            quantile: DEFAULT_BURST_ENVELOPE_QUANTILE,
+            multiplier: DEFAULT_BURST_ENVELOPE_MULTIPLIER,
+            lag_samples: DEFAULT_BURST_ENVELOPE_LAG_SAMPLES,
+            min_samples: DEFAULT_BURST_ENVELOPE_MIN_SAMPLES,
+        }
+    }
+}
+
 /// Per-series fidelity tuning the detector applies on top of the global
 /// [`EngineConfig`]. The add-on computes this from the metric class (it knows
 /// `metric_type` + whether the series is a rate-normalized counter), so the
@@ -213,6 +253,9 @@ pub struct SeriesProfile {
     /// default; counters set a shorter value because their day/night regimes
     /// change far faster than a sustained capacity incident.
     pub spike_adopt_after_samples: Option<u64>,
+    /// Optional recent-burst envelope (see [`BurstEnvelope`]). Interface counter
+    /// rates enable it by default; every other class leaves it `None`.
+    pub burst_envelope: Option<BurstEnvelope>,
 }
 
 /// Optional class-level score bands and severity ceiling. Score bands never
@@ -267,4 +310,11 @@ pub struct MetricClassOverride {
     pub abs_effect_floor: Option<f64>,
     pub spike_adopt_after_samples: Option<u64>,
     pub severity_policy: SeverityPolicy,
+    /// `Some(false)` removes the class' burst envelope; `Some(true)` enables the
+    /// default envelope on a class that has none.
+    pub burst_envelope_enabled: Option<bool>,
+    pub burst_envelope_quantile: Option<f64>,
+    pub burst_envelope_multiplier: Option<f64>,
+    pub burst_envelope_lag_samples: Option<u64>,
+    pub burst_envelope_min_samples: Option<u64>,
 }

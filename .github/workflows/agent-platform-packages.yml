@@ -1,0 +1,47 @@
+name: Agent Platform Packages
+
+# Manual only. release.yml builds and validates the same unsigned installer
+# before signing, so a PR trigger would only spend macOS runner minutes on
+# nearly every Go change to find packaging breakage slightly earlier.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-platform-packages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos-arm64:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      # This native artifact check intentionally uses no release environment,
+      # registry credentials, or remote-cache key. Go unit tests run in BuildBuddy.
+      - name: Build and inspect unsigned ARM64 installer
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = arm64
+          command -v bazelisk
+          umask 077
+          mkdir -p "${RUNNER_TEMP}/unsigned-macos-agent"
+          bazelisk run -c opt --config=darwin_local \
+            --platforms=//build/platforms:darwin_aarch64 \
+            //build/packaging/agent/macos:package -- \
+            --mode=unsigned --source-commit="$(git rev-parse HEAD)" \
+            --output-dir="${RUNNER_TEMP}/unsigned-macos-agent"
+
+      - name: Upload unsigned test installer
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: unsigned-macos-agent-arm64
+          path: ${{ runner.temp }}/unsigned-macos-agent/
+          if-no-files-found: error
+          retention-days: 7

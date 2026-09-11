@@ -125,20 +125,26 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
     payload = Jason.encode!(%{subject: subject})
     topic = "#{js_api(domain)}.STREAM.NAMES"
 
-    case Util.request(connection_ref, topic, payload) do
-      {:ok, %{"streams" => streams}} when is_list(streams) ->
-        {:ok, Enum.filter(streams, &is_binary/1)}
-
-      {:ok, %{"error" => error}} ->
-        {:error, error}
-
-      {:ok, other} ->
-        {:error, {:unexpected_stream_names_response, other}}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
+    connection_ref
+    |> Util.request(topic, payload)
+    |> stream_names_reply()
   end
+
+  @doc false
+  # NATS answers a subject no stream owns with `"streams": null`, not `[]`
+  # (JSApiStreamNamesResponse.Streams has no omitempty). That is an EMPTY
+  # result, not a discovery failure: reading it as one sent every stream on a
+  # fresh server through resolve_discovery_error/3, whose case normalization
+  # created TELEMETRY_EDGE_RECORD_V1_BULK as `telemetry_edge_record_v1_bulk`,
+  # so the gateway's Nats-Expected-Stream fence refused every publish.
+  def stream_names_reply({:ok, %{"streams" => nil}}), do: {:ok, []}
+
+  def stream_names_reply({:ok, %{"streams" => streams}}) when is_list(streams),
+    do: {:ok, Enum.filter(streams, &is_binary/1)}
+
+  def stream_names_reply({:ok, %{"error" => error}}), do: {:error, error}
+  def stream_names_reply({:ok, other}), do: {:error, {:unexpected_stream_names_response, other}}
+  def stream_names_reply({:error, reason}), do: {:error, reason}
 
   # A discovery ERROR (not an empty result) falls the resolver back to the
   # requested stream name; on an existing deployment another stream (e.g. the

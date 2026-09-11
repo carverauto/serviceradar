@@ -60,6 +60,17 @@ Findings still require `confirm_slots` consecutive breaching slots.
 Spike findings use the `spike` detector and follow the same episode lifecycle as
 drift: open, optional escalation update, and clear.
 
+Interface counter rates also carry a recent-burst envelope. Once a series has at
+least `burst_envelope_min_samples` (30) of lagged raw history, an upward sample
+no taller than `burst_envelope_multiplier` (1.25) times the
+`burst_envelope_quantile` (0.99) of that history is within what the series has
+recently done and does not breach, however far over the z threshold it lands.
+A recurring bulk transfer therefore opens once and then stays silent, while a
+burst taller than the recent ones still opens; a sustained level change is the
+drift detector's job. The suppression is written into the signal reason of the
+emitted payload. Other classes have no envelope unless
+`burst_envelope_enabled: true` is set for them.
+
 ### Drift
 
 Drift is a sustained level shift detected by CUSUM. CUSUM remains the right tool,
@@ -95,7 +106,11 @@ The bursty sources are explicit opt-ins. Set
 field in **Settings > Anomaly Detection**. A non-empty Settings selection wins
 over the env value; leaving the Settings field empty keeps the env opt-ins
 active. Series the forecaster skips are counted with reasons and summarized on
-the Observability health page.
+the Observability health page. A series whose trend crosses the threshold
+inside the horizon but further out than twice its observed history is recorded
+as `exhaustion_beyond_history_cap` with the projected crossing time in its
+diagnostics, distinct from `no_projected_exhaustion`; the runway table shows
+only the newest forecast per resource from the last 24 hours.
 
 ## Settings Guide
 
@@ -120,6 +135,10 @@ is noisy. Important edge keys include:
 - `drift_confirm_window`, `drift_clear_slots`,
   `drift_adopt_after_samples`, `drift_escalate_after_secs`: drift lifecycle.
 - `spike_adopt_after_samples`: rolling-spike adoption horizon.
+- `burst_envelope_enabled`, `burst_envelope_quantile`,
+  `burst_envelope_multiplier`, `burst_envelope_lag_samples`,
+  `burst_envelope_min_samples`: the recent-burst envelope (on by default for
+  interface counter rates only).
 - `min_std_floor`, `min_cv`: class dispersion floors. Interface counters also
   use a family-specific absolute practical-significance floor.
 - `min_std_floor`, `min_cv`: dispersion floors.
@@ -185,7 +204,13 @@ Episode ingest is on by default; `EVENT_WRITER_ANOMALY_EPISODES` set to
 `false`, `0`, `no`, or `off` is the kill switch that falls back to per-row
 anomaly ingest. Stale close waits at least twice the episode heartbeat
 interval (minimum 30 minutes) before closing a silent episode, so one delayed
-heartbeat cannot close a live episode.
+heartbeat cannot close a live episode. Central seasonal episodes are refreshed
+by the hourly disposition worker rather than an edge heartbeat, so they use
+their own window of at least 150 minutes
+(`SERVICERADAR_CENTRAL_SEASONAL_STALE_AFTER_MINUTES`). Central seasonal
+verdicts carry the evaluation time as their event time and need two
+consecutive breaching hourly buckets by default
+(`SERVICERADAR_SEASONAL_DISPOSITION_CONFIRM_SLOTS`).
 
 ## Seeded Alert Rules
 

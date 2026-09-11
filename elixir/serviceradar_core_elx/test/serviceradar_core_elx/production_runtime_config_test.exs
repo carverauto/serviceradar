@@ -189,6 +189,17 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     assert predictions.stream_max_age == 86_400_000_000_000
   end
 
+  test "prod EventWriter consumes edge records from the stream the gateway publishes to" do
+    edge_record = Enum.find(read_prod_event_writer_streams(), &(&1.name == "EDGE_RECORD"))
+
+    # Without this entry the release never creates the stream, and every gateway
+    # PubAck request on telemetry.edge-record.v1.bulk.pNN times out.
+    assert edge_record, "missing EDGE_RECORD EventWriter stream entry"
+    assert edge_record == EventWriterConfig.edge_record_stream()
+    assert edge_record.stream_name == "TELEMETRY_EDGE_RECORD_V1_BULK"
+    assert edge_record.subject == "telemetry.edge-record.v1.bulk.>"
+  end
+
   test "prod EventWriter Falco consumer targets the provisioned events stream" do
     falco = Enum.find(read_prod_event_writer_streams(), &(&1.name == "FALCO"))
 

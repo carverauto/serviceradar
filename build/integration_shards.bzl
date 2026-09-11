@@ -57,6 +57,14 @@ LARGE_INGESTION_BOOTSTRAP_POOL_SIZE = 2
 LARGE_INGESTION_BOOTSTRAP_ADMIN_CONNECTION_SLOTS = 1
 LARGE_INGESTION_WORKFLOW_CONNECTION_SLOTS = 15
 
+# The clone //integration_tests/edge_record:vertical_slice_test creates for itself at test time
+# (through its data dependency //rust/integration-db:provision_generation_edge_record) and hands
+# to the two Elixir releases it boots. Not an ordinary lane: no Elixir test BEAM runs against it,
+# so it is outside integration_lane_names() and the lane pool budget above. Under the generation
+# lifecycle `sr_core_test_<run>` itself is only the lease id -- every database is a `_<shard>`
+# clone -- which is why this target needs a shard of its own rather than "the run database".
+EDGE_RECORD_DB_SHARD = "edge_record"
+
 FIXED_EXTERNAL_RESOURCE_LANE = "serial_0"
 
 def _safe_pool_budget(usable_client_slots):
