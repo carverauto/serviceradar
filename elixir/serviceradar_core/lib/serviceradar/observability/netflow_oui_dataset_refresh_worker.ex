@@ -13,6 +13,7 @@ defmodule ServiceRadar.Observability.NetflowOuiDatasetRefreshWorker do
 
   import Ecto.Query, only: [from: 2]
 
+  alias ServiceRadar.HTTP.EgressClient
   alias ServiceRadar.Observability.OutboundFeedPolicy
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
@@ -119,7 +120,7 @@ defmodule ServiceRadar.Observability.NetflowOuiDatasetRefreshWorker do
 
     with :ok <- validate_url.(source_url),
          {:ok, %Req.Response{status: 200, body: body, headers: headers}} <-
-           http_get.(source_url, OutboundFeedPolicy.req_opts(timeout_ms)),
+           http_get.(source_url, receive_timeout: timeout_ms),
          true <- is_binary(body) do
       rows = parse_oui_csv_rows(body)
       {:ok, body, rows, header(headers, "etag")}
@@ -139,7 +140,9 @@ defmodule ServiceRadar.Observability.NetflowOuiDatasetRefreshWorker do
       {:error, e}
   end
 
-  defp default_http_get(url, opts), do: Req.get(url, opts)
+  # EgressClient, not the shared Finch pool: the pool cannot tunnel through
+  # SERVICERADAR_EGRESS_PROXY.
+  defp default_http_get(url, opts), do: EgressClient.fetch_body(url, opts)
 
   defp parse_oui_csv_rows(body) when is_binary(body) do
     now = DateTime.truncate(DateTime.utc_now(), :second)

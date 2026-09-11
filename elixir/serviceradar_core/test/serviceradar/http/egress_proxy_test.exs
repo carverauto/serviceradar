@@ -1,5 +1,6 @@
 defmodule ServiceRadar.HTTP.EgressProxyTest do
-  use ExUnit.Case, async: true
+  # Not async: one test sets the :egress_proxy application env.
+  use ExUnit.Case, async: false
 
   alias Req.Request
   alias ServiceRadar.HTTP.EgressProxy
@@ -55,9 +56,9 @@ defmodule ServiceRadar.HTTP.EgressProxyTest do
     end
   end
 
-  describe "finch_pools/1" do
-    test "unset proxy still installs CAStore when it is available" do
-      pools = EgressProxy.finch_pools(nil)
+  describe "finch_pools/0" do
+    test "installs CAStore when it is available" do
+      pools = EgressProxy.finch_pools()
 
       if Code.ensure_loaded?(CAStore) and function_exported?(CAStore, :file_path, 0) do
         assert %{default: [conn_opts: opts]} = pools
@@ -68,18 +69,29 @@ defmodule ServiceRadar.HTTP.EgressProxyTest do
       end
     end
 
-    test "set proxy is a Mint CONNECT tuple" do
-      pools =
-        EgressProxy.finch_pools(%{
-          scheme: :http,
-          host: "smokescreen.egress.svc.cluster.local",
-          port: 4750
-        })
+    # Mint cannot tunnel through a goproxy-style CONNECT reply (see
+    # ServiceRadar.HTTP.EgressClient), so a proxy on the shared pool fails every
+    # request made on it -- and would also send in-cluster targets to a proxy
+    # that denies them. External hosts go through EgressClient instead.
+    test "a configured egress proxy is never installed on the shared pool" do
+      previous = Application.fetch_env(:serviceradar_core, :egress_proxy)
 
-      assert %{default: [conn_opts: opts]} = pools
+      Application.put_env(:serviceradar_core, :egress_proxy, %{
+        scheme: :http,
+        host: "smokescreen.egress.svc.cluster.local",
+        port: 4750
+      })
 
-      assert opts[:proxy] ==
-               {:http, "smokescreen.egress.svc.cluster.local", 4750, []}
+      on_exit(fn ->
+        case previous do
+          {:ok, value} -> Application.put_env(:serviceradar_core, :egress_proxy, value)
+          :error -> Application.delete_env(:serviceradar_core, :egress_proxy)
+        end
+      end)
+
+      conn_opts = get_in(EgressProxy.finch_pools() || %{}, [:default, :conn_opts]) || []
+
+      refute Keyword.has_key?(conn_opts, :proxy)
     end
   end
 
@@ -108,6 +120,43 @@ defmodule ServiceRadar.HTTP.EgressProxyTest do
       assert_raise ArgumentError, ~r/cannot set both :finch and :connect_options/, fn ->
         Request.run_request(request)
       end
+    end
+  end
+
+  # The pool connects directly, so a request on it to a host outside the
+  # deployment bypasses SERVICERADAR_EGRESS_PROXY and is refused wherever a
+  # default-deny NetworkPolicy admits only the proxy. External fetches go through
+  # ServiceRadar.HTTP.EgressClient. A module belongs on this list only if every
+  # host it reaches through the pool is in-cluster or configured by the operator.
+  @pool_users [
+    # Starts the pool.
+    "lib/serviceradar/application.ex",
+    # Explains why it does not use the pool.
+    "lib/serviceradar/http/egress_client.ex",
+    # Defines the pool options.
+    "lib/serviceradar/http/egress_proxy.ex",
+    # req_opts/1, kept for operator-configured targets.
+    "lib/serviceradar/observability/outbound_feed_policy.ex",
+    # Operator-configured NetBox, usually on the LAN.
+    "lib/serviceradar/prefix_tags/netbox_import_worker.ex"
+  ]
+
+  @pool_references ["ServiceRadar.Finch", "EgressProxy.req_opts", "OutboundFeedPolicy.req_opts"]
+
+  describe "shared pool users" do
+    test "only in-cluster and operator-configured clients use the shared pool" do
+      root = Path.expand("../../..", __DIR__)
+
+      users =
+        root
+        |> Path.join("lib/**/*.ex")
+        |> Path.wildcard()
+        |> Enum.filter(&String.contains?(File.read!(&1), @pool_references))
+        |> Enum.map(&Path.relative_to(&1, root))
+
+      # Proves the scan read the tree; an empty scan would pass vacuously.
+      assert "lib/serviceradar/application.ex" in users
+      assert Enum.sort(users -- @pool_users) == []
     end
   end
 end

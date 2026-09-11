@@ -13,7 +13,7 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorker do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.AgentArtifacts
   alias ServiceRadar.Edge.AgentCommandBus
-  alias ServiceRadar.HTTP.EgressProxy
+  alias ServiceRadar.HTTP.EgressClient
   alias ServiceRadar.Inventory.BumblebeeCatalogArtifact
   alias ServiceRadar.Inventory.BumblebeeCatalogEntry
   alias ServiceRadar.Inventory.BumblebeeCatalogParser
@@ -381,56 +381,23 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorker do
     {:error, reason}
   end
 
+  # EgressClient, not the shared Finch pool: the pool cannot tunnel through
+  # SERVICERADAR_EGRESS_PROXY. :max_bytes stops the transfer once it passes the
+  # cap rather than after the whole body has arrived.
   defp download_source(url, timeout_ms, max_catalog_bytes) do
+    opts = [
+      headers: [{"user-agent", "serviceradar"}],
+      receive_timeout: timeout_ms,
+      max_bytes: max_catalog_bytes
+    ]
+
     with :ok <- validate_url(url),
-         {:ok, %Req.Response{status: 200} = response} <-
-           Req.get(
-             [
-               url: url,
-               headers: [{"user-agent", "serviceradar"}],
-               into: bounded_body_collector(max_catalog_bytes)
-             ] ++ EgressProxy.req_opts(timeout_ms)
-           ),
-         {:ok, body} <- response_body(response, max_catalog_bytes) do
+         {:ok, %Req.Response{status: 200, body: body}} <- EgressClient.fetch_body(url, opts) do
       {:ok, body}
     else
       {:ok, %Req.Response{status: status}} -> {:error, {:http_status, status}}
+      {:error, :response_too_large} -> {:error, {:catalog_too_large, max_catalog_bytes}}
       {:error, _reason} = error -> error
-    end
-  end
-
-  defp bounded_body_collector(max_bytes) do
-    fn {:data, data}, {request, response} ->
-      size = get_in(response.private, [:serviceradar_bumblebee_catalog_size]) || 0
-      chunks = get_in(response.private, [:serviceradar_bumblebee_catalog_chunks]) || []
-      size = size + byte_size(data)
-
-      response =
-        response.private[:serviceradar_bumblebee_catalog_size]
-        |> put_in(size)
-        |> put_in([Access.key!(:private), :serviceradar_bumblebee_catalog_chunks], [data | chunks])
-
-      if size > max_bytes do
-        response = put_in(response.private[:serviceradar_bumblebee_catalog_too_large], true)
-        {:halt, {request, response}}
-      else
-        {:cont, {request, response}}
-      end
-    end
-  end
-
-  defp response_body(%Req.Response{} = response, max_bytes) do
-    if get_in(response.private, [:serviceradar_bumblebee_catalog_too_large]) do
-      {:error, {:catalog_too_large, max_bytes}}
-    else
-      chunks = get_in(response.private, [:serviceradar_bumblebee_catalog_chunks]) || []
-      body = chunks |> Enum.reverse() |> IO.iodata_to_binary()
-
-      if byte_size(body) > max_bytes do
-        {:error, {:catalog_too_large, max_bytes}}
-      else
-        {:ok, body}
-      end
     end
   end
 
