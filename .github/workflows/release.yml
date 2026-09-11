@@ -168,7 +168,12 @@ jobs:
           umask 077
           signing_dir="$(mktemp -d "${RUNNER_TEMP}/macos-signing.XXXXXX")"
           signing_keychain="${signing_dir}/release.keychain-db"
-          trap 'security delete-keychain "${signing_keychain}" >/dev/null 2>&1 || true; rm -rf "${signing_dir}"' EXIT
+          original_keychains=()
+          while IFS= read -r line; do
+            line="${line#"${line%%[![:space:]]*}"}"; line="${line%\"}"; line="${line#\"}"
+            [[ -n "${line}" ]] && original_keychains+=("${line}")
+          done < <(security list-keychains -d user)
+          trap 'security list-keychains -d user -s "${original_keychains[@]}" >/dev/null 2>&1 || true; security delete-keychain "${signing_keychain}" >/dev/null 2>&1 || true; rm -rf "${signing_dir}"' EXIT
           keychain_password="$(openssl rand -hex 32)"
           printf '%s' "${MACOS_APPLICATION_CERTIFICATE_P12}" | base64 --decode > "${signing_dir}/application.p12"
           printf '%s' "${MACOS_INSTALLER_CERTIFICATE_P12}" | base64 --decode > "${signing_dir}/installer.p12"
@@ -176,6 +181,10 @@ jobs:
           security create-keychain -p "${keychain_password}" "${signing_keychain}"
           security set-keychain-settings -lut 21600 "${signing_keychain}"
           security unlock-keychain -p "${keychain_password}" "${signing_keychain}"
+          # codesign's --keychain only selects where the identity is looked up; building
+          # and checking the certificate chain still uses the user search list, so the
+          # signing keychain must be on it. The EXIT trap restores the original list.
+          security list-keychains -d user -s "${signing_keychain}" "${original_keychains[@]}"
           security import "${signing_dir}/application.p12" -k "${signing_keychain}" \
             -P "${MACOS_CERTIFICATE_PASSWORD}" -T /usr/bin/codesign
           security import "${signing_dir}/installer.p12" -k "${signing_keychain}" \
