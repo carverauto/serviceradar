@@ -172,6 +172,9 @@ func (f *fakeTools) expand(dir string) error {
 	if f.mutate == "payload-config" {
 		writeTestFile(f.t, filepath.Join(component, "Payload", configPayload), []byte(`{"changed":true}`))
 	}
+	if f.mutate == "payload-srctl" {
+		writeTestFile(f.t, filepath.Join(component, "Payload", srctlPayload), fakeMachO(f.t, macho.CpuArm64, true))
+	}
 	return nil
 }
 
@@ -212,8 +215,9 @@ func fixtures(t *testing.T, mode string) (options, inputs) {
 	if err := os.Mkdir(out, 0700); err != nil {
 		t.Fatal(err)
 	}
-	in := inputs{filepath.Join(source, "agent"), filepath.Join(source, "config"), filepath.Join(source, "plist"), filepath.Join(source, "preinstall"), filepath.Join(source, "postinstall")}
+	in := inputs{filepath.Join(source, "agent"), filepath.Join(source, "config"), filepath.Join(source, "plist"), filepath.Join(source, "preinstall"), filepath.Join(source, "postinstall"), filepath.Join(source, "srctl")}
 	writeTestFile(t, in.Agent, fakeMachO(t, macho.CpuArm64, true))
+	writeTestFile(t, in.Srctl, fakeMachO(t, macho.CpuArm64, false))
 	for _, p := range []string{in.Config, in.Plist, in.Preinstall, in.Postinstall} {
 		writeTestFile(t, p, []byte("synthetic installer input\n"))
 	}
@@ -282,7 +286,15 @@ func TestReleaseExportRequiresCompleteVerification(t *testing.T) {
 	if proof.SourceCommit != opts.SourceCommit || proof.Version != opts.Version || proof.PackageFilename != filepath.Base(out.PackagePath) {
 		t.Fatal("source/version binding mismatch")
 	}
-	want := []string{"serviceradar-agent --version", "codesign --force", "codesign --verify", "codesign --display", "pkgbuild --root", "productbuild --package", "productsign --sign", "pkgutil --check-signature", "xcrun notarytool", "xcrun stapler staple", "xcrun stapler validate", "pkgutil --check-signature", "spctl --assess", "pkgutil --expand-full", "serviceradar-agent --version", "codesign --verify", "codesign --display"}
+	want := []string{
+		"serviceradar-agent --version",
+		"codesign --force", "codesign --verify", "codesign --display", // agent
+		"codesign --force", "codesign --verify", "codesign --display", // srctl
+		"pkgbuild --root", "productbuild --package", "productsign --sign", "pkgutil --check-signature", "xcrun notarytool", "xcrun stapler staple", "xcrun stapler validate", "pkgutil --check-signature", "spctl --assess", "pkgutil --expand-full",
+		"serviceradar-agent --version",
+		"codesign --verify", "codesign --display", // packaged agent
+		"codesign --verify", "codesign --display", // packaged srctl
+	}
 	if !reflect.DeepEqual(tools.calls, want) {
 		t.Fatalf("unexpected verification order: %v", tools.calls)
 	}
@@ -291,7 +303,7 @@ func TestReleaseExportRequiresCompleteVerification(t *testing.T) {
 func TestReleaseFailsClosedWithoutExport(t *testing.T) {
 	cases := []struct{ name, fail, mutate string }{
 		{"codesign fails", "codesign --force", ""}, {"binary verification fails", "codesign --verify", ""}, {"package build fails", "pkgbuild --root", ""}, {"product signing fails", "productsign --sign", ""}, {"notarytool fails", "xcrun notarytool", ""}, {"stapling fails", "xcrun stapler staple", ""}, {"staple validation fails", "xcrun stapler validate", ""}, {"signature validation fails", "pkgutil --check-signature", ""}, {"Gatekeeper fails", "spctl --assess", ""},
-		{"wrong embedded version", "", "version"}, {"wrong app signer", "", "app-identity"}, {"runtime missing", "", "runtime"}, {"ad hoc signature", "", "adhoc"}, {"app timestamp missing", "", "app-timestamp"}, {"untrusted installer", "", "untrusted-status"}, {"wrong installer signer", "", "installer-identity"}, {"installer timestamp missing", "", "installer-timestamp"}, {"notary rejected", "", "notary-invalid"}, {"notary malformed", "", "notary-json"}, {"Gatekeeper rejected", "", "gatekeeper"}, {"package metadata wrong", "", "package-version"}, {"payload changed", "", "payload-config"},
+		{"wrong embedded version", "", "version"}, {"wrong app signer", "", "app-identity"}, {"runtime missing", "", "runtime"}, {"ad hoc signature", "", "adhoc"}, {"app timestamp missing", "", "app-timestamp"}, {"untrusted installer", "", "untrusted-status"}, {"wrong installer signer", "", "installer-identity"}, {"installer timestamp missing", "", "installer-timestamp"}, {"notary rejected", "", "notary-invalid"}, {"notary malformed", "", "notary-json"}, {"Gatekeeper rejected", "", "gatekeeper"}, {"package metadata wrong", "", "package-version"}, {"payload changed", "", "payload-config"}, {"packaged srctl changed", "", "payload-srctl"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -533,5 +545,44 @@ func TestSigningFailureReasonUsesAFixedVocabulary(t *testing.T) {
 				t.Fatalf("reason %q carries platform output", got)
 			}
 		})
+	}
+}
+
+func TestPackageShipsSigningCheckedSrctl(t *testing.T) {
+	opts, in := fixtures(t, modeRelease)
+	tools := &fakeTools{t: t}
+	out, err := (builder{runner: tools}).build(t.Context(), opts, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var proof provenance
+	data, err := os.ReadFile(out.ProvenancePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = json.Unmarshal(data, &proof); err != nil {
+		t.Fatal(err)
+	}
+	if !proof.CLISigning.Verified || !proof.CLISigning.HardenedRuntime || proof.CLIBinarySHA256 == "" {
+		t.Fatalf("srctl was not signed and recorded: %+v", proof.CLISigning)
+	}
+	// verifyPayload already requires the packaged srctl to match the signed one;
+	// here, both executables must have been signed.
+	signed := 0
+	for _, call := range tools.calls {
+		if call == "codesign --force" {
+			signed++
+		}
+	}
+	if signed != 2 {
+		t.Fatalf("codesign --force ran %d times, want 2 (agent and srctl)", signed)
+	}
+}
+
+func TestSrctlMustBeADarwinARM64Executable(t *testing.T) {
+	opts, in := fixtures(t, modeUnsigned)
+	writeTestFile(t, in.Srctl, fakeMachO(t, macho.CpuAmd64, false))
+	if _, err := (builder{runner: &fakeTools{t: t}}).build(t.Context(), opts, in); err == nil {
+		t.Fatal("an x86-64 srctl was packaged")
 	}
 }

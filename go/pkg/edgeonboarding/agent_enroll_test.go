@@ -471,3 +471,17 @@ func signedCollectorToken(t *testing.T, baseURL, packageID, secret string) strin
 		onboardingTokenSignatureSep +
 		base64.RawURLEncoding.EncodeToString(signature)
 }
+
+func TestAgentRestartCommandMatchesEachInstaller(t *testing.T) {
+	cases := map[string][]string{
+		"linux":   {"systemctl", "restart", "serviceradar-agent"},
+		"darwin":  {"launchctl", "kickstart", "-k", "system/com.serviceradar.agent"},
+		"windows": nil,
+	}
+	for goos, want := range cases {
+		got := agentRestartCommand(goos)
+		if strings.Join(got, " ") != strings.Join(want, " ") {
+			t.Errorf("agentRestartCommand(%q) = %q, want %q", goos, got, want)
+		}
+	}
+}

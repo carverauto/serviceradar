@@ -28,8 +28,11 @@ const (
 	modeRelease   = "release"
 	packageID     = "com.serviceradar.agent"
 	agentPayload  = "usr/local/libexec/serviceradar/serviceradar-agent"
-	configPayload = "usr/local/etc/serviceradar/agent.json"
+	configPayload = "private/etc/serviceradar/agent.json"
 	plistPayload  = "Library/LaunchDaemons/com.serviceradar.agent.plist"
+	// srctl enrolls the agent (`srctl enroll`); the enrollment command the UI
+	// shows names this path on every platform.
+	srctlPayload = "usr/local/bin/srctl"
 )
 
 type options struct {
@@ -37,7 +40,7 @@ type options struct {
 	Keychain, NotaryProfile, AppIdentity, InstallerIdentity string
 }
 
-type inputs struct{ Agent, Config, Plist, Preinstall, Postinstall string }
+type inputs struct{ Agent, Config, Plist, Preinstall, Postinstall, Srctl string }
 type output struct{ PackagePath, ProvenancePath string }
 type commandRunner interface {
 	run(context.Context, string, ...string) ([]byte, error)
@@ -223,14 +226,27 @@ func (b builder) build(ctx context.Context, opts options, in inputs) (output, er
 	if err := verifyAgent(ctx, b.runner, agent, opts.Version); err != nil {
 		return output{}, err
 	}
+	srctl := filepath.Join(root, srctlPayload)
+	if err := verifyCLI(srctl); err != nil {
+		return output{}, err
+	}
 	proof := provenance{SchemaVersion: 1, Product: "serviceradar-agent", Version: opts.Version, SourceCommit: opts.SourceCommit, OS: "darwin", Arch: "arm64", Mode: opts.Mode, PackageFilename: filepath.Base(out.PackagePath)}
 	if opts.Mode == modeRelease {
 		proof.ApplicationSigning, err = b.signAgent(ctx, opts, agent)
 		if err != nil {
 			return output{}, err
 		}
+		// Notarization rejects any unsigned executable in the package.
+		proof.CLISigning, err = b.signAgent(ctx, opts, srctl)
+		if err != nil {
+			return output{}, err
+		}
 	}
 	proof.BinarySHA256, err = fileSHA256(agent)
+	if err != nil {
+		return output{}, err
+	}
+	proof.CLIBinarySHA256, err = fileSHA256(srctl)
 	if err != nil {
 		return output{}, err
 	}
@@ -244,7 +260,7 @@ func (b builder) build(ctx context.Context, opts options, in inputs) (output, er
 			return output{}, err
 		}
 	}
-	if err := b.verifyPayload(ctx, pkg, work, in, opts, proof.BinarySHA256); err != nil {
+	if err := b.verifyPayload(ctx, pkg, work, in, opts, proof.BinarySHA256, proof.CLIBinarySHA256); err != nil {
 		return output{}, err
 	}
 	proof.PackageSHA256, err = fileSHA256(pkg)
@@ -265,6 +281,7 @@ func stage(root, scripts string, in inputs) error {
 		{in.Agent, filepath.Join(root, agentPayload), 0755},
 		{in.Config, filepath.Join(root, configPayload), 0644},
 		{in.Plist, filepath.Join(root, plistPayload), 0644},
+		{in.Srctl, filepath.Join(root, srctlPayload), 0755},
 		{in.Preinstall, filepath.Join(scripts, "preinstall"), 0755},
 		{in.Postinstall, filepath.Join(scripts, "postinstall"), 0755},
 	}
@@ -350,7 +367,7 @@ func (b builder) unsignedPackage(ctx context.Context, work, root, scripts, versi
 	return pkg, err
 }
 
-func (b builder) verifyPayload(ctx context.Context, pkg, work string, in inputs, opts options, binarySHA string) error {
+func (b builder) verifyPayload(ctx context.Context, pkg, work string, in inputs, opts options, binarySHA, cliSHA string) error {
 	expanded := filepath.Join(work, "expanded")
 	if _, err := b.runner.run(ctx, "/usr/sbin/pkgutil", "--expand-full", pkg, expanded); err != nil {
 		return err
@@ -383,6 +400,17 @@ func (b builder) verifyPayload(ctx context.Context, pkg, work string, in inputs,
 	if actualSHA != binarySHA {
 		return fmt.Errorf("%w: packaged binary differs from the verified binary", errInvalidPackage)
 	}
+	srctl := filepath.Join(payload, srctlPayload)
+	if err := verifyCLI(srctl); err != nil {
+		return err
+	}
+	actualCLISHA, err := fileSHA256(srctl)
+	if err != nil {
+		return err
+	}
+	if actualCLISHA != cliSHA {
+		return fmt.Errorf("%w: packaged srctl differs from the verified srctl", errInvalidPackage)
+	}
 	for _, f := range []struct{ original, packaged string }{
 		{in.Config, filepath.Join(payload, configPayload)}, {in.Plist, filepath.Join(payload, plistPayload)},
 		{in.Preinstall, filepath.Join(component, "Scripts/preinstall")}, {in.Postinstall, filepath.Join(component, "Scripts/postinstall")},
@@ -400,9 +428,26 @@ func (b builder) verifyPayload(ctx context.Context, pkg, work string, in inputs,
 		}
 	}
 	if opts.Mode == modeRelease {
-		_, err = b.verifyAgentSignature(ctx, agent, opts.AppIdentity)
+		if _, err = b.verifyAgentSignature(ctx, agent, opts.AppIdentity); err != nil {
+			return err
+		}
+		_, err = b.verifyAgentSignature(ctx, srctl, opts.AppIdentity)
 	}
 	return err
+}
+
+// verifyCLI checks that srctl is a Darwin ARM64 executable. It is not run:
+// with no subcommand it reads a password to hash.
+func verifyCLI(path string) error {
+	m, err := macho.Open(path)
+	if err != nil {
+		return fmt.Errorf("srctl is not a Mach-O executable: %w", err)
+	}
+	defer func() { _ = m.Close() }()
+	if m.Cpu != macho.CpuArm64 || m.Type != macho.TypeExec {
+		return fmt.Errorf("%w: srctl must be a Darwin ARM64 executable", errInvalidPackage)
+	}
+	return nil
 }
 
 func fileSHA256(path string) (string, error) {

@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -747,18 +748,40 @@ func lookupUserIDs(name string) (int, int, bool, error) {
 	return 0, 0, false, nil
 }
 
+// agentRestartCommand is the command that restarts the installed agent service
+// on goos: the systemd unit on Linux, the launchd job the macOS installer loads.
+// It returns nil where no service manager is known.
+func agentRestartCommand(goos string) []string {
+	switch goos {
+	case "linux":
+		return []string{"systemctl", "restart", "serviceradar-agent"}
+	case "darwin":
+		return []string{"launchctl", "kickstart", "-k", "system/com.serviceradar.agent"}
+	default:
+		return nil
+	}
+}
+
 func restartAgentService(ctx context.Context, logf func(string, ...interface{})) error {
-	if _, err := exec.LookPath("systemctl"); err != nil {
+	argv := agentRestartCommand(runtime.GOOS)
+	if argv == nil {
 		if logf != nil {
-			logf("systemctl not found; skipping agent restart")
+			logf("No known service manager on %s; restart serviceradar-agent to apply the new config", runtime.GOOS)
 		}
 		return nil
 	}
 
-	cmd := exec.CommandContext(ctx, "systemctl", "restart", "serviceradar-agent")
+	if _, err := exec.LookPath(argv[0]); err != nil {
+		if logf != nil {
+			logf("%s not found; skipping agent restart", argv[0])
+		}
+		return nil
+	}
+
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("restart serviceradar-agent: %w: %s", err, strings.TrimSpace(string(output)))
+		return fmt.Errorf("restart serviceradar-agent (%s): %w: %s", strings.Join(argv, " "), err, strings.TrimSpace(string(output)))
 	}
 
 	if logf != nil {

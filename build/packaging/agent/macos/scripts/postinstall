@@ -22,8 +22,9 @@ LOG_DIR="/var/log/serviceradar"
 PLIST="/Library/LaunchDaemons/com.serviceradar.agent.plist"
 SERVICE_LABEL="com.serviceradar.agent"
 SERVICE_TARGET="system/${SERVICE_LABEL}"
-CONFIG="/usr/local/etc/serviceradar/agent.json"
-CONFIG_BACKUP="/usr/local/etc/serviceradar/.agent.json.pre-upgrade"
+# Same path as Linux, the srctl enroll default, and the launchd ProgramArguments.
+CONFIG="/etc/serviceradar/agent.json"
+CONFIG_BACKUP="/etc/serviceradar/.agent.json.pre-upgrade"
 
 log() {
     echo "[postinstall] $*"

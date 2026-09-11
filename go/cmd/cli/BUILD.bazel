@@ -13,3 +13,14 @@ go_binary(
     embed = [":cli_lib"],
     visibility = ["//visibility:public"],
 )
+
+# srctl for the macOS agent installer. Pure Go, so it cross-compiles on the Linux
+# executors; the installer signs it with the agent's Developer ID.
+go_binary(
+    name = "srctl_darwin_arm64",
+    embed = [":cli_lib"],
+    goarch = "arm64",
+    goos = "darwin",
+    pure = "on",
+    visibility = ["//visibility:public"],
+)
