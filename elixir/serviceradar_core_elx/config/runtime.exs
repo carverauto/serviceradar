@@ -1314,6 +1314,9 @@ if config_env() == :prod do
         # design D9); definition shared with Config.default_streams/0 so the
         # retention stanza cannot drift.
         Config.analytics_predictions_stream(),
+        # Durable edge records the agent gateway publishes with PubAck; shared
+        # with Config.default_streams/0.
+        Config.edge_record_stream(),
         %{
           name: "ATTRIBUTED_FLOW",
           stream_name: "events",
