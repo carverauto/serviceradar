@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   alias Phoenix.LiveView.JS
   alias ServiceRadar.Events.PubSub, as: EventsPubSub
+  alias ServiceRadar.HTTP.EgressClient
   alias ServiceRadar.Integrations.MapboxSettings
   alias ServiceRadar.Observability.AlertPubSub
   alias ServiceRadar.Observability.EventTitle
@@ -5817,7 +5818,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp fetch_arin_asn(asn) when is_integer(asn) and asn > 0 do
     url = "https://whois.arin.net/rest/asn/AS#{asn}.json"
 
-    case Req.get(url, arin_http_req_opts()) do
+    case arin_http_get(url) do
       {:ok, %Req.Response{status: 200, body: %{"asn" => %{} = asn_payload}}} ->
         {:ok, normalize_arin_asn(asn_payload)}
 
@@ -5836,13 +5837,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp fetch_arin_asn(_), do: {:error, :invalid_asn}
 
-  defp arin_http_req_opts do
-    opts = [receive_timeout: 8_000, retry: false, headers: [{"accept", "application/json"}]]
+  # EgressClient, not the shared Finch pool: the pool cannot tunnel through
+  # SERVICERADAR_EGRESS_PROXY. Decodes a 200 body; other statuses pass through.
+  defp arin_http_get(url) do
+    opts = [receive_timeout: 8_000, headers: [{"accept", "application/json"}]]
 
-    if Process.whereis(ServiceRadar.Finch) do
-      Keyword.put(opts, :finch, ServiceRadar.Finch)
-    else
-      opts
+    with {:ok, %Req.Response{status: 200, body: body} = response} <-
+           EgressClient.fetch_body(url, opts),
+         {:ok, decoded} <- Jason.decode(body) do
+      {:ok, %{response | body: decoded}}
     end
   end
 

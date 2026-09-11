@@ -18,6 +18,8 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
 
   alias ServiceRadar.HTTP.EgressClient
   alias ServiceRadar.Inventory.AdvisoryFeeds.Acquisition
+  alias ServiceRadar.Observability.GeoLiteMmdbDownloadWorker
+  alias ServiceRadar.Observability.IpinfoMmdbDownloadWorker
 
   @goproxy_connect_reply "HTTP/1.0 200 OK\r\n\r\n"
   @body "synthetic-release-artifact"
@@ -115,6 +117,78 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
              EgressClient.get("https://localhost/redirect", opts(ctx, []))
 
     assert Req.Response.get_header(response, "location") == ["https://localhost/artifact.tar.gz"]
+  end
+
+  @tag :tmp_dir
+  test "downloads to a file through the tunnel, following a redirect", ctx do
+    dest = Path.join(ctx.tmp_dir, "GeoLite2-ASN.mmdb")
+
+    assert {:ok, ^dest} =
+             EgressClient.download_to_file("https://localhost/redirect", dest, opts(ctx, []))
+
+    assert File.read!(dest) == @body
+    refute File.exists?(dest <> ".tmp")
+  end
+
+  @tag :tmp_dir
+  test "a failed download leaves neither the file nor its temporary", ctx do
+    dest = Path.join(ctx.tmp_dir, "GeoLite2-ASN.mmdb")
+
+    assert {:error, {:http_status, 404}} =
+             EgressClient.download_to_file("https://localhost/missing", dest, opts(ctx, []))
+
+    refute File.exists?(dest)
+    refute File.exists?(dest <> ".tmp")
+  end
+
+  test "fetches a whole body through the tunnel, following a redirect", ctx do
+    assert {:ok, %Req.Response{status: 200, body: @body}} =
+             EgressClient.fetch_body("https://localhost/redirect", opts(ctx, []))
+  end
+
+  test "returns a non-2xx status with its body for the caller to judge", ctx do
+    assert {:ok, %Req.Response{status: 404, body: "not found"}} =
+             EgressClient.fetch_body("https://localhost/missing", opts(ctx, []))
+  end
+
+  test "stops following redirects after :max_redirects", ctx do
+    assert {:error, :too_many_redirects} =
+             EgressClient.fetch_body("https://localhost/loop", opts(ctx, max_redirects: 3))
+  end
+
+  # The MMDB downloads failed on every proxied deployment: they rode the shared
+  # Finch pool, which could not tunnel through this proxy.
+  @tag :tmp_dir
+  test "downloads a GeoLite database through the tunnel", ctx do
+    dest = Path.join(ctx.tmp_dir, "GeoLite2-ASN.mmdb")
+
+    assert {:ok, ^dest} =
+             GeoLiteMmdbDownloadWorker.download_file(
+               "https://localhost/redirect",
+               dest,
+               opts(ctx, [])
+             )
+
+    assert File.read!(dest) == @body
+  end
+
+  @tag :tmp_dir
+  test "downloads the ipinfo database through the tunnel", ctx do
+    dest = Path.join(ctx.tmp_dir, "ipinfo_lite.mmdb")
+
+    assert {:ok, ^dest} =
+             IpinfoMmdbDownloadWorker.download_file(
+               "https://localhost/redirect",
+               dest,
+               opts(ctx, [])
+             )
+
+    assert File.read!(dest) == @body
+  end
+
+  test "refuses a redirect off HTTPS", ctx do
+    assert {:error, {:insecure_redirect, "http://localhost/artifact.tar.gz"}} =
+             EgressClient.fetch_body("https://localhost/insecure-redirect", opts(ctx, []))
   end
 
   test "mirrors a release through the CONNECT tunnel with verified artifact bytes", ctx do
@@ -338,13 +412,30 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
   end
 
   defp origin_response(request) do
-    if String.contains?(request, "/redirect") do
-      "HTTP/1.1 302 Found\r\nlocation: https://localhost/artifact.tar.gz\r\n" <>
-        "content-length: 0\r\nconnection: close\r\n\r\n"
-    else
-      "HTTP/1.1 200 OK\r\ncontent-type: application/octet-stream\r\n" <>
-        "content-length: #{byte_size(@body)}\r\nconnection: close\r\n\r\n" <> @body
+    cond do
+      # Before "/redirect", which it contains.
+      String.contains?(request, "/insecure-redirect") ->
+        redirect_response("http://localhost/artifact.tar.gz")
+
+      String.contains?(request, "/redirect") ->
+        redirect_response("https://localhost/artifact.tar.gz")
+
+      String.contains?(request, "/loop") ->
+        redirect_response("https://localhost/loop")
+
+      String.contains?(request, "/missing") ->
+        "HTTP/1.1 404 Not Found\r\ncontent-type: text/plain\r\n" <>
+          "content-length: 9\r\nconnection: close\r\n\r\nnot found"
+
+      true ->
+        "HTTP/1.1 200 OK\r\ncontent-type: application/octet-stream\r\n" <>
+          "content-length: #{byte_size(@body)}\r\nconnection: close\r\n\r\n" <> @body
     end
+  end
+
+  defp redirect_response(location) do
+    "HTTP/1.1 302 Found\r\nlocation: #{location}\r\n" <>
+      "content-length: 0\r\nconnection: close\r\n\r\n"
   end
 
   # An HTTP CONNECT proxy shaped like elazarl/goproxy: it answers with an

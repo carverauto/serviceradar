@@ -13,6 +13,7 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
 
   import Ecto.Query, only: [from: 2]
 
+  alias ServiceRadar.HTTP.EgressClient
   alias ServiceRadar.Observability.OutboundFeedPolicy
   alias ServiceRadar.PrefixTags.ProviderSource
   alias ServiceRadar.Repo
@@ -136,7 +137,7 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
 
     with :ok <- validate_url.(source_url),
          {:ok, %Req.Response{status: 200, body: body, headers: headers}} <-
-           http_get.(source_url, OutboundFeedPolicy.req_opts(timeout_ms)),
+           http_get.(source_url, receive_timeout: timeout_ms),
          {:ok, list} <- parse_provider_payload(body),
          rows when is_list(rows) <- normalize_provider_rows(list) do
       payload = if is_binary(body), do: body, else: Jason.encode!(body)
@@ -160,7 +161,9 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
       {:error, e}
   end
 
-  defp default_http_get(url, opts), do: Req.get(url, opts)
+  # EgressClient, not the shared Finch pool: the pool cannot tunnel through
+  # SERVICERADAR_EGRESS_PROXY.
+  defp default_http_get(url, opts), do: EgressClient.fetch_body(url, opts)
 
   defp parse_provider_payload(body) when is_binary(body), do: Jason.decode(body)
   defp parse_provider_payload(body) when is_list(body), do: {:ok, body}

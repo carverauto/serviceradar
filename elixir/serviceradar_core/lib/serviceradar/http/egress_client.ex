@@ -2,6 +2,12 @@ defmodule ServiceRadar.HTTP.EgressClient do
   @moduledoc """
   HTTPS GET for hosts outside the deployment, over `SERVICERADAR_EGRESS_PROXY`.
 
+  Every fetch of an external host belongs here -- `download_to_file/3` for
+  artifacts and databases, `fetch_body/2` for API and dataset responses. The
+  shared `ServiceRadar.Finch` pool connects directly and never uses the proxy,
+  so a request on it to an external host bypasses the egress allowlist and is
+  refused wherever a default-deny NetworkPolicy admits only the proxy.
+
   Uses OTP's `:httpc` instead of `Req` + `ServiceRadar.Finch`, because Mint --
   Finch's transport -- cannot tunnel through the CONNECT proxy this deployment
   runs behind.
@@ -42,6 +48,8 @@ defmodule ServiceRadar.HTTP.EgressClient do
   @default_timeout 30_000
   @tls_versions [:"tlsv1.3", :"tlsv1.2"]
   @depth 4
+  @default_max_redirects 5
+  @redirect_statuses [301, 302, 303, 307, 308]
 
   @type option ::
           {:headers, [{binary(), binary()}]}
@@ -53,6 +61,7 @@ defmodule ServiceRadar.HTTP.EgressClient do
           | {:profile, atom()}
           | {:cacerts, [binary()]}
           | {:cacertfile, String.t()}
+          | {:max_redirects, non_neg_integer()}
 
   @doc """
   Fetches `url` with GET.
@@ -76,7 +85,9 @@ defmodule ServiceRadar.HTTP.EgressClient do
   interface is intended for full artifact downloads without Range requests.
 
   Options that exist only for `Req` call-site parity (`:decode_body`,
-  `:redirect`, `:max_redirects`, `:finch`, `:retry`) are accepted and ignored.
+  `:redirect`, `:max_redirects`, `:finch`, `:retry`) are accepted and ignored
+  here. `download_to_file/3` and `fetch_body/2` follow redirects and honor
+  `:max_redirects`.
   """
   @spec get(String.t(), [option()]) :: {:ok, Req.Response.t()} | {:error, term()}
   def get(url, opts \\ []) when is_binary(url) do
@@ -87,6 +98,136 @@ defmodule ServiceRadar.HTTP.EgressClient do
     with {:ok, profile} <- ensure_profile(profile),
          :ok <- configure_proxy(profile, opts) do
       request(url, opts, profile)
+    end
+  end
+
+  @doc """
+  Streams `url` into `dest_path`, following redirects.
+
+  The body lands in `dest_path <> ".tmp"` and is renamed into place only after a
+  complete 200, so a failed or partial transfer never replaces a good file and
+  leaves no temporary behind. A final status other than 200 is
+  `{:error, {:http_status, status}}`.
+
+  Takes the options of `get/2` except `:into`, plus `:max_redirects` (default
+  #{@default_max_redirects}). Only HTTPS redirect targets are followed.
+  """
+  @spec download_to_file(String.t(), Path.t(), [option()]) :: {:ok, Path.t()} | {:error, term()}
+  def download_to_file(url, dest_path, opts \\ []) when is_binary(url) and is_binary(dest_path) do
+    tmp = dest_path <> ".tmp"
+    _ = File.rm(tmp)
+
+    result =
+      case File.open(tmp, [:write, :binary], fn file ->
+             get_following(url, Keyword.put(opts, :into, write_into(file)))
+           end) do
+        {:ok, result} -> result
+        {:error, _} = error -> error
+      end
+
+    case result do
+      {:ok, %Req.Response{status: 200}} ->
+        promote(tmp, dest_path)
+
+      {:ok, %Req.Response{status: status}} ->
+        _ = File.rm(tmp)
+        {:error, {:http_status, status}}
+
+      {:error, _} = error ->
+        _ = File.rm(tmp)
+        error
+    end
+  end
+
+  @doc """
+  GETs `url` and returns the whole body in the response, following redirects.
+
+  For API and dataset responses small enough to hold in memory; pass
+  `:max_bytes` to bound them. The response comes back whatever its status, as
+  with `Req.get/2`: judging a non-2xx is the caller's business. The body is the
+  raw binary; nothing is decoded.
+
+  Takes the options of `get/2` except `:into`, plus `:max_redirects` (default
+  #{@default_max_redirects}). Only HTTPS redirect targets are followed.
+  """
+  @spec fetch_body(String.t(), [option()]) :: {:ok, Req.Response.t()} | {:error, term()}
+  def fetch_body(url, opts \\ []) when is_binary(url) do
+    ref = make_ref()
+    parent = self()
+
+    into = fn {:data, chunk}, acc ->
+      send(parent, {ref, chunk})
+      {:cont, acc}
+    end
+
+    result = get_following(url, Keyword.put(opts, :into, into))
+    streamed = drain_chunks(ref, [])
+
+    case result do
+      # Only 200/206 bodies stream; any other status arrives with its body.
+      {:ok, %Req.Response{body: ""} = response} -> {:ok, %{response | body: streamed}}
+      other -> other
+    end
+  end
+
+  defp write_into(file) do
+    fn {:data, chunk}, acc ->
+      case IO.binwrite(file, chunk) do
+        :ok -> {:cont, acc}
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  defp promote(tmp, dest_path) do
+    case File.rename(tmp, dest_path) do
+      :ok ->
+        {:ok, dest_path}
+
+      {:error, _} = error ->
+        _ = File.rm(tmp)
+        error
+    end
+  end
+
+  defp drain_chunks(ref, acc) do
+    receive do
+      {^ref, chunk} -> drain_chunks(ref, [acc | chunk])
+    after
+      0 -> IO.iodata_to_binary(acc)
+    end
+  end
+
+  defp get_following(url, opts) do
+    get_following(url, opts, Keyword.get(opts, :max_redirects, @default_max_redirects))
+  end
+
+  defp get_following(url, opts, redirects_left) do
+    case get(url, opts) do
+      {:ok, %Req.Response{status: status} = response} when status in @redirect_statuses ->
+        with :ok <- ensure_redirects_left(redirects_left),
+             {:ok, next_url} <- redirect_target(url, response) do
+          get_following(next_url, opts, redirects_left - 1)
+        end
+
+      other ->
+        other
+    end
+  end
+
+  defp ensure_redirects_left(left) when left > 0, do: :ok
+  defp ensure_redirects_left(_left), do: {:error, :too_many_redirects}
+
+  defp redirect_target(current_url, response) do
+    case Req.Response.get_header(response, "location") do
+      [location | _] ->
+        case URI.merge(current_url, location) do
+          %URI{scheme: "https"} = uri -> {:ok, URI.to_string(uri)}
+          uri -> {:error, {:insecure_redirect, URI.to_string(uri)}}
+        end
+
+      [] ->
+        {:error, :redirect_without_location}
     end
   end
 

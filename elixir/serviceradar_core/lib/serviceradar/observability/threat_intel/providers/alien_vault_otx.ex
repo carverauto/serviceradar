@@ -9,6 +9,7 @@ defmodule ServiceRadar.Observability.ThreatIntel.Providers.AlienVaultOTX do
 
   @behaviour ServiceRadar.Observability.ThreatIntel.Provider
 
+  alias ServiceRadar.HTTP.EgressClient
   alias ServiceRadar.Observability.OutboundFeedPolicy
   alias ServiceRadar.Observability.ThreatIntel.Page
 
@@ -91,7 +92,7 @@ defmodule ServiceRadar.Observability.ThreatIntel.Providers.AlienVaultOTX do
            config
            |> int_value([:backoff_ms, "backoff_ms"], @default_backoff_ms)
            |> max(0),
-         http_get: Map.get(config, :http_get, &Req.get/2),
+         http_get: Map.get(config, :http_get, &EgressClient.fetch_body/2),
          sleep_fun: Map.get(config, :sleep_fun, &Process.sleep/1),
          validate_url?: Map.get(config, :validate_url?, Map.get(config, "validate_url?", true))
        }}
@@ -104,8 +105,6 @@ defmodule ServiceRadar.Observability.ThreatIntel.Providers.AlienVaultOTX do
   defp request_with_retries(url, cfg) do
     opts = [
       receive_timeout: cfg.timeout_ms,
-      retry: false,
-      finch: [name: ServiceRadar.Finch],
       headers: [
         {"accept", "application/json"},
         {"x-otx-api-key", cfg.api_key}

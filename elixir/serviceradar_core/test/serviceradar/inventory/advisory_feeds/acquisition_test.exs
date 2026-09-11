@@ -317,15 +317,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.AcquisitionTest do
   end
 
   describe "default HTTP client" do
-    test "req_opts uses the named Finch pool without connect_options" do
-      opts = Acquisition.req_opts(30_000)
-      assert Keyword.get(opts, :finch) == [name: ServiceRadar.Finch]
-      assert Keyword.get(opts, :receive_timeout) == 30_000
-      refute Keyword.has_key?(opts, :connect_options)
-    end
-
     @tag :requires_app
-    test "streams a successful response through the shared Finch pool" do
+    test "streams a successful response through the default egress client" do
       body = ~s({"vulnerabilities":[]})
       {url, response_ref, stop} = start_http_server(body)
 

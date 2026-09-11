@@ -505,31 +505,26 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Acquisition do
     end
   end
 
-  @doc false
-  def req_opts(timeout_ms \\ @default_timeout_ms) do
-    # Req 0.6 refuses :finch and :connect_options together. The named
-    # ServiceRadar.Finch pool already owns connect/TLS settings.
-    [
-      receive_timeout: timeout_ms,
-      retry: :transient,
-      finch: [name: ServiceRadar.Finch]
+  # EgressClient, not the shared Finch pool: the pool cannot tunnel through
+  # SERVICERADAR_EGRESS_PROXY. No per-request retry: a failed lookup fails this
+  # acquisition, like any other download failure here.
+  defp default_get_json(url, headers) do
+    opts = [
+      headers: [{"user-agent", @user_agent} | headers],
+      receive_timeout: @default_timeout_ms
     ]
+
+    case EgressClient.fetch_body(url, opts) do
+      {:ok, %Req.Response{status: 200, body: body}} -> decode_json_object(body)
+      {:ok, %Req.Response{status: status}} -> {:error, {:http_status, status}}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
-  defp default_get_json(url, headers) do
-    require_req!()
-
-    opts =
-      [
-        url: url,
-        headers: [{"user-agent", @user_agent} | headers],
-        decode_body: :json,
-        max_retries: 3
-      ] ++ req_opts()
-
-    case Req.get(opts) do
-      {:ok, %{status: 200, body: body}} when is_map(body) -> {:ok, body}
-      {:ok, %{status: status}} -> {:error, {:http_status, status}}
+  defp decode_json_object(body) do
+    case Jason.decode(body) do
+      {:ok, %{} = decoded} -> {:ok, decoded}
+      {:ok, _other} -> {:error, :unexpected_json}
       {:error, reason} -> {:error, reason}
     end
   end
@@ -552,12 +547,6 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Acquisition do
          end) do
       {:ok, result} -> result
       {:error, _} = error -> error
-    end
-  end
-
-  defp require_req! do
-    if !Code.ensure_loaded?(Req) do
-      raise "Req not available for advisory feed download"
     end
   end
 end

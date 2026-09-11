@@ -16,6 +16,7 @@ defmodule ServiceRadar.Observability.IpinfoMmdbDownloadWorker do
   import Ecto.Query, only: [from: 2]
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.HTTP.EgressClient
   alias ServiceRadar.Jobs.SelfScheduling
   alias ServiceRadar.Observability.GeoIP
   alias ServiceRadar.Observability.NetflowSettings
@@ -93,7 +94,7 @@ defmodule ServiceRadar.Observability.IpinfoMmdbDownloadWorker do
       else
         case File.mkdir_p(dir) do
           :ok ->
-            case download_file(build_url(token), dest, timeout_ms) do
+            case download_file(build_url(token), dest, receive_timeout: timeout_ms) do
               {:ok, _} ->
                 _ = GeoIP.reload()
                 :ok
@@ -171,7 +172,7 @@ defmodule ServiceRadar.Observability.IpinfoMmdbDownloadWorker do
       :ok ->
         url = build_url(token)
 
-        case download_file(url, dest, timeout_ms) do
+        case download_file(url, dest, receive_timeout: timeout_ms) do
           {:ok, _} ->
             _ = GeoIP.reload()
             schedule_next(reschedule_seconds)
@@ -243,26 +244,20 @@ defmodule ServiceRadar.Observability.IpinfoMmdbDownloadWorker do
     "https://ipinfo.io/data/ipinfo_lite.mmdb?token=" <> URI.encode(token)
   end
 
-  defp download_file(url, dest_path, timeout_ms) when is_binary(url) and is_binary(dest_path) do
-    tmp = dest_path <> ".tmp"
-    File.rm(tmp)
+  # Public so the CONNECT-proxy regression test can drive it; see
+  # test/serviceradar/http/egress_client_test.exs. Takes EgressClient options.
+  @doc false
+  def download_file(url, dest_path, opts) when is_binary(url) and is_binary(dest_path) do
+    # EgressClient, not the shared Finch pool: the pool cannot tunnel through
+    # SERVICERADAR_EGRESS_PROXY. Callers log failures without the URL, which
+    # carries the ipinfo token.
+    case EgressClient.download_to_file(url, dest_path, opts) do
+      {:ok, _} = ok ->
+        Logger.info("Ipinfo MMDB updated", file: dest_path)
+        ok
 
-    req_opts = [
-      receive_timeout: timeout_ms,
-      retry: false,
-      finch: [name: ServiceRadar.Finch]
-    ]
-
-    try do
-      _resp = Req.get!(url, req_opts ++ [into: File.stream!(tmp)])
-
-      File.rename!(tmp, dest_path)
-      Logger.info("Ipinfo MMDB updated", file: dest_path)
-      {:ok, dest_path}
-    rescue
-      e ->
-        File.rm(tmp)
-        {:error, e}
+      {:error, _} = error ->
+        error
     end
   end
 
