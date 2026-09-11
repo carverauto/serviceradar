@@ -43,6 +43,8 @@ go_library(
         "gateway_artifact_download.go",
         "icmp_checker.go",
         "k8s_public_endpoints_spool_service.go",
+        "self_terminate_unix.go",
+        "self_terminate_windows.go",
         "interfaces.go",
         "ipv4_sorter.go",
         "json_helpers.go",
