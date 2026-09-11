@@ -1,3 +1,53 @@
+# ServiceRadar v1.4.60
+
+Agent enrollment works on macOS and Windows: both installers now
+ship the `srctl` CLI, the command the UI shows names it, and
+enrollment writes the paths each platform's agent actually reads.
+
+## Whats New
+
+**1.4.60**
+- Agent: the macOS installer ships `srctl` at
+  `/usr/local/bin/srctl`, signed and notarized with the agent, and
+  the agent now reads `/etc/serviceradar/agent.json` like Linux. An
+  existing config at the old `/usr/local/etc` path is carried
+  forward on upgrade (PR #400).
+- Agent: the Windows installers ship `srctl.exe` beside the agent
+  in `C:\Program Files\ServiceRadar` and put that folder on the
+  system PATH. `srctl enroll` writes
+  `%ProgramData%\ServiceRadar\config`, and enrollment starts the
+  ServiceRadarAgent service (PR #401).
+- Edge onboarding: the enrollment command in the package modal, on
+  Agent Deploy, and in the collector bundle names
+  `/usr/local/bin/srctl`; it named the retired `serviceradar-cli`,
+  which the agent packages do not install. The modal also shows a
+  Windows command for PowerShell as Administrator (PR #400,
+  PR #401).
+- Edge onboarding: enrollment restarts the agent through the
+  service manager of the host it runs on: systemd on Linux,
+  launchd on macOS, the Windows service manager on Windows. It
+  only ever used systemd, so a macOS agent kept running its old
+  config after enrolling (PR #400, PR #401).
+- Helm: the published chart carries `values-demo.yaml`, so a demo
+  deployment can track the chart by version instead of a branch
+  (PR #399).
+- Release: the publish job no longer refuses to publish when a
+  tracked file was merely touched during the run, and it names the
+  files when the source really did change. This stopped v1.4.59
+  after its images and chart had published (PR #398).
+
+## Upgrade Notes
+
+- Enrollment commands copied from an older UI still name
+  `serviceradar-cli`. Recreate the package, or run `srctl enroll`
+  with the same arguments.
+- macOS: the agent's config moves to `/etc/serviceradar/agent.json`.
+  The installer carries an existing `/usr/local/etc` config forward,
+  and leaves the old file in place.
+- Windows: the installers add `C:\Program Files\ServiceRadar` to
+  the system PATH. Already-open terminals keep the old PATH until
+  they are restarted.
+
 # ServiceRadar v1.4.59
 
 v1.4.58 was tagged but never published: its macOS signing step
