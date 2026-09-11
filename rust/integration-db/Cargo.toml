@@ -6,6 +6,7 @@ publish = false
 description = "Database lifecycle for the serviceradar_core integration suite: provision, sweep, teardown. Replaces scripts/{reset,drop,sweep-stale-core}-test-db.sh so the CI job invokes only Bazel targets."
 
 [dependencies]
+base64 = { workspace = true }
 prost = { workspace = true }
 serviceradar-config-manager = { path = "../../config/manager_config/rust" }
 serviceradar-config-schema = { path = "../../config/proto_bindings/rust" }

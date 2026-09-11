@@ -326,6 +326,27 @@ rust_binary(
     ],
 )
 
+# Prints the already-provisioned run base's connection identity (host/port/user/password/
+# sslmode/CA) as JSON, for a non-Rust, non-Elixir caller that cannot resolve the typed
+# SERVICERADAR_ENV=ci fixture identity itself -- see src/bin/describe_run_base.rs's moduledoc.
+# Read-only: it provisions nothing, so it is safe to invoke any number of times against a run
+# base :provision_base already created.
+rust_binary(
+    name = "describe_run_base",
+    srcs = ["src/bin/describe_run_base.rs"],
+    data = FIXTURE_DATA,
+    tags = ["manual"],
+    target_compatible_with = requires_shared_fixture(),
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + [
+        ":serviceradar_integration_db",
+        "//config/proto_bindings/rust:config_schema",
+        "//rust/srql:srql_lib",
+    ],
+)
+
 # Samples the shared fixture while the dedicated IntegrationBenchmark lifecycle runs. It is
 # manual so ordinary wildcards never connect to the fixture; BuildBuddy starts it explicitly
 # after fixture credentials have been materialized.
