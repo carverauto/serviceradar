@@ -433,3 +433,57 @@ func TestPlatformFailureDoesNotExposeOutputOrArguments(t *testing.T) {
 		t.Fatal("platform output or arguments escaped failure redaction")
 	}
 }
+
+// A signing failure has to say why, or a release that stops at codesign cannot be
+// diagnosed from its (public) log: all it said was "codesign failed: exit status 1".
+// The cause comes from a fixed vocabulary; the output itself still never escapes,
+// because it names the identity and the keychain.
+func TestPlatformFailureNamesAKnownCauseWithoutItsOutput(t *testing.T) {
+	if os.Getenv("SERVICERADAR_PACKAGE_TEST_KNOWN_FAILURE") == "1" {
+		fmt.Fprintf(os.Stderr, "%s: no identity found\n", testAppIdentity)
+		os.Exit(1)
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := systemRunner{env: append(platformEnvironment(), "SERVICERADAR_PACKAGE_TEST_KNOWN_FAILURE=1")}
+	_, err = runner.run(t.Context(), executable, "-test.run=^TestPlatformFailureNamesAKnownCauseWithoutItsOutput$")
+	if err == nil || !strings.Contains(err.Error(), "signing identity not found") {
+		t.Fatalf("expected the failure to name its cause, got %v", err)
+	}
+	if strings.Contains(err.Error(), testAppIdentity) || strings.Contains(err.Error(), "TESTTEAM01") {
+		t.Fatal("platform output escaped failure redaction")
+	}
+}
+
+func TestSigningFailureReasonUsesAFixedVocabulary(t *testing.T) {
+	cases := []struct{ name, output, want string }{
+		{"identity not in keychain", "error: The specified item could not be found in the keychain.", "signing identity not found"},
+		{"identity absent", testAppIdentity + ": no identity found", "signing identity not found"},
+		{"installer identity absent", `productsign: error: Could not find appropriate signing identity for "` + testInstallerIdentity + `".`, "signing identity not found"},
+		{"ambiguous identity", testAppIdentity + `: ambiguous (matches "A" and "B" in /tmp/release.keychain-db)`, "more than one certificate"},
+		{"key access denied", testAppIdentity + ": errSecInternalComponent", "keychain denied access"},
+		{"incomplete chain", `Warning: unable to build chain to self-signed root for signer "` + testAppIdentity + `"`, "certificate chain is incomplete"},
+		{"timestamp unavailable", "The timestamp service is not available.", "timestamp service"},
+		{"extended attributes", "resource fork, Finder information, or similar detritus not allowed", "extended attributes"},
+		{"unknown", "something else entirely", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := signingFailureReason([]byte(tc.output))
+			if tc.want == "" {
+				if got != "" {
+					t.Fatalf("unrecognised output produced a reason: %q", got)
+				}
+				return
+			}
+			if !strings.Contains(got, tc.want) {
+				t.Fatalf("got %q, want it to mention %q", got, tc.want)
+			}
+			if strings.Contains(got, "TESTTEAM01") || strings.Contains(got, "keychain-db") {
+				t.Fatalf("reason %q carries platform output", got)
+			}
+		})
+	}
+}

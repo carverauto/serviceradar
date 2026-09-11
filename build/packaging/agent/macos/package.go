@@ -47,10 +47,42 @@ func (r systemRunner) run(ctx context.Context, name string, args ...string) ([]b
 	data, err := cmd.CombinedOutput()
 	if err != nil {
 		// Platform output can include identity/keychain metadata. Return the exit status,
-		// never the command arguments or raw output, on failure.
+		// never the command arguments or raw output, on failure -- plus a cause from the
+		// fixed vocabulary in signingFailureReason when the output names a known one.
+		if reason := signingFailureReason(data); reason != "" {
+			return nil, fmt.Errorf("%s failed: %s: %w", filepath.Base(name), reason, err)
+		}
 		return nil, fmt.Errorf("%s failed: %w", filepath.Base(name), err)
 	}
 	return data, nil
+}
+
+const identityNotFound = "signing identity not found in the keychain: the configured identity must match the certificate's common name exactly"
+
+// signingFailureReason returns the fixed description of the first known cause in
+// output, or "" when none matches. It never returns any part of output.
+//
+// The tool's text is the only signal: codesign and productsign exit 1 for every one of
+// these. The first match wins, so a specific cause precedes the symptom it produces --
+// an incomplete chain is reported alongside errSecInternalComponent.
+func signingFailureReason(output []byte) string {
+	known := []struct{ needle, reason string }{
+		{"no identity found", identityNotFound},
+		{"could not be found in the keychain", identityNotFound},
+		{"Could not find appropriate signing identity", identityNotFound},
+		{"ambiguous (matches", "signing identity matches more than one certificate: configure the certificate's SHA-1 hash instead of its name"},
+		{"unable to build chain to self-signed root", "certificate chain is incomplete: the Developer ID intermediate certificate is not available to the keychain"},
+		{"errSecInternalComponent", "keychain denied access to the signing key (errSecInternalComponent): the keychain is locked or its key partition list omits the signing tool"},
+		{"timestamp service is not available", "Apple timestamp service is unavailable"},
+		{"detritus not allowed", "file carries extended attributes that signing refuses (resource fork or Finder information)"},
+	}
+	text := string(output)
+	for _, cause := range known {
+		if strings.Contains(text, cause.needle) {
+			return cause.reason
+		}
+	}
+	return ""
 }
 
 func platformEnvironment() []string {
