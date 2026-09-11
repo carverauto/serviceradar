@@ -1,3 +1,33 @@
+# ServiceRadar v1.4.59
+
+v1.4.58 was tagged but never published: its macOS signing step
+failed, so no images, chart or demo roll went out. v1.4.59 carries
+everything listed under v1.4.58 below, plus a Windows installer
+for the agent and the fixes that let the release publish.
+
+## Whats New
+
+**1.4.59**
+- Agent: Windows amd64 and arm64 MSI installers. The agent runs as
+  the `ServiceRadarAgent` service (LocalSystem, automatic start,
+  restart 10 s after a failure) and keeps its config, state and log
+  under `%ProgramData%\ServiceRadar\`. A fresh install does not
+  start the service until it is configured; an upgrade restarts
+  it; config survives upgrade and uninstall. The installers are
+  unsigned for now (PR #392).
+- Release: the macOS signing keychain is put on the user search
+  list, and a signing failure now names its cause from a fixed
+  list instead of only an exit status (PR #393, PR #394).
+- core_elx: `mix.lock` records `ash_events`, so its dependency
+  check passes again, and the Bazel Hex closure matches (PR #391).
+
+## Upgrade Notes
+
+- v1.4.58 has no published images or chart. Upgrade from v1.4.57
+  straight to v1.4.59; the v1.4.58 upgrade notes below apply.
+- Windows installers are not Authenticode-signed yet, so
+  SmartScreen may warn when one is opened.
+
 # ServiceRadar v1.4.58
 
 Outbound fetches work behind `SERVICERADAR_EGRESS_PROXY` again:
