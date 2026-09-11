@@ -30,6 +30,8 @@ go_binary(
 # built inputs from this target instead of building them itself.
 go_binary(
     name = "stage",
+    # `bazel run :stage -- --output-dir=...` must reach the stage subcommand.
+    args = ["stage"],
     data = [
         ":package_windows",
         "//build/packaging/agent:config/agent-windows.json",
