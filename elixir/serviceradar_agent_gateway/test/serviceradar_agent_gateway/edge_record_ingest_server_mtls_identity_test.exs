@@ -143,7 +143,10 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerMtlsIdentityTest do
     control_cert_der: cert_der,
     control_component_id: component_id
   } do
-    assert :ok = AgentCertificateRevocation.revoke_component_id(component_id, reason: "identity-mismatch control fixture")
+    assert :ok =
+             AgentCertificateRevocation.revoke_component_id(component_id,
+               reason: "identity-mismatch control fixture"
+             )
 
     # Byte-for-byte the same lane_open + delivery_frame the accepted fixture sends.
     record = record()
