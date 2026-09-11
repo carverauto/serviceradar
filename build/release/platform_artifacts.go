@@ -17,6 +17,7 @@ const linuxARM64 = "arm64"
 var (
 	errReleasePlatformInputs = errors.New("invalid release platform inputs")
 	errMacOSProvenance       = errors.New("invalid macOS installer provenance")
+	errWindowsProvenance     = errors.New("invalid Windows installer provenance")
 	errRuntimePlatform       = errors.New("invalid managed runtime platform")
 )
 
@@ -54,6 +55,30 @@ type macOSPackageProvenance struct {
 		Validated    bool   `json:"validated"`
 	} `json:"notarization"`
 	GatekeeperVerified bool `json:"gatekeeper_verified"`
+}
+
+// windowsUpgradeCodes must match build/packaging/agent/windows. An MSI carrying
+// another UpgradeCode would install beside earlier agents instead of over them.
+var windowsUpgradeCodes = map[string]string{
+	"amd64": "3B42E26D-C52D-43A8-AFD9-DDC162D2A6B3",
+	"arm64": "FE1549BF-9F21-45FF-95D3-05AC0AEE9C3A",
+}
+
+type windowsPackageProvenance struct {
+	SchemaVersion   int    `json:"schema_version"`
+	Product         string `json:"product"`
+	Version         string `json:"version"`
+	MSIVersion      string `json:"msi_version"`
+	SourceCommit    string `json:"source_commit"`
+	OS              string `json:"os"`
+	Arch            string `json:"arch"`
+	Mode            string `json:"mode"`
+	Signed          bool   `json:"signed"`
+	UpgradeCode     string `json:"upgrade_code"`
+	PackageFilename string `json:"package_filename"`
+	PackageSHA256   string `json:"package_sha256"`
+	BinarySHA256    string `json:"binary_sha256"`
+	ConfigSHA256    string `json:"config_sha256"`
 }
 
 func prepareReleaseArtifacts(ctx *publishContext) error {
@@ -124,10 +149,15 @@ func preparePackageArtifacts(ctx *publishContext) ([]uploadAsset, error) {
 	if err != nil {
 		return nil, err
 	}
-	return append(assets, macOS, uploadAsset{
+	assets = append(assets, macOS, uploadAsset{
 		sourcePath: ctx.config.macosProvenance,
 		uploadName: strings.TrimSuffix(macOS.uploadName, ".pkg") + ".provenance.json",
-	}), nil
+	})
+	windows, err := validateWindowsPackages(ctx.config, ctx.releaseVersion)
+	if err != nil {
+		return nil, err
+	}
+	return append(assets, windows...), nil
 }
 
 func requiredLinuxAgentPackages(version, rpmVersion, rpmRelease string) []string {
@@ -175,6 +205,54 @@ func validateMacOSPackage(config publishConfig, version string) (uploadAsset, er
 		return uploadAsset{}, fmt.Errorf("%w: macOS installer SHA256 differs from its verified CI provenance", errMacOSProvenance)
 	}
 	return uploadAsset{sourcePath: config.macosPkg, uploadName: name}, nil
+}
+
+// validateWindowsPackages checks both MSIs against the provenance the Windows
+// packaging job wrote. Unsigned is the only accepted mode until Authenticode
+// signing exists (#388).
+func validateWindowsPackages(config publishConfig, version string) ([]uploadAsset, error) {
+	if !filepath.IsAbs(config.windowsDir) {
+		return nil, fmt.Errorf("%w: --windows_dir must be an absolute path to the verified CI handoff", errWindowsProvenance)
+	}
+	sha256Hex := regexp.MustCompile(`^[a-f0-9]{64}$`)
+	var assets []uploadAsset
+	for _, arch := range []string{defaultAgentRuntimeArch, linuxARM64} {
+		name := fmt.Sprintf("serviceradar-agent_%s_windows_%s.msi", version, arch)
+		msi := filepath.Join(config.windowsDir, name)
+		proofPath := strings.TrimSuffix(msi, ".msi") + ".provenance.json"
+		data, err := os.ReadFile(proofPath)
+		if err != nil {
+			return nil, err
+		}
+		var proof windowsPackageProvenance
+		if err := json.Unmarshal(data, &proof); err != nil {
+			return nil, err
+		}
+		if proof.SchemaVersion != 1 || proof.Product != defaultAgentRuntimeEntrypoint || proof.Version != version ||
+			proof.SourceCommit != config.commit || proof.OS != "windows" || proof.Arch != arch ||
+			proof.Mode != "unsigned" || proof.Signed || proof.UpgradeCode != windowsUpgradeCodes[arch] ||
+			proof.PackageFilename != name || !sha256Hex.MatchString(proof.BinarySHA256) || !sha256Hex.MatchString(proof.ConfigSHA256) {
+			return nil, fmt.Errorf("%w: %s provenance does not match the release source, version, platform, filename, or upgrade code", errWindowsProvenance, name)
+		}
+		info, err := os.Stat(msi)
+		if err != nil {
+			return nil, err
+		}
+		if !info.Mode().IsRegular() || info.Size() == 0 {
+			return nil, fmt.Errorf("%w: %s must be a nonempty regular file", errWindowsProvenance, name)
+		}
+		digest, err := fileSHA256(msi)
+		if err != nil {
+			return nil, err
+		}
+		if digest != proof.PackageSHA256 {
+			return nil, fmt.Errorf("%w: %s SHA256 differs from its CI provenance", errWindowsProvenance, name)
+		}
+		assets = append(assets,
+			uploadAsset{sourcePath: msi, uploadName: name},
+			uploadAsset{sourcePath: proofPath, uploadName: strings.TrimSuffix(name, ".msi") + ".provenance.json"})
+	}
+	return assets, nil
 }
 
 func validateMacOSSigningEvidence(proof macOSPackageProvenance) error {
