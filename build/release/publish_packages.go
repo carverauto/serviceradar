@@ -225,8 +225,8 @@ func parsePublishConfig() publishConfig {
 	dryRunFlag := flag.Bool("dry_run", false, "Print actions without calling the Forgejo API")
 	overwriteAssetsFlag := flag.Bool("overwrite_assets", true, "Replace differing assets only while the release remains a draft")
 	appendNotesFlag := flag.Bool("append_notes", false, "Append release notes when the release already exists")
-	macosPkgFlag := flag.String("macos_pkg", "", "Required signed and notarized Darwin ARM64 installer path")
-	macosProvenanceFlag := flag.String("macos_provenance", "", "Required macOS installer provenance from the same source commit")
+	macosPkgFlag := flag.String("macos_pkg", "", "Signed and notarized Darwin ARM64 installer path; omit with --macos_provenance to publish without it")
+	macosProvenanceFlag := flag.String("macos_provenance", "", "macOS installer provenance from the same source commit; given together with --macos_pkg")
 	windowsDirFlag := flag.String("windows_dir", "", "Required directory holding both Windows MSIs and their provenance from the same source commit")
 	manifestFlag := flag.String("manifest", defaultManifestRunfile, "Path to the package manifest runfile")
 	forgejoURLFlag := flag.String("forgejo-url", firstNonEmpty(

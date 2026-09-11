@@ -69,6 +69,42 @@ func TestPackagePreflightRequiresEveryLinuxInstaller(t *testing.T) {
 	}
 }
 
+func TestPackagePreflightPublishesWithoutAMissingMacOSInstaller(t *testing.T) {
+	filenames := []string{
+		"serviceradar-agent__amd64.deb", "serviceradar-agent__arm64.deb",
+		"serviceradar-agent-2.3.4-1.x86_64.rpm", "serviceradar-agent-2.3.4-1.aarch64.rpm",
+	}
+	ctx := syntheticPackagePreflight(t, filenames, "none")
+	ctx.config.macosPkg, ctx.config.macosProvenance = "", ""
+	assets, err := preparePackageArtifacts(ctx)
+	if err != nil || len(assets) != 8 {
+		t.Fatalf("release without the macOS installer rejected: assets=%d error=%v", len(assets), err)
+	}
+	for _, a := range assets {
+		if strings.Contains(a.uploadName, "darwin") {
+			t.Fatalf("unexpected macOS asset %q", a.uploadName)
+		}
+	}
+}
+
+func TestPackagePreflightRejectsHalfAMacOSHandoff(t *testing.T) {
+	filenames := []string{
+		"serviceradar-agent__amd64.deb", "serviceradar-agent__arm64.deb",
+		"serviceradar-agent-2.3.4-1.x86_64.rpm", "serviceradar-agent-2.3.4-1.aarch64.rpm",
+	}
+	for _, drop := range []string{"pkg", "provenance"} {
+		ctx := syntheticPackagePreflight(t, filenames, "none")
+		if drop == "pkg" {
+			ctx.config.macosPkg = ""
+		} else {
+			ctx.config.macosProvenance = ""
+		}
+		if _, err := preparePackageArtifacts(ctx); err == nil {
+			t.Fatalf("a macOS handoff missing its %s was accepted", drop)
+		}
+	}
+}
+
 func syntheticPackagePreflight(t *testing.T, filenames []string, omitted string) *publishContext {
 	t.Helper()
 	config, proof := syntheticMacOSProvenance(t)

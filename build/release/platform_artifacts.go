@@ -145,14 +145,22 @@ func preparePackageArtifacts(ctx *publishContext) ([]uploadAsset, error) {
 			return nil, fmt.Errorf("%w: required Linux agent package %q is missing", errReleasePlatformInputs, name)
 		}
 	}
-	macOS, err := validateMacOSPackage(ctx.config, ctx.releaseVersion)
-	if err != nil {
-		return nil, err
+	switch {
+	case ctx.config.macosPkg == "" && ctx.config.macosProvenance == "":
+		// The macOS job no longer gates a release; release.yml omits both flags when it failed.
+		fmt.Fprintln(os.Stderr, "warning: publishing without the macOS installer: --macos_pkg and --macos_provenance were not given")
+	case ctx.config.macosPkg == "" || ctx.config.macosProvenance == "":
+		return nil, fmt.Errorf("%w: pass --macos_pkg and --macos_provenance together, or neither", errMacOSProvenance)
+	default:
+		macOS, err := validateMacOSPackage(ctx.config, ctx.releaseVersion)
+		if err != nil {
+			return nil, err
+		}
+		assets = append(assets, macOS, uploadAsset{
+			sourcePath: ctx.config.macosProvenance,
+			uploadName: strings.TrimSuffix(macOS.uploadName, ".pkg") + ".provenance.json",
+		})
 	}
-	assets = append(assets, macOS, uploadAsset{
-		sourcePath: ctx.config.macosProvenance,
-		uploadName: strings.TrimSuffix(macOS.uploadName, ".pkg") + ".provenance.json",
-	})
 	windows, err := validateWindowsPackages(ctx.config, ctx.releaseVersion)
 	if err != nil {
 		return nil, err

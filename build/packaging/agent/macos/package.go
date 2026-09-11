@@ -15,9 +15,13 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
-var errInvalidPackage = errors.New("invalid macOS agent package")
+var (
+	errInvalidPackage = errors.New("invalid macOS agent package")
+	errCommandTimeout = errors.New("platform command timed out")
+)
 
 const (
 	modeUnsigned  = "unsigned"
@@ -39,12 +43,54 @@ type commandRunner interface {
 	run(context.Context, string, ...string) ([]byte, error)
 }
 type builder struct{ runner commandRunner }
-type systemRunner struct{ env []string }
+type systemRunner struct {
+	env []string
+	// limit overrides commandTimeout; tests set it to prove a hang fails fast.
+	limit time.Duration
+}
+
+// commandTimeout bounds one platform command. A codesign or productsign that waits
+// on a keychain access prompt never returns on a CI runner, and without a bound the
+// release log shows nothing until the whole job is cancelled (v1.4.59 sat silent for
+// 41 minutes). notarytool carries its own --timeout, so it gets a longer bound.
+// xcrunTool is the binary notarytool and stapler run under.
+const xcrunTool = "xcrun"
+
+func commandTimeout(name string, args []string) time.Duration {
+	if filepath.Base(name) == xcrunTool && len(args) > 0 && args[0] == "notarytool" {
+		return 40 * time.Minute
+	}
+	return 5 * time.Minute
+}
+
+// commandStep names a command for the progress log: the tool and its first
+// argument when that is a subcommand or flag, never an identity, path, or value.
+func commandStep(name string, args []string) string {
+	step := filepath.Base(name)
+	if len(args) > 0 && !strings.ContainsAny(args[0], "/=:") {
+		step += " " + args[0]
+	}
+	return step
+}
 
 func (r systemRunner) run(ctx context.Context, name string, args ...string) ([]byte, error) {
+	step := commandStep(name, args)
+	limit := r.limit
+	if limit == 0 {
+		limit = commandTimeout(name, args)
+	}
+	ctx, cancel := context.WithTimeout(ctx, limit)
+	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Env = r.env
+	// Reap the command even if a child process keeps its output pipe open.
+	cmd.WaitDelay = 10 * time.Second
+	fmt.Fprintf(os.Stderr, "==> %s\n", step)
+	started := time.Now()
 	data, err := cmd.CombinedOutput()
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return nil, fmt.Errorf("%s timed out after %s; on a CI runner this is usually a keychain access prompt or an unreachable Apple service: %w", filepath.Base(name), limit, errCommandTimeout)
+	}
 	if err != nil {
 		// Platform output can include identity/keychain metadata. Return the exit status,
 		// never the command arguments or raw output, on failure -- plus a cause from the
@@ -54,6 +100,7 @@ func (r systemRunner) run(ctx context.Context, name string, args ...string) ([]b
 		}
 		return nil, fmt.Errorf("%s failed: %w", filepath.Base(name), err)
 	}
+	fmt.Fprintf(os.Stderr, "    %s done in %s\n", step, time.Since(started).Round(time.Second))
 	return data, nil
 }
 
