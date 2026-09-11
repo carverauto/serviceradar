@@ -29,7 +29,7 @@ use crate::engine::{
 };
 
 pub(crate) const ADDON_ID: &str = "anomaly";
-pub(crate) const ADDON_VERSION: &str = "0.3.6";
+pub(crate) const ADDON_VERSION: &str = "0.3.7";
 pub(crate) const VERDICT_CHANNEL_DEPTH: usize = 256;
 pub(crate) const ACK_CHANNEL_DEPTH: usize = 64;
 pub(crate) const OCSF_CLASS_EVENT_LOG_ACTIVITY: i64 = 1008;
@@ -227,6 +227,18 @@ pub(crate) struct MetricClassConfig {
     pub(crate) drift_min_cv: Option<f64>,
     #[serde(default, deserialize_with = "deserialize_optional_f64")]
     pub(crate) abs_effect_floor: Option<f64>,
+    /// Recent-burst envelope knobs (see `engine::BurstEnvelope`). `enabled`
+    /// adds/removes the envelope for the class; the others tune it.
+    #[serde(default)]
+    pub(crate) burst_envelope_enabled: Option<bool>,
+    #[serde(default, deserialize_with = "deserialize_optional_f64")]
+    pub(crate) burst_envelope_quantile: Option<f64>,
+    #[serde(default, deserialize_with = "deserialize_optional_f64")]
+    pub(crate) burst_envelope_multiplier: Option<f64>,
+    #[serde(default, deserialize_with = "deserialize_optional_u64")]
+    pub(crate) burst_envelope_lag_samples: Option<u64>,
+    #[serde(default, deserialize_with = "deserialize_optional_u64")]
+    pub(crate) burst_envelope_min_samples: Option<u64>,
     #[serde(default)]
     pub(crate) severity_cap: Option<String>,
     #[serde(default)]
@@ -611,6 +623,15 @@ fn resolve_metric_class_overrides(
                     config.severity_cap.as_deref(),
                     config.severity_bands.as_ref(),
                 ),
+                burst_envelope_enabled: config.burst_envelope_enabled,
+                burst_envelope_quantile: config
+                    .burst_envelope_quantile
+                    .filter(|v| v.is_finite() && *v > 0.0 && *v <= 1.0),
+                burst_envelope_multiplier: config
+                    .burst_envelope_multiplier
+                    .filter(|v| v.is_finite() && *v >= 1.0),
+                burst_envelope_lag_samples: config.burst_envelope_lag_samples,
+                burst_envelope_min_samples: config.burst_envelope_min_samples.filter(|v| *v > 0),
             };
 
             Some((class, class_override))

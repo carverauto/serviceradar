@@ -169,6 +169,27 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     end
   end
 
+  defmodule SlowGrowthPercentRunner do
+    @moduledoc false
+    # 24 days of clean linear growth (0.57 points/day, 33 -> 46.7): the 80 percent
+    # crossing is 58 days out, beyond twice the observed span.
+    @start ~U[2026-06-01 00:00:00Z]
+
+    def query(_query, _opts) do
+      rows =
+        for hour <- 0..575 do
+          %{
+            "bucket" => DateTime.add(@start, hour * 3_600, :second),
+            "device_id" => "device-a",
+            "mount_point" => "/var/lib/checkers",
+            "avg_usage_percent" => 33.0 + hour * (0.57 / 24)
+          }
+        end
+
+      {:ok, rows}
+    end
+  end
+
   defmodule OutOfDomainGaugePercentRunner do
     @moduledoc false
     @start ~U[2026-06-01 00:00:00Z]
@@ -1163,6 +1184,56 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     assert attrs.projected_exhaustion_at == nil
     assert attrs.metadata["forecast_value_unit"] == "percent"
     assert attrs.metadata["diagnostics"]["sample_count"] == 48
+  end
+
+  test "worker records a crossing beyond the history cap distinctly from no crossing" do
+    source = %Source{
+      name: "disk_usage",
+      resource_type: "disk",
+      metric_class: "disk",
+      metric_name: "usage_percent",
+      query: "in:disk_metrics time:last_180d bucket:1h",
+      value_field: "avg_usage_percent",
+      key_fields: ["device_id", "mount_point"],
+      label_fields: ["mount_point"],
+      threshold: 80.0,
+      model: "linear",
+      value_unit: "percent"
+    }
+
+    upsert_fun = fn attrs, _actor ->
+      send(self(), {:capacity_forecast_history_capped, attrs})
+      {:ok, attrs}
+    end
+
+    job = %Oban.Job{args: %{"forecasted_at" => DateTime.to_iso8601(@forecasted_at)}}
+
+    assert :ok =
+             Worker.run(job,
+               sources: [source],
+               runner: SlowGrowthPercentRunner,
+               upsert_fun: upsert_fun,
+               emit_verdicts?: false,
+               horizon_seconds: 90 * 24 * 3_600,
+               min_points: 24
+             )
+
+    assert_received {:capacity_forecast_history_capped, attrs}
+    assert attrs.status == "skipped"
+    assert attrs.skip_reason == "exhaustion_beyond_history_cap"
+    assert attrs.projected_exhaustion_at == nil
+
+    diagnostics = attrs.metadata["diagnostics"]
+    assert diagnostics["model"] == "linear"
+    assert diagnostics["history_span_seconds"] == 575 * 3_600
+    assert diagnostics["extrapolation_cap_seconds"] == 2 * 575 * 3_600
+    assert diagnostics["lower_bound"] > 80.0
+
+    # (80 - 33) / (0.57 / 24 per hour) = 1978.9 h after the window start.
+    assert {:ok, raw_crossing, _offset} =
+             DateTime.from_iso8601(diagnostics["raw_projected_exhaustion_at"])
+
+    assert abs(DateTime.diff(raw_crossing, ~U[2026-08-22 10:57:30Z], :second)) < 120
   end
 
   test "interface forecasts convert byte rates to utilization percent before no-risk skip" do

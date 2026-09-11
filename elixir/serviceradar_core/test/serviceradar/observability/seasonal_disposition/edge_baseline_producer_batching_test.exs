@@ -74,7 +74,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducerBat
              EdgeBaselineProducer.build(
                sources: [source],
                runner: ChunkedProfileRunner,
-               edge_baseline_max_combos_per_query: 2
+               edge_baseline_max_devices_per_query: 2
              )
 
     # Every device still gets its complete 168-bucket baseline.
@@ -83,7 +83,8 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducerBat
       assert length(buckets) == 168
     end
 
-    # 3 single-combo devices with a cap of 2: one discovery query + 2 chunks.
+    # 3 host devices with a budget of 2 devices per statement: one discovery
+    # query + 2 chunks.
     [discovery | chunks] = collect_chunk_queries()
     assert length(chunks) == 2
 
@@ -96,7 +97,12 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducerBat
     assert covered == Enum.sort(ChunkedProfileRunner.devices())
   end
 
-  test "small fleets stay on a single chunk query under the default cap" do
+  # A host device's full profile is 168 buckets over the whole history, and the
+  # statement cost is non-linear in the device count (measured on demo: 5 devices
+  # 0.8 s, 10 devices cancelled by the 30 s statement_timeout). One device per
+  # statement is the only sizing that is predictable across fleets, so it is the
+  # default; the interface path already chunks per device.
+  test "host sources fetch one full-profile statement per device by default" do
     source = Enum.find(Source.defaults(), &(&1.name == "cpu_seasonal"))
 
     assert {:ok, baselines} =
@@ -104,12 +110,14 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducerBat
 
     assert map_size(baselines) == 3
 
-    [discovery, chunk] = collect_chunk_queries()
+    [discovery | chunks] = collect_chunk_queries()
     refute String.contains?(discovery, "profile_hour_of_week_full(")
-    assert String.contains?(chunk, "profile_hour_of_week_full(")
+    assert length(chunks) == 3
+    assert Enum.all?(chunks, &String.contains?(&1, "profile_hour_of_week_full("))
 
-    assert chunk |> ChunkedProfileRunner.chunk_devices() |> Enum.sort() ==
-             Enum.sort(ChunkedProfileRunner.devices())
+    covered = Enum.map(chunks, &ChunkedProfileRunner.chunk_devices/1)
+    assert Enum.all?(covered, &match?([_single_device], &1))
+    assert covered |> List.flatten() |> Enum.sort() == Enum.sort(ChunkedProfileRunner.devices())
   end
 
   defmodule WideInterfaceRunner do
@@ -214,11 +222,16 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducerBat
     end
   end
 
+  # A failed chunk fails THAT source (no partial profile is ever delivered for
+  # it). With a single source that leaves nothing to deliver, which is the one
+  # case the build still reports as an error; other sources keep delivering.
   test "a failing chunk query fails the source fetch" do
     source = Enum.find(Source.defaults(), &(&1.name == "cpu_seasonal"))
 
-    assert {:error, :chunk_timeout} =
-             EdgeBaselineProducer.build(sources: [source], runner: FailingChunkRunner)
+    ExUnit.CaptureLog.capture_log(fn ->
+      assert {:error, {:all_sources_failed, ["cpu_seasonal"]}} =
+               EdgeBaselineProducer.build(sources: [source], runner: FailingChunkRunner)
+    end)
   end
 
   defp collect_chunk_queries(acc \\ []) do

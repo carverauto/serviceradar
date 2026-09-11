@@ -23,6 +23,14 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistryTest do
 
       send(Process.get(:episode_test_pid), {:episode_upsert, params})
 
+      episode_uid =
+        case Map.get(decision, :episode_uid) do
+          # An all-NULL RETURNING projection: the statement inserted nothing.
+          :null -> nil
+          nil -> Enum.at(params, 0)
+          uid -> uid
+        end
+
       {:ok,
        %{
          rows: [
@@ -30,9 +38,9 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistryTest do
              decision.previous_status,
              decision.previous_peak_severity_id,
              current_status,
-             severity_id,
-             current_peak,
-             Map.get(decision, :episode_uid) || Enum.at(params, 0),
+             if(is_nil(current_status), do: nil, else: severity_id),
+             if(is_nil(current_status), do: nil, else: current_peak),
+             episode_uid,
              Map.get(decision, :producer_count, 1)
            ]
          ]
@@ -139,6 +147,32 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistryTest do
     Process.put(:episode_decision, %{previous_status: "", previous_peak_severity_id: -1})
 
     assert [] = AnomalyEpisodeRegistry.transition_rows([clear], RepoStub)
+  end
+
+  test "a clear that resolves no episode is neither persisted nor emitted" do
+    # The upsert inserts nothing when a clear finds no open (or fold-window)
+    # episode, so the RETURNING projection comes back all-NULL. That used to
+    # mint a zero-length "cleared" episode for every central seasonal clear
+    # that arrived after the stale sweep had already closed the breach.
+    Process.put(:episode_decision, %{
+      previous_status: "",
+      previous_peak_severity_id: -1,
+      current_status: nil,
+      episode_uid: :null,
+      producer_count: 0
+    })
+
+    clear = anomaly_row("anomaly_clear", severity_id: 2)
+
+    assert [] = AnomalyEpisodeRegistry.transition_rows([clear], RepoStub)
+    assert_receive {:episode_upsert, params}
+    assert Enum.at(params, 8) == "cleared"
+  end
+
+  test "the upsert statement gates the insert on a clear resolving an episode" do
+    sql = AnomalyEpisodeRegistry.upsert_sql()
+    assert sql =~ "orphan_clear"
+    assert sql =~ "WHERE NOT aggregate.orphan_clear"
   end
 
   test "a clear is withheld while another producer keeps the canonical episode open" do

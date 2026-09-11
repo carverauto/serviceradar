@@ -137,6 +137,26 @@
             "type": "number",
             "minimum": 0
           },
+          "burst_envelope_enabled": {
+            "type": "boolean"
+          },
+          "burst_envelope_quantile": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 1
+          },
+          "burst_envelope_multiplier": {
+            "type": "number",
+            "minimum": 1
+          },
+          "burst_envelope_lag_samples": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "burst_envelope_min_samples": {
+            "type": "integer",
+            "minimum": 1
+          },
           "severity_cap": {
                 "type": "string",
                 "enum": ["low", "medium", "high", "critical"]
@@ -416,6 +436,26 @@
           "abs_effect_floor": {
             "type": "number",
             "minimum": 0
+          },
+          "burst_envelope_enabled": {
+            "type": "boolean"
+          },
+          "burst_envelope_quantile": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 1
+          },
+          "burst_envelope_multiplier": {
+            "type": "number",
+            "minimum": 1
+          },
+          "burst_envelope_lag_samples": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "burst_envelope_min_samples": {
+            "type": "integer",
+            "minimum": 1
           },
           "severity_cap": {
             "type": "string",

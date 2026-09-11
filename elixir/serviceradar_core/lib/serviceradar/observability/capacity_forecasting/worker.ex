@@ -282,6 +282,31 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
             |> Map.put("projected_exhaustion_source", "current_value")
         )
 
+      # The kernel withheld the ETA only because the crossing lies beyond what
+      # the observed history supports (twice its span). That is a different
+      # operator fact from "no crossing": record it with the crossing date so
+      # a short but clean growth trend is countable and explainable.
+      exhaustion_history_capped?(forecast) ->
+        skipped_attrs(
+          source,
+          forecast_points,
+          common,
+          "exhaustion_beyond_history_cap",
+          forecast.diagnostics
+          |> Map.put("lower_bound", forecast.lower_bound)
+          |> Map.put("upper_bound", forecast.upper_bound)
+          |> Map.put(
+            "raw_projected_exhaustion_at",
+            iso8601_or_nil(forecast.raw_projected_exhaustion_at)
+          )
+          |> Map.put(
+            "history_span_seconds",
+            DateTime.diff(forecast.window_ended_at, forecast.window_started_at, :second)
+          )
+          |> Map.put("extrapolation_cap_seconds", forecast.exhaustion_extrapolation_cap_seconds),
+          model: forecast.model
+        )
+
       no_projected_exhaustion?(forecast, common.exhaustion_threshold) ->
         skipped_attrs(
           source,
@@ -442,6 +467,11 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
        intercept: payload.intercept,
        projected_value: payload.projected_value,
        projected_exhaustion_at: from_unix_micros(payload.projected_exhaustion_at_unix_micros),
+       raw_projected_exhaustion_at:
+         from_unix_micros(Map.get(payload, :raw_projected_exhaustion_at_unix_micros)),
+       exhaustion_history_capped: Map.get(payload, :exhaustion_history_capped, false) == true,
+       exhaustion_extrapolation_cap_seconds:
+         Map.get(payload, :exhaustion_extrapolation_cap_seconds),
        confidence: payload.confidence,
        lower_bound: payload.lower_bound,
        upper_bound: payload.upper_bound,
@@ -534,6 +564,16 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
 
   defp from_unix_micros!(micros) when is_integer(micros),
     do: DateTime.from_unix!(micros, :microsecond)
+
+  defp exhaustion_history_capped?(%{
+         exhaustion_history_capped: true,
+         raw_projected_exhaustion_at: %DateTime{}
+       }), do: true
+
+  defp exhaustion_history_capped?(_forecast), do: false
+
+  defp iso8601_or_nil(%DateTime{} = datetime), do: DateTime.to_iso8601(datetime)
+  defp iso8601_or_nil(_value), do: nil
 
   defp no_projected_exhaustion?(forecast, threshold)
        when is_number(threshold) and threshold > 0 do

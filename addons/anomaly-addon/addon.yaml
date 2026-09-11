@@ -7,7 +7,7 @@
 # Capabilities here match what the binary reports from Info().
 id: anomaly
 name: Anomaly Detection Add-on
-version: 0.3.6
+version: 0.3.7
 description: >-
   Edge per-series anomaly detection. Analyzes the agent's locally collected
   sysmon / SNMP / ICMP metrics on-host and ships verdicts instead of every raw
