@@ -232,6 +232,40 @@ func freePort(t *testing.T) int {
 	return l.Addr().(*net.TCPAddr).Port
 }
 
+// preserveProcessLogs copies every *.stdout.log/*.stderr.log file under
+// srcDir (recursively, since each release/agent process writes its own
+// workDir subdirectory) into outDir, flattening with a workDir-relative name
+// so a CI failure ("event_ledger row never appeared") has something to read
+// beyond the bare error string -- see newHarness's registration comment for
+// why this must run after every process's own Stop() cleanup.
+func preserveProcessLogs(t *testing.T, srcDir, outDir string) {
+	t.Helper()
+
+	_ = filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil //nolint:nilerr // best-effort log salvage; a walk error must not fail the test
+		}
+		if !strings.HasSuffix(path, ".stdout.log") && !strings.HasSuffix(path, ".stderr.log") {
+			return nil
+		}
+
+		rel, relErr := filepath.Rel(srcDir, path)
+		if relErr != nil {
+			rel = filepath.Base(path)
+		}
+		dest := filepath.Join(outDir, strings.ReplaceAll(rel, string(filepath.Separator), "__"))
+
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return nil //nolint:nilerr // best-effort; a partially-written log is still worth what we got
+		}
+		if writeErr := os.WriteFile(dest, data, 0o644); writeErr != nil { //nolint:gosec // test log artifact, not a secret
+			t.Logf("preserveProcessLogs: write %s: %v", dest, writeErr)
+		}
+		return nil
+	})
+}
+
 // harness bundles every live component of the composed path for one test
 // run. All fields are safe to use directly from subtests; nothing here is
 // torn down until the top-level test's Cleanup callbacks fire.
@@ -281,6 +315,17 @@ func newHarness(t *testing.T) *harness {
 
 	dir := t.TempDir()
 	h := &harness{t: t, dir: dir}
+
+	// Registered FIRST so it runs LAST (t.Cleanup is LIFO) -- after every
+	// process's own Stop() cleanup has flushed its stdout/stderr files.
+	// t.TempDir() is deleted when the test ends, so without this, a CI
+	// failure ("event_ledger row never appeared") leaves NO way to see
+	// what the agent/gateway/core processes actually logged: BuildBuddy
+	// only preserves files placed under TEST_UNDECLARED_OUTPUTS_DIR (the
+	// standard Bazel test convention), which is empty outside `bazel test`.
+	if outDir := os.Getenv("TEST_UNDECLARED_OUTPUTS_DIR"); outDir != "" {
+		t.Cleanup(func() { preserveProcessLogs(t, dir, outDir) })
+	}
 
 	certSet, err := GenerateCertSet(filepath.Join(dir, "certs"), "127.0.0.1")
 	if err != nil {
