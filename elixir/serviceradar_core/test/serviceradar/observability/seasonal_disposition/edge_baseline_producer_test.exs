@@ -438,7 +438,9 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducerTes
              assignments: summary.assignments_total,
              profiles_updated: summary.profiles_updated,
              assignments_updated: summary.assignments_updated,
-             series: summary.series
+             series: summary.series,
+             healthy: true,
+             failed_sources: []
            }
 
     assert_received {:profile_updated, profile_params}
@@ -451,6 +453,80 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducerTes
     refute Map.has_key?(profile_params, "seasonal_baselines_meta")
     refute Map.has_key?(assignment_params, "seasonal_baselines_meta")
     assert :ok = ConfigSchema.validate_params(load_addon_schema(), assignment_params)
+  end
+
+  defmodule CpuSourceFailsRunner do
+    @moduledoc false
+    # The statement for the cpu source is cancelled (what a 20-device full-profile
+    # chunk did on demo for eight weeks); memory still answers.
+    def query(query, opts) do
+      if String.contains?(query, "sysmon.cpu") do
+        {:error, %{reason: :statement_timeout}}
+      else
+        ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducerTest.ProfileRunner.query(
+          query,
+          opts
+        )
+      end
+    end
+  end
+
+  test "reconcile delivers the sources that succeeded when one source fails and reports it" do
+    test_pid = self()
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert {:ok, summary} =
+                 EdgeBaselineProducer.reconcile(
+                   sources: sources(),
+                   runner: CpuSourceFailsRunner,
+                   profiles_loader: fn _actor -> {:ok, [%{id: "profile-1", params: %{}}]} end,
+                   profile_updater: fn profile, params, _actor ->
+                     send(test_pid, {:profile_updated, params})
+                     {:ok, Map.put(profile, :params, params)}
+                   end,
+                   heartbeat_recorder: fn metadata ->
+                     send(test_pid, {:heartbeat, metadata})
+                     :ok
+                   end
+                 )
+
+        assert summary.failed_sources == ["cpu_seasonal"]
+        assert summary.global_series == 1
+      end)
+
+    # The release log format drops logger metadata, so the source and reason
+    # must be in the message body to be visible in `kubectl logs`.
+    assert log =~ "Edge baseline source fetch failed source=cpu_seasonal reason="
+    assert log =~ "statement_timeout"
+
+    assert_received {:profile_updated, params}
+    baselines = params["seasonal_baselines"]
+    assert Map.has_key?(baselines, "#{ProfileRunner.device()}|memory.used_percent")
+    refute Map.has_key?(baselines, "#{ProfileRunner.device()}|cpu.usage_percent")
+
+    # The freshness tripwire only trusts healthy heartbeats, so a partial run
+    # records an unhealthy one that names what failed instead of going silent.
+    assert_received {:heartbeat, %{healthy: false, failed_sources: ["cpu_seasonal"]}}
+  end
+
+  defmodule AllSourcesFailRunner do
+    @moduledoc false
+    def query(_query, _opts), do: {:error, :statement_timeout}
+  end
+
+  test "reconcile fails when every source fetch fails" do
+    ExUnit.CaptureLog.capture_log(fn ->
+      assert {:error, {:all_sources_failed, names}} =
+               EdgeBaselineProducer.reconcile(
+                 sources: sources(),
+                 runner: AllSourcesFailRunner,
+                 profiles_loader: fn _actor -> {:ok, []} end
+               )
+
+      assert "cpu_seasonal" in names
+      assert "memory_seasonal" in names
+    end)
   end
 
   test "reconcile heartbeat failures never fail a successful delivery" do
