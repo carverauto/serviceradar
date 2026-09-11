@@ -39,8 +39,9 @@ Explicit paths in config or flags still win.
   config).
 - Service: `ServiceInstall` (LocalSystem, auto start) + `ServiceControl` (stop on upgrade and
   uninstall, remove on uninstall; no start, because the default config is not usable until the
-  operator fills in the gateway and certificates) + core `ServiceConfigFailureActions`
-  (restart after 10s, 30s, 60s; reset after a day).
+  operator fills in the gateway and certificates) + the Util extension's `util:ServiceConfig`
+  (restart 10s after each failure; reset after a day). The core `ServiceConfigFailureActions`
+  element made installs fail with Error 1939 on the hosted Windows runner.
 - Fixed per-architecture `UpgradeCode`, `MajorUpgrade` with downgrade blocked.
 
 Alternative rejected: `wixl` (msitools) on Linux would keep packaging inside Bazel, but it

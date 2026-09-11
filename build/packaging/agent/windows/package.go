@@ -22,6 +22,9 @@ var errInvalidPackage = errors.New("invalid Windows agent package")
 
 const (
 	product          = "serviceradar-agent"
+	// wixUtilExtension provides util:ServiceConfig; CI installs the version
+	// matching the pinned WiX toolset.
+	wixUtilExtension = "WixToolset.Util.wixext"
 	agentFileName    = "serviceradar-agent.exe"
 	configFileName   = "agent.json"
 	inputsFileName   = "inputs.json"
@@ -197,7 +200,7 @@ func (b builder) buildArch(ctx context.Context, opts buildOptions, manifest stag
 	}
 
 	msi := filepath.Join(work, name+".msi")
-	if _, err := b.runner.run(ctx, opts.Wix, "build", "-arch", wixArch[arch], "-o", msi, wxs); err != nil {
+	if _, err := b.runner.run(ctx, opts.Wix, "build", "-arch", wixArch[arch], "-ext", wixUtilExtension, "-o", msi, wxs); err != nil {
 		return output{}, err
 	}
 

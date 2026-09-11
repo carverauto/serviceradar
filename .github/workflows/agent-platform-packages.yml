@@ -134,6 +134,8 @@ jobs:
         run: |
           dotnet tool install --global wix --version 5.0.2
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          wix extension add --global WixToolset.Util.wixext/5.0.2
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build and verify MSIs
         shell: pwsh

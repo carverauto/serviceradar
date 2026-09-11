@@ -16,11 +16,13 @@ type wxsValues struct{ MSIVersion, UpgradeCode, AgentPath, ConfigPath string }
 // start it: the default config names a placeholder gateway and certificates, so
 // the operator configures it first. A major upgrade stops and removes the old
 // service, so the StartAfterUpgrade component, installed only when an upgrade
-// is detected, starts the new one again. Failure delays are milliseconds; the
-// reset period is seconds. The config component is NeverOverwrite and
+// is detected, starts the new one again. Restart-on-failure uses the Util
+// extension's ServiceConfig: the core ServiceConfigFailureActions element made
+// installs fail with Error 1939 on the hosted Windows runner. The config
+// component is NeverOverwrite and
 // Permanent, so upgrades and uninstall keep the operator's configuration.
 var wxsTemplate = template.Must(template.New("agent.wxs").Parse(`<?xml version="1.0" encoding="utf-8"?>
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
   <Package Name="ServiceRadar Agent" Manufacturer="Carver Automation" Version="{{.MSIVersion}}" UpgradeCode="{{.UpgradeCode}}" Scope="perMachine">
     <MajorUpgrade AllowSameVersionUpgrades="yes" DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
     <MediaTemplate EmbedCab="yes" />
@@ -45,11 +47,7 @@ var wxsTemplate = template.Must(template.New("agent.wxs").Parse(`<?xml version="
       <Component Directory="INSTALLFOLDER">
         <File Id="AgentExe" Source="{{.AgentPath}}" Name="serviceradar-agent.exe" KeyPath="yes" />
         <ServiceInstall Name="` + serviceName + `" DisplayName="ServiceRadar Agent" Description="Collects monitoring data and pushes it to the ServiceRadar gateway." Type="ownProcess" Start="auto" ErrorControl="normal" Account="LocalSystem" Arguments="--config &quot;[CONFIGFOLDER]agent.json&quot;">
-          <ServiceConfigFailureActions OnInstall="yes" OnReinstall="yes" ResetPeriod="86400">
-            <Failure Action="restartService" Delay="10000" />
-            <Failure Action="restartService" Delay="30000" />
-            <Failure Action="restartService" Delay="60000" />
-          </ServiceConfigFailureActions>
+          <util:ServiceConfig FirstFailureActionType="restart" SecondFailureActionType="restart" ThirdFailureActionType="restart" RestartServiceDelayInSeconds="10" ResetPeriodInDays="1" />
         </ServiceInstall>
         <ServiceControl Id="StopAndRemove" Name="` + serviceName + `" Stop="both" Remove="uninstall" Wait="yes" />
       </Component>

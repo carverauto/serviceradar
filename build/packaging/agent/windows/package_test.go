@@ -69,7 +69,18 @@ func (f *fakeTools) run(_ context.Context, name string, args ...string) ([]byte,
 		}
 
 		// Record the rendered sources so msiexec can "extract" them.
-		return nil, os.WriteFile(args[4], wxs, 0o644)
+		out := ""
+		for i := range args[:len(args)-1] {
+			if args[i] == "-o" {
+				out = args[i+1]
+			}
+		}
+
+		if !strings.Contains(strings.Join(args, " "), "-ext "+wixUtilExtension) {
+			return nil, fmt.Errorf("%w: wix build without the Util extension", errSyntheticTool)
+		}
+
+		return nil, os.WriteFile(out, wxs, 0o644)
 	case tool == "msiexec":
 		wxs, err := os.ReadFile(args[1])
 		if err != nil {
@@ -345,7 +356,7 @@ func TestWXSInstallsServiceWithoutStartingIt(t *testing.T) {
 		`<ServiceInstall Name="ServiceRadarAgent"`,
 		`Start="auto"`,
 		`Account="LocalSystem"`,
-		`<Failure Action="restartService"`,
+		`<util:ServiceConfig FirstFailureActionType="restart" SecondFailureActionType="restart" ThirdFailureActionType="restart"`,
 		`UpgradeCode="` + upgradeCodes["amd64"] + `"`,
 		`NeverOverwrite="yes" Permanent="yes"`,
 		`<MajorUpgrade AllowSameVersionUpgrades="yes"`,
