@@ -345,5 +345,9 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
     :ok
   end
 
-  defp send_reply(stream, response), do: GRPC.Server.send_reply(stream, response)
+  # GRPC.Server.send_reply/2 returns the stream, not :ok; both clauses keep the :ok contract.
+  defp send_reply(stream, response) do
+    _stream = GRPC.Server.send_reply(stream, response)
+    :ok
+  end
 end

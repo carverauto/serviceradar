@@ -421,7 +421,8 @@ func newHarness(t *testing.T) *harness {
 
 	agentProc, err := StartAgent(
 		agentBinaryPath, filepath.Join(dir, "agent"), h.gatewayAddr, h.gatewayServerName,
-		certSet.CACertPath, certSet.AgentCertPath, certSet.AgentKeyPath, agentPollInterval,
+		certSet.AgentComponentID, certSet.CACertPath, certSet.AgentCertPath, certSet.AgentKeyPath,
+		agentPollInterval,
 	)
 	if err != nil {
 		t.Fatalf("start agent: %v", err)

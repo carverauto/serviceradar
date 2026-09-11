@@ -82,7 +82,9 @@ type AgentProcess struct {
 // gRPC listener; gatewayServerName is the TLS ServerName to verify against
 // (must match a SAN on the gateway's server certificate); caCertPath/
 // agentCertPath/agentKeyPath identify the agent's mTLS client identity
-// (component_type=agent -- see certs.go).
+// (component_type=agent -- see certs.go). agentID is the agent_id the agent
+// sends in its Hello; the gateway refuses a Hello whose agent_id differs from
+// the certificate's component id, so pass CertSet.AgentComponentID.
 //
 // The caller is responsible for separately opening the SAME spool directory
 // with go/pkg/edge/spool.Open and Append-ing fixture records -- independent
@@ -92,7 +94,7 @@ type AgentProcess struct {
 // entries directly.
 func StartAgent(
 	agentBinaryPath, workDir, gatewayGRPCAddr, gatewayServerName string,
-	caCertPath, agentCertPath, agentKeyPath string,
+	agentID, caCertPath, agentCertPath, agentKeyPath string,
 	pollInterval time.Duration,
 ) (*AgentProcess, error) {
 	spoolDir := filepath.Join(workDir, "spool")
@@ -116,7 +118,7 @@ func StartAgent(
 	}
 
 	doc := agentConfigDocument{
-		AgentID:         "vslice-agent",
+		AgentID:         agentID,
 		CheckersDir:     checkersDir,
 		GatewayAddr:     gatewayGRPCAddr,
 		GatewaySecurity: security,

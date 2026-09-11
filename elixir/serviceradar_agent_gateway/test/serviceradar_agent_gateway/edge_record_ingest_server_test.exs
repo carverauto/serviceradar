@@ -105,6 +105,22 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
                     }}
   end
 
+  test "replies through a real GRPC.Server.Stream, not only the test_pid shortcut" do
+    messages = [client({:lane_open, lane_open()}), client({:delivery_frame, frame(1, record())})]
+
+    assert :ok = EdgeRecordIngestServer.stream(messages, grpc_stream())
+
+    assert_receive {:grpc_adapter_reply,
+                    %EdgeRecordServerMessage{
+                      payload: {:lane_open_ack, %EdgeRecordLaneOpenAck{spool_id: @spool_id}}
+                    }}
+
+    assert_receive {:grpc_adapter_reply,
+                    %EdgeRecordServerMessage{
+                      payload: {:ack, %EdgeDeliveryAckV1{resolved_through_sequence: 1}}
+                    }}
+  end
+
   test "refuses a lane_open when the client identity is not an agent" do
     Application.put_env(
       :serviceradar_agent_gateway,
@@ -240,6 +256,28 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
   defp client(payload), do: %EdgeRecordClientMessage{payload: payload}
 
   defp stream, do: %{adapter: CameraMediaAdapterStub, payload: :test, test_pid: self()}
+
+  # A real stream carries no test_pid, so replies go through GRPC.Server.send_reply/2.
+  defp grpc_stream do
+    %GRPC.Server.Stream{
+      server: EdgeRecordIngestServer,
+      grpc_type: :bidirectional_stream,
+      adapter: __MODULE__.ReplyingAdapterStub,
+      payload: self()
+    }
+  end
+
+  defmodule ReplyingAdapterStub do
+    @moduledoc false
+
+    # Stands in for the Cowboy adapter; the stream payload is the test pid.
+    def get_cert(pid) when is_pid(pid), do: <<1, 2, 3>>
+
+    def send_reply(pid, data, _opts) do
+      send(pid, {:grpc_adapter_reply, EdgeRecordServerMessage.decode(IO.iodata_to_binary(data))})
+      :ok
+    end
+  end
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_agent_gateway, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_agent_gateway, key, value)
