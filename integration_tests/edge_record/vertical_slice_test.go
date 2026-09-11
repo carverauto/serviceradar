@@ -336,7 +336,7 @@ func newHarness(t *testing.T) *harness {
 		t.Fatalf("generate cert set: %v", err)
 	}
 	h.certSet = certSet
-	h.gatewayServerName = "gateway." + certSet.PartitionID + ".serviceradar"
+	h.gatewayServerName = certSet.GatewayServerName
 
 	natsH, err := StartEmbeddedNATS(filepath.Join(dir, "nats-store"), filepath.Join(dir, "nats-creds"))
 	if err != nil {

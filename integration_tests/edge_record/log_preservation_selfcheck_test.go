@@ -25,10 +25,10 @@ import (
 	"testing"
 )
 
-// selfcheckShardPassword is an invented stand-in for the fixture password
+// selfcheckScrubTarget is an invented stand-in for the fixture password
 // describe_shard reports. It carries URL-reserved characters so its
 // DATABASE_URL rendering differs from its raw form; both must be scrubbed.
-const selfcheckShardPassword = "vslice+Pw/9&x"
+const selfcheckScrubTarget = "vslice+scrub/me&x"
 
 // TestPreserveProcessLogsFlattensAndScrubs lays out a harness work directory
 // the way newHarness does and checks what preserveProcessLogs leaves in the
@@ -44,21 +44,21 @@ func TestPreserveProcessLogsFlattensAndScrubs(t *testing.T) {
 			CNPGPort:     5432,
 			CNPGDatabase: "sr_core_test_selfcheck_edge_record",
 			CNPGUsername: "vslice_app",
-			CNPGPassword: selfcheckShardPassword,
+			CNPGPassword: selfcheckScrubTarget,
 		},
-		coreEnv: CoreEnvConfig{CNPGPassword: selfcheckShardPassword},
+		coreEnv: CoreEnvConfig{CNPGPassword: selfcheckScrubTarget},
 	}
 
-	escaped := url.QueryEscape(selfcheckShardPassword)
+	escaped := url.QueryEscape(selfcheckScrubTarget)
 	databaseURL := h.gatewayEnv.Env()["DATABASE_URL"]
-	if escaped == selfcheckShardPassword || !strings.Contains(databaseURL, escaped) {
+	if escaped == selfcheckScrubTarget || !strings.Contains(databaseURL, escaped) {
 		t.Fatalf("precondition: DATABASE_URL %q should carry the escaped password %q", databaseURL, escaped)
 	}
 
 	logs := map[string]string{
 		"gateway/serviceradar_agent_gateway.stderr.log": "boot DATABASE_URL=" + databaseURL + "\n",
-		"gateway/serviceradar_agent_gateway.stdout.log": "repo password: " + selfcheckShardPassword + "\n",
-		"core/serviceradar_core_elx.stderr.log":         "CNPG_PASSWORD=" + selfcheckShardPassword + "\n",
+		"gateway/serviceradar_agent_gateway.stdout.log": "repo password: " + selfcheckScrubTarget + "\n",
+		"core/serviceradar_core_elx.stderr.log":         "CNPG_PASSWORD=" + selfcheckScrubTarget + "\n",
 		"core/serviceradar_core_elx.stdout.log":         "EventWriter started\n",
 		"core-restart/serviceradar_core_elx.stderr.log": "restarted with " + escaped + "\n",
 		"agent/agent.stderr.log":                        "edge record sender: dial failed\n",
@@ -72,7 +72,7 @@ func TestPreserveProcessLogsFlattensAndScrubs(t *testing.T) {
 		writeSelfcheckFile(t, filepath.Join(dir, rel), body)
 	}
 	for _, rel := range notLogs {
-		writeSelfcheckFile(t, filepath.Join(dir, rel), "password "+selfcheckShardPassword+"\n")
+		writeSelfcheckFile(t, filepath.Join(dir, rel), "password "+selfcheckScrubTarget+"\n")
 	}
 
 	out := t.TempDir()
@@ -101,7 +101,7 @@ func TestPreserveProcessLogsFlattensAndScrubs(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read preserved %s: %v", name, err)
 		}
-		if strings.Contains(string(data), selfcheckShardPassword) || strings.Contains(string(data), escaped) {
+		if strings.Contains(string(data), selfcheckScrubTarget) || strings.Contains(string(data), escaped) {
 			t.Errorf("preserved %s still carries the shard password: %q", name, data)
 		}
 	}
@@ -139,7 +139,7 @@ func TestDescribeShardParseErrorWithholdsOutput(t *testing.T) {
 		t.Setenv("RUNFILES_DIR", t.TempDir())
 	}
 
-	secret := "fixture-" + selfcheckShardPassword
+	secret := "fixture-" + selfcheckScrubTarget
 	stub := filepath.Join(t.TempDir(), "describe_shard")
 	script := "#!/bin/sh\n" +
 		"printf '%s\\n' '{\"host\":\"db.example.com\",\"password\":\"" + secret + "\",\"admin_password\":\"" + secret + "-admin\"'\n" +
