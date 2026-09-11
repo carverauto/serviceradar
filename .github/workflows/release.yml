@@ -45,7 +45,7 @@ on:
         type: boolean
         default: false
       overwrite_assets:
-        description: "Replace assets on the release when filenames match."
+        description: "Replace differing assets with matching filenames while the release is still a draft."
         required: false
         type: boolean
         default: true
@@ -60,7 +60,152 @@ permissions:
   statuses: read
 
 jobs:
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 180
+    environment: release
+    permissions:
+      contents: read
+      statuses: read
+    outputs:
+      tag: ${{ steps.source.outputs.tag }}
+      commit: ${{ steps.source.outputs.commit }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Enforce macOS release source
+        id: source
+        env:
+          INPUT_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || '' }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin +refs/heads/staging:refs/remotes/origin/staging
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            tag="${INPUT_TAG}"
+            ./scripts/validate-release-tag.sh "${tag}"
+            git fetch --no-tags origin "refs/tags/${tag}:refs/tags/${tag}"
+          elif [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            tag="${GITHUB_REF#refs/tags/}"
+            ./scripts/validate-release-tag.sh "${tag}"
+          else
+            echo "macOS publication requires an existing release tag." >&2
+            exit 1
+          fi
+          release_commit="$(git rev-parse --verify "refs/tags/${tag}^{commit}")"
+          git merge-base --is-ancestor "${release_commit}" origin/staging
+          ./scripts/validate-release-metadata.sh "${tag}" "${release_commit}"
+          git checkout --detach "${release_commit}"
+          if [[ ! -f build/packaging/agent/macos/main.go ]]; then
+            echo "This tag predates ARM64 package publishing; retry with the workflow ref set to that original tag." >&2
+            exit 1
+          fi
+          printf 'tag=%s\ncommit=%s\n' "${tag}" "${release_commit}" >> "${GITHUB_OUTPUT}"
+
+      - name: Configure native macOS build cache
+        env:
+          BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY || secrets.BUILDBUDDY_API_KEY }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = arm64
+          command -v bazelisk
+          test -n "${BUILDBUDDY_ORG_API_KEY}"
+          umask 077
+          printf 'common --remote_header=x-buildbuddy-api-key=%s\n' "${BUILDBUDDY_ORG_API_KEY}" > .bazelrc.remote
+
+      - name: Verify ingestion gate before macOS signing
+        env:
+          RELEASE_COMMIT: ${{ steps.source.outputs.commit }}
+        run: |
+          set -euo pipefail
+          bazelisk run -c opt --config=darwin_local --config=cache_only \
+            //build/ci:wait_for_large_ingestion_gate -- \
+            --repository "${GITHUB_REPOSITORY}" --commit "${RELEASE_COMMIT}" \
+            --base-ref origin/staging --token-env GH_TOKEN \
+            --timeout-seconds 5400 --poll-seconds 15 \
+            --target-url-prefix https://carverauto.buildbuddy.io/invocation/
+
+      - name: Build and validate ARM64 installer inputs
+        env:
+          RELEASE_COMMIT: ${{ steps.source.outputs.commit }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "${RUNNER_TEMP}/macos-validation"
+          bazelisk run -c opt --config=darwin_local --config=cache_only \
+            --platforms=//build/platforms:darwin_aarch64 \
+            //build/packaging/agent/macos:package -- \
+            --mode=unsigned --source-commit="${RELEASE_COMMIT}" \
+            --output-dir="${RUNNER_TEMP}/macos-validation"
+
+      # Signing credentials are runtime-only: they must never become Bazel
+      # action inputs, environment stamps, cached outputs, or uploaded artifacts.
+      - name: Sign and notarize macOS installer
+        env:
+          RELEASE_COMMIT: ${{ steps.source.outputs.commit }}
+          MACOS_APPLICATION_CERTIFICATE_P12: ${{ secrets.MACOS_APPLICATION_CERTIFICATE_P12 }}
+          MACOS_INSTALLER_CERTIFICATE_P12: ${{ secrets.MACOS_INSTALLER_CERTIFICATE_P12 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_NOTARY_KEY_P8: ${{ secrets.MACOS_NOTARY_KEY_P8 }}
+          MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
+          MACOS_NOTARY_ISSUER_ID: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
+          PKG_APP_SIGN_IDENTITY: ${{ secrets.MACOS_APPLICATION_SIGN_IDENTITY }}
+          PKG_SIGN_IDENTITY: ${{ secrets.MACOS_INSTALLER_SIGN_IDENTITY }}
+        run: |
+          set -euo pipefail
+          for name in MACOS_APPLICATION_CERTIFICATE_P12 MACOS_INSTALLER_CERTIFICATE_P12 \
+            MACOS_CERTIFICATE_PASSWORD MACOS_NOTARY_KEY_P8 MACOS_NOTARY_KEY_ID \
+            MACOS_NOTARY_ISSUER_ID PKG_APP_SIGN_IDENTITY PKG_SIGN_IDENTITY; do
+            if [[ -z "${!name}" ]]; then
+              echo "Missing protected release signing credential: ${name}" >&2
+              exit 1
+            fi
+          done
+          umask 077
+          signing_dir="$(mktemp -d "${RUNNER_TEMP}/macos-signing.XXXXXX")"
+          signing_keychain="${signing_dir}/release.keychain-db"
+          trap 'security delete-keychain "${signing_keychain}" >/dev/null 2>&1 || true; rm -rf "${signing_dir}"' EXIT
+          keychain_password="$(openssl rand -hex 32)"
+          printf '%s' "${MACOS_APPLICATION_CERTIFICATE_P12}" | base64 --decode > "${signing_dir}/application.p12"
+          printf '%s' "${MACOS_INSTALLER_CERTIFICATE_P12}" | base64 --decode > "${signing_dir}/installer.p12"
+          printf '%s' "${MACOS_NOTARY_KEY_P8}" | base64 --decode > "${signing_dir}/notary.p8"
+          security create-keychain -p "${keychain_password}" "${signing_keychain}"
+          security set-keychain-settings -lut 21600 "${signing_keychain}"
+          security unlock-keychain -p "${keychain_password}" "${signing_keychain}"
+          security import "${signing_dir}/application.p12" -k "${signing_keychain}" \
+            -P "${MACOS_CERTIFICATE_PASSWORD}" -T /usr/bin/codesign
+          security import "${signing_dir}/installer.p12" -k "${signing_keychain}" \
+            -P "${MACOS_CERTIFICATE_PASSWORD}" -T /usr/bin/productsign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s \
+            -k "${keychain_password}" "${signing_keychain}" >/dev/null
+          xcrun notarytool store-credentials serviceradar-release \
+            --key "${signing_dir}/notary.p8" --key-id "${MACOS_NOTARY_KEY_ID}" \
+            --issuer "${MACOS_NOTARY_ISSUER_ID}" --keychain "${signing_keychain}"
+          rm -f "${signing_dir}/application.p12" "${signing_dir}/installer.p12" "${signing_dir}/notary.p8"
+          unset MACOS_APPLICATION_CERTIFICATE_P12 MACOS_INSTALLER_CERTIFICATE_P12 \
+            MACOS_CERTIFICATE_PASSWORD MACOS_NOTARY_KEY_P8 MACOS_NOTARY_KEY_ID MACOS_NOTARY_ISSUER_ID
+          mkdir -p "${RUNNER_TEMP}/macos-release"
+          bazelisk run -c opt --config=darwin_local --config=cache_only \
+            --platforms=//build/platforms:darwin_aarch64 \
+            //build/packaging/agent/macos:package -- \
+            --mode=release --source-commit="${RELEASE_COMMIT}" \
+            --output-dir="${RUNNER_TEMP}/macos-release" \
+            --keychain="${signing_keychain}" --notary-profile=serviceradar-release
+
+      - name: Transfer verified macOS installer to publisher
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: macos-agent-release
+          path: ${{ runner.temp }}/macos-release/
+          if-no-files-found: error
+          retention-days: 7
+
   publish:
+    needs: macos
     runs-on: serviceradar-signing
     outputs:
       tag: ${{ steps.release.outputs.tag }}
@@ -597,9 +742,19 @@ jobs:
       # wasm-plugins.yml, which runs in parallel on the same `v*` tag (mirroring
       # native-addons.yml). Inlining it here as well would double-publish and race the
       # index upload, so it is intentionally NOT part of the release job.
+      - name: Download verified macOS installer
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: macos-agent-release
+          path: ${{ runner.temp }}/macos-release
+
       - name: Publish release packages and agent manifest assets
         env:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.version }}
+          MACOS_TAG: ${{ needs.macos.outputs.tag }}
+          MACOS_COMMIT: ${{ needs.macos.outputs.commit }}
+          RELEASE_COMMIT: ${{ steps.release.outputs.commit }}
           NOTES_FILE: ${{ steps.notes.outputs.path }}
           DRY_RUN: ${{ steps.release.outputs.dry_run }}
           APPEND_NOTES: ${{ steps.release.outputs.append_notes }}
@@ -614,18 +769,24 @@ jobs:
             echo "Release tag is empty" >&2
             exit 1
           fi
+          if [[ "${MACOS_TAG}" != "${RELEASE_TAG}" || "${MACOS_COMMIT}" != "${RELEASE_COMMIT}" ]]; then
+            echo "macOS installer and Linux packages must come from the same release commit." >&2
+            exit 1
+          fi
 
-          # Detach earlier selected the immutable tag tree for image/package
-          # bits. publish_packages.go must come from the workflow ref so a
-          # retry-safety fix can land without moving v1.4.35 (and forcing a
-          # second //:push). ^{commit} peels annotated tag objects.
-          workflow_commit="$(git rev-parse --verify "${GITHUB_SHA}^{commit}")"
-          git checkout --detach "${workflow_commit}"
-          echo "Checked out workflow commit ${workflow_commit} for publish_packages"
+          # The publisher's declared package/runtime inputs must still be built
+          # from the tag tree. A newer workflow commit with the same VERSION
+          # would otherwise mix different Linux and macOS source revisions.
+          if [[ "$(git rev-parse HEAD)" != "${RELEASE_COMMIT}" ]] || ! git diff-index --quiet HEAD --; then
+            echo "Release source changed before package publication; refusing mixed-source artifacts." >&2
+            exit 1
+          fi
 
           declare -a args
           args+=("--tag" "$RELEASE_TAG")
-          args+=("--commit" "${{ steps.release.outputs.commit }}")
+          args+=("--commit" "${RELEASE_COMMIT}")
+          args+=("--macos_pkg" "${RUNNER_TEMP}/macos-release/serviceradar-agent_${VERSION}_darwin_arm64.pkg")
+          args+=("--macos_provenance" "${RUNNER_TEMP}/macos-release/serviceradar-agent_${VERSION}_darwin_arm64.provenance.json")
           if [[ -n "$NOTES_FILE" ]]; then
             args+=("--notes_file" "$NOTES_FILE")
           fi
@@ -693,7 +854,6 @@ jobs:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
           VERSION: ${{ steps.release.outputs.version }}
           GITHUB_TOKEN: ${{ github.token }}
-          REQUIRE_MAC_PKG: ${{ env.REQUIRE_MAC_PKG }}
         run: |
           set -euo pipefail
           api_base="https://api.github.com/repos/${GITHUB_REPOSITORY}"
@@ -722,37 +882,33 @@ jobs:
           fi
           printf 'Release asset summary for %s:\n' "$RELEASE_TAG"
           echo "$response" | jq '.assets[]? | {name, size, download_count}'
-          deb_count=$(echo "$response" | jq '[.assets[]? | select(.name | endswith(".deb"))] | length')
-          rpm_count=$(echo "$response" | jq '[.assets[]? | select(.name | endswith(".rpm"))] | length')
-          pkg_count=$(echo "$response" | jq '[.assets[]? | select(.name | endswith(".pkg"))] | length')
-          agent_runtime_count=$(echo "$response" | jq --arg asset "serviceradar-agent_${VERSION}_linux_amd64.tar.gz" '[.assets[]? | select(.name == $asset)] | length')
-          agent_manifest_count=$(echo "$response" | jq '[.assets[]? | select(.name == "serviceradar-agent-release-manifest.json")] | length')
-          agent_manifest_sig_count=$(echo "$response" | jq '[.assets[]? | select(.name == "serviceradar-agent-release-manifest.sig")] | length')
-          if (( deb_count == 0 )); then
-            echo "No .deb assets detected for ${RELEASE_TAG}" >&2
-            exit 1
-          fi
-          if (( rpm_count == 0 )); then
-            echo "No .rpm assets detected for ${RELEASE_TAG}" >&2
-            exit 1
-          fi
-          if (( agent_runtime_count == 0 )); then
-            echo "No managed agent runtime asset detected for ${RELEASE_TAG}" >&2
-            exit 1
-          fi
-          if (( agent_manifest_count == 0 )); then
-            echo "No agent release manifest asset detected for ${RELEASE_TAG}" >&2
-            exit 1
-          fi
-          if (( agent_manifest_sig_count == 0 )); then
-            echo "No agent release manifest signature asset detected for ${RELEASE_TAG}" >&2
-            exit 1
-          fi
-          if [[ "${REQUIRE_MAC_PKG:-false}" == "true" ]] && (( pkg_count == 0 )); then
-            echo "No .pkg assets detected for ${RELEASE_TAG}" >&2
-            exit 1
-          fi
-          echo "Validated presence of ${deb_count} .deb, ${rpm_count} .rpm, ${pkg_count} .pkg, ${agent_runtime_count} runtime archive, ${agent_manifest_count} manifest, and ${agent_manifest_sig_count} signature assets."
+          required_assets=(
+            "serviceradar-agent_${VERSION}_amd64.deb"
+            "serviceradar-agent_${VERSION}_arm64.deb"
+            "serviceradar-agent_${VERSION}_linux_amd64.tar.gz"
+            "serviceradar-agent_${VERSION}_linux_arm64.tar.gz"
+            "serviceradar-agent_${VERSION}_darwin_arm64.pkg"
+            "serviceradar-agent_${VERSION}_darwin_arm64.provenance.json"
+            "serviceradar-agent-release-manifest.json"
+            "serviceradar-agent-release-manifest.sig"
+          )
+          for asset in "${required_assets[@]}"; do
+            count=$(jq --arg name "${asset}" '[.assets[]? | select(.name == $name and .size > 0)] | length' <<<"${response}")
+            if [[ "${count}" != 1 ]]; then
+              echo "Missing or duplicate required release asset: ${asset}" >&2
+              exit 1
+            fi
+          done
+          for arch in x86_64 aarch64; do
+            count=$(jq --arg suffix ".${arch}.rpm" \
+              '[.assets[]? | select((.name | startswith("serviceradar-agent-")) and (.name | endswith($suffix)) and .size > 0)] | length' \
+              <<<"${response}")
+            if [[ "${count}" != 1 ]]; then
+              echo "Missing or duplicate agent RPM for ${arch}" >&2
+              exit 1
+            fi
+          done
+          echo "Verified Linux amd64/arm64 packages and runtimes, macOS ARM64 installer, and signed agent manifest."
           printf 'release_id=%s\n' "${release_id}" >> "${GITHUB_OUTPUT}"
 
   # Keep release finalization off the privileged signing pool. Catalog and security

@@ -1,20 +1,35 @@
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
-load("@rules_pkg//pkg:mappings.bzl", "pkg_attributes", "pkg_files")
-load("@rules_pkg//pkg:pkg.bzl", "pkg_tar")
-load("//build/packaging:package_rules.bzl", "serviceradar_package_from_config")
-load("//build/packaging:packages.bzl", "PACKAGES")
+load("//build/packaging:agent_packages.bzl", "declare_linux_agent_packages")
 
 package(default_visibility = ["//visibility:public"])
 
 exports_files([
     "bin/serviceradar-agent",
+    "config/agent.json",
+    "config/checkers/sweep/sweep.json",
+    "scripts/postinstall.sh",
+    "scripts/preremove.sh",
     "systemd/50-serviceradar-shared-runtime.conf",
     "systemd/serviceradar-agent.service",
 ])
 
-serviceradar_package_from_config(
-    name = "agent",
-    config = PACKAGES["agent"],
+declare_linux_agent_packages(["amd64"])
+
+# rules_pkg RPM intermediate names are package-scoped, so architectures require
+# separate Bazel packages. Public aliases preserve the installer target surface.
+alias(
+    name = "agent_arm64_deb",
+    actual = "//build/packaging/agent/arm64:agent_arm64_deb",
+)
+
+alias(
+    name = "agent_arm64_rpm",
+    actual = "//build/packaging/agent/arm64:agent_arm64_rpm",
+)
+
+alias(
+    name = "agent_release_runtime_linux_arm64_archive",
+    actual = "//build/packaging/agent/arm64:agent_release_runtime_linux_arm64_archive",
 )
 
 # Stage the built agent RPM outside the output tree, for manual delivery to a
@@ -32,24 +47,15 @@ sh_binary(
     },
 )
 
-# netprobe is no longer bundled here: it is carved out of the base agent and
-# delivered as a signed pushed-artifact add-on (migrate-netprobe-to-native-addon
-# §1.4; build/native_addons/addon_inventory.bzl: netprobe_addon_bundle).
-pkg_files(
-    name = "agent_release_runtime_files",
-    srcs = [
-        "//go/cmd/agent",
-    ],
-    attributes = pkg_attributes(mode = "0755"),
-    prefix = "/",
-    renames = {
-        "//go/cmd/agent": "serviceradar-agent",
+sh_binary(
+    name = "stage_agent_arm64_deb",
+    srcs = ["//build/native_addons:stage_addon_bundle.sh"],
+    data = [":agent_arm64_deb"],
+    env = {
+        "BUNDLE_RUNFILE": "$(rootpath :agent_arm64_deb)",
     },
 )
 
-pkg_tar(
-    name = "agent_release_runtime_archive",
-    srcs = [":agent_release_runtime_files"],
-    extension = "tar.gz",
-    package_dir = "/",
-)
+# netprobe is no longer bundled here: it is carved out of the base agent and
+# delivered as a signed pushed-artifact add-on (migrate-netprobe-to-native-addon
+# §1.4; build/native_addons/addon_inventory.bzl: netprobe_addon_bundle).

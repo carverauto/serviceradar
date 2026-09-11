@@ -54,3 +54,24 @@ go_test(
     )
     for arch in ("amd64", "arm64")
 ]
+
+# The signed macOS installer needs the native Apple Silicon telemetry backend.
+# This must override the workspace pure-Go default and build against a Darwin SDK.
+# The goos/goarch transition makes this target Darwin-compatible even when a
+# Linux wildcard build selects it. Native package CI requests it explicitly.
+go_binary(
+    name = "agent_darwin_arm64",
+    embed = [":agent_lib"],
+    goarch = "arm64",
+    goos = "darwin",
+    pure = "off",
+    tags = ["manual"],
+    target_compatible_with = [
+        "@platforms//cpu:arm64",
+        "@platforms//os:macos",
+    ],
+    visibility = ["//visibility:public"],
+    x_defs = {
+        "github.com/carverauto/serviceradar/go/cmd/agent.Version": FULL_VERSION,
+    },
+)
