@@ -2567,6 +2567,96 @@ fn harness_quiet_interface_burst_bounds_score_severity_and_episode_count() {
     );
 }
 
+/// A recurring bulk transfer on an interface (the shape that paged ~100 times a
+/// day per device on demo): a 6-sample burst every 30 minutes over a quiet
+/// baseline. With the recent-burst envelope the series opens at most once; the
+/// same series WITHOUT the envelope reopens on every burst (the control that
+/// proves the envelope is what changed). A burst three times the recent
+/// magnitude still opens.
+#[test]
+fn harness_periodic_burst_interface_opens_once_then_stays_silent() {
+    const MINUTE_NS: u64 = 60 * 1_000_000_000;
+    const CYCLE: u64 = 30;
+    const CYCLES: u64 = 12;
+
+    fn periodic_value(slot: u64) -> f64 {
+        let phase = slot % CYCLE;
+        if (20..26).contains(&phase) {
+            700_000.0
+        } else {
+            14_000.0 + ((slot % 7) as f64) * 500.0
+        }
+    }
+
+    fn run(profile: SeriesProfile) -> (Vec<u64>, usize) {
+        let cfg = EngineConfig {
+            window_size: 300,
+            min_samples: 30,
+            n_sigma: 3.0,
+            confirm_slots: 5,
+            max_series: 10,
+            episode_update_interval_secs: 1_000_000,
+            ..EngineConfig::default()
+        };
+        let mut engine = DetectorEngine::new(cfg);
+        let series = "periodic-burst-if4";
+        let mut opens = Vec::new();
+
+        for slot in 0..(CYCLE * CYCLES) {
+            if let Some(tv) =
+                engine.evaluate_transition(series, periodic_value(slot), slot * MINUTE_NS, profile)
+                && tv.transition == AnomalyTransition::Open
+            {
+                opens.push(slot);
+            }
+        }
+
+        // A burst three times the recent envelope must still confirm.
+        let mut tall_opens = 0;
+        for slot in (CYCLE * CYCLES)..(CYCLE * CYCLES + 6) {
+            if let Some(tv) =
+                engine.evaluate_transition(series, 2_100_000.0, slot * MINUTE_NS, profile)
+                && tv.transition == AnomalyTransition::Open
+            {
+                tall_opens += 1;
+            }
+        }
+
+        (opens, tall_opens)
+    }
+
+    let metric = Metric {
+        name: "ifHCInOctets".to_string(),
+        metric_type: "snmp.interface".to_string(),
+        ..Default::default()
+    };
+    let enveloped = counter_series_profile(&metric);
+    assert!(
+        enveloped.burst_envelope.is_some(),
+        "interface byte rates enable the burst envelope by default"
+    );
+    let control = SeriesProfile {
+        burst_envelope: None,
+        ..enveloped
+    };
+
+    let (control_opens, _) = run(control);
+    assert!(
+        control_opens.len() >= 3,
+        "control: without the envelope the recurring burst must keep reopening (got {control_opens:?})"
+    );
+
+    let (opens, tall_opens) = run(enveloped);
+    assert!(
+        opens.len() <= 1,
+        "recurring bursts within the recent envelope must not keep reopening (opens at {opens:?})"
+    );
+    assert_eq!(
+        tall_opens, 1,
+        "a burst 3x the recent envelope must still open"
+    );
+}
+
 #[test]
 fn harness_diurnal_interface_without_baseline_stays_bounded_and_adopts_a_shift() {
     const MINUTE_NS: u64 = 60 * 1_000_000_000;
