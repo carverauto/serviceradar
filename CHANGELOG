@@ -1,3 +1,48 @@
+# ServiceRadar v1.4.57
+
+Fixes a v1.4.56 regression: when `webNg.clientIp.trustedProxyCidrs`
+covered the range clients connect from, every route that resolves
+the client IP returned HTTP 500 for those clients. web-ng now falls
+back to the direct peer and logs a warning, and the demo overlays
+trust only the envoy pod range.
+
+## Whats New
+
+**1.4.57**
+- Web: an X-Forwarded-For chain with no hop outside
+  `trustedProxyCidrs`, or with no address at all, now falls back to
+  the direct peer and logs a warning naming the setting to narrow,
+  instead of raising `FunctionClauseError` in
+  `ClientIP.valid_ip_or/2`. v1.4.56's demo overlays listed all of
+  RFC1918, so a client on the site LAN was stripped as a proxy hop,
+  no hop remained, and every route that resolves the client
+  (OIDC callback, MCP `/oauth/authorize`, local login, CSP reports,
+  MCP session audit) returned 500; external clients were
+  unaffected.
+- Helm: `values-demo.yaml` and `values-demo-staging.yaml` trust
+  only the k3s cluster CIDR (`10.42.0.0/16`), the envoy pod range;
+  the staging value is marked to confirm against the target
+  cluster's `--cluster-cidr` before first use. `values.yaml` and
+  the chart README now state that `trustedProxyCidrs` is the set of
+  proxy peers whose header is believed, not an allow-list of
+  clients: every CIDR in it is an address web-ng will never report
+  as a client, so RFC1918 wholesale makes LAN clients unreportable.
+- Tests: the three pre-existing `ClientIP` tests had never executed
+  in CI (the web-ng unit tier is a `:db_free` allow-list and the
+  module carried no tag, so they were loaded and excluded); they
+  run now, plus regressions for the all-trusted and empty chains
+  and a rate-limiter plug test for the same case.
+
+## Upgrade Notes
+
+- If you enabled `webNg.clientIp.trustXForwardedFor` with broad
+  CIDRs (all of RFC1918, or any range your clients connect from),
+  narrow `webNg.clientIp.trustedProxyCidrs` to the proxy's own
+  pod/service range. On v1.4.57 the broad list no longer crashes
+  requests, but web-ng logs a warning per affected request and
+  records the proxy address instead of the client in audit logs,
+  rate limiting and lockout checks.
+
 # ServiceRadar v1.4.56
 
 Settings > Audit > History now captures and resolves an actor for
