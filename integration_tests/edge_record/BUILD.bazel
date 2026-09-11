@@ -37,6 +37,7 @@ go_test(
         "certs_selfcheck_test.go",
         "fixture.go",
         "fixture_selfcheck_test.go",
+        "log_preservation_selfcheck_test.go",
         "natsjwt.go",
         "natsjwt_selfcheck_test.go",
         "releases.go",
