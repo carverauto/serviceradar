@@ -25,7 +25,8 @@ Agent-capable releases SHALL publish an MSI installer for Windows amd64 and Wind
 #### Scenario: Fresh install
 - **GIVEN** a Windows host without ServiceRadar installed
 - **WHEN** an operator installs `serviceradar-agent_<version>_windows_amd64.msi`
-- **THEN** the agent binary is installed under Program Files, a default configuration is written, and the service is started
+- **THEN** the agent binary is installed under Program Files, a default configuration is written, and the service is registered to start automatically
+- **AND** the installer does not start the service until the operator has configured it
 
 #### Scenario: Upgrade preserves operator configuration
 - **GIVEN** a Windows host running an older agent with an operator-edited configuration

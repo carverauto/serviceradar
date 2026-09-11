@@ -14,7 +14,8 @@ and its config and state paths are hardcoded to `/etc/serviceradar` and
 - A WiX-based MSI packager (`build/packaging/agent/windows/`) produces
   `serviceradar-agent_<version>_windows_amd64.msi` and `_arm64.msi`. It installs the
   binary, a default config, and a `ServiceRadarAgent` service running as LocalSystem,
-  set to start automatically and restart on failure. Upgrades replace older versions
+  set to start automatically and restart on failure. The installer does not start the
+  service: the default config names a placeholder gateway and certificates. Upgrades replace older versions
   (fixed UpgradeCode + MajorUpgrade); uninstall keeps config and state.
 - CI builds the MSIs on GitHub-hosted `windows-latest` runners, on demand and in the
   release workflow. The release publishes them as GitHub release assets.

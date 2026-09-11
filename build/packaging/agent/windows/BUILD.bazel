@@ -1,0 +1,54 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+load("@serviceradar_version//:defs.bzl", "FULL_VERSION")
+
+go_library(
+    name = "package_lib",
+    srcs = [
+        "main.go",
+        "package.go",
+        "stage.go",
+        "wxs.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/build/packaging/agent/windows",
+    visibility = ["//visibility:private"],
+    deps = ["@io_bazel_rules_go//go/runfiles"],
+)
+
+# The packager cross-compiled for the Windows CI runner, where WiX and msiexec
+# live. `stage` hands it over together with the inputs it packages.
+go_binary(
+    name = "package_windows",
+    embed = [":package_lib"],
+    goarch = "amd64",
+    goos = "windows",
+    pure = "on",
+    x_defs = {"github.com/carverauto/serviceradar/build/packaging/agent/windows.fullVersion": FULL_VERSION},
+)
+
+# Copies every MSI input out of runfiles into --output-dir. This repository's
+# Bazel setup does not run on Windows hosts, so the Windows job receives the
+# built inputs from this target instead of building them itself.
+go_binary(
+    name = "stage",
+    data = [
+        ":package_windows",
+        "//build/packaging/agent:config/agent-windows.json",
+        "//go/cmd/agent:agent_windows_amd64",
+        "//go/cmd/agent:agent_windows_arm64",
+    ],
+    embed = [":package_lib"],
+    env = {
+        "SERVICERADAR_WINDOWS_AGENT_AMD64_RUNFILE": "$(rlocationpath //go/cmd/agent:agent_windows_amd64)",
+        "SERVICERADAR_WINDOWS_AGENT_ARM64_RUNFILE": "$(rlocationpath //go/cmd/agent:agent_windows_arm64)",
+        "SERVICERADAR_WINDOWS_CONFIG_RUNFILE": "$(rlocationpath //build/packaging/agent:config/agent-windows.json)",
+        "SERVICERADAR_WINDOWS_PACKAGER_RUNFILE": "$(rlocationpath :package_windows)",
+    },
+    visibility = ["//visibility:public"],
+    x_defs = {"github.com/carverauto/serviceradar/build/packaging/agent/windows.fullVersion": FULL_VERSION},
+)
+
+go_test(
+    name = "package_test",
+    srcs = ["package_test.go"],
+    embed = [":package_lib"],
+)

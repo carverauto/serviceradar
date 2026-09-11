@@ -5,6 +5,7 @@ package(default_visibility = ["//visibility:public"])
 
 exports_files([
     "bin/serviceradar-agent",
+    "config/agent-windows.json",
     "config/agent.json",
     "config/checkers/sweep/sweep.json",
     "scripts/postinstall.sh",

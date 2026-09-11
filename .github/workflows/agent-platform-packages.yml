@@ -5,6 +5,12 @@ name: Agent Platform Packages
 # nearly every Go change to find packaging breakage slightly earlier.
 on:
   workflow_dispatch:
+    inputs:
+      platform:
+        description: Installers to build
+        type: choice
+        options: [all, macos, windows]
+        default: all
 
 permissions:
   contents: read
@@ -15,6 +21,7 @@ concurrency:
 
 jobs:
   macos-arm64:
+    if: inputs.platform != 'windows'
     runs-on: macos-15
     timeout-minutes: 45
     steps:
@@ -43,5 +50,142 @@ jobs:
         with:
           name: unsigned-macos-agent-arm64
           path: ${{ runner.temp }}/unsigned-macos-agent/
+          if-no-files-found: error
+          retention-days: 7
+
+  # Bazel builds the Windows inputs on Linux (this repository's Bazel setup does
+  # not run on Windows hosts); the Windows job only runs WiX and msiexec.
+  windows-stage:
+    if: inputs.platform != 'macos'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      BAZELISK_HOME: ${{ github.workspace }}/.cache/bazelisk
+      BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY || secrets.BUILDBUDDY_API_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Bazelisk
+        run: ./scripts/install-bazelisk.sh
+
+      # The API key reaches Bazel only through the gitignored .bazelrc.remote.
+      - name: Configure remote cache
+        run: |
+          set -euo pipefail
+          if [ -z "${BUILDBUDDY_ORG_API_KEY:-}" ]; then
+            echo "BUILDBUDDY_ORG_API_KEY is unavailable; --config=remote cannot authenticate." >&2
+            exit 1
+          fi
+          umask 077
+          printf 'common --remote_header=x-buildbuddy-api-key=%s\n' "${BUILDBUDDY_ORG_API_KEY}" > .bazelrc.remote
+
+      - name: Stage Windows installer inputs
+        env:
+          SOURCE_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/windows-inputs"
+          bazel run -c opt --config=remote //build/packaging/agent/windows:stage -- \
+            --source-commit="${SOURCE_COMMIT}" --output-dir="${RUNNER_TEMP}/windows-inputs"
+
+      - name: Upload staged inputs
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: windows-agent-inputs
+          path: ${{ runner.temp }}/windows-inputs/
+          if-no-files-found: error
+          retention-days: 1
+
+  windows-msi:
+    needs: windows-stage
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download staged inputs
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: windows-agent-inputs
+          path: ${{ runner.temp }}/windows-inputs
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      # The service handler tests only compile on Windows, so they run here.
+      - name: Windows service unit tests
+        shell: pwsh
+        run: |
+          go test ./go/cmd/agent/ -run '^TestService' -count=1 -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # Pinned: WiX v6 and later require the Open Source Maintenance Fee from
+      # users who generate revenue. See openspec/changes/add-windows-agent-installer.
+      - name: Install WiX Toolset 5.0.2
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix --version 5.0.2
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build and verify MSIs
+        shell: pwsh
+        env:
+          SOURCE_COMMIT: ${{ github.sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $inputs = Join-Path $env:RUNNER_TEMP 'windows-inputs'
+          $out = Join-Path $env:RUNNER_TEMP 'windows-msi'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          & (Join-Path $inputs 'package.exe') build --source-commit $env:SOURCE_COMMIT --input-dir $inputs --output-dir $out
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-ChildItem $out | Format-Table Name, Length
+
+      - name: Install, start, stop and uninstall the amd64 MSI
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $out = Join-Path $env:RUNNER_TEMP 'windows-msi'
+          $msi = (Get-ChildItem $out -Filter '*_windows_amd64.msi').FullName
+          $config = Join-Path $env:ProgramData 'ServiceRadar\config\agent.json'
+          $log = Join-Path $env:ProgramData 'ServiceRadar\logs\agent.log'
+
+          $install = Start-Process msiexec -ArgumentList '/i', "`"$msi`"", '/qn', '/l*v', "`"$env:RUNNER_TEMP\install.log`"" -Wait -PassThru
+          if ($install.ExitCode -ne 0) { Get-Content "$env:RUNNER_TEMP\install.log" -Tail 60; throw "install exited $($install.ExitCode)" }
+
+          $svc = Get-Service ServiceRadarAgent
+          if ($svc.StartType -ne 'Automatic') { throw "start type is $($svc.StartType), want Automatic" }
+          if ($svc.Status -ne 'Stopped') { throw "the installer started the service ($($svc.Status)) before it was configured" }
+          if (-not (Test-Path $config)) { throw "default config was not installed at $config" }
+          $failure = sc.exe qfailure ServiceRadarAgent | Out-String
+          Write-Output $failure
+          if ($failure -notmatch 'RESTART') { throw 'service recovery actions do not restart the agent' }
+
+          Start-Service ServiceRadarAgent
+          (Get-Service ServiceRadarAgent).WaitForStatus('Running', '00:00:30')
+          Start-Sleep -Seconds 5
+          if (Test-Path $log) { Get-Content $log -Tail 30 } else { throw "service mode wrote no log at $log" }
+          Stop-Service ServiceRadarAgent -ErrorAction SilentlyContinue
+          (Get-Service ServiceRadarAgent).WaitForStatus('Stopped', '00:00:30')
+
+          $remove = Start-Process msiexec -ArgumentList '/x', "`"$msi`"", '/qn' -Wait -PassThru
+          if ($remove.ExitCode -ne 0) { throw "uninstall exited $($remove.ExitCode)" }
+          if (Get-Service ServiceRadarAgent -ErrorAction SilentlyContinue) { throw 'uninstall left the service registered' }
+          if (Test-Path (Join-Path $env:ProgramFiles 'ServiceRadar\serviceradar-agent.exe')) { throw 'uninstall left the agent binary' }
+          if (-not (Test-Path $config)) { throw 'uninstall removed the operator configuration' }
+
+      - name: Upload unsigned MSIs
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: unsigned-windows-agent
+          path: ${{ runner.temp }}/windows-msi/
           if-no-files-found: error
           retention-days: 7
