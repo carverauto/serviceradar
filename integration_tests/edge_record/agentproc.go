@@ -170,7 +170,7 @@ func StartAgent(
 
 // Stop kills the agent process. go/cmd/agent's push-mode loop has no
 // documented graceful RPC shutdown reachable from outside the process (it
-// runs until its context is canceled by an OS signal); sending SIGTERM lets
+// runs until its context is canceled by an OS signal); sending SIGINT lets
 // its normal signal handling (if any) run before a hard kill.
 func (p *AgentProcess) Stop() {
 	if p == nil || p.cmd == nil || p.cmd.Process == nil {
