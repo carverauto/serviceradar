@@ -36,3 +36,21 @@ go_test(
         "SERVICERADAR_TEST_AGENT_VERSION": FULL_VERSION,
     },
 )
+
+# Windows agent binaries. Pure Go so they cross-compile from the Linux RBE
+# executors without a Windows SDK; the goos/goarch transition keeps them
+# buildable from any host.
+[
+    go_binary(
+        name = "agent_windows_{}".format(arch),
+        embed = [":agent_lib"],
+        goarch = arch,
+        goos = "windows",
+        pure = "on",
+        visibility = ["//visibility:public"],
+        x_defs = {
+            "github.com/carverauto/serviceradar/go/cmd/agent.Version": FULL_VERSION,
+        },
+    )
+    for arch in ("amd64", "arm64")
+]
