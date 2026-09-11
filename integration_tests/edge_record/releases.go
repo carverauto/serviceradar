@@ -157,28 +157,14 @@ func (c GatewayEnvConfig) Env() map[string]string {
 // ServiceRadar.EventWriter.Pipeline actually running, confirmed by reading
 // elixir/serviceradar_core_elx/config/runtime.exs.
 //
-// OPEN ITEM for the harness's CI wiring (flagged for the orchestrator, not
-// resolved here): CNPGHost/Port/Database/Username/Password below assume a
-// plain, reachable Postgres endpoint is available to the test process via
-// ordinary CNPG_* environment variables (CNPG_SSL_MODE defaults to
-// "disable" in runtime.exs:649, so a non-TLS scratch Postgres works). That
-// matches the "Local Development with Docker CNPG" playbook
-// (CNPG_HOST=localhost, CNPG_PORT=5455) for a local `bazel test` run. It does
-// NOT match how the EXISTING elixir/serviceradar_core:integration_tests_*
-// Bazel lanes obtain their scratch database in the required BazelCI check --
-// those resolve a per-run "generation" database through a typed
-// IntegrationEnvConfig/ConfigManager identity (SERVICERADAR_ENV=ci) plus
-// //build:run_id_file, NOT plain CNPG_* env vars (buildbuddy.yaml only
-// exports SERVICERADAR_ENV and SERVICERADAR_SECRET_DATABASE_PASSWORD as
-// --test_env to the shared `bazel test //...` invocation; it does not export
-// a plain CNPG_HOST/CNPG_PORT for the generation database anywhere I could
-// find). Making this target pass in the required BazelCI check therefore
-// needs the BUILD.bazel wiring (not this file) to either capture
-// //rust/integration-db:provision_generation's JSON connection output into a
-// small data file this test can read, or otherwise translate that
-// generation database's real connection parameters into the CNPGHost/
-// CNPGPort/CNPGDatabase/CNPGUsername/CNPGPassword fields below. Until that is
-// wired, CNPGHostFromEnv's localhost/5455 fallback only supports local runs.
+// CNPGHost/Port/Database/Username/Password below come from ShardCNPGConfig in
+// the required BazelCI check: this test's own sr_core_test_<run>_edge_record
+// clone of the schema generation, created and described by //rust/integration-db
+// binaries the harness executes (vertical_slice_test.go's
+// provisionAndDescribeShard). A local, non-Bazel `go test` run falls back to
+// plain CNPG_* env vars (CNPG_SSL_MODE defaults to "disable" in runtime.exs,
+// so the "Local Development with Docker CNPG" playbook's non-TLS Postgres on
+// localhost:5455 works).
 type CoreEnvConfig struct {
 	MetricsPort   int
 	CNPGHost      string
@@ -195,10 +181,10 @@ type CoreEnvConfig struct {
 	CloakKey string
 	// CNPGSSLMode is CNPG_SSL_MODE (elixir/serviceradar_core_elx/config/runtime.exs:651,
 	// default "disable"). Local `bazel test`/dev runs against the Docker CNPG playbook
-	// leave this "disable"; the required BazelCI check's run-base database is
-	// password+TLS-verified (see RunBaseCNPGConfig and vertical_slice_test.go's
-	// runDescribeRunBase), so the orchestrator sets
-	// this to the value describe_run_base reported ("require"/"verify-ca"/"verify-full").
+	// leave this "disable"; the required BazelCI check's shard database is
+	// password+TLS-verified (see ShardCNPGConfig and vertical_slice_test.go's
+	// provisionAndDescribeShard), so the harness sets
+	// this to the value describe_shard reported ("require"/"verify-ca"/"verify-full").
 	CNPGSSLMode string
 	// CNPGCAFile is CNPG_CA_FILE (runtime.exs:656-660) -- the CA the connection verifies
 	// the server certificate against. Empty omits the env var (falls back to
@@ -257,12 +243,12 @@ func (c CoreEnvConfig) Env() map[string]string {
 	return env
 }
 
-// RunBaseCNPGConfig is the JSON shape
-// //rust/integration-db:describe_run_base prints to stdout: the already-provisioned
-// run base's real connection identity, resolved from the typed SERVICERADAR_ENV=ci
+// ShardCNPGConfig is the JSON shape
+// //rust/integration-db:describe_shard prints to stdout: this test's already-cloned
+// sr_core_test_<run>_<shard> database's real connection identity, resolved from the typed SERVICERADAR_ENV=ci
 // fixture (see that binary's moduledoc for why a Rust binary does this resolution
 // instead of this package reimplementing it).
-type RunBaseCNPGConfig struct {
+type ShardCNPGConfig struct {
 	Host          string `json:"host"`
 	Port          int    `json:"port"`
 	Database      string `json:"database"`
@@ -281,7 +267,7 @@ type RunBaseCNPGConfig struct {
 // WriteCAPEMFile decodes cfg.CAPEMBase64 (when present) and writes it to
 // <dir>/cnpg-ca.pem, returning the path. Returns "" (no error) when there is no CA
 // PEM to write.
-func (cfg *RunBaseCNPGConfig) WriteCAPEMFile(dir string) (string, error) {
+func (cfg *ShardCNPGConfig) WriteCAPEMFile(dir string) (string, error) {
 	if cfg == nil || cfg.CAPEMBase64 == "" {
 		return "", nil
 	}
