@@ -20,6 +20,11 @@ for the agent and the fixes that let the release publish.
   list instead of only an exit status (PR #393, PR #394).
 - core_elx: `mix.lock` records `ash_events`, so its dependency
   check passes again, and the Bazel Hex closure matches (PR #391).
+- Release: a failed or hung macOS signing step no longer blocks
+  the release. Images, chart, Linux packages and Windows MSIs
+  publish regardless, and the macOS installer is attached only when
+  its job succeeds. Each signing command is time-limited and named
+  in the log (PR #396).
 
 ## Upgrade Notes
 
