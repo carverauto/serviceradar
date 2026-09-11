@@ -222,11 +222,16 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducerBat
     end
   end
 
+  # A failed chunk fails THAT source (no partial profile is ever delivered for
+  # it). With a single source that leaves nothing to deliver, which is the one
+  # case the build still reports as an error; other sources keep delivering.
   test "a failing chunk query fails the source fetch" do
     source = Enum.find(Source.defaults(), &(&1.name == "cpu_seasonal"))
 
-    assert {:error, :chunk_timeout} =
-             EdgeBaselineProducer.build(sources: [source], runner: FailingChunkRunner)
+    ExUnit.CaptureLog.capture_log(fn ->
+      assert {:error, {:all_sources_failed, ["cpu_seasonal"]}} =
+               EdgeBaselineProducer.build(sources: [source], runner: FailingChunkRunner)
+    end)
   end
 
   defp collect_chunk_queries(acc \\ []) do
