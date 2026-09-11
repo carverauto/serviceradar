@@ -271,6 +271,21 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
            ) == {:ok, "flows"}
   end
 
+  test "a subject no stream owns is an empty discovery result, not a discovery error" do
+    # nats-server encodes "no stream owns this subject" as `"streams": null`.
+    assert JetstreamConsumer.stream_names_reply(
+             {:ok, %{"type" => "io.nats.jetstream.api.v1.stream_names_response", "streams" => nil}}
+           ) == {:ok, []}
+
+    assert JetstreamConsumer.stream_names_reply({:ok, %{"streams" => ["events", 7]}}) ==
+             {:ok, ["events"]}
+
+    assert {:error, {:unexpected_stream_names_response, _}} =
+             JetstreamConsumer.stream_names_reply({:ok, %{"total" => 0}})
+
+    assert JetstreamConsumer.stream_names_reply({:error, :timeout}) == {:error, :timeout}
+  end
+
   test "overlap fallback re-resolves onto the stream owning the subject" do
     assert JetstreamConsumer.overlap_fallback_stream({:ok, ["events"]}, "analytics_predictions") ==
              {:ok, "events"}
