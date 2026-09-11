@@ -85,12 +85,10 @@ var (
 	gatewayReleaseTarRlocation string
 	coreReleaseTarRlocation    string
 	agentBinaryRlocation       string
-	natsServerBinaryRlocation  string // unused today (embedded nats-server via natsjwt.go), reserved for a future subprocess-nats variant.
 	// provisionShardRlocation and describeShardRlocation are
 	// //rust/integration-db:provision_generation_edge_record's and
-	// :describe_shard's binaries. Both are empty in a plain `go test` run
-	// outside Bazel (resolveCNPG then falls back to plain CNPG_* env vars)
-	// and set via x_defs under Bazel. This harness EXECS the binaries itself
+	// :describe_shard's binaries, this test's only source of a CNPG
+	// identity. This harness EXECS the binaries itself
 	// rather than reading a JSON file written by an earlier buildbuddy.yaml
 	// shell step and passed via --test_env, because a --test_env value
 	// naming a host filesystem path is invisible to a remotely-executed test
@@ -116,12 +114,16 @@ const (
 	agentPollInterval    = 200 * time.Millisecond
 )
 
+func resolveRlocation(rlocationPath string) (string, error) {
+	if rlocationPath == "" {
+		return "", fmt.Errorf("rlocation path not set -- BUILD.bazel x_defs missing for this variable")
+	}
+	return runfiles.Rlocation(rlocationPath)
+}
+
 func mustRlocation(t *testing.T, rlocationPath string) string {
 	t.Helper()
-	if rlocationPath == "" {
-		t.Fatalf("rlocation path not set -- BUILD.bazel x_defs missing for this variable")
-	}
-	resolved, err := runfiles.Rlocation(rlocationPath)
+	resolved, err := resolveRlocation(rlocationPath)
 	if err != nil {
 		t.Fatalf("resolve rlocation %s: %v", rlocationPath, err)
 	}
@@ -130,8 +132,6 @@ func mustRlocation(t *testing.T, rlocationPath string) string {
 
 // provisionAndDescribeShard creates this test's own disposable
 // sr_core_test_<run>_<shard> database and returns its connection identity.
-// Returns (nil, nil) when neither rlocation was injected (a plain `go test`
-// run outside Bazel), so resolveCNPG falls back to plain CNPG_* env vars.
 //
 // The shard is SERVICERADAR_TEST_DB_SHARD, set by this target's BUILD `env`
 // -- the same variable the Elixir lanes use to name their clones. Under the
@@ -140,10 +140,6 @@ func mustRlocation(t *testing.T, rlocationPath string) string {
 // generation and no unsuffixed database exists, so this test clones a shard
 // of its own the same way instead of assuming a shared run database.
 func provisionAndDescribeShard() (*ShardCNPGConfig, error) {
-	if provisionShardRlocation == "" && describeShardRlocation == "" {
-		return nil, nil
-	}
-
 	shard := os.Getenv("SERVICERADAR_TEST_DB_SHARD")
 	if shard == "" {
 		return nil, fmt.Errorf("SERVICERADAR_TEST_DB_SHARD is unset; BUILD.bazel's env names this target's disposable database shard")
@@ -164,7 +160,7 @@ func provisionAndDescribeShard() (*ShardCNPGConfig, error) {
 // every sr_core_test_<run>_% database at the end of the run, so nothing new
 // cleans up.
 func provisionShard(shard string) error {
-	binPath, err := runfiles.Rlocation(provisionShardRlocation)
+	binPath, err := resolveRlocation(provisionShardRlocation)
 	if err != nil {
 		return fmt.Errorf("resolve provision_generation_edge_record rlocation: %w", err)
 	}
@@ -196,7 +192,7 @@ func provisionShard(shard string) error {
 // environment and only resolves and reports the identity, per its own
 // moduledoc; provisionShard must already have created the clone.
 func describeShard() (*ShardCNPGConfig, error) {
-	binPath, err := runfiles.Rlocation(describeShardRlocation)
+	binPath, err := resolveRlocation(describeShardRlocation)
 	if err != nil {
 		return nil, fmt.Errorf("resolve describe_shard rlocation: %w", err)
 	}
@@ -211,7 +207,7 @@ func describeShard() (*ShardCNPGConfig, error) {
 
 	var cfg ShardCNPGConfig
 	if err := json.Unmarshal(bytes.TrimSpace(stdout.Bytes()), &cfg); err != nil {
-		return nil, fmt.Errorf("parse describe_shard output %q: %w", stdout.String(), err)
+		return nil, fmt.Errorf("parse describe_shard output (%d bytes, withheld: it carries the fixture credentials): %w", stdout.Len(), err)
 	}
 	return &cfg, nil
 }
@@ -230,40 +226,6 @@ func freePort(t *testing.T) int {
 	}
 	defer l.Close()
 	return l.Addr().(*net.TCPAddr).Port
-}
-
-// preserveProcessLogs copies every *.stdout.log/*.stderr.log file under
-// srcDir (recursively, since each release/agent process writes its own
-// workDir subdirectory) into outDir, flattening with a workDir-relative name
-// so a CI failure ("event_ledger row never appeared") has something to read
-// beyond the bare error string -- see newHarness's registration comment for
-// why this must run after every process's own Stop() cleanup.
-func preserveProcessLogs(t *testing.T, srcDir, outDir string) {
-	t.Helper()
-
-	_ = filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
-			return nil //nolint:nilerr // best-effort log salvage; a walk error must not fail the test
-		}
-		if !strings.HasSuffix(path, ".stdout.log") && !strings.HasSuffix(path, ".stderr.log") {
-			return nil
-		}
-
-		rel, relErr := filepath.Rel(srcDir, path)
-		if relErr != nil {
-			rel = filepath.Base(path)
-		}
-		dest := filepath.Join(outDir, strings.ReplaceAll(rel, string(filepath.Separator), "__"))
-
-		data, readErr := os.ReadFile(path)
-		if readErr != nil {
-			return nil //nolint:nilerr // best-effort; a partially-written log is still worth what we got
-		}
-		if writeErr := os.WriteFile(dest, data, 0o644); writeErr != nil { //nolint:gosec // test log artifact, not a secret
-			t.Logf("preserveProcessLogs: write %s: %v", dest, writeErr)
-		}
-		return nil
-	})
 }
 
 // harness bundles every live component of the composed path for one test
@@ -303,6 +265,48 @@ type harness struct {
 	groupASequence uint64
 }
 
+// preservedLogName is the flattened, h.dir-relative name a process log file
+// is preserved under (each release/agent process writes its own workDir
+// subdirectory): <dir>/core/serviceradar_core_elx.stderr.log becomes
+// core__serviceradar_core_elx.stderr.log.
+func (h *harness) preservedLogName(path string) string {
+	rel, err := filepath.Rel(h.dir, path)
+	if err != nil {
+		rel = filepath.Base(path)
+	}
+	return strings.ReplaceAll(rel, string(filepath.Separator), "__")
+}
+
+// preserveProcessLogs copies every *.stdout.log/*.stderr.log file under h.dir
+// into outDir under its preservedLogName, with both release configurations'
+// Secrets() scrubbed, so a CI failure ("event_ledger row never appeared") has
+// something to read beyond the bare error string -- see newHarness's
+// registration comment for why this must run after every process's own
+// Stop() cleanup.
+func (h *harness) preserveProcessLogs(outDir string) {
+	h.t.Helper()
+	secrets := append(h.gatewayEnv.Secrets(), h.coreEnv.Secrets()...)
+
+	_ = filepath.Walk(h.dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil //nolint:nilerr // best-effort log salvage; a walk error must not fail the test
+		}
+		if !strings.HasSuffix(path, ".stdout.log") && !strings.HasSuffix(path, ".stderr.log") {
+			return nil
+		}
+
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return nil //nolint:nilerr // best-effort; a partially-written log is still worth what we got
+		}
+		dest := filepath.Join(outDir, h.preservedLogName(path))
+		if writeErr := os.WriteFile(dest, []byte(redactSecrets(string(data), secrets)), 0o600); writeErr != nil {
+			h.t.Logf("preserveProcessLogs: write %s: %v", dest, writeErr)
+		}
+		return nil
+	})
+}
+
 // newHarness brings up the complete real composed path once per top-level
 // test. It is intentionally NOT reused across TestVerticalSlice invocations
 // (there is exactly one) -- every subtest below shares this single instance.
@@ -324,7 +328,7 @@ func newHarness(t *testing.T) *harness {
 	// only preserves files placed under TEST_UNDECLARED_OUTPUTS_DIR (the
 	// standard Bazel test convention), which is empty outside `bazel test`.
 	if outDir := os.Getenv("TEST_UNDECLARED_OUTPUTS_DIR"); outDir != "" {
-		t.Cleanup(func() { preserveProcessLogs(t, dir, outDir) })
+		t.Cleanup(func() { h.preserveProcessLogs(outDir) })
 	}
 
 	certSet, err := GenerateCertSet(filepath.Join(dir, "certs"), "127.0.0.1")
@@ -341,8 +345,7 @@ func newHarness(t *testing.T) *harness {
 	t.Cleanup(natsH.Shutdown)
 	h.nats = natsH
 
-	cnpgHost, cnpgPort, cnpgDatabase, cnpgUsername, cnpgPassword, cnpgSSLMode, cnpgTLSServerName, cnpgCAFile :=
-		resolveCNPG(t, dir)
+	cnpg, cnpgCAFile := resolveCNPG(t, dir)
 
 	grpcPort := freePort(t)
 	gwMetricsPort := freePort(t)
@@ -368,25 +371,25 @@ func newHarness(t *testing.T) *harness {
 		PartitionID:   certSet.PartitionID,
 		GatewayID:     "vslice-gateway",
 		Domain:        "vslice",
-		CNPGHost:      cnpgHost,
-		CNPGPort:      cnpgPort,
-		CNPGDatabase:  cnpgDatabase,
-		CNPGUsername:  cnpgUsername,
-		CNPGPassword:  cnpgPassword,
-		CNPGSSLMode:   cnpgSSLMode,
+		CNPGHost:      cnpg.Host,
+		CNPGPort:      cnpg.Port,
+		CNPGDatabase:  cnpg.Database,
+		CNPGUsername:  cnpg.Username,
+		CNPGPassword:  cnpg.Password,
+		CNPGSSLMode:   cnpg.SSLMode,
 		CloakKey:      cloakKey,
 	}
 
 	h.coreEnv = CoreEnvConfig{
 		MetricsPort:       coreMetricsPort,
-		CNPGHost:          cnpgHost,
-		CNPGPort:          cnpgPort,
-		CNPGDatabase:      cnpgDatabase,
-		CNPGUsername:      cnpgUsername,
-		CNPGPassword:      cnpgPassword,
-		CNPGSSLMode:       cnpgSSLMode,
+		CNPGHost:          cnpg.Host,
+		CNPGPort:          cnpg.Port,
+		CNPGDatabase:      cnpg.Database,
+		CNPGUsername:      cnpg.Username,
+		CNPGPassword:      cnpg.Password,
+		CNPGSSLMode:       cnpg.SSLMode,
 		CNPGCAFile:        cnpgCAFile,
-		CNPGTLSServerName: cnpgTLSServerName,
+		CNPGTLSServerName: cnpg.TLSServerName,
 		NATSURL:           natsH.URL,
 		NATSCredsFile:     natsH.CredsPath,
 		CloakKey:          cloakKey,
@@ -398,7 +401,7 @@ func newHarness(t *testing.T) *harness {
 
 	gwProc, err := StartRelease(
 		gatewayTarPath, "serviceradar_agent_gateway", filepath.Join(dir, "gateway"),
-		h.gatewayEnv.Env(), fmt.Sprintf("http://127.0.0.1:%d/health", gwMetricsPort), 90*time.Second,
+		h.gatewayEnv, fmt.Sprintf("http://127.0.0.1:%d/health", gwMetricsPort), 90*time.Second,
 	)
 	if err != nil {
 		t.Fatalf("start gateway release: %v", err)
@@ -408,7 +411,7 @@ func newHarness(t *testing.T) *harness {
 
 	coreProc, err := StartRelease(
 		coreTarPath, "serviceradar_core_elx", filepath.Join(dir, "core"),
-		h.coreEnv.Env(), fmt.Sprintf("http://127.0.0.1:%d/health", coreMetricsPort), 90*time.Second,
+		h.coreEnv, fmt.Sprintf("http://127.0.0.1:%d/health", coreMetricsPort), 90*time.Second,
 	)
 	if err != nil {
 		t.Fatalf("start core release: %v", err)
@@ -441,43 +444,25 @@ func newHarness(t *testing.T) *harness {
 	return h
 }
 
-// resolveCNPG prefers this test's own clone of the CI schema generation,
-// created and resolved by EXECUTING //rust/integration-db's
-// provision_generation_edge_record and describe_shard binaries as real
-// subprocesses (their declared data dependencies travel with them into this
-// test's runfiles -- see provisionShardRlocation's doc comment for why this
-// must not be a JSON-file-plus-env-var handoff), and falls back to the plain
-// CNPG_HOST/PORT/DATABASE/USERNAME/PASSWORD env vars (the "Local Development
-// with Docker CNPG" playbook's defaults) for a local, non-Bazel `go test` run
-// where neither rlocation was injected.
-func resolveCNPG(t *testing.T, dir string) (host string, port int, database, username, password, sslMode, tlsServerName, caFile string) {
+// resolveCNPG creates this test's own clone of the CI schema generation by
+// EXECUTING //rust/integration-db's provision_generation_edge_record and
+// describe_shard binaries as real subprocesses (their declared data
+// dependencies travel with them into this test's runfiles -- see
+// provisionShardRlocation's doc comment for why this must not be a
+// JSON-file-plus-env-var handoff), returning the clone's identity and the
+// path of its CA PEM written under dir ("" when the fixture reported none).
+func resolveCNPG(t *testing.T, dir string) (*ShardCNPGConfig, string) {
 	t.Helper()
 
 	cfg, err := provisionAndDescribeShard()
 	if err != nil {
 		t.Fatalf("provision/describe shard database: %v", err)
 	}
-	if cfg != nil {
-		caPath, err := cfg.WriteCAPEMFile(filepath.Join(dir, "cnpg-ca"))
-		if err != nil {
-			t.Fatalf("write CNPG CA pem: %v", err)
-		}
-		return cfg.Host, cfg.Port, cfg.Database, cfg.Username, cfg.Password, cfg.SSLMode, cfg.TLSServerName, caPath
+	caPath, err := cfg.WriteCAPEMFile(filepath.Join(dir, "cnpg-ca"))
+	if err != nil {
+		t.Fatalf("write CNPG CA pem: %v", err)
 	}
-
-	database = os.Getenv("CNPG_DATABASE")
-	if database == "" {
-		database = "serviceradar_core_test"
-	}
-	username = os.Getenv("CNPG_USERNAME")
-	if username == "" {
-		username = "serviceradar"
-	}
-	password = os.Getenv("CNPG_PASSWORD")
-	if password == "" {
-		password = "serviceradar"
-	}
-	return CNPGHostFromEnv(), CNPGPortFromEnv(), database, username, password, "disable", "", ""
+	return cfg, caPath
 }
 
 // waitForSpoolID polls for sender.PersistentSpoolID's on-disk file, written
@@ -629,8 +614,9 @@ func (h *harness) testGroupA(t *testing.T) {
 		time.Sleep(pollInterval)
 	}
 	if lastCount != 1 {
-		t.Fatalf("event_ledger row for fixture never appeared within %s (last count=%d); see %s/agent.stderr.log, %s/gateway.stderr.log, %s/core.stderr.log",
-			pollTimeout, lastCount, h.dir, h.dir, h.dir)
+		t.Fatalf("event_ledger row for fixture never appeared within %s (last count=%d); see %s, %s and %s in this test's undeclared outputs (outputs.zip)",
+			pollTimeout, lastCount,
+			h.preservedLogName(h.agent.stderrPath), h.preservedLogName(h.gwProc.stderrPath), h.preservedLogName(h.coreProc.stderrPath))
 	}
 
 	// Field-by-field match against independently-computed expected values.
@@ -1137,7 +1123,7 @@ func (h *harness) testGroupD(t *testing.T) {
 		coreTarPath := mustRlocation(t, coreReleaseTarRlocation)
 		restarted, err := StartRelease(
 			coreTarPath, "serviceradar_core_elx", filepath.Join(h.dir, "core-restart"),
-			h.coreEnv.Env(), fmt.Sprintf("http://127.0.0.1:%d/health", h.coreEnv.MetricsPort), 90*time.Second,
+			h.coreEnv, fmt.Sprintf("http://127.0.0.1:%d/health", h.coreEnv.MetricsPort), 90*time.Second,
 		)
 		if err != nil {
 			t.Fatalf("restart core release: %v", err)
