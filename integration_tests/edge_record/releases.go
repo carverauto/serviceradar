@@ -54,6 +54,7 @@ type ReleaseProcess struct {
 	cmd        *exec.Cmd
 	stdoutPath string
 	stderrPath string
+	secrets    []string
 }
 
 // GatewayEnvConfig documents and builds every environment variable this
@@ -390,6 +391,7 @@ func StartRelease(
 		cmd:        cmd,
 		stdoutPath: stdoutPath,
 		stderrPath: stderrPath,
+		secrets:    secretsFromEnv(baseEnv),
 	}
 
 	if err := p.waitHealthy(timeout); err != nil {
@@ -408,7 +410,7 @@ func (p *ReleaseProcess) waitHealthy(timeout time.Duration) error {
 		if p.cmd.ProcessState != nil {
 			return fmt.Errorf(
 				"verticalslice: %s exited early: %s\n--- stdout tail ---\n%s\n--- stderr tail ---\n%s",
-				p.Name, p.cmd.ProcessState, tailFile(p.stdoutPath, 4000), tailFile(p.stderrPath, 4000),
+				p.Name, p.cmd.ProcessState, tailFile(p.stdoutPath, 4000, p.secrets), tailFile(p.stderrPath, 4000, p.secrets),
 			)
 		}
 
@@ -424,7 +426,7 @@ func (p *ReleaseProcess) waitHealthy(timeout time.Duration) error {
 
 	return fmt.Errorf(
 		"verticalslice: %s did not become healthy at %s within timeout\n--- stdout tail ---\n%s\n--- stderr tail ---\n%s",
-		p.Name, p.HealthURL, tailFile(p.stdoutPath, 4000), tailFile(p.stderrPath, 4000),
+		p.Name, p.HealthURL, tailFile(p.stdoutPath, 4000, p.secrets), tailFile(p.stderrPath, 4000, p.secrets),
 	)
 }
 
@@ -588,7 +590,7 @@ func extractTarGz(tarGzPath, destDir string) error {
 	return nil
 }
 
-func tailFile(path string, maxBytes int) string {
+func tailFile(path string, maxBytes int, secrets []string) string {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Sprintf("(could not read %s: %v)", path, err)
@@ -596,14 +598,27 @@ func tailFile(path string, maxBytes int) string {
 	if len(data) > maxBytes {
 		data = data[len(data)-maxBytes:]
 	}
-	return redactCredentials(string(data))
+	return redactSecrets(string(data), secrets)
 }
 
-// redactCredentials scrubs a release's DATABASE_URL and CNPG_PASSWORD from
-// log tails included in test failure output, in case a release's boot
-// logging ever echoes them verbatim.
-func redactCredentials(s string) string {
-	for _, secret := range []string{os.Getenv("DATABASE_URL"), os.Getenv("CNPG_PASSWORD")} {
+// secretsFromEnv extracts the actual DATABASE_URL and CNPG_PASSWORD values a
+// release's child process was booted with, so log tails captured from that
+// process's stdout/stderr can be scrubbed of them in case its boot logging
+// ever echoes them verbatim.
+func secretsFromEnv(env map[string]string) []string {
+	var secrets []string
+	for _, k := range []string{"DATABASE_URL", "CNPG_PASSWORD"} {
+		if v := env[k]; v != "" {
+			secrets = append(secrets, v)
+		}
+	}
+	return secrets
+}
+
+// redactSecrets replaces every occurrence of each non-empty secret in s with
+// a placeholder.
+func redactSecrets(s string, secrets []string) string {
+	for _, secret := range secrets {
 		if secret == "" {
 			continue
 		}
