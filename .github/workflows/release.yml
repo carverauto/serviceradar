@@ -912,8 +912,17 @@ jobs:
           # The publisher's declared package/runtime inputs must still be built
           # from the tag tree. A newer workflow commit with the same VERSION
           # would otherwise mix different Linux and macOS source revisions.
-          if [[ "$(git rev-parse HEAD)" != "${RELEASE_COMMIT}" ]] || ! git diff-index --quiet HEAD --; then
-            echo "Release source changed before package publication; refusing mixed-source artifacts." >&2
+          if [[ "$(git rev-parse HEAD)" != "${RELEASE_COMMIT}" ]]; then
+            echo "Release source changed before package publication: HEAD is $(git rev-parse HEAD), not ${RELEASE_COMMIT}; refusing mixed-source artifacts." >&2
+            exit 1
+          fi
+          # diff-index compares against cached stat data and does not refresh it, so a
+          # tracked file an earlier step merely touched reads as modified. Refresh first;
+          # a real content or mode change still fails, and names the files.
+          git update-index -q --refresh >/dev/null 2>&1 || true
+          if ! git diff-index --quiet HEAD --; then
+            echo "Release source changed before package publication; refusing mixed-source artifacts. Modified tracked files:" >&2
+            git diff-index --name-status HEAD -- >&2
             exit 1
           fi
 
