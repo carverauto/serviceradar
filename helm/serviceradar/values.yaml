@@ -1243,6 +1243,13 @@ webNg:
   # Envoy appends the downstream address to x-forwarded-for by default, so
   # no gateway-side change is needed for chart-managed gateways; shared
   # gateways owned outside this chart must be checked separately.
+  #
+  # List the proxy's OWN address range and nothing wider. Every CIDR here is
+  # an address web-ng will never report as a client: it walks the chain
+  # right-to-left and reports the first hop outside this list. RFC1918
+  # wholesale puts the LAN in the list, and a LAN client then has no hop
+  # left to report -- web-ng falls back to the proxy address and logs a
+  # warning naming this setting.
   clientIp:
     trustXForwardedFor: false
     trustedProxyCidrs: []
