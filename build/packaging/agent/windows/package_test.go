@@ -89,10 +89,12 @@ func (f *fakeTools) run(_ context.Context, name string, args ...string) ([]byte,
 
 		target := strings.TrimPrefix(args[3], "TARGETDIR=")
 		agent := between(string(wxs), `<File Id="AgentExe" Source="`, `"`)
+		srctl := between(string(wxs), `<File Id="SrctlExe" Source="`, `"`)
 		config := between(string(wxs), `<File Id="AgentConfig" Source="`, `"`)
 
 		for _, file := range []struct{ source, dir, name string }{
 			{agent, "PFiles64/ServiceRadar", agentFileName},
+			{srctl, "PFiles64/ServiceRadar", srctlFileName},
 			{config, "CommonAppData/ServiceRadar/config", configFileName},
 		} {
 			data, err := os.ReadFile(file.source)
@@ -100,7 +102,7 @@ func (f *fakeTools) run(_ context.Context, name string, args ...string) ([]byte,
 				return nil, err
 			}
 
-			if f.mutate == "extracted" && file.name == agentFileName {
+			if (f.mutate == "extracted" && file.name == agentFileName) || (f.mutate == "extracted-srctl" && file.name == srctlFileName) {
 				data = append(data, 'x')
 			}
 
@@ -138,11 +140,15 @@ func stageFixture(t *testing.T) (string, stageInputs) {
 	in := stageInputs{
 		AgentAMD64: filepath.Join(src, "amd64.exe"),
 		AgentARM64: filepath.Join(src, "arm64.exe"),
+		SrctlAMD64: filepath.Join(src, "srctl-amd64.exe"),
+		SrctlARM64: filepath.Join(src, "srctl-arm64.exe"),
 		Config:     filepath.Join(src, "agent.json"),
 		Packager:   filepath.Join(src, "package.exe"),
 	}
 	writePE(t, in.AgentAMD64, pe.IMAGE_FILE_MACHINE_AMD64)
 	writePE(t, in.AgentARM64, pe.IMAGE_FILE_MACHINE_ARM64)
+	writePE(t, in.SrctlAMD64, pe.IMAGE_FILE_MACHINE_AMD64)
+	writePE(t, in.SrctlARM64, pe.IMAGE_FILE_MACHINE_ARM64)
 
 	for _, path := range []string{in.Config, in.Packager} {
 		if err := os.WriteFile(path, []byte("synthetic "+filepath.Base(path)), 0o644); err != nil {
@@ -190,8 +196,8 @@ func TestStageRecordsDigestsOfDeclaredInputs(t *testing.T) {
 		t.Fatalf("arm64 digest = %q, want %q", manifest.Files[agentInputName("arm64")], want)
 	}
 
-	if len(manifest.Files) != 4 {
-		t.Fatalf("staged %d files, want 4", len(manifest.Files))
+	if len(manifest.Files) != 6 {
+		t.Fatalf("staged %d files, want 6", len(manifest.Files))
 	}
 }
 
@@ -199,10 +205,13 @@ func TestStageRejectsWrongArchitectureAgent(t *testing.T) {
 	src := t.TempDir()
 	in := stageInputs{
 		AgentAMD64: filepath.Join(src, "amd64.exe"), AgentARM64: filepath.Join(src, "arm64.exe"),
+		SrctlAMD64: filepath.Join(src, "srctl-amd64.exe"), SrctlARM64: filepath.Join(src, "srctl-arm64.exe"),
 		Config: filepath.Join(src, "agent.json"), Packager: filepath.Join(src, "package.exe"),
 	}
 	writePE(t, in.AgentAMD64, pe.IMAGE_FILE_MACHINE_AMD64)
 	writePE(t, in.AgentARM64, pe.IMAGE_FILE_MACHINE_AMD64)
+	writePE(t, in.SrctlAMD64, pe.IMAGE_FILE_MACHINE_AMD64)
+	writePE(t, in.SrctlARM64, pe.IMAGE_FILE_MACHINE_ARM64)
 
 	for _, path := range []string{in.Config, in.Packager} {
 		if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
@@ -278,7 +287,7 @@ func TestBuildProducesVerifiedMSIsForBothArchitectures(t *testing.T) {
 }
 
 func TestBuildFailsClosed(t *testing.T) {
-	for _, mutate := range []string{"version", "wix", "extracted"} {
+	for _, mutate := range []string{"version", "wix", "extracted", "extracted-srctl"} {
 		t.Run(mutate, func(t *testing.T) {
 			outs, _, err := buildFixture(t, &fakeTools{t: t, mutate: mutate})
 			if err == nil || outs != nil {
@@ -346,7 +355,7 @@ func TestMSIVersion(t *testing.T) {
 }
 
 func TestWXSInstallsServiceWithoutStartingIt(t *testing.T) {
-	src, err := renderWXS(wxsValues{MSIVersion: "1.2.3", UpgradeCode: upgradeCodes["amd64"], AgentPath: `C:\in\a.exe`, ConfigPath: `C:\in\agent.json`})
+	src, err := renderWXS(wxsValues{MSIVersion: "1.2.3", UpgradeCode: upgradeCodes["amd64"], AgentPath: `C:\in\a.exe`, SrctlPath: `C:\in\srctl.exe`, ConfigPath: `C:\in\agent.json`})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -360,6 +369,8 @@ func TestWXSInstallsServiceWithoutStartingIt(t *testing.T) {
 		`UpgradeCode="` + upgradeCodes["amd64"] + `"`,
 		`NeverOverwrite="yes" Permanent="yes"`,
 		`<MajorUpgrade AllowSameVersionUpgrades="yes"`,
+		`<File Id="SrctlExe" Source="C:\in\srctl.exe" Name="srctl.exe"`,
+		`<Environment Id="SrctlOnPath" Name="PATH" Value="[INSTALLFOLDER]" Action="set" Part="last" System="yes"`,
 	} {
 		if !strings.Contains(wxs, want) {
 			t.Errorf("rendered WiX source lacks %s", want)
@@ -379,7 +390,7 @@ func TestWXSInstallsServiceWithoutStartingIt(t *testing.T) {
 
 func TestWXSRejectsValuesNeedingEscaping(t *testing.T) {
 	for _, bad := range []string{`C:\in\"a.exe`, `C:\in\a&b.exe`, "", `C:\in\<a>.exe`} {
-		if _, err := renderWXS(wxsValues{MSIVersion: "1.2.3", UpgradeCode: upgradeCodes["amd64"], AgentPath: bad, ConfigPath: `C:\c.json`}); err == nil {
+		if _, err := renderWXS(wxsValues{MSIVersion: "1.2.3", UpgradeCode: upgradeCodes["amd64"], AgentPath: bad, SrctlPath: `C:\in\srctl.exe`, ConfigPath: `C:\c.json`}); err == nil {
 			t.Errorf("renderWXS accepted %q", bad)
 		}
 	}
@@ -388,5 +399,29 @@ func TestWXSRejectsValuesNeedingEscaping(t *testing.T) {
 func TestUpgradeCodesAreStableAndDistinct(t *testing.T) {
 	if upgradeCodes["amd64"] != "3B42E26D-C52D-43A8-AFD9-DDC162D2A6B3" || upgradeCodes["arm64"] != "FE1549BF-9F21-45FF-95D3-05AC0AEE9C3A" {
 		t.Fatal("UpgradeCodes changed; installed agents would no longer be upgraded in place")
+	}
+}
+
+func TestBuildRecordsTheShippedSrctl(t *testing.T) {
+	outs, staged, err := buildFixture(t, &fakeTools{t: t})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	for i, arch := range architectures {
+		data, err := os.ReadFile(outs[i].ProvenancePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var proof provenance
+		if err := json.Unmarshal(data, &proof); err != nil {
+			t.Fatal(err)
+		}
+
+		want, _ := fileSHA256(filepath.Join(staged, srctlInputName(arch)))
+		if proof.CLIBinarySHA256 == "" || proof.CLIBinarySHA256 != want {
+			t.Fatalf("%s provenance srctl digest = %q, want %q", arch, proof.CLIBinarySHA256, want)
+		}
 	}
 }

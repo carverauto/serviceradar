@@ -551,14 +551,15 @@ type EnrollHandler struct{}
 // Parse reads flags for the enroll subcommand.
 func (EnrollHandler) Parse(args []string, cfg *CmdConfig) error {
 	fs := flag.NewFlagSet("enroll", flag.ExitOnError)
+	defaults := platformEnrollDefaults()
 	token := fs.String("token", "", "Enrollment token (edgepkg-v3 or collectorpkg-v2)")
 	coreURL := fs.String("core-url", "", "HTTPS Core API base URL override (otherwise uses the signed token URL)")
 	hostIP := fs.String("host-ip", "", "Override detected host IP (agent enrollment only)")
-	configPath := fs.String("config", "/etc/serviceradar/agent.json", "Agent config path")
-	configDir := fs.String("config-dir", "/etc/serviceradar", "Collector config directory")
+	configPath := fs.String("config", defaults.ConfigPath, "Agent config path")
+	configDir := fs.String("config-dir", defaults.ConfigDir, "Collector config directory")
 	configFile := fs.String("config-file", "", "Collector config filename override")
-	certDir := fs.String("cert-dir", "/etc/serviceradar/certs", "Certificate directory")
-	credsDir := fs.String("creds-dir", "/etc/serviceradar/creds", "Collector credentials directory")
+	certDir := fs.String("cert-dir", defaults.CertDir, "Certificate directory")
+	credsDir := fs.String("creds-dir", defaults.CredsDir, "Collector credentials directory")
 	force := fs.Bool("force", false, "Overwrite existing config/certs instead of backing them up")
 	caFile := fs.String("ca-file", "", "CA bundle path for verifying the core API TLS cert")
 

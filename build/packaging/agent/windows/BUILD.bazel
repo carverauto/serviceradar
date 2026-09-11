@@ -37,6 +37,8 @@ go_binary(
         "//build/packaging/agent:config/agent-windows.json",
         "//go/cmd/agent:agent_windows_amd64",
         "//go/cmd/agent:agent_windows_arm64",
+        "//go/cmd/cli:srctl_windows_amd64",
+        "//go/cmd/cli:srctl_windows_arm64",
     ],
     embed = [":package_lib"],
     env = {
@@ -44,6 +46,8 @@ go_binary(
         "SERVICERADAR_WINDOWS_AGENT_ARM64_RUNFILE": "$(rlocationpath //go/cmd/agent:agent_windows_arm64)",
         "SERVICERADAR_WINDOWS_CONFIG_RUNFILE": "$(rlocationpath //build/packaging/agent:config/agent-windows.json)",
         "SERVICERADAR_WINDOWS_PACKAGER_RUNFILE": "$(rlocationpath :package_windows)",
+        "SERVICERADAR_WINDOWS_SRCTL_AMD64_RUNFILE": "$(rlocationpath //go/cmd/cli:srctl_windows_amd64)",
+        "SERVICERADAR_WINDOWS_SRCTL_ARM64_RUNFILE": "$(rlocationpath //go/cmd/cli:srctl_windows_arm64)",
     },
     visibility = ["//visibility:public"],
     x_defs = {"github.com/carverauto/serviceradar/build/packaging/agent/windows.fullVersion": FULL_VERSION},

@@ -112,19 +112,24 @@ msiexec /i serviceradar-agent_<version>_windows_amd64.msi /qn
 
 The installer:
 
-- installs `serviceradar-agent.exe` under `C:\Program Files\ServiceRadar\`
+- installs `serviceradar-agent.exe` and `srctl.exe` under `C:\Program Files\ServiceRadar\`, and adds
+  that folder to the system `PATH`
 - writes `C:\ProgramData\ServiceRadar\config\agent.json` only when that file does not exist
 - registers the `ServiceRadarAgent` service to run as LocalSystem, start automatically, and restart
   10 s after a failure
 - does not start the service on a fresh install, because the default configuration names a
   placeholder gateway and certificates
 
-Configure and start it:
+Enroll it: create an agent onboarding package in the UI and run the Windows command it shows in
+PowerShell as Administrator. The MSI installs `srctl.exe` beside the agent and adds that folder to
+the system `PATH`:
 
-1. Edit `agent.json`: `gateway_addr`, `agent_id`, `host_ip`, and `partition`.
-2. Put the agent's mTLS files (`agent.pem`, `agent-key.pem`, `root.pem`) in
-   `C:\ProgramData\ServiceRadar\config\certs\`.
-3. `Start-Service ServiceRadarAgent`
+```powershell
+& "$env:ProgramFiles\ServiceRadar\srctl.exe" enroll --core-url '<your-serviceradar-url>' --token '<token>'
+```
+
+`srctl enroll` writes `agent.json` and the certificates under
+`C:\ProgramData\ServiceRadar\config\` and starts the service.
 
 The service writes its log to `C:\ProgramData\ServiceRadar\logs\agent.log`; the file is appended to
 and not rotated.

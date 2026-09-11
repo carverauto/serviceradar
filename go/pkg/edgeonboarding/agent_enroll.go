@@ -131,7 +131,7 @@ func EnrollAgentFromToken(ctx context.Context, opts EnrollOptions) error {
 		return err
 	}
 
-	overridesPath := resolveAgentOverridesPath(opts.OverridesPath)
+	overridesPath := resolveAgentOverridesPath(opts.OverridesPath, opts.ConfigPath)
 	overrideUpdates := extractEnvOverrides(bundle.EnvOverrides)
 	natsCredsPath := resolveAgentNATSCredsPath(opts.NATSCredsPath)
 	if err := backupLegacyAgentNATSCreds(opts.ConfigPath, natsCredsPath, opts.Logf); err != nil {
@@ -313,12 +313,23 @@ func updateAgentConfig(configJSON []byte, hostIPOverride, certDirOverride string
 	return updated, certDir, nil
 }
 
-func resolveAgentOverridesPath(path string) string {
-	if strings.TrimSpace(path) == "" {
-		return defaultAgentOverridesPath
+func resolveAgentOverridesPath(path, configPath string) string {
+	return agentOverridesPathFor(runtime.GOOS, path, configPath)
+}
+
+// agentOverridesPathFor keeps the overrides beside the agent config on Windows,
+// where there is no /etc and no systemd EnvironmentFile to read it from.
+func agentOverridesPathFor(goos, path, configPath string) string {
+	if strings.TrimSpace(path) != "" {
+		return strings.TrimSpace(path)
 	}
 
-	return strings.TrimSpace(path)
+	if goos == "windows" && strings.TrimSpace(configPath) != "" {
+		dir := configPath[:strings.LastIndexAny(configPath, `\/`)+1]
+		return dir + "kv-overrides.env"
+	}
+
+	return defaultAgentOverridesPath
 }
 
 // resolveAgentNATSCredsPath returns the legacy credential location to inspect
@@ -749,7 +760,8 @@ func lookupUserIDs(name string) (int, int, bool, error) {
 }
 
 // agentRestartCommand is the command that restarts the installed agent service
-// on goos: the systemd unit on Linux, the launchd job the macOS installer loads.
+// on goos: the systemd unit on Linux, the launchd job the macOS installer loads,
+// the ServiceRadarAgent service the Windows MSI installs.
 // It returns nil where no service manager is known.
 func agentRestartCommand(goos string) []string {
 	switch goos {
@@ -757,6 +769,10 @@ func agentRestartCommand(goos string) []string {
 		return []string{"systemctl", "restart", "serviceradar-agent"}
 	case "darwin":
 		return []string{"launchctl", "kickstart", "-k", "system/com.serviceradar.agent"}
+	case "windows":
+		// Restart-Service also starts a stopped service: the MSI leaves it stopped
+		// until the agent is enrolled.
+		return []string{"powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "Restart-Service -Name ServiceRadarAgent"}
 	default:
 		return nil
 	}

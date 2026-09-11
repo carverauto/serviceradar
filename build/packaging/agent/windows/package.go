@@ -21,11 +21,13 @@ import (
 var errInvalidPackage = errors.New("invalid Windows agent package")
 
 const (
-	product          = "serviceradar-agent"
+	product = "serviceradar-agent"
 	// wixUtilExtension provides util:ServiceConfig; CI installs the version
 	// matching the pinned WiX toolset.
 	wixUtilExtension = "WixToolset.Util.wixext"
 	agentFileName    = "serviceradar-agent.exe"
+	// srctlFileName is the enrollment CLI the UI's Windows command runs.
+	srctlFileName    = "srctl.exe"
 	configFileName   = "agent.json"
 	inputsFileName   = "inputs.json"
 	packagerFileName = "package.exe"
@@ -48,6 +50,8 @@ var (
 )
 
 func agentInputName(arch string) string { return "serviceradar-agent-" + arch + ".exe" }
+
+func srctlInputName(arch string) string { return "srctl-" + arch + ".exe" }
 
 // stagedInputs is inputs.json: what stage copied, so build can prove it is
 // packaging exactly those bytes.
@@ -72,6 +76,7 @@ type provenance struct {
 	PackageFilename string `json:"package_filename"`
 	PackageSHA256   string `json:"package_sha256"`
 	BinarySHA256    string `json:"binary_sha256"`
+	CLIBinarySHA256 string `json:"cli_binary_sha256"`
 	ConfigSHA256    string `json:"config_sha256"`
 }
 
@@ -147,6 +152,7 @@ func (b builder) build(ctx context.Context, opts buildOptions) ([]output, error)
 
 func (b builder) buildArch(ctx context.Context, opts buildOptions, manifest stagedInputs, msiVer, arch string) (output, error) {
 	agent := filepath.Join(opts.InputDir, agentInputName(arch))
+	srctl := filepath.Join(opts.InputDir, srctlInputName(arch))
 	config := filepath.Join(opts.InputDir, configFileName)
 
 	binarySHA, err := verifyStagedFile(manifest, opts.InputDir, agentInputName(arch))
@@ -159,8 +165,17 @@ func (b builder) buildArch(ctx context.Context, opts buildOptions, manifest stag
 		return output{}, err
 	}
 
+	srctlSHA, err := verifyStagedFile(manifest, opts.InputDir, srctlInputName(arch))
+	if err != nil {
+		return output{}, err
+	}
+
 	if err := verifyPE(agent, arch); err != nil {
 		return output{}, err
+	}
+
+	if err := verifyPE(srctl, arch); err != nil {
+		return output{}, fmt.Errorf("srctl: %w", err)
 	}
 
 	if arch == b.hostArch {
@@ -189,7 +204,7 @@ func (b builder) buildArch(ctx context.Context, opts buildOptions, manifest stag
 	}
 	defer func() { _ = os.RemoveAll(work) }()
 
-	source, err := renderWXS(wxsValues{MSIVersion: msiVer, UpgradeCode: upgradeCodes[arch], AgentPath: agent, ConfigPath: config})
+	source, err := renderWXS(wxsValues{MSIVersion: msiVer, UpgradeCode: upgradeCodes[arch], AgentPath: agent, SrctlPath: srctl, ConfigPath: config})
 	if err != nil {
 		return output{}, err
 	}
@@ -211,7 +226,7 @@ func (b builder) buildArch(ctx context.Context, opts buildOptions, manifest stag
 		return output{}, err
 	}
 
-	if err := verifyExtracted(extract, map[string]string{agentFileName: binarySHA, configFileName: configSHA}); err != nil {
+	if err := verifyExtracted(extract, map[string]string{agentFileName: binarySHA, srctlFileName: srctlSHA, configFileName: configSHA}); err != nil {
 		return output{}, err
 	}
 
@@ -224,7 +239,7 @@ func (b builder) buildArch(ctx context.Context, opts buildOptions, manifest stag
 		SchemaVersion: 1, Product: product, Version: opts.Version, MSIVersion: msiVer,
 		SourceCommit: opts.SourceCommit, OS: "windows", Arch: arch, Mode: "unsigned", Signed: false,
 		UpgradeCode: upgradeCodes[arch], PackageFilename: filepath.Base(out.MSIPath),
-		PackageSHA256: msiSHA, BinarySHA256: binarySHA, ConfigSHA256: configSHA,
+		PackageSHA256: msiSHA, BinarySHA256: binarySHA, CLIBinarySHA256: srctlSHA, ConfigSHA256: configSHA,
 	}
 
 	if err := exportResult(msi, out, proof); err != nil {

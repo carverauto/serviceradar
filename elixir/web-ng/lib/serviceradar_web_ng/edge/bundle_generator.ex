@@ -891,6 +891,24 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     if value == "", do: "default", else: value
   end
 
+  @doc """
+  The Windows enrollment command, for PowerShell run as Administrator. srctl.exe
+  is installed beside the agent by the MSI.
+  """
+  def windows_agent_enroll_command(token, base_url) when is_binary(token) and is_binary(base_url) do
+    command =
+      ~s(& "$env:ProgramFiles\\ServiceRadar\\srctl.exe" enroll --core-url ) <>
+        "#{Shell.powershell_literal(base_url)} --token #{Shell.powershell_literal(token)}"
+
+    case Application.get_env(:serviceradar_web_ng, :onboarding_token_public_key) do
+      public_key when is_binary(public_key) and public_key != "" ->
+        "$env:SERVICERADAR_ONBOARDING_TOKEN_PUBLIC_KEY = #{Shell.powershell_literal(public_key)}; #{command}"
+
+      _ ->
+        command
+    end
+  end
+
   def agent_enroll_command(token, base_url) when is_binary(token) and is_binary(base_url) do
     command =
       "/usr/local/bin/srctl enroll --core-url #{Shell.literal(base_url)} --token #{Shell.literal(token)}"
