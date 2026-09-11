@@ -1,29 +1,16 @@
 name: Agent Platform Packages
 
+# Manual only. release.yml builds and validates the same unsigned installer
+# before signing, so a PR trigger would only spend macOS runner minutes on
+# nearly every Go change to find packaging breakage slightly earlier.
 on:
-  pull_request:
-    paths:
-      - '.github/workflows/agent-platform-packages.yml'
-      - '.github/workflows/release.yml'
-      - '.bazelrc'
-      - '.bazelversion'
-      - 'MODULE.bazel'
-      - 'MODULE.bazel.lock'
-      - 'VERSION'
-      - 'build/packaging/**'
-      - 'build/platforms/**'
-      - 'build/release/**'
-      - 'go/cmd/agent/**'
-      - 'go/pkg/**'
-      - 'go.mod'
-      - 'go.sum'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: agent-platform-packages-${{ github.event.pull_request.number || github.ref }}
+  group: agent-platform-packages-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
