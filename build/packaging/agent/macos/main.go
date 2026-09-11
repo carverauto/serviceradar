@@ -63,6 +63,7 @@ func declaredInputs() (inputs, error) {
 		"SERVICERADAR_MACOS_PLIST_RUNFILE":       &in.Plist,
 		"SERVICERADAR_MACOS_PREINSTALL_RUNFILE":  &in.Preinstall,
 		"SERVICERADAR_MACOS_POSTINSTALL_RUNFILE": &in.Postinstall,
+		"SERVICERADAR_MACOS_SRCTL_RUNFILE":       &in.Srctl,
 	} {
 		logical := os.Getenv(key)
 		if logical == "" {

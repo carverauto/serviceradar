@@ -387,7 +387,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
         end)
 
       assert install_sh =~
-               "/usr/local/bin/serviceradar-cli enroll --core-url 'https://demo.serviceradar.cloud' --token '"
+               "/usr/local/bin/srctl enroll --core-url 'https://demo.serviceradar.cloud' --token '"
     end
 
     test "agent install script treats tokenized values as shell literals", %{
@@ -413,10 +413,10 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
         end)
 
       assert install_sh =~
-               "/usr/local/bin/serviceradar-cli enroll --core-url 'https://demo.serviceradar.cloud/$(touch /tmp/pwned)'"
+               "/usr/local/bin/srctl enroll --core-url 'https://demo.serviceradar.cloud/$(touch /tmp/pwned)'"
 
       refute install_sh =~
-               "/usr/local/bin/serviceradar-cli enroll --core-url \"https://demo.serviceradar.cloud/$(touch /tmp/pwned)\""
+               "/usr/local/bin/srctl enroll --core-url \"https://demo.serviceradar.cloud/$(touch /tmp/pwned)\""
     end
   end
 

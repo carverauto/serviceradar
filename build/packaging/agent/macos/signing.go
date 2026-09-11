@@ -36,7 +36,9 @@ type provenance struct {
 	PackageFilename    string               `json:"package_filename"`
 	PackageSHA256      string               `json:"package_sha256"`
 	BinarySHA256       string               `json:"binary_sha256"`
+	CLIBinarySHA256    string               `json:"cli_binary_sha256"`
 	ApplicationSigning signingEvidence      `json:"application_signing"`
+	CLISigning         signingEvidence      `json:"cli_signing"`
 	InstallerSigning   signingEvidence      `json:"installer_signing"`
 	Notarization       notarizationEvidence `json:"notarization"`
 	GatekeeperVerified bool                 `json:"gatekeeper_verified"`

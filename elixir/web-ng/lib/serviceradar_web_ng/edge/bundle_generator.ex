@@ -893,7 +893,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
 
   def agent_enroll_command(token, base_url) when is_binary(token) and is_binary(base_url) do
     command =
-      "/usr/local/bin/serviceradar-cli enroll --core-url #{Shell.literal(base_url)} --token #{Shell.literal(token)}"
+      "/usr/local/bin/srctl enroll --core-url #{Shell.literal(base_url)} --token #{Shell.literal(token)}"
 
     case Application.get_env(:serviceradar_web_ng, :onboarding_token_public_key) do
       public_key when is_binary(public_key) and public_key != "" ->

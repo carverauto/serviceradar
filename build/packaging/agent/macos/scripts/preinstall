@@ -20,8 +20,9 @@
 set -e
 
 SERVICE_TARGET="system/com.serviceradar.agent"
-CONFIG="/usr/local/etc/serviceradar/agent.json"
-CONFIG_BACKUP="/usr/local/etc/serviceradar/.agent.json.pre-upgrade"
+# Same path as Linux, the srctl enroll default, and the launchd ProgramArguments.
+CONFIG="/etc/serviceradar/agent.json"
+CONFIG_BACKUP="/etc/serviceradar/.agent.json.pre-upgrade"
 
 log() {
     echo "[preinstall] $*"
@@ -39,10 +40,17 @@ else
     log "No existing service found, proceeding with fresh install"
 fi
 
+# Releases before 1.4.60 kept the config under /usr/local/etc.
+LEGACY_CONFIG="/usr/local/etc/serviceradar/agent.json"
+
 # Back up existing config if present (will be restored in postinstall)
 if [ -f "${CONFIG}" ]; then
     log "Backing up existing config to ${CONFIG_BACKUP}"
     cp -f "${CONFIG}" "${CONFIG_BACKUP}"
+elif [ -f "${LEGACY_CONFIG}" ]; then
+    log "Carrying ${LEGACY_CONFIG} forward to ${CONFIG}"
+    mkdir -p "$(dirname "${CONFIG_BACKUP}")"
+    cp -f "${LEGACY_CONFIG}" "${CONFIG_BACKUP}"
 fi
 
 log "Pre-install complete"

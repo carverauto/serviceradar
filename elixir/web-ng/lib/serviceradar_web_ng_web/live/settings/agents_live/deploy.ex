@@ -105,7 +105,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Deploy do
                 <li>
                   Run
                   <code class="rounded bg-sr-subtle px-2 py-1 text-xs font-mono">
-                    /usr/local/bin/serviceradar-cli enroll --core-url &lt;your-serviceradar-url&gt; --token &lt;token&gt;
+                    /usr/local/bin/srctl enroll --core-url &lt;your-serviceradar-url&gt; --token &lt;token&gt;
                   </code>
                   on the target host
                 </li>
