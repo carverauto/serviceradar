@@ -29,6 +29,7 @@ import (
 const (
 	defaultManifestRunfile           = "build/release/package_manifest.txt"
 	defaultAgentRuntimeRunfile       = "build/packaging/agent/agent_release_runtime_archive.tar.gz"
+	arm64AgentRuntimeRunfile         = "build/packaging/agent/arm64/agent_release_runtime_linux_arm64_archive.tar.gz"
 	defaultAgentManifestAssetName    = "serviceradar-agent-release-manifest.json"
 	defaultAgentManifestSigAssetName = "serviceradar-agent-release-manifest.sig"
 	defaultAgentRuntimeOS            = "linux"
@@ -40,6 +41,7 @@ const (
 )
 
 var (
+	errImmutableRelease       = errors.New("release assets are immutable")
 	errForgejoAPI             = errors.New("forgejo api error")
 	errForgejoUpload          = errors.New("forgejo upload error")
 	errEmptyUploadURL         = errors.New("upload URL is empty")
@@ -78,6 +80,7 @@ type releaseAsset struct {
 	ID                 int64  `json:"id"`
 	Name               string `json:"name"`
 	BrowserDownloadURL string `json:"browser_download_url"`
+	Digest             string `json:"digest"`
 }
 
 type release struct {
@@ -153,6 +156,8 @@ type publishConfig struct {
 	overwriteAssets bool
 	appendNotes     bool
 	manifestPath    string
+	macosPkg        string
+	macosProvenance string
 	forgejoURL      string
 }
 
@@ -164,6 +169,8 @@ type publishContext struct {
 	token          string
 	resolver       *runfileResolver
 	client         *githubClient
+	packages       []uploadAsset
+	runtimes       []managedAgentRuntime
 }
 
 func main() {
@@ -180,6 +187,10 @@ func run() error {
 	config := parsePublishConfig()
 	ctx, err := buildPublishContext(config)
 	if err != nil {
+		return err
+	}
+
+	if err := prepareReleaseArtifacts(ctx); err != nil {
 		return err
 	}
 
@@ -211,8 +222,10 @@ func parsePublishConfig() publishConfig {
 	draftFlag := flag.Bool("draft", false, "Create the release as a draft")
 	prereleaseFlag := flag.Bool("prerelease", false, "Mark the release as a pre-release")
 	dryRunFlag := flag.Bool("dry_run", false, "Print actions without calling the Forgejo API")
-	overwriteAssetsFlag := flag.Bool("overwrite_assets", true, "Replace existing assets that share the same name")
+	overwriteAssetsFlag := flag.Bool("overwrite_assets", true, "Replace differing assets only while the release remains a draft")
 	appendNotesFlag := flag.Bool("append_notes", false, "Append release notes when the release already exists")
+	macosPkgFlag := flag.String("macos_pkg", "", "Required signed and notarized Darwin ARM64 installer path")
+	macosProvenanceFlag := flag.String("macos_provenance", "", "Required macOS installer provenance from the same source commit")
 	manifestFlag := flag.String("manifest", defaultManifestRunfile, "Path to the package manifest runfile")
 	forgejoURLFlag := flag.String("forgejo-url", firstNonEmpty(
 		strings.TrimSpace(os.Getenv("GITHUB_API_URL")),
@@ -235,6 +248,8 @@ func parsePublishConfig() publishConfig {
 		overwriteAssets: *overwriteAssetsFlag,
 		appendNotes:     *appendNotesFlag,
 		manifestPath:    *manifestFlag,
+		macosPkg:        *macosPkgFlag,
+		macosProvenance: *macosProvenanceFlag,
 		forgejoURL:      strings.TrimRight(strings.TrimSpace(*forgejoURLFlag), "/"),
 	}
 }
@@ -333,95 +348,71 @@ func ensureReleaseForPublish(ctx *publishContext) (*release, error) {
 	return rel, nil
 }
 
-func releaseAssetsByName(rel *release) map[string]int64 {
-	existingAssets := make(map[string]int64, len(rel.Assets))
+func releaseAssetsByName(rel *release) map[string]releaseAsset {
+	existingAssets := make(map[string]releaseAsset, len(rel.Assets))
 	for _, asset := range rel.Assets {
-		existingAssets[asset.Name] = asset.ID
+		existingAssets[asset.Name] = asset
 	}
 	return existingAssets
 }
 
-func uploadPackageArtifacts(ctx *publishContext, rel *release, existingAssets map[string]int64) error {
-	assets, err := collectAssets(ctx.resolver, ctx.config.manifestPath)
-	if err != nil {
-		return fmt.Errorf("failed to resolve package artifacts: %w", err)
-	}
-
-	fmt.Printf("Found %d package artifacts\n", len(assets))
-
-	for _, artifact := range assets {
-		uploadName, err := resolveUploadName(artifact, ctx.releaseVersion, ctx.rpmVersion, ctx.rpmRelease)
-		if err != nil {
-			return fmt.Errorf("failed to derive upload name for %q: %w", artifact, err)
-		}
-		if err := uploadReleaseAsset(ctx.client, rel.UploadURL, existingAssets, uploadAsset{
-			sourcePath: artifact,
-			uploadName: uploadName,
-		}, ctx.config.overwriteAssets); err != nil {
-			return fmt.Errorf("failed to upload asset %q: %w", uploadName, err)
+func uploadPackageArtifacts(ctx *publishContext, rel *release, existingAssets map[string]releaseAsset) error {
+	for _, artifact := range ctx.packages {
+		if err := uploadReleaseAsset(ctx.client, rel.UploadURL, existingAssets, artifact, ctx.config.overwriteAssets && rel.Draft); err != nil {
+			return fmt.Errorf("failed to upload asset %q: %w", artifact.uploadName, err)
 		}
 	}
-
 	return nil
 }
 
-func uploadManagedAgentArtifacts(ctx *publishContext, rel *release, existingAssets map[string]int64) error {
-	agentRuntimeArtifact, err := ctx.resolver.resolve(defaultAgentRuntimeRunfile)
-	if err != nil {
-		return fmt.Errorf("failed to resolve managed agent runtime artifact: %w", err)
+func uploadManagedAgentArtifacts(ctx *publishContext, rel *release, existingAssets map[string]releaseAsset) error {
+	for i := range ctx.runtimes {
+		runtime := &ctx.runtimes[i]
+		name := linuxAgentRuntimeUploadName(ctx.releaseVersion, runtime.arch)
+		if err := uploadReleaseAsset(ctx.client, rel.UploadURL, existingAssets, uploadAsset{
+			sourcePath: runtime.path,
+			uploadName: name,
+		}, ctx.config.overwriteAssets && rel.Draft); err != nil {
+			return fmt.Errorf("failed to upload managed runtime %q: %w", name, err)
+		}
+		url, err := ctx.client.getReleaseAssetDownloadURL(rel.TagName, name)
+		if err != nil {
+			return err
+		}
+		runtime.url = url
 	}
 
-	runtimeUploadName := managedAgentRuntimeUploadName(ctx.releaseVersion)
-	if err := uploadReleaseAsset(ctx.client, rel.UploadURL, existingAssets, uploadAsset{
-		sourcePath: agentRuntimeArtifact,
-		uploadName: runtimeUploadName,
-	}, ctx.config.overwriteAssets); err != nil {
-		return fmt.Errorf("failed to upload managed agent runtime asset %q: %w", runtimeUploadName, err)
-	}
-
-	runtimeURL, err := ctx.client.getReleaseAssetDownloadURL(rel.TagName, runtimeUploadName)
-	if err != nil {
-		return fmt.Errorf("failed to resolve managed agent runtime download url: %w", err)
-	}
-
-	tempDir, manifestAssets, err := buildManagedAgentManifestAssets(
-		ctx.releaseVersion,
-		runtimeURL,
-		agentRuntimeArtifact,
-		ctx.config.dryRun,
-	)
+	tempDir, manifestAssets, err := buildManagedAgentManifestAssets(ctx.releaseVersion, ctx.runtimes, ctx.config.dryRun)
 	if err != nil {
 		return fmt.Errorf("failed to build managed agent release manifest assets: %w", err)
 	}
-	defer func() {
-		if tempDir != "" {
-			_ = os.RemoveAll(tempDir)
-		}
-	}()
-
+	defer func() { _ = os.RemoveAll(tempDir) }()
 	for _, asset := range manifestAssets {
-		if err := uploadReleaseAsset(ctx.client, rel.UploadURL, existingAssets, asset, ctx.config.overwriteAssets); err != nil {
+		if err := uploadReleaseAsset(ctx.client, rel.UploadURL, existingAssets, asset, ctx.config.overwriteAssets && rel.Draft); err != nil {
 			return fmt.Errorf("failed to upload asset %q: %w", asset.uploadName, err)
 		}
 	}
-
 	return nil
 }
 
-func uploadReleaseAsset(client *githubClient, uploadURL string, existingAssets map[string]int64, asset uploadAsset, overwrite bool) error {
-	if id, ok := existingAssets[asset.uploadName]; ok {
-		if overwrite {
-			fmt.Printf("Replacing existing asset %s\n", asset.uploadName)
-			if err := client.deleteAsset(id); err != nil {
-				return err
-			}
-			delete(existingAssets, asset.uploadName)
-		} else {
-			fmt.Printf("Skipping %s (asset already exists)\n", asset.uploadName)
+func uploadReleaseAsset(client *githubClient, uploadURL string, existingAssets map[string]releaseAsset, asset uploadAsset, overwriteDraft bool) error {
+	if existing, ok := existingAssets[asset.uploadName]; ok {
+		digest, err := fileSHA256(asset.sourcePath)
+		if err != nil {
+			return err
+		}
+		if existing.Digest == "sha256:"+digest {
+			fmt.Printf("Verified existing asset %s (same SHA256)\n", asset.uploadName)
 			return nil
 		}
+		if !overwriteDraft {
+			return fmt.Errorf("%w: existing asset %q has a different or unavailable digest", errImmutableRelease, asset.uploadName)
+		}
+		if err := client.deleteAsset(existing.ID); err != nil {
+			return err
+		}
+		delete(existingAssets, asset.uploadName)
 	}
-
 	if err := client.uploadAsset(uploadURL, asset.sourcePath, asset.uploadName); err != nil {
 		return err
 	}
@@ -429,32 +420,12 @@ func uploadReleaseAsset(client *githubClient, uploadURL string, existingAssets m
 	return nil
 }
 
-func managedAgentRuntimeUploadName(version string) string {
-	return fmt.Sprintf(
-		"serviceradar-agent_%s_%s_%s.tar.gz",
-		version,
-		defaultAgentRuntimeOS,
-		defaultAgentRuntimeArch,
-	)
-}
-
-func buildManagedAgentManifestAssets(
-	version string,
-	runtimeURL string,
-	runtimeArtifactPath string,
-	dryRun bool,
-) (string, []uploadAsset, error) {
-	runtimeDigest, err := fileSHA256(runtimeArtifactPath)
+func buildManagedAgentManifestAssets(version string, runtimes []managedAgentRuntime, dryRun bool) (string, []uploadAsset, error) {
+	artifacts, err := managedLinuxManifestArtifacts(runtimes)
 	if err != nil {
 		return "", nil, err
 	}
-
-	manifest := agentReleaseManifest{
-		Version: version,
-		Artifacts: []agentReleaseManifestArtifact{
-			baseAgentManifestArtifact(runtimeURL, runtimeDigest),
-		},
-	}
+	manifest := agentReleaseManifest{Version: version, Artifacts: artifacts}
 
 	manifestPayload, err := manifestCanonicalPayload(manifest)
 	if err != nil {
@@ -647,6 +618,10 @@ func ensureRelease(client *githubClient, args ensureReleaseArgs) (*release, bool
 	existing, err := client.getReleaseByTag(args.tag)
 	if err != nil {
 		return nil, false, err
+	}
+
+	if existing != nil && !existing.Draft {
+		return nil, false, fmt.Errorf("%w: %s is already published", errImmutableRelease, args.tag)
 	}
 
 	if existing == nil {
@@ -1175,15 +1150,6 @@ func (r *runfileResolver) resolve(path string) (string, error) {
 	return "", fmt.Errorf("%w: %q", errRunfileNotFound, path)
 }
 
-func resolveOptionalArtifact(resolver *runfileResolver, path string) (string, error) {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		return "", errRunfileNotFound
-	}
-
-	return resolver.resolve(path)
-}
-
 var rpmSanitizePattern = regexp.MustCompile(`[^A-Za-z0-9._+]`)
 
 func deriveVersionMetadata(tag string) (debVersion, rpmVersion, rpmRelease string, err error) {
@@ -1246,6 +1212,7 @@ func resolveUploadName(path, debVersion, rpmVersion, rpmRelease string) (string,
 		}
 		arch := base[idx+1:]
 		namePart := strings.TrimRight(base[:idx], "-")
+		namePart = strings.TrimSuffix(namePart, "-"+rpmVersion+"-"+rpmRelease)
 		if strings.TrimSpace(namePart) == "" {
 			return "", fmt.Errorf("%w: %q", errUnexpectedRPMName, filepath.Base(path))
 		}

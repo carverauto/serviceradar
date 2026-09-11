@@ -1,4 +1,5 @@
 load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+load("@serviceradar_version//:defs.bzl", "FULL_VERSION")
 load("//build/packaging:release_targets.bzl", "declare_release_artifacts")
 
 # gazelle:ignore
@@ -22,6 +23,7 @@ go_library(
     name = "publish_packages_lib",
     srcs = [
         "agent_test_artifact.go",
+        "platform_artifacts.go",
         "publish_packages.go",
     ],
     importpath = "github.com/carverauto/serviceradar/build/release",
@@ -70,7 +72,9 @@ go_binary(
     data = [
         ":package_artifacts",
         ":package_manifest",
+        "//:VERSION",
         "//build/packaging/agent:agent_release_runtime_archive",
+        "//build/packaging/agent:agent_release_runtime_linux_arm64_archive",
     ],
     embed = [":publish_packages_lib"],
     visibility = ["//visibility:public"],
@@ -78,11 +82,44 @@ go_binary(
 
 go_test(
     name = "publish_packages_test",
-    srcs = ["publish_packages_test.go"],
+    srcs = [
+        "platform_artifacts_test.go",
+        "publish_packages_test.go",
+    ],
     data = [
         ":package_artifacts",
         ":package_manifest",
+        "//:VERSION",
         "//build/packaging/agent:agent_release_runtime_archive",
+        "//build/packaging/agent:agent_release_runtime_linux_arm64_archive",
     ],
     embed = [":publish_packages_lib"],
+)
+
+# Inspect the actual package bytes, including all executable payloads. An ARM64
+# filename or control field alone cannot prove the binary transition happened.
+go_test(
+    name = "agent_linux_packages_test",
+    srcs = ["agent_linux_packages_test.go"],
+    data = [
+        "//build/packaging/agent:agent_arm64_deb",
+        "//build/packaging/agent:agent_arm64_rpm",
+        "//build/packaging/agent:agent_deb",
+        "//build/packaging/agent:agent_release_runtime_archive",
+        "//build/packaging/agent:agent_release_runtime_linux_arm64_archive",
+        "//build/packaging/agent:agent_rpm",
+    ],
+    embed = [":publish_packages_lib"],
+    env = {
+        "AMD64_DEB": "$(rootpath //build/packaging/agent:agent_deb)",
+        "AMD64_RPM": "$(rootpath //build/packaging/agent:agent_rpm)",
+        "ARM64_DEB": "$(rootpath //build/packaging/agent:agent_arm64_deb)",
+        "ARM64_RPM": "$(rootpath //build/packaging/agent:agent_arm64_rpm)",
+        "EXPECTED_VERSION": FULL_VERSION,
+    },
+    target_compatible_with = ["@platforms//os:linux"],
+    deps = [
+        "@com_github_klauspost_compress//zstd",
+        "@com_github_ulikunitz_xz//:xz",
+    ],
 )
