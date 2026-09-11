@@ -113,7 +113,12 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry do
         COALESCE($21::jsonb -> 'episode_registry', '{}'::jsonb) ||
           jsonb_build_object('producer_states', producer_states),
         true
-      ) AS payload
+      ) AS payload,
+      -- A clear that resolves no episode (nothing open, no exact id, nothing
+      -- inside the fold window) has nothing to close. Inserting it minted a
+      -- zero-length "cleared" episode for every central seasonal clear that
+      -- arrived after the stale sweep had already closed the breach.
+      ($9::text <> 'open' AND (SELECT episode_uid FROM existing) IS NULL) AS orphan_clear
     FROM producer_state
   ),
   upserted AS (
@@ -172,6 +177,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry do
       (now() AT TIME ZONE 'utc'),
       (now() AT TIME ZONE 'utc')
     FROM aggregate
+    WHERE NOT aggregate.orphan_clear
     ON CONFLICT (episode_uid) DO UPDATE SET
       device_uid = EXCLUDED.device_uid,
       series_key = EXCLUDED.series_key,
@@ -283,6 +289,9 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry do
   def episode_projection(_row), do: :skip
 
   @doc false
+  def upsert_sql, do: @upsert_sql
+
+  @doc false
   def reset_rate_guard!, do: delete_table_if_present(@rate_guard_table)
 
   @doc false
@@ -308,10 +317,12 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry do
       {:ok, attrs} ->
         case upsert_episode(repo, attrs) do
           {:ok, decision} ->
-            attrs = %{attrs | episode_uid: decision.episode_uid}
+            # An orphan clear inserts nothing, so the RETURNING projection is
+            # all-NULL; keep the derived identity for tripwire accounting.
+            attrs = %{attrs | episode_uid: decision.episode_uid || attrs.episode_uid}
             record_tripwire(attrs)
 
-            if decision.producer_count > 1 do
+            if (decision.producer_count || 0) > 1 do
               :telemetry.execute(
                 [:serviceradar, :anomaly, :episode_registry],
                 %{multi_producer_series: 1},
