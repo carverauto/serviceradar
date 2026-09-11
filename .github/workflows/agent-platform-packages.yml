@@ -60,16 +60,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
-      BAZELISK_HOME: ${{ github.workspace }}/.cache/bazelisk
       BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY || secrets.BUILDBUDDY_API_KEY }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout@v7.0.1
         with:
           persist-credentials: false
-
-      - name: Install Bazelisk
-        run: ./scripts/install-bazelisk.sh
 
       # The API key reaches Bazel only through the gitignored .bazelrc.remote.
       - name: Configure remote cache
@@ -87,8 +83,11 @@ jobs:
           SOURCE_COMMIT: ${{ github.sha }}
         run: |
           set -euo pipefail
+          # GitHub-hosted images ship bazelisk; scripts/install-bazelisk.sh pins the
+          # self-hosted runners' copy and rejects this one.
+          command -v bazelisk
           mkdir -p "${RUNNER_TEMP}/windows-inputs"
-          bazel run -c opt --config=remote //build/packaging/agent/windows:stage -- \
+          bazelisk run -c opt --config=remote //build/packaging/agent/windows:stage -- \
             --source-commit="${SOURCE_COMMIT}" --output-dir="${RUNNER_TEMP}/windows-inputs"
 
       - name: Upload staged inputs
