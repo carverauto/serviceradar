@@ -527,6 +527,8 @@ func (s *SysmonService) getLocalConfigPath() string {
 			return linuxConfigPath
 		}
 		return darwinConfigPath
+	case goosWindows:
+		return filepath.Join(defaultConfigDir(), "sysmon.json")
 	default:
 		return linuxConfigPath
 	}
@@ -541,6 +543,8 @@ func (s *SysmonService) getCachePath() string {
 	switch runtime.GOOS {
 	case "darwin":
 		return darwinCachePath
+	case goosWindows:
+		return filepath.Join(defaultStateDir(), "cache", "sysmon-config.json")
 	default:
 		return linuxCachePath
 	}

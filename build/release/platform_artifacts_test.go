@@ -59,8 +59,8 @@ func TestPackagePreflightRequiresEveryLinuxInstaller(t *testing.T) {
 			ctx := syntheticPackagePreflight(t, filenames, omitted)
 			assets, err := preparePackageArtifacts(ctx)
 			if omitted == "none" {
-				if err != nil || len(assets) != 6 {
-					t.Fatalf("complete installers and macOS provenance rejected: assets=%d error=%v", len(assets), err)
+				if err != nil || len(assets) != 10 {
+					t.Fatalf("complete installers and provenance rejected: assets=%d error=%v", len(assets), err)
 				}
 			} else if err == nil {
 				t.Fatalf("missing required package %s accepted", omitted)
@@ -79,6 +79,7 @@ func syntheticPackagePreflight(t *testing.T, filenames []string, omitted string)
 	if err := os.WriteFile(config.macosProvenance, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	config.windowsDir = syntheticWindowsHandoff(t, config.commit, nil)
 	dir := t.TempDir()
 	var paths []string
 	for _, name := range filenames {
@@ -122,6 +123,85 @@ func syntheticMacOSProvenance(t *testing.T) (publishConfig, macOSPackageProvenan
 	proof.Notarization.Stapled = true
 	proof.Notarization.Validated = true
 	return config, proof
+}
+
+func syntheticWindowsHandoff(t *testing.T, commit string, mutate func(string, *windowsPackageProvenance)) string {
+	t.Helper()
+	dir := t.TempDir()
+	for _, arch := range []string{"amd64", "arm64"} {
+		name := "serviceradar-agent_2.3.4_windows_" + arch + ".msi"
+		contents := []byte("synthetic unsigned msi bytes " + arch)
+		if err := os.WriteFile(filepath.Join(dir, name), contents, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		proof := windowsPackageProvenance{
+			SchemaVersion: 1, Product: "serviceradar-agent", Version: "2.3.4", MSIVersion: "2.3.4", SourceCommit: commit,
+			OS: "windows", Arch: arch, Mode: "unsigned", UpgradeCode: windowsUpgradeCodes[arch], PackageFilename: name,
+			PackageSHA256: digestBytes(contents), BinarySHA256: strings.Repeat("b", 64), ConfigSHA256: strings.Repeat("c", 64),
+		}
+		if mutate != nil {
+			mutate(arch, &proof)
+		}
+		data, err := json.Marshal(proof)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, strings.TrimSuffix(name, ".msi")+".provenance.json"), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+func TestWindowsInstallersRequireBoundHandoff(t *testing.T) {
+	commit := strings.Repeat("a", 40)
+	for name, mutate := range map[string]func(string, *windowsPackageProvenance){
+		"valid":                nil,
+		"wrong commit":         func(_ string, p *windowsPackageProvenance) { p.SourceCommit = strings.Repeat("c", 40) },
+		"wrong version":        func(_ string, p *windowsPackageProvenance) { p.Version = "2.3.5" },
+		"wrong checksum":       func(_ string, p *windowsPackageProvenance) { p.PackageSHA256 = strings.Repeat("0", 64) },
+		"claims signed":        func(_ string, p *windowsPackageProvenance) { p.Signed = true },
+		"wrong filename":       func(_ string, p *windowsPackageProvenance) { p.PackageFilename = "agent.msi" },
+		"missing binary proof": func(_ string, p *windowsPackageProvenance) { p.BinarySHA256 = "" },
+		"swapped architecture": func(arch string, p *windowsPackageProvenance) {
+			if arch == "arm64" {
+				p.Arch = "amd64"
+			}
+		},
+		"changed upgrade code": func(arch string, p *windowsPackageProvenance) {
+			if arch == "amd64" {
+				p.UpgradeCode = windowsUpgradeCodes["arm64"]
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			config := publishConfig{commit: commit, windowsDir: syntheticWindowsHandoff(t, commit, mutate)}
+			assets, err := validateWindowsPackages(config, "2.3.4")
+			if name == "valid" {
+				if err != nil || len(assets) != 4 {
+					t.Fatalf("valid Windows handoff rejected: assets=%d error=%v", len(assets), err)
+				}
+			} else if err == nil {
+				t.Fatal("invalid Windows handoff accepted")
+			}
+		})
+	}
+	t.Run("missing arm64 installer", func(t *testing.T) {
+		dir := syntheticWindowsHandoff(t, commit, nil)
+		if err := os.Remove(filepath.Join(dir, "serviceradar-agent_2.3.4_windows_arm64.msi")); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := validateWindowsPackages(publishConfig{commit: commit, windowsDir: dir}, "2.3.4"); err == nil {
+			t.Fatal("release accepted a handoff without the arm64 MSI")
+		}
+	})
+}
+
+func TestWindowsUpgradeCodesMatchThePackager(t *testing.T) {
+	// Pinned in build/packaging/agent/windows too; changing either strands installed agents.
+	if windowsUpgradeCodes["amd64"] != "3B42E26D-C52D-43A8-AFD9-DDC162D2A6B3" || windowsUpgradeCodes["arm64"] != "FE1549BF-9F21-45FF-95D3-05AC0AEE9C3A" {
+		t.Fatal("Windows UpgradeCodes changed")
+	}
 }
 
 func TestMacOSInstallerRequiresBoundVerifiedHandoff(t *testing.T) {

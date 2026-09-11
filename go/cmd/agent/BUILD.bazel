@@ -3,7 +3,11 @@ load("@serviceradar_version//:defs.bzl", "FULL_VERSION")
 
 go_library(
     name = "agent_lib",
-    srcs = ["main.go"],
+    srcs = [
+        "main.go",
+        "main_other.go",
+        "main_windows.go",
+    ],
     embedsrcs = ["config.json"],
     importpath = "github.com/carverauto/serviceradar/go/cmd/agent",
     visibility = ["//visibility:private"],
@@ -12,7 +16,12 @@ go_library(
         "//go/pkg/agentgateway",
         "//go/pkg/lifecycle",
         "//go/pkg/logger",
-    ],
+    ] + select({
+        "@io_bazel_rules_go//go/platform:windows": [
+            "@org_golang_x_sys//windows/svc",
+        ],
+        "//conditions:default": [],
+    }),
 )
 
 go_binary(
@@ -28,13 +37,22 @@ go_binary(
 
 go_test(
     name = "agent_test",
-    srcs = ["main_test.go"],
+    srcs = [
+        "main_test.go",
+        "main_windows_test.go",
+    ],
     data = [":agent"],
     embed = [":agent_lib"],
     env = {
         "SERVICERADAR_TEST_AGENT_BINARY": "$(rootpath :agent)",
         "SERVICERADAR_TEST_AGENT_VERSION": FULL_VERSION,
     },
+    deps = select({
+        "@io_bazel_rules_go//go/platform:windows": [
+            "@org_golang_x_sys//windows/svc",
+        ],
+        "//conditions:default": [],
+    }),
 )
 
 # Windows agent binaries. Pure Go so they cross-compile from the Linux RBE

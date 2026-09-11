@@ -52,14 +52,17 @@ var errConfigTrailingData = errors.New("config has trailing data")
 var errShutdownTimeout = errors.New("shutdown timed out")
 
 func main() {
-	if err := run(); err != nil {
+	if err := runMain(); err != nil {
 		log.Fatalf("Fatal error: %v", err)
 	}
 }
 
-func run() error {
+// run starts the agent and blocks until it shuts down. A receive on stop (from
+// the Windows service manager) triggers the same graceful shutdown as SIGTERM;
+// a nil stop channel never fires.
+func run(stop <-chan struct{}) error {
 	// Parse command line flags
-	configPath := flag.String("config", "/etc/serviceradar/agent.json", "Path to agent config file")
+	configPath := flag.String("config", agent.DefaultConfigPath(), "Path to agent config file")
 	showVersion := flag.Bool("version", false, "Print agent version and exit")
 	flag.Parse()
 
@@ -114,7 +117,7 @@ func run() error {
 		return agentgateway.ErrGatewayAddrRequired
 	}
 
-	return runPushMode(ctx, server, cfg, agentLogger)
+	return runPushMode(ctx, server, cfg, agentLogger, stop)
 }
 
 // loadConfig loads agent configuration from file, falling back to embedded defaults.
@@ -153,7 +156,13 @@ func loadConfig(configPath string) (*agent.ServerConfig, error) {
 }
 
 // runPushMode runs the agent in push mode, pushing status to the gateway.
-func runPushMode(ctx context.Context, server *agent.Server, cfg *agent.ServerConfig, log logger.Logger) error {
+func runPushMode(
+	ctx context.Context,
+	server *agent.Server,
+	cfg *agent.ServerConfig,
+	log logger.Logger,
+	stop <-chan struct{},
+) error {
 	log.Info().
 		Str("gateway_addr", cfg.GatewayAddr).
 		Str("agent_id", cfg.AgentID).
@@ -219,35 +228,12 @@ func runPushMode(ctx context.Context, server *agent.Server, cfg *agent.ServerCon
 	case sig := <-sigChan:
 		log.Info().Str("signal", sig.String()).Msg("Received shutdown signal")
 
-		// Bound shutdown so the process can't hang forever (includes pushLoop.Stop()).
-		const shutdownTimeout = 10 * time.Second
-		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
-		defer shutdownCancel()
-		shutdownDone := make(chan struct{})
+		return shutdownGracefully(cancel, pushLoop, server, errChan, log)
 
-		go func() {
-			defer close(shutdownDone)
+	case <-stop:
+		log.Info().Msg("Received service stop request")
 
-			cancel()
-			if err := pushLoop.Stop(shutdownCtx); err != nil {
-				log.Warn().Err(err).Msg("Push loop stop did not complete before timeout")
-			}
-			select {
-			case <-errChan:
-			case <-shutdownCtx.Done():
-				return
-			}
-
-			if err := server.Stop(shutdownCtx); err != nil {
-				log.Error().Err(err).Msg("Error stopping agent services")
-			}
-		}()
-
-		select {
-		case <-shutdownDone:
-		case <-shutdownCtx.Done():
-			return fmt.Errorf("%w after %s", errShutdownTimeout, shutdownTimeout)
-		}
+		return shutdownGracefully(cancel, pushLoop, server, errChan, log)
 
 	case err := <-errChan:
 		if err != nil && !errors.Is(err, context.Canceled) {
@@ -267,6 +253,49 @@ func runPushMode(ctx context.Context, server *agent.Server, cfg *agent.ServerCon
 	}
 
 	log.Info().Msg("Agent shutdown complete")
+	return nil
+}
+
+// shutdownGracefully stops the push loop and the agent's services.
+func shutdownGracefully(
+	cancel context.CancelFunc,
+	pushLoop *agent.PushLoop,
+	server *agent.Server,
+	errChan <-chan error,
+	log logger.Logger,
+) error {
+	// Bound shutdown so the process can't hang forever (includes pushLoop.Stop()).
+	const shutdownTimeout = 10 * time.Second
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer shutdownCancel()
+	shutdownDone := make(chan struct{})
+
+	go func() {
+		defer close(shutdownDone)
+
+		cancel()
+		if err := pushLoop.Stop(shutdownCtx); err != nil {
+			log.Warn().Err(err).Msg("Push loop stop did not complete before timeout")
+		}
+		select {
+		case <-errChan:
+		case <-shutdownCtx.Done():
+			return
+		}
+
+		if err := server.Stop(shutdownCtx); err != nil {
+			log.Error().Err(err).Msg("Error stopping agent services")
+		}
+	}()
+
+	select {
+	case <-shutdownDone:
+	case <-shutdownCtx.Done():
+		return fmt.Errorf("%w after %s", errShutdownTimeout, shutdownTimeout)
+	}
+
+	log.Info().Msg("Agent shutdown complete")
+
 	return nil
 }
 

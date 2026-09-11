@@ -97,6 +97,43 @@ The macOS installer retains its standalone launchd layout and does not support
 managed runtime activation. See [agent platform packages](./agent-platform-packages.md)
 for platform support, installation, and Apple signing configuration in CI.
 
+## Windows Installer
+
+Each agent-capable release publishes `serviceradar-agent_<version>_windows_amd64.msi` and
+`serviceradar-agent_<version>_windows_arm64.msi`, each with a `.provenance.json` that records the
+version, source commit, architecture and SHA256 digests. The installers are unsigned until
+Authenticode signing is configured (issue #388), so SmartScreen can warn when one is opened.
+
+Install from an elevated PowerShell:
+
+```powershell
+msiexec /i serviceradar-agent_<version>_windows_amd64.msi /qn
+```
+
+The installer:
+
+- installs `serviceradar-agent.exe` under `C:\Program Files\ServiceRadar\`
+- writes `C:\ProgramData\ServiceRadar\config\agent.json` only when that file does not exist
+- registers the `ServiceRadarAgent` service to run as LocalSystem, start automatically, and restart
+  10 s after a failure
+- does not start the service on a fresh install, because the default configuration names a
+  placeholder gateway and certificates
+
+Configure and start it:
+
+1. Edit `agent.json`: `gateway_addr`, `agent_id`, `host_ip`, and `partition`.
+2. Put the agent's mTLS files (`agent.pem`, `agent-key.pem`, `root.pem`) in
+   `C:\ProgramData\ServiceRadar\config\certs\`.
+3. `Start-Service ServiceRadarAgent`
+
+The service writes its log to `C:\ProgramData\ServiceRadar\logs\agent.log`; the file is appended to
+and not rotated.
+
+Upgrading means installing a newer MSI. It replaces the binary, keeps `agent.json`, and starts the
+service again. Uninstalling (`msiexec /x <msi> /qn`) removes the binary and the service and keeps
+everything under `C:\ProgramData\ServiceRadar\`. Managed release rollouts do not update Windows
+agents yet; upgrade them with the MSI.
+
 ## Signing Key Handling
 
 Keep signing private keys out of the fleet.

@@ -158,6 +158,7 @@ type publishConfig struct {
 	manifestPath    string
 	macosPkg        string
 	macosProvenance string
+	windowsDir      string
 	forgejoURL      string
 }
 
@@ -226,6 +227,7 @@ func parsePublishConfig() publishConfig {
 	appendNotesFlag := flag.Bool("append_notes", false, "Append release notes when the release already exists")
 	macosPkgFlag := flag.String("macos_pkg", "", "Required signed and notarized Darwin ARM64 installer path")
 	macosProvenanceFlag := flag.String("macos_provenance", "", "Required macOS installer provenance from the same source commit")
+	windowsDirFlag := flag.String("windows_dir", "", "Required directory holding both Windows MSIs and their provenance from the same source commit")
 	manifestFlag := flag.String("manifest", defaultManifestRunfile, "Path to the package manifest runfile")
 	forgejoURLFlag := flag.String("forgejo-url", firstNonEmpty(
 		strings.TrimSpace(os.Getenv("GITHUB_API_URL")),
@@ -250,6 +252,7 @@ func parsePublishConfig() publishConfig {
 		manifestPath:    *manifestFlag,
 		macosPkg:        *macosPkgFlag,
 		macosProvenance: *macosProvenanceFlag,
+		windowsDir:      strings.TrimSpace(*windowsDirFlag),
 		forgejoURL:      strings.TrimRight(strings.TrimSpace(*forgejoURLFlag), "/"),
 	}
 }
