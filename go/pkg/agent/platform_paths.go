@@ -15,6 +15,7 @@ const (
 	unixStateDir              = "/var/lib/serviceradar"
 	unixLogDir                = "/var/log/serviceradar"
 	windowsDefaultProgramData = `C:\ProgramData`
+	goosWindows               = "windows"
 )
 
 // DefaultConfigPath is the agent config file used when --config is not given.
@@ -37,7 +38,7 @@ func defaultStateDir() string {
 }
 
 func configDirFor(goos string, getenv func(string) string) string {
-	if goos == "windows" {
+	if goos == goosWindows {
 		return windowsServiceRadarDir(getenv, "config")
 	}
 
@@ -45,7 +46,7 @@ func configDirFor(goos string, getenv func(string) string) string {
 }
 
 func stateDirFor(goos string, getenv func(string) string) string {
-	if goos == "windows" {
+	if goos == goosWindows {
 		return windowsServiceRadarDir(getenv, "data")
 	}
 
@@ -53,7 +54,7 @@ func stateDirFor(goos string, getenv func(string) string) string {
 }
 
 func logDirFor(goos string, getenv func(string) string) string {
-	if goos == "windows" {
+	if goos == goosWindows {
 		return windowsServiceRadarDir(getenv, "logs")
 	}
 

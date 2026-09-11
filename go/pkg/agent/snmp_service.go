@@ -618,7 +618,7 @@ func (s *SNMPAgentService) getSNMPLocalConfigPath() string {
 			return snmpLinuxConfigPath
 		}
 		return snmpDarwinConfigPath
-	case "windows":
+	case goosWindows:
 		return filepath.Join(defaultConfigDir(), "snmp.json")
 	default:
 		return snmpLinuxConfigPath
@@ -634,7 +634,7 @@ func (s *SNMPAgentService) getSNMPCachePath() string {
 	switch runtime.GOOS {
 	case snmpPlatformDarwin:
 		return snmpDarwinCachePath
-	case "windows":
+	case goosWindows:
 		return filepath.Join(defaultStateDir(), "cache", "snmp-config.json")
 	default:
 		return snmpLinuxCachePath

@@ -264,7 +264,6 @@ func shutdownGracefully(
 	errChan <-chan error,
 	log logger.Logger,
 ) error {
-
 	// Bound shutdown so the process can't hang forever (includes pushLoop.Stop()).
 	const shutdownTimeout = 10 * time.Second
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
