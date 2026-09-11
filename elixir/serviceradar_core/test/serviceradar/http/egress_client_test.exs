@@ -260,6 +260,16 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
     assert collect_chunks() == @body
   end
 
+  # :httpc reports a refused connection as {:failed_connect, [...]}. Callers log
+  # and record that reason for operators, and Req -- which these call sites used
+  # before -- reported it as a transport error reading "connection refused".
+  test "reports a refused connection as a Req transport error", ctx do
+    assert {:error, %Req.TransportError{reason: :econnrefused} = error} =
+             EgressClient.fetch_body("https://127.0.0.1:1/catalog.json", opts(ctx, proxy: nil))
+
+    assert Exception.message(error) == "connection refused"
+  end
+
   test "rejects an origin certificate that does not chain to the given anchors", ctx do
     %{client_config: other} = generate_certs()
 

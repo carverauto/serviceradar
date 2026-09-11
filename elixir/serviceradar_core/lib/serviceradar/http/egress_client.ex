@@ -296,7 +296,7 @@ defmodule ServiceRadar.HTTP.EgressClient do
            profile
          ) do
       {:ok, request_id} -> await(request_id, profile, opts, timeout)
-      {:error, reason} -> {:error, reason}
+      {:error, reason} -> {:error, transport_error(reason)}
     end
   end
 
@@ -320,7 +320,7 @@ defmodule ServiceRadar.HTTP.EgressClient do
         end
 
       {:http, {^request_id, {:error, reason}}} ->
-        {:error, reason}
+        {:error, transport_error(reason)}
     after
       timeout ->
         cancel(request_id, profile)
@@ -352,7 +352,7 @@ defmodule ServiceRadar.HTTP.EgressClient do
         {:ok, response(200, headers ++ trailers, "")}
 
       {:http, {^request_id, {:error, reason}}} ->
-        {:error, reason}
+        {:error, transport_error(reason)}
     after
       timeout ->
         cancel(request_id, profile)
@@ -385,6 +385,19 @@ defmodule ServiceRadar.HTTP.EgressClient do
       {name |> to_string() |> String.downcase(), to_string(value)}
     end)
   end
+
+  # :httpc reports a connection it could not open as
+  # {:failed_connect, [{:to_address, _}, {family, _options, reason}]}. Report it
+  # as Req would, so a caller that logs or records the reason says
+  # "connection refused" rather than an :httpc term.
+  defp transport_error({:failed_connect, info} = error) when is_list(info) do
+    case List.last(info) do
+      {_family, _options, reason} when is_atom(reason) -> %Req.TransportError{reason: reason}
+      _ -> error
+    end
+  end
+
+  defp transport_error(reason), do: reason
 
   defp cancel(request_id, profile) do
     _ = :httpc.cancel_request(request_id, profile)
