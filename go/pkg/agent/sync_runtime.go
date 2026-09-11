@@ -28,7 +28,6 @@ const (
 	syncMetaKey                = "sync_meta"
 	syncControlKey             = "_sync_control"
 	syncCollectionFinal        = "collection_final"
-	syncRuntimeStatePath       = "/var/lib/serviceradar/cache/sync-runtime-runs.json"
 	syncPopulationExampleLimit = 100
 )
 
@@ -243,7 +242,7 @@ func syncRuntimeStateFile() string {
 		return override
 	}
 
-	return syncRuntimeStatePath
+	return filepath.Join(defaultStateDir(), "cache", "sync-runtime-runs.json")
 }
 
 func claimInitialSyncRun(path string, key string, interval time.Duration, now time.Time) (bool, error) {
