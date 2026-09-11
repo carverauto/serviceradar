@@ -432,6 +432,23 @@ func byteaLiteral(b []byte) string {
 	return fmt.Sprintf("'\\x%s'::bytea", hex.EncodeToString(b))
 }
 
+// dbPoolWarmupRetries/dbPoolWarmupDelay bound retries for the transient race
+// between the core release's plain HTTP /health check (which does not probe
+// Ecto.Repo) becoming ready and its DBConnection pool finishing its initial
+// connections to CNPG: the very first query issued right after StartRelease
+// returns can observe "connection not available and request was dropped from
+// queue" even though the release itself is healthy. Retrying a bounded,
+// short-lived transient error is not a substitute for a real DB outage check:
+// a persistent failure still exhausts the budget and fails the test.
+const (
+	dbPoolWarmupRetries = 5
+	dbPoolWarmupDelay   = 2 * time.Second
+)
+
+func isTransientPoolWarmup(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "connection not available")
+}
+
 // rpcQueryCount runs one Elixir expression over the core release's Repo and
 // returns the resulting integer, for existence/row-count checks. sql MUST be
 // a single SELECT whose first column is an integer.
@@ -441,7 +458,15 @@ func (h *harness) rpcQueryCount(t *testing.T, sql string) int {
 		`%%Postgrex.Result{rows: [[n]]} = ServiceRadar.Repo.query!(%q, []); IO.puts(n)`,
 		sql,
 	)
-	out, err := h.coreProc.RPC(expr, rpcTimeout)
+	var out string
+	var err error
+	for attempt := 0; attempt <= dbPoolWarmupRetries; attempt++ {
+		out, err = h.coreProc.RPC(expr, rpcTimeout)
+		if err == nil || !isTransientPoolWarmup(err) {
+			break
+		}
+		time.Sleep(dbPoolWarmupDelay)
+	}
 	if err != nil {
 		t.Fatalf("rpc query count failed: %v\nsql: %s", err, sql)
 	}
@@ -462,7 +487,15 @@ func (h *harness) rpcQueryRow(t *testing.T, sql string) string {
 		`case ServiceRadar.Repo.query!(%q, []) do %%Postgrex.Result{rows: [row]} -> IO.puts(inspect(row)); %%Postgrex.Result{rows: []} -> IO.puts("NONE") end`,
 		sql,
 	)
-	out, err := h.coreProc.RPC(expr, rpcTimeout)
+	var out string
+	var err error
+	for attempt := 0; attempt <= dbPoolWarmupRetries; attempt++ {
+		out, err = h.coreProc.RPC(expr, rpcTimeout)
+		if err == nil || !isTransientPoolWarmup(err) {
+			break
+		}
+		time.Sleep(dbPoolWarmupDelay)
+	}
 	if err != nil {
 		t.Fatalf("rpc query row failed: %v\nsql: %s", err, sql)
 	}
