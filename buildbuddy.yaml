@@ -361,15 +361,17 @@ actions:
           # 0.12) is a plain Go test, not an Elixir/Rust integration lane, so it cannot resolve
           # the typed SERVICERADAR_ENV=ci fixture identity itself -- it spawns two real Elixir
           # Mix releases as OS subprocesses, each reading plain CNPG_* env vars from its own
-          # runtime.exs. It connects to RUN_DATABASE (sr_core_test_$RUN_ID) -- the SAME database
-          # the generation lifecycle below already creates and migrates as its clone source (see
-          # `validate_lifecycle_json cloned "$GENERATION_DIGEST" "$RUN_DATABASE"` further down) --
-          # so no separate provisioning step is needed here. The target resolves this database's
-          # connection identity at test time via //rust/integration-db:describe_run_base (its own
-          # declared data dependency), NOT via an env var this step exports -- a --test_env value
-          # naming a host filesystem path would not be visible inside a remotely-executed test
-          # sandbox. Do NOT reintroduce the retired run-base provisioning/migration targets
-          # here -- ci_heavy_gate_contract_test.py forbids them in this action.
+          # runtime.exs. RUN_DATABASE (sr_core_test_$RUN_ID) is only the generation LEASE id in
+          # this lifecycle -- provision_generation below clones the ready generation into
+          # sr_core_test_$RUN_ID_<lane> for the Elixir lanes and no unsuffixed database exists --
+          # so at test time the target clones its own sr_core_test_$RUN_ID_edge_record the same
+          # way, by executing //rust/integration-db:provision_generation_edge_record, and reads
+          # that clone's connection identity from :describe_shard (both its own declared data
+          # dependencies), NOT from an env var this step exports -- a --test_env value naming a
+          # host filesystem path would not be visible inside a remotely-executed test sandbox.
+          # teardown_db drops every sr_core_test_$RUN_ID_% clone, this one included. Do NOT
+          # reintroduce the retired run-base provisioning/migration targets here --
+          # ci_heavy_gate_contract_test.py forbids them in this action.
 
           bazel test $FLAGS //rust/integration-db:sweep_stale_dbs
           CLEANUP_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:cleanup_generations)"

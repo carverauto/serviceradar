@@ -86,22 +86,26 @@ var (
 	coreReleaseTarRlocation    string
 	agentBinaryRlocation       string
 	natsServerBinaryRlocation  string // unused today (embedded nats-server via natsjwt.go), reserved for a future subprocess-nats variant.
-	// describeRunBaseRlocation is //rust/integration-db:describe_run_base's
-	// binary. Empty in a plain `go test` run outside Bazel (resolveCNPG then
-	// falls back to plain CNPG_* env vars); set via x_defs under Bazel. This
-	// harness EXECS the binary itself rather than reading a JSON file written
-	// by an earlier buildbuddy.yaml shell step and passed via --test_env,
-	// because a --test_env value naming a host filesystem path is invisible
-	// to a remotely-executed test sandbox (RBE) -- this repo's OWN pattern
-	// for crossing that exact boundary (the "generation" database identity)
-	// never passes a loose path through an env var either; it always
-	// resolves the typed SERVICERADAR_ENV=ci identity from INSIDE the
-	// consuming process via declared Bazel data. Running describe_run_base
-	// as a data-dependency subprocess (same technique as nats-server/the
-	// agent binary/the two Elixir releases) keeps CNPG resolution on that
-	// same, sandbox-safe footing: its own `data` dependency on
-	// //build:run_id_file travels with it into this test's runfiles.
-	describeRunBaseRlocation string
+	// provisionShardRlocation and describeShardRlocation are
+	// //rust/integration-db:provision_generation_edge_record's and
+	// :describe_shard's binaries. Both are empty in a plain `go test` run
+	// outside Bazel (resolveCNPG then falls back to plain CNPG_* env vars)
+	// and set via x_defs under Bazel. This harness EXECS the binaries itself
+	// rather than reading a JSON file written by an earlier buildbuddy.yaml
+	// shell step and passed via --test_env, because a --test_env value
+	// naming a host filesystem path is invisible to a remotely-executed test
+	// sandbox (RBE) -- this repo's OWN pattern for crossing that exact
+	// boundary (the "generation" database identity) never passes a loose
+	// path through an env var either; it always resolves the typed
+	// SERVICERADAR_ENV=ci identity from INSIDE the consuming process via
+	// declared Bazel data. Running both as data-dependency subprocesses (same
+	// technique as nats-server/the agent binary/the two Elixir releases)
+	// keeps CNPG resolution on that same, sandbox-safe footing: their own
+	// `data` dependencies (//build:run_id_file, the ci instance, the schema
+	// generation manifest and policy) travel with them into this test's
+	// runfiles.
+	provisionShardRlocation string
+	describeShardRlocation  string
 )
 
 const (
@@ -124,26 +128,77 @@ func mustRlocation(t *testing.T, rlocationPath string) string {
 	return resolved
 }
 
-// runDescribeRunBase executes //rust/integration-db:describe_run_base as a
-// real subprocess and parses its one line of stdout JSON into a
-// RunBaseCNPGConfig (releases.go). Returns (nil, nil) when
-// describeRunBaseRlocation was not injected (a plain `go test` run outside
-// Bazel), so resolveCNPG falls back to plain CNPG_* env vars. Assumes
-// //rust/integration-db:provision_base (and //elixir/serviceradar_core:migrate_run
-// if it reported pending migrations) already ran and seeded/migrated the run
-// base -- a prerequisite CI step (buildbuddy.yaml), not this test's job;
-// describe_run_base only resolves and reports the identity, per its own
-// moduledoc.
-func runDescribeRunBase(t *testing.T) (*RunBaseCNPGConfig, error) {
-	t.Helper()
-
-	if describeRunBaseRlocation == "" {
+// provisionAndDescribeShard creates this test's own disposable
+// sr_core_test_<run>_<shard> database and returns its connection identity.
+// Returns (nil, nil) when neither rlocation was injected (a plain `go test`
+// run outside Bazel), so resolveCNPG falls back to plain CNPG_* env vars.
+//
+// The shard is SERVICERADAR_TEST_DB_SHARD, set by this target's BUILD `env`
+// -- the same variable the Elixir lanes use to name their clones. Under the
+// generation lifecycle buildbuddy.yaml runs, `sr_core_test_<run>` is only the
+// generation lease id: the lanes' databases are `_<lane>` clones of the ready
+// generation and no unsuffixed database exists, so this test clones a shard
+// of its own the same way instead of assuming a shared run database.
+func provisionAndDescribeShard() (*ShardCNPGConfig, error) {
+	if provisionShardRlocation == "" && describeShardRlocation == "" {
 		return nil, nil
 	}
 
-	binPath, err := runfiles.Rlocation(describeRunBaseRlocation)
+	shard := os.Getenv("SERVICERADAR_TEST_DB_SHARD")
+	if shard == "" {
+		return nil, fmt.Errorf("SERVICERADAR_TEST_DB_SHARD is unset; BUILD.bazel's env names this target's disposable database shard")
+	}
+	if err := provisionShard(shard); err != nil {
+		return nil, err
+	}
+	return describeShard()
+}
+
+// provisionShard executes //rust/integration-db:provision_generation_edge_record
+// as a real subprocess to clone sr_core_test_<run>_<shard> from the READY
+// schema generation the BazelCI lifecycle prepared (buildbuddy.yaml's
+// prepare_generation step) -- the same clone_generation path
+// provision_generation takes for the Elixir lanes, aimed at a shard no lane
+// uses. The binary's Bazel `args`/`env` apply only under `bazel run`, so the
+// operation and the shard list are passed explicitly here. teardown_db drops
+// every sr_core_test_<run>_% database at the end of the run, so nothing new
+// cleans up.
+func provisionShard(shard string) error {
+	binPath, err := runfiles.Rlocation(provisionShardRlocation)
 	if err != nil {
-		return nil, fmt.Errorf("resolve describe_run_base rlocation: %w", err)
+		return fmt.Errorf("resolve provision_generation_edge_record rlocation: %w", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	cmd := exec.Command(binPath, "clone")
+	cmd.Env = append(os.Environ(), "SERVICERADAR_TEST_DB_SHARDS="+shard)
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("run provision_generation_edge_record clone: %w\nstderr: %s", err, stderr.String())
+	}
+
+	var out struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(stdout.Bytes()), &out); err != nil {
+		return fmt.Errorf("parse provision_generation_edge_record output %q: %w", stdout.String(), err)
+	}
+	if out.Status != "cloned" {
+		return fmt.Errorf("provision_generation_edge_record reported status %q, want \"cloned\"", out.Status)
+	}
+	return nil
+}
+
+// describeShard executes //rust/integration-db:describe_shard as a real
+// subprocess and parses its one line of stdout JSON into a ShardCNPGConfig
+// (releases.go). It reads SERVICERADAR_TEST_DB_SHARD from this process's
+// environment and only resolves and reports the identity, per its own
+// moduledoc; provisionShard must already have created the clone.
+func describeShard() (*ShardCNPGConfig, error) {
+	binPath, err := runfiles.Rlocation(describeShardRlocation)
+	if err != nil {
+		return nil, fmt.Errorf("resolve describe_shard rlocation: %w", err)
 	}
 
 	var stdout, stderr bytes.Buffer
@@ -151,12 +206,12 @@ func runDescribeRunBase(t *testing.T) (*RunBaseCNPGConfig, error) {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("run describe_run_base: %w\nstderr: %s", err, stderr.String())
+		return nil, fmt.Errorf("run describe_shard: %w\nstderr: %s", err, stderr.String())
 	}
 
-	var cfg RunBaseCNPGConfig
+	var cfg ShardCNPGConfig
 	if err := json.Unmarshal(bytes.TrimSpace(stdout.Bytes()), &cfg); err != nil {
-		return nil, fmt.Errorf("parse describe_run_base output %q: %w", stdout.String(), err)
+		return nil, fmt.Errorf("parse describe_shard output %q: %w", stdout.String(), err)
 	}
 	return &cfg, nil
 }
@@ -341,20 +396,21 @@ func newHarness(t *testing.T) *harness {
 	return h
 }
 
-// resolveCNPG prefers the CI-provisioned run-base database, resolved by
-// EXECUTING //rust/integration-db:describe_run_base as a real subprocess
-// (its own declared data dependency on //build:run_id_file travels with it
-// into this test's runfiles -- see describeRunBaseRlocation's doc comment
-// for why this must not be a JSON-file-plus-env-var handoff), and falls
-// back to the plain CNPG_HOST/PORT/DATABASE/USERNAME/PASSWORD env vars (the
-// "Local Development with Docker CNPG" playbook's defaults) for a local,
-// non-Bazel `go test` run or when describeRunBaseRlocation was not injected.
+// resolveCNPG prefers this test's own clone of the CI schema generation,
+// created and resolved by EXECUTING //rust/integration-db's
+// provision_generation_edge_record and describe_shard binaries as real
+// subprocesses (their declared data dependencies travel with them into this
+// test's runfiles -- see provisionShardRlocation's doc comment for why this
+// must not be a JSON-file-plus-env-var handoff), and falls back to the plain
+// CNPG_HOST/PORT/DATABASE/USERNAME/PASSWORD env vars (the "Local Development
+// with Docker CNPG" playbook's defaults) for a local, non-Bazel `go test` run
+// where neither rlocation was injected.
 func resolveCNPG(t *testing.T, dir string) (host string, port int, database, username, password, sslMode, tlsServerName, caFile string) {
 	t.Helper()
 
-	cfg, err := runDescribeRunBase(t)
+	cfg, err := provisionAndDescribeShard()
 	if err != nil {
-		t.Fatalf("describe_run_base: %v", err)
+		t.Fatalf("provision/describe shard database: %v", err)
 	}
 	if cfg != nil {
 		caPath, err := cfg.WriteCAPEMFile(filepath.Join(dir, "cnpg-ca"))
@@ -432,23 +488,6 @@ func byteaLiteral(b []byte) string {
 	return fmt.Sprintf("'\\x%s'::bytea", hex.EncodeToString(b))
 }
 
-// dbPoolWarmupRetries/dbPoolWarmupDelay bound retries for the transient race
-// between the core release's plain HTTP /health check (which does not probe
-// Ecto.Repo) becoming ready and its DBConnection pool finishing its initial
-// connections to CNPG: the very first query issued right after StartRelease
-// returns can observe "connection not available and request was dropped from
-// queue" even though the release itself is healthy. Retrying a bounded,
-// short-lived transient error is not a substitute for a real DB outage check:
-// a persistent failure still exhausts the budget and fails the test.
-const (
-	dbPoolWarmupRetries = 5
-	dbPoolWarmupDelay   = 2 * time.Second
-)
-
-func isTransientPoolWarmup(err error) bool {
-	return err != nil && strings.Contains(err.Error(), "connection not available")
-}
-
 // rpcQueryCount runs one Elixir expression over the core release's Repo and
 // returns the resulting integer, for existence/row-count checks. sql MUST be
 // a single SELECT whose first column is an integer.
@@ -458,15 +497,7 @@ func (h *harness) rpcQueryCount(t *testing.T, sql string) int {
 		`%%Postgrex.Result{rows: [[n]]} = ServiceRadar.Repo.query!(%q, []); IO.puts(n)`,
 		sql,
 	)
-	var out string
-	var err error
-	for attempt := 0; attempt <= dbPoolWarmupRetries; attempt++ {
-		out, err = h.coreProc.RPC(expr, rpcTimeout)
-		if err == nil || !isTransientPoolWarmup(err) {
-			break
-		}
-		time.Sleep(dbPoolWarmupDelay)
-	}
+	out, err := h.coreProc.RPC(expr, rpcTimeout)
 	if err != nil {
 		t.Fatalf("rpc query count failed: %v\nsql: %s", err, sql)
 	}
@@ -487,15 +518,7 @@ func (h *harness) rpcQueryRow(t *testing.T, sql string) string {
 		`case ServiceRadar.Repo.query!(%q, []) do %%Postgrex.Result{rows: [row]} -> IO.puts(inspect(row)); %%Postgrex.Result{rows: []} -> IO.puts("NONE") end`,
 		sql,
 	)
-	var out string
-	var err error
-	for attempt := 0; attempt <= dbPoolWarmupRetries; attempt++ {
-		out, err = h.coreProc.RPC(expr, rpcTimeout)
-		if err == nil || !isTransientPoolWarmup(err) {
-			break
-		}
-		time.Sleep(dbPoolWarmupDelay)
-	}
+	out, err := h.coreProc.RPC(expr, rpcTimeout)
 	if err != nil {
 		t.Fatalf("rpc query row failed: %v\nsql: %s", err, sql)
 	}

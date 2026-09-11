@@ -1,4 +1,5 @@
 load("@io_bazel_rules_go//go:def.bzl", "go_test")
+load("//build:integration_shards.bzl", "EDGE_RECORD_DB_SHARD")
 load("//build:integration_tests.bzl", "requires_shared_fixture")
 
 # //integration_tests/edge_record:vertical_slice_test -- unify-sweep-results-proto task 0.12,
@@ -18,8 +19,15 @@ load("//build:integration_tests.bzl", "requires_shared_fixture")
 # pattern; `requires_shared_fixture()` is the independent opt-in gate (without
 # --//build:enable_integration_tests this target is @platforms//:incompatible). This is a Go test
 # rather than the Rust rust_test srql uses because the composed path is cross-language (Go agent +
-# two Elixir releases): describe_run_base.rs is what lets a Go process resolve the SAME typed
+# two Elixir releases): describe_shard.rs is what lets a Go process resolve the SAME typed
 # SERVICERADAR_ENV=ci fixture identity every other language's integration lane resolves internally.
+#
+# Its database is its own `sr_core_test_<run>_edge_record` clone of the ready schema generation,
+# created at test time by executing //rust/integration-db:provision_generation_edge_record (the
+# same clone path the Elixir lanes' databases come from), then described by :describe_shard. Under
+# the generation lifecycle the unsuffixed `sr_core_test_<run>` is only the lease id, not a
+# database, so there is no shared "run database" to point the releases at. teardown_db drops every
+# `sr_core_test_<run>_%` clone at the end of the run, so nothing new cleans up.
 go_test(
     name = "vertical_slice_test",
     size = "large",
@@ -39,8 +47,12 @@ go_test(
         "//elixir/serviceradar_agent_gateway:release_tar",
         "//elixir/serviceradar_core_elx:release_tar",
         "//go/cmd/agent",
-        "//rust/integration-db:describe_run_base",
+        "//rust/integration-db:describe_shard",
+        "//rust/integration-db:provision_generation_edge_record",
     ],
+    # Names this target's own clone for both subprocesses above: describe_shard reads it directly,
+    # and the harness passes it to provision_generation_edge_record as its clone shard list.
+    env = {"SERVICERADAR_TEST_DB_SHARD": EDGE_RECORD_DB_SHARD},
     importpath = "github.com/carverauto/serviceradar/integration_tests/edge_record",
     tags = ["integration_test"],
     target_compatible_with = requires_shared_fixture(),
@@ -51,7 +63,8 @@ go_test(
         "github.com/carverauto/serviceradar/integration_tests/edge_record.gatewayReleaseTarRlocation": "$(rlocationpath //elixir/serviceradar_agent_gateway:release_tar)",
         "github.com/carverauto/serviceradar/integration_tests/edge_record.coreReleaseTarRlocation": "$(rlocationpath //elixir/serviceradar_core_elx:release_tar)",
         "github.com/carverauto/serviceradar/integration_tests/edge_record.agentBinaryRlocation": "$(rlocationpath //go/cmd/agent)",
-        "github.com/carverauto/serviceradar/integration_tests/edge_record.describeRunBaseRlocation": "$(rlocationpath //rust/integration-db:describe_run_base)",
+        "github.com/carverauto/serviceradar/integration_tests/edge_record.describeShardRlocation": "$(rlocationpath //rust/integration-db:describe_shard)",
+        "github.com/carverauto/serviceradar/integration_tests/edge_record.provisionShardRlocation": "$(rlocationpath //rust/integration-db:provision_generation_edge_record)",
     },
     deps = [
         "//go/pkg/edge/edgerecord",
