@@ -500,15 +500,20 @@ webNg:
     forceLocalLogin: false
     disableSso: false
   # Demo attaches to the shared envoy gateway in serviceradar-system, so
-  # trust its x-forwarded-for for audit logging. Narrow these CIDRs to the
-  # cluster pod/service ranges if they are known; the RFC1918 default covers
-  # envoy pod IPs and kube-proxy SNAT addresses.
+  # trust its x-forwarded-for for audit logging.
+  #
+  # ONLY the envoy pod range. web-ng walks x-forwarded-for right-to-left and
+  # reports the first hop that is NOT in this list, so every CIDR here is an
+  # address web-ng will refuse to report as a client. Listing all of RFC1918
+  # put the site LAN in that set: a browser on 192.168.0.0/16 was treated as
+  # a proxy hop, no hop was left, and every login from the LAN was a 500
+  # (v1.4.56). Envoy is the only proxy in front of web-ng, its pods live in
+  # the k3s cluster CIDR, and the web-ng Service is IPv4-only, so the peer
+  # web-ng sees is always in this range.
   clientIp:
     trustXForwardedFor: true
     trustedProxyCidrs:
-      - "10.0.0.0/8"
-      - "172.16.0.0/12"
-      - "192.168.0.0/16"
+      - "10.42.0.0/16"
   publicUrl: "https://demo.serviceradar.cloud"
   # MCP OAuth AS for Authentik SSO testing. Chart default is off. Keep this
   # on the demo overlay so /mcp survives Image Updater rewrite of

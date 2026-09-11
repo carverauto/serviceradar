@@ -20,7 +20,7 @@ defmodule ServiceRadar.Plugins.DisplayContractTest do
       manifest: "addons/anomaly-addon/addon.yaml",
       contract: "addons/anomaly-addon/display/detection_finding.display.json",
       producer_id: "anomaly",
-      producer_version: "0.3.6"
+      producer_version: "0.3.7"
     },
     %{
       manifest: "addons/powerdns/addon.yaml",

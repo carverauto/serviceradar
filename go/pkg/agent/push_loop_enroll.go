@@ -22,7 +22,6 @@ import (
 	"os"
 	"runtime"
 	"strings"
-	"syscall"
 	"time"
 
 	agentgateway "github.com/carverauto/serviceradar/go/pkg/agentgateway"
@@ -267,7 +266,7 @@ func (p *PushLoop) monitorReleaseActivation(ctx context.Context) {
 				p.logger.Warn().
 					Str("version", Version).
 					Msg("Rolled back release activation after reconnect deadline")
-				_ = syscall.Kill(os.Getpid(), syscall.SIGTERM)
+				requestSelfTermination()
 			}
 			return
 		}

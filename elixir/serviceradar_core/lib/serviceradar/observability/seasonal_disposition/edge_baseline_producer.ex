@@ -62,6 +62,13 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer do
   # the SRQL parser's MAX_FILTER_LIST_VALUES.
   @default_max_combos_per_query 200
   @srql_max_filter_list_values 200
+  # Host devices per full-profile statement. The statement cost is devices x 168
+  # buckets x the whole history and grows NON-linearly with the device count
+  # (demo, 30 s statement_timeout: 1 device 2.5-3.3 s, 5 devices 0.8 s, 10 devices
+  # cancelled, 20 devices cancelled), so a device-count budget is data dependent.
+  # One device per statement is the only sizing that is predictable across fleets
+  # and matches the interface path; raise it only where headroom was measured.
+  @default_max_devices_per_query 1
   @delivery_telemetry [:serviceradar, :seasonal_disposition, :edge_baseline, :delivery]
 
   @impl Oban.Worker
@@ -100,25 +107,37 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer do
     build_delivery(opts)
   end
 
+  # One failed source must not silence the others: the sources that fetched are
+  # delivered and the failures ride along in `failed_sources`, so the heartbeat
+  # can be recorded unhealthy WITH a reason. Only a run where nothing fetched is
+  # an error (there is nothing to deliver and Oban's retry is the right response).
   defp build_delivery(opts, emit_telemetry? \\ true) do
-    opts
-    |> sources()
-    |> Enum.reduce_while({:ok, empty_delivery()}, fn source, {:ok, acc} ->
-      case source_delivery(source, opts) do
-        {:ok, delivery} -> {:cont, {:ok, merge_delivery(acc, delivery)}}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-    |> case do
-      {:ok, delivery} ->
-        governed = govern_interface_candidates(delivery, opts)
+    {deliveries, failures} =
+      opts
+      |> sources()
+      |> Enum.reduce({[], []}, fn source, {deliveries, failures} ->
+        case source_delivery(source, opts) do
+          {:ok, delivery} -> {[delivery | deliveries], failures}
+          {:error, _reason} -> {deliveries, [source.name | failures]}
+        end
+      end)
 
-        if emit_telemetry?, do: emit_delivery_telemetry(governed)
+    failed_sources = Enum.reverse(failures)
 
-        {:ok, governed}
+    if deliveries == [] and failed_sources != [] do
+      {:error, {:all_sources_failed, failed_sources}}
+    else
+      delivery =
+        deliveries
+        |> Enum.reverse()
+        |> Enum.reduce(empty_delivery(), fn delivery, acc -> merge_delivery(acc, delivery) end)
+        |> Map.put(:failed_sources, failed_sources)
 
-      other ->
-        other
+      governed = govern_interface_candidates(delivery, opts)
+
+      if emit_telemetry?, do: emit_delivery_telemetry(governed)
+
+      {:ok, governed}
     end
   end
 
@@ -156,7 +175,8 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer do
         profiles_updated: length(changed),
         profiles_total: length(refreshed),
         assignments_updated: assignment_summary.updated,
-        assignments_total: assignment_summary.total
+        assignments_total: assignment_summary.total,
+        failed_sources: Map.get(delivery, :failed_sources, [])
       }
 
       record_heartbeat(summary, opts)
@@ -190,7 +210,10 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer do
         {:ok, keyed_delivery(source, rows, opts)}
 
       {:error, reason} ->
-        Logger.warning("Edge baseline source fetch failed",
+        # The release log format prints the message only (logger metadata is
+        # dropped), so the source and reason must be in the body to be visible.
+        Logger.warning(
+          "Edge baseline source fetch failed source=#{source.name} reason=#{inspect(reason)}",
           source: source.name,
           reason: inspect(reason)
         )
@@ -215,7 +238,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer do
 
     with {:ok, discovery} <- Worker.edge_baseline_rows(source, opts) do
       discovery
-      |> plan_device_chunks(source, max_combos)
+      |> plan_device_chunks(source, max_combos, opts)
       |> fetch_device_chunks(source, opts)
     end
   end
@@ -228,9 +251,16 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer do
     max(int_opt(opts, :edge_baseline_max_combos_per_query, @default_max_combos_per_query), 1)
   end
 
+  defp max_devices_per_query(opts) do
+    opts
+    |> int_opt(:edge_baseline_max_devices_per_query, @default_max_devices_per_query)
+    |> max(1)
+    |> min(@srql_max_filter_list_values)
+  end
+
   # Interface identities are disjoint within a device. Scope each statement to
   # one device and a bounded IN list so even a wide device cannot exceed the cap.
-  defp plan_device_chunks(discovery_rows, %Source{resource_type: "interface"}, max_combos) do
+  defp plan_device_chunks(discovery_rows, %Source{resource_type: "interface"}, max_combos, _opts) do
     discovery_rows
     |> Enum.group_by(& &1.series_key, & &1.if_index)
     |> Enum.sort_by(fn {device, _indexes} -> device end)
@@ -243,31 +273,17 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer do
     end)
   end
 
-  # Host sources have one series per device; bin-pack their device filters.
-  defp plan_device_chunks(discovery_rows, _source, max_combos) do
-    widths =
-      discovery_rows
-      |> Enum.map(& &1.series_key)
-      |> Enum.filter(&(is_binary(&1) and &1 != ""))
-      |> Enum.frequencies()
-
-    widths
-    |> Enum.sort_by(fn {_device, width} -> -width end)
-    |> Enum.reduce([], fn {device, width}, chunks ->
-      case Enum.find_index(chunks, &chunk_fits?(&1, width, max_combos)) do
-        nil -> [%{devices: [device], combos: width} | chunks]
-        index -> List.update_at(chunks, index, &add_device(&1, device, width))
-      end
-    end)
-    |> Enum.map(&%{devices: Enum.sort(&1.devices), if_indexes: []})
-  end
-
-  defp chunk_fits?(%{devices: devices, combos: combos}, width, max_combos) do
-    length(devices) < @srql_max_filter_list_values and combos + width <= max_combos
-  end
-
-  defp add_device(%{devices: devices, combos: combos}, device, width) do
-    %{devices: [device | devices], combos: combos + width}
+  # Host sources have one series per device. A series is NOT the cost unit of a
+  # full-profile statement (see `@default_max_devices_per_query`), so hosts are
+  # chunked by device count, one per statement by default.
+  defp plan_device_chunks(discovery_rows, _source, _max_combos, opts) do
+    discovery_rows
+    |> Enum.map(& &1.series_key)
+    |> Enum.filter(&(is_binary(&1) and &1 != ""))
+    |> Enum.uniq()
+    |> Enum.sort()
+    |> Enum.chunk_every(max_devices_per_query(opts))
+    |> Enum.map(&%{devices: &1, if_indexes: []})
   end
 
   defp fetch_device_chunks([], _source, _opts), do: {:ok, []}
@@ -569,6 +585,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer do
       global_baselines: %{},
       scoped_baselines: %{},
       interface_candidates: [],
+      failed_sources: [],
       stats: %{
         global_series: 0,
         scoped_series: 0,
@@ -854,12 +871,16 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer do
   defp record_heartbeat(summary, opts) do
     recorder = Keyword.get(opts, :heartbeat_recorder, &default_heartbeat_recorder/1)
 
+    failed_sources = Map.get(summary, :failed_sources, [])
+
     recorder.(%{
       profiles: summary.profiles_total,
       assignments: summary.assignments_total,
       profiles_updated: summary.profiles_updated,
       assignments_updated: summary.assignments_updated,
-      series: summary.series
+      series: summary.series,
+      healthy: failed_sources == [],
+      failed_sources: failed_sources
     })
 
     :ok
@@ -873,11 +894,19 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer do
       :ok
   end
 
+  # A partial run (some source failed) records an UNHEALTHY heartbeat: the
+  # freshness tripwire only trusts healthy ones, so it still fires, and the
+  # health event now says which sources failed instead of going silent.
   defp default_heartbeat_recorder(metadata) do
+    {new_state, reason} =
+      if Map.get(metadata, :healthy, true),
+        do: {:healthy, :heartbeat},
+        else: {:unhealthy, :partial_delivery}
+
     case HealthTracker.record_state_change(:core, @heartbeat_check_id,
            old_state: :healthy,
-           new_state: :healthy,
-           reason: :heartbeat,
+           new_state: new_state,
+           reason: reason,
            metadata: metadata
          ) do
       {:ok, _event} ->

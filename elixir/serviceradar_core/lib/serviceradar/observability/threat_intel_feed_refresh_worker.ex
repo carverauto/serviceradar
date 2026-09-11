@@ -16,6 +16,7 @@ defmodule ServiceRadar.Observability.ThreatIntelFeedRefreshWorker do
   import Ecto.Query, only: [from: 2]
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.HTTP.EgressClient
   alias ServiceRadar.Observability.NetflowSettings
   alias ServiceRadar.Observability.OutboundFeedPolicy
   alias ServiceRadar.Observability.ThreatIntelIndicator
@@ -151,10 +152,12 @@ defmodule ServiceRadar.Observability.ThreatIntelFeedRefreshWorker do
       :ok
   end
 
+  # EgressClient, not the shared Finch pool: the pool cannot tunnel through
+  # SERVICERADAR_EGRESS_PROXY.
   defp download_feed(url, timeout_ms) do
     with :ok <- OutboundFeedPolicy.validate(url),
          {:ok, %Req.Response{status: 200, body: body}} when is_binary(body) <-
-           Req.get(url, OutboundFeedPolicy.req_opts(timeout_ms)) do
+           EgressClient.fetch_body(url, receive_timeout: timeout_ms) do
       {:ok, body}
     else
       {:ok, %Req.Response{status: 200, body: body}} when is_binary(body) ->

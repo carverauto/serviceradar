@@ -37,6 +37,11 @@ defmodule ServiceRadar.Observability.AnomalyAddonConfigProjector do
     min_cv
     drift_min_cv
     abs_effect_floor
+    burst_envelope_enabled
+    burst_envelope_quantile
+    burst_envelope_multiplier
+    burst_envelope_lag_samples
+    burst_envelope_min_samples
     severity_cap
     severity_bands
   ))

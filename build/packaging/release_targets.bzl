@@ -27,7 +27,7 @@ package_manifest = rule(
 def declare_release_artifacts():
     """Declares aggregate targets for Debian and RPM release artifacts.
 
-    Only `RELEASE_PACKAGES` ship on the tagged Forgejo release. Full `PACKAGES`
+    Only `RELEASE_PACKAGES` ship on the tagged GitHub release. Full `PACKAGES`
     entries remain buildable individually for ad-hoc packaging.
     """
 
@@ -45,6 +45,9 @@ def declare_release_artifacts():
         "//build/packaging/{name}:{name}_rpm".format(name = name)
         for name in component_names
     ]
+    if "agent" in component_names:
+        deb_targets.append("//build/packaging/agent:agent_arm64_deb")
+        rpm_targets.append("//build/packaging/agent:agent_arm64_rpm")
 
     native.filegroup(
         name = "package_debs",

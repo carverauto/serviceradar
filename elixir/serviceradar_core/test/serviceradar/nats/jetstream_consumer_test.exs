@@ -274,7 +274,8 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
   test "a subject no stream owns is an empty discovery result, not a discovery error" do
     # nats-server encodes "no stream owns this subject" as `"streams": null`.
     assert JetstreamConsumer.stream_names_reply(
-             {:ok, %{"type" => "io.nats.jetstream.api.v1.stream_names_response", "streams" => nil}}
+             {:ok,
+              %{"type" => "io.nats.jetstream.api.v1.stream_names_response", "streams" => nil}}
            ) == {:ok, []}
 
     assert JetstreamConsumer.stream_names_reply({:ok, %{"streams" => ["events", 7]}}) ==

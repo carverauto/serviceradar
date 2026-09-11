@@ -4,11 +4,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use addon_sdk::Addon;
+use addon_sdk::metric_pb::Metric;
 
 use crate::AnomalyAddon;
 use crate::checkpoint::{resolve_checkpoint_settings, resolve_scoring_stale_after_ns};
 use crate::config::{AddonConfig, DEFAULT_SCORING_STALE_AFTER_NS};
-use crate::engine::{DetectorEngine, DriftMode, EngineConfig, SeriesProfile};
+use crate::engine::{BurstEnvelope, DetectorEngine, DriftMode, EngineConfig, SeriesProfile};
+use crate::metrics_classify::counter_series_profile;
 
 #[test]
 fn config_empty_optional_numbers_fall_back_to_defaults() {
@@ -205,6 +207,72 @@ fn config_wires_interface_spike_and_severity_overrides_into_the_engine() {
     assert_eq!(interface.abs_effect_floor, Some(1_000.0));
     assert_eq!(interface.severity_policy.cap, Some(3));
     assert_eq!(interface.severity_policy.bands(), (2.0, 4.0));
+}
+
+#[test]
+fn config_wires_burst_envelope_overrides_into_the_engine() {
+    let config: AddonConfig = serde_json::from_value(serde_json::json!({
+        "metric_classes": {
+            "interface": {
+                "burst_envelope_multiplier": 1.5,
+                "burst_envelope_quantile": "0.95",
+                "burst_envelope_lag_samples": 12,
+                "burst_envelope_min_samples": "40"
+            },
+            "cpu": {"burst_envelope_enabled": true},
+            "memory": {"burst_envelope_enabled": false}
+        }
+    }))
+    .expect("burst envelope config");
+
+    let resolved = config.into_engine_config().expect("valid config");
+    let interface = resolved
+        .metric_class_overrides
+        .get("interface")
+        .expect("interface override");
+    assert_eq!(interface.burst_envelope_enabled, None);
+    assert_eq!(interface.burst_envelope_multiplier, Some(1.5));
+    assert_eq!(interface.burst_envelope_quantile, Some(0.95));
+    assert_eq!(interface.burst_envelope_lag_samples, Some(12));
+    assert_eq!(interface.burst_envelope_min_samples, Some(40));
+    assert_eq!(
+        resolved.metric_class_overrides["cpu"].burst_envelope_enabled,
+        Some(true)
+    );
+    assert_eq!(
+        resolved.metric_class_overrides["memory"].burst_envelope_enabled,
+        Some(false)
+    );
+
+    // Applied to profiles: interface rates start with the default envelope and
+    // take the tuned knobs; cpu gains the default envelope; memory loses it.
+    let engine = DetectorEngine::new(resolved);
+    let octets = Metric {
+        name: "ifHCInOctets".to_string(),
+        metric_type: "snmp.interface".to_string(),
+        ..Default::default()
+    };
+    let interface_profile =
+        engine.apply_metric_class_override("interface", counter_series_profile(&octets));
+    let envelope = interface_profile
+        .burst_envelope
+        .expect("interface rates keep their envelope");
+    assert_eq!(envelope.multiplier, 1.5);
+    assert_eq!(envelope.quantile, 0.95);
+    assert_eq!(envelope.lag_samples, 12);
+    assert_eq!(envelope.min_samples, 40);
+
+    let cpu_profile = engine.apply_metric_class_override("cpu", SeriesProfile::default());
+    assert_eq!(cpu_profile.burst_envelope, Some(BurstEnvelope::default()));
+
+    let memory_profile = engine.apply_metric_class_override(
+        "memory",
+        SeriesProfile {
+            burst_envelope: Some(BurstEnvelope::default()),
+            ..SeriesProfile::default()
+        },
+    );
+    assert_eq!(memory_profile.burst_envelope, None);
 }
 
 #[test]

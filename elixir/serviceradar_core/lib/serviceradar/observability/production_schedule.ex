@@ -61,7 +61,10 @@ defmodule ServiceRadar.Observability.ProductionSchedule do
       seasonal_n_sigma: float_env(fetch, "SERVICERADAR_SEASONAL_DISPOSITION_N_SIGMA", 3.0),
       min_bucket_samples:
         int_env(fetch, "SERVICERADAR_SEASONAL_DISPOSITION_MIN_BUCKET_SAMPLES", 4),
-      confirm_slots: int_env(fetch, "SERVICERADAR_SEASONAL_DISPOSITION_CONFIRM_SLOTS", 1)
+      # Two consecutive hourly buckets: a single bucket at z just over the 3.0
+      # threshold is noise (demo median breach score 3.19), and one hour of
+      # delay is cheap for a slow central tier.
+      confirm_slots: int_env(fetch, "SERVICERADAR_SEASONAL_DISPOSITION_CONFIRM_SLOTS", 2)
     ]
   end
 
@@ -78,6 +81,8 @@ defmodule ServiceRadar.Observability.ProductionSchedule do
           positive_int(fetch, "SERVICERADAR_STALE_ANOMALY_RESOLVE_HOURS"),
         anomaly_episode_stale_after_minutes:
           positive_int(fetch, "SERVICERADAR_ANOMALY_EPISODE_STALE_AFTER_MINUTES"),
+        central_seasonal_episode_stale_after_minutes:
+          positive_int(fetch, "SERVICERADAR_CENTRAL_SEASONAL_STALE_AFTER_MINUTES"),
         stale_anomaly_episode_freshness_hours:
           positive_int(fetch, "SERVICERADAR_STALE_ANOMALY_EPISODE_FRESHNESS_HOURS"),
         stale_anomaly_episode_liveness_check:

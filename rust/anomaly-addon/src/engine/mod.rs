@@ -29,9 +29,11 @@ pub use seasonal_profile::{
     SeasonalSettings,
 };
 pub use types::{
-    AnomalyEpisode, AnomalyTransition, CusumDirection, CusumDrift, DriftClearReason, DriftMode,
-    DriftUpdateReason, MetricClassOverride, SeriesProfile, SeverityPolicy, SpikeClearReason,
-    SpikeUpdateReason, TransitionVerdict,
+    AnomalyEpisode, AnomalyTransition, BurstEnvelope, CusumDirection, CusumDrift,
+    DEFAULT_BURST_ENVELOPE_LAG_SAMPLES, DEFAULT_BURST_ENVELOPE_MIN_SAMPLES,
+    DEFAULT_BURST_ENVELOPE_MULTIPLIER, DEFAULT_BURST_ENVELOPE_QUANTILE, DriftClearReason,
+    DriftMode, DriftUpdateReason, MetricClassOverride, SeriesProfile, SeverityPolicy,
+    SpikeClearReason, SpikeUpdateReason, TransitionVerdict,
 };
 
 use episode::{
@@ -319,6 +321,50 @@ fn refresh_drift_anchor_scale(
     };
 
     state.cusum_anchor = Some((center, scale));
+}
+
+/// The envelope level for one sample: `multiplier x quantile` of the raw history
+/// older than the newest `lag` samples (the sample under evaluation has already
+/// been pushed onto `raw_tail`, so it is excluded too) and older than the
+/// current breaching run (`burst_run_start`), or `None` while that history is
+/// shorter than `min_samples`. Excluding the run is what keeps a sustained surge
+/// from training the envelope on itself and clearing early as "recovered"; the
+/// lag keeps a burst's own first samples from vouching for it before the run
+/// marker is set.
+fn burst_envelope_level(
+    raw_tail: &[f64],
+    burst_run_start: Option<usize>,
+    envelope: BurstEnvelope,
+    confirm_slots: usize,
+) -> Option<f64> {
+    let lag = envelope
+        .lag_samples
+        .max(confirm_slots.saturating_mul(2))
+        .saturating_add(1);
+    let usable = raw_tail
+        .len()
+        .checked_sub(lag)?
+        .min(burst_run_start.unwrap_or(usize::MAX));
+    let min_samples = envelope.min_samples.max(2);
+    if usable < min_samples {
+        return None;
+    }
+
+    let mut history: Vec<f64> = raw_tail[..usable]
+        .iter()
+        .copied()
+        .filter(|value| value.is_finite())
+        .collect();
+    if history.len() < min_samples {
+        return None;
+    }
+
+    let quantile = envelope.quantile.clamp(0.0, 1.0);
+    let index = (((history.len() - 1) as f64) * quantile).round() as usize;
+    let index = index.min(history.len() - 1);
+    let (_, value, _) = history.select_nth_unstable_by(index, |a, b| a.total_cmp(b));
+    let level = *value * envelope.multiplier;
+    level.is_finite().then_some(level)
 }
 
 fn seasonal_drift_scale(
@@ -879,6 +925,37 @@ impl DetectorEngine {
             profile.spike_adopt_after_samples = Some(spike_adopt_after_samples.max(1));
         }
 
+        match class_override.burst_envelope_enabled {
+            Some(false) => profile.burst_envelope = None,
+            Some(true) if profile.burst_envelope.is_none() => {
+                profile.burst_envelope = Some(BurstEnvelope::default());
+            }
+            _ => {}
+        }
+        if let Some(envelope) = profile.burst_envelope.as_mut() {
+            if let Some(quantile) = class_override
+                .burst_envelope_quantile
+                .filter(|value| value.is_finite() && *value > 0.0 && *value <= 1.0)
+            {
+                envelope.quantile = quantile;
+            }
+            if let Some(multiplier) = class_override
+                .burst_envelope_multiplier
+                .filter(|value| value.is_finite() && *value >= 1.0)
+            {
+                envelope.multiplier = multiplier;
+            }
+            if let Some(lag) = class_override.burst_envelope_lag_samples {
+                envelope.lag_samples = usize::try_from(lag).unwrap_or(usize::MAX);
+            }
+            if let Some(min_samples) = class_override
+                .burst_envelope_min_samples
+                .filter(|value| *value > 0)
+            {
+                envelope.min_samples = usize::try_from(min_samples).unwrap_or(usize::MAX);
+            }
+        }
+
         profile
     }
 
@@ -1020,6 +1097,9 @@ impl DetectorEngine {
         if state.raw_tail.len() > raw_tail_limit {
             let keep_from = state.raw_tail.len().saturating_sub(self.config.window_size);
             state.raw_tail.drain(0..keep_from);
+            state.burst_run_start = state
+                .burst_run_start
+                .map(|start| start.saturating_sub(keep_from));
         }
 
         // A global operator floor override (fix #2) only ever RAISES the floor:
@@ -1175,6 +1255,18 @@ impl DetectorEngine {
             }
         }
 
+        // The recent-burst envelope comes from the RAW tail (not the winsorized
+        // scoring window), lagged so this sample and its immediate predecessors
+        // cannot vouch for themselves.
+        let burst_envelope = profile.burst_envelope.and_then(|envelope| {
+            burst_envelope_level(
+                &state.raw_tail,
+                state.burst_run_start,
+                envelope,
+                self.config.confirm_slots,
+            )
+        });
+
         let context = ReasonContext {
             baseline: Vec::new(),
             rolling_acc: None,
@@ -1196,6 +1288,7 @@ impl DetectorEngine {
             min_std_floor: Some(min_std_floor),
             min_cv: Some(min_cv),
             saturation_gate: profile.saturation_gate,
+            burst_envelope,
         };
         let sample = ReasonSample {
             value,
@@ -1211,6 +1304,19 @@ impl DetectorEngine {
                 state.window_tail = std::mem::take(&mut verdict.next_window_tail);
                 state.consecutive_anomalous = verdict.next_consecutive_anomalous;
                 state.last_observed_at_unix_nano = observed_at_unix_nano;
+
+                // Track the breaching run for the burst envelope: it starts at the
+                // first breaching sample and ends once the series is clean with no
+                // open spike episode (`active_anomalous` still reflects the
+                // previous sample's lifecycle here, so the reset lands one sample
+                // after the clear, which is harmless).
+                if verdict.breached {
+                    if state.burst_run_start.is_none() {
+                        state.burst_run_start = Some(state.raw_tail.len().saturating_sub(1));
+                    }
+                } else if !state.active_anomalous {
+                    state.burst_run_start = None;
+                }
 
                 if let Some(reason) = seasonal_unavailable_reason
                     && let Some(signal) = verdict

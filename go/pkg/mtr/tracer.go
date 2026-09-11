@@ -1,5 +1,3 @@
-//go:build !windows
-
 /*
  * Copyright 2025 Carver Automation Corporation.
  *

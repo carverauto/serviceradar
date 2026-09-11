@@ -80,10 +80,22 @@ Recommended repository-release asset convention:
 - `serviceradar-agent-release-manifest.json`
 - `serviceradar-agent-release-manifest.sig`
 - `serviceradar-agent_<version>_linux_amd64.tar.gz`
+- `serviceradar-agent_<version>_linux_arm64.tar.gz`
 
 The manifest asset should contain the full multi-platform release manifest, including the final artifact URLs, SHA256 digests, and platform metadata. Base agent artifacts should use `capabilities: ["agent"]`. Optional capability helpers are not bundled into alternate managed-agent runtimes; publish them as native add-ons with their own signed artifacts and discovery index entries.
 
-The GitHub release pipeline now publishes these assets automatically when `SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY` is configured for the release job. Manual repository releases must attach the same three assets for one-click import to work. RDP helper delivery uses the `rdp` native add-on artifact instead of a `serviceradar-agent-rdp_*` runtime archive.
+The GitHub release pipeline publishes both Linux runtime archives and their shared
+manifest and signature when `SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY` is configured
+for the release job. Manual repository releases must attach the manifest,
+signature, and every runtime archive referenced by that manifest for one-click
+import to work. RDP helper delivery uses the `rdp` native add-on artifact instead
+of a `serviceradar-agent-rdp_*` runtime archive.
+
+Linux `.deb`/`.rpm` packages and the signed macOS ARM64 `.pkg` are initial
+installation assets, separate from the runtime archives in the managed manifest.
+The macOS installer retains its standalone launchd layout and does not support
+managed runtime activation. See [agent platform packages](./agent-platform-packages.md)
+for platform support, installation, and Apple signing configuration in CI.
 
 ## Signing Key Handling
 

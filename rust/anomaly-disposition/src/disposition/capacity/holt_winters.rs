@@ -136,6 +136,11 @@ pub(super) fn holt_winters(points: &[NormPoint], config: &CapacityConfig) -> Opt
         raw_projected_value,
         projection_bounded,
         projected_exhaustion_at_unix_micros: projected_exhaustion,
+        // The seasonal step search is already bounded to the horizon, so there is
+        // no separate history cap to distinguish: raw == capped, never capped.
+        raw_projected_exhaustion_at_unix_micros: projected_exhaustion,
+        exhaustion_history_capped: false,
+        exhaustion_extrapolation_cap_seconds: horizon_seconds,
         confidence: COVERAGE_LEVEL,
         lower_bound,
         upper_bound,

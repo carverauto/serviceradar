@@ -116,6 +116,27 @@ defmodule ServiceRadarWebNGWeb.Plugs.RateLimitTest do
       assert second.halted
     end
 
+    test "does not fail the request when every forwarded hop is a trusted proxy" do
+      # The v1.4.56 production failure: demo listed all of RFC1918 as trusted proxies, so a
+      # LAN client's own address was stripped as a proxy hop, ClientIP.get/1 raised, and
+      # every rate-limited route was a 500. The plug must fall back to the peer and carry on.
+      Application.put_env(:serviceradar_web_ng, :client_ip,
+        trust_x_forwarded_for: true,
+        trusted_proxy_cidrs: ["10.0.0.0/8", "192.168.0.0/16"]
+      )
+
+      opts = RateLimit.init(bucket: :plug_test_xff_all_trusted, limit: 5, window_seconds: 60)
+
+      conn =
+        :remote_ip
+        |> build_conn({10, 0, 0, 1})
+        |> put_req_header("x-forwarded-for", "192.168.100.7")
+        |> RateLimit.call(opts)
+
+      refute conn.halted
+      assert get_resp_header(conn, "x-ratelimit-remaining") == ["4"]
+    end
+
     test "ignores spoofed x-forwarded-for from an untrusted peer" do
       Application.put_env(:serviceradar_web_ng, :client_ip,
         trust_x_forwarded_for: true,

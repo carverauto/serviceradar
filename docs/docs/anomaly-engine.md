@@ -95,6 +95,13 @@ Important guards:
 - saturation gates: bounded percent gauges require meaningful absolute load.
 - host aggregate CPU: host-level CPU is the Critical-eligible alerting unit;
   per-core series are context and are capped below Critical.
+- recent-burst envelope: for interface counter rates, an upward sample no
+  taller than `multiplier x quantile(lagged raw history)` does not breach.
+  The add-on computes the level from the series' raw tail, lagged by at least
+  twice `confirm_slots` so a sustained surge's confirming samples cannot vouch
+  for themselves; the core applies it once to the combined signal set (a
+  sub-hour burst breaches the hourly seasonal signal too) and names the
+  suppression on each signal's reason. Downward moves and drift are untouched.
 
 ## CUSUM Drift Detection
 
@@ -122,9 +129,14 @@ Core builds hour-of-week baselines from Timescale continuous aggregates and
 delivers them through anomaly add-on params.
 
 The producer first discovers series using the latest-bucket profile, then fetches
-full profiles in bounded device chunks. Interface queries additionally select
-disjoint interface-index groups within each device, including wide devices.
-A failed chunk fails that source fetch rather than delivering a partial profile.
+full profiles one device per statement (the statement cost grows non-linearly
+with the device count and a fleet-wide statement exceeds the database
+statement timeout). Interface queries additionally select disjoint
+interface-index groups within each device, including wide devices. A failed
+chunk fails that source fetch rather than delivering a partial profile; the
+other sources are still delivered, and the run's heartbeat is recorded
+unhealthy naming the failed sources so the freshness tripwire fires with a
+reason.
 Profile pagination follows the [SRQL pagination contract](srql-language-reference.md#sorting-and-pagination).
 
 - Host baselines are safe to write on the AddonProfile.
@@ -160,6 +172,10 @@ window reuses the prior episode UID and an eventual clear carries `flap_merged`.
 Core also folds independent producers for one canonical finding: it remains open
 while any fresh producer reports open and clears only when all are clean or stale.
 Stale close sweeps prevent producer crashes from leaving permanent open episodes.
+Central seasonal episodes are stamped with the evaluation time (the bucket
+window rides in the `seasonal_disposition` payload) and are swept with a
+producer-cadence window (at least 150 minutes) instead of the edge heartbeat
+window. A clear that resolves no open episode is not persisted as an episode.
 
 Episode folding in the event writer is enabled by default.
 `EVENT_WRITER_ANOMALY_EPISODES` is a kill switch: set it to `false`, `0`, `no`,
@@ -221,7 +237,10 @@ A projected finding requires:
 - ETA gated on the prediction-interval lower-bound crossing.
 
 Findings emit on state transitions (`projected` to `cleared` and back), not once
-per series per hourly run.
+per series per hourly run. The kernel reports the uncapped crossing alongside
+the capped ETA: a crossing inside the horizon but beyond twice the observed
+history is recorded as `exhaustion_beyond_history_cap` with the crossing time,
+the history span, and the cap in its diagnostics.
 
 The excluded bursty sources are explicit opt-ins. Set
 `SERVICERADAR_CAPACITY_FORECASTING_SOURCE_OPT_INS` (comma-separated:

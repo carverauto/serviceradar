@@ -148,7 +148,7 @@ For detailed edge agent deployment, see the [Edge Agent Guide](../docs/docs/edge
 | `webNg.auth.forceLocalLogin` | Break-glass switch that permits local password login regardless of SSO enforcement. Leave false for normal installs; use the per-user Local password login toggle instead. | `false` |
 | `webNg.auth.disableSso` | Hide the SSO button on the sign-in page | `false` |
 | `webNg.clientIp.trustXForwardedFor` | Honor `x-forwarded-for` for client IP extraction (audit logs, rate limiting). Enable only when web-ng sits behind a trusted proxy, e.g. the shared envoy Gateway API. | `false` |
-| `webNg.clientIp.trustedProxyCidrs` | CIDRs of trusted direct peers (envoy/gateway pod or service ranges) allowed to set `x-forwarded-for`. Ignored when `trustXForwardedFor` is false. | `[]` |
+| `webNg.clientIp.trustedProxyCidrs` | CIDRs of trusted direct peers (envoy/gateway pod or service ranges) allowed to set `x-forwarded-for`. List only the proxy's own range: every CIDR here is an address web-ng will never report as a client, so RFC1918 wholesale makes LAN clients unreportable. Ignored when `trustXForwardedFor` is false. | `[]` |
 | `agent.resources.limits.cpu` | Agent CPU limit | `500m` |
 | `agent.checkersStorage.enabled` | Persist agent checker config under `/var/lib/serviceradar/checkers` | `true` |
 | `agent.cacheStorage.enabled` | Persist agent runtime cache under `/var/lib/serviceradar/cache` | `true` |

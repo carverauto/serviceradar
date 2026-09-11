@@ -63,10 +63,18 @@ func TestBuildManagedAgentManifestAssets(t *testing.T) {
 		t.Fatalf("WriteFile(runtime artifact) error = %v", err)
 	}
 
+	arm64Path := filepath.Join(t.TempDir(), "arm64-runtime.tar.gz")
+	arm64Bytes := []byte("distinct synthetic ARM64 runtime archive")
+	if err := os.WriteFile(arm64Path, arm64Bytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
 	tempDir, assets, err := buildManagedAgentManifestAssets(
 		"1.2.6",
-		"https://code.carverauto.dev/attachments/runtime.tar.gz",
-		runtimeArtifactPath,
+		[]managedAgentRuntime{
+			{arch: "arm64", url: "https://downloads.example.com/agent_arm64.tar.gz", path: arm64Path},
+			{arch: defaultAgentRuntimeArch, url: "https://downloads.example.com/agent_amd64.tar.gz", path: runtimeArtifactPath},
+		},
 		false,
 	)
 	if err != nil {
@@ -80,23 +88,21 @@ func TestBuildManagedAgentManifestAssets(t *testing.T) {
 		t.Fatalf("buildManagedAgentManifestAssets() returned %d assets, want 2", len(assets))
 	}
 
-	manifestBytes, err := os.ReadFile(filepath.Join(tempDir, defaultAgentManifestAssetName))
-	if err != nil {
-		t.Fatalf("ReadFile(manifest) error = %v", err)
-	}
-	var manifest agentReleaseManifest
-	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
-		t.Fatalf("Unmarshal(manifest) error = %v", err)
-	}
+	manifest := readVerifiedManagedManifest(t, tempDir, publicKey)
 	if manifest.Version != "1.2.6" {
 		t.Fatalf("manifest version = %q, want %q", manifest.Version, "1.2.6")
 	}
-	if len(manifest.Artifacts) != 1 {
-		t.Fatalf("manifest artifacts = %d, want 1", len(manifest.Artifacts))
+	if len(manifest.Artifacts) != 2 {
+		t.Fatalf("manifest artifacts = %d, want 2", len(manifest.Artifacts))
+	}
+
+	if manifest.Artifacts[1].SHA256 != digestBytes(arm64Bytes) {
+		t.Fatal("ARM64 manifest digest does not match its distinct runtime")
 	}
 
 	artifact := manifest.Artifacts[0]
-	if artifact.URL != "https://code.carverauto.dev/attachments/runtime.tar.gz" {
+	if artifact.URL != "https://downloads.example.com/agent_amd64.tar.gz" || artifact.Arch != defaultAgentRuntimeArch ||
+		manifest.Artifacts[1].Arch != "arm64" || manifest.Artifacts[1].URL != "https://downloads.example.com/agent_arm64.tar.gz" {
 		t.Fatalf("artifact URL = %q", artifact.URL)
 	}
 	digest := sha256.Sum256(runtimeArtifact)
@@ -109,7 +115,18 @@ func TestBuildManagedAgentManifestAssets(t *testing.T) {
 	if artifact.Checksums["sha256"] != artifact.SHA256 {
 		t.Fatalf("artifact Checksums[sha256] = %q, want artifact SHA256", artifact.Checksums["sha256"])
 	}
+}
 
+func readVerifiedManagedManifest(t *testing.T, tempDir string, publicKey ed25519.PublicKey) agentReleaseManifest {
+	t.Helper()
+	manifestBytes, err := os.ReadFile(filepath.Join(tempDir, defaultAgentManifestAssetName))
+	if err != nil {
+		t.Fatalf("ReadFile(manifest) error = %v", err)
+	}
+	var manifest agentReleaseManifest
+	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
+		t.Fatalf("Unmarshal(manifest) error = %v", err)
+	}
 	signatureValue, err := os.ReadFile(filepath.Join(tempDir, defaultAgentManifestSigAssetName))
 	if err != nil {
 		t.Fatalf("ReadFile(signature) error = %v", err)
@@ -130,6 +147,7 @@ func TestBuildManagedAgentManifestAssets(t *testing.T) {
 	if !ed25519.Verify(publicKey, canonicalJSON, signatureBytes) {
 		t.Fatalf("signature verification failed")
 	}
+	return manifest
 }
 
 func TestAssetUploadEndpointUsesConfiguredForgejoBaseURL(t *testing.T) {

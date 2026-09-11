@@ -1,3 +1,6 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+load("@serviceradar_version//:defs.bzl", "FULL_VERSION")
+
 filegroup(
     name = "launchd_plists",
     srcs = [
@@ -8,4 +11,82 @@ filegroup(
 
 exports_files([
     "com.serviceradar.agent.plist",
+    "scripts/preinstall",
+    "scripts/postinstall",
 ])
+
+go_library(
+    name = "package_lib",
+    srcs = [
+        "main.go",
+        "package.go",
+        "signing.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/build/packaging/agent/macos",
+    visibility = ["//visibility:private"],
+    deps = ["@io_bazel_rules_go//go/runfiles"],
+)
+
+# Apple signing/notarization is a runtime operation. Credentials never enter
+# an action environment, runfiles, a sandbox, or the remote action cache.
+go_binary(
+    name = "package",
+    data = [
+        "com.serviceradar.agent.plist",
+        "scripts/postinstall",
+        "scripts/preinstall",
+        "//build/packaging/agent:config/agent.json",
+        "//go/cmd/agent:agent_darwin_arm64",
+    ],
+    embed = [":package_lib"],
+    env = {
+        "SERVICERADAR_MACOS_AGENT_RUNFILE": "$(rlocationpath //go/cmd/agent:agent_darwin_arm64)",
+        "SERVICERADAR_MACOS_CONFIG_RUNFILE": "$(rlocationpath //build/packaging/agent:config/agent.json)",
+        "SERVICERADAR_MACOS_PLIST_RUNFILE": "$(rlocationpath :com.serviceradar.agent.plist)",
+        "SERVICERADAR_MACOS_PREINSTALL_RUNFILE": "$(rlocationpath :scripts/preinstall)",
+        "SERVICERADAR_MACOS_POSTINSTALL_RUNFILE": "$(rlocationpath :scripts/postinstall)",
+    },
+    target_compatible_with = [
+        "@platforms//os:macos",
+        "@platforms//cpu:arm64",
+    ],
+    visibility = ["//visibility:public"],
+    x_defs = {"github.com/carverauto/serviceradar/build/packaging/agent/macos.fullVersion": FULL_VERSION},
+)
+
+go_test(
+    name = "package_test",
+    srcs = ["package_test.go"],
+    embed = [":package_lib"],
+)
+
+# Exercises Apple's installed packaging tools locally, using the real declared
+# ARM64 CGO binary. It builds/expands an unsigned package and never installs it.
+go_test(
+    name = "package_macos_test",
+    srcs = ["package_integration_test.go"],
+    data = [
+        "com.serviceradar.agent.plist",
+        "scripts/postinstall",
+        "scripts/preinstall",
+        "//build/packaging/agent:config/agent.json",
+        "//go/cmd/agent:agent_darwin_arm64",
+    ],
+    embed = [":package_lib"],
+    env = {
+        "SERVICERADAR_MACOS_AGENT_RUNFILE": "$(rlocationpath //go/cmd/agent:agent_darwin_arm64)",
+        "SERVICERADAR_MACOS_CONFIG_RUNFILE": "$(rlocationpath //build/packaging/agent:config/agent.json)",
+        "SERVICERADAR_MACOS_PLIST_RUNFILE": "$(rlocationpath :com.serviceradar.agent.plist)",
+        "SERVICERADAR_MACOS_PREINSTALL_RUNFILE": "$(rlocationpath :scripts/preinstall)",
+        "SERVICERADAR_MACOS_POSTINSTALL_RUNFILE": "$(rlocationpath :scripts/postinstall)",
+    },
+    tags = [
+        "manual",
+        "no-remote-exec",
+    ],
+    target_compatible_with = [
+        "@platforms//os:macos",
+        "@platforms//cpu:arm64",
+    ],
+    x_defs = {"github.com/carverauto/serviceradar/build/packaging/agent/macos.fullVersion": FULL_VERSION},
+)
