@@ -596,7 +596,20 @@ func tailFile(path string, maxBytes int) string {
 	if len(data) > maxBytes {
 		data = data[len(data)-maxBytes:]
 	}
-	return string(data)
+	return redactCredentials(string(data))
+}
+
+// redactCredentials scrubs a release's DATABASE_URL and CNPG_PASSWORD from
+// log tails included in test failure output, in case a release's boot
+// logging ever echoes them verbatim.
+func redactCredentials(s string) string {
+	for _, secret := range []string{os.Getenv("DATABASE_URL"), os.Getenv("CNPG_PASSWORD")} {
+		if secret == "" {
+			continue
+		}
+		s = strings.ReplaceAll(s, secret, "[REDACTED]")
+	}
+	return s
 }
 
 func mergedEnv(base map[string]string, overrides map[string]string) []string {

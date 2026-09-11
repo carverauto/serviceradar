@@ -232,6 +232,7 @@ func (h *NATSHarness) Shutdown() {
 	}
 	h.Server.Shutdown()
 	h.Server.WaitForShutdown()
+	h.Server = nil
 }
 
 // formatCredsFile renders the standard nsc-compatible .creds format: two
