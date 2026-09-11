@@ -14,6 +14,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 var errSyntheticPlatform = errors.New("synthetic platform failure")
@@ -454,6 +455,53 @@ func TestPlatformFailureNamesAKnownCauseWithoutItsOutput(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), testAppIdentity) || strings.Contains(err.Error(), "TESTTEAM01") {
 		t.Fatal("platform output escaped failure redaction")
+	}
+}
+
+// A command that never returns -- codesign waiting on a keychain prompt -- must fail
+// within its bound and name the tool, instead of leaving the release log silent.
+func TestPlatformCommandThatHangsFailsWithItsName(t *testing.T) {
+	if os.Getenv("SERVICERADAR_PACKAGE_TEST_HANG") == "1" {
+		time.Sleep(time.Minute)
+		os.Exit(0)
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := systemRunner{env: append(platformEnvironment(), "SERVICERADAR_PACKAGE_TEST_HANG=1"), limit: 300 * time.Millisecond}
+	started := time.Now()
+	_, err = runner.run(t.Context(), executable, "-test.run=^TestPlatformCommandThatHangsFailsWithItsName$")
+	if err == nil || !strings.Contains(err.Error(), "timed out after 300ms") || !strings.Contains(err.Error(), filepath.Base(executable)) {
+		t.Fatalf("expected a named timeout, got %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > 20*time.Second {
+		t.Fatalf("the hung command held the packager for %s", elapsed)
+	}
+}
+
+func TestCommandStepNamesToolAndSubcommandOnly(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"/usr/bin/xcrun", []string{"notarytool", "submit", "/tmp/pkg"}, "xcrun notarytool"},
+		{"/usr/bin/codesign", []string{"--force", "--sign", testAppIdentity}, "codesign --force"},
+		{"/tmp/root/serviceradar-agent", []string{"--version"}, "serviceradar-agent --version"},
+		{"/usr/bin/pkgbuild", []string{"/tmp/root"}, "pkgbuild"},
+		{"/usr/bin/tool", []string{"--keychain=/tmp/release.keychain-db"}, "tool"},
+	}
+	for _, c := range cases {
+		if got := commandStep(c.name, c.args); got != c.want {
+			t.Errorf("commandStep(%q, %q) = %q, want %q", c.name, c.args, got, c.want)
+		}
+	}
+}
+
+func TestNotarytoolGetsALongerBoundThanOtherCommands(t *testing.T) {
+	if commandTimeout("/usr/bin/xcrun", []string{"notarytool", "submit"}) <= commandTimeout("/usr/bin/codesign", []string{"--force"}) {
+		t.Fatal("notarytool must be allowed its own --timeout")
 	}
 }
 

@@ -9,7 +9,9 @@ on:
       platform:
         description: Installers to build
         type: choice
-        options: [all, macos, windows]
+        # macos-signing-rehearsal runs the release's sign/notarize/staple path with
+        # the release credentials, from staging only, without cutting a release.
+        options: [all, macos, windows, macos-signing-rehearsal]
         default: all
 
 permissions:
@@ -21,7 +23,7 @@ concurrency:
 
 jobs:
   macos-arm64:
-    if: inputs.platform != 'windows'
+    if: inputs.platform == 'all' || inputs.platform == 'macos'
     runs-on: macos-15
     timeout-minutes: 45
     steps:
@@ -56,7 +58,7 @@ jobs:
   # Bazel builds the Windows inputs on Linux (this repository's Bazel setup does
   # not run on Windows hosts); the Windows job only runs WiX and msiexec.
   windows-stage:
-    if: inputs.platform != 'macos'
+    if: inputs.platform == 'all' || inputs.platform == 'windows'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
@@ -196,3 +198,77 @@ jobs:
           path: ${{ runner.temp }}/windows-msi/
           if-no-files-found: error
           retention-days: 7
+
+  # The release's signing path, rehearsed: same keychain action, same packager in
+  # release mode, real notarization. Lets signing be debugged without a tag.
+  macos-signing-rehearsal:
+    if: inputs.platform == 'macos-signing-rehearsal'
+    runs-on: macos-15
+    timeout-minutes: 75
+    environment: release
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Require staging
+        run: |
+          if [[ "${GITHUB_REF}" != "refs/heads/staging" ]]; then
+            echo "The signing rehearsal uses release credentials and runs only from staging." >&2
+            exit 1
+          fi
+
+      - name: Configure native macOS build cache
+        env:
+          BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY || secrets.BUILDBUDDY_API_KEY }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = arm64
+          command -v bazelisk
+          test -n "${BUILDBUDDY_ORG_API_KEY}"
+          umask 077
+          printf 'common --remote_header=x-buildbuddy-api-key=%s\n' "${BUILDBUDDY_ORG_API_KEY}" > .bazelrc.remote
+
+      - name: Set up macOS signing keychain
+        id: keychain
+        uses: ./.github/actions/macos-release-keychain
+        with:
+          mode: setup
+          application-p12: ${{ secrets.MACOS_APPLICATION_CERTIFICATE_P12 }}
+          installer-p12: ${{ secrets.MACOS_INSTALLER_CERTIFICATE_P12 }}
+          certificate-password: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          notary-key-p8: ${{ secrets.MACOS_NOTARY_KEY_P8 }}
+          notary-key-id: ${{ secrets.MACOS_NOTARY_KEY_ID }}
+          notary-issuer-id: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
+
+      - name: Sign and notarize a rehearsal installer
+        env:
+          SIGNING_KEYCHAIN: ${{ steps.keychain.outputs.keychain }}
+          PKG_APP_SIGN_IDENTITY: ${{ secrets.MACOS_APPLICATION_SIGN_IDENTITY }}
+          PKG_SIGN_IDENTITY: ${{ secrets.MACOS_INSTALLER_SIGN_IDENTITY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "${RUNNER_TEMP}/macos-rehearsal"
+          bazelisk run -c opt --config=darwin_local --config=cache_only \
+            --platforms=//build/platforms:darwin_aarch64 \
+            //build/packaging/agent/macos:package -- \
+            --mode=release --source-commit="$(git rev-parse HEAD)" \
+            --output-dir="${RUNNER_TEMP}/macos-rehearsal" \
+            --keychain="${SIGNING_KEYCHAIN}" --notary-profile=serviceradar-release
+
+      - name: Remove macOS signing keychain
+        if: always()
+        uses: ./.github/actions/macos-release-keychain
+        with:
+          mode: cleanup
+          signing-dir: ${{ steps.keychain.outputs.signing-dir }}
+
+      - name: Upload rehearsal installer
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: signed-macos-agent-rehearsal
+          path: ${{ runner.temp }}/macos-rehearsal/
+          if-no-files-found: error
+          retention-days: 3

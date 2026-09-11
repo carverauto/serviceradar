@@ -60,9 +60,52 @@ permissions:
   statuses: read
 
 jobs:
+  # Resolves the release tag and commit for the Windows jobs and the publisher, so
+  # neither waits on, or depends on the success of, the macOS installer job.
+  source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.source.outputs.tag }}
+      commit: ${{ steps.source.outputs.commit }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve release tag and commit
+        id: source
+        env:
+          INPUT_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || '' }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin +refs/heads/staging:refs/remotes/origin/staging
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            tag="${INPUT_TAG}"
+            ./scripts/validate-release-tag.sh "${tag}"
+            git fetch --no-tags origin "refs/tags/${tag}:refs/tags/${tag}"
+          elif [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            tag="${GITHUB_REF#refs/tags/}"
+            ./scripts/validate-release-tag.sh "${tag}"
+          else
+            echo "Release publication requires an existing release tag." >&2
+            exit 1
+          fi
+          release_commit="$(git rev-parse --verify "refs/tags/${tag}^{commit}")"
+          git merge-base --is-ancestor "${release_commit}" origin/staging
+          ./scripts/validate-release-metadata.sh "${tag}" "${release_commit}"
+          printf 'tag=%s\ncommit=%s\n' "${tag}" "${release_commit}" >> "${GITHUB_OUTPUT}"
+
+  # Builds, signs and notarizes the macOS installer. It no longer gates the
+  # release: publish attaches the installer when this job succeeds and ships
+  # without it otherwise.
   macos:
     runs-on: macos-15
-    timeout-minutes: 180
+    timeout-minutes: 75
     environment: release
     permissions:
       contents: read
@@ -144,66 +187,47 @@ jobs:
 
       # Signing credentials are runtime-only: they must never become Bazel
       # action inputs, environment stamps, cached outputs, or uploaded artifacts.
+      - name: Set up macOS signing keychain
+        id: keychain
+        uses: ./.github/actions/macos-release-keychain
+        with:
+          mode: setup
+          application-p12: ${{ secrets.MACOS_APPLICATION_CERTIFICATE_P12 }}
+          installer-p12: ${{ secrets.MACOS_INSTALLER_CERTIFICATE_P12 }}
+          certificate-password: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          notary-key-p8: ${{ secrets.MACOS_NOTARY_KEY_P8 }}
+          notary-key-id: ${{ secrets.MACOS_NOTARY_KEY_ID }}
+          notary-issuer-id: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
+
       - name: Sign and notarize macOS installer
         env:
           RELEASE_COMMIT: ${{ steps.source.outputs.commit }}
-          MACOS_APPLICATION_CERTIFICATE_P12: ${{ secrets.MACOS_APPLICATION_CERTIFICATE_P12 }}
-          MACOS_INSTALLER_CERTIFICATE_P12: ${{ secrets.MACOS_INSTALLER_CERTIFICATE_P12 }}
-          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
-          MACOS_NOTARY_KEY_P8: ${{ secrets.MACOS_NOTARY_KEY_P8 }}
-          MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
-          MACOS_NOTARY_ISSUER_ID: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
+          SIGNING_KEYCHAIN: ${{ steps.keychain.outputs.keychain }}
           PKG_APP_SIGN_IDENTITY: ${{ secrets.MACOS_APPLICATION_SIGN_IDENTITY }}
           PKG_SIGN_IDENTITY: ${{ secrets.MACOS_INSTALLER_SIGN_IDENTITY }}
         run: |
           set -euo pipefail
-          for name in MACOS_APPLICATION_CERTIFICATE_P12 MACOS_INSTALLER_CERTIFICATE_P12 \
-            MACOS_CERTIFICATE_PASSWORD MACOS_NOTARY_KEY_P8 MACOS_NOTARY_KEY_ID \
-            MACOS_NOTARY_ISSUER_ID PKG_APP_SIGN_IDENTITY PKG_SIGN_IDENTITY; do
+          for name in PKG_APP_SIGN_IDENTITY PKG_SIGN_IDENTITY SIGNING_KEYCHAIN; do
             if [[ -z "${!name}" ]]; then
-              echo "Missing protected release signing credential: ${name}" >&2
+              echo "Missing protected release signing input: ${name}" >&2
               exit 1
             fi
           done
           umask 077
-          signing_dir="$(mktemp -d "${RUNNER_TEMP}/macos-signing.XXXXXX")"
-          signing_keychain="${signing_dir}/release.keychain-db"
-          original_keychains=()
-          while IFS= read -r line; do
-            line="${line#"${line%%[![:space:]]*}"}"; line="${line%\"}"; line="${line#\"}"
-            [[ -n "${line}" ]] && original_keychains+=("${line}")
-          done < <(security list-keychains -d user)
-          trap 'security list-keychains -d user -s "${original_keychains[@]}" >/dev/null 2>&1 || true; security delete-keychain "${signing_keychain}" >/dev/null 2>&1 || true; rm -rf "${signing_dir}"' EXIT
-          keychain_password="$(openssl rand -hex 32)"
-          printf '%s' "${MACOS_APPLICATION_CERTIFICATE_P12}" | base64 --decode > "${signing_dir}/application.p12"
-          printf '%s' "${MACOS_INSTALLER_CERTIFICATE_P12}" | base64 --decode > "${signing_dir}/installer.p12"
-          printf '%s' "${MACOS_NOTARY_KEY_P8}" | base64 --decode > "${signing_dir}/notary.p8"
-          security create-keychain -p "${keychain_password}" "${signing_keychain}"
-          security set-keychain-settings -lut 21600 "${signing_keychain}"
-          security unlock-keychain -p "${keychain_password}" "${signing_keychain}"
-          # codesign's --keychain only selects where the identity is looked up; building
-          # and checking the certificate chain still uses the user search list, so the
-          # signing keychain must be on it. The EXIT trap restores the original list.
-          security list-keychains -d user -s "${signing_keychain}" "${original_keychains[@]}"
-          security import "${signing_dir}/application.p12" -k "${signing_keychain}" \
-            -P "${MACOS_CERTIFICATE_PASSWORD}" -T /usr/bin/codesign
-          security import "${signing_dir}/installer.p12" -k "${signing_keychain}" \
-            -P "${MACOS_CERTIFICATE_PASSWORD}" -T /usr/bin/productsign
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s \
-            -k "${keychain_password}" "${signing_keychain}" >/dev/null
-          xcrun notarytool store-credentials serviceradar-release \
-            --key "${signing_dir}/notary.p8" --key-id "${MACOS_NOTARY_KEY_ID}" \
-            --issuer "${MACOS_NOTARY_ISSUER_ID}" --keychain "${signing_keychain}"
-          rm -f "${signing_dir}/application.p12" "${signing_dir}/installer.p12" "${signing_dir}/notary.p8"
-          unset MACOS_APPLICATION_CERTIFICATE_P12 MACOS_INSTALLER_CERTIFICATE_P12 \
-            MACOS_CERTIFICATE_PASSWORD MACOS_NOTARY_KEY_P8 MACOS_NOTARY_KEY_ID MACOS_NOTARY_ISSUER_ID
           mkdir -p "${RUNNER_TEMP}/macos-release"
           bazelisk run -c opt --config=darwin_local --config=cache_only \
             --platforms=//build/platforms:darwin_aarch64 \
             //build/packaging/agent/macos:package -- \
             --mode=release --source-commit="${RELEASE_COMMIT}" \
             --output-dir="${RUNNER_TEMP}/macos-release" \
-            --keychain="${signing_keychain}" --notary-profile=serviceradar-release
+            --keychain="${SIGNING_KEYCHAIN}" --notary-profile=serviceradar-release
+
+      - name: Remove macOS signing keychain
+        if: always()
+        uses: ./.github/actions/macos-release-keychain
+        with:
+          mode: cleanup
+          signing-dir: ${{ steps.keychain.outputs.signing-dir }}
 
       - name: Transfer verified macOS installer to publisher
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -213,10 +237,10 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  # Bazel stages the Windows inputs on Linux from the same release commit as the
-  # macOS job; the Windows job only runs WiX and msiexec.
+  # Bazel stages the Windows inputs on Linux from the resolved release commit;
+  # the Windows job only runs WiX and msiexec.
   windows-stage:
-    needs: macos
+    needs: source
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
@@ -227,7 +251,7 @@ jobs:
       - name: Check out release commit for Windows staging
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout@v7.0.1
         with:
-          ref: ${{ needs.macos.outputs.commit }}
+          ref: ${{ needs.source.outputs.commit }}
           persist-credentials: false
 
       - name: Configure remote cache
@@ -242,7 +266,7 @@ jobs:
 
       - name: Stage Windows installer inputs
         env:
-          RELEASE_COMMIT: ${{ needs.macos.outputs.commit }}
+          RELEASE_COMMIT: ${{ needs.source.outputs.commit }}
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${RELEASE_COMMIT}"
@@ -260,7 +284,7 @@ jobs:
           retention-days: 1
 
   windows-msi:
-    needs: [macos, windows-stage]
+    needs: [source, windows-stage]
     runs-on: windows-latest
     timeout-minutes: 45
     permissions:
@@ -286,7 +310,7 @@ jobs:
       - name: Build and verify MSIs
         shell: pwsh
         env:
-          RELEASE_COMMIT: ${{ needs.macos.outputs.commit }}
+          RELEASE_COMMIT: ${{ needs.source.outputs.commit }}
         run: |
           $ErrorActionPreference = 'Stop'
           $inputs = Join-Path $env:RUNNER_TEMP 'windows-inputs'
@@ -304,7 +328,11 @@ jobs:
           retention-days: 1
 
   publish:
-    needs: [macos, windows-msi]
+    needs: [source, macos, windows-msi]
+    # The macOS installer is optional: publish whenever the release source resolved
+    # and the Windows installers built, and attach the macOS installer only when its
+    # job succeeded.
+    if: ${{ !cancelled() && needs.source.result == 'success' && needs.windows-msi.result == 'success' }}
     runs-on: serviceradar-signing
     outputs:
       tag: ${{ steps.release.outputs.tag }}
@@ -842,6 +870,7 @@ jobs:
       # native-addons.yml). Inlining it here as well would double-publish and race the
       # index upload, so it is intentionally NOT part of the release job.
       - name: Download verified macOS installer
+        if: needs.macos.result == 'success'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: macos-agent-release
@@ -857,8 +886,9 @@ jobs:
         env:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
           VERSION: ${{ steps.release.outputs.version }}
-          MACOS_TAG: ${{ needs.macos.outputs.tag }}
-          MACOS_COMMIT: ${{ needs.macos.outputs.commit }}
+          SOURCE_TAG: ${{ needs.source.outputs.tag }}
+          SOURCE_COMMIT: ${{ needs.source.outputs.commit }}
+          MACOS_RESULT: ${{ needs.macos.result }}
           RELEASE_COMMIT: ${{ steps.release.outputs.commit }}
           NOTES_FILE: ${{ steps.notes.outputs.path }}
           DRY_RUN: ${{ steps.release.outputs.dry_run }}
@@ -874,8 +904,8 @@ jobs:
             echo "Release tag is empty" >&2
             exit 1
           fi
-          if [[ "${MACOS_TAG}" != "${RELEASE_TAG}" || "${MACOS_COMMIT}" != "${RELEASE_COMMIT}" ]]; then
-            echo "macOS installer and Linux packages must come from the same release commit." >&2
+          if [[ "${SOURCE_TAG}" != "${RELEASE_TAG}" || "${SOURCE_COMMIT}" != "${RELEASE_COMMIT}" ]]; then
+            echo "Platform installers and Linux packages must come from the same release commit." >&2
             exit 1
           fi
 
@@ -890,8 +920,13 @@ jobs:
           declare -a args
           args+=("--tag" "$RELEASE_TAG")
           args+=("--commit" "${RELEASE_COMMIT}")
-          args+=("--macos_pkg" "${RUNNER_TEMP}/macos-release/serviceradar-agent_${VERSION}_darwin_arm64.pkg")
-          args+=("--macos_provenance" "${RUNNER_TEMP}/macos-release/serviceradar-agent_${VERSION}_darwin_arm64.provenance.json")
+          if [[ "${MACOS_RESULT}" == "success" ]]; then
+            # The publisher checks the installer's provenance against --commit.
+            args+=("--macos_pkg" "${RUNNER_TEMP}/macos-release/serviceradar-agent_${VERSION}_darwin_arm64.pkg")
+            args+=("--macos_provenance" "${RUNNER_TEMP}/macos-release/serviceradar-agent_${VERSION}_darwin_arm64.provenance.json")
+          else
+            echo "::warning title=macOS installer missing::The macos job ended '${MACOS_RESULT}'; publishing this release without the signed macOS installer."
+          fi
           args+=("--windows_dir" "${RUNNER_TEMP}/windows-release")
           if [[ -n "$NOTES_FILE" ]]; then
             args+=("--notes_file" "$NOTES_FILE")
