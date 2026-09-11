@@ -12,9 +12,11 @@ const serviceName = "ServiceRadarAgent"
 
 type wxsValues struct{ MSIVersion, UpgradeCode, AgentPath, ConfigPath string }
 
-// The service is installed to start automatically but is not started by the
-// installer: the default config names a placeholder gateway and certificates,
-// so the operator configures it first. Failure delays are milliseconds; the
+// The service is installed to start automatically but a fresh install does not
+// start it: the default config names a placeholder gateway and certificates, so
+// the operator configures it first. A major upgrade stops and removes the old
+// service, so the StartAfterUpgrade component, installed only when an upgrade
+// is detected, starts the new one again. Failure delays are milliseconds; the
 // reset period is seconds. The config component is NeverOverwrite and
 // Permanent, so upgrades and uninstall keep the operator's configuration.
 var wxsTemplate = template.Must(template.New("agent.wxs").Parse(`<?xml version="1.0" encoding="utf-8"?>
@@ -49,7 +51,11 @@ var wxsTemplate = template.Must(template.New("agent.wxs").Parse(`<?xml version="
             <Failure Action="restartService" Delay="60000" />
           </ServiceConfigFailureActions>
         </ServiceInstall>
-        <ServiceControl Name="` + serviceName + `" Stop="both" Remove="uninstall" Wait="yes" />
+        <ServiceControl Id="StopAndRemove" Name="` + serviceName + `" Stop="both" Remove="uninstall" Wait="yes" />
+      </Component>
+      <Component Id="StartAfterUpgrade" Directory="INSTALLFOLDER" Condition="WIX_UPGRADE_DETECTED">
+        <RegistryValue Root="HKLM" Key="Software\ServiceRadar\Agent" Name="StartAfterUpgrade" Type="integer" Value="1" KeyPath="yes" />
+        <ServiceControl Id="StartAfterUpgrade" Name="` + serviceName + `" Start="install" Wait="no" />
       </Component>
       <Component Directory="CONFIGFOLDER" NeverOverwrite="yes" Permanent="yes">
         <File Id="AgentConfig" Source="{{.ConfigPath}}" Name="agent.json" KeyPath="yes" />

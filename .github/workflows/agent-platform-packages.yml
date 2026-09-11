@@ -158,7 +158,13 @@ jobs:
           $log = Join-Path $env:ProgramData 'ServiceRadar\logs\agent.log'
 
           $install = Start-Process msiexec -ArgumentList '/i', "`"$msi`"", '/qn', '/l*v', "`"$env:RUNNER_TEMP\install.log`"" -Wait -PassThru
-          if ($install.ExitCode -ne 0) { Get-Content "$env:RUNNER_TEMP\install.log" -Tail 60; throw "install exited $($install.ExitCode)" }
+          if ($install.ExitCode -ne 0) {
+            $installLog = "$env:RUNNER_TEMP\install.log"
+            # The failing action logs "Return value 3"; Windows Installer errors carry their own number.
+            Select-String -Path $installLog -Pattern 'Return value 3' -Context 40,2 | ForEach-Object { $_.ToString() }
+            Select-String -Path $installLog -Pattern '(Error|error) [0-9]{4}|Failed to|could not' | ForEach-Object { $_.Line }
+            throw "install exited $($install.ExitCode)"
+          }
 
           $svc = Get-Service ServiceRadarAgent
           if ($svc.StartType -ne 'Automatic') { throw "start type is $($svc.StartType), want Automatic" }

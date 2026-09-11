@@ -355,9 +355,14 @@ func TestWXSInstallsServiceWithoutStartingIt(t *testing.T) {
 		}
 	}
 
-	control := between(wxs, "<ServiceControl ", "/>")
-	if strings.Contains(control, "Start=") {
-		t.Errorf("the installer must not start the service before it is configured: %s", control)
+	control := between(wxs, `<ServiceControl Id="StopAndRemove"`, "/>")
+	if control == "" || strings.Contains(control, "Start=") {
+		t.Errorf("a fresh install must not start the service before it is configured: %q", control)
+	}
+
+	upgrade := between(wxs, `<Component Id="StartAfterUpgrade"`, "</Component>")
+	if !strings.Contains(upgrade, `Condition="WIX_UPGRADE_DETECTED"`) || !strings.Contains(upgrade, `Start="install"`) {
+		t.Errorf("an upgrade must restart the service it stopped: %q", upgrade)
 	}
 }
 
