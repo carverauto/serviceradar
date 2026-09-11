@@ -913,7 +913,10 @@ func (h *harness) testGroupC(t *testing.T) {
 
 		before := h.snapshotRowCounts(t, fx)
 
-		expr := buildIngestReplayExpr(raw.Data, raw.Header)
+		expr, err := buildIngestReplayExpr(raw.Data, raw.Header)
+		if err != nil {
+			t.Fatalf("build redelivery ingest/3 call: %v", err)
+		}
 		out, err := h.coreProc.RPC(expr, rpcTimeout)
 		if err != nil {
 			t.Fatalf("rpc redelivery ingest/3 call failed: %v", err)
@@ -1000,28 +1003,18 @@ func (h *harness) snapshotRowCounts(t *testing.T, fx *FixtureRecord) string {
 // ServiceRadar.EventWriter.Processors.EdgeRecord.ingest/3 with the EXACT
 // bytes and headers read back from the real stored JetStream message --
 // not reconstructed by hand, so this exercises the real header/provenance
-// decode path too, not just the CNPG transaction.
-func buildIngestReplayExpr(data []byte, headers nats.Header) string {
-	var b strings.Builder
-	b.WriteString("{ ")
-	first := true
-	for k, values := range headers {
-		for _, v := range values {
-			if !first {
-				b.WriteString(", ")
-			}
-			first = false
-			fmt.Fprintf(&b, "%q => %q", k, v)
-		}
+// decode path too, not just the CNPG transaction. Both travel base64-encoded
+// (the headers as JSON, a name => [value] map ingest/3 accepts), so no header
+// value is ever spliced into Elixir source.
+func buildIngestReplayExpr(data []byte, headers nats.Header) (string, error) {
+	headersJSON, err := json.Marshal(headers)
+	if err != nil {
+		return "", fmt.Errorf("encode replay headers: %w", err)
 	}
-	b.WriteString(" }")
-	headerMapLiteral := b.String()
-
-	dataB64 := base64.StdEncoding.EncodeToString(data)
 	return fmt.Sprintf(
-		`ServiceRadar.EventWriter.Processors.EdgeRecord.ingest(Base.decode64!(%q), %s, ServiceRadar.Repo) |> inspect() |> IO.puts()`,
-		dataB64, headerMapLiteral,
-	)
+		`ServiceRadar.EventWriter.Processors.EdgeRecord.ingest(Base.decode64!(%q), JSON.decode!(Base.decode64!(%q)), ServiceRadar.Repo) |> inspect() |> IO.puts()`,
+		base64.StdEncoding.EncodeToString(data), base64.StdEncoding.EncodeToString(headersJSON),
+	), nil
 }
 
 // ---------------------------------------------------------------------------
