@@ -84,6 +84,7 @@ const sidebars: SidebarsConfig = {
         {type: 'doc', id: 'credentials', label: 'Credential Management'},
         {type: 'doc', id: 'sync', label: 'Sync Runtime'},
         {type: 'doc', id: 'armis', label: 'Armis'},
+        {type: 'doc', id: 'dire-identity-model', label: 'DIRE Identity Model'},
         {type: 'doc', id: 'netbox', label: 'NetBox'},
         {type: 'doc', id: 'prefix-tags', label: 'Prefix Tags'},
         {type: 'doc', id: 'ansible', label: 'Ansible'},

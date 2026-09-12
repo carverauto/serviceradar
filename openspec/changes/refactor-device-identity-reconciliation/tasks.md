@@ -15,7 +15,7 @@
 ## 2. Stable integration identity (before connector resume)
 
 - [x] 2.1 Define versioned Proxmox `integration_id` format (`proxmox:v2:<cluster>:<kind>:<vmid>`) in the Proxmox plugin + enrichment ingestors; stop minting name- or MAC-keyed refs (`proxmox_enrichment_ingestor.ex:433-462`, `go/cmd/wasm-plugins/proxmox/`).
-- [x] 2.2 Add reconciliation bridges through `IntegrationIdentity.legacy_candidates/2` and `lookup_values/1`; the current supported formats are owned by `IntegrationIdentity` (see [identifier vocabulary](../../../docs/dire-identity-model.md#identifier-vocabulary)).
+- [x] 2.2 Add reconciliation bridges through `IntegrationIdentity.legacy_candidates/2` and `lookup_values/1`; the current supported formats are owned by `IntegrationIdentity` (see [identifier vocabulary](../../../docs/docs/dire-identity-model.md#identifier-vocabulary)).
 - [x] 2.3 Fix `DeviceDiscoveryIngestor` integration_id minting so rotating MACs cannot rotate the id (`device_discovery_ingestor.ex:163-175`).
 - [x] 2.4 Fix batch attribution: integration identifiers register only on the device resolved per-update; eliminate 500-per-batch collapse via batch-local IP fallback (`sync_ingestor.ex:713-788`).
 
