@@ -237,6 +237,9 @@ The control-plane and ingest workers above rely on shared JetStream durable cons
 | `objectStoreRetention.dryRun` | Logs retention decisions without deleting eligible objects | `false` |
 | `objectStoreRetention.agentReleaseKeepLatest` | Imported agent releases to retain when not protected by rollout state | `1` |
 | `objectStoreRetention.nativeAddonOrphanGraceSeconds` | Grace period before deleting unreferenced native add-on objects | `604800` |
+| `webNg.nativeAddonImport.autoSyncEnabled` | Import newly published first-party add-on releases automatically (staged, not approved); required for `track_latest_approved` profiles to see newer packages | `true` |
+| `webNg.nativeAddonImport.syncIntervalSeconds` | Seconds between add-on catalog syncs | `3600` |
+| `webNg.nativeAddonImport.autoApproveAddonIds` | Add-on ids whose imports are approved automatically; approval is the security boundary, so this is empty by default | `[]` |
 | `logCollector.streamReplicas` | Replica count for the shared `events` stream | `3` |
 | `logCollector.streamMaxBytes` | Max bytes for the shared `events` stream | `2147483648` |
 | `logCollector.tcpCollector.streamReplicas` | Replica count for TCP syslog writers on `events` | `3` |
