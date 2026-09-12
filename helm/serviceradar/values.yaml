@@ -1186,11 +1186,19 @@ webNg:
   nativeAddonImport:
     repoUrl: "https://github.com/carverauto/serviceradar"
     indexAssetName: "serviceradar-native-addon-index.json"
-    autoSyncEnabled: false
+    # Import newly published first-party add-on releases automatically. This is
+    # what lets a `track_latest_approved` profile ever see a newer package: with
+    # it off, the catalog never learns a new version exists and managed add-on
+    # updates are silently inert. An installation that never turned this on sat
+    # on anomaly 0.3.6 for days while 0.3.7 had been published. Importing only
+    # stages the package; nothing changes on an agent until it is approved.
+    autoSyncEnabled: true
     syncReleaseLimit: 10
     syncIntervalSeconds: 3600
     # Official native add-ons discovered in the release index are imported as
-    # staged packages. Approval and assignment remain operator-controlled.
+    # staged packages. Approval and assignment remain operator-controlled:
+    # listing an id here auto-approves its imports, which is a policy choice
+    # to make deliberately, not a default to inherit.
     autoApproveAddonIds: []
   host: ""
   # Canonical externally reachable HTTPS origin for web-ng (for example,
