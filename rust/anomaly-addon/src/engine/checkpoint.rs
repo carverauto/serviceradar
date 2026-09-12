@@ -74,6 +74,10 @@ pub struct SeriesCheckpoint {
     /// Samples accumulated into the current CUSUM run since the last reset.
     #[serde(default)]
     pub cusum_run_samples: u64,
+    /// Sum of unclipped residuals over the current CUSUM run. Absent in older
+    /// checkpoints, which then re-estimate the effect size from zero.
+    #[serde(default)]
+    pub cusum_run_residual_sum: f64,
     /// Pending CUSUM direction latched at `h` but not yet confirmed at `h_confirm`.
     #[serde(default)]
     pub cusum_pending_direction: Option<CusumDirection>,
@@ -99,6 +103,9 @@ pub struct SeriesCheckpoint {
     pub drift_active_samples: u64,
     #[serde(default)]
     pub drift_clear_samples: u64,
+    /// Sum of unclipped residuals since the open drift episode started.
+    #[serde(default)]
+    pub drift_active_residual_sum: f64,
     #[serde(default)]
     pub drift_last_emitted_at_unix_nano: Option<u64>,
     #[serde(default)]
@@ -168,6 +175,7 @@ impl DetectorEngine {
                     cusum_pos: state.cusum.as_ref().map(Cusum::pos),
                     cusum_neg: state.cusum.as_ref().map(Cusum::neg),
                     cusum_run_samples: state.cusum_run_samples,
+                    cusum_run_residual_sum: state.cusum_run_residual_sum,
                     cusum_pending_direction: state.cusum_pending_direction,
                     cusum_pending_samples: state.cusum_pending_samples,
                     drift_active: state.drift_active,
@@ -179,6 +187,7 @@ impl DetectorEngine {
                     drift_peak_severity_band: state.drift_peak_severity_band,
                     drift_active_samples: state.drift_active_samples,
                     drift_clear_samples: state.drift_clear_samples,
+                    drift_active_residual_sum: state.drift_active_residual_sum,
                     drift_last_emitted_at_unix_nano: state.drift_last_emitted_at_unix_nano,
                     drift_last_cleared_at_unix_nano: state.drift_last_cleared_at_unix_nano,
                     drift_last_episode_started_at_unix_nano: state
@@ -301,6 +310,11 @@ impl DetectorEngine {
             } else {
                 0
             };
+            restored_state.cusum_run_residual_sum = if restore_cusum_latch {
+                series.cusum_run_residual_sum
+            } else {
+                0.0
+            };
             restored_state.cusum_pending_direction = restore_cusum_latch
                 .then_some(series.cusum_pending_direction)
                 .flatten();
@@ -322,6 +336,7 @@ impl DetectorEngine {
                 restored_state.drift_peak_severity_band = series.drift_peak_severity_band;
                 restored_state.drift_active_samples = series.drift_active_samples;
                 restored_state.drift_clear_samples = series.drift_clear_samples;
+                restored_state.drift_active_residual_sum = series.drift_active_residual_sum;
                 restored_state.drift_last_emitted_at_unix_nano =
                     series.drift_last_emitted_at_unix_nano;
             }

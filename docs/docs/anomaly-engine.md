@@ -113,14 +113,34 @@ The production drift contract is:
 - Seasonal classes default to `deseasonalized_only`.
 - A series without a delivered seasonal baseline has drift inactive.
 - Scale floors use the same near-zero protection as the z path.
-- Entry uses latch-and-confirm plus practical effect-size gates.
+- The residual the accumulator consumes is clipped to
+  `drift_residual_clip` sigma (default 1.5), so one sample contributes at
+  most `clip - k` and a confirmation at `h * h_confirm_mult` needs at least
+  `h * h_confirm_mult / (clip - k)` samples of evidence (twelve with the
+  defaults). A burst of a few samples at twenty sigma is the spike path's
+  finding, not a level shift; unclipped it confirmed a drift on its own.
+- Entry uses latch-and-confirm plus practical effect-size gates. The effect
+  size is the mean of the unclipped residuals over the run, in sigma: how far
+  the level moved, not the bounded accumulator.
+- An open episode keeps running the same accumulator, reset at the open.
+  A sample counts toward recovery when the accumulator in the drift's
+  direction has not crossed `h`; the episode clears after `drift_clear_slots`
+  such samples in a row. A persistent shift re-crosses `h` every
+  `h / (clip - k)` samples and keeps the episode open; ordinary noise and the
+  odd blip decay out of the accumulator and let it close. Judging recovery one
+  sample at a time (`|residual| < k`) kept episodes open for hours on series
+  whose normal noise exceeds `k`.
 - Open drift episodes do not emit every poll cycle.
 - A stable non-saturated new level is adopted as baseline and cleared.
 
+Drift findings carry `drift_target` and `drift_scale` (the level and scale the
+residual was measured against, in the metric's units) and `drift_shift_sigma`
+(the effect size), so a consumer can draw the baseline the series departed from.
+
 Default drift knobs include `cusum_k = 0.5`, `cusum_h = 8.0`,
-`h_confirm_mult = 1.5`, `drift_confirm_window = 30`,
-`drift_min_effect = 2.0`, `drift_clear_slots = 30`,
-`drift_adopt_after_samples = 600`, and
+`h_confirm_mult = 1.5`, `drift_residual_clip = 1.5`,
+`drift_confirm_window = 30`, `drift_min_effect = 2.0`,
+`drift_clear_slots = 30`, `drift_adopt_after_samples = 600`, and
 `drift_escalate_after_secs = 3600`.
 
 ## Seasonal Baselines

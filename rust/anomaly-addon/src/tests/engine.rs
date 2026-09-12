@@ -880,6 +880,7 @@ fn restore_checkpoint_caps_series_state_by_freshness() {
                 cusum_pos: None,
                 cusum_neg: None,
                 cusum_run_samples: 0,
+                cusum_run_residual_sum: 0.0,
                 cusum_pending_direction: None,
                 cusum_pending_samples: 0,
                 drift_active: false,
@@ -891,6 +892,7 @@ fn restore_checkpoint_caps_series_state_by_freshness() {
                 drift_peak_severity_band: 0,
                 drift_active_samples: 0,
                 drift_clear_samples: 0,
+                drift_active_residual_sum: 0.0,
                 drift_last_emitted_at_unix_nano: None,
                 drift_last_cleared_at_unix_nano: None,
                 drift_last_episode_started_at_unix_nano: None,
@@ -925,6 +927,7 @@ fn restore_checkpoint_caps_series_state_by_freshness() {
                 cusum_pos: None,
                 cusum_neg: None,
                 cusum_run_samples: 0,
+                cusum_run_residual_sum: 0.0,
                 cusum_pending_direction: None,
                 cusum_pending_samples: 0,
                 drift_active: false,
@@ -936,6 +939,7 @@ fn restore_checkpoint_caps_series_state_by_freshness() {
                 drift_peak_severity_band: 0,
                 drift_active_samples: 0,
                 drift_clear_samples: 0,
+                drift_active_residual_sum: 0.0,
                 drift_last_emitted_at_unix_nano: None,
                 drift_last_cleared_at_unix_nano: None,
                 drift_last_episode_started_at_unix_nano: None,
@@ -970,6 +974,7 @@ fn restore_checkpoint_caps_series_state_by_freshness() {
                 cusum_pos: None,
                 cusum_neg: None,
                 cusum_run_samples: 0,
+                cusum_run_residual_sum: 0.0,
                 cusum_pending_direction: None,
                 cusum_pending_samples: 0,
                 drift_active: false,
@@ -981,6 +986,7 @@ fn restore_checkpoint_caps_series_state_by_freshness() {
                 drift_peak_severity_band: 0,
                 drift_active_samples: 0,
                 drift_clear_samples: 0,
+                drift_active_residual_sum: 0.0,
                 drift_last_emitted_at_unix_nano: None,
                 drift_last_cleared_at_unix_nano: None,
                 drift_last_episode_started_at_unix_nano: None,
@@ -1774,6 +1780,8 @@ fn cusum_latches_at_h_and_confirms_at_h_confirm() {
         max_series: 10,
         cusum_h: 2.0,
         h_confirm_mult: 1.5,
+        // Lifecycle test: keep the unclipped residual arithmetic these timings assume.
+        drift_residual_clip: 100.0,
         drift_confirm_window: 5,
         drift_min_effect: 0.5,
         ..EngineConfig::default()
@@ -1837,6 +1845,8 @@ fn cusum_drift_episode_opens_once_and_clears_after_recovery() {
         max_series: 10,
         cusum_h: 2.0,
         h_confirm_mult: 1.0,
+        // Lifecycle test: keep the unclipped residual arithmetic these timings assume.
+        drift_residual_clip: 100.0,
         drift_confirm_window: 5,
         drift_min_effect: 0.5,
         drift_clear_slots: 3,
@@ -1937,6 +1947,117 @@ fn cusum_drift_episode_opens_once_and_clears_after_recovery() {
 }
 
 #[test]
+fn cusum_ignores_a_short_bump_the_spike_path_owns() {
+    // Production drift ratios (h 8, confirm at 1.5h, min effect 2 sigma, 30-sample
+    // windows). The rolling spike detector is isolated with an absurd n_sigma so only
+    // the drift path can emit.
+    let cfg = EngineConfig {
+        window_size: 50,
+        min_samples: 30,
+        n_sigma: 100.0,
+        confirm_slots: 1,
+        max_series: 10,
+        cusum_h: 8.0,
+        h_confirm_mult: 1.5,
+        drift_confirm_window: 30,
+        drift_min_effect: 2.0,
+        drift_clear_slots: 30,
+        drift_adopt_after_samples: 10_000,
+        ..EngineConfig::default()
+    };
+    let mut engine = DetectorEngine::new(cfg);
+    warm_stationary(&mut engine);
+
+    // A three-sample bump at 12, 22 and 12 sigma (the anchor scale here is 5), then
+    // the series returns to its stationary level. Unclipped, those three residuals
+    // put ~45 sigma of "evidence" into the accumulator and confirmed a sustained
+    // drift on the second sample; a bump is the spike path's business, not a level
+    // shift.
+    for (i, v) in [160.0, 210.0, 160.0].iter().enumerate() {
+        let tv = engine
+            .evaluate_transition("s", *v, 31 + i as u64, always_drift_profile())
+            .expect("verdict");
+        assert!(
+            tv.cusum_drift.is_none(),
+            "a three-sample bump must not open a drift episode (sample {i})"
+        );
+    }
+    for ts in 34..120u64 {
+        let v = 100.0 + if ts % 2 == 0 { 1.0 } else { -1.0 };
+        let tv = engine
+            .evaluate_transition("s", v, ts, always_drift_profile())
+            .expect("verdict");
+        assert!(
+            tv.cusum_drift.is_none(),
+            "no drift may open after the bump has passed (ts {ts})"
+        );
+    }
+}
+
+#[test]
+fn cusum_open_drift_clears_when_the_accumulator_stops_alarming_despite_blips() {
+    let cfg = EngineConfig {
+        window_size: 50,
+        min_samples: 30,
+        n_sigma: 100.0,
+        confirm_slots: 1,
+        max_series: 10,
+        cusum_h: 2.0,
+        h_confirm_mult: 1.0,
+        drift_confirm_window: 10,
+        drift_min_effect: 0.5,
+        drift_clear_slots: 6,
+        drift_adopt_after_samples: 10_000,
+        episode_update_interval_secs: 10_000,
+        reopen_cooldown_secs: 1,
+        ..EngineConfig::default()
+    };
+    let mut engine = DetectorEngine::new(cfg);
+    warm_stationary(&mut engine);
+
+    let mut opened_at = None;
+    for ts in 31..60u64 {
+        let tv = engine
+            .evaluate_transition("s", 115.0, ts, always_drift_profile())
+            .expect("verdict");
+        if let Some(drift) = tv.cusum_drift {
+            assert_eq!(drift.transition, AnomalyTransition::Open);
+            opened_at = Some(ts);
+            break;
+        }
+    }
+    let opened_at = opened_at.expect("a sustained +10 sigma shift opens a drift episode");
+
+    // Back at the anchor with a ~2.7 sigma blip every fourth sample. A blip is not a
+    // level shift, and it is not enough to re-alarm an accumulator that decays by k
+    // every sample, so the episode must clear after drift_clear_slots samples. The
+    // old per-sample rule (|residual| < k) reset the recovery count on every blip
+    // and left episodes like this open for hours.
+    let mut cleared_after = None;
+    for i in 0..40u64 {
+        let v = if i % 4 == 3 { 104.0 } else { 100.0 };
+        let tv = engine
+            .evaluate_transition("s", v, opened_at + 1 + i, always_drift_profile())
+            .expect("verdict");
+        if let Some(drift) = tv.cusum_drift {
+            assert_eq!(
+                drift.transition,
+                AnomalyTransition::Clear,
+                "the only emission once the level is back must be the clear"
+            );
+            assert_eq!(drift.clear_reason, Some(DriftClearReason::Recovered));
+            cleared_after = Some(i + 1);
+            break;
+        }
+    }
+    let cleared_after = cleared_after.expect("an open drift must clear once the level is back");
+    assert!(
+        (6..=12).contains(&cleared_after),
+        "clear should follow drift_clear_slots recovered samples, took {cleared_after}"
+    );
+}
+
+#[test]
 fn cusum_drift_episode_adopts_new_level_and_reanchors() {
     let cfg = EngineConfig {
         window_size: 50,
@@ -1946,6 +2067,8 @@ fn cusum_drift_episode_adopts_new_level_and_reanchors() {
         max_series: 10,
         cusum_h: 2.0,
         h_confirm_mult: 1.0,
+        // Lifecycle test: keep the unclipped residual arithmetic these timings assume.
+        drift_residual_clip: 100.0,
         drift_confirm_window: 5,
         drift_min_effect: 0.5,
         drift_clear_slots: 10_000,
@@ -2108,6 +2231,8 @@ fn cusum_drift_episode_emits_bounded_heartbeat_update() {
         max_series: 10,
         cusum_h: 2.0,
         h_confirm_mult: 1.0,
+        // Lifecycle test: keep the unclipped residual arithmetic these timings assume.
+        drift_residual_clip: 100.0,
         drift_confirm_window: 5,
         drift_min_effect: 0.5,
         drift_clear_slots: 10_000,
@@ -2155,6 +2280,8 @@ fn cusum_drift_adoption_is_blocked_while_saturation_gate_is_active() {
         max_series: 10,
         cusum_h: 2.0,
         h_confirm_mult: 1.0,
+        // Lifecycle test: keep the unclipped residual arithmetic these timings assume.
+        drift_residual_clip: 100.0,
         drift_confirm_window: 5,
         drift_min_effect: 0.5,
         drift_clear_slots: 10_000,
@@ -2378,6 +2505,8 @@ fn harness_adversarial_flapper_merges_reopens_and_stays_bounded() {
         max_series: 10,
         cusum_h: 2.0,
         h_confirm_mult: 1.0,
+        // Lifecycle test: keep the unclipped residual arithmetic these timings assume.
+        drift_residual_clip: 100.0,
         drift_confirm_window: 5,
         drift_min_effect: 0.5,
         drift_clear_slots: 3,
@@ -3073,6 +3202,8 @@ fn cusum_drift_state_survives_checkpoint_restart() {
     let cfg = EngineConfig {
         n_sigma: 100.0,
         h_confirm_mult: 1.0,
+        // Lifecycle test: keep the unclipped residual arithmetic these timings assume.
+        drift_residual_clip: 100.0,
         drift_confirm_window: 5,
         ..cusum_cfg()
     };
@@ -3149,6 +3280,8 @@ fn cusum_pending_latch_survives_checkpoint_restart() {
         max_series: 10,
         cusum_h: 2.0,
         h_confirm_mult: 1.5,
+        // Lifecycle test: keep the unclipped residual arithmetic these timings assume.
+        drift_residual_clip: 100.0,
         drift_confirm_window: 5,
         drift_min_effect: 0.5,
         ..EngineConfig::default()
@@ -3196,6 +3329,8 @@ fn open_drift_episode_survives_checkpoint_restart() {
         max_series: 10,
         cusum_h: 2.0,
         h_confirm_mult: 1.0,
+        // Lifecycle test: keep the unclipped residual arithmetic these timings assume.
+        drift_residual_clip: 100.0,
         drift_confirm_window: 5,
         drift_min_effect: 0.5,
         drift_clear_slots: 3,

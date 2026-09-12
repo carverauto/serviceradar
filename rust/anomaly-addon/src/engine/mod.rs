@@ -60,6 +60,13 @@ pub const DEFAULT_CUSUM_H: f64 = 8.0;
 pub const DEFAULT_H_CONFIRM_MULT: f64 = 1.5;
 pub const DEFAULT_DRIFT_CONFIRM_WINDOW: u64 = 30;
 pub const DEFAULT_DRIFT_MIN_EFFECT: f64 = 2.0;
+/// Bound on the standardized residual the CUSUM consumes, in sigma units. One
+/// sample can contribute at most `clip - k` to the accumulator, so reaching the
+/// confirmation threshold `h * h_confirm_mult` takes at least
+/// `h * h_confirm_mult / (clip - k)` samples of evidence: twelve with the defaults.
+/// Deviations beyond the clip are the spike path's business; a three-sample burst
+/// at twenty sigma is not a level shift, and unclipped it confirmed one on its own.
+pub const DEFAULT_DRIFT_RESIDUAL_CLIP: f64 = 1.5;
 pub const DEFAULT_DRIFT_CLEAR_SLOTS: u64 = 30;
 pub const DEFAULT_DRIFT_ADOPT_AFTER_SAMPLES: u64 = 600;
 pub const DEFAULT_SPIKE_ADOPT_AFTER_SAMPLES: u64 = 600;
@@ -104,6 +111,10 @@ pub struct EngineConfig {
     /// Minimum estimated sustained shift, in sigma units, before a CUSUM alarm
     /// becomes an emitted drift finding.
     pub drift_min_effect: f64,
+    /// Bound on the standardized residual fed to the CUSUM (sigma units). Capping a
+    /// sample's contribution at `clip - k` keeps a short burst from carrying a drift
+    /// confirmation by itself and makes "sustained" a minimum sample count.
+    pub drift_residual_clip: f64,
     /// Consecutive recovered samples before an open drift episode clears.
     pub drift_clear_slots: u64,
     /// Samples after open before a persistent new level is adopted and cleared.
@@ -147,6 +158,7 @@ impl Default for EngineConfig {
             h_confirm_mult: DEFAULT_H_CONFIRM_MULT,
             drift_confirm_window: DEFAULT_DRIFT_CONFIRM_WINDOW,
             drift_min_effect: DEFAULT_DRIFT_MIN_EFFECT,
+            drift_residual_clip: DEFAULT_DRIFT_RESIDUAL_CLIP,
             drift_clear_slots: DEFAULT_DRIFT_CLEAR_SLOTS,
             drift_adopt_after_samples: DEFAULT_DRIFT_ADOPT_AFTER_SAMPLES,
             spike_adopt_after_samples: DEFAULT_SPIKE_ADOPT_AFTER_SAMPLES,
@@ -166,9 +178,17 @@ impl Default for EngineConfig {
     }
 }
 
-fn drift_shift_estimate(k: f64, accumulator: f64, samples: u64) -> f64 {
-    let samples = samples.max(1) as f64;
-    k.max(0.0) + accumulator.max(0.0) / samples
+/// Bound the residual the CUSUM consumes. The bound never drops to the slack `k`,
+/// because an accumulator whose input can never exceed `k` cannot grow at all.
+fn clip_drift_residual(standardized: f64, clip: f64, k: f64) -> f64 {
+    let bound = clip.max(k + f64::EPSILON);
+    standardized.clamp(-bound, bound)
+}
+
+/// The sustained shift in sigma units: the mean of the UNCLIPPED residuals over a
+/// run. The clipped accumulator is a detection statistic, not a size estimate.
+fn mean_shift(sum: f64, samples: u64) -> f64 {
+    (sum / samples.max(1) as f64).abs()
 }
 
 fn drift_direction_for(pos: f64, neg: f64) -> CusumDirection {
@@ -194,6 +214,11 @@ struct DriftSample {
     shift_estimate: f64,
     standardized_residual: f64,
     target: f64,
+    scale: f64,
+    /// Whether the accumulator in the drift's direction crossed `h` on this sample.
+    /// While an episode is open this is the recovery test: an episode clears once
+    /// the same statistic that opened it stops alarming.
+    re_alarmed: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -237,6 +262,7 @@ fn reset_drift_pending_and_cusum(state: &mut SeriesState) {
         cusum.reset();
     }
     state.cusum_run_samples = 0;
+    state.cusum_run_residual_sum = 0.0;
     state.cusum_pending_direction = None;
     state.cusum_pending_samples = 0;
 }
@@ -251,6 +277,7 @@ fn clear_drift_episode_state(state: &mut SeriesState) {
     state.drift_peak_severity_band = 0;
     state.drift_active_samples = 0;
     state.drift_clear_samples = 0;
+    state.drift_active_residual_sum = 0.0;
     state.drift_last_emitted_at_unix_nano = None;
 }
 
@@ -416,6 +443,8 @@ fn clear_open_drift_episode(
         pos: sample.pos,
         neg: sample.neg,
         direction: sample.direction,
+        target: sample.target,
+        scale: sample.scale,
         shift_estimate: sample.shift_estimate,
         transition: AnomalyTransition::Clear,
         episode,
@@ -440,11 +469,15 @@ fn apply_drift_lifecycle(
             state,
             ctx.value,
             ctx.observed_at_unix_nano,
-            sample.shift_estimate,
+            sample.standardized_residual.abs(),
         );
 
-        let recovered = sample.standardized_residual.abs() < config.cusum_k
-            || state.drift_active_direction != Some(sample.direction);
+        // Recovery is judged by the accumulator, not the sample: the episode is
+        // still open while the CUSUM keeps re-alarming in its direction and clears
+        // after `drift_clear_slots` samples without an alarm. Ordinary noise and
+        // the odd blip decay out of the accumulator; a persistent shift re-crosses
+        // `h` every `h / (clip - k)` samples and keeps the episode open.
+        let recovered = !sample.re_alarmed;
         if recovered {
             state.drift_clear_samples = state.drift_clear_samples.saturating_add(1);
         } else {
@@ -499,6 +532,8 @@ fn apply_drift_lifecycle(
                 pos: sample.pos,
                 neg: sample.neg,
                 direction: sample.direction,
+                target: sample.target,
+                scale: sample.scale,
                 shift_estimate: sample.shift_estimate,
                 transition: AnomalyTransition::Update,
                 episode: drift_episode(state, ctx.observed_at_unix_nano),
@@ -549,6 +584,8 @@ fn apply_drift_lifecycle(
         pos: sample.pos,
         neg: sample.neg,
         direction: sample.direction,
+        target: sample.target,
+        scale: sample.scale,
         shift_estimate: sample.shift_estimate,
         transition: if reuse_previous_episode {
             AnomalyTransition::Update
@@ -1184,34 +1221,51 @@ impl DetectorEngine {
 
             if let (Some((target, scale)), Some(cusum)) = (drift_target, state.cusum.as_mut()) {
                 let standardized_residual = (value - target) / scale;
+                let clipped = clip_drift_residual(
+                    standardized_residual,
+                    self.config.drift_residual_clip,
+                    self.config.cusum_k,
+                );
 
                 if state.drift_active {
-                    let direction = if standardized_residual >= 0.0 {
-                        CusumDirection::Up
-                    } else {
-                        CusumDirection::Down
-                    };
-                    let shift_estimate = standardized_residual.abs();
-                    let (pos, neg) = match direction {
-                        CusumDirection::Up => (shift_estimate, 0.0),
-                        CusumDirection::Down => (0.0, shift_estimate),
-                    };
+                    // Keep running the same accumulator that opened the episode. It
+                    // re-alarms while the level stays shifted and idles near zero once
+                    // the series is back, blips included; the lifecycle below counts
+                    // alarm-free samples toward the clear.
+                    let step = cusum.update_retaining(clipped);
+                    let direction = state
+                        .drift_active_direction
+                        .unwrap_or_else(|| drift_direction_for(step.pos, step.neg));
+                    let re_alarmed =
+                        drift_accumulator_for(direction, step.pos, step.neg) > self.config.cusum_h;
+                    if re_alarmed {
+                        cusum.reset();
+                    }
+                    state.drift_active_residual_sum += standardized_residual;
+                    let shift_estimate = mean_shift(
+                        state.drift_active_residual_sum,
+                        state.drift_active_samples.saturating_add(1),
+                    );
                     drift_sample = Some(DriftSample {
-                        pos,
-                        neg,
+                        pos: step.pos,
+                        neg: step.neg,
                         direction,
                         shift_estimate,
                         standardized_residual,
                         target,
+                        scale,
+                        re_alarmed,
                     });
                 } else {
-                    let step = cusum.update_retaining(standardized_residual);
+                    let step = cusum.update_retaining(clipped);
                     if step.pos <= 0.0 && step.neg <= 0.0 {
                         state.cusum_run_samples = 0;
+                        state.cusum_run_residual_sum = 0.0;
                         state.cusum_pending_direction = None;
                         state.cusum_pending_samples = 0;
                     } else {
                         state.cusum_run_samples = state.cusum_run_samples.saturating_add(1);
+                        state.cusum_run_residual_sum += standardized_residual;
                     }
 
                     if let Some(pending_direction) = state.cusum_pending_direction {
@@ -1224,11 +1278,10 @@ impl DetectorEngine {
                             let gate_allows = profile
                                 .saturation_gate
                                 .is_none_or(|gate| gate.allows_breach(value, target));
-                            let shift_estimate = drift_shift_estimate(
-                                self.config.cusum_k,
-                                pending_accumulator,
-                                state.cusum_run_samples,
-                            );
+                            // Effect size from the unclipped residuals over the run:
+                            // how far the level actually moved, in sigma.
+                            let shift_estimate =
+                                mean_shift(state.cusum_run_residual_sum, state.cusum_run_samples);
 
                             if gate_allows && shift_estimate >= self.config.drift_min_effect {
                                 drift_sample = Some(DriftSample {
@@ -1238,11 +1291,14 @@ impl DetectorEngine {
                                     shift_estimate,
                                     standardized_residual,
                                     target,
+                                    scale,
+                                    re_alarmed: true,
                                 });
                             }
                         } else if state.cusum_pending_samples >= self.config.drift_confirm_window {
                             cusum.reset();
                             state.cusum_run_samples = 0;
+                            state.cusum_run_residual_sum = 0.0;
                             state.cusum_pending_direction = None;
                             state.cusum_pending_samples = 0;
                         }
