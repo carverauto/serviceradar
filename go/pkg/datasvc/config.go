@@ -11,6 +11,9 @@ import (
 )
 
 const (
+	// defaultObjectBucket is the JetStream object store bucket datasvc owns.
+	defaultObjectBucket = "serviceradar-objects"
+
 	securityModeMTLS        = "mtls"
 	securityModeSPIFFE      = "spiffe"
 	securityModeNone        = "none"
@@ -198,7 +201,7 @@ func (c *Config) setDefaultBucket() {
 
 func (c *Config) setDefaultObjectBucket() {
 	if c.ObjectBucket == "" {
-		c.ObjectBucket = "serviceradar-objects"
+		c.ObjectBucket = defaultObjectBucket
 	}
 }
 

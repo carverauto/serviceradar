@@ -1,0 +1,67 @@
+suite: object store retention environment
+templates:
+  - templates/core.yaml
+  - templates/web.yaml
+tests:
+  # The retention cron is what keeps the datasvc object store below its
+  # MaxBytes cap. That stream is created DiscardNew, so a full bucket does not
+  # evict old artifacts -- it rejects new uploads with NATS 10077 and agent
+  # release imports start failing. These assertions pin the wiring so the
+  # feature cannot be silently switched off or left un-plumbed again.
+  - it: enables object store retention on core and web-ng by default
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OBJECT_STORE_RETENTION_ENABLED
+            value: "true"
+          count: 1
+        template: templates/core.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OBJECT_STORE_RETENTION_DRY_RUN
+            value: "false"
+          count: 1
+        template: templates/core.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OBJECT_STORE_RETENTION_AGENT_RELEASE_KEEP_LATEST
+            value: "1"
+          count: 1
+        template: templates/core.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OBJECT_STORE_RETENTION_ENABLED
+            value: "true"
+          count: 1
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: honours an operator disabling retention
+    set:
+      objectStoreRetention.enabled: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OBJECT_STORE_RETENTION_ENABLED
+            value: "false"
+          count: 1
+        template: templates/core.yaml
+        documentSelector:
+          path: kind
+          value: Deployment

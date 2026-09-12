@@ -340,7 +340,11 @@ func (s *Server) UploadObject(stream proto.DataService_UploadObjectServer) error
 		if errors.Is(putErr, errObjectTooLarge) {
 			return status.Errorf(codes.ResourceExhausted, "object %s exceeds configured upload limit", meta.GetKey())
 		}
-		return status.Errorf(codes.Internal, "failed to store object %s: %v", meta.GetKey(), putErr)
+		if errors.Is(putErr, errObjectStoreFull) {
+			return status.Errorf(codes.ResourceExhausted, "cannot store object %s: %v", meta.GetKey(), putErr)
+		}
+		// putErr already names the key; do not wrap it a second time.
+		return status.Errorf(codes.Internal, "%v", putErr)
 	}
 	if writeErr != nil {
 		if errors.Is(writeErr, errObjectTooLarge) {

@@ -1323,6 +1323,14 @@ webNg:
     jetstreamBucket: "serviceradar_plugins"
     jetstreamReplicas: 3
 
+# Retention for ServiceRadar-owned artifacts in the datasvc object store
+# (mirrored agent releases and native add-on bundles).
+#
+# Leave this enabled. The object store stream is created DiscardNew with a
+# MaxBytes cap (datasvc.objectStoreBytes), so a full bucket does NOT evict old
+# artifacts to make room -- JetStream rejects every new upload with error 10077
+# "maximum bytes exceeded", and agent release imports fail until space is freed
+# by hand. This cron is the only thing that reclaims that space.
 objectStoreRetention:
   enabled: true
   dryRun: false
