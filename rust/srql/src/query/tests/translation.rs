@@ -500,6 +500,76 @@ fn translate_timeseries_metric_interface_hourly_reads_interface_cagg() {
 }
 
 #[test]
+fn translate_timeseries_metric_disk_hourly_reads_disk_cagg() {
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+    let request = QueryRequest {
+        query: "in:timeseries_metric_disk_hourly metric_name:\"disk.used_percent\" mount_point:\"/data\" time:last_180d sort:bucket:asc limit:5000".to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let response = translate_request(&config, request).expect("translation should succeed");
+
+    assert!(
+        response.sql.contains("FROM timeseries_metrics_disk_hourly"),
+        "expected disk hourly CAGG, got: {}",
+        response.sql
+    );
+    assert!(
+        response.sql.contains("ORDER BY bucket ASC"),
+        "expected bucket ordering, got: {}",
+        response.sql
+    );
+    let sql = response.sql.to_lowercase();
+    assert!(
+        sql.contains("bucket >= time_bucket('1 hour', $1::timestamptz)")
+            && sql.contains("bucket < time_bucket('1 hour', $2::timestamptz) + interval '1 hour'"),
+        "expected disk CAGG bucket-overlap bounds for partial windows, got: {}",
+        response.sql
+    );
+    assert!(
+        sql.contains("metric_name = $3") && sql.contains("mount_point = $4"),
+        "expected metric_name and mount_point column filters, got: {}",
+        response.sql
+    );
+    assert_eq!(response.params.len(), 6, "params: {:?}", response.params);
+
+    let max_placeholder = super::max_dollar_placeholder(&response.sql);
+    assert_eq!(
+        max_placeholder,
+        response.params.len(),
+        "sql placeholders must match params length\nsql: {}\nparams: {:?}",
+        response.sql,
+        response.params
+    );
+}
+
+#[test]
+fn translate_timeseries_metric_disk_hourly_rejects_stats_and_unknown_fields() {
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+
+    for query in [
+        "in:timeseries_metric_disk_hourly time:last_180d stats:profile_hour_of_week(value) timezone:\"Etc/UTC\" limit:50",
+        "in:timeseries_metric_disk_hourly time:last_180d if_index:7 limit:50",
+    ] {
+        let request = QueryRequest {
+            query: query.to_string(),
+            limit: None,
+            cursor: None,
+            direction: QueryDirection::Next,
+            mode: None,
+        };
+
+        assert!(
+            translate_request(&config, request).is_err(),
+            "expected translation to fail for {query}"
+        );
+    }
+}
+
+#[test]
 fn translate_timeseries_metric_interface_hourly_profile_uses_rate_cagg() {
     let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
     let request = QueryRequest {

@@ -91,6 +91,7 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             Entity::RperfMetrics
             | Entity::TimeseriesMetrics
             | Entity::TimeseriesMetricInterfaceHourly
+            | Entity::TimeseriesMetricDiskHourly
             | Entity::SnmpMetrics => timeseries_metrics::to_sql_and_params(&plan)?,
             Entity::CpuMetrics => cpu_metrics::to_sql_and_params(&plan)?,
             Entity::MemoryMetrics => memory_metrics::to_sql_and_params(&plan)?,

@@ -109,6 +109,9 @@ pub(super) fn parse_entity(raw: &str) -> Result<Entity> {
         | "timeseries_metrics_interface_hourly"
         | "interface_timeseries_metrics_hourly"
         | "interface_metrics_hourly" => Ok(Entity::TimeseriesMetricInterfaceHourly),
+        "timeseries_metric_disk_hourly" | "timeseries_metrics_disk_hourly" => {
+            Ok(Entity::TimeseriesMetricDiskHourly)
+        }
         "snmp_metrics" | "snmp" => Ok(Entity::SnmpMetrics),
         "otel_trace_summaries" | "trace_summaries" | "traces_summaries" => {
             Ok(Entity::TraceSummaries)

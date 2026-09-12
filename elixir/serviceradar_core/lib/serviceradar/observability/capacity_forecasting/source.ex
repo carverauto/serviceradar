@@ -101,12 +101,16 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Source do
         resource_type: "disk",
         metric_class: "disk",
         metric_name: "usage_percent",
+        # The mount-keyed rollup, not the device-level hourly aggregate: averaging
+        # every mount on a host into one series hides a full data volume behind a
+        # flat root filesystem. device_id leads key_fields so the resource id stays
+        # the device and each mount becomes its own resource key.
         query:
-          ~s|in:timeseries_metrics metric_type:"sysmon.disk" metric_name:"disk.used_percent" time:#{time_range} bucket:1h agg:avg series:uid sort:timestamp:desc limit:#{limit}|,
-        value_field: "value",
-        bucket_field: "timestamp",
-        key_fields: ["series"],
-        label_fields: ["series"],
+          ~s|in:timeseries_metric_disk_hourly metric_type:"sysmon.disk" metric_name:"disk.used_percent" time:#{time_range} sort:bucket:desc limit:#{limit}|,
+        value_field: "avg_value",
+        bucket_field: "bucket",
+        key_fields: ["device_id", "mount_point"],
+        label_fields: ["device_id", "mount_point"],
         threshold: 100.0,
         value_unit: "percent"
       },

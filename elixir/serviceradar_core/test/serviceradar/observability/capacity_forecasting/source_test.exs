@@ -109,4 +109,21 @@ defmodule ServiceRadar.Observability.CapacityForecasting.SourceTest do
 
     assert source.value_unit == "percent"
   end
+
+  test "disk usage reads the per-mount hourly aggregate keyed by device and mount" do
+    disk = Enum.find(Source.defaults(), &(&1.name == "disk_usage"))
+
+    assert String.starts_with?(
+             disk.query,
+             ~s|in:timeseries_metric_disk_hourly metric_type:"sysmon.disk" metric_name:"disk.used_percent"|
+           )
+
+    assert String.contains?(disk.query, "sort:bucket:desc")
+    assert disk.value_field == "avg_value"
+    assert disk.bucket_field == "bucket"
+    assert disk.key_fields == ["device_id", "mount_point"]
+    assert disk.label_fields == ["device_id", "mount_point"]
+    assert disk.threshold == 100.0
+    assert disk.value_unit == "percent"
+  end
 end

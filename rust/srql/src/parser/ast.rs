@@ -57,6 +57,7 @@ pub enum Entity {
     CompositeResults,
     TimeseriesMetrics,
     TimeseriesMetricInterfaceHourly,
+    TimeseriesMetricDiskHourly,
     SnmpMetrics,
     TraceSummaries,
     Traces,

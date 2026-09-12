@@ -112,6 +112,15 @@ as `exhaustion_beyond_history_cap` with the projected crossing time in its
 diagnostics, distinct from `no_projected_exhaustion`; the runway table shows
 only the newest forecast per resource from the last 24 hours.
 
+Disk usage is forecast per mount point. The `disk_usage` source reads the
+`timeseries_metric_disk_hourly` aggregate, which keeps each filesystem's
+`mount_point` in the rollup identity, so a data volume filling toward 100
+percent is not averaged away by a flat root filesystem on the same host. Each
+mount is its own forecast row labelled `<device> / <mount>`; the resource id
+stays the device, so a device page lists every mount's forecast. After the
+upgrade the aggregate materializes only the raw retention window (about a
+week), so early per-mount rows carry short histories until it accumulates.
+
 ## Settings Guide
 
 ### Streaming Detector

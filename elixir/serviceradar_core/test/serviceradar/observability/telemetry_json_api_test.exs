@@ -16,6 +16,8 @@ defmodule ServiceRadar.Observability.TelemetryJsonApiTest do
     {Observability.TimeseriesMetricHourly, [:bucket, :device_id, :metric_type, :metric_name]},
     {Observability.TimeseriesMetricInterfaceHourly,
      [:bucket, :device_id, :target_device_ip, :if_index, :metric_type, :metric_name, :series_key]},
+    {Observability.TimeseriesMetricDiskHourly,
+     [:bucket, :device_id, :metric_type, :metric_name, :series_key, :mount_point]},
     {Observability.CpuClusterMetric, [:timestamp, :gateway_id, :cluster]},
     {Observability.OtelMetric, [:timestamp, :span_name, :service_name, :span_id]},
     {Observability.OtelMetricPoint, [:timestamp, :metric_name, :service_name, :attributes_hash]},
