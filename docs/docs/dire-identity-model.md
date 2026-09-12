@@ -13,7 +13,7 @@ translators, never identity engines).
 |---|---|---|
 | `agent_id` | strong | mTLS-validated agent identity; at most one connected agent per device (co-location is refused and alerted) |
 | `armis_device_id` | strong | External platform id |
-| `integration_id` | strong | Versioned + stable per external object; Proxmox admissibility and bridge formats are defined by [`IntegrationIdentity`](../elixir/serviceradar_core/lib/serviceradar/inventory/integration_identity.ex) |
+| `integration_id` | strong | Versioned + stable per external object; Proxmox admissibility and bridge formats are defined by [`IntegrationIdentity`](https://github.com/carverauto/serviceradar/blob/staging/elixir/serviceradar_core/lib/serviceradar/inventory/integration_identity.ex) |
 | `netbox_device_id` | strong | External platform id |
 | `mac` | strong / medium | Atomic, validated 12-hex values only; locally-administered MACs (IEEE bit) are medium and never merge on their own |
 | IP | weak | Never an identifier; resolves a device only when **no** strong identifier is present |
@@ -29,7 +29,7 @@ An unscoped opaque candidate is also excluded when the update carries
 `armis_device_id`, `netbox_device_id`, or a validated `hardware_serial`: it is
 a legacy compatibility echo, not a second identity. Without typed evidence,
 opaque candidates retain legacy admission. The extractor
-[`Ids`](../elixir/serviceradar_core/lib/serviceradar/inventory/identity/ids.ex)
+[`Ids`](https://github.com/carverauto/serviceradar/blob/staging/elixir/serviceradar_core/lib/serviceradar/inventory/identity/ids.ex)
 owns the scope recognition and admission rules.
 
 The generic sync-service path scopes raw IDs before admission and retains a
@@ -54,7 +54,7 @@ matching the source and typed ID; drift repair preserves valid scoped identities
 ## Resolution order (single and batch)
 
 Before allocating a new device, ingestion applies the source-specific
-[creation evidence contract](../elixir/serviceradar_core/lib/serviceradar/inventory/sync/source_policy.ex)
+[creation evidence contract](https://github.com/carverauto/serviceradar/blob/staging/elixir/serviceradar_core/lib/serviceradar/inventory/sync/source_policy.ex)
 in `SourcePolicy.sufficient_to_create?/1`.
 
 1. Strong-identifier match (priority order above; `agent_id` matches are
@@ -90,7 +90,7 @@ Merged-away device IDs are never resurrected: resolution follows the
   the host newly discovered in the "Recently added devices" report.
 
 For deliberate cross-cluster Proxmox splits, use the
-[`serviceradar.dire_remediation` command help](../elixir/serviceradar_core/lib/mix/tasks/serviceradar.dire_remediation.ex)
+[`serviceradar.dire_remediation` command help](https://github.com/carverauto/serviceradar/blob/staging/elixir/serviceradar_core/lib/mix/tasks/serviceradar.dire_remediation.ex)
 for dry-run review, execution gates, and device/source allowlists.
 
 ## Lifecycle

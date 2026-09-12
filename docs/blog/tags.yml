@@ -132,3 +132,13 @@ agent:
     label: Agent
     permalink: /agent
     description: ServiceRadar agent
+
+anomaly-detection:
+    label: Anomaly Detection
+    permalink: /anomaly-detection
+    description: Anomaly detection, seasonal baselines and episode lifecycle
+
+capacity-planning:
+    label: Capacity Planning
+    permalink: /capacity-planning
+    description: Capacity forecasting and runway
