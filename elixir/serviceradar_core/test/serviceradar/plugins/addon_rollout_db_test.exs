@@ -642,6 +642,63 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
              )
   end
 
+  # Operators should never have to write a target query that routes around an
+  # agent the system can already see is not there. A non-reporting agent is
+  # excluded automatically, exactly like one that advertises it cannot host
+  # native add-ons.
+  test "an agent that is not reporting is excluded rather than blocking the rollout" do
+    actor = SystemActor.system(:addon_rollout_unavailable_excluded_test)
+    fixture = profile_rollout_fixture(actor)
+
+    # :register_connected always stamps last_seen_time with now, so age the agent
+    # through the real lifecycle action instead. :mark_unavailable moves
+    # :connected -> :unavailable, which is the state a retired-but-still-enrolled
+    # agent actually sits in, and is what agent_available?/3 reads.
+    {:ok, _} =
+      fixture.agents
+      |> Map.fetch!(fixture.dead_uid)
+      |> Ash.Changeset.for_update(:mark_unavailable, %{reason: "test"}, actor: actor)
+      |> Ash.update(actor: actor)
+
+    assert {:ok, rollout} =
+             AddonRolloutCoordinator.start(fixture.profile, fixture.candidate,
+               actor: actor,
+               now: fixture.started_at,
+               trigger: :manual
+             )
+
+    targets = list_rollout_targets(rollout.id, actor)
+    dead = Enum.find(targets, &(&1.agent_uid == fixture.dead_uid))
+    live = Enum.find(targets, &(&1.agent_uid == fixture.live_uid))
+
+    assert dead.classification == :unavailable
+    assert dead.state == :excluded
+    assert dead.reason_code == "agent_unavailable_or_stale"
+    assert live.classification == :eligible
+    assert live.state in [:pending, :waiting_health]
+  end
+
+  test "a rollout is not created when no target is eligible" do
+    actor = SystemActor.system(:addon_rollout_no_eligible_test)
+    fixture = profile_rollout_fixture(actor)
+
+    for uid <- [fixture.live_uid, fixture.dead_uid] do
+      {:ok, _} =
+        fixture.agents
+        |> Map.fetch!(uid)
+        |> Ash.Changeset.for_update(:mark_unavailable, %{reason: "test"}, actor: actor)
+        |> Ash.update(actor: actor)
+    end
+
+    # Promoting here would advance the source to a version no agent has run.
+    assert {:error, :no_eligible_targets} =
+             AddonRolloutCoordinator.start(fixture.profile, fixture.candidate,
+               actor: actor,
+               now: fixture.started_at,
+               trigger: :manual
+             )
+  end
+
   defp profile_rollout_fixture(actor) do
     unique = System.unique_integer([:positive])
     addon_id = "rollout-profile-#{unique}"
@@ -650,24 +707,27 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
     current = approved_package(addon_id, "1.0.0", actor)
     candidate = approved_package(addon_id, "1.1.0", actor)
 
-    for uid <- [live_uid, dead_uid] do
-      {:ok, _agent} =
-        Agent
-        |> Ash.Changeset.for_create(
-          :register_connected,
-          %{
-            uid: uid,
-            name: "Rollout profile test agent #{uid}",
-            version: "1.4.23",
-            capabilities: [],
-            host: "127.0.0.1",
-            port: 50_051,
-            metadata: %{"os" => "linux", "arch" => "amd64"}
-          },
-          actor: actor
-        )
-        |> Ash.create(actor: actor)
-    end
+    agents =
+      Map.new([live_uid, dead_uid], fn uid ->
+        {:ok, agent} =
+          Agent
+          |> Ash.Changeset.for_create(
+            :register_connected,
+            %{
+              uid: uid,
+              name: "Rollout profile test agent #{uid}",
+              version: "1.4.23",
+              capabilities: [],
+              host: "127.0.0.1",
+              port: 50_051,
+              metadata: %{"os" => "linux", "arch" => "amd64"}
+            },
+            actor: actor
+          )
+          |> Ash.create(actor: actor)
+
+        {uid, agent}
+      end)
 
     {:ok, profile} =
       AddonProfile
@@ -711,6 +771,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
       addon_id: addon_id,
       live_uid: live_uid,
       dead_uid: dead_uid,
+      agents: agents,
       profile: profile,
       current: current,
       candidate: candidate,
