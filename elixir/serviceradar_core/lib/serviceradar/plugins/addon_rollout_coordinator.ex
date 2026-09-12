@@ -145,7 +145,19 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
   # direct assignment, an operator reinstalling on the host.
   defp supersede_if_converged(rollout, targets, packages, actor, now) do
     candidate = Map.get(packages, to_string(rollout.candidate_package_id))
-    in_scope = Enum.reject(targets, &(&1.state in [:excluded, :canceled]))
+    # :rolled_back is terminal and belongs with :excluded/:canceled here. A target
+    # whose agent never reports -- a decommissioned host still enrolled in
+    # ocsf_agents, which is never deleted regardless of age -- fails its health
+    # deadline, lands :rolled_back, and pauses the rollout. Keeping it in scope
+    # then made convergence unprovable forever, because the reap asks every
+    # in-scope target for a status >= the candidate and a dead agent has none.
+    # The rollout could neither promote (finish_or_advance short-circuits on
+    # :paused) nor fail forward, and reconcile_source skips any source with an
+    # active rollout -- so ONE dead agent silently froze managed updates for its
+    # whole fleet. Observed on demo: seven sources stuck 17-19 days behind.
+    # If every target rolled back, in_scope is empty and the guard below keeps
+    # the rollout paused, which is the real failure this must not mask.
+    in_scope = Enum.reject(targets, &(&1.state in [:excluded, :canceled, :rolled_back]))
 
     cond do
       # Only a paused rollout is reaped. A rollout that can still make progress
@@ -1211,9 +1223,18 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     end)
   end
 
+  # :succeeded belongs in this list even though the target's own work is done.
+  # addon_rollout_targets_one_active_target_index treats succeeded as an ACTIVE
+  # target for (agent_uid, addon_id), and only promote_source/4 ever moves it to
+  # :promoted. Cancelling a rollout therefore used to strand every succeeded
+  # target as permanently active, and the next rollout for that source died in
+  # create_targets/5 on a unique-constraint violation -- which reconcile_source
+  # only logs, so the source silently never advanced again. Observed on demo:
+  # cancelling seven wedged rollouts stranded 26 succeeded targets and no
+  # replacement rollout could be created for any of them.
   defp mark_targets_canceled(targets, actor, now) do
     Enum.reduce_while(targets, :ok, fn target, :ok ->
-      if target.state in [:pending, :waiting_health, :healthy_soak, :rollback_pending] do
+      if target.state in [:pending, :waiting_health, :healthy_soak, :rollback_pending, :succeeded] do
         case update_target(target, %{state: :canceled, completed_at: now}, actor) do
           {:ok, _} -> {:cont, :ok}
           {:error, reason} -> {:halt, {:error, reason}}
