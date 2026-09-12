@@ -1,3 +1,60 @@
+# ServiceRadar v1.4.63
+
+netprobe 0.2.62 loads again on 6.8 kernels, newly published
+add-on releases are imported into the catalog by default, and
+the anomaly add-on's drift detector no longer opens an episode
+on a short spike or holds one open for hours.
+
+## Whats New
+
+**1.4.63**
+- netprobe 0.2.62: the TCP attribution tracepoint failed the
+  6.8 verifier (`combined stack size of 2 calls is 544`), so
+  every release since v1.4.52 shipped a netprobe that could not
+  start on those kernels. Adding the `_rhel9` layout variant had
+  given the shared event emitter a second caller and LLVM
+  stopped inlining it. The emitter's frame is trimmed and every
+  program chain now fits in 416 of the 512 byte BPF stack. A
+  static stack-depth gate on the built object
+  (`//rust/netprobe:ebpf_stack_depth_test`) runs in `make test`
+  so the regression cannot ship silently again (PR #422, fixes
+  #405).
+- Add-ons: `webNg.nativeAddonImport.autoSyncEnabled` now
+  defaults to `true`, so a newly published add-on release is
+  imported into the catalog without operator action. Import
+  only stages the package; approval stays opt-in
+  (`autoApproveAddonIds`, empty by default) and remains the
+  security boundary. The three keys are documented in the chart
+  README (PR #421).
+- anomaly add-on 0.3.8: drift detection clips each sample's
+  contribution to the CUSUM accumulator (`drift_residual_clip`,
+  default 1.5 sigma), so confirming a sustained drift needs at
+  least twelve samples of evidence instead of three large ones.
+  Effect size is the mean of the unclipped residuals over the
+  run, and an open episode recovers when the accumulator stops
+  re-crossing its threshold rather than after thirty
+  consecutive quiet samples. Drift findings carry
+  `drift_target`, `drift_scale` and `drift_shift_sigma`
+  (PR #420).
+- Web: a drift finding's chart draws the episode window, the
+  baseline the detector compared against and the sustained
+  level the series moved to, with the focus window widened to
+  show the whole episode. Findings from add-ons older than
+  0.3.8 keep the plain marker (PR #423).
+- Docs: the broken link that failed every Publish Docs run
+  since September 11 is fixed, and the anomaly engine blog post
+  moved to the website (PRs #417, #418).
+
+## Upgrade Notes
+
+- Agents on 6.8 kernels whose netprobe rollout is paused on
+  0.2.61 pick up 0.2.62 through the normal rollout once it is
+  imported and approved; the paused rollout is superseded.
+- An installation that depended on add-on import being off must
+  now set `webNg.nativeAddonImport.autoSyncEnabled: false`
+  explicitly. Import alone approves nothing and changes nothing
+  on an agent.
+
 # ServiceRadar v1.4.62
 
 Capacity forecasting now watches each disk mount point on its
