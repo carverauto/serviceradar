@@ -3209,7 +3209,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
       Enum.reduce(@alert_rule_conditions, %{}, fn {key, _source, _label}, acc ->
         with "true" <- form["#{key}_enabled"],
              value when is_binary(value) <- blank_to_nil(form[key]) do
-          Map.put(acc, key, value)
+          Map.put(acc, key, String.trim(value))
         else
           _ -> acc
         end
@@ -3225,7 +3225,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   defp require_present(value, message) do
     case blank_to_nil(value) do
       nil -> {:error, message}
-      present -> {:ok, present}
+      present -> {:ok, String.trim(present)}
     end
   end
 
@@ -3244,15 +3244,6 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   end
 
   defp parse_group_by(_value), do: []
-
-  defp blank_to_nil(value) when is_binary(value) do
-    case String.trim(value) do
-      "" -> nil
-      trimmed -> trimmed
-    end
-  end
-
-  defp blank_to_nil(_value), do: nil
 
   defp build_related(nil, _scope), do: %{log_id: nil, alert: nil}
 
