@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
 
   import Phoenix.LiveViewTest
 
+  alias ServiceRadar.Observability.StatefulAlertEngine.Record
   alias ServiceRadar.Observability.StatefulAlertEngine.RuleMatcher
 
   @device_uid "sr:5bf1b6f6-0e7c-43ac-b883-a13447199d85"
@@ -274,6 +275,10 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
       other_event = __MODULE__.EventShowSRQLStub.event_fixture("no-device")
       assert RuleMatcher.rule_matches_event?(source_event, rule)
       refute RuleMatcher.rule_matches_event?(other_event, rule)
+
+      assert rule.group_by == ["device.uid"]
+      assert {:ok, "device.uid=" <> @device_uid, %{"device.uid" => @device_uid}} =
+               Record.build_group(rule.group_by, source_event)
     end
 
     @tag :web_ng_shared_fixture_db
@@ -438,6 +443,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
         "severity" => "Critical",
         "log_provider" => "serviceradar-plugin",
         "message" => "Proxmox guest memory bottleneck 95%",
+        "device" => %{"uid" => @device_uid},
         "raw_data" => %{
           "event_time" => "2026-07-04T12:01:00Z",
           "observed_at" => "2026-07-04T12:02:00Z",
