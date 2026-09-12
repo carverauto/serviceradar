@@ -308,6 +308,12 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
             {:ok, _} ->
               increment(stats, :started)
 
+            {:error, :no_eligible_targets} ->
+              # Not a failure: no agent for this source can take the candidate
+              # right now. Reconcile runs every 30s, so warning here would spam
+              # the log for as long as the fleet is offline.
+              increment(stats, :skipped)
+
             {:error, reason} ->
               Logger.warning("Failed to start native add-on rollout",
                 source_id: to_string(source.id),
@@ -353,6 +359,36 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     target_specs =
       target_specs(source, candidate, assignments, agents, direct_overrides, policy, now)
 
+    # A rollout with no eligible target has nothing to prove. Every target would
+    # be terminal the moment it is created, finish_or_advance/4 would promote on
+    # the spot, and the source would advance to a candidate version that no agent
+    # has actually run. Refuse; the next reconcile retries once an agent reports.
+    if Enum.any?(target_specs, &(&1.classification == :eligible)) do
+      create_rollout_with_specs(
+        source,
+        previous,
+        candidate,
+        policy,
+        target_specs,
+        actor,
+        now,
+        trigger
+      )
+    else
+      {:error, :no_eligible_targets}
+    end
+  end
+
+  defp create_rollout_with_specs(
+         source,
+         previous,
+         candidate,
+         policy,
+         target_specs,
+         actor,
+         now,
+         trigger
+       ) do
     rollout_attrs = %{
       addon_id: previous.addon_id,
       source_type: source_type(source),
@@ -407,7 +443,11 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
         %{assignment: assignment, classification: classification, reason_code: reason}
       end)
 
-    advanceable = Enum.filter(classified, &(&1.classification in [:eligible, :unavailable]))
+    # Only :eligible targets are batched. An agent that is not reporting must not
+    # consume a canary slot -- it cannot demonstrate the candidate is healthy, so
+    # spending the canary on it means the batch behind it waits on a host that
+    # will never answer.
+    advanceable = Enum.filter(classified, &(&1.classification == :eligible))
     batch_by_assignment = batch_indexes(advanceable, policy)
 
     Enum.map(classified, fn spec ->
@@ -430,7 +470,15 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
   defp create_targets(rollout, specs, previous, candidate, actor) do
     Enum.reduce_while(specs, {:ok, []}, fn spec, {:ok, notifications} ->
       assignment = spec.assignment
-      state = if spec.classification in [:eligible, :unavailable], do: :pending, else: :excluded
+      # :unavailable belongs with :incompatible, not with :eligible. An agent that
+      # is not reporting cannot run the candidate now, and making it a :pending
+      # target means the rollout waits out its health deadline and then pauses --
+      # which is how one retired agent identity froze managed updates for a whole
+      # fleet for 19 days. Exclude it with its reason recorded, and let the next
+      # rollout pick the agent up once it reports in. Operators should never have
+      # to hand-write target queries to route around an agent the system can
+      # already see is not there.
+      state = if spec.classification == :eligible, do: :pending, else: :excluded
 
       attrs = %{
         rollout_id: rollout.id,

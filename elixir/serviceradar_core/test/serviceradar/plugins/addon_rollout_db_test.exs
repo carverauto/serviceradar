@@ -642,6 +642,86 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
              )
   end
 
+  # Operators should never have to write a target query that routes around an
+  # agent the system can already see is not reporting. A stale agent is excluded
+  # automatically, exactly like one that advertises it cannot host native add-ons.
+  test "an agent that is not reporting is excluded rather than blocking the rollout" do
+    actor = SystemActor.system(:addon_rollout_unavailable_excluded_test)
+    fixture = profile_rollout_fixture(actor)
+
+    # The dead half of the fleet: enrolled, but last seen far outside the
+    # freshness window, so classify_target/4 returns :unavailable.
+    stale_seen = DateTime.add(fixture.started_at, -90 * 24 * 3600)
+
+    {:ok, _} =
+      Agent
+      |> Ash.Changeset.for_create(
+        :register_connected,
+        %{
+          uid: fixture.dead_uid,
+          name: "Stale agent",
+          version: "1.4.23",
+          capabilities: [],
+          host: "127.0.0.1",
+          port: 50_051,
+          metadata: %{"os" => "linux", "arch" => "amd64"},
+          last_seen_time: stale_seen
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    assert {:ok, rollout} =
+             AddonRolloutCoordinator.start(fixture.profile, fixture.candidate,
+               actor: actor,
+               now: fixture.started_at,
+               trigger: :manual
+             )
+
+    targets = list_rollout_targets(rollout.id, actor)
+    dead = Enum.find(targets, &(&1.agent_uid == fixture.dead_uid))
+    live = Enum.find(targets, &(&1.agent_uid == fixture.live_uid))
+
+    assert dead.state == :excluded
+    assert dead.classification == :unavailable
+    refute dead.state == :pending
+    assert live.state in [:pending, :waiting_health]
+  end
+
+  test "a rollout is not created when no target is eligible" do
+    actor = SystemActor.system(:addon_rollout_no_eligible_test)
+    fixture = profile_rollout_fixture(actor)
+    stale_seen = DateTime.add(fixture.started_at, -90 * 24 * 3600)
+
+    for uid <- [fixture.live_uid, fixture.dead_uid] do
+      {:ok, _} =
+        Agent
+        |> Ash.Changeset.for_create(
+          :register_connected,
+          %{
+            uid: uid,
+            name: "Stale agent #{uid}",
+            version: "1.4.23",
+            capabilities: [],
+            host: "127.0.0.1",
+            port: 50_051,
+            metadata: %{"os" => "linux", "arch" => "amd64"},
+            last_seen_time: stale_seen
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+    end
+
+    # Promoting here would advance the source to a version no agent has run.
+    assert {:error, :no_eligible_targets} =
+             AddonRolloutCoordinator.start(fixture.profile, fixture.candidate,
+               actor: actor,
+               now: fixture.started_at,
+               trigger: :manual
+             )
+  end
+
   defp profile_rollout_fixture(actor) do
     unique = System.unique_integer([:positive])
     addon_id = "rollout-profile-#{unique}"
