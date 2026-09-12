@@ -525,6 +525,16 @@ func (n *NATSStore) PutObject(ctx context.Context, key string, reader io.Reader,
 
 	info, err := store.Put(ctx, *jsMeta, reader)
 	if err != nil {
+		if isObjectStoreFull(err) {
+			return nil, fmt.Errorf(
+				"%w: %q has reached its configured limit of %d bytes (datasvc object_store_bytes). "+
+					"The stream discards new writes instead of evicting old ones, so uploads are refused "+
+					"until space is reclaimed: let the object store retention job run "+
+					"(objectStoreRetention in the Helm chart), or raise object_store_bytes after expanding "+
+					"the NATS volume",
+				errObjectStoreFull, n.objectBucketName(), n.objectStoreBytes)
+		}
+
 		return nil, fmt.Errorf("failed to store object %s: %w", key, err)
 	}
 
@@ -950,6 +960,28 @@ func (n *NATSStore) keyValueConfig() jetstream.KeyValueConfig {
 		cfg.MaxBytes = n.bucketMaxBytes
 	}
 	return cfg
+}
+
+// jsErrCodeMaximumBytesExceeded is the JetStream API err_code for a stream that
+// has hit its MaxBytes limit. nats.go exports no constant for it.
+const jsErrCodeMaximumBytesExceeded jetstream.ErrorCode = 10077
+
+// isObjectStoreFull reports whether err is JetStream refusing a write because
+// the stream is at MaxBytes. Object store streams are created DiscardNew, so
+// this is a hard stop rather than an eviction, and the operator has to reclaim
+// space before any further upload succeeds.
+func isObjectStoreFull(err error) bool {
+	var apiErr *jetstream.APIError
+
+	return errors.As(err, &apiErr) && apiErr.ErrorCode == jsErrCodeMaximumBytesExceeded
+}
+
+func (n *NATSStore) objectBucketName() string {
+	if n.objectBucket == "" {
+		return "serviceradar-objects"
+	}
+
+	return n.objectBucket
 }
 
 func (n *NATSStore) objectStoreConfig(bucket string) jetstream.ObjectStoreConfig {

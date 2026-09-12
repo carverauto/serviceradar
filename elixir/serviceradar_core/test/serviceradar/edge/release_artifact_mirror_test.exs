@@ -296,6 +296,53 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirrorTest do
     refute reason =~ "%GRPC.RPCError"
   end
 
+  test "prepare_publish_attrs surfaces a full object store as an actionable message" do
+    attrs = %{
+      version: "1.4.60",
+      manifest: %{
+        "version" => "1.4.60",
+        "artifacts" => [
+          %{
+            "url" => "https://releases.example.com/serviceradar-agent-linux-amd64.tar.gz",
+            "sha256" => @artifact_sha256,
+            "os" => "linux",
+            "arch" => "amd64"
+          }
+        ]
+      }
+    }
+
+    http_get = fn _url, _opts ->
+      {:ok, %Req.Response{status: 200, body: @artifact_body}}
+    end
+
+    upload_object = fn _metadata, _data, _opts ->
+      {:error,
+       %GRPC.RPCError{
+         status: 8,
+         message:
+           ~S|object store bucket is full: "serviceradar-objects" has reached its configured | <>
+             ~S|limit of 2147483648 bytes (datasvc object_store_bytes). The stream discards new | <>
+             ~S|writes instead of evicting old ones, so uploads are refused until space is | <>
+             ~S|reclaimed: let the object store retention job run|
+       }}
+    end
+
+    assert {:error, reason} =
+             ReleaseArtifactMirror.prepare_publish_attrs(
+               attrs,
+               validate_url: fn _url -> :ok end,
+               http_get: http_get,
+               upload_object: upload_object
+             )
+
+    assert reason =~ "release artifact could not be stored"
+    assert reason =~ "object store bucket is full"
+    assert reason =~ "retention job"
+    refute reason =~ "%GRPC.RPCError"
+    refute reason =~ "gRPC status 8"
+  end
+
   test "prepare_publish_attrs retries GitHub draft untagged URLs at the published tag" do
     untagged =
       "https://github.com/carverauto/serviceradar/releases/download/untagged-7e9f9868e26dfde3d2eb/serviceradar-agent_1.4.39_linux_amd64.tar.gz"

@@ -22,10 +22,13 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"errors"
+	"fmt"
 	"io"
 	"net/url"
 	"testing"
 
+	"github.com/nats-io/nats.go/jetstream"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -243,4 +246,48 @@ func TestListObjectsCapsPageSize(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Empty(t, resp.GetObjects())
+}
+
+func TestIsObjectStoreFull(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "jetstream max bytes exceeded",
+			err:  &jetstream.APIError{ErrorCode: jsErrCodeMaximumBytesExceeded, Code: 503, Description: "maximum bytes exceeded"},
+			want: true,
+		},
+		{
+			name: "wrapped max bytes exceeded",
+			err: fmt.Errorf("failed to store object %s: %w", "agent-releases/1.4.60/x.tar.gz",
+				&jetstream.APIError{ErrorCode: jsErrCodeMaximumBytesExceeded, Code: 503}),
+			want: true,
+		},
+		{
+			name: "a different jetstream api error",
+			err:  &jetstream.APIError{ErrorCode: jetstream.JSErrCodeStreamNotFound, Code: 404},
+			want: false,
+		},
+		{
+			name: "an unrelated error",
+			err:  errors.New("connection closed"),
+			want: false,
+		},
+		{
+			name: "no error",
+			err:  nil,
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, isObjectStoreFull(tt.err))
+		})
+	}
 }
