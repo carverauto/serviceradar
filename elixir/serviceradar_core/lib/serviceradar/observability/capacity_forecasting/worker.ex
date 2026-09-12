@@ -283,10 +283,11 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
         )
 
       # The kernel withheld the ETA only because the crossing lies beyond what
-      # the observed history supports (twice its span). That is a different
-      # operator fact from "no crossing": record it with the crossing date so
-      # a short but clean growth trend is countable and explainable.
-      exhaustion_history_capped?(forecast) ->
+      # the observed history supports (twice its span), and the crossing is
+      # inside the horizon: a different operator fact from "no crossing", so
+      # record it with the crossing date. A short but clean growth trend is
+      # then countable and explainable.
+      exhaustion_history_capped_within_horizon?(forecast, common.horizon_ends_at) ->
         skipped_attrs(
           source,
           forecast_points,
@@ -299,11 +300,25 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
             "raw_projected_exhaustion_at",
             iso8601_or_nil(forecast.raw_projected_exhaustion_at)
           )
+          |> put_history_cap_diagnostics(forecast),
+          model: forecast.model
+        )
+
+      # Capped AND beyond the horizon: the history cap is not what kept this
+      # series off the runway, the horizon is. Say so, with the crossing.
+      raw_crossing_after_horizon?(forecast, common.horizon_ends_at) ->
+        skipped_attrs(
+          source,
+          forecast_points,
+          common,
+          "outside_forecast_horizon",
+          forecast.diagnostics
           |> Map.put(
-            "history_span_seconds",
-            DateTime.diff(forecast.window_ended_at, forecast.window_started_at, :second)
+            "projected_exhaustion_at",
+            iso8601_or_nil(forecast.raw_projected_exhaustion_at)
           )
-          |> Map.put("extrapolation_cap_seconds", forecast.exhaustion_extrapolation_cap_seconds),
+          |> Map.put("horizon_ends_at", common.horizon_ends_at)
+          |> put_history_cap_diagnostics(forecast),
           model: forecast.model
         )
 
@@ -565,12 +580,34 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
   defp from_unix_micros!(micros) when is_integer(micros),
     do: DateTime.from_unix!(micros, :microsecond)
 
-  defp exhaustion_history_capped?(%{
-         exhaustion_history_capped: true,
-         raw_projected_exhaustion_at: %DateTime{}
-       }), do: true
+  defp exhaustion_history_capped_within_horizon?(
+         %{exhaustion_history_capped: true, raw_projected_exhaustion_at: %DateTime{} = raw},
+         %DateTime{} = horizon_ends_at
+       ),
+       do: not DateTime.after?(raw, horizon_ends_at)
 
-  defp exhaustion_history_capped?(_forecast), do: false
+  defp exhaustion_history_capped_within_horizon?(_forecast, _horizon_ends_at), do: false
+
+  defp raw_crossing_after_horizon?(
+         %{
+           exhaustion_history_capped: true,
+           raw_projected_exhaustion_at: %DateTime{} = raw,
+           projected_exhaustion_at: nil
+         },
+         %DateTime{} = horizon_ends_at
+       ),
+       do: DateTime.after?(raw, horizon_ends_at)
+
+  defp raw_crossing_after_horizon?(_forecast, _horizon_ends_at), do: false
+
+  defp put_history_cap_diagnostics(diagnostics, forecast) do
+    diagnostics
+    |> Map.put(
+      "history_span_seconds",
+      DateTime.diff(forecast.window_ended_at, forecast.window_started_at, :second)
+    )
+    |> Map.put("extrapolation_cap_seconds", forecast.exhaustion_extrapolation_cap_seconds)
+  end
 
   defp iso8601_or_nil(%DateTime{} = datetime), do: DateTime.to_iso8601(datetime)
   defp iso8601_or_nil(_value), do: nil
