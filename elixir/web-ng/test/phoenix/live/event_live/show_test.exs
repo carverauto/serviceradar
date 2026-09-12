@@ -2,14 +2,16 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
   @moduledoc """
   Tests for the Event Details LiveView (EventLive.Show), focused on the
   "Affected Device" link for device-scoped signals (e.g. Proxmox guest
-  bottlenecks) and the "Create Event Rule" flow restored from the log
-  details page.
+  bottlenecks) and the "Create alert rule" flow that turns the event being
+  viewed into a stateful alert rule.
   """
 
   use ServiceRadarWebNGWeb.ConnCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
   import Phoenix.LiveViewTest
+
+  alias ServiceRadar.Observability.StatefulAlertEngine.RuleMatcher
 
   @device_uid "sr:5bf1b6f6-0e7c-43ac-b883-a13447199d85"
   @event_id "00000000-0000-0000-0000-0000000009a1"
@@ -152,63 +154,88 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
     assert html_after =~ ~s(data-timezone="America/Chicago")
   end
 
-  # NOTE: the header button renders sentence case ("Create event rule",
-  # matching the log details page); only the modal title uses title case.
-  describe "Create Event Rule from event details" do
+  describe "Create alert rule from event details" do
     @tag :web_ng_shared_fixture_db
-    test "operator can see Create event rule button", %{conn: conn} do
-      {:ok, lv, html} = live(conn, ~p"/events/#{@event_id}")
+    test "operator can see Create alert rule button", %{conn: conn} do
+      {:ok, lv, _html} = live(conn, ~p"/events/#{@event_id}")
 
-      assert has_element?(lv, "button", "Create event rule") or
-               String.contains?(html, "Create event rule")
+      assert has_element?(lv, "button", "Create alert rule")
     end
 
     @tag :web_ng_shared_fixture_db
-    test "admin can see Create event rule button", %{conn: conn} do
+    test "admin can see Create alert rule button", %{conn: conn} do
       conn = log_in_user(conn, admin_user_fixture())
 
-      {:ok, lv, html} = live(conn, ~p"/events/#{@event_id}")
+      {:ok, lv, _html} = live(conn, ~p"/events/#{@event_id}")
 
-      assert has_element?(lv, "button", "Create event rule") or
-               String.contains?(html, "Create event rule")
+      assert has_element?(lv, "button", "Create alert rule")
     end
 
     @tag :web_ng_shared_fixture_db
-    test "viewer cannot see Create event rule button", %{conn: conn} do
+    test "viewer cannot see Create alert rule button", %{conn: conn} do
       conn = log_in_user(conn, viewer_user_fixture())
 
       {:ok, lv, html} = live(conn, ~p"/events/#{@event_id}")
 
-      refute has_element?(lv, "button", "Create event rule")
-      refute String.contains?(html, "Create event rule")
+      refute has_element?(lv, "button", "Create alert rule")
+      refute String.contains?(html, "Create alert rule")
     end
 
     @tag :web_ng_shared_fixture_db
-    test "opens rule builder modal when clicking Create event rule", %{conn: conn} do
+    test "viewer cannot open the builder by pushing the event directly", %{conn: conn} do
+      conn = log_in_user(conn, viewer_user_fixture())
+
+      {:ok, lv, _html} = live(conn, ~p"/events/#{@event_id}")
+
+      render_click(lv, "open_alert_rule_builder", %{})
+
+      refute has_element?(lv, "#alert_rule_modal")
+    end
+
+    @tag :web_ng_shared_fixture_db
+    test "opens alert rule modal when clicking Create alert rule", %{conn: conn} do
       {:ok, lv, _html} = live(conn, ~p"/events/#{@event_id}")
 
       lv
-      |> element("button", "Create event rule")
+      |> element("button", "Create alert rule")
       |> render_click()
 
-      assert has_element?(lv, "#rule_builder_modal")
-      assert has_element?(lv, "h3", "Create Event Rule")
+      assert has_element?(lv, "#alert_rule_modal")
+      assert has_element?(lv, "#alert-rule-form")
+      assert render(lv) =~ "Create Alert Rule"
     end
 
     @tag :web_ng_shared_fixture_db
-    test "pre-populates rule builder from event data", %{conn: conn} do
+    test "pre-populates match conditions from the event fields", %{conn: conn} do
       {:ok, lv, _html} = live(conn, ~p"/events/#{@event_id}")
 
       lv
-      |> element("button", "Create event rule")
+      |> element("button", "Create alert rule")
       |> render_click()
 
-      html = render(lv)
-      assert html =~ "Proxmox guest memory bottleneck 95%"
+      assert has_element?(
+               lv,
+               ~s(#alert-rule-form input[name="alert_rule[body_contains]"][value="Proxmox guest memory bottleneck 95%"])
+             )
+
+      assert has_element?(
+               lv,
+               ~s(#alert-rule-form input[name="alert_rule[service_name]"][value="serviceradar-plugin"])
+             )
+
+      assert has_element?(
+               lv,
+               ~s(#alert-rule-form input[name="alert_rule[severity_text]"][value="Critical"])
+             )
+
+      assert has_element?(
+               lv,
+               ~s(#alert-rule-form select[name="alert_rule[alert_severity]"] option[value="critical"][selected])
+             )
     end
 
     @tag :web_ng_shared_fixture_db
-    test "creates promotion rule from event entry", %{conn: conn} do
+    test "creates a stateful alert rule that matches the source event", %{conn: conn} do
       user = operator_user_fixture()
       conn = log_in_user(conn, user)
       scope = ServiceRadarWebNG.Accounts.Scope.for_user(user)
@@ -216,28 +243,70 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
       {:ok, lv, _html} = live(conn, ~p"/events/#{@event_id}")
 
       lv
-      |> element("button", "Create event rule")
+      |> element("button", "Create alert rule")
       |> render_click()
 
       unique = System.unique_integer([:positive])
-      rule_name = "event-promote-#{unique}"
+      rule_name = "event-alert-#{unique}"
 
       lv
-      |> form("#rule-builder-form", %{
-        "rule" => %{
-          "name" => rule_name,
-          "body_contains_enabled" => "true",
-          "body_contains" => "Proxmox guest memory bottleneck 95%"
-        }
-      })
+      |> form("#alert-rule-form", %{"alert_rule" => %{"name" => rule_name}})
       |> render_submit()
 
-      assert_redirect(lv, ~p"/settings/rules?#{%{tab: "events"}}")
+      assert_redirect(lv, ~p"/settings/rules?#{%{tab: "alerts"}}")
 
-      rules = unwrap_page(Ash.read(ServiceRadar.Observability.EventRule, scope: scope))
+      rules = unwrap_page(Ash.read(ServiceRadar.Observability.StatefulAlertRule, scope: scope))
       rule = Enum.find(rules, &(&1.name == rule_name))
       assert rule
-      assert rule.match["body_contains"] == "Proxmox guest memory bottleneck 95%"
+      assert rule.signal == :event
+      assert rule.enabled
+      assert rule.threshold == 1
+      assert rule.window_seconds == 300
+      assert rule.alert == %{"title" => rule_name, "severity" => "critical"}
+
+      assert rule.match == %{
+               "service_name" => "serviceradar-plugin",
+               "severity_text" => "Critical",
+               "body_contains" => "Proxmox guest memory bottleneck 95%"
+             }
+
+      source_event = __MODULE__.EventShowSRQLStub.event_fixture(@event_id)
+      other_event = __MODULE__.EventShowSRQLStub.event_fixture("no-device")
+      assert RuleMatcher.rule_matches_event?(source_event, rule)
+      refute RuleMatcher.rule_matches_event?(other_event, rule)
+    end
+
+    @tag :web_ng_shared_fixture_db
+    test "rejects a rule with no enabled match condition", %{conn: conn} do
+      user = operator_user_fixture()
+      conn = log_in_user(conn, user)
+      scope = ServiceRadarWebNG.Accounts.Scope.for_user(user)
+
+      {:ok, lv, _html} = live(conn, ~p"/events/#{@event_id}")
+
+      lv
+      |> element("button", "Create alert rule")
+      |> render_click()
+
+      rule_name = "event-alert-unmatched-#{System.unique_integer([:positive])}"
+
+      html =
+        lv
+        |> form("#alert-rule-form", %{
+          "alert_rule" => %{
+            "name" => rule_name,
+            "service_name" => "",
+            "severity_text" => "",
+            "body_contains" => ""
+          }
+        })
+        |> render_submit()
+
+      assert html =~ "Enable at least one match condition"
+      assert has_element?(lv, "#alert_rule_modal")
+
+      rules = unwrap_page(Ash.read(ServiceRadar.Observability.StatefulAlertRule, scope: scope))
+      refute Enum.any?(rules, &(&1.name == rule_name))
     end
 
     @tag :web_ng_shared_fixture_db
@@ -245,16 +314,16 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
       {:ok, lv, _html} = live(conn, ~p"/events/#{@event_id}")
 
       lv
-      |> element("button", "Create event rule")
+      |> element("button", "Create alert rule")
       |> render_click()
 
-      assert has_element?(lv, "#rule_builder_modal")
+      assert has_element?(lv, "#alert_rule_modal")
 
       lv
-      |> element("button", "Cancel")
+      |> element("#alert-rule-form button", "Cancel")
       |> render_click()
 
-      refute has_element?(lv, "#rule_builder_modal")
+      refute has_element?(lv, "#alert_rule_modal")
     end
   end
 
@@ -297,6 +366,11 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
     end
 
     def query(_query, _opts), do: {:error, :invalid_query}
+
+    def event_fixture("no-device"), do: non_device_event()
+    def event_fixture("snmp-anomaly-1"), do: snmp_anomaly_event()
+    def event_fixture("capacity-forecast-1"), do: capacity_forecast_event()
+    def event_fixture(_id), do: proxmox_event()
 
     @impl true
     def query_request(%{"query" => query}) when is_binary(query), do: query(query, %{})

@@ -7,9 +7,9 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
 
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Monitoring.Alert
+  alias ServiceRadar.Observability.StatefulAlertRule
   alias ServiceRadarWebNG.Observability.SignalDisplay
   alias ServiceRadarWebNGWeb.AnomalySeriesKey
-  alias ServiceRadarWebNGWeb.Components.PromotionRuleBuilder
   alias ServiceRadarWebNGWeb.Dashboard.Engine
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Table, as: TablePlugin
   alias ServiceRadarWebNGWeb.Observability.DetailStreamComponents
@@ -39,7 +39,9 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
      |> assign(:device_ref, nil)
      |> assign(:related, %{log_id: nil, alert: nil})
      |> assign(:error, nil)
-     |> assign(:show_rule_builder, false)
+     |> assign(:show_alert_rule_builder, false)
+     |> assign(:alert_rule_form, %{})
+     |> assign(:alert_rule_error, nil)
      |> assign(:stream_entries, [])
      |> assign(:stream_severity, "all")
      |> assign(:stream_query, nil)
@@ -140,8 +142,55 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   end
 
   @impl true
-  def handle_event("open_rule_builder", _params, socket) do
-    {:noreply, assign(socket, :show_rule_builder, true)}
+  def handle_event("open_alert_rule_builder", _params, socket) do
+    if can_create_rules?(socket.assigns.current_scope) and is_map(socket.assigns.event) do
+      {:noreply,
+       socket
+       |> assign(:show_alert_rule_builder, true)
+       |> assign(:alert_rule_error, nil)
+       |> assign(:alert_rule_form, alert_rule_form_from_event(socket.assigns.event))}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("close_alert_rule_builder", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:show_alert_rule_builder, false)
+     |> assign(:alert_rule_error, nil)}
+  end
+
+  def handle_event("change_alert_rule", %{"alert_rule" => params}, socket) do
+    form = Map.merge(socket.assigns.alert_rule_form, params)
+    {:noreply, assign(socket, :alert_rule_form, form)}
+  end
+
+  def handle_event("save_alert_rule", %{"alert_rule" => params}, socket) do
+    scope = socket.assigns.current_scope
+    form = Map.merge(socket.assigns.alert_rule_form, params)
+
+    with true <- can_create_rules?(scope),
+         {:ok, attrs} <- build_alert_rule_attrs(form, socket.assigns.event_id),
+         {:ok, rule} <-
+           StatefulAlertRule
+           |> Ash.Changeset.for_create(:create, attrs, scope: scope)
+           |> Ash.create() do
+      {:noreply,
+       socket
+       |> assign(:show_alert_rule_builder, false)
+       |> put_flash(:info, "Alert rule \"#{rule.name}\" created successfully.")
+       |> push_navigate(to: ~p"/settings/rules?#{%{tab: "alerts"}}")}
+    else
+      false ->
+        {:noreply, socket}
+
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> assign(:alert_rule_form, form)
+         |> assign(:alert_rule_error, format_error(reason))}
+    end
   end
 
   def handle_event("set_stream_severity", %{"severity" => severity}, socket)
@@ -253,23 +302,6 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   end
 
   @impl true
-  def handle_info({:rule_builder_closed}, socket) do
-    {:noreply, assign(socket, :show_rule_builder, false)}
-  end
-
-  def handle_info({:rule_created, rule}, socket) do
-    {:noreply,
-     socket
-     |> assign(:show_rule_builder, false)
-     |> put_flash(:info, "Rule \"#{rule.name}\" created successfully.")
-     |> push_navigate(to: ~p"/settings/rules?#{%{tab: "events"}}")}
-  end
-
-  def handle_info({:rule_creation_failed, reason}, socket) do
-    {:noreply, put_flash(socket, :error, "Failed to create rule: #{format_error(reason)}")}
-  end
-
-  @impl true
   def render(assigns) do
     assigns =
       assign(
@@ -361,12 +393,10 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
         </div>
       </div>
 
-      <.live_component
-        :if={@show_rule_builder}
-        module={PromotionRuleBuilder}
-        id="rule-builder"
-        log={@event}
-        current_scope={@current_scope}
+      <.alert_rule_builder
+        :if={@show_alert_rule_builder}
+        form={@alert_rule_form}
+        error={@alert_rule_error}
       />
     </Layouts.app>
     """
@@ -630,11 +660,12 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
           </.ui_button>
           <.ui_button
             :if={@can_create_rules?}
-            phx-click="open_rule_builder"
+            type="button"
+            phx-click="open_alert_rule_builder"
             variant="primary"
             size="xs"
           >
-            <.icon name="hero-plus" class="size-3.5" /> Create event rule
+            <.icon name="hero-plus" class="size-3.5" /> Create alert rule
           </.ui_button>
         </div>
       </div>
@@ -2922,6 +2953,10 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
 
   defp format_error(%Jason.DecodeError{} = err), do: Exception.message(err)
   defp format_error(%ArgumentError{} = err), do: Exception.message(err)
+  defp format_error(%{errors: errors}) when is_list(errors),
+    do: Enum.map_join(errors, "; ", &format_error/1)
+
+  defp format_error(%{message: message}) when is_binary(message), do: message
   defp format_error(reason) when is_binary(reason), do: reason
   defp format_error(reason), do: inspect(reason)
 
@@ -2929,6 +2964,291 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   defp can_create_rules?(%{user: _} = scope), do: ServiceRadarWebNG.RBAC.can?(scope, "observability.rules.create")
 
   defp can_create_rules?(_), do: false
+
+  # -- alert rule builder -----------------------------------------------------
+
+  @alert_severity_options [
+    {"Critical", "critical"},
+    {"High", "high"},
+    {"Warning", "warning"},
+    {"Low", "low"},
+    {"Info", "info"}
+  ]
+
+  @alert_rule_conditions [
+    {"subject_prefix", "log_name", "Subject starts with"},
+    {"service_name", "log_provider", "Provider equals"},
+    {"severity_text", "severity", "Severity equals"},
+    {"body_contains", "message", "Message contains"}
+  ]
+
+  attr :form, :map, required: true
+  attr :error, :string, default: nil
+
+  defp alert_rule_builder(assigns) do
+    assigns =
+      assigns
+      |> assign(:severity_options, @alert_severity_options)
+      |> assign(:conditions, @alert_rule_conditions)
+
+    ~H"""
+    <.ui_modal id="alert_rule_modal" size="form" on_cancel="close_alert_rule_builder">
+      <:title>Create Alert Rule</:title>
+      <p class="text-sm text-sr-muted">
+        Open an incident whenever events like this one arrive. Every enabled condition must match.
+        For advanced configuration, visit <.link
+          navigate={~p"/settings/rules?#{%{tab: "alerts"}}"}
+          class="text-sr-brand hover:underline"
+        >Settings → Rules</.link>.
+      </p>
+
+      <.form
+        for={to_form(@form, as: :alert_rule)}
+        id="alert-rule-form"
+        phx-change="change_alert_rule"
+        phx-submit="save_alert_rule"
+        class="mt-4 space-y-4"
+      >
+        <div :if={@error} class={ui_alert_class(variant: "error", class: "text-sm")}>
+          {@error}
+        </div>
+
+        <label class="flex flex-col gap-1.5">
+          <span class="text-sm font-medium text-sr-ink">Rule name</span>
+          <input
+            type="text"
+            name="alert_rule[name]"
+            value={@form["name"]}
+            class={ui_field_class(size: "sm")}
+            required
+          />
+        </label>
+
+        <div class="sr-ui-divider text-xs text-sr-muted">Match conditions</div>
+
+        <div :for={{key, _source, label} <- @conditions} class="flex flex-col gap-1.5">
+          <label class="flex cursor-pointer items-center justify-start gap-3">
+            <input
+              type="checkbox"
+              name={"alert_rule[#{key}_enabled]"}
+              value="true"
+              checked={@form["#{key}_enabled"] == "true"}
+              class={ui_checkbox_class()}
+            />
+            <span class="text-sm font-medium text-sr-ink">{label}</span>
+          </label>
+          <input
+            type="text"
+            name={"alert_rule[#{key}]"}
+            value={@form[key]}
+            class={[
+              ui_field_class(size: "sm"),
+              @form["#{key}_enabled"] != "true" && "opacity-50"
+            ]}
+            disabled={@form["#{key}_enabled"] != "true"}
+          />
+        </div>
+
+        <div class="sr-ui-divider text-xs text-sr-muted">Incident</div>
+
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <label class="flex flex-col gap-1.5">
+            <span class="text-sm font-medium text-sr-ink">Occurrences</span>
+            <input
+              type="number"
+              min="1"
+              name="alert_rule[threshold]"
+              value={@form["threshold"]}
+              class={ui_field_class(size: "sm")}
+            />
+          </label>
+          <label class="flex flex-col gap-1.5">
+            <span class="text-sm font-medium text-sr-ink">Within (seconds)</span>
+            <input
+              type="number"
+              min="1"
+              name="alert_rule[window_seconds]"
+              value={@form["window_seconds"]}
+              class={ui_field_class(size: "sm")}
+            />
+          </label>
+        </div>
+
+        <label class="flex flex-col gap-1.5">
+          <span class="text-sm font-medium text-sr-ink">Group by</span>
+          <input
+            type="text"
+            name="alert_rule[group_by]"
+            value={@form["group_by"]}
+            class={ui_field_class(size: "sm")}
+            placeholder="device.uid, log_provider"
+          />
+          <span class="text-xs text-sr-muted">
+            Comma-separated event fields that identify one incident.
+            Leave empty for a single global incident.
+          </span>
+        </label>
+
+        <label class="flex flex-col gap-1.5">
+          <span class="text-sm font-medium text-sr-ink">Alert severity</span>
+          <select name="alert_rule[alert_severity]" class={ui_field_class(size: "sm")}>
+            <option
+              :for={{label, value} <- @severity_options}
+              value={value}
+              selected={@form["alert_severity"] == value}
+            >
+              {label}
+            </option>
+          </select>
+        </label>
+
+        <div class="flex items-center justify-end gap-2 pt-2">
+          <.ui_button
+            type="button"
+            variant="ghost"
+            size="sm"
+            phx-click="close_alert_rule_builder"
+          >
+            Cancel
+          </.ui_button>
+          <.ui_button type="submit" variant="primary" size="sm">
+            Create Alert Rule
+          </.ui_button>
+        </div>
+      </.form>
+    </.ui_modal>
+    """
+  end
+
+  defp alert_rule_form_from_event(event) do
+    conditions =
+      Enum.reduce(@alert_rule_conditions, %{}, fn {key, source, _label}, acc ->
+        value = event |> Map.get(source) |> blank_to_nil()
+
+        acc
+        |> Map.put(key, value || "")
+        |> Map.put("#{key}_enabled", if(value, do: "true", else: "false"))
+      end)
+
+    Map.merge(conditions, %{
+      "name" => default_alert_rule_name(event),
+      "threshold" => "1",
+      "window_seconds" => "300",
+      "group_by" => default_alert_rule_group_by(event),
+      "alert_severity" => alert_severity_from_event(Map.get(event, "severity"))
+    })
+  end
+
+  defp default_alert_rule_name(event) do
+    [Map.get(event, "log_provider"), Map.get(event, "log_name") || Map.get(event, "message")]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.map_join("-", &slugify/1)
+    |> String.slice(0, 64)
+    |> String.trim("-")
+    |> case do
+      "" -> "event-alert-#{String.slice(to_string(Map.get(event, "id")), 0, 8)}"
+      name -> name
+    end
+  end
+
+  defp slugify(value) do
+    value
+    |> to_string()
+    |> String.downcase()
+    |> String.replace(~r/[^a-z0-9]+/, "-")
+    |> String.trim("-")
+  end
+
+  defp default_alert_rule_group_by(event) do
+    case Map.get(event, "device") do
+      %{"uid" => uid} when is_binary(uid) and uid != "" -> "device.uid"
+      _ -> ""
+    end
+  end
+
+  defp alert_severity_from_event(severity) when is_binary(severity) do
+    case String.downcase(severity) do
+      s when s in ["critical", "fatal", "emergency"] -> "critical"
+      s when s in ["high", "error"] -> "high"
+      s when s in ["low", "notice"] -> "low"
+      s when s in ["info", "informational"] -> "info"
+      _ -> "warning"
+    end
+  end
+
+  defp alert_severity_from_event(_), do: "warning"
+
+  defp build_alert_rule_attrs(form, event_id) do
+    with {:ok, name} <- require_present(form["name"], "Rule name is required"),
+         {:ok, match} <- build_alert_rule_match(form),
+         {:ok, threshold} <- parse_positive_int(form["threshold"], "Occurrences"),
+         {:ok, window_seconds} <- parse_positive_int(form["window_seconds"], "Within (seconds)"),
+         {:ok, alert_severity} <-
+           require_present(form["alert_severity"], "Alert severity is required") do
+      {:ok,
+       %{
+         name: name,
+         description: "Created from event #{event_id}",
+         signal: :event,
+         match: match,
+         group_by: parse_group_by(form["group_by"]),
+         threshold: threshold,
+         window_seconds: window_seconds,
+         bucket_seconds: Integer.gcd(window_seconds, 60),
+         alert: %{"title" => name, "severity" => alert_severity}
+       }}
+    end
+  end
+
+  defp build_alert_rule_match(form) do
+    match =
+      Enum.reduce(@alert_rule_conditions, %{}, fn {key, _source, _label}, acc ->
+        with "true" <- form["#{key}_enabled"],
+             value when is_binary(value) <- blank_to_nil(form[key]) do
+          Map.put(acc, key, value)
+        else
+          _ -> acc
+        end
+      end)
+
+    if map_size(match) == 0 do
+      {:error, "Enable at least one match condition"}
+    else
+      {:ok, match}
+    end
+  end
+
+  defp require_present(value, message) do
+    case blank_to_nil(value) do
+      nil -> {:error, message}
+      present -> {:ok, present}
+    end
+  end
+
+  defp parse_positive_int(value, label) do
+    case Integer.parse(to_string(value || "")) do
+      {parsed, ""} when parsed > 0 -> {:ok, parsed}
+      _ -> {:error, "#{label} must be a positive integer"}
+    end
+  end
+
+  defp parse_group_by(value) when is_binary(value) do
+    value
+    |> String.split(",")
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+  end
+
+  defp parse_group_by(_value), do: []
+
+  defp blank_to_nil(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp blank_to_nil(_value), do: nil
 
   defp build_related(nil, _scope), do: %{log_id: nil, alert: nil}
 

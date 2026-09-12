@@ -9,7 +9,7 @@ ExUnit.configure(
   max_cases: 1
 )
 
-expected_selected_tests = 118
+expected_selected_tests = 120
 
 ExUnit.after_suite(fn %{total: total, excluded: excluded, skipped: skipped} ->
   selected = total - excluded - skipped
