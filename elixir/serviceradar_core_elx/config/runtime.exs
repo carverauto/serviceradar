@@ -982,8 +982,8 @@ if config_env() == :prod do
   object_store_retention_crontab =
     if object_store_retention_enabled do
       [
-        {object_store_retention_cron, ServiceRadar.ObjectStore.RetentionWorker,
-         args: %{"enabled" => true}, queue: :maintenance}
+        {object_store_retention_cron, ServiceRadar.ObjectStore.RetentionWorker, args: %{"enabled" => true},
+         queue: :maintenance}
       ]
     else
       []
@@ -1042,11 +1042,8 @@ if config_env() == :prod do
     agent_release_keep_latest:
       String.to_integer(System.get_env("OBJECT_STORE_RETENTION_AGENT_RELEASE_KEEP_LATEST") || "1"),
     native_addon_orphan_grace_seconds:
-      String.to_integer(
-        System.get_env("OBJECT_STORE_RETENTION_NATIVE_ADDON_ORPHAN_GRACE_SECONDS") || "604800"
-      ),
-    datasvc_timeout_ms:
-      String.to_integer(System.get_env("OBJECT_STORE_RETENTION_DATASVC_TIMEOUT_MS") || "30000")
+      String.to_integer(System.get_env("OBJECT_STORE_RETENTION_NATIVE_ADDON_ORPHAN_GRACE_SECONDS") || "604800"),
+    datasvc_timeout_ms: String.to_integer(System.get_env("OBJECT_STORE_RETENTION_DATASVC_TIMEOUT_MS") || "30000")
 
   config :serviceradar_core, AlertsRetentionWorker,
     retention_days: alerts_retention_days,

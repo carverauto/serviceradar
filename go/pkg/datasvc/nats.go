@@ -925,10 +925,7 @@ func (n *NATSStore) ensureObjectStoreLocked(ctx context.Context, domain string, 
 		return store, nil
 	}
 
-	bucket := n.objectBucket
-	if bucket == "" {
-		bucket = "serviceradar-objects"
-	}
+	bucket := n.objectBucketName()
 
 	store, err := js.ObjectStore(ctx, bucket)
 	if err != nil {
@@ -978,7 +975,7 @@ func isObjectStoreFull(err error) bool {
 
 func (n *NATSStore) objectBucketName() string {
 	if n.objectBucket == "" {
-		return "serviceradar-objects"
+		return defaultObjectBucket
 	}
 
 	return n.objectBucket

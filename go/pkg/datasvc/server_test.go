@@ -248,6 +248,8 @@ func TestListObjectsCapsPageSize(t *testing.T) {
 	assert.Empty(t, resp.GetObjects())
 }
 
+var errTestConnectionClosed = errors.New("connection closed")
+
 func TestIsObjectStoreFull(t *testing.T) {
 	t.Parallel()
 
@@ -274,7 +276,7 @@ func TestIsObjectStoreFull(t *testing.T) {
 		},
 		{
 			name: "an unrelated error",
-			err:  errors.New("connection closed"),
+			err:  errTestConnectionClosed,
 			want: false,
 		},
 		{
