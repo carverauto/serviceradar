@@ -8158,9 +8158,9 @@ checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
 
 [[package]]
 name = "ultragraph"
-version = "0.9.3"
+version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c54d6b35015353c86b2de86ca0eb6466debf83a00208621db70f2b6f6e0720c7"
+checksum = "e04acc0f6e9265319972b5f886804902737d2f45b3b6d4ee8614be5f8c63f630"
 
 [[package]]
 name = "unarray"
