@@ -169,6 +169,33 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     end
   end
 
+  defmodule PerMountDiskRunner do
+    @moduledoc false
+    # Two mounts on one host, as the per-mount disk aggregate returns them: the root
+    # filesystem is flat at 20 percent while the data mount climbs toward 100.
+    @start ~U[2026-06-01 00:00:00Z]
+
+    def query(query, _opts) do
+      send(self(), {:capacity_forecast_query, query})
+
+      rows =
+        for hour <- 0..71, {mount, value} <- [{"/", 20.0}, {"/data", 20.0 + hour}] do
+          %{
+            "bucket" => DateTime.add(@start, hour * 3_600, :second),
+            "device_id" => "sr:device-a",
+            "metric_type" => "sysmon.disk",
+            "metric_name" => "disk.used_percent",
+            "series_key" => "sr:device-a|disk.used_percent|tag_mount_point=#{mount}",
+            "mount_point" => mount,
+            "avg_value" => value,
+            "sample_count" => 12
+          }
+        end
+
+      {:ok, rows}
+    end
+  end
+
   defmodule SlowGrowthPercentRunner do
     @moduledoc false
     # 24 days of clean linear growth (0.57 points/day, 33 -> 46.7): the 80 percent
@@ -1036,6 +1063,55 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     assert attrs.skip_reason == "no_projected_exhaustion"
     assert attrs.projected_exhaustion_at == nil
     assert attrs.metadata["diagnostics"]["lower_bound"] < 80.0
+  end
+
+  test "default disk source forecasts each mount separately under the device resource id" do
+    # The default source keeps its query, key and label fields; only the model is
+    # pinned so the growth verdict does not depend on the auto selection, which the
+    # model tests cover. This test is about per-mount identity.
+    [default_source] = Enum.filter(Source.defaults(), &(&1.name == "disk_usage"))
+    source = %{default_source | model: "linear"}
+
+    upsert_fun = fn attrs, _actor ->
+      send(self(), {:capacity_forecast_upsert, attrs})
+      {:ok, attrs}
+    end
+
+    job = %Oban.Job{args: %{"forecasted_at" => DateTime.to_iso8601(@forecasted_at)}}
+
+    assert :ok =
+             Worker.run(job,
+               sources: [source],
+               runner: PerMountDiskRunner,
+               upsert_fun: upsert_fun,
+               emit_verdicts?: false,
+               horizon_seconds: 30 * 24 * 3_600,
+               min_points: 24
+             )
+
+    assert_received {:capacity_forecast_query, query}
+    assert String.starts_with?(query, "in:timeseries_metric_disk_hourly")
+
+    root_key = "disk_usage:sr:device-a:/"
+    data_key = "disk_usage:sr:device-a:/data"
+    assert_received {:capacity_forecast_upsert, %{resource_key: ^root_key} = root}
+    assert_received {:capacity_forecast_upsert, %{resource_key: ^data_key} = data}
+    refute_received {:capacity_forecast_upsert, _}
+
+    assert root.resource_id == "sr:device-a"
+    assert data.resource_id == "sr:device-a"
+    assert root.resource_label == "sr:device-a / /"
+    assert data.resource_label == "sr:device-a / /data"
+
+    # A perfectly flat mount has no trend at all, so the kernel gates it on
+    # significance before it ever reaches the exhaustion projection.
+    assert root.status == "skipped"
+    assert root.skip_reason == "trend_not_significant"
+    assert root.projected_exhaustion_at == nil
+
+    assert data.status == "projected"
+    assert %DateTime{} = data.projected_exhaustion_at
+    assert data.sample_count == 72
   end
 
   test "percent forecasts keep threshold ETA and clamp projected percent values in the kernel" do

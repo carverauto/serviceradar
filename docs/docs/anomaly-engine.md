@@ -226,7 +226,9 @@ a silently dead pipeline, is covered by the scheduled tripwires in
 Capacity forecasting emits runway episodes only for sound targets by default:
 monotone consumable resources such as disk usage and memory working set. CPU
 and interface utilization are bursty mean-reverting gauges and are excluded by
-default.
+default. Disk usage is projected per (device, mount point) from the
+`timeseries_metrics_disk_hourly` continuous aggregate rather than from the
+device-level hourly average, so one full filesystem stands on its own.
 
 A projected finding requires:
 

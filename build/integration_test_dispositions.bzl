@@ -447,7 +447,7 @@ SERIAL_INTEGRATION_SELECTED_TEST_COUNTS = {
     "test/serviceradar/notifications/rate_limiter_durability_test.exs": 10,
     "test/serviceradar/notifications/repeat_interval_floor_test.exs": 1,
     "test/serviceradar/observability/anomaly_episode_stale_close_worker_db_test.exs": 1,
-    "test/serviceradar/observability/capacity_forecasting/worker_test.exs": 38,
+    "test/serviceradar/observability/capacity_forecasting/worker_test.exs": 39,
     "test/serviceradar/observability/log_promotion_test.exs": 15,
     "test/serviceradar/observability/mtr_graph_integration_test.exs": 5,
     "test/serviceradar/observability/netflow_dataset_refresh_worker_integration_test.exs": 3,

@@ -128,6 +128,7 @@ impl QueryEngine {
                 Entity::RperfMetrics
                 | Entity::TimeseriesMetrics
                 | Entity::TimeseriesMetricInterfaceHourly
+                | Entity::TimeseriesMetricDiskHourly
                 | Entity::SnmpMetrics => timeseries_metrics::execute(&mut conn, &plan).await?,
                 Entity::CpuMetrics => cpu_metrics::execute(&mut conn, &plan).await?,
                 Entity::MemoryMetrics => memory_metrics::execute(&mut conn, &plan).await?,
