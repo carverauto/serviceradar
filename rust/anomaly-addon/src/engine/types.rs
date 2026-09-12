@@ -152,6 +152,11 @@ pub struct CusumDrift {
     pub pos: f64,
     pub neg: f64,
     pub direction: CusumDirection,
+    /// The level the residual is measured against (seasonal bucket center when
+    /// one is delivered, else the frozen anchor) and its scale, in the metric's
+    /// units, so a consumer can draw the baseline the drift departed from.
+    pub target: f64,
+    pub scale: f64,
     pub shift_estimate: f64,
     pub transition: AnomalyTransition,
     pub episode: Option<AnomalyEpisode>,

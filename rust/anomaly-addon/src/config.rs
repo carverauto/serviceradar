@@ -18,9 +18,9 @@ use serviceradar_anomaly_core::SeasonalBucket;
 use crate::engine::DriftMode;
 use crate::engine::{
     DEFAULT_ANCHOR_MAX_AGE_SECS, DEFAULT_DRIFT_ADOPT_AFTER_SAMPLES, DEFAULT_DRIFT_CLEAR_SLOTS,
-    DEFAULT_DRIFT_CONFIRM_WINDOW, DEFAULT_DRIFT_MIN_EFFECT, DEFAULT_EPISODE_UPDATE_INTERVAL_SECS,
-    DEFAULT_H_CONFIRM_MULT, DEFAULT_METRIC_DENYLIST, DEFAULT_REOPEN_COOLDOWN_SECS,
-    DEFAULT_SPIKE_ADOPT_AFTER_SAMPLES,
+    DEFAULT_DRIFT_CONFIRM_WINDOW, DEFAULT_DRIFT_MIN_EFFECT, DEFAULT_DRIFT_RESIDUAL_CLIP,
+    DEFAULT_EPISODE_UPDATE_INTERVAL_SECS, DEFAULT_H_CONFIRM_MULT, DEFAULT_METRIC_DENYLIST,
+    DEFAULT_REOPEN_COOLDOWN_SECS, DEFAULT_SPIKE_ADOPT_AFTER_SAMPLES,
 };
 use crate::engine::{
     DEFAULT_CRITICAL_MIN_DURATION_SECS, DEFAULT_CUSUM_H, DEFAULT_DRIFT_ESCALATE_AFTER_SECS,
@@ -29,7 +29,7 @@ use crate::engine::{
 };
 
 pub(crate) const ADDON_ID: &str = "anomaly";
-pub(crate) const ADDON_VERSION: &str = "0.3.7";
+pub(crate) const ADDON_VERSION: &str = "0.3.8";
 pub(crate) const VERDICT_CHANNEL_DEPTH: usize = 256;
 pub(crate) const ACK_CHANNEL_DEPTH: usize = 64;
 pub(crate) const OCSF_CLASS_EVENT_LOG_ACTIVITY: i64 = 1008;
@@ -90,6 +90,10 @@ pub(crate) struct AddonConfig {
     /// CUSUM alarm emits a drift finding.
     #[serde(default, deserialize_with = "deserialize_optional_f64")]
     pub(crate) drift_min_effect: Option<f64>,
+    /// Bound on the standardized residual the CUSUM consumes (sigma units, default
+    /// 1.5). Caps a single sample's drift evidence at `clip - k`.
+    #[serde(default, deserialize_with = "deserialize_optional_f64")]
+    pub(crate) drift_residual_clip: Option<f64>,
     /// Consecutive recovered samples before an open drift episode clears.
     #[serde(default, deserialize_with = "deserialize_optional_u64")]
     pub(crate) drift_clear_slots: Option<u64>,
@@ -542,6 +546,10 @@ impl AddonConfig {
                 .drift_min_effect
                 .filter(|v| v.is_finite() && *v > 0.0)
                 .unwrap_or(DEFAULT_DRIFT_MIN_EFFECT),
+            drift_residual_clip: self
+                .drift_residual_clip
+                .filter(|v| v.is_finite() && *v > 0.0)
+                .unwrap_or(DEFAULT_DRIFT_RESIDUAL_CLIP),
             drift_clear_slots: self
                 .drift_clear_slots
                 .filter(|v| *v > 0)

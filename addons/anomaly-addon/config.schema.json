@@ -250,6 +250,13 @@
       "exclusiveMinimum": 0,
       "default": 2.0
     },
+    "drift_residual_clip": {
+      "type": "number",
+      "title": "Drift residual clip (sigma)",
+      "description": "Bound on the standardized residual the CUSUM consumes. One sample contributes at most clip - k, so a drift confirmation needs at least h * h_confirm_mult / (clip - k) samples of evidence (twelve with the defaults); deviations beyond the clip are left to the spike detector.",
+      "exclusiveMinimum": 0,
+      "default": 1.5
+    },
     "drift_clear_slots": {
       "type": "integer",
       "title": "Drift clear confirmation window (samples)",
