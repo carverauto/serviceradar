@@ -460,6 +460,96 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
            ]
   end
 
+  test "draws the drift episode window and the baseline it departed from for a drift finding" do
+    episode_started_at = ~U[2026-06-22 13:30:00Z]
+
+    anomaly = %{
+      "id" => "event-drift",
+      "finding_uid" => "finding-drift",
+      "finding_title" => "snmp sustained drift on switch-1",
+      "metric_class" => "snmp",
+      "metric_name" => "ifInUcastPkts",
+      "if_index" => 23,
+      "severity" => "Medium",
+      "status" => "anomaly_update",
+      "time" => "2026-06-22T16:00:00Z",
+      "metadata" => %{
+        "anomaly" => %{
+          "detector_method" => "cusum_drift",
+          "drift_direction" => "upward",
+          "drift_target" => 120.0,
+          "drift_scale" => 15.0,
+          "drift_shift_sigma" => 2.0,
+          "episode_started_at_unix_nano" => DateTime.to_unix(episode_started_at, :nanosecond),
+          "reason" => "sustained upward drift"
+        }
+      }
+    }
+
+    overview = %{
+      status: :ok,
+      anomaly_rows: [anomaly],
+      capacity_rows: [],
+      anomaly_query: "in:events limit:20",
+      capacity_query: "in:capacity_forecasts limit:12",
+      anomaly_filter: %{field: "service_radar_device_uid", label: "device", value: "switch-1"},
+      capacity_filter: %{field: "resource_id", label: "device", value: "switch-1"},
+      anomaly_error: nil,
+      capacity_error: nil,
+      metric_statuses: []
+    }
+
+    # Six hours of samples: the default two-hour focus window would start at 14:00
+    # and hide the 13:30 episode open; a drift focus reaches back to it.
+    points =
+      for minute <- 0..(6 * 60)//10 do
+        {DateTime.add(~U[2026-06-22 10:30:00Z], minute * 60, :second), 120.0 + rem(minute, 7)}
+      end
+
+    metric_sections = [
+      %{
+        key: "interfaces",
+        title: "Interface metrics",
+        subtitle: "selected finding window",
+        error: nil,
+        panels: [
+          %{
+            plugin: Timeseries,
+            id: "if-23",
+            assigns: %{
+              chart_mode: :single,
+              rate_mode: :none,
+              series_points: [{"ifInUcastPkts", points}]
+            }
+          }
+        ]
+      }
+    ]
+
+    html =
+      render_component(&AnomalyCapacityComponents.anomaly_capacity_section/1,
+        overview: overview,
+        detail: %{kind: "anomaly", row: anomaly},
+        metric_sections: metric_sections,
+        timezone: "Etc/UTC"
+      )
+
+    document = LazyHTML.from_fragment(html)
+    panel_selector = "#panel-anomaly-capacity-detail-interfaces-if-23-0"
+
+    assert LazyHTML.attribute(
+             LazyHTML.query(document, "#{panel_selector} [data-testid=timeseries-reference-line]"),
+             "data-reference-label"
+           ) == ["Drift baseline (120)", "Sustained level (+2.0 sigma, 150)"]
+
+    assert LazyHTML.attribute(
+             LazyHTML.query(document, "#{panel_selector} [data-testid=timeseries-anomaly-window]"),
+             "data-overlay-label"
+           ) == ["Drift episode"]
+
+    assert html =~ "shaded band is the drift episode"
+  end
+
   test "renders an explicit note when the detail marker is outside the metric context window" do
     capacity = %{
       "finding_title" => "Capacity forecast: memory",
