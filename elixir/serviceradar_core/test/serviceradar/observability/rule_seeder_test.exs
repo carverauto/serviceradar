@@ -2,6 +2,7 @@ defmodule ServiceRadar.Observability.RuleSeederTest do
   use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Observability.EventRule
   alias ServiceRadar.Observability.RuleSeeder
   alias ServiceRadar.Observability.StatefulAlertRule
   alias ServiceRadar.TestSupport
@@ -112,6 +113,37 @@ defmodule ServiceRadar.Observability.RuleSeederTest do
     assert rule.threshold == 1
     assert rule.event["log_name"] == "alert.health.causal_prediction"
     assert rule.alert["severity_from"] == "source"
+  end
+
+  test "seeds the core health check event and stateful alert rules" do
+    actor = SystemActor.system(:test)
+
+    assert :ok = RuleSeeder.seed_all()
+
+    event_rule_query =
+      EventRule
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> Ash.Query.filter(name == "core_health_state_change_events")
+
+    assert {:ok, [event_rule]} = Ash.read(event_rule_query, actor: actor)
+    assert event_rule.enabled
+    assert event_rule.source_type == :log
+    assert event_rule.match["subject_prefix"] == "logs.internal.health"
+    assert event_rule.match["attribute_equals"] == %{"health.entity_type" => "core"}
+    assert event_rule.event["log_name"] == "health.core.state_change"
+    assert event_rule.event["alert"] == false
+
+    rule = get_stateful_rule("core_health_check_unhealthy", actor)
+    assert rule.enabled
+    assert rule.managed
+    assert rule.signal == :event
+    assert rule.match["subject_prefix"] == "health.core.state_change"
+    assert rule.match["attribute_equals"] == %{"health.new_state" => "unhealthy"}
+    assert rule.match["recovery"]["attribute_equals"] == %{"health.new_state" => "healthy"}
+    assert rule.group_by == ["health.entity_id"]
+    assert rule.threshold == 1
+    assert rule.event["log_name"] == "alert.health.core_check"
+    assert rule.alert["severity"] == "critical"
   end
 
   test "seeds the capacity forecast health stateful alert rule" do

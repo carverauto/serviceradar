@@ -85,6 +85,103 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.RuleMatcherTest do
     }
   end
 
+  # Row shape LogPromotion produces when the seeded event rule promotes a
+  # `logs.internal.health` log: the log's attributes ride under
+  # `unmapped.log_attributes`, which is where event matching and incident
+  # grouping read from.
+  defp core_health_event_row(new_state, entity_id \\ "seasonal-baseline-freshness") do
+    %{
+      id: "7d1c2a54-3f7e-4d0b-9b2e-6a1f0c9d8e21",
+      class_uid: 1008,
+      log_name: "health.core.state_change",
+      severity_id: if(new_state == "unhealthy", do: 4, else: 1),
+      unmapped: %{
+        "log_attributes" => %{
+          "serviceradar.ingest" => %{"subject" => "logs.internal.health"},
+          "health" => %{
+            "entity_type" => "core",
+            "entity_id" => entity_id,
+            "old_state" => if(new_state == "unhealthy", do: "healthy", else: "unhealthy"),
+            "new_state" => new_state,
+            "reason" => "health_check_failed"
+          }
+        },
+        "log_resource_attributes" => %{},
+        "rule_match" => %{}
+      }
+    }
+  end
+
+  # The stored log the seeded event rule promotes (attributes as the logs
+  # processor persists them: the HealthWriter block plus ingest metadata).
+  defp core_health_log(entity_type) do
+    %{
+      body: "Core seasonal-baseline-freshness changed from healthy to unhealthy",
+      severity_text: "High",
+      severity_number: 17,
+      attributes: %{
+        "serviceradar.ingest" => %{
+          "subject" => "logs.internal.health",
+          "source_kind" => "internal"
+        },
+        "health" => %{
+          "entity_type" => entity_type,
+          "entity_id" => "seasonal-baseline-freshness",
+          "old_state" => "healthy",
+          "new_state" => "unhealthy",
+          "reason" => "health_check_failed"
+        }
+      }
+    }
+  end
+
+  describe "seeded core health check rules" do
+    test "the event rule promotes core health logs and only core ones" do
+      rule =
+        Enum.find(
+          RuleSeeder.default_event_rules(),
+          &(&1[:name] == "core_health_state_change_events")
+        )
+
+      assert rule, "expected RuleSeeder to seed core_health_state_change_events"
+      assert rule[:event]["log_name"] == "health.core.state_change"
+      assert rule[:event]["alert"] == false
+
+      assert RuleMatcher.log_matches?(core_health_log("core"), rule[:match])
+      refute RuleMatcher.log_matches?(core_health_log("agent"), rule[:match])
+    end
+
+    test "matches a core check going unhealthy" do
+      rule = seeded_rule("core_health_check_unhealthy")
+
+      assert RuleMatcher.rule_matches_event?(core_health_event_row("unhealthy"), rule)
+    end
+
+    test "recovers when the check returns to healthy" do
+      rule = seeded_rule("core_health_check_unhealthy")
+
+      assert RuleMatcher.rule_recovers_event?(core_health_event_row("healthy"), rule)
+      refute RuleMatcher.rule_matches_event?(core_health_event_row("healthy"), rule)
+    end
+
+    test "each check is its own incident" do
+      rule =
+        Enum.find(
+          RuleSeeder.default_stateful_rules(),
+          &(&1[:name] == "core_health_check_unhealthy")
+        )
+
+      assert {:ok, "health.entity_id=seasonal-baseline-freshness", _values} =
+               Record.build_group(rule[:group_by], core_health_event_row("unhealthy"))
+
+      assert {:ok, "health.entity_id=anomaly-ingest-silence", _values} =
+               Record.build_group(
+                 rule[:group_by],
+                 core_health_event_row("unhealthy", "anomaly-ingest-silence")
+               )
+    end
+  end
+
   describe "seeded anomaly rule template" do
     test "matches a v2 anomaly_open finding" do
       rule = seeded_rule("causal_prediction_health_finding")

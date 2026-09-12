@@ -11,13 +11,21 @@ defmodule ServiceRadar.Events.HealthWriter do
 
   @spec write(HealthEvent.t()) :: :ok | {:error, term()}
   def write(%HealthEvent{} = event) do
-    payload = build_event_attrs(event)
-    InternalLogPublisher.publish("health", payload)
+    InternalLogPublisher.publish("health", payload(event))
   rescue
     e ->
       Logger.warning("Failed to publish health log: #{inspect(e)}")
       {:error, e}
   end
+
+  @doc """
+  The internal log payload for a health transition. Public because the seeded
+  `core_health_state_change_events` promotion and `core_health_check_unhealthy`
+  stateful rules key on its `attributes.health` block, which must stay testable
+  without NATS.
+  """
+  @spec payload(HealthEvent.t()) :: map()
+  def payload(%HealthEvent{} = event), do: build_event_attrs(event)
 
   defp build_event_attrs(event) do
     severity_id = severity_for_state(event.new_state)
@@ -46,7 +54,24 @@ defmodule ServiceRadar.Events.HealthWriter do
       log_name: "health.state_change",
       log_provider: "serviceradar.core",
       log_level: log_level_for_severity(severity_id),
+      attributes: build_attributes(event),
       unmapped: build_unmapped(event)
+    }
+  end
+
+  # Structured, matchable copy of the transition. The logs processor stores a
+  # payload's `attributes` as the log row's attributes, so this is what an
+  # event rule matches (`health.entity_type`) and a stateful rule groups by
+  # (`health.entity_id`). `unmapped` is not preserved on the stored log.
+  defp build_attributes(event) do
+    %{
+      "health" => %{
+        "entity_type" => to_string(event.entity_type),
+        "entity_id" => event.entity_id,
+        "old_state" => state_label(event.old_state),
+        "new_state" => state_label(event.new_state),
+        "reason" => maybe_string(event.reason)
+      }
     }
   end
 

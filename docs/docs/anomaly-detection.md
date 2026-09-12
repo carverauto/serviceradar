@@ -268,6 +268,13 @@ the anomaly path goes quiet, each tunable by env:
   `true`), `SERVICERADAR_SEASONAL_BASELINE_TRIPWIRE_CRON` (default
   `37 * * * *`).
 
+Each check records a `core` health event. The seeded
+`core_health_state_change_events` rule promotes those transitions into
+`health.core.state_change` events, and the managed `core_health_check_unhealthy`
+rule opens one critical alert per check while it is unhealthy and recovers it
+when the check passes again, so a dead baseline producer pages instead of
+sitting unhealthy on the health timeline.
+
 ## Rollout Guidance
 
 Metrics must flow through NATS JetStream before persistence so anomaly detection,
