@@ -1036,15 +1036,6 @@ if config_env() == :prod do
   mailer_env = System.get_env()
   local_mailer = ServiceRadar.OutboundMail.RuntimeConfig.local?(mailer_env)
 
-  config :serviceradar_core, :object_store_retention,
-    enabled?: object_store_retention_enabled,
-    dry_run?: object_store_retention_dry_run,
-    agent_release_keep_latest:
-      String.to_integer(System.get_env("OBJECT_STORE_RETENTION_AGENT_RELEASE_KEEP_LATEST") || "1"),
-    native_addon_orphan_grace_seconds:
-      String.to_integer(System.get_env("OBJECT_STORE_RETENTION_NATIVE_ADDON_ORPHAN_GRACE_SECONDS") || "604800"),
-    datasvc_timeout_ms: String.to_integer(System.get_env("OBJECT_STORE_RETENTION_DATASVC_TIMEOUT_MS") || "30000")
-
   config :serviceradar_core, AlertsRetentionWorker,
     retention_days: alerts_retention_days,
     batch_size: alerts_retention_batch_size,
@@ -1120,6 +1111,15 @@ if config_env() == :prod do
   config :serviceradar_core, ServiceRadar.Repo, repo_opts
   config :serviceradar_core, :age_graph_name, age_graph_name
   config :serviceradar_core, :oban_enabled, oban_enabled
+
+  config :serviceradar_core, :object_store_retention,
+    enabled?: object_store_retention_enabled,
+    dry_run?: object_store_retention_dry_run,
+    agent_release_keep_latest:
+      String.to_integer(System.get_env("OBJECT_STORE_RETENTION_AGENT_RELEASE_KEEP_LATEST") || "1"),
+    native_addon_orphan_grace_seconds:
+      String.to_integer(System.get_env("OBJECT_STORE_RETENTION_NATIVE_ADDON_ORPHAN_GRACE_SECONDS") || "604800"),
+    datasvc_timeout_ms: String.to_integer(System.get_env("OBJECT_STORE_RETENTION_DATASVC_TIMEOUT_MS") || "30000")
 
   config :serviceradar_core,
          :periodic_job_stale_threshold_minutes,
