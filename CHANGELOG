@@ -1,3 +1,41 @@
+# ServiceRadar v1.4.62
+
+Capacity forecasting now watches each disk mount point on its
+own, core health checks raise an incident when they go
+unhealthy, and a crossing far beyond the forecast horizon is
+labeled as such instead of as a history-cap skip.
+
+## Whats New
+
+**1.4.62**
+- Capacity: disk usage is forecast per mount point. A new
+  hourly continuous aggregate (`timeseries_metrics_disk_hourly`)
+  keeps `sysmon.disk` per device, series and mount point, so a
+  data volume filling toward 100 percent is no longer averaged
+  away behind a flat root filesystem. Exposed as SRQL entity
+  `timeseries_metric_disk_hourly` and JSON:API
+  `/timeseries_metrics_disk_hourly` (PR #415).
+- Core: a core health check transitioning to unhealthy now
+  opens one critical incident per entity and recovers it on
+  the healthy transition, via the seeded
+  `core_health_state_change_events` and
+  `core_health_check_unhealthy` rules. Health log lines carry a
+  structured `health` attribute block (PR #413).
+- Capacity: a capped crossing that lies beyond the 90 day
+  horizon is recorded as `outside_forecast_horizon` instead of
+  `exhaustion_beyond_history_cap`, with the crossing kept in
+  diagnostics (PR #412).
+
+## Upgrade Notes
+
+- New migration `20260912120000` creates the disk hourly
+  aggregate `WITH NO DATA` and registers its refresh and
+  retention policies. The chart default for
+  `core.migrations.expectedVersion` moves to
+  `20260912120000`; a deployment that pins that value in its
+  own values file (manual Helm installs) must bump it in the
+  same upgrade.
+
 # ServiceRadar v1.4.61
 
 Managed add-on updates no longer freeze because one agent
