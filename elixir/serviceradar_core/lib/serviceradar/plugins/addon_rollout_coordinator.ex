@@ -359,11 +359,19 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     target_specs =
       target_specs(source, candidate, assignments, agents, direct_overrides, policy, now)
 
-    # A rollout with no eligible target has nothing to prove. Every target would
-    # be terminal the moment it is created, finish_or_advance/4 would promote on
-    # the spot, and the source would advance to a candidate version that no agent
-    # has actually run. Refuse; the next reconcile retries once an agent reports.
-    if Enum.any?(target_specs, &(&1.classification == :eligible)) do
+    # A source whose targets all exist but none of which can take the candidate
+    # has nothing to prove: every target would be terminal the moment it is
+    # created, finish_or_advance/4 would promote on the spot, and the source would
+    # advance to a candidate version no agent has actually run. Refuse that; the
+    # next reconcile retries once an agent reports in.
+    #
+    # A source with NO targets at all is deliberately exempt. A profile that
+    # currently matches nothing has nothing to verify, and letting its pin track
+    # the latest approved package means it is already correct the moment an agent
+    # appears. That behaviour predates this guard and is covered by the "reconcile
+    # repairs a non-explicit first-party profile stranded on a staged package"
+    # test, which starts a rollout for a profile with zero targets.
+    if target_specs == [] or Enum.any?(target_specs, &(&1.classification == :eligible)) do
       create_rollout_with_specs(
         source,
         previous,
