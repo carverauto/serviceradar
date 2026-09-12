@@ -1,3 +1,39 @@
+# ServiceRadar v1.4.61
+
+Managed add-on updates no longer freeze because one agent
+stopped reporting, and object-store retention now actually
+runs on the deployed core so a full bucket can reclaim space.
+
+## Whats New
+
+**1.4.61**
+- Add-ons: a decommissioned or unreporting agent no longer
+  pauses a managed-add-on rollout for the rest of the fleet.
+  Unreporting hosts are excluded from new rollouts the same
+  way incompatible hosts already were, and a paused rollout
+  can be reaped when the live hosts already have the
+  candidate (PR #404, PR #410).
+- core_elx: object-store retention is registered on the
+  deployed release. The chart has been setting
+  `OBJECT_STORE_RETENTION_*` since the feature shipped, but
+  `serviceradar_core_elx` never scheduled the worker, so
+  mirrored agent-release and native add-on artifacts were
+  never reclaimed (PR #403).
+- datasvc / web-ng: a full object store (JetStream DiscardNew
+  at MaxBytes) returns ResourceExhausted naming the bucket
+  and its cap, instead of an opaque gRPC Internal (PR #403).
+
+## Upgrade Notes
+
+- If a managed add-on source is still sitting paused from an
+  unreporting agent, the next reconcile should supersede it
+  when the live hosts already have the candidate. If it stays
+  paused, cancel that rollout so a new one can start without
+  those hosts.
+- Object-store retention now runs on core (default 03:00 UTC).
+  A bucket that is already full still refuses new uploads
+  until space is reclaimed.
+
 # ServiceRadar v1.4.60
 
 Agent enrollment works on macOS and Windows: both installers now
