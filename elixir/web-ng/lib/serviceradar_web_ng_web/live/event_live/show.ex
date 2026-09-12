@@ -2956,6 +2956,9 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   defp format_error(%{errors: errors}) when is_list(errors),
     do: Enum.map_join(errors, "; ", &format_error/1)
 
+  defp format_error(%{field: field, message: message}) when is_atom(field) and is_binary(message),
+    do: "#{field} #{message}"
+
   defp format_error(%{message: message}) when is_binary(message), do: message
   defp format_error(reason) when is_binary(reason), do: reason
   defp format_error(reason), do: inspect(reason)
@@ -3028,6 +3031,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
 
         <div :for={{key, _source, label} <- @conditions} class="flex flex-col gap-1.5">
           <label class="flex cursor-pointer items-center justify-start gap-3">
+            <input type="hidden" name={"alert_rule[#{key}_enabled]"} value="false" />
             <input
               type="checkbox"
               name={"alert_rule[#{key}_enabled]"}

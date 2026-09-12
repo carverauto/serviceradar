@@ -277,6 +277,60 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
     end
 
     @tag :web_ng_shared_fixture_db
+    test "drops an unchecked match condition from the saved rule", %{conn: conn} do
+      user = operator_user_fixture()
+      conn = log_in_user(conn, user)
+      scope = ServiceRadarWebNG.Accounts.Scope.for_user(user)
+
+      {:ok, lv, _html} = live(conn, ~p"/events/#{@event_id}")
+
+      lv
+      |> element("button", "Create alert rule")
+      |> render_click()
+
+      rule_name = "event-alert-unchecked-#{System.unique_integer([:positive])}"
+
+      lv
+      |> form("#alert-rule-form", %{
+        "alert_rule" => %{"name" => rule_name, "body_contains_enabled" => "false"}
+      })
+      |> render_submit()
+
+      assert_redirect(lv, ~p"/settings/rules?#{%{tab: "alerts"}}")
+
+      rules = unwrap_page(Ash.read(ServiceRadar.Observability.StatefulAlertRule, scope: scope))
+      rule = Enum.find(rules, &(&1.name == rule_name))
+      assert rule
+
+      assert rule.match == %{
+               "service_name" => "serviceradar-plugin",
+               "severity_text" => "Critical"
+             }
+    end
+
+    @tag :web_ng_shared_fixture_db
+    test "reports the field when the rule name is already taken", %{conn: conn} do
+      user = operator_user_fixture()
+      conn = log_in_user(conn, user)
+      rule_name = "event-alert-taken-#{System.unique_integer([:positive])}"
+      stateful_alert_rule_fixture(%{name: rule_name, signal: :event})
+
+      {:ok, lv, _html} = live(conn, ~p"/events/#{@event_id}")
+
+      lv
+      |> element("button", "Create alert rule")
+      |> render_click()
+
+      html =
+        lv
+        |> form("#alert-rule-form", %{"alert_rule" => %{"name" => rule_name}})
+        |> render_submit()
+
+      assert html =~ "name has already been taken"
+      assert has_element?(lv, "#alert_rule_modal")
+    end
+
+    @tag :web_ng_shared_fixture_db
     test "rejects a rule with no enabled match condition", %{conn: conn} do
       user = operator_user_fixture()
       conn = log_in_user(conn, user)
@@ -295,9 +349,9 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
         |> form("#alert-rule-form", %{
           "alert_rule" => %{
             "name" => rule_name,
-            "service_name" => "",
-            "severity_text" => "",
-            "body_contains" => ""
+            "service_name_enabled" => "false",
+            "severity_text_enabled" => "false",
+            "body_contains_enabled" => "false"
           }
         })
         |> render_submit()
