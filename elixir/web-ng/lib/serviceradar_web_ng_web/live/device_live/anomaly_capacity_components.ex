@@ -922,7 +922,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
         value: drift.target,
         label: "Drift episode",
         severity: Map.get(focus, :severity),
-        reason: "open since #{DateTime.to_iso8601(started_at)}"
+        reason: "band spans the episode from its open to this finding"
       }
     ]
   end
