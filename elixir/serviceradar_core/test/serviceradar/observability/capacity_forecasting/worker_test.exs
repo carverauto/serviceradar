@@ -190,6 +190,28 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     end
   end
 
+  defmodule DistantGrowthPercentRunner do
+    @moduledoc false
+    # 42 days of clean linear growth (0.2333 points/day, 10 -> 19.8): the 80 percent
+    # crossing is ~300 days out, beyond both twice the observed span and the 90 day
+    # horizon, but inside the 10x-horizon noise cap.
+    @start ~U[2026-06-01 00:00:00Z]
+
+    def query(_query, _opts) do
+      rows =
+        for hour <- 0..1007 do
+          %{
+            "bucket" => DateTime.add(@start, hour * 3_600, :second),
+            "device_id" => "device-a",
+            "mount_point" => "/var/lib/slow",
+            "avg_usage_percent" => 10.0 + hour * (70.0 / 300.0 / 24)
+          }
+        end
+
+      {:ok, rows}
+    end
+  end
+
   defmodule OutOfDomainGaugePercentRunner do
     @moduledoc false
     @start ~U[2026-06-01 00:00:00Z]
@@ -1234,6 +1256,54 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
              DateTime.from_iso8601(diagnostics["raw_projected_exhaustion_at"])
 
     assert abs(DateTime.diff(raw_crossing, ~U[2026-08-22 10:57:30Z], :second)) < 120
+  end
+
+  test "a crossing beyond both the history cap and the horizon is outside the horizon, not history-capped" do
+    source = %Source{
+      name: "disk_usage",
+      resource_type: "disk",
+      metric_class: "disk",
+      metric_name: "usage_percent",
+      query: "in:disk_metrics time:last_180d bucket:1h",
+      value_field: "avg_usage_percent",
+      key_fields: ["device_id", "mount_point"],
+      label_fields: ["mount_point"],
+      threshold: 80.0,
+      model: "linear",
+      value_unit: "percent"
+    }
+
+    upsert_fun = fn attrs, _actor ->
+      send(self(), {:capacity_forecast_distant_growth, attrs})
+      {:ok, attrs}
+    end
+
+    job = %Oban.Job{args: %{"forecasted_at" => DateTime.to_iso8601(@forecasted_at)}}
+
+    assert :ok =
+             Worker.run(job,
+               sources: [source],
+               runner: DistantGrowthPercentRunner,
+               upsert_fun: upsert_fun,
+               emit_verdicts?: false,
+               horizon_seconds: 90 * 24 * 3_600,
+               min_points: 24
+             )
+
+    assert_received {:capacity_forecast_distant_growth, attrs}
+    assert attrs.status == "skipped"
+    assert attrs.skip_reason == "outside_forecast_horizon"
+    assert attrs.projected_exhaustion_at == nil
+
+    diagnostics = attrs.metadata["diagnostics"]
+    assert diagnostics["history_span_seconds"] == 1_007 * 3_600
+    assert diagnostics["extrapolation_cap_seconds"] == 2 * 1_007 * 3_600
+
+    # (80 - 10) / (70 / 300 per day) = 300 days after the window start.
+    assert {:ok, crossing, _offset} =
+             DateTime.from_iso8601(diagnostics["projected_exhaustion_at"])
+
+    assert abs(DateTime.diff(crossing, ~U[2027-03-28 00:00:00Z], :second)) < 3_600
   end
 
   test "interface forecasts convert byte rates to utilization percent before no-risk skip" do
