@@ -20,6 +20,9 @@
 {{- $pluginStorage := default (dict) $webNg.pluginStorage -}}
 {{- $gateway := default (dict) .Values.agentGateway -}}
 {{- $gatewayService := default (dict) $gateway.service -}}
+{{- $bumblebeeCatalogRefresh := default (dict) .Values.bumblebeeCatalogRefresh -}}
+{{- $bumblebeeCatalogRefreshEnabled := true -}}
+{{- if hasKey $bumblebeeCatalogRefresh "enabled" -}}{{- $bumblebeeCatalogRefreshEnabled = get $bumblebeeCatalogRefresh "enabled" -}}{{- end -}}
 {{- $objectStoreRetention := default (dict) .Values.objectStoreRetention -}}
 {{- $objectStoreRetentionEnabled := true -}}
 {{- if hasKey $objectStoreRetention "enabled" -}}{{- $objectStoreRetentionEnabled = get $objectStoreRetention "enabled" -}}{{- end -}}
@@ -562,6 +565,8 @@ spec:
         - name: PLUGIN_STORAGE_DOWNLOAD_TTL_SECONDS
           value: {{ $pluginStorage.downloadTtlSeconds | quote }}
         {{- end }}
+        - name: BUMBLEBEE_CATALOG_REFRESH_ENABLED
+          value: {{ $bumblebeeCatalogRefreshEnabled | quote }}
         - name: OBJECT_STORE_RETENTION_ENABLED
           value: {{ $objectStoreRetentionEnabled | quote }}
         - name: OBJECT_STORE_RETENTION_DRY_RUN

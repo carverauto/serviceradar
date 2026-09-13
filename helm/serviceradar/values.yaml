@@ -1333,6 +1333,14 @@ webNg:
 
 # Retention for ServiceRadar-owned artifacts in the datasvc object store
 # (mirrored agent releases and native add-on bundles).
+# Bumblebee (supply-chain compromise scanner) exposure catalog refresh. The
+# catalog is downloaded from the upstream threat-intel source, converted to the
+# scanner's schema and promoted for agents by a daily job on core. With this
+# off no agent ever receives a catalog, every scan fails on catalog load, and
+# a deployment upgraded from a release older than v1.4.53 keeps serving a
+# catalog the scanner cannot read (#439).
+bumblebeeCatalogRefresh:
+  enabled: true
 #
 # Leave this enabled. The object store stream is created DiscardNew with a
 # MaxBytes cap (datasvc.objectStoreBytes), so a full bucket does NOT evict old
