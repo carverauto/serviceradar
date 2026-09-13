@@ -154,9 +154,15 @@ defmodule ServiceRadar.Inventory.BumblebeeIngestor do
       "bumblebee_device_postures",
       [row],
       prefix: "platform",
+      # device_uid is replaced too: an agent that is re-identified to another
+      # device (its previous device row deleted or merged) must carry its posture
+      # with it, or the posture stays pinned to a device the UI can no longer
+      # show. build_context/3 already keeps the existing device when the agent
+      # is temporarily unresolved, so this never clobbers a known device with nil.
       on_conflict:
         {:replace,
          [
+           :device_uid,
            :run_id,
            :catalog_snapshot_ref,
            :scanner_version,

@@ -160,6 +160,17 @@ defmodule ServiceRadar.Inventory.BumblebeeIngestorTest do
 
     assert new_contribution.source == "bumblebee"
     assert new_contribution.metadata["run_id"] == "run-#{unique + 1}"
+
+    # The posture follows the agent to its new device; nothing is left behind
+    # on the old one for the device page to find.
+    assert {:ok, posture} = BumblebeeDevicePosture.get_by_agent(agent_id, actor: actor)
+    assert posture.device_uid == new_device.uid
+    assert posture.run_id == "run-#{unique + 1}"
+
+    assert {:ok, []} =
+             BumblebeeDevicePosture
+             |> Ash.Query.for_read(:by_device, %{device_uid: original_device.uid}, actor: actor)
+             |> Ash.read(actor: actor)
   end
 
   test "backfills pending findings when an agent later resolves without re-reporting them", %{
