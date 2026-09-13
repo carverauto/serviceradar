@@ -1051,25 +1051,23 @@ func (h *harness) testGroupD(t *testing.T) {
 			t.Errorf("spool watermark advanced past seq %d during a NATS outage (resolved=%d) -- withholding invariant violated", seq, resolved)
 		}
 
-		// NOTE: natsjwt.go's StartEmbeddedNATS mints a FRESH operator/
-		// account/user JWT chain on every call, which would invalidate the
-		// already-distributed .creds file the gateway/core releases hold
-		// open. Restarting NATS with the SAME trust material (so the rest
-		// of the harness keeps working) is out of scope for this specific
-		// subtest to implement safely without risking the shared server
-		// instance other subtests still need; this probe therefore proves
-		// the WITHHOLDING half of Group D (b) only, and leaves NATS down
-		// for the remainder of the harness's lifetime deliberately, since
-		// Group D's other two probes below do not require NATS to still be
-		// running (D2 uses direct RPC against core's Repo; D3 inspects
-		// state Group A already produced before this subtest ran).
-		//
-		// A "restore NATS and confirm eventual delivery" positive
-		// half-probe is consequently NOT performed here -- this is a
-		// documented limitation, not a hidden gap: only the negative half
-		// (withholding under an outage) is proven end-to-end.
+		// This probe proves the WITHHOLDING half of Group D (b): only the
+		// negative half (withholding under an outage) is proven end-to-end
+		// here. A "restore NATS and confirm eventual delivery" positive
+		// half is covered implicitly: the broker is restored below and
+		// every later group (D2, E, F) runs live against it.
 		if n := h.rpcQueryCount(t, eventLedgerExistsSQL(fx2.NetworkScopeID, fx2.EventID)); n != 0 {
 			t.Errorf("event_ledger row appeared for an entry that should have been withheld by a NATS outage")
+		}
+
+		// Restore the broker on the SAME port with the SAME operator/
+		// account/user JWT trust material (NATSHarness.Restart), so the
+		// gateway/core releases' already-distributed .creds files and
+		// reconnect logic keep working and every later group runs against
+		// a live broker. A fresh StartEmbeddedNATS would mint a new trust
+		// chain the running releases reject, so it must not be used here.
+		if err := h.nats.Restart(); err != nil {
+			t.Fatalf("restart embedded nats after cut probe: %v", err)
 		}
 	})
 
@@ -1093,7 +1091,7 @@ func (h *harness) testGroupD(t *testing.T) {
 		// it from acking, so that half is definitionally true here, not
 		// independently demonstrated).
 		if h.nats.Server == nil {
-			t.Skip("NATS was shut down by an earlier Group D subtest; this probe needs a live broker")
+			t.Fatal("NATS broker is down when RedeliveryAfterEventWriterRollback runs -- the cut probe must have restarted it via NATSHarness.Restart; a missing broker must fail loudly, never skip")
 		}
 
 		fx3, err := BuildSweepFixture([]byte(h.certSet.AgentComponentID))
@@ -1177,7 +1175,7 @@ func (h *harness) testGroupD(t *testing.T) {
 // ---------------------------------------------------------------------------
 func (h *harness) testGroupE(t *testing.T) {
 	if h.nats.Server == nil {
-		t.Skip("NATS was shut down by an earlier group; Group E needs a live broker")
+		t.Fatal("NATS broker is down when GroupE_RestartOverlap runs -- the cut probe must have restarted it via NATSHarness.Restart; a missing broker must fail loudly, never skip")
 	}
 
 	const concurrency = 3
@@ -1319,7 +1317,7 @@ func probeHealth(url string, timeout time.Duration) error {
 // ---------------------------------------------------------------------------
 func (h *harness) testGroupF(t *testing.T) {
 	if h.nats.Server == nil {
-		t.Skip("NATS was shut down by an earlier group; Group F needs a live broker")
+		t.Fatal("NATS broker is down when GroupF_PostHandoffFencing runs -- the cut probe must have restarted it via NATSHarness.Restart; a missing broker must fail loudly, never skip")
 	}
 
 	fx, err := BuildSweepFixture([]byte(h.certSet.AgentComponentID))
