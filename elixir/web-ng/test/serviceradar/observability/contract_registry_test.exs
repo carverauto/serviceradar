@@ -91,7 +91,7 @@ defmodule ServiceRadarWebNG.Observability.ContractRegistryTest do
       package_key: :addon_id,
       ref: %{
         "producer_id" => "anomaly",
-        "producer_version" => "0.3.9",
+        "producer_version" => "0.3.10",
         "schema_id" => "com.carverauto.anomaly.detection_finding",
         "schema_version" => "1.0.0"
       }

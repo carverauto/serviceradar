@@ -41,7 +41,7 @@ pub struct AnomalyAddon {
     pub(crate) telemetry_drops: Arc<NativeTelemetryDropCounters>,
     pub(crate) scoring_health: Arc<Mutex<ScoringHealth>>,
     /// Resolved at `configure`; read when a feed stream opens.
-    checkpoint: Mutex<CheckpointSettings>,
+    checkpoint: Arc<Mutex<CheckpointSettings>>,
     /// The metric feed is single-owner: reconnecting replaces the prior scorer.
     feed_task: Mutex<Option<JoinHandle<()>>>,
 }
@@ -60,7 +60,7 @@ impl AnomalyAddon {
             verdict_tx,
             telemetry_drops: Arc::new(NativeTelemetryDropCounters::default()),
             scoring_health: Arc::new(Mutex::new(ScoringHealth::default())),
-            checkpoint: Mutex::new(CheckpointSettings::default()),
+            checkpoint: Arc::new(Mutex::new(CheckpointSettings::default())),
             feed_task: Mutex::new(None),
         }
     }
@@ -270,7 +270,7 @@ impl Addon for AnomalyAddon {
         let verdict_tx = self.verdict_tx.clone();
         let telemetry_drops = self.telemetry_drops.clone();
         let scoring_health = self.scoring_health.clone();
-        let checkpoint = lock_checkpoint_settings(&self.checkpoint).clone();
+        let checkpoint = self.checkpoint.clone();
         let (ack_tx, ack_rx) = mpsc::channel::<Result<MetricFeedAck, Status>>(ACK_CHANNEL_DEPTH);
 
         if let Some(prior) = lock_feed_task(&self.feed_task).take() {
@@ -296,9 +296,17 @@ impl Addon for AnomalyAddon {
 
                 // Persist the re-warm checkpoint on a frame cadence (best-effort;
                 // a write failure never blocks or fails the feed).
+                // Read the settings on every frame rather than once at stream
+                // open: a config-only update from the agent lands while this
+                // stream is running, and an operator who just turned
+                // checkpointing on expects it to take effect without a restart.
                 frame_count += 1;
-                if let Some(path) = checkpoint.path.as_ref()
-                    && frame_count.is_multiple_of(checkpoint.write_every)
+                let (path, write_every) = {
+                    let settings = lock_checkpoint_settings(&checkpoint);
+                    (settings.path.clone(), settings.write_every)
+                };
+                if let Some(path) = path.as_ref()
+                    && frame_count.is_multiple_of(write_every)
                 {
                     write_checkpoint(&engine, path);
                 }
@@ -317,7 +325,8 @@ impl Addon for AnomalyAddon {
 
             // Flush a final checkpoint on graceful stream end so the freshest
             // baselines survive an expected restart.
-            if let Some(path) = checkpoint.path.as_ref() {
+            let final_path = lock_checkpoint_settings(&checkpoint).path.clone();
+            if let Some(path) = final_path.as_ref() {
                 write_checkpoint(&engine, path);
             }
         });
