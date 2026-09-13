@@ -29,7 +29,7 @@ use crate::engine::{
 };
 
 pub(crate) const ADDON_ID: &str = "anomaly";
-pub(crate) const ADDON_VERSION: &str = "0.3.10";
+pub(crate) const ADDON_VERSION: &str = "0.3.11";
 pub(crate) const VERDICT_CHANNEL_DEPTH: usize = 256;
 pub(crate) const ACK_CHANNEL_DEPTH: usize = 64;
 pub(crate) const OCSF_CLASS_EVENT_LOG_ACTIVITY: i64 = 1008;
@@ -94,6 +94,10 @@ pub(crate) struct AddonConfig {
     /// 1.5). Caps a single sample's drift evidence at `clip - k`.
     #[serde(default, deserialize_with = "deserialize_optional_f64")]
     pub(crate) drift_residual_clip: Option<f64>,
+    /// Rolling-window samples required before the drift anchor is captured
+    /// (default: the full window).
+    #[serde(default, deserialize_with = "deserialize_optional_usize")]
+    pub(crate) drift_anchor_min_samples: Option<usize>,
     /// Consecutive recovered samples before an open drift episode clears.
     #[serde(default, deserialize_with = "deserialize_optional_u64")]
     pub(crate) drift_clear_slots: Option<u64>,
@@ -550,6 +554,10 @@ impl AddonConfig {
                 .drift_residual_clip
                 .filter(|v| v.is_finite() && *v > 0.0)
                 .unwrap_or(DEFAULT_DRIFT_RESIDUAL_CLIP),
+            drift_anchor_min_samples: self
+                .drift_anchor_min_samples
+                .unwrap_or(window_size)
+                .clamp(min_samples.min(window_size), window_size),
             drift_clear_slots: self
                 .drift_clear_slots
                 .filter(|v| *v > 0)

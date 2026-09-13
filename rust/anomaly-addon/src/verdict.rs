@@ -358,6 +358,7 @@ pub(crate) fn cusum_drift_record_with_policy(
             "drift_direction": direction,
             "drift_target": drift.target,
             "drift_scale": drift.scale,
+            "drift_level": drift.level,
             "drift_shift_sigma": drift.shift_estimate,
             "clear_reason": clear_reason,
             "update_reason": update_reason,

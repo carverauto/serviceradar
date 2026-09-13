@@ -115,6 +115,11 @@ pub struct EngineConfig {
     /// sample's contribution at `clip - k` keeps a short burst from carrying a drift
     /// confirmation by itself and makes "sustained" a minimum sample count.
     pub drift_residual_clip: f64,
+    /// Rolling-window samples required before the CUSUM anchor is captured. The
+    /// anchor freezes the level drift is measured against, so it must come from a
+    /// mature baseline: a cold start that anchors on its first `min_samples` in an
+    /// overnight trough reads the morning ramp as sustained drift.
+    pub drift_anchor_min_samples: usize,
     /// Consecutive recovered samples before an open drift episode clears.
     pub drift_clear_slots: u64,
     /// Samples after open before a persistent new level is adopted and cleared.
@@ -159,6 +164,7 @@ impl Default for EngineConfig {
             drift_confirm_window: DEFAULT_DRIFT_CONFIRM_WINDOW,
             drift_min_effect: DEFAULT_DRIFT_MIN_EFFECT,
             drift_residual_clip: DEFAULT_DRIFT_RESIDUAL_CLIP,
+            drift_anchor_min_samples: DEFAULT_WINDOW_SIZE,
             drift_clear_slots: DEFAULT_DRIFT_CLEAR_SLOTS,
             drift_adopt_after_samples: DEFAULT_DRIFT_ADOPT_AFTER_SAMPLES,
             spike_adopt_after_samples: DEFAULT_SPIKE_ADOPT_AFTER_SAMPLES,
@@ -215,6 +221,8 @@ struct DriftSample {
     standardized_residual: f64,
     target: f64,
     scale: f64,
+    /// Mean raw value over the run, in metric units: the level the series moved to.
+    level: f64,
     /// Whether the accumulator in the drift's direction crossed `h` on this sample.
     /// While an episode is open this is the recovery test: an episode clears once
     /// the same statistic that opened it stops alarming.
@@ -257,12 +265,23 @@ fn drift_episode(state: &SeriesState, ended_at_unix_nano: u64) -> Option<Anomaly
     })
 }
 
+/// Samples the rolling window must hold before the drift anchor is captured: the
+/// configured `drift_anchor_min_samples`, never below `min_samples` and never
+/// above the window itself.
+pub(crate) fn drift_anchor_min_samples(config: &EngineConfig) -> usize {
+    config
+        .drift_anchor_min_samples
+        .max(config.min_samples)
+        .min(config.window_size.max(1))
+}
+
 fn reset_drift_pending_and_cusum(state: &mut SeriesState) {
     if let Some(cusum) = state.cusum.as_mut() {
         cusum.reset();
     }
     state.cusum_run_samples = 0;
     state.cusum_run_residual_sum = 0.0;
+    state.cusum_run_value_sum = 0.0;
     state.cusum_pending_direction = None;
     state.cusum_pending_samples = 0;
 }
@@ -278,6 +297,7 @@ fn clear_drift_episode_state(state: &mut SeriesState) {
     state.drift_active_samples = 0;
     state.drift_clear_samples = 0;
     state.drift_active_residual_sum = 0.0;
+    state.drift_active_value_sum = 0.0;
     state.drift_last_emitted_at_unix_nano = None;
 }
 
@@ -445,6 +465,7 @@ fn clear_open_drift_episode(
         direction: sample.direction,
         target: sample.target,
         scale: sample.scale,
+        level: sample.level,
         shift_estimate: sample.shift_estimate,
         transition: AnomalyTransition::Clear,
         episode,
@@ -534,6 +555,7 @@ fn apply_drift_lifecycle(
                 direction: sample.direction,
                 target: sample.target,
                 scale: sample.scale,
+                level: sample.level,
                 shift_estimate: sample.shift_estimate,
                 transition: AnomalyTransition::Update,
                 episode: drift_episode(state, ctx.observed_at_unix_nano),
@@ -586,6 +608,7 @@ fn apply_drift_lifecycle(
         direction: sample.direction,
         target: sample.target,
         scale: sample.scale,
+        level: sample.level,
         shift_estimate: sample.shift_estimate,
         transition: if reuse_previous_episode {
             AnomalyTransition::Update
@@ -1164,7 +1187,9 @@ impl DetectorEngine {
         }
 
         if profile.drift_mode != DriftMode::Off {
-            if state.cusum_anchor.is_none() && state.window_tail.len() >= self.config.min_samples {
+            if state.cusum_anchor.is_none()
+                && state.window_tail.len() >= drift_anchor_min_samples(&self.config)
+            {
                 // Anchor to the ROBUST center/scale (median + MAD*1.4826), matching
                 // the rolling detector's dispersion. The scale uses the same
                 // magnitude-aware floor as robust scoring so a quiet series cannot
@@ -1182,7 +1207,7 @@ impl DetectorEngine {
                 && state.cusum_anchor.is_some()
                 && !state.drift_active
                 && state.cusum_pending_direction.is_none()
-                && state.window_tail.len() >= self.config.min_samples
+                && state.window_tail.len() >= drift_anchor_min_samples(&self.config)
                 && elapsed_ns(
                     observed_at_unix_nano,
                     state.cusum_anchor_captured_at_unix_nano,
@@ -1242,10 +1267,11 @@ impl DetectorEngine {
                         cusum.reset();
                     }
                     state.drift_active_residual_sum += standardized_residual;
-                    let shift_estimate = mean_shift(
-                        state.drift_active_residual_sum,
-                        state.drift_active_samples.saturating_add(1),
-                    );
+                    state.drift_active_value_sum += value;
+                    let active_samples = state.drift_active_samples.saturating_add(1);
+                    let shift_estimate =
+                        mean_shift(state.drift_active_residual_sum, active_samples);
+                    let level = state.drift_active_value_sum / active_samples.max(1) as f64;
                     drift_sample = Some(DriftSample {
                         pos: step.pos,
                         neg: step.neg,
@@ -1254,6 +1280,7 @@ impl DetectorEngine {
                         standardized_residual,
                         target,
                         scale,
+                        level,
                         re_alarmed,
                     });
                 } else {
@@ -1261,11 +1288,13 @@ impl DetectorEngine {
                     if step.pos <= 0.0 && step.neg <= 0.0 {
                         state.cusum_run_samples = 0;
                         state.cusum_run_residual_sum = 0.0;
+                        state.cusum_run_value_sum = 0.0;
                         state.cusum_pending_direction = None;
                         state.cusum_pending_samples = 0;
                     } else {
                         state.cusum_run_samples = state.cusum_run_samples.saturating_add(1);
                         state.cusum_run_residual_sum += standardized_residual;
+                        state.cusum_run_value_sum += value;
                     }
 
                     if let Some(pending_direction) = state.cusum_pending_direction {
@@ -1282,6 +1311,8 @@ impl DetectorEngine {
                             // how far the level actually moved, in sigma.
                             let shift_estimate =
                                 mean_shift(state.cusum_run_residual_sum, state.cusum_run_samples);
+                            let level =
+                                state.cusum_run_value_sum / state.cusum_run_samples.max(1) as f64;
 
                             if gate_allows && shift_estimate >= self.config.drift_min_effect {
                                 drift_sample = Some(DriftSample {
@@ -1292,6 +1323,7 @@ impl DetectorEngine {
                                     standardized_residual,
                                     target,
                                     scale,
+                                    level,
                                     re_alarmed: true,
                                 });
                             }
@@ -1299,6 +1331,7 @@ impl DetectorEngine {
                             cusum.reset();
                             state.cusum_run_samples = 0;
                             state.cusum_run_residual_sum = 0.0;
+                            state.cusum_run_value_sum = 0.0;
                             state.cusum_pending_direction = None;
                             state.cusum_pending_samples = 0;
                         }
