@@ -550,6 +550,99 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
     assert html =~ "shaded band is the drift episode"
   end
 
+  # Rows read back from the events entity keep the verdict payload under
+  # `unmapped.anomaly`, and add-ons before 0.3.8 published no drift target: the
+  # baseline then comes from the seasonal signal when it was ready, else rolling.
+  test "draws the drift band for a live event row whose payload sits under unmapped" do
+    episode_started_at = ~U[2026-06-22 13:30:00Z]
+
+    anomaly = %{
+      "id" => "event-drift-live",
+      "finding_uid" => "finding-drift-live",
+      "finding_title" => "snmp sustained drift on switch-1",
+      "metric_class" => "snmp",
+      "metric_name" => "ifInUcastPkts",
+      "if_index" => 23,
+      "severity" => "Medium",
+      "status" => "open",
+      "time" => "2026-06-22T16:00:00Z",
+      "unmapped" => %{
+        "detector_method" => "cusum_drift",
+        "anomaly" => %{
+          "detector_method" => "cusum_drift",
+          "drift_direction" => "upward",
+          "episode_started_at_unix_nano" => DateTime.to_unix(episode_started_at, :nanosecond),
+          "reason" => "sustained upward drift",
+          "signals" => [
+            %{"name" => "rolling", "ready" => true, "mean" => 120.0, "stddev" => 15.0},
+            %{"name" => "seasonal", "ready" => true, "mean" => 130.0, "stddev" => 9.0}
+          ]
+        }
+      }
+    }
+
+    overview = %{
+      status: :ok,
+      anomaly_rows: [anomaly],
+      capacity_rows: [],
+      anomaly_query: "in:events limit:20",
+      capacity_query: "in:capacity_forecasts limit:12",
+      anomaly_filter: %{field: "service_radar_device_uid", label: "device", value: "switch-1"},
+      capacity_filter: %{field: "resource_id", label: "device", value: "switch-1"},
+      anomaly_error: nil,
+      capacity_error: nil,
+      metric_statuses: []
+    }
+
+    points =
+      for minute <- 0..(6 * 60)//10 do
+        {DateTime.add(~U[2026-06-22 10:30:00Z], minute * 60, :second), 120.0 + rem(minute, 7)}
+      end
+
+    metric_sections = [
+      %{
+        key: "interfaces",
+        title: "Interface metrics",
+        subtitle: "selected finding window",
+        error: nil,
+        panels: [
+          %{
+            plugin: Timeseries,
+            id: "if-23",
+            assigns: %{
+              chart_mode: :single,
+              rate_mode: :none,
+              series_points: [{"ifInUcastPkts", points}]
+            }
+          }
+        ]
+      }
+    ]
+
+    html =
+      render_component(&AnomalyCapacityComponents.anomaly_capacity_section/1,
+        overview: overview,
+        detail: %{kind: "anomaly", row: anomaly},
+        metric_sections: metric_sections,
+        timezone: "Etc/UTC"
+      )
+
+    document = LazyHTML.from_fragment(html)
+    panel_selector = "#panel-anomaly-capacity-detail-interfaces-if-23-0"
+
+    assert LazyHTML.attribute(
+             LazyHTML.query(document, "#{panel_selector} [data-testid=timeseries-reference-line]"),
+             "data-reference-label"
+           ) == ["Drift baseline (130)"]
+
+    assert LazyHTML.attribute(
+             LazyHTML.query(document, "#{panel_selector} [data-testid=timeseries-anomaly-window]"),
+             "data-overlay-label"
+           ) == ["Drift episode"]
+
+    assert html =~ "shaded band is the drift episode"
+  end
+
   test "renders an explicit note when the detail marker is outside the metric context window" do
     capacity = %{
       "finding_title" => "Capacity forecast: memory",

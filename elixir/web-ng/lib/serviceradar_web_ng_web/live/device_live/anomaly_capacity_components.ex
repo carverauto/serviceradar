@@ -812,8 +812,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
 
   defp drift_context(_row), do: nil
 
+  # Rows read back from the events entity carry the verdict under `unmapped.anomaly`
+  # (and mirror a few keys at `unmapped.*`); projected rows use `metadata.anomaly`.
   defp anomaly_field_paths(key) do
-    [["metadata", "anomaly", key], ["raw_data", "anomaly", key], [key]]
+    [
+      ["metadata", "anomaly", key],
+      ["unmapped", "anomaly", key],
+      ["raw_data", "anomaly", key],
+      ["unmapped", key],
+      [key]
+    ]
   end
 
   # Findings emitted before the add-on published the drift target carry the same
@@ -826,9 +834,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
     if is_number(target) and is_number(scale) do
       {target, scale}
     else
-      signals =
-        get_in(row, ["metadata", "anomaly", "signals"]) ||
-          get_in(row, ["raw_data", "anomaly", "signals"])
+      signals = first_present(row, anomaly_field_paths("signals"))
 
       signal_target_and_scale(signals)
     end
