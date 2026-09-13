@@ -1051,11 +1051,9 @@ func (h *harness) testGroupD(t *testing.T) {
 			t.Errorf("spool watermark advanced past seq %d during a NATS outage (resolved=%d) -- withholding invariant violated", seq, resolved)
 		}
 
-		// This probe proves the WITHHOLDING half of Group D (b): only the
-		// negative half (withholding under an outage) is proven end-to-end
-		// here. A "restore NATS and confirm eventual delivery" positive
-		// half is covered implicitly: the broker is restored below and
-		// every later group (D2, E, F) runs live against it.
+		// The negative half of Group D (b): the entry is withheld while the
+		// broker is down. The positive half (restore NATS, confirm eventual
+		// delivery) is asserted below after Restart.
 		if n := h.rpcQueryCount(t, eventLedgerExistsSQL(fx2.NetworkScopeID, fx2.EventID)); n != 0 {
 			t.Errorf("event_ledger row appeared for an entry that should have been withheld by a NATS outage")
 		}
@@ -1068,6 +1066,21 @@ func (h *harness) testGroupD(t *testing.T) {
 		// chain the running releases reject, so it must not be used here.
 		if err := h.nats.Restart(); err != nil {
 			t.Fatalf("restart embedded nats after cut probe: %v", err)
+		}
+
+		deadline := time.Now().Add(pollTimeout)
+		var landed int
+		for time.Now().Before(deadline) {
+			landed = h.rpcQueryCount(t, eventLedgerExistsSQL(fx2.NetworkScopeID, fx2.EventID))
+			if landed == 1 {
+				break
+			}
+			time.Sleep(pollInterval)
+		}
+		if landed != 1 {
+			t.Fatalf("withheld entry never landed in event_ledger within %s after NATS restart (count=%d); the gateway or core did not reconnect, so D2/E/F cannot run against a live pipeline -- see %s and %s in this test's undeclared outputs",
+				pollTimeout, landed,
+				h.preservedLogName(h.gwProc.stderrPath), h.preservedLogName(h.coreProc.stderrPath))
 		}
 	})
 
