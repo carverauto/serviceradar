@@ -55,6 +55,8 @@ pub enum ServeError {
     Stdout(std::io::Error),
     #[error("gRPC transport error: {0}")]
     Transport(#[from] tonic::transport::Error),
+    #[error("gRPC server task failed: {0}")]
+    Server(tokio::task::JoinError),
 }
 
 /// Serves `addon` over the go-plugin transport until the host terminates the
@@ -158,27 +160,74 @@ pub async fn serve_on_listener<A: Addon>(
             });
 
             let incoming = tokio_stream::wrappers::ReceiverStream::new(rx);
-            router
-                .serve_with_incoming_shutdown(incoming, shutdown_signal(inner.clone()))
-                .await?;
+            let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+            let server = router.serve_with_incoming_shutdown(incoming, async move {
+                let _ = shutdown_rx.await;
+            });
+            serve_until_signal(server, shutdown_tx, inner.clone()).await?;
         }
         // No AutoMTLS (host launched without PLUGIN_CLIENT_CERT): serve plaintext
         // gRPC over the Unix socket, which the host restricts by directory.
         None => {
             let incoming = UnixListenerStream::new(listener);
-            router
-                .serve_with_incoming_shutdown(incoming, shutdown_signal(inner.clone()))
-                .await?;
+            let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+            let server = router.serve_with_incoming_shutdown(incoming, async move {
+                let _ = shutdown_rx.await;
+            });
+            serve_until_signal(server, shutdown_tx, inner.clone()).await?;
         }
     }
 
     Ok(())
 }
 
+/// How long the gRPC server may drain after the shutdown signal before the
+/// process gives up on it. The host keeps long-lived streams (telemetry, the
+/// metric feed) open for the life of the add-on, and tonic's graceful shutdown
+/// waits for every open stream, so an unbounded drain never finishes: the
+/// process would outlive its RPC server, the supervisor would report it
+/// unhealthy without restarting it (it restarts on exit), and every upgrade
+/// would end in SIGKILL with no chance to flush state.
+pub const GRACEFUL_EXIT_BOUND: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Runs `server` until the process receives SIGINT or SIGTERM (or the server ends
+/// on its own), then gives the add-on its `shutdown()` hook, asks the server to
+/// drain, and returns once it has drained or [`GRACEFUL_EXIT_BOUND`] elapses.
+async fn serve_until_signal<F>(
+    server: F,
+    shutdown_tx: tokio::sync::oneshot::Sender<()>,
+    addon: Arc<dyn Addon>,
+) -> Result<(), ServeError>
+where
+    F: std::future::Future<Output = Result<(), tonic::transport::Error>> + Send + 'static,
+{
+    let mut task = tokio::spawn(server);
+    tokio::select! {
+        joined = &mut task => {
+            return match joined {
+                Ok(result) => result.map_err(ServeError::from),
+                Err(err) => Err(ServeError::Server(err)),
+            };
+        }
+        _ = shutdown_signal() => {}
+    }
+
+    let _ = addon.shutdown().await;
+    let _ = shutdown_tx.send(());
+    match tokio::time::timeout(GRACEFUL_EXIT_BOUND, &mut task).await {
+        Ok(Ok(result)) => result.map_err(ServeError::from),
+        Ok(Err(_cancelled)) => Ok(()),
+        Err(_elapsed) => {
+            // Streams the host never closes are still open: leave without them.
+            task.abort();
+            Ok(())
+        }
+    }
+}
+
 /// Resolves when the process receives SIGINT or SIGTERM. go-plugin clients kill
-/// plugins with a signal on shutdown; we stop the server gracefully so the
-/// Unix-domain socket is cleaned up.
-async fn shutdown_signal(addon: Arc<dyn Addon>) {
+/// plugins with a signal on shutdown.
+async fn shutdown_signal() {
     use tokio::signal::unix::{SignalKind, signal};
     let mut sigint = signal(SignalKind::interrupt()).expect("install SIGINT handler");
     let mut sigterm = signal(SignalKind::terminate()).expect("install SIGTERM handler");
@@ -186,8 +235,6 @@ async fn shutdown_signal(addon: Arc<dyn Addon>) {
         _ = sigint.recv() => {}
         _ = sigterm.recv() => {}
     }
-
-    let _ = addon.shutdown().await;
 }
 
 /// Adapts an [`Addon`] to the generated `AddonService` gRPC server.

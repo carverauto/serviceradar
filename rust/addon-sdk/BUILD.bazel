@@ -94,3 +94,17 @@ rust_test(
         "@crates//:tower",
     ],
 )
+
+rust_test(
+    name = "addon_sdk_graceful_shutdown_test",
+    srcs = ["tests/graceful_shutdown.rs"],
+    crate_root = "tests/graceful_shutdown.rs",
+    proc_macro_deps = ADDON_SDK_PROC_MACROS,
+    # rcgen is already in ADDON_SDK_DEPS; adding it again duplicates the dep label
+    # and puts the package in error. Only test-only crates belong here.
+    deps = ADDON_SDK_DEPS + [":addon_sdk"] + [
+        "@crates//:hyper-util",
+        "@crates//:tempfile",
+        "@crates//:tower",
+    ],
+)
