@@ -1093,9 +1093,10 @@ func (h *harness) testGroupD(t *testing.T) {
 		// against CURRENT_USER inside the SAME session risks locking the
 		// release's OWN connection out for the rest of the test run, not
 		// just this probe, since Ecto pools and reuses connections). The
-		// weaker, but still real, technique used here: kill the core
-		// release process (SIGKILL via Stop, which sends SIGTERM then
-		// force-kills) BEFORE it can ack a fresh in-flight publish, which
+		// weaker, but still real, technique used here: SIGKILL the core
+		// release process directly (no graceful `stop` first, which would
+		// let the EventWriter pipeline finish and commit before exit)
+		// BEFORE it can ack a fresh in-flight publish, which
 		// is a real production failure mode that also prevents the
 		// transaction from completing, then restart it and confirm the
 		// message is eventually processed once core recovers -- WITHOUT
@@ -1116,10 +1117,19 @@ func (h *harness) testGroupD(t *testing.T) {
 		}
 
 		// Let the agent get it published to NATS (gateway ack does not
-		// depend on core being alive), then kill core before it can
-		// process/ack it.
+		// depend on core being alive), then SIGKILL core before it can
+		// process/ack it. This is deliberately NOT ReleaseProcess.Stop:
+		// Stop runs the release's graceful `stop` first, which drains the
+		// EventWriter and commits fx3 before exit, so the redelivery path
+		// would never execute. The SIGKILLed process is reaped by the
+		// Stop cleanup newHarness registered for it.
 		time.Sleep(3 * agentPollInterval)
-		h.coreProc.Stop()
+		if h.coreProc == nil || h.coreProc.cmd == nil || h.coreProc.cmd.Process == nil {
+			t.Fatal("core release has no OS process to SIGKILL")
+		}
+		if err := h.coreProc.cmd.Process.Kill(); err != nil {
+			t.Fatalf("SIGKILL core release: %v", err)
+		}
 
 		coreTarPath := mustRlocation(t, coreReleaseTarRlocation)
 		restarted, err := StartRelease(
