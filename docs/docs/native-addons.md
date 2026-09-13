@@ -248,7 +248,21 @@ the agent runtime root. The default layout is:
       serviceradar-workload-identity.service
       workload-identity.json
     current -> versions/0.1.2
+  anomaly/
+    versions/0.3.9/
+      serviceradar-anomaly-addon
+    current -> versions/0.3.9
+    state/
+      checkpoint.json
 ```
+
+`state/` is the add-on's persistent state directory. The agent creates it (mode
+`0700`, owned by the agent user the sidecar also runs as) before every spawn and
+passes its path to the process as `SERVICERADAR_ADDON_STATE_DIR`. It sits beside
+`versions/` and `current`, so flipping `current` for an upgrade or rollback never
+touches it, and it is the place an add-on keeps anything that must outlive its own
+restarts. The anomaly add-on writes its re-warm checkpoint there by default; an
+operator only sets `checkpoint_path` to move it somewhere else.
 
 The `current` symlink is the activation boundary. The agent verifies the artifact,
 stages the versioned directory, applies required file capabilities through the

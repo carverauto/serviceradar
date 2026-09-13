@@ -529,7 +529,7 @@
     "checkpoint_path": {
       "type": "string",
       "title": "Restart checkpoint file path",
-      "description": "Local path the add-on atomically persists its per-series baselines + counter state to, so a restart re-warms instead of cold-starting (which would storm false positives while windows refill). Unset disables checkpointing.",
+      "description": "Local path the add-on atomically persists its per-series baselines + counter state to, so a restart re-warms instead of cold-starting (which would storm false positives while windows refill). Optional: when unset, the add-on writes checkpoint.json inside the per-add-on state directory the agent provides (SERVICERADAR_ADDON_STATE_DIR, <agent runtime root>/addons/anomaly/state), which survives add-on upgrades and agent restarts. Set a path only to move the checkpoint elsewhere; a missing parent directory is created on the first write. Checkpointing is off only when neither is available.",
       "minLength": 1
     },
     "checkpoint_max_age_secs": {

@@ -309,6 +309,31 @@ Kill switches exist at multiple layers:
 - event-writer episode kill switch `EVENT_WRITER_ANOMALY_EPISODES` (default
   on; set `false` to fall back to per-row anomaly ingest).
 
+## Restart Checkpoint
+
+The detector's per-series state (rolling window, robust scale, CUSUM
+accumulators, open episodes and the pending latch) lives only in the add-on
+process. Without a checkpoint, every add-on upgrade and every agent restart
+cold-starts the detector: it is blind for `min_samples`, its open episodes are
+never cleared by the producer (core stale-closes them instead of recording a
+recovery), and the first samples after the gap are scored against an empty
+window.
+
+The add-on persists a checkpoint every 100 feed frames and re-warms from it on
+`configure()`. Where the file lives is resolved in this order:
+
+```text
+checkpoint_path (explicit operator param)
+  > $SERVICERADAR_ADDON_STATE_DIR/checkpoint.json (agent-provided state dir)
+    > no checkpoint (cold start on every restart)
+```
+
+The agent hands every sidecar add-on a persistent state directory,
+`<agent runtime root>/addons/anomaly/state`, created before each spawn and kept
+across artifact upgrades, so the default is a working checkpoint with no
+operator configuration. Series older than `checkpoint_max_age_secs` (default
+6 h) are not reseeded from the file.
+
 ## Alert Pipeline
 
 The alert engine consumes episode transitions. Rules should fire on opens,

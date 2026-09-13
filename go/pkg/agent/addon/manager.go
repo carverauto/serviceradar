@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -511,6 +512,19 @@ func (r *runner) runOnce(ctx context.Context) error {
 		localEndpoint = r.localOtlpEndpoint()
 	}
 	cmd.Env = addonProcessEnv(os.Environ(), r.id, localEndpoint)
+
+	// Persistent per-add-on state directory (SERVICERADAR_ADDON_STATE_DIR). Created
+	// at every spawn so it exists before the add-on's first Configure, and
+	// best-effort: a host that cannot provide it still gets a running add-on, one
+	// that cold-starts on restart the way it always did.
+	if dir := strings.TrimSpace(spec.StateDir); dir != "" {
+		if err := ensureAddonStateDir(dir); err != nil {
+			r.cfg.Logger.Warn().Err(err).Str("addon", r.id).Str("state_dir", dir).
+				Msg("addon state directory unavailable; launching without one")
+		} else {
+			cmd.Env = addonStateEnv(cmd.Env, dir)
+		}
+	}
 
 	// Enforce the manifest resource limits on the add-on subprocess (cgroup v2 on
 	// Linux). Best-effort: a failure to enforce logs, is surfaced through status,
