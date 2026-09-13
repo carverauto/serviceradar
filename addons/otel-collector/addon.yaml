@@ -14,7 +14,7 @@
 # the runtime agree.
 id: otel-collector
 name: OTEL Collector Add-on
-version: 0.1.6
+version: 0.1.7
 description: >-
   Edge OpenTelemetry collector for ServiceRadar. Accepts OTLP traces, logs,
   and metrics on local gRPC/HTTP listeners. The default required install
