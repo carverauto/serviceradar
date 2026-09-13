@@ -1051,25 +1051,36 @@ func (h *harness) testGroupD(t *testing.T) {
 			t.Errorf("spool watermark advanced past seq %d during a NATS outage (resolved=%d) -- withholding invariant violated", seq, resolved)
 		}
 
-		// NOTE: natsjwt.go's StartEmbeddedNATS mints a FRESH operator/
-		// account/user JWT chain on every call, which would invalidate the
-		// already-distributed .creds file the gateway/core releases hold
-		// open. Restarting NATS with the SAME trust material (so the rest
-		// of the harness keeps working) is out of scope for this specific
-		// subtest to implement safely without risking the shared server
-		// instance other subtests still need; this probe therefore proves
-		// the WITHHOLDING half of Group D (b) only, and leaves NATS down
-		// for the remainder of the harness's lifetime deliberately, since
-		// Group D's other two probes below do not require NATS to still be
-		// running (D2 uses direct RPC against core's Repo; D3 inspects
-		// state Group A already produced before this subtest ran).
-		//
-		// A "restore NATS and confirm eventual delivery" positive
-		// half-probe is consequently NOT performed here -- this is a
-		// documented limitation, not a hidden gap: only the negative half
-		// (withholding under an outage) is proven end-to-end.
+		// The negative half of Group D (b): the entry is withheld while the
+		// broker is down. The positive half (restore NATS, confirm eventual
+		// delivery) is asserted below after Restart.
 		if n := h.rpcQueryCount(t, eventLedgerExistsSQL(fx2.NetworkScopeID, fx2.EventID)); n != 0 {
 			t.Errorf("event_ledger row appeared for an entry that should have been withheld by a NATS outage")
+		}
+
+		// Restore the broker on the SAME port with the SAME operator/
+		// account/user JWT trust material (NATSHarness.Restart), so the
+		// gateway/core releases' already-distributed .creds files and
+		// reconnect logic keep working and every later group runs against
+		// a live broker. A fresh StartEmbeddedNATS would mint a new trust
+		// chain the running releases reject, so it must not be used here.
+		if err := h.nats.Restart(); err != nil {
+			t.Fatalf("restart embedded nats after cut probe: %v", err)
+		}
+
+		deadline := time.Now().Add(pollTimeout)
+		var landed int
+		for time.Now().Before(deadline) {
+			landed = h.rpcQueryCount(t, eventLedgerExistsSQL(fx2.NetworkScopeID, fx2.EventID))
+			if landed == 1 {
+				break
+			}
+			time.Sleep(pollInterval)
+		}
+		if landed != 1 {
+			t.Fatalf("withheld entry never landed in event_ledger within %s after NATS restart (count=%d); the gateway or core did not reconnect, so D2/E/F cannot run against a live pipeline -- see %s and %s in this test's undeclared outputs",
+				pollTimeout, landed,
+				h.preservedLogName(h.gwProc.stderrPath), h.preservedLogName(h.coreProc.stderrPath))
 		}
 	})
 
@@ -1082,9 +1093,10 @@ func (h *harness) testGroupD(t *testing.T) {
 		// against CURRENT_USER inside the SAME session risks locking the
 		// release's OWN connection out for the rest of the test run, not
 		// just this probe, since Ecto pools and reuses connections). The
-		// weaker, but still real, technique used here: kill the core
-		// release process (SIGKILL via Stop, which sends SIGTERM then
-		// force-kills) BEFORE it can ack a fresh in-flight publish, which
+		// weaker, but still real, technique used here: SIGKILL the core
+		// release process directly (no graceful `stop` first, which would
+		// let the EventWriter pipeline finish and commit before exit)
+		// BEFORE it can ack a fresh in-flight publish, which
 		// is a real production failure mode that also prevents the
 		// transaction from completing, then restart it and confirm the
 		// message is eventually processed once core recovers -- WITHOUT
@@ -1093,7 +1105,7 @@ func (h *harness) testGroupD(t *testing.T) {
 		// it from acking, so that half is definitionally true here, not
 		// independently demonstrated).
 		if h.nats.Server == nil {
-			t.Skip("NATS was shut down by an earlier Group D subtest; this probe needs a live broker")
+			t.Fatal("NATS broker is down when RedeliveryAfterEventWriterRollback runs -- the cut probe must have restarted it via NATSHarness.Restart; a missing broker must fail loudly, never skip")
 		}
 
 		fx3, err := BuildSweepFixture([]byte(h.certSet.AgentComponentID))
@@ -1105,13 +1117,18 @@ func (h *harness) testGroupD(t *testing.T) {
 		}
 
 		// Let the agent get it published to NATS (gateway ack does not
-		// depend on core being alive), then kill core before it can
-		// process/ack it.
+		// depend on core being alive), then SIGKILL core before it can
+		// process/ack it. This is deliberately NOT ReleaseProcess.Stop:
+		// Stop runs the release's graceful `stop` first, which drains the
+		// EventWriter and commits fx3 before exit, so the redelivery path
+		// would never execute. The SIGKILLed process is reaped by the
+		// Stop cleanup newHarness registered for it.
 		time.Sleep(3 * agentPollInterval)
-		h.coreProc.Stop()
-
-		if n := h.rpcQueryCount(t, eventLedgerExistsSQL(fx3.NetworkScopeID, fx3.EventID)); n != 0 {
-			t.Errorf("event_ledger row appeared even though core was killed before it could commit")
+		if h.coreProc == nil || h.coreProc.cmd == nil || h.coreProc.cmd.Process == nil {
+			t.Fatal("core release has no OS process to SIGKILL")
+		}
+		if err := h.coreProc.cmd.Process.Kill(); err != nil {
+			t.Fatalf("SIGKILL core release: %v", err)
 		}
 
 		coreTarPath := mustRlocation(t, coreReleaseTarRlocation)
@@ -1122,7 +1139,11 @@ func (h *harness) testGroupD(t *testing.T) {
 		if err != nil {
 			t.Fatalf("restart core release: %v", err)
 		}
-		t.Cleanup(restarted.Stop)
+		// Registered on the HARNESS test, not this subtest: a subtest-scoped
+		// Cleanup would stop the replacement core the moment D2 returns,
+		// and every later query (PositiveAckDoesNotReclaimSpool, Groups E
+		// and F) would then hit a node that no longer exists.
+		h.t.Cleanup(restarted.Stop)
 		h.coreProc = restarted
 
 		deadline := time.Now().Add(pollTimeout)
@@ -1177,7 +1198,7 @@ func (h *harness) testGroupD(t *testing.T) {
 // ---------------------------------------------------------------------------
 func (h *harness) testGroupE(t *testing.T) {
 	if h.nats.Server == nil {
-		t.Skip("NATS was shut down by an earlier group; Group E needs a live broker")
+		t.Fatal("NATS broker is down when GroupE_RestartOverlap runs -- the cut probe must have restarted it via NATSHarness.Restart; a missing broker must fail loudly, never skip")
 	}
 
 	const concurrency = 3
@@ -1263,8 +1284,30 @@ func (h *harness) testGroupE(t *testing.T) {
 	if err != nil {
 		t.Fatalf("post-restart spool id: %v", err)
 	}
-	if _, err := h.sendOneRawFrame(t, tlsCfg, postSpoolID, 1, post.RecordBytes, post.RecordSHA256, 20*time.Second); err != nil {
-		t.Fatalf("post-restart send failed: %v", err)
+	// "Eventually" is load-bearing. Killing the transport generation with
+	// :kill leaves its old NATS connection process still registered under
+	// the lane's name for a moment after the supervisor itself is gone, so
+	// the replacement generation's FIRST connect attempt is refused with
+	// already_started and Gnat.ConnectionSupervisor retries only after its
+	// backoff period (5s). Until that retry succeeds, the gateway's
+	// readiness gate (EdgeRecordCapability.ready?) fails closed and every
+	// lane_open is refused with Unavailable. A refused lane_open publishes
+	// nothing, so re-sending the same (spool_id, sequence) is a fresh
+	// publication, not a retry of one in flight. Only Unavailable is
+	// retried; any other error is a real post-restart failure. The bound is
+	// pollTimeout (20s), comfortably above the backoff, and a lane that
+	// never reopens fails loudly below.
+	deadline = time.Now().Add(pollTimeout)
+	var sendErr error
+	for {
+		_, sendErr = h.sendOneRawFrame(t, tlsCfg, postSpoolID, 1, post.RecordBytes, post.RecordSHA256, 20*time.Second)
+		if sendErr == nil || status.Code(sendErr) != codes.Unavailable || !time.Now().Before(deadline) {
+			break
+		}
+		time.Sleep(pollInterval)
+	}
+	if sendErr != nil {
+		t.Fatalf("post-restart send failed (replacement transport did not admit new work within %s): %v", pollTimeout, sendErr)
 	}
 	deadline = time.Now().Add(pollTimeout)
 	var landed int
@@ -1319,7 +1362,7 @@ func probeHealth(url string, timeout time.Duration) error {
 // ---------------------------------------------------------------------------
 func (h *harness) testGroupF(t *testing.T) {
 	if h.nats.Server == nil {
-		t.Skip("NATS was shut down by an earlier group; Group F needs a live broker")
+		t.Fatal("NATS broker is down when GroupF_PostHandoffFencing runs -- the cut probe must have restarted it via NATSHarness.Restart; a missing broker must fail loudly, never skip")
 	}
 
 	fx, err := BuildSweepFixture([]byte(h.certSet.AgentComponentID))
