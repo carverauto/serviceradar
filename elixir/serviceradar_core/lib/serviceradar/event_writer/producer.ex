@@ -386,16 +386,22 @@ defmodule ServiceRadar.EventWriter.Producer do
         {:error, reason}
 
       settings ->
-        case Gnat.start_link(settings) do
+        # Started WITHOUT a link. `Gnat.start_link/1` returns `{:error, reason}` when the
+        # broker refuses the connection, but its init also exits with that reason, and the
+        # link delivers the exit to this producer, which does not trap exits. During a broker
+        # outage every retry therefore killed the producer instead of reaching the
+        # `{:error, _}` branch below, and the restart storm exhausted the pipeline's restart
+        # intensity in milliseconds -- the EventWriter stayed dead after the broker returned.
+        # The connection is monitored once setup succeeds, which is all this process needs.
+        case GenServer.start(Gnat, settings) do
           {:ok, conn} ->
             case setup_jetstream_consumers(conn, config) do
               {:ok, consumer_context} ->
                 Process.monitor(conn)
-                Process.unlink(conn)
                 {:ok, conn, consumer_context}
 
               {:error, reason} ->
-                # setup_jetstream_consumers already stops conn safely (unlinked).
+                # setup_jetstream_consumers already stops conn.
                 {:error, reason}
             end
 
@@ -668,8 +674,9 @@ defmodule ServiceRadar.EventWriter.Producer do
 
   defp safe_unsub(_conn, _sid), do: :ok
 
-  # Unlink first so :kill/:shutdown does not take down the Producer GenServer.
-  # Gnat.start_link/1 links the connection to the caller until setup succeeds.
+  # Unlink first so :kill/:shutdown can never take down the Producer GenServer.
+  # connect/1 starts the connection unlinked, so this is a no-op there; it keeps
+  # the teardown safe for any caller that hands in a linked pid.
   defp safe_stop_conn(conn) when is_pid(conn) do
     if Process.alive?(conn) do
       Process.unlink(conn)

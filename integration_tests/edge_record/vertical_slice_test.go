@@ -1129,7 +1129,11 @@ func (h *harness) testGroupD(t *testing.T) {
 		if err != nil {
 			t.Fatalf("restart core release: %v", err)
 		}
-		t.Cleanup(restarted.Stop)
+		// Registered on the HARNESS test, not this subtest: a subtest-scoped
+		// Cleanup would stop the replacement core the moment D2 returns,
+		// and every later query (PositiveAckDoesNotReclaimSpool, Groups E
+		// and F) would then hit a node that no longer exists.
+		h.t.Cleanup(restarted.Stop)
 		h.coreProc = restarted
 
 		deadline := time.Now().Add(pollTimeout)
