@@ -1274,8 +1274,30 @@ func (h *harness) testGroupE(t *testing.T) {
 	if err != nil {
 		t.Fatalf("post-restart spool id: %v", err)
 	}
-	if _, err := h.sendOneRawFrame(t, tlsCfg, postSpoolID, 1, post.RecordBytes, post.RecordSHA256, 20*time.Second); err != nil {
-		t.Fatalf("post-restart send failed: %v", err)
+	// "Eventually" is load-bearing. Killing the transport generation with
+	// :kill leaves its old NATS connection process still registered under
+	// the lane's name for a moment after the supervisor itself is gone, so
+	// the replacement generation's FIRST connect attempt is refused with
+	// already_started and Gnat.ConnectionSupervisor retries only after its
+	// backoff period (5s). Until that retry succeeds, the gateway's
+	// readiness gate (EdgeRecordCapability.ready?) fails closed and every
+	// lane_open is refused with Unavailable. A refused lane_open publishes
+	// nothing, so re-sending the same (spool_id, sequence) is a fresh
+	// publication, not a retry of one in flight. Only Unavailable is
+	// retried; any other error is a real post-restart failure. The bound is
+	// pollTimeout (20s), comfortably above the backoff, and a lane that
+	// never reopens fails loudly below.
+	deadline = time.Now().Add(pollTimeout)
+	var sendErr error
+	for {
+		_, sendErr = h.sendOneRawFrame(t, tlsCfg, postSpoolID, 1, post.RecordBytes, post.RecordSHA256, 20*time.Second)
+		if sendErr == nil || status.Code(sendErr) != codes.Unavailable || !time.Now().Before(deadline) {
+			break
+		}
+		time.Sleep(pollInterval)
+	}
+	if sendErr != nil {
+		t.Fatalf("post-restart send failed (replacement transport did not admit new work within %s): %v", pollTimeout, sendErr)
 	}
 	deadline = time.Now().Add(pollTimeout)
 	var landed int
