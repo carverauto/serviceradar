@@ -602,6 +602,130 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
     assert reaped.blocked_reason == "fleet_already_on_candidate"
   end
 
+  # The agent reports the add-on it is RUNNING. Until it has applied the override
+  # that is the previous version, and its state says nothing about the candidate.
+  # Failing the target on it rolled back an agent that had not been handed the
+  # candidate yet: on demo a wedged 0.3.10 reporting unhealthy failed the 0.3.11
+  # target for its host 31 s after the override, before the agent had polled.
+  test "an unhealthy report from the previous version does not fail the candidate" do
+    actor = SystemActor.system(:addon_rollout_stale_failure_test)
+    fixture = rollout_fixture(actor)
+
+    assert {:ok, rollout} =
+             AddonRolloutCoordinator.start(fixture.assignment, fixture.candidate,
+               actor: actor,
+               now: fixture.started_at,
+               trigger: :manual
+             )
+
+    stale_at = DateTime.add(fixture.started_at, 1)
+    report_status(fixture, fixture.current.version, "unhealthy", false, stale_at, actor)
+
+    assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: actor, now: stale_at)
+    refute get_rollout(rollout.id, actor).state == :paused
+    assert get_rollout_target(rollout.id, actor).state == :waiting_health
+    assert get_assignment(fixture.assignment.id, actor).rollout_package_id == fixture.candidate.id
+
+    ready_at = DateTime.add(stale_at, 1)
+    report_status(fixture, fixture.candidate.version, "running", true, ready_at, actor)
+
+    assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: actor, now: ready_at)
+    assert get_rollout(rollout.id, actor).state == :completed
+    assert get_assignment(fixture.assignment.id, actor).addon_package_id == fixture.candidate.id
+  end
+
+  # Superseding ends a rollout, so it has to leave the source where completing it
+  # would: on the candidate, overrides cleared, target slots released. It did none
+  # of that. On demo the anomaly profile stayed on 0.3.10 while seven agents ran
+  # 0.3.11 through orphaned overrides, the catalog showed 0.3.11 assigned to
+  # nobody, and reconcile tried to start the same rollout every 30 s into the
+  # slots the superseded one still held.
+  test "superseding a rollout promotes its source and releases its target slots" do
+    actor = SystemActor.system(:addon_rollout_supersede_promotes_test)
+    {fixture, rollout, later} = superseded_profile_rollout(actor)
+
+    assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: actor, now: later)
+
+    assert get_rollout(rollout.id, actor).state == :superseded
+    assert_source_finished(fixture, rollout, actor)
+  end
+
+  # Rollouts superseded before the fix above are already terminal, so advance/2
+  # never looks at them again. Reconcile has to finish them, or every deployment
+  # that hit a supersede keeps its source stranded until someone edits the rows.
+  test "reconcile finishes a rollout that was superseded without promoting its source" do
+    actor = SystemActor.system(:addon_rollout_supersede_repair_test)
+    {fixture, rollout, later} = superseded_profile_rollout(actor)
+
+    # The end state the old supersede left behind.
+    {:ok, _} =
+      rollout
+      |> Ash.Changeset.for_update(
+        :update,
+        %{state: :superseded, blocked_reason: "fleet_already_on_candidate", completed_at: later},
+        actor: actor
+      )
+      |> Ash.update(actor: actor)
+
+    assert get_profile(fixture.profile.id, actor).addon_package_id == fixture.current.id
+
+    assert {:ok, _stats} = AddonRolloutCoordinator.reconcile(actor: actor, now: later)
+
+    assert_source_finished(fixture, rollout, actor)
+  end
+
+  defp superseded_profile_rollout(actor) do
+    fixture = profile_rollout_fixture(actor)
+
+    {:ok, rollout} =
+      AddonRolloutCoordinator.start(fixture.profile, fixture.candidate,
+        actor: actor,
+        now: fixture.started_at,
+        trigger: :manual
+      )
+
+    :ok = AddonRolloutCoordinator.pause(rollout.id, actor: actor)
+
+    dead =
+      rollout.id
+      |> list_rollout_targets(actor)
+      |> Enum.find(&(&1.agent_uid == fixture.dead_uid))
+
+    {:ok, _} =
+      dead
+      |> Ash.Changeset.for_update(
+        :update,
+        %{state: :rolled_back, reason_code: "rollback_recovery_unverified"},
+        actor: actor
+      )
+      |> Ash.update(actor: actor)
+
+    later = DateTime.add(fixture.started_at, 60)
+    report_status_for(fixture.addon_id, fixture.live_uid, fixture.candidate.version, later, actor)
+
+    {fixture, rollout, later}
+  end
+
+  defp assert_source_finished(fixture, rollout, actor) do
+    assert get_profile(fixture.profile.id, actor).addon_package_id == fixture.candidate.id
+
+    for target <- list_rollout_targets(rollout.id, actor) do
+      refute target.state in [
+               :pending,
+               :waiting_health,
+               :healthy_soak,
+               :rollback_pending,
+               :succeeded
+             ],
+             "target #{target.agent_uid} still holds its slot as #{target.state}"
+    end
+
+    for assignment <- profile_assignments(fixture.profile.id, actor) do
+      assert is_nil(assignment.rollout_package_id),
+             "assignment #{assignment.agent_uid} still carries the rollout override"
+    end
+  end
+
   # addon_rollout_targets_one_active_target_index counts :succeeded as an active
   # target, so leaving those rows behind on a canceled rollout made every later
   # rollout for the source die on a unique-constraint violation that
@@ -934,6 +1058,20 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
     |> Ash.Query.for_read(:read)
     |> Ash.Query.filter(id == ^id)
     |> Ash.read_one!(actor: actor)
+  end
+
+  defp get_profile(id, actor) do
+    AddonProfile
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(id == ^id)
+    |> Ash.read_one!(actor: actor)
+  end
+
+  defp profile_assignments(profile_id, actor) do
+    AddonAssignment
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(addon_profile_id == ^profile_id)
+    |> Ash.read!(actor: actor)
   end
 
   defp get_rollout(id, actor) do

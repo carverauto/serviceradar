@@ -63,7 +63,7 @@ func neverStartedClient() *goplugin.Client {
 		HandshakeConfig:  coreaddon.Handshake,
 		Plugins:          coreaddon.ClientPluginSet(),
 		AllowedProtocols: []goplugin.Protocol{goplugin.ProtocolGRPC},
-		Cmd:              exec.Command("true"),
+		Cmd:              exec.CommandContext(context.Background(), "true"),
 	})
 }
 
