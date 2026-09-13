@@ -55,6 +55,11 @@ Response rules run after normalization and are split into two layers:
 Use the same UI section to define simple match criteria (subject prefix, service
 name, severity, message substring) and threshold windows.
 
+Operators and admins can also start a stateful alert rule from an event's detail
+page (`/events/<id>`): the **Create alert rule** button opens a form pre-filled
+with that event's provider, severity, and message so the rule matches events like
+it. Saving returns you to the Alerts tab, where the rule can be refined further.
+
 In **Settings → Rules → Alerts** (`/settings/rules?tab=alerts`), operators can also
 edit incident controls on stateful alert rules:
 

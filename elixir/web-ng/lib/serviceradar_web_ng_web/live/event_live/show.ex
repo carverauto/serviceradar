@@ -2953,8 +2953,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
 
   defp format_error(%Jason.DecodeError{} = err), do: Exception.message(err)
   defp format_error(%ArgumentError{} = err), do: Exception.message(err)
-  defp format_error(%{errors: errors}) when is_list(errors),
-    do: Enum.map_join(errors, "; ", &format_error/1)
+  defp format_error(%{errors: errors}) when is_list(errors), do: Enum.map_join(errors, "; ", &format_error/1)
 
   defp format_error(%{field: field, message: message}) when is_atom(field) and is_binary(message),
     do: "#{field} #{message}"

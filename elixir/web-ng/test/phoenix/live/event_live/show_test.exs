@@ -13,6 +13,8 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
 
   alias ServiceRadar.Observability.StatefulAlertEngine.Record
   alias ServiceRadar.Observability.StatefulAlertEngine.RuleMatcher
+  alias ServiceRadar.Observability.StatefulAlertRule
+  alias ServiceRadarWebNG.Accounts.Scope
 
   @device_uid "sr:5bf1b6f6-0e7c-43ac-b883-a13447199d85"
   @event_id "00000000-0000-0000-0000-0000000009a1"
@@ -239,7 +241,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
     test "creates a stateful alert rule that matches the source event", %{conn: conn} do
       user = operator_user_fixture()
       conn = log_in_user(conn, user)
-      scope = ServiceRadarWebNG.Accounts.Scope.for_user(user)
+      scope = Scope.for_user(user)
 
       {:ok, lv, _html} = live(conn, ~p"/events/#{@event_id}")
 
@@ -256,7 +258,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
 
       assert_redirect(lv, ~p"/settings/rules?#{%{tab: "alerts"}}")
 
-      rules = unwrap_page(Ash.read(ServiceRadar.Observability.StatefulAlertRule, scope: scope))
+      rules = unwrap_page(Ash.read(StatefulAlertRule, scope: scope))
       rule = Enum.find(rules, &(&1.name == rule_name))
       assert rule
       assert rule.signal == :event
@@ -277,6 +279,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
       refute RuleMatcher.rule_matches_event?(other_event, rule)
 
       assert rule.group_by == ["device.uid"]
+
       assert {:ok, "device.uid=" <> @device_uid, %{"device.uid" => @device_uid}} =
                Record.build_group(rule.group_by, source_event)
     end
@@ -285,7 +288,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
     test "drops an unchecked match condition from the saved rule", %{conn: conn} do
       user = operator_user_fixture()
       conn = log_in_user(conn, user)
-      scope = ServiceRadarWebNG.Accounts.Scope.for_user(user)
+      scope = Scope.for_user(user)
 
       {:ok, lv, _html} = live(conn, ~p"/events/#{@event_id}")
 
@@ -303,7 +306,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
 
       assert_redirect(lv, ~p"/settings/rules?#{%{tab: "alerts"}}")
 
-      rules = unwrap_page(Ash.read(ServiceRadar.Observability.StatefulAlertRule, scope: scope))
+      rules = unwrap_page(Ash.read(StatefulAlertRule, scope: scope))
       rule = Enum.find(rules, &(&1.name == rule_name))
       assert rule
 
@@ -339,7 +342,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
     test "rejects a rule with no enabled match condition", %{conn: conn} do
       user = operator_user_fixture()
       conn = log_in_user(conn, user)
-      scope = ServiceRadarWebNG.Accounts.Scope.for_user(user)
+      scope = Scope.for_user(user)
 
       {:ok, lv, _html} = live(conn, ~p"/events/#{@event_id}")
 
@@ -364,7 +367,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
       assert html =~ "Enable at least one match condition"
       assert has_element?(lv, "#alert_rule_modal")
 
-      rules = unwrap_page(Ash.read(ServiceRadar.Observability.StatefulAlertRule, scope: scope))
+      rules = unwrap_page(Ash.read(StatefulAlertRule, scope: scope))
       refute Enum.any?(rules, &(&1.name == rule_name))
     end
 
