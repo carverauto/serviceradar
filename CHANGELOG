@@ -1,3 +1,47 @@
+# ServiceRadar v1.4.65
+
+The anomaly add-on no longer treats a cold start's first samples
+as the level to measure drift against, drift findings report the
+level the series actually moved to, and every Rust native add-on
+now exits promptly on SIGTERM instead of outliving its RPC server.
+
+## Whats New
+
+**1.4.65**
+- anomaly add-on 0.3.11: the CUSUM drift anchor is captured only
+  once the rolling window holds `drift_anchor_min_samples` samples
+  (default: the full `window_size`, never below `min_samples`). An
+  add-on that had cold-started in the overnight trough anchored on
+  its first thirty samples and reported the ordinary morning ramp
+  as sustained upward drift on a flat uplink (PR #438).
+- anomaly add-on 0.3.11: drift verdicts carry `drift_level`, the
+  mean raw value over the run in the metric's units. The former
+  reconstruction `drift_target + drift_shift_sigma * drift_scale`
+  overstated the level several times over: the anchor scale is
+  refreshed every sample while its center stays frozen. The
+  add-on also writes its checkpoint on shutdown (PR #438).
+- Add-on SDK: after SIGINT or SIGTERM a Rust add-on runs its
+  shutdown hook, drains its gRPC server for at most two seconds,
+  and exits. Before, the drain waited for the agent's never-ending
+  telemetry stream, the process outlived its server, the supervisor
+  reported it unhealthy without restarting it, and every upgrade
+  ended in SIGKILL with no final checkpoint. netprobe 0.2.63,
+  otel-collector 0.1.7 and powerdns 0.1.8 carry the rebuilt SDK
+  (PR #438).
+- Web: the drift finding chart draws the reported `drift_level` as
+  the sustained level and keeps the sigma reconstruction only for
+  verdicts from add-ons older than 0.3.11 (PR #438).
+
+## Upgrade Notes
+
+- After a genuine first start, drift detection now waits for a full
+  rolling window (five hours at one sample a minute) before it can
+  open an episode. Restarts with a checkpoint do not reset that
+  clock. Set `drift_anchor_min_samples` lower on a profile to trade
+  that protection for earlier detection.
+- netprobe, otel-collector and powerdns are re-released only for
+  the SDK change; their behaviour is otherwise unchanged.
+
 # ServiceRadar v1.4.64
 
 The agent now hands every native add-on a persistent state
