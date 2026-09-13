@@ -17,7 +17,9 @@
 package verticalslice
 
 import (
+	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"time"
@@ -54,6 +56,13 @@ import (
 // Left unset, the ceiling is 75% of the executor's free disk.
 const jetStreamMaxStore int64 = 1024 * 1024 * 1024 * 1024
 
+var (
+	errNATSNotReady    = errors.New("verticalslice: embedded nats server not ready")
+	errNATSNoTCPAddr   = errors.New("verticalslice: embedded nats server has no TCP address")
+	errNATSNilHarness  = errors.New("verticalslice: restart nil NATS harness")
+	errNATSLiveRestart = errors.New("verticalslice: restart with live server: Shutdown first")
+)
+
 // NATSHarness is one embedded, JetStream-enabled nats-server instance with a
 // minimal single-account JWT trust chain (full ">" publish/subscribe
 // permissions, no subject remapping), satisfying both
@@ -63,6 +72,23 @@ type NATSHarness struct {
 	Server    *server.Server
 	URL       string
 	CredsPath string
+
+	// Preserved trust and addressing material, minted once by
+	// StartEmbeddedNATS and kept across Shutdown/Restart: the SAME
+	// operator/account/user JWT chain the gateway/core releases
+	// authenticated against at boot. A fresh StartEmbeddedNATS call mints
+	// a brand-new chain the already-running releases would reject, so
+	// Restart reuses these fields instead of minting again. port is the
+	// bound client port from the first boot; restarting on it keeps URL
+	// identical so the releases' existing reconnect logic redials the
+	// same address.
+	storeDir      string
+	port          int
+	operatorJWT   string
+	accountPub    string
+	accountJWT    string
+	sysAccountPub string
+	sysAccountJWT string
 }
 
 // StartEmbeddedNATS boots the server with JetStream storage under storeDir
@@ -144,12 +170,6 @@ func StartEmbeddedNATS(storeDir, credsDir string) (*NATSHarness, error) {
 	if err != nil {
 		return nil, fmt.Errorf("verticalslice: sign operator JWT: %w", err)
 	}
-	// Decode back into the *jwt.OperatorClaims shape server.Options.TrustedOperators
-	// expects (the signed token, not the pre-signed builder).
-	decodedOperatorClaims, err := jwt.DecodeOperatorClaims(operatorJWT)
-	if err != nil {
-		return nil, fmt.Errorf("verticalslice: decode operator JWT: %w", err)
-	}
 
 	userKP, err := nkeys.CreateUser()
 	if err != nil {
@@ -181,30 +201,59 @@ func StartEmbeddedNATS(storeDir, credsDir string) (*NATSHarness, error) {
 		return nil, fmt.Errorf("verticalslice: write creds file: %w", err)
 	}
 
-	resolver := &server.MemAccResolver{}
-	if err := resolver.Store(accountPub, accountJWT); err != nil {
-		return nil, fmt.Errorf("verticalslice: preload account JWT: %w", err)
+	h := &NATSHarness{
+		CredsPath:     credsPath,
+		storeDir:      storeDir,
+		port:          -1, // random free port on first boot; boot records the bound port
+		operatorJWT:   operatorJWT,
+		accountPub:    accountPub,
+		accountJWT:    accountJWT,
+		sysAccountPub: sysAccountPub,
+		sysAccountJWT: sysAccountJWT,
 	}
-	if err := resolver.Store(sysAccountPub, sysAccountJWT); err != nil {
-		return nil, fmt.Errorf("verticalslice: preload system account JWT: %w", err)
+	if err := h.boot(); err != nil {
+		return nil, err
+	}
+	return h, nil
+}
+
+// boot starts the embedded server from the harness's preserved trust
+// material: the operator JWT minted by StartEmbeddedNATS (decoded back into
+// the *jwt.OperatorClaims shape server.Options.TrustedOperators expects),
+// both preloaded account JWTs, the same JetStream file store, and -- after
+// the first boot recorded it -- the same client port, so URL stays identical
+// and already-connected releases redial the same address with the same
+// .creds file.
+func (h *NATSHarness) boot() error {
+	decodedOperatorClaims, err := jwt.DecodeOperatorClaims(h.operatorJWT)
+	if err != nil {
+		return fmt.Errorf("verticalslice: decode operator JWT: %w", err)
+	}
+
+	resolver := &server.MemAccResolver{}
+	if err := resolver.Store(h.accountPub, h.accountJWT); err != nil {
+		return fmt.Errorf("verticalslice: preload account JWT: %w", err)
+	}
+	if err := resolver.Store(h.sysAccountPub, h.sysAccountJWT); err != nil {
+		return fmt.Errorf("verticalslice: preload system account JWT: %w", err)
 	}
 
 	opts := &server.Options{
 		Host:              "127.0.0.1",
-		Port:              -1, // random free port
+		Port:              h.port,
 		JetStream:         true,
 		JetStreamMaxStore: jetStreamMaxStore,
-		StoreDir:          storeDir,
+		StoreDir:          h.storeDir,
 		TrustedOperators:  []*jwt.OperatorClaims{decodedOperatorClaims},
 		AccountResolver:   resolver,
-		SystemAccount:     sysAccountPub,
+		SystemAccount:     h.sysAccountPub,
 		NoLog:             true,
 		NoSigs:            true,
 	}
 
 	srv, err := server.NewServer(opts)
 	if err != nil {
-		return nil, fmt.Errorf("verticalslice: new nats server: %w", err)
+		return fmt.Errorf("verticalslice: new nats server: %w", err)
 	}
 
 	srv.ConfigureLogger()
@@ -212,17 +261,45 @@ func StartEmbeddedNATS(storeDir, credsDir string) (*NATSHarness, error) {
 
 	if !srv.ReadyForConnections(15 * time.Second) {
 		srv.Shutdown()
-		return nil, fmt.Errorf("verticalslice: embedded nats server not ready")
+		return errNATSNotReady
 	}
 
-	return &NATSHarness{
-		Server:    srv,
-		URL:       srv.ClientURL(),
-		CredsPath: credsPath,
-	}, nil
+	if h.port <= 0 {
+		tcpAddr, ok := srv.Addr().(*net.TCPAddr)
+		if !ok || tcpAddr == nil {
+			srv.Shutdown()
+			return errNATSNoTCPAddr
+		}
+		h.port = tcpAddr.Port
+	}
+	h.Server = srv
+	h.URL = srv.ClientURL()
+	return nil
 }
 
-// Shutdown stops the embedded server.
+// Restart brings the embedded server back after Shutdown using the SAME
+// operator, account, and user JWT trust material StartEmbeddedNATS
+// originally minted, on the SAME client port and JetStream store. A fresh
+// StartEmbeddedNATS call would mint a brand-new trust chain the
+// already-running gateway/core releases reject, so it must not be used to
+// recover from an outage mid-test. The pre-restart .creds file keeps
+// working and persisted JetStream state survives. It is an error to call
+// Restart while a server is still running -- Shutdown first, so a cut and
+// its restore never overlap silently.
+func (h *NATSHarness) Restart() error {
+	if h == nil {
+		return errNATSNilHarness
+	}
+	if h.Server != nil {
+		return errNATSLiveRestart
+	}
+	return h.boot()
+}
+
+// Shutdown stops the embedded server. The minted trust material, bound
+// port, and store directory are preserved on the harness, so a later
+// Restart brings the SAME broker identity back; Shutdown alone never
+// discards them.
 func (h *NATSHarness) Shutdown() {
 	if h == nil || h.Server == nil {
 		return
