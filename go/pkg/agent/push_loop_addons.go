@@ -571,6 +571,7 @@ func (p *PushLoop) buildSidecarAddonSpec(
 		Capabilities: a.GetCapabilities(),
 		DownloadURL:  a.GetDownloadUrl(),
 		Resources:    addonResourcesFromProto(a.GetResources()),
+		StateDir:     addonStateDir("", a.GetAddonId()),
 	}
 
 	// Cache the fully verified, freshly staged spec as last-known-good so a later

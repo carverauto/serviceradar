@@ -100,6 +100,10 @@ type Spec struct {
 	// Resources are the manifest-declared CPU/memory/task limits enforced on the
 	// add-on subprocess (manifest `resources`). Zero means unbounded.
 	Resources Resources
+	// StateDir is the persistent per-add-on directory the supervisor creates and
+	// exports to the process as SERVICERADAR_ADDON_STATE_DIR. Empty means the
+	// add-on is launched without one.
+	StateDir string
 }
 
 // Resources are the CPU/memory/task limits the supervisor enforces on an add-on

@@ -13,9 +13,27 @@ use crate::addon::lock_engine;
 use crate::config::{AddonConfig, CheckpointSettings, DEFAULT_SCORING_STALE_AFTER_NS};
 use crate::engine::{DetectorEngine, EngineCheckpoint};
 
-/// Resolve checkpoint behavior from the parsed config: a blank/absent path
-/// disables checkpointing; `checkpoint_max_age_secs` overrides the staleness bound.
+/// Resolve checkpoint behavior from the parsed config and the process environment;
+/// `checkpoint_max_age_secs` overrides the staleness bound.
+/// Environment variable through which the agent hands the add-on its persistent
+/// per-add-on state directory (`<runtime root>/addons/anomaly/state`).
+pub(crate) const ENV_ADDON_STATE_DIR: &str = "SERVICERADAR_ADDON_STATE_DIR";
+/// File name of the re-warm checkpoint inside the agent-provided state directory.
+pub(crate) const DEFAULT_CHECKPOINT_FILE_NAME: &str = "checkpoint.json";
+
 pub(crate) fn resolve_checkpoint_settings(config: &AddonConfig) -> CheckpointSettings {
+    let state_dir = std::env::var(ENV_ADDON_STATE_DIR).ok();
+    resolve_checkpoint_settings_in(config, state_dir.as_deref())
+}
+
+/// [`resolve_checkpoint_settings`] with the state directory passed explicitly, so
+/// the fallback order is testable without touching process-global environment:
+/// an explicit `checkpoint_path` wins; otherwise the agent-provided state directory
+/// hosts `checkpoint.json`; with neither, checkpointing is off.
+pub(crate) fn resolve_checkpoint_settings_in(
+    config: &AddonConfig,
+    state_dir: Option<&str>,
+) -> CheckpointSettings {
     let mut settings = CheckpointSettings::default();
 
     if let Some(path) = config
@@ -25,6 +43,8 @@ pub(crate) fn resolve_checkpoint_settings(config: &AddonConfig) -> CheckpointSet
         .filter(|p| !p.is_empty())
     {
         settings.path = Some(PathBuf::from(path));
+    } else if let Some(dir) = state_dir.map(str::trim).filter(|d| !d.is_empty()) {
+        settings.path = Some(PathBuf::from(dir).join(DEFAULT_CHECKPOINT_FILE_NAME));
     }
 
     if let Some(secs) = config.checkpoint_max_age_secs {
@@ -54,6 +74,13 @@ pub(crate) fn write_checkpoint(engine: &Arc<Mutex<DetectorEngine>>, path: &Path)
     let Ok(json) = serde_json::to_vec(&checkpoint) else {
         return;
     };
+
+    // The agent creates the state directory, but an operator-chosen path may point
+    // below a directory nobody made yet; creating it here is the difference
+    // between a checkpoint and a silently disabled one.
+    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        let _ = std::fs::create_dir_all(parent);
+    }
 
     let tmp = path.with_extension("tmp");
     if std::fs::write(&tmp, &json).is_ok() {

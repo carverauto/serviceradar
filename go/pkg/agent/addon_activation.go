@@ -49,6 +49,7 @@ const (
 	addonsDirName                  = "addons"
 	addonVersionsDir               = "versions"
 	addonCurrentLink               = "current"
+	addonStateDirName              = "state"
 	addonBinaryMode                = 0o755
 	addonManifestMode              = 0o644 // non-executable bundled files (manifest, config, units)
 	addonStageMetaFile             = ".serviceradar-addon.json"
@@ -142,6 +143,19 @@ func safeAddonSegment(s string) bool {
 // add-ons are staged, alongside the agent release runtime root.
 func resolveAddonArtifactRoot(runtimeRoot string) string {
 	return filepath.Join(resolveReleaseRuntimeRoot(runtimeRoot), addonsDirName)
+}
+
+// addonStateDir returns the persistent per-add-on state directory the supervisor
+// hands the sidecar (<runtime root>/addons/<addon_id>/state). It sits beside the
+// versions tree and the current symlink, so an artifact upgrade or rollback never
+// touches it. An add-on id that is not a single safe path segment yields "" (the
+// staging path already rejects such assignments; this keeps the state path from
+// ever escaping the root on its own).
+func addonStateDir(runtimeRoot, addonID string) string {
+	if !safeAddonSegment(addonID) {
+		return ""
+	}
+	return filepath.Join(resolveAddonArtifactRoot(runtimeRoot), addonID, addonStateDirName)
 }
 
 // stageAddonArtifact fetches a pushed-artifact add-on from object storage, verifies
