@@ -26,7 +26,7 @@ defmodule ServiceRadar.Plugins.DisplayContractTest do
       manifest: "addons/powerdns/addon.yaml",
       contract: "addons/powerdns/display/dns_activity.display.json",
       producer_id: "powerdns",
-      producer_version: "0.1.7"
+      producer_version: "0.1.8"
     },
     %{
       manifest: "go/cmd/wasm-plugins/axis/plugin.yaml",

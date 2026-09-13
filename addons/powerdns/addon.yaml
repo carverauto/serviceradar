@@ -7,7 +7,7 @@
 # serviceradar-agent.
 id: powerdns
 name: PowerDNS DNS Telemetry
-version: 0.1.7
+version: 0.1.8
 description: >-
   Local PowerDNS protobuf receiver that maps RPZ policy hits to OCSF DNS
   Activity events and forwards them through the authenticated ServiceRadar agent

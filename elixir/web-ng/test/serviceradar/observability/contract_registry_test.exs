@@ -101,7 +101,7 @@ defmodule ServiceRadarWebNG.Observability.ContractRegistryTest do
       package_key: :addon_id,
       ref: %{
         "producer_id" => "powerdns",
-        "producer_version" => "0.1.7",
+        "producer_version" => "0.1.8",
         "schema_id" => "com.carverauto.powerdns.dns_activity",
         "schema_version" => "1.0.0"
       }
