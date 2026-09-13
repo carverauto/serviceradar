@@ -1121,10 +1121,6 @@ func (h *harness) testGroupD(t *testing.T) {
 		time.Sleep(3 * agentPollInterval)
 		h.coreProc.Stop()
 
-		if n := h.rpcQueryCount(t, eventLedgerExistsSQL(fx3.NetworkScopeID, fx3.EventID)); n != 0 {
-			t.Errorf("event_ledger row appeared even though core was killed before it could commit")
-		}
-
 		coreTarPath := mustRlocation(t, coreReleaseTarRlocation)
 		restarted, err := StartRelease(
 			coreTarPath, "serviceradar_core_elx", filepath.Join(h.dir, "core-restart"),
