@@ -1,3 +1,56 @@
+# ServiceRadar v1.4.64
+
+The agent now hands every native add-on a persistent state
+directory, so the anomaly detector keeps its baselines across
+add-on upgrades and agent restarts instead of cold-starting;
+drift findings draw their episode on the chart for real event
+rows; and Create alert rule is back on the event details page.
+
+## Whats New
+
+**1.4.64**
+- Agent: every native sidecar add-on receives a persistent
+  state directory, `<runtime root>/addons/<id>/state` (mode
+  0700, owned by the user the add-on runs as), created before
+  each spawn and exported as `SERVICERADAR_ADDON_STATE_DIR`. It
+  sits beside the versions tree, so an artifact upgrade or
+  rollback never touches it (PR #431).
+- anomaly add-on 0.3.10: the restart checkpoint no longer
+  depends on an operator setting `checkpoint_path`. Resolution
+  is explicit `checkpoint_path`, else `checkpoint.json` in the
+  agent-provided state directory, else off. A missing parent
+  directory is created on the first write, which previously
+  left an operator-chosen path silently unwritten. Without a
+  checkpoint, every restart cold-started the detector and its
+  open episodes were stale-closed by core instead of recovered
+  (PR #431). A checkpoint path applied to a running add-on by
+  a config-only update now takes effect on the open metric
+  feed; before, the feed loop kept the settings it had at
+  stream open and nothing was written until the next restart
+  (PR #433).
+- Web: the drift episode band, baseline and sustained-level
+  lines added in 1.4.63 now render for real event rows, whose
+  verdict payload lives under `unmapped.anomaly`; the first
+  version only matched the projected `metadata.anomaly` shape
+  (PR #429).
+- Web: Create alert rule is back on the event details page for
+  operators and admins. The modal is pre-filled from the event
+  (provider, subject, severity, message conditions, a slugified
+  name and `device.uid` grouping), validates the threshold and
+  window, and saves a stateful alert rule before opening the
+  Alerts tab (PR #425, fixes #345).
+
+## Upgrade Notes
+
+- The state directory is created by the agent in this release;
+  add-ons older than 0.3.10 ignore the variable and behave as
+  before. The first checkpoint is written after 100 feed
+  frames, so the first restart after this upgrade still
+  cold-starts once; later restarts re-warm.
+- A profile or assignment that sets `checkpoint_path`
+  explicitly keeps that path. Remove it to use the agent
+  default.
+
 # ServiceRadar v1.4.63
 
 netprobe 0.2.62 loads again on 6.8 kernels, newly published
