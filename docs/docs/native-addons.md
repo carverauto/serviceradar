@@ -249,9 +249,9 @@ the agent runtime root. The default layout is:
       workload-identity.json
     current -> versions/0.1.2
   anomaly/
-    versions/0.3.9/
+    versions/0.3.10/
       serviceradar-anomaly-addon
-    current -> versions/0.3.9
+    current -> versions/0.3.10
     state/
       checkpoint.json
 ```

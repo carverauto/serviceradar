@@ -12,7 +12,7 @@ use super::support::{
     empty_telemetry_batch, metric_feed_frame, metric_feed_stream, telemetry_drop_counters,
 };
 use crate::AnomalyAddon;
-use crate::config::VERDICT_CHANNEL_DEPTH;
+use crate::config::{DEFAULT_CHECKPOINT_WRITE_EVERY, VERDICT_CHANNEL_DEPTH};
 use crate::frame::telemetry_stream_from_receiver;
 
 #[tokio::test]
@@ -154,4 +154,52 @@ async fn telemetry_stream_counts_outbound_queue_drops() {
     .expect("stream bridge must count full outbound queue");
 
     drop(stream.next().await);
+}
+
+/// A config-only update (the agent reconfigures a running add-on without a
+/// restart) must reach the feed loop that is already open: an operator who
+/// turns on `checkpoint_path` on a live fleet gets checkpoints, not a silent
+/// wait for the next restart.
+#[tokio::test]
+async fn live_reconfigure_reaches_the_open_metric_feed() {
+    let dir = std::env::temp_dir().join(format!("sr-anomaly-live-ckpt-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let path = dir.join("checkpoint.json");
+
+    let addon = AnomalyAddon::new();
+    let result = addon
+        .configure(b"{}")
+        .await
+        .expect("configure without a path");
+    assert!(result.accepted);
+
+    let (feed_tx, frames) = metric_feed_stream();
+    let mut acks = addon.stream_metric_feed(frames).expect("metric feed opens");
+
+    feed_tx
+        .send(Ok(metric_feed_frame(1, 100.0)))
+        .await
+        .expect("feed receiver");
+    acks.next().await.expect("ack item").expect("ack ok");
+
+    let config = format!(r#"{{"checkpoint_path": "{}"}}"#, path.display());
+    let result = addon
+        .configure(config.as_bytes())
+        .await
+        .expect("reconfigure with a path");
+    assert!(result.accepted, "{}", result.error);
+
+    for feed_id in 2..=(DEFAULT_CHECKPOINT_WRITE_EVERY + 1) {
+        feed_tx
+            .send(Ok(metric_feed_frame(feed_id, 100.0)))
+            .await
+            .expect("feed receiver");
+        acks.next().await.expect("ack item").expect("ack ok");
+    }
+
+    assert!(
+        path.exists(),
+        "a checkpoint path configured after the feed opened must be honoured by that feed"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
 }
