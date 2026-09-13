@@ -31,6 +31,16 @@ now exits promptly on SIGTERM instead of outliving its RPC server.
 - Web: the drift finding chart draws the reported `drift_level` as
   the sustained level and keeps the sigma reconstruction only for
   verdicts from add-ons older than 0.3.11 (PR #438).
+- Bumblebee: the catalog refresh worker is on by default
+  (`bumblebeeCatalogRefresh.enabled`, env
+  `BUMBLEBEE_CATALOG_REFRESH_ENABLED`), so a fresh deployment
+  materializes and promotes a `0.1.0` catalog at boot instead of
+  failing every scan on catalog load; the scan unit's state
+  directory is group-writable so the agent can write it
+  (bumblebee-scan add-on 0.1.6) (PR #440).
+- Bumblebee: a device posture now moves with its agent when the
+  agent is re-identified to another device, instead of staying on
+  the device it had when first seen (PR #441).
 
 ## Upgrade Notes
 
