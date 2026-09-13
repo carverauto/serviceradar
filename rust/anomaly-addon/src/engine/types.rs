@@ -157,6 +157,11 @@ pub struct CusumDrift {
     /// units, so a consumer can draw the baseline the drift departed from.
     pub target: f64,
     pub scale: f64,
+    /// Mean raw value over the run so far, in the metric's units: the level the
+    /// series moved to. Consumers draw this rather than reconstructing it from
+    /// `shift_estimate * scale`, since `scale` is refreshed per sample while the
+    /// residuals behind `shift_estimate` were measured against earlier scales.
+    pub level: f64,
     pub shift_estimate: f64,
     pub transition: AnomalyTransition,
     pub episode: Option<AnomalyEpisode>,

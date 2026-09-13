@@ -600,6 +600,7 @@ fn edge_drift_record_caps_score_and_severity() {
             direction: CusumDirection::Up,
             target: 100.0,
             scale: 5.0,
+            level: 130.0,
             shift_estimate: 1.0e12,
             transition: AnomalyTransition::Open,
             episode: None,
@@ -628,6 +629,7 @@ fn edge_drift_record_caps_score_and_severity() {
     assert_eq!(event["anomaly"]["cusum_pos"], 1.0e12);
     assert_eq!(event["anomaly"]["drift_target"], 100.0);
     assert_eq!(event["anomaly"]["drift_scale"], 5.0);
+    assert_eq!(event["anomaly"]["drift_level"], 130.0);
     assert_eq!(event["anomaly"]["drift_shift_sigma"], 1.0e12);
 }
 
@@ -686,6 +688,7 @@ fn edge_drift_update_escalates_to_high_only_after_delay() {
             direction: CusumDirection::Up,
             target: 100.0,
             scale: 5.0,
+            level: 130.0,
             shift_estimate: 12.0,
             transition: AnomalyTransition::Update,
             episode: Some(episode),

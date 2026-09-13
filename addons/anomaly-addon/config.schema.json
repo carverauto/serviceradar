@@ -101,7 +101,13 @@
                 "type": "integer",
                 "minimum": 1
               },
-              "drift_clear_slots": {
+              "drift_anchor_min_samples": {
+      "type": "integer",
+      "title": "Rolling-window samples required before the drift anchor is captured",
+      "description": "The CUSUM anchor freezes the level sustained drift is measured against, so it must come from a mature baseline. Defaults to the full rolling window (window_size), never below min_samples. A cold start that anchored on its first min_samples in an overnight trough reported the morning ramp as sustained drift.",
+      "minimum": 1
+    },
+    "drift_clear_slots": {
                 "type": "integer",
                 "minimum": 1
               },

@@ -75,6 +75,8 @@ pub(crate) struct SeriesState {
     /// mean is the emitted effect size, so the finding reports how far the level
     /// moved rather than the bounded accumulator.
     pub(crate) cusum_run_residual_sum: f64,
+    /// Sum of raw values over the current CUSUM run (the level it moved to).
+    pub(crate) cusum_run_value_sum: f64,
     /// Direction latched when one accumulator first crosses `h`; no drift emits
     /// until that same direction reaches the stronger confirmation threshold.
     pub(crate) cusum_pending_direction: Option<CusumDirection>,
@@ -93,6 +95,8 @@ pub(crate) struct SeriesState {
     /// Sum of the unclipped residuals since the drift episode opened; its mean is
     /// the sustained shift the severity band is judged on.
     pub(crate) drift_active_residual_sum: f64,
+    /// Sum of raw values since the open drift episode started.
+    pub(crate) drift_active_value_sum: f64,
     pub(crate) drift_last_emitted_at_unix_nano: Option<u64>,
     pub(crate) drift_last_cleared_at_unix_nano: Option<u64>,
     pub(crate) drift_last_episode_started_at_unix_nano: Option<u64>,
@@ -133,6 +137,7 @@ impl SeriesState {
             cusum_anchor_captured_at_unix_nano: None,
             cusum_run_samples: 0,
             cusum_run_residual_sum: 0.0,
+            cusum_run_value_sum: 0.0,
             cusum_pending_direction: None,
             cusum_pending_samples: 0,
             drift_active: false,
@@ -145,6 +150,7 @@ impl SeriesState {
             drift_active_samples: 0,
             drift_clear_samples: 0,
             drift_active_residual_sum: 0.0,
+            drift_active_value_sum: 0.0,
             drift_last_emitted_at_unix_nano: None,
             drift_last_cleared_at_unix_nano: None,
             drift_last_episode_started_at_unix_nano: None,

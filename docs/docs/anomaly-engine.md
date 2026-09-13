@@ -143,6 +143,23 @@ Default drift knobs include `cusum_k = 0.5`, `cusum_h = 8.0`,
 `drift_clear_slots = 30`, `drift_adopt_after_samples = 600`, and
 `drift_escalate_after_secs = 3600`.
 
+### Anchor Maturity And The Reported Level
+
+The anchor is captured only once the rolling window holds
+`drift_anchor_min_samples` samples (default: the full `window_size`,
+never below `min_samples`). Anchoring on the first `min_samples` of a
+cold start was the cause of a false drift on demo: the add-on restarted in
+the overnight trough, froze its anchor there, and the ordinary morning ramp
+confirmed as "sustained upward drift" that only "recovered" once the window
+had adopted the new level.
+
+Drift verdicts carry `drift_level`, the mean raw value over the run in the
+metric's units. Consumers draw that as the sustained level. Reconstructing
+it as `drift_target + drift_shift_sigma * drift_scale` is not equivalent:
+the anchor's scale is refreshed every sample while its center stays frozen,
+so the residuals behind `drift_shift_sigma` were measured against earlier,
+smaller scales and the product overstates the level.
+
 ## Seasonal Baselines
 
 Core builds hour-of-week baselines from Timescale continuous aggregates and

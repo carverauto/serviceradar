@@ -881,6 +881,7 @@ fn restore_checkpoint_caps_series_state_by_freshness() {
                 cusum_neg: None,
                 cusum_run_samples: 0,
                 cusum_run_residual_sum: 0.0,
+                cusum_run_value_sum: 0.0,
                 cusum_pending_direction: None,
                 cusum_pending_samples: 0,
                 drift_active: false,
@@ -893,6 +894,7 @@ fn restore_checkpoint_caps_series_state_by_freshness() {
                 drift_active_samples: 0,
                 drift_clear_samples: 0,
                 drift_active_residual_sum: 0.0,
+                drift_active_value_sum: 0.0,
                 drift_last_emitted_at_unix_nano: None,
                 drift_last_cleared_at_unix_nano: None,
                 drift_last_episode_started_at_unix_nano: None,
@@ -928,6 +930,7 @@ fn restore_checkpoint_caps_series_state_by_freshness() {
                 cusum_neg: None,
                 cusum_run_samples: 0,
                 cusum_run_residual_sum: 0.0,
+                cusum_run_value_sum: 0.0,
                 cusum_pending_direction: None,
                 cusum_pending_samples: 0,
                 drift_active: false,
@@ -940,6 +943,7 @@ fn restore_checkpoint_caps_series_state_by_freshness() {
                 drift_active_samples: 0,
                 drift_clear_samples: 0,
                 drift_active_residual_sum: 0.0,
+                drift_active_value_sum: 0.0,
                 drift_last_emitted_at_unix_nano: None,
                 drift_last_cleared_at_unix_nano: None,
                 drift_last_episode_started_at_unix_nano: None,
@@ -975,6 +979,7 @@ fn restore_checkpoint_caps_series_state_by_freshness() {
                 cusum_neg: None,
                 cusum_run_samples: 0,
                 cusum_run_residual_sum: 0.0,
+                cusum_run_value_sum: 0.0,
                 cusum_pending_direction: None,
                 cusum_pending_samples: 0,
                 drift_active: false,
@@ -987,6 +992,7 @@ fn restore_checkpoint_caps_series_state_by_freshness() {
                 drift_active_samples: 0,
                 drift_clear_samples: 0,
                 drift_active_residual_sum: 0.0,
+                drift_active_value_sum: 0.0,
                 drift_last_emitted_at_unix_nano: None,
                 drift_last_cleared_at_unix_nano: None,
                 drift_last_episode_started_at_unix_nano: None,
@@ -1429,6 +1435,7 @@ fn cusum_cfg() -> EngineConfig {
     EngineConfig {
         window_size: 50,
         min_samples: 30,
+        drift_anchor_min_samples: 30,
         n_sigma: 3.0,
         confirm_slots: 1,
         max_series: 10,
@@ -1484,6 +1491,7 @@ fn harness_diurnal_sinusoid_requires_deseasonalized_drift() {
     let cfg = EngineConfig {
         window_size: 240,
         min_samples: 30,
+        drift_anchor_min_samples: 30,
         n_sigma: 100.0,
         confirm_slots: 1,
         max_series: 10,
@@ -1590,6 +1598,7 @@ fn harness_seasonal_interface_shift_opens_exactly_one_drift_episode() {
     let cfg = EngineConfig {
         window_size: 240,
         min_samples: 30,
+        drift_anchor_min_samples: 30,
         n_sigma: 1.0e12,
         confirm_slots: 1,
         max_series: 10,
@@ -1775,6 +1784,7 @@ fn cusum_latches_at_h_and_confirms_at_h_confirm() {
     let cfg = EngineConfig {
         window_size: 50,
         min_samples: 30,
+        drift_anchor_min_samples: 30,
         n_sigma: 100.0,
         confirm_slots: 1,
         max_series: 10,
@@ -1812,6 +1822,7 @@ fn cusum_pending_drift_expires_without_emission() {
     let cfg = EngineConfig {
         window_size: 50,
         min_samples: 30,
+        drift_anchor_min_samples: 30,
         n_sigma: 100.0,
         confirm_slots: 1,
         max_series: 10,
@@ -1840,6 +1851,7 @@ fn cusum_drift_episode_opens_once_and_clears_after_recovery() {
     let cfg = EngineConfig {
         window_size: 50,
         min_samples: 30,
+        drift_anchor_min_samples: 30,
         n_sigma: 100.0,
         confirm_slots: 1,
         max_series: 10,
@@ -1954,6 +1966,7 @@ fn cusum_ignores_a_short_bump_the_spike_path_owns() {
     let cfg = EngineConfig {
         window_size: 50,
         min_samples: 30,
+        drift_anchor_min_samples: 30,
         n_sigma: 100.0,
         confirm_slots: 1,
         max_series: 10,
@@ -1999,6 +2012,7 @@ fn cusum_open_drift_clears_when_the_accumulator_stops_alarming_despite_blips() {
     let cfg = EngineConfig {
         window_size: 50,
         min_samples: 30,
+        drift_anchor_min_samples: 30,
         n_sigma: 100.0,
         confirm_slots: 1,
         max_series: 10,
@@ -2062,6 +2076,7 @@ fn cusum_drift_episode_adopts_new_level_and_reanchors() {
     let cfg = EngineConfig {
         window_size: 50,
         min_samples: 30,
+        drift_anchor_min_samples: 30,
         n_sigma: 100.0,
         confirm_slots: 1,
         max_series: 10,
@@ -2125,6 +2140,7 @@ fn cusum_anchor_scale_refreshes_from_current_window_without_moving_center() {
     let cfg = EngineConfig {
         window_size: 50,
         min_samples: 10,
+        drift_anchor_min_samples: 10,
         n_sigma: 1_000.0,
         cusum_h: 1_000.0,
         ..EngineConfig::default()
@@ -2172,6 +2188,7 @@ fn cusum_always_mode_refreshes_idle_anchor_after_max_age() {
     let cfg = EngineConfig {
         window_size: 30,
         min_samples: 6,
+        drift_anchor_min_samples: 6,
         n_sigma: 1_000.0,
         cusum_h: 1_000_000.0,
         anchor_max_age_secs: 5,
@@ -2226,6 +2243,7 @@ fn cusum_drift_episode_emits_bounded_heartbeat_update() {
     let cfg = EngineConfig {
         window_size: 50,
         min_samples: 30,
+        drift_anchor_min_samples: 30,
         n_sigma: 100.0,
         confirm_slots: 1,
         max_series: 10,
@@ -2275,6 +2293,7 @@ fn cusum_drift_adoption_is_blocked_while_saturation_gate_is_active() {
     let cfg = EngineConfig {
         window_size: 50,
         min_samples: 30,
+        drift_anchor_min_samples: 30,
         n_sigma: 100.0,
         confirm_slots: 1,
         max_series: 10,
@@ -2336,6 +2355,7 @@ fn cusum_drift_respects_saturation_gate_for_bounded_gauges() {
     let cfg = EngineConfig {
         window_size: 50,
         min_samples: 30,
+        drift_anchor_min_samples: 30,
         n_sigma: 100.0,
         confirm_slots: 1,
         max_series: 10,
@@ -2421,6 +2441,7 @@ fn harness_slow_leak_opens_escalates_and_stays_bounded() {
     let cfg = EngineConfig {
         window_size: 50,
         min_samples: 30,
+        drift_anchor_min_samples: 30,
         n_sigma: 100.0,
         confirm_slots: 1,
         max_series: 10,
@@ -2500,6 +2521,7 @@ fn harness_adversarial_flapper_merges_reopens_and_stays_bounded() {
     let cfg = EngineConfig {
         window_size: 50,
         min_samples: 30,
+        drift_anchor_min_samples: 30,
         n_sigma: 100.0,
         confirm_slots: 1,
         max_series: 10,
@@ -2595,6 +2617,7 @@ fn harness_quiet_interface_burst_bounds_score_severity_and_episode_count() {
     let cfg = EngineConfig {
         window_size: 50,
         min_samples: 30,
+        drift_anchor_min_samples: 30,
         n_sigma: 1.0e12,
         confirm_slots: 1,
         max_series: 10,
@@ -2908,6 +2931,7 @@ fn harness_regime_change_adopts_once_then_stays_silent_for_seven_days() {
     let cfg = EngineConfig {
         window_size: 240,
         min_samples: 30,
+        drift_anchor_min_samples: 30,
         n_sigma: 100.0,
         confirm_slots: 1,
         max_series: 10,
@@ -2989,6 +3013,7 @@ fn harness_checkpointless_restart_storm_is_silent_with_baseline_and_bounded_with
     let cfg = EngineConfig {
         window_size: 240,
         min_samples: 30,
+        drift_anchor_min_samples: 30,
         n_sigma: 100.0,
         confirm_slots: 1,
         max_series: 10,
@@ -3275,6 +3300,7 @@ fn cusum_pending_latch_survives_checkpoint_restart() {
     let cfg = EngineConfig {
         window_size: 50,
         min_samples: 30,
+        drift_anchor_min_samples: 30,
         n_sigma: 100.0,
         confirm_slots: 1,
         max_series: 10,
@@ -3324,6 +3350,7 @@ fn open_drift_episode_survives_checkpoint_restart() {
     let cfg = EngineConfig {
         window_size: 50,
         min_samples: 30,
+        drift_anchor_min_samples: 30,
         n_sigma: 100.0,
         confirm_slots: 1,
         max_series: 10,
@@ -3394,4 +3421,92 @@ fn open_drift_episode_survives_checkpoint_restart() {
         episode_started_at,
         "restart must not fork a new drift episode"
     );
+}
+
+#[test]
+fn cusum_drift_reports_the_sustained_level_in_metric_units() {
+    let cfg = EngineConfig {
+        window_size: 50,
+        min_samples: 30,
+        drift_anchor_min_samples: 30,
+        n_sigma: 100.0,
+        confirm_slots: 1,
+        max_series: 10,
+        cusum_h: 2.0,
+        h_confirm_mult: 1.0,
+        drift_confirm_window: 10,
+        drift_min_effect: 0.5,
+        drift_clear_slots: 6,
+        drift_adopt_after_samples: 10_000,
+        episode_update_interval_secs: 10_000,
+        reopen_cooldown_secs: 1,
+        drift_residual_clip: 100.0,
+        ..EngineConfig::default()
+    };
+    let mut engine = DetectorEngine::new(cfg);
+    warm_stationary(&mut engine);
+
+    // A shift to 115 with a little jitter: the emitted level must be the mean of
+    // the raw values over the run, in metric units, not a sigma reconstruction.
+    let mut opened = None;
+    for (i, ts) in (31..60u64).enumerate() {
+        let v = if i % 2 == 0 { 114.0 } else { 116.0 };
+        let tv = engine
+            .evaluate_transition("s", v, ts, always_drift_profile())
+            .expect("verdict");
+        if let Some(drift) = tv.cusum_drift {
+            assert_eq!(drift.transition, AnomalyTransition::Open);
+            opened = Some(drift);
+            break;
+        }
+    }
+    let drift = opened.expect("a sustained shift opens a drift episode");
+    assert!(
+        (drift.target - 100.0).abs() < 1.5,
+        "target is the anchor, got {}",
+        drift.target
+    );
+    assert!(
+        (drift.level - 115.0).abs() < 1.0,
+        "level must be the mean raw value over the run, got {}",
+        drift.level
+    );
+}
+
+#[test]
+fn cusum_anchor_waits_for_a_mature_window_before_arming() {
+    // Default arming: the anchor is captured only once the rolling window is full
+    // (window_size samples), never on the first min_samples of a cold start.
+    let cfg = EngineConfig {
+        window_size: 50,
+        min_samples: 30,
+        n_sigma: 100.0,
+        confirm_slots: 1,
+        max_series: 10,
+        cusum_h: 2.0,
+        h_confirm_mult: 1.0,
+        drift_confirm_window: 10,
+        drift_min_effect: 0.5,
+        drift_clear_slots: 6,
+        drift_adopt_after_samples: 10_000,
+        episode_update_interval_secs: 10_000,
+        reopen_cooldown_secs: 1,
+        drift_residual_clip: 100.0,
+        ..EngineConfig::default()
+    };
+    assert_eq!(drift_anchor_min_samples(&cfg), cfg.window_size);
+    let mut engine = DetectorEngine::new(cfg);
+    warm_stationary(&mut engine);
+
+    // The same +15 shift that opens a drift within a handful of samples once the
+    // anchor is armed must stay silent while the window is still filling.
+    for ts in 31..50u64 {
+        let tv = engine
+            .evaluate_transition("s", 115.0, ts, always_drift_profile())
+            .expect("verdict");
+        assert!(
+            tv.cusum_drift.is_none(),
+            "no drift may open before the anchor is armed at window_size samples (ts {ts})"
+        );
+    }
 }

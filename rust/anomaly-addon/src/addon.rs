@@ -250,6 +250,12 @@ impl Addon for AnomalyAddon {
 
     async fn shutdown(&self) -> anyhow::Result<()> {
         self.stop_feed_task().await;
+        // The feed task was aborted, not ended, so its end-of-stream flush never
+        // ran. This is the checkpoint the next start re-warms from.
+        let path = lock_checkpoint_settings(&self.checkpoint).path.clone();
+        if let Some(path) = path.as_ref() {
+            write_checkpoint(&self.engine, path);
+        }
         Ok(())
     }
 
