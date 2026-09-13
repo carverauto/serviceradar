@@ -797,6 +797,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
             row
             |> first_present(anomaly_field_paths("drift_shift_sigma"))
             |> numeric_value(),
+          level:
+            row
+            |> first_present(anomaly_field_paths("drift_level"))
+            |> numeric_value(),
           direction:
             row
             |> first_present(anomaly_field_paths("drift_direction"))
@@ -900,7 +904,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
     case drift.shift_sigma do
       shift when is_number(shift) and shift > 0 ->
         sign = if drift.direction == :down, do: -1.0, else: 1.0
-        level = target + sign * shift * scale
+
+        # The add-on reports the level it measured (add-on 0.3.11+). The sigma
+        # reconstruction is a fallback for older verdicts and overstates the level
+        # when the anchor scale grew during the run.
+        level =
+          case Map.get(drift, :level) do
+            measured when is_number(measured) -> measured
+            _ -> target + sign * shift * scale
+          end
+
         sign_text = if drift.direction == :down, do: "-", else: "+"
         shift_text = :erlang.float_to_binary(shift * 1.0, decimals: 1)
 

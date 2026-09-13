@@ -550,6 +550,91 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
     assert html =~ "shaded band is the drift episode"
   end
 
+  # The add-on reports the sustained level it measured, in metric units. The
+  # sigma reconstruction (target + shift * scale) is only a fallback for older
+  # verdicts: the anchor scale is refreshed every sample while the center stays
+  # frozen, so the product can overstate the level badly.
+  test "draws the emitted drift level rather than reconstructing it from sigma" do
+    episode_started_at = ~U[2026-06-22 13:30:00Z]
+
+    anomaly = %{
+      "id" => "event-drift-level",
+      "finding_uid" => "finding-drift-level",
+      "finding_title" => "snmp sustained drift on switch-1",
+      "metric_class" => "snmp",
+      "metric_name" => "ifInUcastPkts",
+      "if_index" => 23,
+      "severity" => "Medium",
+      "status" => "open",
+      "time" => "2026-06-22T16:00:00Z",
+      "unmapped" => %{
+        "anomaly" => %{
+          "detector_method" => "cusum_drift",
+          "drift_direction" => "upward",
+          "drift_target" => 120.0,
+          "drift_scale" => 15.0,
+          "drift_shift_sigma" => 2.0,
+          "drift_level" => 140.0,
+          "episode_started_at_unix_nano" => DateTime.to_unix(episode_started_at, :nanosecond)
+        }
+      }
+    }
+
+    overview = %{
+      status: :ok,
+      anomaly_rows: [anomaly],
+      capacity_rows: [],
+      anomaly_query: "in:events limit:20",
+      capacity_query: "in:capacity_forecasts limit:12",
+      anomaly_filter: %{field: "service_radar_device_uid", label: "device", value: "switch-1"},
+      capacity_filter: %{field: "resource_id", label: "device", value: "switch-1"},
+      anomaly_error: nil,
+      capacity_error: nil,
+      metric_statuses: []
+    }
+
+    points =
+      for minute <- 0..(6 * 60)//10 do
+        {DateTime.add(~U[2026-06-22 10:30:00Z], minute * 60, :second), 120.0 + rem(minute, 7)}
+      end
+
+    metric_sections = [
+      %{
+        key: "interfaces",
+        title: "Interface metrics",
+        subtitle: "selected finding window",
+        error: nil,
+        panels: [
+          %{
+            plugin: Timeseries,
+            id: "if-23",
+            assigns: %{
+              chart_mode: :single,
+              rate_mode: :none,
+              series_points: [{"ifInUcastPkts", points}]
+            }
+          }
+        ]
+      }
+    ]
+
+    html =
+      render_component(&AnomalyCapacityComponents.anomaly_capacity_section/1,
+        overview: overview,
+        detail: %{kind: "anomaly", row: anomaly},
+        metric_sections: metric_sections,
+        timezone: "Etc/UTC"
+      )
+
+    document = LazyHTML.from_fragment(html)
+    panel_selector = "#panel-anomaly-capacity-detail-interfaces-if-23-0"
+
+    assert LazyHTML.attribute(
+             LazyHTML.query(document, "#{panel_selector} [data-testid=timeseries-reference-line]"),
+             "data-reference-label"
+           ) == ["Drift baseline (120)", "Sustained level (+2.0 sigma, 140)"]
+  end
+
   # Rows read back from the events entity keep the verdict payload under
   # `unmapped.anomaly`, and add-ons before 0.3.8 published no drift target: the
   # baseline then comes from the seasonal signal when it was ready, else rolling.
