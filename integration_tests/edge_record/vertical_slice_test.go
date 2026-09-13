@@ -34,9 +34,9 @@
 // later groups depend on state earlier ones create.
 //
 // What is proven exactly, and what is a documented approximation, is called
-// out per group below -- see each t.Run's doc comment. Groups D2, E, and F
-// are the hardest to pin down from outside the BEAM without a purpose-built
-// admin surface (none exists in production code today beyond release `rpc`);
+// out per group below -- see each t.Run's doc comment. Groups E and F are
+// the hardest to pin down from outside the BEAM without a purpose-built admin
+// surface (none exists in production code today beyond release `rpc`);
 // where a fully precise black-box proof was not achievable, the closest real
 // approximation is used and clearly labeled, per this repo's Hard Rule that
 // "a verification must be able to FAIL" -- an approximation that cannot fail
@@ -46,10 +46,11 @@ package verticalslice
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/tls"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -57,6 +58,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -418,6 +420,7 @@ func newHarness(t *testing.T) *harness {
 	}
 	t.Cleanup(coreProc.Stop)
 	h.coreProc = coreProc
+	h.installIngestProbe(t)
 
 	agentProc, err := StartAgent(
 		agentBinaryPath, filepath.Join(dir, "agent"), h.gatewayAddr, h.gatewayServerName,
@@ -620,7 +623,19 @@ func (h *harness) testGroupA(t *testing.T) {
 			h.preservedLogName(h.agent.stderrPath), h.preservedLogName(h.gwProc.stderrPath), h.preservedLogName(h.coreProc.stderrPath))
 	}
 
-	// Field-by-field match against independently-computed expected values.
+	h.assertCommittedFixtureValues(t, fx, h.spoolID, seq)
+
+	h.testMismatchedIdentityControl(t, fx)
+}
+
+// assertCommittedFixtureValues matches every committed row fx's keys touch
+// against independently computed expected values: the event_ledger digests,
+// the delivery-slot binding at (spoolID, sequence), the sweep-batch-slot row
+// counts, and the exact projected row-key set. Groups A, C and D share it so
+// "the same exact expected values" means the same checks in each.
+func (h *harness) assertCommittedFixtureValues(t *testing.T, fx *FixtureRecord, spoolID []byte, sequence uint64) {
+	t.Helper()
+
 	row := h.rpcQueryRow(t, fmt.Sprintf(
 		"SELECT semantic_envelope_sha256, record_sha256 FROM platform.event_ledger WHERE network_scope_id = %s AND event_id = %s",
 		uuidLiteral(fx.NetworkScopeID), uuidLiteral(fx.EventID),
@@ -632,7 +647,7 @@ func (h *harness) testGroupA(t *testing.T) {
 		t.Errorf("event_ledger.record_sha256 mismatch: row=%s want digest=%x", row, fx.RecordSHA256)
 	}
 
-	slotRow := h.rpcQueryRow(t, deliverySlotSQL(fx.NetworkScopeID, []byte(h.certSet.AgentComponentID), h.spoolID, seq))
+	slotRow := h.rpcQueryRow(t, deliverySlotSQL(fx.NetworkScopeID, []byte(h.certSet.AgentComponentID), spoolID, sequence))
 	if !strings.Contains(slotRow, hexInspect(fx.RecordSHA256)) {
 		t.Errorf("edge_delivery_slots.record_sha256 mismatch: row=%s want digest=%x", slotRow, fx.RecordSHA256)
 	}
@@ -659,8 +674,6 @@ func (h *harness) testGroupA(t *testing.T) {
 		t.Fatalf("edge_sweep_projected_rows count = %d, want %d", gotCount, fx.ProjectedRowCount)
 	}
 	h.assertProjectedRowKeySet(t, fx)
-
-	h.testMismatchedIdentityControl(t, fx)
 }
 
 // hexInspect renders b the way Elixir's inspect/1 shows a binary column
@@ -848,36 +861,28 @@ func (h *harness) testGroupB(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Group C: idempotent CNPG transaction.
 //
-// Two sub-probes:
+// Both sub-probes go through the production JetStream consumer, and neither
+// calls a processor function directly:
 //
-//  1. Redelivery. Task 0.12 asks to "force consumer redelivery of the SAME
-//     stored JetStream message." By the time this subtest runs, Group A's
-//     message has ALREADY been acked by the real EventWriter consumer (its
-//     CNPG row is visible), so there is no black-box way to force NATS
-//     itself to redeliver an already-acked message -- NAKing requires being
-//     the consumer, before ack, in a race this harness cannot safely
-//     control from outside the BEAM. Group A's own message IS still fetched
-//     through the real JetStream read path (Group B already did this), and
-//     its EXACT stored bytes plus its REAL transport-provenance headers
-//     (also read back from the SAME JetStream message, not reconstructed by
-//     hand) are replayed into the EventWriter processor's own documented
-//     test entry point, ServiceRadar.EventWriter.Processors.EdgeRecord.
-//     ingest/3 -- explicitly public "so tests can drive it directly with a
-//     real wire-decoded frame and force redelivery/conflict scenarios
-//     against a real database, the same way every other EventWriter
-//     processor's parse_message/1 is unit-tested." This is the sanctioned
-//     real-path redelivery entry point, not a bypass: the SAME function the
-//     real Broadway pipeline calls, with the SAME bytes and headers a real
-//     redelivery would carry.
-//  2. Conflict. A second, real, independently-signed frame reusing the SAME
-//     delivery slot (spool_id, sequence) but with different record content
-//     is sent over a NEW real gRPC session (valid agent identity), all the
-//     way through gateway -> JetStream -> EventWriter. The delivery-slot
-//     conflict outcome is observed in CNPG state (the first binding stays
-//     immutable, no new rows appear for the conflicting content) -- NOT
-//     asserted as a specific gRPC-level response, since the gateway's ack
-//     is driven by the durable PubAck (synchronous), while the EventWriter's
-//     conflict detection is downstream and asynchronous to that ack.
+//  1. Redelivery. A fresh fixture is published once over a real gRPC session.
+//     The ingest probe (installIngestProbe) holds its FIRST delivery inside
+//     the EventWriter batch after the CNPG transaction committed and before
+//     the pipeline acknowledged the message, and the first-commit snapshot is
+//     taken there. Once released, the probe raises, so the batch fails, the
+//     production pipeline NAKs the message, and JetStream redelivers the SAME
+//     stored message to the SAME durable consumer. That second entry into the
+//     ledger path must report :replay and leave the snapshot unchanged. The
+//     stream holds exactly one message carrying the fixture's bytes before
+//     and after, so the second entry is a consumer redelivery, not a
+//     publish-time duplicate.
+//  2. Conflict. A second valid frame reusing the agent's (spool_id, sequence)
+//     delivery slot with different record content is sent over a new real
+//     gRPC session. The gateway accepts it: its PubAck is durable, and
+//     Nats-Msg-Id binds record_sha256, so JetStream does not deduplicate it.
+//     EventWriter then reaches it, and its transaction must end with
+//     {:delivery_slot_conflict, existing} naming the first binding's
+//     record_sha256, before any later write. The first binding stays
+//     unchanged and no row appears for the conflicting content.
 //
 // ---------------------------------------------------------------------------
 func (h *harness) testGroupC(t *testing.T) {
@@ -886,49 +891,60 @@ func (h *harness) testGroupC(t *testing.T) {
 		t.Skip("Group A fixture unavailable")
 	}
 
+	tlsCfg, err := h.certSet.AgentTLSConfig(h.gatewayServerName)
+	if err != nil {
+		t.Fatalf("agent tls config: %v", err)
+	}
+
 	t.Run("Redelivery", func(t *testing.T) {
-		nc, err := nats.Connect(h.nats.URL, nats.UserCredentials(h.nats.CredsPath))
+		fxC, err := BuildSweepFixture([]byte(h.certSet.AgentComponentID))
 		if err != nil {
-			t.Fatalf("connect to nats: %v", err)
+			t.Fatalf("build fixture: %v", err)
 		}
-		defer nc.Close()
-		js, err := jetstream.New(nc)
+		spoolID, err := edgerecord.NewUUIDv7()
 		if err != nil {
-			t.Fatalf("jetstream context: %v", err)
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), rpcTimeout)
-		defer cancel()
-		stream, err := js.Stream(ctx, edgeRecordStreamName)
-		if err != nil {
-			t.Fatalf("open stream: %v", err)
-		}
-		info, err := stream.Info(ctx)
-		if err != nil {
-			t.Fatalf("stream info: %v", err)
-		}
-		raw, err := stream.GetMsg(ctx, info.State.FirstSeq)
-		if err != nil {
-			t.Fatalf("get stored message: %v", err)
+			t.Fatalf("spool id: %v", err)
 		}
 
-		before := h.snapshotRowCounts(t, fx)
+		h.armIngestProbe(t, fxC.EventID, probeTransactionResult, 1, probeHoldThenRaise)
 
-		expr, err := buildIngestReplayExpr(raw.Data, raw.Header)
-		if err != nil {
-			t.Fatalf("build redelivery ingest/3 call: %v", err)
-		}
-		out, err := h.coreProc.RPC(expr, rpcTimeout)
-		if err != nil {
-			t.Fatalf("rpc redelivery ingest/3 call failed: %v", err)
-		}
-		if !strings.Contains(out, ":replay") {
-			t.Errorf("expected ingest/3 redelivery to return {:ok, :replay}, got: %s", out)
+		before := h.snapshotFixtureRows(t, fxC, spoolID)
+		if before != (fixtureRowSnapshot{}) {
+			t.Fatalf("before snapshot = %+v, want no rows for a fresh fixture", before)
 		}
 
-		after := h.snapshotRowCounts(t, fx)
-		if before != after {
-			t.Errorf("redelivery duplicated rows: before=%s after=%s", before, after)
+		ack, err := h.sendOneRawFrame(t, tlsCfg, spoolID, 1, fxC.RecordBytes, fxC.RecordSHA256, 20*time.Second)
+		if err != nil {
+			t.Fatalf("send fixture: %v", err)
 		}
+		requireAcceptedAck(t, ack, spoolID, 1)
+
+		first := h.waitIngestObservation(t, fxC.EventID, probeTransactionResult, 1)
+		if first.Tag != "ok:inserted" {
+			t.Fatalf("first delivery ended with %q, want ok:inserted", first.Tag)
+		}
+
+		want := fixtureRowSnapshot{Ledger: 1, Slots: 1, Batch: 1, Rows: fxC.ProjectedRowCount}
+		firstCommit := h.snapshotFixtureRows(t, fxC, spoolID)
+		if firstCommit != want {
+			t.Fatalf("first-commit snapshot = %+v, want %+v", firstCommit, want)
+		}
+		h.assertCommittedFixtureValues(t, fxC, spoolID, 1)
+		h.requireOneStoredMessage(t, fxC.RecordBytes)
+
+		h.releaseIngestProbe(t, fxC.EventID, probeTransactionResult, 1)
+
+		second := h.waitIngestObservation(t, fxC.EventID, probeTransactionResult, 2)
+		if second.Tag != "ok:replay" {
+			t.Fatalf("redelivery ended with %q, want ok:replay", second.Tag)
+		}
+
+		secondDelivery := h.snapshotFixtureRows(t, fxC, spoolID)
+		if secondDelivery != firstCommit {
+			t.Errorf("second-delivery snapshot = %+v, want the first-commit snapshot %+v", secondDelivery, firstCommit)
+		}
+		h.assertCommittedFixtureValues(t, fxC, spoolID, 1)
+		h.requireOneStoredMessage(t, fxC.RecordBytes)
 	})
 
 	t.Run("Conflict", func(t *testing.T) {
@@ -937,31 +953,30 @@ func (h *harness) testGroupC(t *testing.T) {
 			t.Fatalf("build conflicting fixture: %v", err)
 		}
 
-		beforeSlot := h.rpcQueryRow(t, deliverySlotSQL(fx.NetworkScopeID, []byte(h.certSet.AgentComponentID), h.spoolID, 1))
+		agentID := []byte(h.certSet.AgentComponentID)
+		beforeSlot := h.rpcQueryRow(t, deliverySlotSQL(fx.NetworkScopeID, agentID, h.spoolID, h.groupASequence))
+		if beforeSlot == "NONE" {
+			t.Fatalf("Group A's delivery-slot binding is missing before the conflict probe")
+		}
 
-		tlsCfg, err := h.certSet.AgentTLSConfig(h.gatewayServerName)
+		ack, err := h.sendOneRawFrame(
+			t, tlsCfg, h.spoolID, h.groupASequence, conflictFx.RecordBytes, conflictFx.RecordSHA256, 20*time.Second,
+		)
 		if err != nil {
-			t.Fatalf("agent tls config: %v", err)
+			t.Fatalf("conflicting frame was refused before JetStream publication: %v", err)
 		}
-		ack, sendErr := h.sendOneRawFrame(t, tlsCfg, h.spoolID, 1, conflictFx.RecordBytes, conflictFx.RecordSHA256, 10*time.Second)
-		// A conflict may surface as no ack at all (retryable, no
-		// disposition) or as some other outcome the gateway's current
-		// mapping produces for an async downstream failure; either is
-		// consistent with "not accepted the same way." The load-bearing
-		// assertion is the CNPG state below, not this gRPC-level detail.
-		_ = ack
-		_ = sendErr
+		requireAcceptedAck(t, ack, h.spoolID, h.groupASequence)
 
-		// Poll: no NEW rows for the conflicting content, and the original
-		// binding stays exactly as it was.
-		deadline := time.Now().Add(pollTimeout)
-		for time.Now().Before(deadline) {
-			n := h.rpcQueryCount(t, eventLedgerExistsSQL(fx.NetworkScopeID, conflictFx.EventID))
-			if n == 0 {
-				break
-			}
-			time.Sleep(pollInterval)
+		outcome := h.waitIngestObservation(t, conflictFx.EventID, probeTransactionResult, 1)
+		if want := "error:delivery_slot_conflict:" + hex.EncodeToString(fx.RecordSHA256); outcome.Tag != want {
+			t.Fatalf("conflicting frame ended with %q, want %q", outcome.Tag, want)
 		}
+		for _, o := range h.ingestObservations(t, conflictFx.EventID) {
+			if o.Point == probeBeforeCommit {
+				t.Errorf("conflicting frame completed its writes (%+v); the slot conflict must stop it first", o)
+			}
+		}
+
 		if n := h.rpcQueryCount(t, eventLedgerExistsSQL(fx.NetworkScopeID, conflictFx.EventID)); n != 0 {
 			t.Errorf("conflicting fixture's event_id leaked an event_ledger row (count=%d); conflict should roll back the whole transaction", n)
 		}
@@ -972,53 +987,342 @@ func (h *harness) testGroupC(t *testing.T) {
 			t.Errorf("conflicting fixture leaked an edge_sweep_batch_slots row (count=%d)", n)
 		}
 
-		afterSlot := h.rpcQueryRow(t, deliverySlotSQL(fx.NetworkScopeID, []byte(h.certSet.AgentComponentID), h.spoolID, 1))
+		afterSlot := h.rpcQueryRow(t, deliverySlotSQL(fx.NetworkScopeID, agentID, h.spoolID, h.groupASequence))
 		if afterSlot != beforeSlot {
 			t.Errorf("edge_delivery_slots binding changed after conflicting frame: before=%s after=%s (first binding must stay immutable)", beforeSlot, afterSlot)
 		}
 	})
 }
 
-// snapshotRowCounts renders a small, comparable string of every row count
-// this fixture's keys touch, for a cheap before/after equality check.
-func (h *harness) snapshotRowCounts(t *testing.T, fx *FixtureRecord) string {
-	t.Helper()
-	ledger := h.rpcQueryCount(t, eventLedgerExistsSQL(fx.NetworkScopeID, fx.EventID))
-	slots := h.rpcQueryCount(t, fmt.Sprintf(
-		"SELECT count(*) FROM platform.edge_delivery_slots WHERE network_scope_id = %s AND spool_id = %s",
-		uuidLiteral(fx.NetworkScopeID), uuidLiteral(h.spoolID),
-	))
-	batch := h.rpcQueryCount(t, fmt.Sprintf(
-		"SELECT count(*) FROM platform.edge_sweep_batch_slots WHERE network_scope_id = %s AND execution_id = %s",
-		uuidLiteral(fx.NetworkScopeID), uuidLiteral(fx.ExecutionID),
-	))
-	rows := h.rpcQueryCount(t, fmt.Sprintf(
-		"SELECT count(*) FROM platform.edge_sweep_projected_rows WHERE network_scope_id = %s AND event_id = %s",
-		uuidLiteral(fx.NetworkScopeID), uuidLiteral(fx.EventID),
-	))
-	return fmt.Sprintf("ledger=%d slots=%d batch=%d rows=%d", ledger, slots, batch, rows)
+// fixtureRowSnapshot counts every committed row one fixture's keys touch.
+type fixtureRowSnapshot struct {
+	Ledger, Slots, Batch, Rows int
 }
 
-// buildIngestReplayExpr renders one Elixir expression calling
-// ServiceRadar.EventWriter.Processors.EdgeRecord.ingest/3 with the EXACT
-// bytes and headers read back from the real stored JetStream message --
-// not reconstructed by hand, so this exercises the real header/provenance
-// decode path too, not just the CNPG transaction. Both travel base64-encoded
-// (the headers as JSON, a name => [value] map ingest/3 accepts), so no header
-// value is ever spliced into Elixir source.
-func buildIngestReplayExpr(data []byte, headers nats.Header) (string, error) {
-	headersJSON, err := json.Marshal(headers)
-	if err != nil {
-		return "", fmt.Errorf("encode replay headers: %w", err)
+func (h *harness) snapshotFixtureRows(t *testing.T, fx *FixtureRecord, spoolID []byte) fixtureRowSnapshot {
+	t.Helper()
+	return fixtureRowSnapshot{
+		Ledger: h.rpcQueryCount(t, eventLedgerExistsSQL(fx.NetworkScopeID, fx.EventID)),
+		Slots: h.rpcQueryCount(t, fmt.Sprintf(
+			"SELECT count(*) FROM platform.edge_delivery_slots WHERE network_scope_id = %s AND spool_id = %s",
+			uuidLiteral(fx.NetworkScopeID), uuidLiteral(spoolID),
+		)),
+		Batch: h.rpcQueryCount(t, fmt.Sprintf(
+			"SELECT count(*) FROM platform.edge_sweep_batch_slots WHERE network_scope_id = %s AND execution_id = %s",
+			uuidLiteral(fx.NetworkScopeID), uuidLiteral(fx.ExecutionID),
+		)),
+		Rows: h.rpcQueryCount(t, fmt.Sprintf(
+			"SELECT count(*) FROM platform.edge_sweep_projected_rows WHERE network_scope_id = %s AND event_id = %s",
+			uuidLiteral(fx.NetworkScopeID), uuidLiteral(fx.EventID),
+		)),
 	}
-	return fmt.Sprintf(
-		`ServiceRadar.EventWriter.Processors.EdgeRecord.ingest(Base.decode64!(%q), JSON.decode!(Base.decode64!(%q)), ServiceRadar.Repo) |> inspect() |> IO.puts()`,
-		base64.StdEncoding.EncodeToString(data), base64.StdEncoding.EncodeToString(headersJSON),
-	), nil
+}
+
+// requireAcceptedAck fails t unless msg is an EdgeDeliveryAckV1 resolving
+// sequence on spoolID as ACCEPTED_AUTHORITATIVE, the disposition the gateway
+// writes only after a durable JetStream PubAck.
+func requireAcceptedAck(t *testing.T, msg *edgev1.EdgeRecordServerMessage, spoolID []byte, sequence uint64) {
+	t.Helper()
+	ack := msg.GetAck()
+	if ack == nil {
+		t.Fatalf("expected an EdgeDeliveryAckV1, got %T", msg.GetPayload())
+	}
+	if !bytes.Equal(ack.GetSpoolId(), spoolID) || ack.GetResolvedThroughSequence() != sequence {
+		t.Fatalf("ack spool_id/resolved_through_sequence = %x/%d, want %x/%d",
+			ack.GetSpoolId(), ack.GetResolvedThroughSequence(), spoolID, sequence)
+	}
+	disps := ack.GetDispositions()
+	if len(disps) != 1 || disps[0].GetSequence() != sequence ||
+		disps[0].GetKind() != edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE {
+		t.Fatalf("ack dispositions = %v, want one ACCEPTED_AUTHORITATIVE for sequence %d", disps, sequence)
+	}
+}
+
+// edgeRecordStream opens the edge-record stream over a fresh NATS connection
+// authenticated with the same .creds file the releases use. The connection
+// closes when t ends.
+func (h *harness) edgeRecordStream(t *testing.T) jetstream.Stream {
+	t.Helper()
+	nc, err := nats.Connect(h.nats.URL, nats.UserCredentials(h.nats.CredsPath))
+	if err != nil {
+		t.Fatalf("connect to nats: %v", err)
+	}
+	t.Cleanup(nc.Close)
+
+	js, err := jetstream.New(nc)
+	if err != nil {
+		t.Fatalf("jetstream context: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), rpcTimeout)
+	defer cancel()
+	stream, err := js.Stream(ctx, edgeRecordStreamName)
+	if err != nil {
+		t.Fatalf("open stream %s: %v", edgeRecordStreamName, err)
+	}
+	return stream
+}
+
+// storedMessagesCarrying returns the stream sequence of every message stored
+// in the edge-record stream whose body is exactly recordBytes.
+func (h *harness) storedMessagesCarrying(t *testing.T, recordBytes []byte) []uint64 {
+	t.Helper()
+	stream := h.edgeRecordStream(t)
+	ctx, cancel := context.WithTimeout(context.Background(), rpcTimeout)
+	defer cancel()
+
+	info, err := stream.Info(ctx)
+	if err != nil {
+		t.Fatalf("stream info: %v", err)
+	}
+	if info.State.Msgs == 0 {
+		return nil
+	}
+
+	var seqs []uint64
+	for seq := info.State.FirstSeq; seq <= info.State.LastSeq; seq++ {
+		msg, err := stream.GetMsg(ctx, seq)
+		if errors.Is(err, jetstream.ErrMsgNotFound) {
+			continue
+		}
+		if err != nil {
+			t.Fatalf("get stored message %d: %v", seq, err)
+		}
+		if bytes.Equal(msg.Data, recordBytes) {
+			seqs = append(seqs, seq)
+		}
+	}
+	return seqs
+}
+
+// requireOneStoredMessage fails t unless exactly one stored message carries
+// recordBytes, and returns its stream sequence.
+func (h *harness) requireOneStoredMessage(t *testing.T, recordBytes []byte) uint64 {
+	t.Helper()
+	seqs := h.storedMessagesCarrying(t, recordBytes)
+	if len(seqs) != 1 {
+		t.Fatalf("stream %s stores %d messages carrying this fixture's bytes (sequences %v), want exactly 1",
+			edgeRecordStreamName, len(seqs), seqs)
+	}
+	return seqs[0]
+}
+
+// ---------------------------------------------------------------------------
+// Ingest probe: observation and fault injection inside the core release.
+//
+// installIngestProbe starts an Agent registered as :vslice_edge_record_probe
+// in the core node and installs the EdgeRecord processor's test-only hook
+// (see "Test-only ingest hook" in ServiceRadar.EventWriter.Processors.
+// EdgeRecord's moduledoc). Every hook call is recorded as (event_id, point,
+// n), where n counts that event's calls at that point, so n == 2 at the same
+// point is a second delivery of the event. A plan armed for one (event_id,
+// point, n) makes that single call hold until released, raise, or both.
+// Nothing here changes how the production consumer receives, NAKs or
+// redelivers a message: a raise fails the batch the way any processor
+// exception does.
+// ---------------------------------------------------------------------------
+
+const (
+	probeBeforeCommit      = "before_commit"
+	probeTransactionResult = "transaction_result"
+
+	probeRaise         = "raise"
+	probeHold          = "hold"
+	probeHoldThenRaise = "hold_then_raise"
+)
+
+// ingestProbeInstallExpr is evaluated once in the core node. A hold that is
+// never released (a failed subtest) ends after 60s, below the durable's 120s
+// AckWait, so a stuck probe cannot wedge the consumer for the rest of the run.
+const ingestProbeInstallExpr = `
+if Process.whereis(:vslice_edge_record_probe) == nil do
+  {:ok, _pid} = Agent.start(fn -> %{plans: %{}, obs: []} end, name: :vslice_edge_record_probe)
+end
+
+Application.put_env(:serviceradar_core, :edge_record_ingest_test_hook, fn point, event_id, result ->
+  caller = self()
+
+  {action, n} =
+    Agent.get_and_update(:vslice_edge_record_probe, fn st ->
+      n = Enum.count(st.obs, fn o -> o.event_id == event_id and o.point == point end) + 1
+      obs = %{event_id: event_id, point: point, n: n, result: result, pid: caller}
+      {{Map.get(st.plans, {event_id, point, n}, :pass), n}, %{st | obs: st.obs ++ [obs]}}
+    end)
+
+  if action in [:hold, :hold_then_raise] do
+    receive do
+      {:vslice_release, ^event_id, ^point, ^n} -> :ok
+    after
+      60_000 -> :ok
+    end
+  end
+
+  if action in [:raise, :hold_then_raise] do
+    raise "vertical_slice_test injected fault at #{point}, call #{n}"
+  end
+
+  :ok
+end)
+
+IO.puts("probe installed")
+`
+
+// ingestObservationsExpr prints one "obs|point|n|tag" line per recorded hook
+// call for __EVENT_ID__, in call order.
+const ingestObservationsExpr = `
+id = Base.decode16!("__EVENT_ID__", case: :lower)
+
+:vslice_edge_record_probe
+|> Agent.get(fn st -> Enum.filter(st.obs, fn o -> o.event_id == id end) end)
+|> Enum.each(fn o ->
+  tag =
+    case o.result do
+      {:ok, outcome} ->
+        "ok:#{outcome}"
+
+      {:error, {:delivery_slot_conflict, %{record_sha256: sha}}} ->
+        "error:delivery_slot_conflict:" <> Base.encode16(sha, case: :lower)
+
+      other ->
+        "other:" <> inspect(other, limit: 20)
+    end
+
+  IO.puts("obs|#{o.point}|#{o.n}|#{tag}")
+end)
+`
+
+// ingestProbeReleaseExpr sends the release message to the process holding
+// call __N__ at __POINT__ for __EVENT_ID__.
+const ingestProbeReleaseExpr = `
+id = Base.decode16!("__EVENT_ID__", case: :lower)
+
+held =
+  Agent.get(:vslice_edge_record_probe, fn st ->
+    Enum.find(st.obs, fn o -> o.event_id == id and o.point == :__POINT__ and o.n == __N__ end)
+  end)
+
+case held do
+  nil ->
+    IO.puts("missing")
+
+  o ->
+    send(o.pid, {:vslice_release, id, o.point, o.n})
+    IO.puts("released")
+end
+`
+
+// ingestObservation is one recorded hook call. Tag is "ok:<outcome>",
+// "error:delivery_slot_conflict:<hex record_sha256 of the existing binding>",
+// or "other:<inspected result>".
+type ingestObservation struct {
+	Point string
+	N     int
+	Tag   string
+}
+
+func (h *harness) installIngestProbe(t *testing.T) {
+	t.Helper()
+	out, err := h.coreProc.RPC(ingestProbeInstallExpr, rpcTimeout)
+	if err != nil {
+		t.Fatalf("install ingest probe: %v", err)
+	}
+	if out != "probe installed" {
+		t.Fatalf("install ingest probe: unexpected output %q", out)
+	}
+}
+
+func (h *harness) armIngestProbe(t *testing.T, eventID []byte, point string, n int, action string) {
+	t.Helper()
+	expr := fmt.Sprintf(
+		`Agent.update(:vslice_edge_record_probe, fn st -> %%{st | plans: Map.put(st.plans, {Base.decode16!(%q, case: :lower), :%s, %d}, :%s)} end); IO.puts("armed")`,
+		hex.EncodeToString(eventID), point, n, action,
+	)
+	out, err := h.coreProc.RPC(expr, rpcTimeout)
+	if err != nil || out != "armed" {
+		t.Fatalf("arm ingest probe (%s call %d -> %s): output %q, err %v", point, n, action, out, err)
+	}
+}
+
+func (h *harness) releaseIngestProbe(t *testing.T, eventID []byte, point string, n int) {
+	t.Helper()
+	expr := strings.NewReplacer(
+		"__EVENT_ID__", hex.EncodeToString(eventID), "__POINT__", point, "__N__", strconv.Itoa(n),
+	).Replace(ingestProbeReleaseExpr)
+	out, err := h.coreProc.RPC(expr, rpcTimeout)
+	if err != nil || out != "released" {
+		t.Fatalf("release ingest probe (%s call %d): output %q, err %v", point, n, out, err)
+	}
+}
+
+func (h *harness) ingestObservations(t *testing.T, eventID []byte) []ingestObservation {
+	t.Helper()
+	expr := strings.ReplaceAll(ingestObservationsExpr, "__EVENT_ID__", hex.EncodeToString(eventID))
+	out, err := h.coreProc.RPC(expr, rpcTimeout)
+	if err != nil {
+		t.Fatalf("read ingest probe observations: %v", err)
+	}
+
+	var obs []ingestObservation
+	for _, line := range strings.Split(out, "\n") {
+		parts := strings.SplitN(strings.TrimSpace(line), "|", 4)
+		if len(parts) != 4 || parts[0] != "obs" {
+			continue
+		}
+		n, err := strconv.Atoi(parts[2])
+		if err != nil {
+			t.Fatalf("unparsable ingest probe line %q: %v", line, err)
+		}
+		obs = append(obs, ingestObservation{Point: parts[1], N: n, Tag: parts[3]})
+	}
+	return obs
+}
+
+// waitIngestObservation polls until the probe has recorded call n at point
+// for eventID, and fails t if EventWriter never gets there.
+func (h *harness) waitIngestObservation(t *testing.T, eventID []byte, point string, n int) ingestObservation {
+	t.Helper()
+	deadline := time.Now().Add(pollTimeout)
+	for {
+		seen := h.ingestObservations(t, eventID)
+		for _, o := range seen {
+			if o.Point == point && o.N == n {
+				return o
+			}
+		}
+		if !time.Now().Before(deadline) {
+			t.Fatalf("EventWriter never reached %s call %d for event %x within %s (observed %+v); see %s in this test's undeclared outputs",
+				point, n, eventID, pollTimeout, seen, h.preservedLogName(h.coreProc.stderrPath))
+		}
+		time.Sleep(pollInterval)
+	}
 }
 
 // ---------------------------------------------------------------------------
 // Group D: failure and watermark order.
+//
+//  1. NATSCutAfterSpoolCommit stops the broker, commits a fresh entry to the
+//     agent's spool, and reads the real agent's own sender log. Every sender
+//     run that ends after the commit must report a remote resolved prefix
+//     below the entry, which means no gateway durability ack. At least two
+//     of those runs must fail; runs are sequential, so the second one began
+//     after the commit. The entry stays above the local reclaim watermark,
+//     readable on the spool, and absent from CNPG until the broker returns.
+//     Then it lands.
+//  2. RedeliveryAfterEventWriterRollback publishes a fresh fixture. The ingest
+//     probe raises inside its FIRST CNPG transaction, after every write
+//     succeeded, so the transaction really rolls back. EventWriter must not
+//     ACK it: the probe sees a second delivery of the SAME stored message and
+//     holds it inside its transaction. While it is held, the test checks
+//     there are no committed rows and that the durable's ack floor is still
+//     below the message. Once released, that delivery commits and the ack
+//     floor passes the message.
+//  3. PositiveAckDoesNotReclaimSpool reads the gateway's EdgeDeliveryAckV1s on
+//     a real session and checks their spool-ID/session-nonce binding and
+//     cumulative resolved_through_sequence with the agent's own
+//     edgerecord.ValidateAck. It waits for the real agent to report a remote
+//     resolved prefix covering every spool entry. Then it confirms neither
+//     one moved the agent's local reclaim watermark or removed a record from
+//     the spool's public read path.
+//
 // ---------------------------------------------------------------------------
 func (h *harness) testGroupD(t *testing.T) {
 	fx := h.groupAFixture
@@ -1027,8 +1331,8 @@ func (h *harness) testGroupD(t *testing.T) {
 	}
 
 	t.Run("NATSCutAfterSpoolCommit", func(t *testing.T) {
-		// Stop NATS FIRST, then commit a fresh entry, so the agent's next
-		// RunOnce deterministically hits the outage rather than racing it.
+		// Stop NATS FIRST, then commit a fresh entry, so every sender run that
+		// can carry the entry runs into the outage.
 		h.nats.Shutdown()
 
 		fx2, err := BuildSweepFixture([]byte(h.certSet.AgentComponentID))
@@ -1039,21 +1343,20 @@ func (h *harness) testGroupD(t *testing.T) {
 		if err != nil {
 			t.Fatalf("append: %v", err)
 		}
+		committedAt := h.agent.logOffset(t)
 
-		// Give the agent several poll cycles to attempt and fail.
-		time.Sleep(10 * agentPollInterval)
+		h.waitAgentSenderRuns(t, committedAt, natsCutTimeout, "two failed sender runs during the NATS outage",
+			func(runs []agentSenderRun) bool { return countFailedRuns(runs) >= 2 })
 
-		freshSp, err := spool.Open(h.agent.SpoolDir)
-		if err != nil {
-			t.Fatalf("reopen spool: %v", err)
+		// Every run that ended during the outage, re-read just before the
+		// broker returns so no run in the window goes unchecked.
+		for _, run := range h.agentSenderRuns(t, committedAt) {
+			if run.RemoteResolvedThrough >= seq {
+				t.Errorf("agent reported remote_resolved_through=%d covering withheld sequence %d during the NATS outage (%+v); the gateway acknowledged an entry it could not have made durable",
+					run.RemoteResolvedThrough, seq, run)
+			}
 		}
-		if resolved := freshSp.Resolved(); resolved >= seq {
-			t.Errorf("spool watermark advanced past seq %d during a NATS outage (resolved=%d) -- withholding invariant violated", seq, resolved)
-		}
-
-		// The negative half of Group D (b): the entry is withheld while the
-		// broker is down. The positive half (restore NATS, confirm eventual
-		// delivery) is asserted below after Restart.
+		h.requireSpoolEntryUnreclaimed(t, seq)
 		if n := h.rpcQueryCount(t, eventLedgerExistsSQL(fx2.NetworkScopeID, fx2.EventID)); n != 0 {
 			t.Errorf("event_ledger row appeared for an entry that should have been withheld by a NATS outage")
 		}
@@ -1085,25 +1388,6 @@ func (h *harness) testGroupD(t *testing.T) {
 	})
 
 	t.Run("RedeliveryAfterEventWriterRollback", func(t *testing.T) {
-		// APPROXIMATION, documented: task 0.12 asks to "force the CNPG
-		// transaction to roll back after broker delivery" and observe no
-		// broker ACK is sent plus eventual redelivery. This harness has no
-		// externally-reachable privilege-revocation surface proven safe
-		// against the shared core release's own Repo connection (a REVOKE
-		// against CURRENT_USER inside the SAME session risks locking the
-		// release's OWN connection out for the rest of the test run, not
-		// just this probe, since Ecto pools and reuses connections). The
-		// weaker, but still real, technique used here: SIGKILL the core
-		// release process directly (no graceful `stop` first, which would
-		// let the EventWriter pipeline finish and commit before exit)
-		// BEFORE it can ack a fresh in-flight publish, which
-		// is a real production failure mode that also prevents the
-		// transaction from completing, then restart it and confirm the
-		// message is eventually processed once core recovers -- WITHOUT
-		// independently proving "no broker ACK was sent" as a separate
-		// observation (killing the consumer process necessarily prevents
-		// it from acking, so that half is definitionally true here, not
-		// independently demonstrated).
 		if h.nats.Server == nil {
 			t.Fatal("NATS broker is down when RedeliveryAfterEventWriterRollback runs -- the cut probe must have restarted it via NATSHarness.Restart; a missing broker must fail loudly, never skip")
 		}
@@ -1112,71 +1396,376 @@ func (h *harness) testGroupD(t *testing.T) {
 		if err != nil {
 			t.Fatalf("build fixture: %v", err)
 		}
-		if _, err := h.sp.Append(fx3.EventID, fx3.RecordBytes); err != nil {
-			t.Fatalf("append: %v", err)
-		}
-
-		// Let the agent get it published to NATS (gateway ack does not
-		// depend on core being alive), then SIGKILL core before it can
-		// process/ack it. This is deliberately NOT ReleaseProcess.Stop:
-		// Stop runs the release's graceful `stop` first, which drains the
-		// EventWriter and commits fx3 before exit, so the redelivery path
-		// would never execute. The SIGKILLed process is reaped by the
-		// Stop cleanup newHarness registered for it.
-		time.Sleep(3 * agentPollInterval)
-		if h.coreProc == nil || h.coreProc.cmd == nil || h.coreProc.cmd.Process == nil {
-			t.Fatal("core release has no OS process to SIGKILL")
-		}
-		if err := h.coreProc.cmd.Process.Kill(); err != nil {
-			t.Fatalf("SIGKILL core release: %v", err)
-		}
-
-		coreTarPath := mustRlocation(t, coreReleaseTarRlocation)
-		restarted, err := StartRelease(
-			coreTarPath, "serviceradar_core_elx", filepath.Join(h.dir, "core-restart"),
-			h.coreEnv, fmt.Sprintf("http://127.0.0.1:%d/health", h.coreEnv.MetricsPort), 90*time.Second,
-		)
+		spoolID, err := edgerecord.NewUUIDv7()
 		if err != nil {
-			t.Fatalf("restart core release: %v", err)
+			t.Fatalf("spool id: %v", err)
 		}
-		// Registered on the HARNESS test, not this subtest: a subtest-scoped
-		// Cleanup would stop the replacement core the moment D2 returns,
-		// and every later query (PositiveAckDoesNotReclaimSpool, Groups E
-		// and F) would then hit a node that no longer exists.
-		h.t.Cleanup(restarted.Stop)
-		h.coreProc = restarted
+		tlsCfg, err := h.certSet.AgentTLSConfig(h.gatewayServerName)
+		if err != nil {
+			t.Fatalf("agent tls config: %v", err)
+		}
+
+		h.armIngestProbe(t, fx3.EventID, probeBeforeCommit, 1, probeRaise)
+		h.armIngestProbe(t, fx3.EventID, probeBeforeCommit, 2, probeHold)
+
+		ack, err := h.sendOneRawFrame(t, tlsCfg, spoolID, 1, fx3.RecordBytes, fx3.RecordSHA256, 20*time.Second)
+		if err != nil {
+			t.Fatalf("send fixture: %v", err)
+		}
+		requireAcceptedAck(t, ack, spoolID, 1)
+		storedSeq := h.requireOneStoredMessage(t, fx3.RecordBytes)
+
+		h.waitIngestObservation(t, fx3.EventID, probeBeforeCommit, 2)
+
+		for _, o := range h.ingestObservations(t, fx3.EventID) {
+			if o.Point == probeTransactionResult {
+				t.Errorf("a delivery finished its transaction (%+v) before the held redelivery; the injected fault must abort the first one inside it", o)
+			}
+		}
+		if got := h.snapshotFixtureRows(t, fx3, spoolID); got != (fixtureRowSnapshot{}) {
+			t.Errorf("committed rows while the redelivery is held = %+v, want none: the first transaction must have rolled back", got)
+		}
+		h.requireOneStoredMessage(t, fx3.RecordBytes)
+		if floor := h.edgeRecordAckFloor(t); floor >= storedSeq {
+			t.Errorf("durable ack floor %d reached stream sequence %d before any delivery committed; EventWriter acknowledged a rolled-back message", floor, storedSeq)
+		}
+
+		h.releaseIngestProbe(t, fx3.EventID, probeBeforeCommit, 2)
+
+		result := h.waitIngestObservation(t, fx3.EventID, probeTransactionResult, 1)
+		if result.Tag != "ok:inserted" {
+			t.Fatalf("redelivery ended with %q, want ok:inserted", result.Tag)
+		}
+		want := fixtureRowSnapshot{Ledger: 1, Slots: 1, Batch: 1, Rows: fx3.ProjectedRowCount}
+		if got := h.snapshotFixtureRows(t, fx3, spoolID); got != want {
+			t.Errorf("snapshot after the redelivery committed = %+v, want %+v", got, want)
+		}
+		h.assertCommittedFixtureValues(t, fx3, spoolID, 1)
 
 		deadline := time.Now().Add(pollTimeout)
-		var n int
-		for time.Now().Before(deadline) {
-			n = h.rpcQueryCount(t, eventLedgerExistsSQL(fx3.NetworkScopeID, fx3.EventID))
-			if n == 1 {
-				break
-			}
+		floor := h.edgeRecordAckFloor(t)
+		for floor < storedSeq && time.Now().Before(deadline) {
 			time.Sleep(pollInterval)
+			floor = h.edgeRecordAckFloor(t)
 		}
-		if n != 1 {
-			t.Errorf("fixture was not redelivered/processed after core restarted (count=%d)", n)
+		if floor < storedSeq {
+			t.Errorf("durable ack floor %d never reached stream sequence %d within %s after the redelivery committed", floor, storedSeq, pollTimeout)
 		}
 	})
 
 	t.Run("PositiveAckDoesNotReclaimSpool", func(t *testing.T) {
+		agentOffset := h.agent.logOffset(t)
+
+		h.assertCumulativeDeliveryAck(t)
+
+		highest := h.sp.NextSequence() - 1
+		h.waitAgentSenderRuns(t, agentOffset, pollTimeout,
+			fmt.Sprintf("a successful sender run with remote_resolved_through >= %d", highest),
+			func(runs []agentSenderRun) bool {
+				for _, run := range runs {
+					if !run.Failed && run.RemoteResolvedThrough >= highest {
+						return true
+					}
+				}
+				return false
+			})
+
+		// The gateway's acks and the agent's remote prefix are remote progress
+		// only: neither may physically reclaim the local spool.
 		freshSp, err := spool.Open(h.agent.SpoolDir)
 		if err != nil {
 			t.Fatalf("reopen spool: %v", err)
 		}
-		if resolved := freshSp.Resolved(); resolved != 0 {
+		resolved := freshSp.Resolved()
+		_ = freshSp.Close()
+		if resolved != 0 {
 			t.Errorf("spool local watermark advanced to %d even though nothing in this harness ever calls spool.Resolve -- ack alone must never physically reclaim the spool", resolved)
 		}
-		// Group A's fixture (sequence 1) is fully committed in CNPG by this
-		// point, proving the remote side made successful progress WHILE the
-		// assertion above proves that progress alone never reclaimed the
-		// local spool -- exactly the negative-reclaim pairing task 0.12
-		// asks for.
+		for seq := uint64(1); seq <= highest; seq++ {
+			h.requireSpoolEntryUnreclaimed(t, seq)
+		}
+
 		if n := h.rpcQueryCount(t, eventLedgerExistsSQL(h.groupAFixture.NetworkScopeID, h.groupAFixture.EventID)); n != 1 {
 			t.Errorf("expected Group A's fixture to still be committed (remote progress), got count=%d", n)
 		}
 	})
+}
+
+// assertCumulativeDeliveryAck opens a real lane with a random session nonce,
+// sends two fresh fixtures on it, and checks each EdgeDeliveryAckV1 the
+// gateway writes with edgerecord.ValidateAck, the agent's own check of the
+// spool-ID/session-nonce binding and the cumulative watermark window. Each
+// ack must resolve exactly through its frame's sequence as
+// ACCEPTED_AUTHORITATIVE, and the record must already be stored in JetStream
+// when the ack arrives.
+func (h *harness) assertCumulativeDeliveryAck(t *testing.T) {
+	t.Helper()
+
+	tlsCfg, err := h.certSet.AgentTLSConfig(h.gatewayServerName)
+	if err != nil {
+		t.Fatalf("agent tls config: %v", err)
+	}
+	spoolID, err := edgerecord.NewUUIDv7()
+	if err != nil {
+		t.Fatalf("spool id: %v", err)
+	}
+	nonce := make([]byte, 32)
+	if _, err := rand.Read(nonce); err != nil {
+		t.Fatalf("session nonce: %v", err)
+	}
+
+	conn, err := grpc.NewClient(h.gatewayAddr, grpc.WithTransportCredentials(credentials.NewTLS(tlsCfg)))
+	if err != nil {
+		t.Fatalf("dial gateway: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), rpcTimeout)
+	defer cancel()
+	stream, err := edgev1.NewEdgeRecordIngestServiceClient(conn).Stream(ctx)
+	if err != nil {
+		t.Fatalf("open stream: %v", err)
+	}
+
+	open := &edgev1.EdgeRecordLaneOpen{
+		RouteProfile:            edgev1.EdgeRecordRouteProfile_EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
+		TrafficClass:            edgev1.EdgeRecordTrafficClass_EDGE_RECORD_TRAFFIC_CLASS_BULK,
+		SpoolId:                 spoolID,
+		SequenceBase:            1,
+		FirstUnresolvedSequence: 1,
+		SessionNonce:            nonce,
+		RequestedByteCredits:    1 << 20,
+		RequestedFrameCredits:   8,
+	}
+	if err := stream.Send(&edgev1.EdgeRecordClientMessage{Payload: &edgev1.EdgeRecordClientMessage_LaneOpen{LaneOpen: open}}); err != nil {
+		t.Fatalf("send lane_open: %v", err)
+	}
+	openMsg, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("recv lane_open_ack: %v", err)
+	}
+	if err := edgerecord.ValidateLaneOpenAck(openMsg.GetLaneOpenAck(), open); err != nil {
+		t.Fatalf("lane_open_ack failed the agent's own validation: %v", err)
+	}
+
+	sess := edgerecord.Session{
+		RouteProfile:    open.GetRouteProfile(),
+		TrafficClass:    open.GetTrafficClass(),
+		SpoolID:         spoolID,
+		Nonce:           nonce,
+		FirstUnresolved: 1,
+		NextSequence:    1,
+		SentEvents:      make(map[uint64][]byte),
+	}
+
+	for seq := uint64(1); seq <= 2; seq++ {
+		fxN, err := BuildSweepFixture([]byte(h.certSet.AgentComponentID))
+		if err != nil {
+			t.Fatalf("build fixture %d: %v", seq, err)
+		}
+		frame := &edgev1.EdgeDeliveryFrameV1{
+			SpoolId:      spoolID,
+			Sequence:     seq,
+			RecordSha256: fxN.RecordSHA256,
+			RecordBytes:  fxN.RecordBytes,
+		}
+		if err := stream.Send(&edgev1.EdgeRecordClientMessage{Payload: &edgev1.EdgeRecordClientMessage_DeliveryFrame{DeliveryFrame: frame}}); err != nil {
+			t.Fatalf("send delivery_frame %d: %v", seq, err)
+		}
+		sess.SentEvents[seq] = fxN.EventID
+		sess.HighestSent = seq
+		sess.NextSequence = seq + 1
+
+		msg, err := stream.Recv()
+		if err != nil {
+			t.Fatalf("recv ack for sequence %d: %v", seq, err)
+		}
+		if err := edgerecord.ValidateAck(msg.GetAck(), sess, 0, 0); err != nil {
+			t.Fatalf("gateway ack for sequence %d failed the agent's own ack validation: %v", seq, err)
+		}
+		requireAcceptedAck(t, msg, spoolID, seq)
+		sess.ResolvedThrough = msg.GetAck().GetResolvedThroughSequence()
+
+		h.requireOneStoredMessage(t, fxN.RecordBytes)
+	}
+	_ = stream.CloseSend()
+}
+
+// edgeRecordAckFloor returns the stream sequence through which the
+// EventWriter's durable consumer on the edge-record stream has acknowledged
+// every message. The harness reads with direct gets only, so that durable is
+// the stream's one consumer.
+func (h *harness) edgeRecordAckFloor(t *testing.T) uint64 {
+	t.Helper()
+	stream := h.edgeRecordStream(t)
+	ctx, cancel := context.WithTimeout(context.Background(), rpcTimeout)
+	defer cancel()
+
+	lister := stream.ListConsumers(ctx)
+	var consumers []*jetstream.ConsumerInfo
+	for info := range lister.Info() {
+		consumers = append(consumers, info)
+	}
+	if err := lister.Err(); err != nil {
+		t.Fatalf("list consumers on %s: %v", edgeRecordStreamName, err)
+	}
+	if len(consumers) != 1 {
+		names := make([]string, len(consumers))
+		for i, c := range consumers {
+			names[i] = c.Name
+		}
+		t.Fatalf("stream %s has consumers %v, want exactly EventWriter's durable", edgeRecordStreamName, names)
+	}
+	return consumers[0].AckFloor.Stream
+}
+
+// requireSpoolEntryUnreclaimed reopens the agent's spool and fails t unless
+// sequence is still above the local reclaim watermark and readable through
+// the spool's public read path.
+func (h *harness) requireSpoolEntryUnreclaimed(t *testing.T, sequence uint64) {
+	t.Helper()
+	sp, err := spool.Open(h.agent.SpoolDir)
+	if err != nil {
+		t.Fatalf("reopen spool: %v", err)
+	}
+	defer func() { _ = sp.Close() }()
+
+	if resolved := sp.Resolved(); resolved >= sequence {
+		t.Errorf("local reclaim watermark %d covers sequence %d; the entry was reclaimed", resolved, sequence)
+	}
+	found := false
+	if err := sp.ScanFrom(0, func(rec spool.Record) bool {
+		found = rec.Sequence == sequence
+		return !found
+	}); err != nil {
+		t.Fatalf("scan spool: %v", err)
+	}
+	if !found {
+		t.Errorf("sequence %d is no longer on the spool's public read path", sequence)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Agent sender log: the real agent's remote resolved prefix.
+//
+// go/pkg/edge/sender keeps the gateway-acknowledged prefix in memory only,
+// and go/cmd/agent logs it (remote_resolved_through) once at the end of every
+// sender run, successful or failed. The agent writes zerolog JSON, one object
+// per line, to its stdout log.
+// ---------------------------------------------------------------------------
+
+const (
+	agentSenderDrainedMessage = "Edge record sender drained spool lane"
+	agentSenderFailedMessage  = "Edge record sender run failed"
+
+	// natsCutTimeout bounds the wait for two failed sender runs during the
+	// outage. A run whose publish times out at the gateway takes several
+	// seconds to fail.
+	natsCutTimeout = 60 * time.Second
+)
+
+var (
+	errAgentLogShorterThanOffset = errors.New("agent log is shorter than the requested offset")
+	errSenderRunMissingPrefix    = errors.New("sender run line lacks sent/remote_resolved_through")
+)
+
+// agentSenderRun is one sender run the agent logged when it ended.
+type agentSenderRun struct {
+	Failed                bool
+	Sent                  int
+	RemoteResolvedThrough uint64
+	Err                   string
+}
+
+func countFailedRuns(runs []agentSenderRun) int {
+	n := 0
+	for _, run := range runs {
+		if run.Failed {
+			n++
+		}
+	}
+	return n
+}
+
+// logOffset is the current size of the agent's stdout log.
+func (p *AgentProcess) logOffset(t *testing.T) int64 {
+	t.Helper()
+	info, err := os.Stat(p.stdoutPath)
+	if err != nil {
+		t.Fatalf("stat agent log: %v", err)
+	}
+	return info.Size()
+}
+
+// senderRuns parses every sender run whose line the agent finished writing
+// after offset. A run line without sent or remote_resolved_through is an
+// error: the prefix is the observation, so an agent that stops logging it
+// must fail the test rather than satisfy it vacuously.
+func (p *AgentProcess) senderRuns(offset int64) ([]agentSenderRun, error) {
+	data, err := os.ReadFile(p.stdoutPath)
+	if err != nil {
+		return nil, err
+	}
+	if offset > int64(len(data)) {
+		return nil, fmt.Errorf("%w: %d bytes, offset %d", errAgentLogShorterThanOffset, len(data), offset)
+	}
+	data = data[offset:]
+	data = data[:bytes.LastIndexByte(data, '\n')+1]
+
+	var runs []agentSenderRun
+	for _, line := range bytes.Split(data, []byte("\n")) {
+		var entry struct {
+			Message               string  `json:"message"`
+			Sent                  *int    `json:"sent"`
+			RemoteResolvedThrough *uint64 `json:"remote_resolved_through"`
+			Error                 string  `json:"error"`
+		}
+		if json.Unmarshal(line, &entry) != nil {
+			continue
+		}
+		if entry.Message != agentSenderDrainedMessage && entry.Message != agentSenderFailedMessage {
+			continue
+		}
+		if entry.Sent == nil || entry.RemoteResolvedThrough == nil {
+			return nil, fmt.Errorf("%w: %s", errSenderRunMissingPrefix, line)
+		}
+		runs = append(runs, agentSenderRun{
+			Failed:                entry.Message == agentSenderFailedMessage,
+			Sent:                  *entry.Sent,
+			RemoteResolvedThrough: *entry.RemoteResolvedThrough,
+			Err:                   entry.Error,
+		})
+	}
+	return runs, nil
+}
+
+func (h *harness) agentSenderRuns(t *testing.T, offset int64) []agentSenderRun {
+	t.Helper()
+	runs, err := h.agent.senderRuns(offset)
+	if err != nil {
+		t.Fatalf("read agent sender runs: %v", err)
+	}
+	return runs
+}
+
+// waitAgentSenderRuns polls the agent's log until done accepts the runs
+// logged after offset, and fails t with what was seen if it never does.
+func (h *harness) waitAgentSenderRuns(
+	t *testing.T, offset int64, timeout time.Duration, what string, done func([]agentSenderRun) bool,
+) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		runs := h.agentSenderRuns(t, offset)
+		if done(runs) {
+			return
+		}
+		if !time.Now().Before(deadline) {
+			t.Fatalf("agent never logged %s within %s (runs after offset: %+v); see %s in this test's undeclared outputs",
+				what, timeout, runs, h.preservedLogName(h.agent.stdoutPath))
+		}
+		time.Sleep(pollInterval)
+	}
 }
 
 // ---------------------------------------------------------------------------

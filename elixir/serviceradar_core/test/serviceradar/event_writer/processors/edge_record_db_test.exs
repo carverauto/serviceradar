@@ -120,6 +120,60 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
     end
   end
 
+  describe "ingest/4 test hook" do
+    test "a :before_commit hook that raises rolls the whole transaction back" do
+      %{record_bytes: record_bytes, headers: headers, record: record, batch: batch} =
+        build_frame()
+
+      hook = fn
+        :before_commit, _event_id, _result -> raise "injected rollback"
+        _point, _event_id, _result -> :ok
+      end
+
+      assert_raise RuntimeError, "injected rollback", fn ->
+        EdgeRecord.ingest(record_bytes, headers, Repo, test_hook: hook)
+      end
+
+      assert ledger_count(record) == 0
+      assert delivery_slot_count(record) == 0
+      assert sweep_batch_slot_count(record, batch) == 0
+      assert projected_row_keys(record) == []
+
+      # Nothing of the rolled-back attempt survives, so a redelivery commits.
+      assert {:ok, :inserted} = EdgeRecord.ingest(record_bytes, headers, Repo)
+      assert ledger_count(record) == 1
+    end
+
+    test "the :transaction_result hook observes the committed outcome and the delivery-slot conflict" do
+      %{record_bytes: record_bytes, headers: headers, record: record, slot: slot} = build_frame()
+      test_pid = self()
+
+      hook = fn point, event_id, result ->
+        send(test_pid, {:edge_record_hook, point, event_id, result})
+      end
+
+      assert {:ok, :inserted} = EdgeRecord.ingest(record_bytes, headers, Repo, test_hook: hook)
+
+      event_id = record.event_id
+      assert_received {:edge_record_hook, :before_commit, ^event_id, {:ok, :inserted}}
+      assert_received {:edge_record_hook, :transaction_result, ^event_id, {:ok, :inserted}}
+
+      %{record_bytes: conflicting_bytes, headers: conflicting_headers, record: conflicting} =
+        build_frame(slot: slot, host_octet: 42)
+
+      assert {:error, {:delivery_slot_conflict, _existing}} =
+               EdgeRecord.ingest(conflicting_bytes, conflicting_headers, Repo, test_hook: hook)
+
+      conflicting_event_id = conflicting.event_id
+      first_sha256 = :crypto.hash(:sha256, record_bytes)
+
+      assert_received {:edge_record_hook, :transaction_result, ^conflicting_event_id,
+                       {:error, {:delivery_slot_conflict, %{record_sha256: ^first_sha256}}}}
+
+      refute_received {:edge_record_hook, :before_commit, ^conflicting_event_id, _result}
+    end
+  end
+
   # --- fixture construction -------------------------------------------------
 
   defp build_frame(opts \\ []) do
