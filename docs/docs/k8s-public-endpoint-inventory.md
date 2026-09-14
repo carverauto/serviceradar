@@ -119,7 +119,8 @@ k8sInventory:
 ```
 
 ```bash
-helm upgrade --install serviceradar ./helm/serviceradar \
+helm upgrade --install serviceradar oci://registry.carverauto.dev/serviceradar/charts/serviceradar \
+  --version <chart-version> \
   --namespace serviceradar --create-namespace \
   -f values-customer.yaml \
   --set k8sInventory.enabled=true \
@@ -413,13 +414,18 @@ on the same release is a common source of “it disappeared after sync.”
 ### Fresh Helm install (not Argo)
 
 ```bash
-helm upgrade --install serviceradar ./helm/serviceradar \
-  --namespace demo \
-  -f helm/serviceradar/values-demo.yaml \
+helm upgrade --install serviceradar oci://registry.carverauto.dev/serviceradar/charts/serviceradar \
+  --version <chart-version> \
+  --namespace <namespace> --create-namespace \
+  -f my-values.yaml \
   --set k8sInventory.enabled=true \
-  --set k8sInventory.clusterId=demo \
-  --set global.imageTag=<tag-that-includes-k8s-inventory>
+  --set k8sInventory.clusterId=<cluster-id>
 ```
+
+Pick a `<chart-version>` whose release includes `serviceradar-k8s-inventory`.
+The chart tags that image `v<chart-version>`, like every other first-party
+image, so `--version` alone selects it. Leave `global.imageTag` unset; if you
+do set it, it must be `v<chart-version>`.
 
 ## Incident response workflow
 
