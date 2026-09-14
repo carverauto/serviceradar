@@ -1608,12 +1608,12 @@ func (h *harness) testGroupD(t *testing.T) {
 }
 
 // assertCumulativeDeliveryAck opens a real lane with a random session nonce,
-// sends two fresh fixtures on it, and checks each EdgeDeliveryAckV1 the
-// gateway writes with edgerecord.ValidateAck, the agent's own check of the
-// spool-ID/session-nonce binding and the cumulative watermark window. Each
-// ack must resolve exactly through its frame's sequence as
-// ACCEPTED_AUTHORITATIVE, and the record must already be stored in JetStream
-// when the ack arrives.
+// sends two fresh fixtures in one network scope on it, and checks each
+// EdgeDeliveryAckV1 the gateway writes with edgerecord.ValidateAck, the
+// agent's own check of the spool-ID/session-nonce binding and the cumulative
+// watermark window. Each ack must resolve exactly through its frame's
+// sequence as ACCEPTED_AUTHORITATIVE, and the record must already be stored
+// in JetStream when the ack arrives.
 func (h *harness) assertCumulativeDeliveryAck(t *testing.T) {
 	t.Helper()
 
@@ -1674,11 +1674,18 @@ func (h *harness) assertCumulativeDeliveryAck(t *testing.T) {
 		SentEvents:      make(map[uint64][]byte),
 	}
 
-	for seq := uint64(1); seq <= 2; seq++ {
-		fxN, err := BuildSweepFixture([]byte(h.certSet.AgentComponentID))
-		if err != nil {
-			t.Fatalf("build fixture %d: %v", seq, err)
-		}
+	// The gateway binds the lane to the first record's network scope, so the
+	// second fixture shares it.
+	first, err := BuildSweepFixture([]byte(h.certSet.AgentComponentID))
+	if err != nil {
+		t.Fatalf("build fixture 1: %v", err)
+	}
+	second, err := BuildSweepFixtureInScope(first.NetworkScopeID, []byte(h.certSet.AgentComponentID))
+	if err != nil {
+		t.Fatalf("build fixture 2: %v", err)
+	}
+	for i, fxN := range []*FixtureRecord{first, second} {
+		seq := uint64(i + 1)
 		frame := &edgev1.EdgeDeliveryFrameV1{
 			SpoolId:      spoolID,
 			Sequence:     seq,
