@@ -254,6 +254,21 @@ defmodule ServiceRadar.Edge.PublisherPool do
   @doc "This class's current capacity, for tests and observability."
   def capacity(pool), do: GenServer.call(pool, :capacity)
 
+  @doc """
+  A read-only copy of this lane's credit ledger: `PublishWindow.ledger/1`, plus the transport
+  generation now `accepting`.
+
+  `capacity/1` reports totals, and totals cannot show what the restart and fencing criteria are
+  about. A replacement transport must not reopen a charge still held by an in-flight request, and a
+  retry must not displace the attempt that holds its publication. Both are claims about individual
+  reservations, and this reports them: each reservation's credits and its attempt's phase, token,
+  owner and generation, next to the generation now `accepting`.
+
+  Nothing here changes state. It exists so the composed vertical-slice test can read the ledger
+  over the release's `rpc` without reaching into process state.
+  """
+  def ledger(pool), do: GenServer.call(pool, :ledger)
+
   @impl true
   def init(opts) do
     {:ok, window} =
@@ -401,6 +416,15 @@ defmodule ServiceRadar.Edge.PublisherPool do
        outstanding_frames: PublishWindow.outstanding_frames(state.window),
        outstanding_bytes: PublishWindow.outstanding_bytes(state.window)
      }, state}
+  end
+
+  def handle_call(:ledger, _from, state) do
+    ledger =
+      state.window
+      |> PublishWindow.ledger()
+      |> Map.put(:accepting, state.accepting)
+
+    {:reply, ledger, state}
   end
 
   defp register_generation(state, pid) do
