@@ -225,8 +225,9 @@ type Usage struct {
 //
 // Its ledger is in memory by design. The durable truth is the files on disk:
 // after a restart, the opener re-measures them (Open charges every file in each
-// lane directory through ChargeMeasured, even a lane it then rejects as
-// corrupt), so there is no second on-disk ledger that could disagree with them.
+// lane directory and its commit evidence directories through ChargeMeasured, even
+// for a lane it then fails to open), so there is no second on-disk ledger that
+// could disagree with them.
 type Allocator struct {
 	fs              fileSystem
 	freeBytes       func() (uint64, error)
