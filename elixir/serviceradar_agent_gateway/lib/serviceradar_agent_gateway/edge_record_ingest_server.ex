@@ -32,6 +32,19 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
   REJECTED_RETRYABLE without resolving. `:not_ready`/`:systemic` decode faults are PAUSED (no
   disposition sent for that frame at all) per `WireDecode`'s own contract, rather than folded into
   either resolving class.
+
+  ## Lane isolation (task 3.6)
+
+    * The lane never enters `ServiceRadarAgentGateway.StatusBuffer`. An unresolved publication is
+      withheld, so the agent spool keeps it; nothing is queued, dropped or retried here.
+    * Only a PubAck naming a stream and a positive sequence is acked durable. A Core NATS publish
+      or an ERTS/RPC handoff reports that bytes left this process, not that a stream stored them,
+      so any other success-shaped publisher result is withheld.
+    * The lane is stateless across restarts. Its only state lives in the stream process, and the
+      request reader is ended with it, so a reconnect replays the spool through the same
+      publication path rather than recovering anything from the gateway.
+
+  `ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest` observes each of these.
   """
 
   use GRPC.Server, service: Serviceradar.Edge.V1.EdgeRecordIngestService.Service
@@ -63,6 +76,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
 
     task =
       Task.Supervisor.async_nolink(task_supervisor(), fn ->
+        stop_with_owner(owner)
         Enum.each(request_stream, &send(owner, {:edge_record_message, &1}))
       end)
 
@@ -71,6 +85,27 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
     after
       Task.shutdown(task, :brutal_kill)
     end
+  end
+
+  # The reader is unlinked so a request-stream failure becomes a clean RPC error rather than
+  # killing this process, which means it does not die with this process either. An exit signal
+  # (a client disconnect tearing down the handler, a kill) skips the `after` above, and grpc's
+  # Cowboy read waits for the handler's reply with no monitor and no timeout, so the reader would
+  # stay blocked under the task supervisor forever -- lane state outliving the lane (task 3.6).
+  # This watcher ends the reader when the owner goes, and exits on its own when the reader
+  # finishes first.
+  defp stop_with_owner(owner) do
+    reader = self()
+
+    spawn(fn ->
+      owner_ref = Process.monitor(owner)
+      reader_ref = Process.monitor(reader)
+
+      receive do
+        {:DOWN, ^owner_ref, :process, _pid, _reason} -> Process.exit(reader, :kill)
+        {:DOWN, ^reader_ref, :process, _pid, _reason} -> :ok
+      end
+    end)
   end
 
   defp receive_stream(stream, task, state) do
@@ -216,20 +251,27 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
     }
 
     case publisher().publish_record(publication) do
-      {:ok, _pub_ack} ->
+      # Only a PubAck is durability. A bare `:ok` is what a Core NATS publish (`Gnat.pub`) returns,
+      # and `{:ok, _}` without a stream and a positive sequence is the shape of an ERTS or RPC
+      # handoff; both mean the bytes left this process, not that a stream stored them (task 3.6).
+      {:ok, %{stream: ack_stream, seq: seq}}
+      when is_binary(ack_stream) and ack_stream != "" and is_integer(seq) and seq >= 1 ->
         ack(stream, state, sequence, record.event_id, @accepted)
 
       {:error, :poison} ->
         ack(stream, state, sequence, record.event_id, @permanent)
 
-      {:error, reason} ->
-        Logger.warning("edge record publish did not resolve: #{inspect(reason)}")
+      result ->
+        Logger.warning("edge record publish did not resolve: #{inspect(unresolved_reason(result))}")
         # RETRYABLE never resolves the sequence -- the watermark must not advance past a record
         # that may not be durable. No ack is sent for this frame; the agent's own deadline drives
         # its retry.
         state
     end
   end
+
+  defp unresolved_reason({:error, reason}), do: reason
+  defp unresolved_reason(_result), do: :not_a_pub_ack
 
   # `event_id` is the decoded record's id, which the agent binds to the event it sent for
   # `sequence` (`edgerecord.ValidateAck`). Only a rejection made before the record decoded may
