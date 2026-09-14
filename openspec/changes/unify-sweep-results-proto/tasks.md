@@ -981,6 +981,24 @@
   belongs here. This task's closure still requires that record-level refusal to
   be observed through the composed target; 0.12's deferral waives it only for
   0.12's milestone gate, not for this task.
+  IMPLEMENTED in `ServiceRadarAgentGateway` and awaiting review; still unchecked:
+  `ComponentIdentityResolver.resolve_edge_identity/3` derives installation trust (deployment-CA
+  SPKI digest), agent principal, partition and gateway from the CA and certificate subject, with
+  SPIFFE optional and conflict-checked. `EdgeRecordTrust` is the local trust snapshot (role-bound
+  verifying keys, pinned trust-policy epoch, advanced fences), and `EdgeRecordCapability` is not
+  ready without it. `EdgeRecordAuthorization` decides each frame with no core or database lookup,
+  in the order Go's `ValidateFrameSigned` uses. The vertical slice signs its fixture grant with a
+  synthetic issuer that the gateway trusts and fences, and binds the harness agent to the fixtures'
+  network scope. Network scope authority is the certificate principal's binding in the trust
+  snapshot, cross-checked against the signed grant: an unbound agent is withheld as retryable, and a
+  scope outside its binding is rejected. A producer with no fence entry, and a key id the snapshot
+  does not hold, are withheld as retryable. Withheld frames follow task 3.3's gap contract (#459).
+  The runtime path is still incomplete: an AUDIT decision (a stale-epoch replay, decided with its
+  `LATE_FENCED_DELIVERY` mode and proof) and a SECURITY-QUARANTINE decision are withheld rather
+  than published. Publishing them is deferred to task 3.5, which owns their streams; EventWriter
+  does not yet act on the stamp. Every authorized record is then admitted by `EdgeContractRegistry`
+  (task 3.8's narrowed slice) before it is offered; a registry withhold or hold is withheld like any
+  other frame, and loading a signed registry snapshot stays open under task 3.8.
 - [ ] 3.3 PARTIALLY LANDED: **#4733** (`usp-19`) is MERGED into `usp-01-proposal`.
   Check what it actually delivered before starting -- duplicating it is how the
   earlier 22-PR chain accumulated, and its scope is NARROWER than this task.

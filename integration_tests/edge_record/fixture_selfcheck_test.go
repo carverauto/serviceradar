@@ -18,9 +18,13 @@ package verticalslice
 
 import (
 	"bytes"
+	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"google.golang.org/protobuf/proto"
@@ -231,6 +235,113 @@ func TestFixtureContractRegistryAdmitsEveryFixture(t *testing.T) {
 			hex.EncodeToString(c.GetRegistrySnapshotSha256()) != registry.RegistrySnapshotSHA256 ||
 			record.GetCostModelVersion() != entry.CostModelVersion {
 			t.Fatalf("%s fixture contract %+v does not match the registry entry %+v", name, c, entry)
+		}
+	}
+}
+
+// TestFixtureCapabilityVerifiesUnderGatewayTrustFile proves the fixture's
+// production capability carries a real signature by the key the gateway trust
+// file names, and that the trust file fences exactly the fixtures' producers
+// and binds the harness agent to exactly their network scope, so the gateway's
+// local authorization (task 3.2) accepts them.
+func TestFixtureCapabilityVerifiesUnderGatewayTrustFile(t *testing.T) {
+	fx, err := BuildSweepFixture([]byte("vslice-agent-01"))
+	if err != nil {
+		t.Fatalf("BuildSweepFixture: %v", err)
+	}
+	conflict, err := BuildConflictingSweepFixture(fx.NetworkScopeID, []byte("vslice-agent-01"))
+	if err != nil {
+		t.Fatalf("BuildConflictingSweepFixture: %v", err)
+	}
+
+	var record edgev1.EdgeRecordV1
+	if err := proto.Unmarshal(fx.RecordBytes, &record); err != nil {
+		t.Fatalf("record bytes must decode as EdgeRecordV1: %v", err)
+	}
+
+	path := filepath.Join(t.TempDir(), "trust.json")
+	if err := WriteGatewayTrustFile(path, "vslice-agent-01"); err != nil {
+		t.Fatalf("WriteGatewayTrustFile: %v", err)
+	}
+
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read trust file: %v", err)
+	}
+
+	var document struct {
+		TrustPolicyEpoch uint64 `json:"trust_policy_epoch"`
+		Keys             []struct {
+			IssuerID    string   `json:"issuer_id"`
+			IssuerKeyID string   `json:"issuer_key_id"`
+			PublicKey   string   `json:"public_key"`
+			Purposes    []string `json:"purposes"`
+		} `json:"keys"`
+		Fences []struct {
+			NetworkScopeID       string `json:"network_scope_id"`
+			ProducerAssignmentID string `json:"producer_assignment_id"`
+			RunShard             uint32 `json:"run_shard"`
+			AuthorityEpoch       uint64 `json:"authority_epoch"`
+		} `json:"fences"`
+		Scopes []struct {
+			AgentID         string   `json:"agent_id"`
+			NetworkScopeIDs []string `json:"network_scope_ids"`
+		} `json:"scopes"`
+	}
+	if err := json.Unmarshal(body, &document); err != nil {
+		t.Fatalf("trust file must be JSON: %v", err)
+	}
+	if document.TrustPolicyEpoch == 0 || len(document.Keys) != 1 {
+		t.Fatalf("trust file must pin a nonzero epoch and one key, got %+v", document)
+	}
+
+	key := document.Keys[0]
+	publicKey, err := base64.StdEncoding.DecodeString(key.PublicKey)
+	if err != nil {
+		t.Fatalf("public key must be base64: %v", err)
+	}
+	capability := record.GetProductionCapability()
+	if key.IssuerID != base64.StdEncoding.EncodeToString(capability.GetIssuerId()) ||
+		key.IssuerKeyID != base64.StdEncoding.EncodeToString(capability.GetIssuerKeyId()) {
+		t.Fatalf("trust file key does not name the capability's issuer/key id")
+	}
+
+	err = edgerecord.VerifyCapabilitySignature(
+		capability, edgev1.EdgeCapabilityPurpose_EDGE_CAPABILITY_PURPOSE_PRODUCTION, ed25519.PublicKey(publicKey),
+	)
+	if err != nil {
+		t.Fatalf("fixture production capability must verify under the trust file key: %v", err)
+	}
+
+	fixtures := []*FixtureRecord{fx, conflict}
+	if len(document.Fences) != len(fixtures) {
+		t.Fatalf("trust file fences %d producers, want exactly the %d fixture producers", len(document.Fences), len(fixtures))
+	}
+	if len(document.Scopes) != 1 || document.Scopes[0].AgentID != "vslice-agent-01" {
+		t.Fatalf("trust file must bind exactly the harness agent, got %+v", document.Scopes)
+	}
+	boundScopes := document.Scopes[0].NetworkScopeIDs
+	for _, candidate := range fixtures {
+		var fenced edgev1.EdgeRecordV1
+		if err := proto.Unmarshal(candidate.RecordBytes, &fenced); err != nil {
+			t.Fatalf("fixture record bytes must decode: %v", err)
+		}
+		producer := fenced.GetProducerContext()
+		found := false
+		for _, fence := range document.Fences {
+			if fence.NetworkScopeID == base64.StdEncoding.EncodeToString(fenced.GetNetworkScopeId()) &&
+				fence.ProducerAssignmentID == base64.StdEncoding.EncodeToString(producer.GetProducerAssignmentId()) &&
+				fence.RunShard == producer.GetRunShard() &&
+				fence.AuthorityEpoch == producer.GetAuthorityEpoch() {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("trust file has no fence entry for fixture producer (run shard %d, authority epoch %d)",
+				producer.GetRunShard(), producer.GetAuthorityEpoch())
+		}
+		if len(boundScopes) != 1 || boundScopes[0] != base64.StdEncoding.EncodeToString(fenced.GetNetworkScopeId()) {
+			t.Errorf("trust file binds the harness agent to %v, want exactly the fixture's network scope", boundScopes)
 		}
 	}
 }

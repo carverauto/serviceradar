@@ -21,10 +21,13 @@
 package verticalslice
 
 import (
+	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
 	"time"
 
 	"google.golang.org/protobuf/proto"
@@ -130,18 +133,12 @@ type FixtureRecord struct {
 // SweepObservationBatchV1 (3 hosts: a reachability-only host, a host with an
 // open port and a port error, and a host with an MTR summary -- 5 projected
 // rows total) wrapped in an EdgeRecordV1, uncompressed (NONE), with a
-// self-issued production_capability.
+// production_capability signed by the synthetic fixture issuer.
 //
-// production_capability's signature is the literal placeholder
-// []byte("signature"), matching this repo's own established test-fixture
-// convention (go/pkg/edge/edgerecord/validate_test.go's productionCap) --
-// ValidateRecord (and every check the gateway's Stream RPC actually performs
-// today, per edge_record_ingest_server.ex's moduledoc lines 12-34) verifies
-// the capability's STRUCTURE and its binding to this record's own fields,
-// never a real cryptographic signature or a registry trust chain. Building a
-// real ed25519-signed, registry-trusted capability would be modeling task
-// 3.2 grant/contract verification, which the gateway explicitly does not
-// implement yet -- out of scope for this fixture.
+// The gateway authorizes every frame against its local trust snapshot (task
+// 3.2, EdgeRecordAuthorization), so the capability carries a real Ed25519
+// signature by fixtureIssuerKey; WriteGatewayTrustFile hands the gateway the
+// matching verifying key. Both are synthetic and derived in this file.
 // originPrincipalID MUST equal the exact bytes the gateway will record as
 // edge_delivery_slots.authenticated_agent_id for the RPC session that sends
 // this fixture -- ServiceRadar.EventWriter.Processors.EdgeRecord.ingest/3's
@@ -150,12 +147,12 @@ type FixtureRecord struct {
 // producer_context.origin_principal_id disagrees with the transport-header
 // slot's authenticated_agent_id, and edge_record_ingest_server.ex's
 // publish_frame/5 sets that header field to state.identity.component_id --
-// the UTF-8 bytes of ComponentIdentityResolver.resolve_from_cert/1's parsed
+// the UTF-8 bytes of ComponentIdentityResolver.resolve_edge_identity/3's parsed
 // CN component-id label, i.e. exactly CertSet.AgentComponentID's bytes for
 // the real agent client certificate this harness generates (certs.go). The
 // caller MUST pass []byte(certSet.AgentComponentID), not a placeholder.
 func BuildSweepFixture(originPrincipalID []byte) (*FixtureRecord, error) {
-	return buildFixture(1, originPrincipalID)
+	return buildFixture(primaryFixtureVariant, originPrincipalID)
 }
 
 // BuildSweepFixtureInScope is BuildSweepFixture with the record bound to
@@ -188,13 +185,38 @@ func BuildSweepFixtureInScope(networkScopeID, originPrincipalID []byte) (*Fixtur
 // doc comment) -- the conflict probe reuses the same authenticated agent
 // session, only the record content differs.
 func BuildConflictingSweepFixture(networkScopeID, originPrincipalID []byte) (*FixtureRecord, error) {
-	fx, err := buildFixture(2, originPrincipalID)
+	fx, err := buildFixture(conflictingFixtureVariant, originPrincipalID)
 	if err != nil {
 		return nil, err
 	}
 	fx.NetworkScopeID = networkScopeID
 	rebindNetworkScope(fx)
 	return fx, nil
+}
+
+// The gateway withholds a record whose producer its trust snapshot has no
+// fence entry for, and it loads that snapshot once at boot, before any
+// fixture is built. So every fixture is attributed to one synthetic producer
+// per variant -- fixtureNetworkScopeID, fixtureProducerAssignmentID, run shard
+// = variant, authority epoch fixtureAuthorityEpoch -- and WriteGatewayTrustFile
+// fences exactly those. Fixtures stay distinct through their event, execution
+// and run ids and their content, which are generated per call.
+const (
+	primaryFixtureVariant     = 1
+	conflictingFixtureVariant = 2
+	fixtureAuthorityEpoch     = 1
+)
+
+func fixtureNetworkScopeID() []byte { return fixtureUUID(0x5c) }
+
+func fixtureProducerAssignmentID() []byte { return fixtureUUID(0xa5) }
+
+// fixtureUUID returns a deterministic canonical (version 7) UUID.
+func fixtureUUID(seed byte) []byte {
+	id := fixtureDigest(seed)[:16]
+	id[6] = 0x70 | id[6]&0x0f
+	id[8] = 0x80 | id[8]&0x3f
+	return id
 }
 
 // variant selects deterministic-but-distinct content so BuildSweepFixture
@@ -204,17 +226,10 @@ func buildFixture(variant int, originPrincipalID []byte) (*FixtureRecord, error)
 	if err != nil {
 		return nil, fmt.Errorf("fixture: event id: %w", err)
 	}
-	networkScopeID, err := edgerecord.NewUUIDv7()
-	if err != nil {
-		return nil, fmt.Errorf("fixture: network scope id: %w", err)
-	}
+	networkScopeID := fixtureNetworkScopeID()
 	executionID, err := edgerecord.NewUUIDv7()
 	if err != nil {
 		return nil, fmt.Errorf("fixture: execution id: %w", err)
-	}
-	producerAssignmentID, err := edgerecord.NewUUIDv7()
-	if err != nil {
-		return nil, fmt.Errorf("fixture: producer assignment id: %w", err)
 	}
 	runID, err := edgerecord.NewUUIDv7()
 	if err != nil {
@@ -268,10 +283,10 @@ func buildFixture(variant int, originPrincipalID []byte) (*FixtureRecord, error)
 			OriginKind:           edgev1.EdgeOriginKind_EDGE_ORIGIN_KIND_AGENT,
 			OriginPrincipalId:    originPrincipalID,
 			ProducerInstanceId:   []byte("vertical-slice-instance"),
-			ProducerAssignmentId: producerAssignmentID,
+			ProducerAssignmentId: fixtureProducerAssignmentID(),
 			RunId:                runID,
 			RunShard:             uint32(variant),
-			AuthorityEpoch:       proto.Uint64(1),
+			AuthorityEpoch:       proto.Uint64(fixtureAuthorityEpoch),
 			ScopeId:              scopeID,
 			ScopeSha256:          fixtureDigest(0x06 + byte(variant)),
 			PackageId:            "serviceradar.core.sweep",
@@ -363,9 +378,11 @@ func rebindNetworkScope(fx *FixtureRecord) {
 
 // fixtureCapability builds a structurally-complete production grant bound to
 // r's own fields, mirroring go/pkg/edge/edgerecord/validate_test.go's
-// productionCap (including its placeholder, non-cryptographic Signature) --
-// the gateway's Stream RPC does not verify a real signature or registry
-// trust chain today (see BuildSweepFixture's doc comment).
+// productionCap, and signs it with Ed25519 under fixtureIssuerKey, the
+// synthetic fixture issuer. The gateway verifies that signature against its
+// local trust snapshot (task 3.2), so WriteGatewayTrustFile names the same
+// issuer id, key id and verifying key; both derive them from this file, so
+// they cannot drift apart.
 func fixtureCapability(r *edgev1.EdgeRecordV1) *edgev1.EdgeSignedCapabilityV1 {
 	p := r.GetProducerContext()
 	c := r.GetOutputContract()
@@ -382,10 +399,10 @@ func fixtureCapability(r *edgev1.EdgeRecordV1) *edgev1.EdgeSignedCapabilityV1 {
 	notBefore := now - 365*day
 	expires := now + 365*day
 
-	return &edgev1.EdgeSignedCapabilityV1{
+	capability := &edgev1.EdgeSignedCapabilityV1{
 		CapabilityVersion: 1,
-		IssuerId:          []byte("vertical-slice-issuer"),
-		IssuerKeyId:       []byte("vertical-slice-key-1"),
+		IssuerId:          []byte(fixtureIssuerID),
+		IssuerKeyId:       []byte(fixtureIssuerKeyID),
 		Algorithm:         "ed25519",
 		NotBeforeUnixNano: notBefore,
 		ExpiresAtUnixNano: expires,
@@ -416,8 +433,103 @@ func fixtureCapability(r *edgev1.EdgeRecordV1) *edgev1.EdgeSignedCapabilityV1 {
 				PackageId:              p.GetPackageId(),
 			},
 		},
-		Signature: []byte("signature"),
 	}
+	capability.Signature = ed25519.Sign(fixtureIssuerKey(), edgerecord.CapabilitySigningBytes(capability))
+
+	return capability
+}
+
+// The synthetic issuer every fixture capability is signed by. The key is
+// derived from a fixed label, so the gateway trust file and the fixtures agree
+// without passing key material between them; it authorizes nothing outside
+// this test.
+const (
+	fixtureIssuerID    = "vertical-slice-issuer"
+	fixtureIssuerKeyID = "vertical-slice-key-1"
+)
+
+func fixtureIssuerKey() ed25519.PrivateKey {
+	seed := sha256.Sum256([]byte("serviceradar vertical slice synthetic capability issuer v1"))
+	return ed25519.NewKeyFromSeed(seed[:])
+}
+
+// FixtureIssuerPublicKey is the verifying key for every fixture capability.
+func FixtureIssuerPublicKey() ed25519.PublicKey {
+	return fixtureIssuerKey().Public().(ed25519.PublicKey)
+}
+
+// WriteGatewayTrustFile writes the gateway's edge-record trust snapshot
+// (ServiceRadarAgentGateway.EdgeRecordTrust, read from
+// AGENT_GATEWAY_EDGE_RECORD_TRUST_FILE): the fixture issuer's verifying key,
+// authorized for production, source and delivery capabilities, at trust
+// policy epoch 1, and a fence entry for each fixture producer at
+// fixtureAuthorityEpoch. No other producer is fenced, so the gateway withholds
+// anything else. It binds agentComponentID -- the CN component id of the
+// harness agent's client certificate -- to the fixtures' network scope and to
+// nothing else, and binds no other agent.
+func WriteGatewayTrustFile(path, agentComponentID string) error {
+	type trustKey struct {
+		IssuerID    string   `json:"issuer_id"`
+		IssuerKeyID string   `json:"issuer_key_id"`
+		PublicKey   string   `json:"public_key"`
+		Purposes    []string `json:"purposes"`
+		Status      string   `json:"status"`
+	}
+
+	type trustFence struct {
+		NetworkScopeID       string `json:"network_scope_id"`
+		ProducerAssignmentID string `json:"producer_assignment_id"`
+		RunShard             uint32 `json:"run_shard"`
+		AuthorityEpoch       uint64 `json:"authority_epoch"`
+	}
+
+	type trustScope struct {
+		AgentID         string   `json:"agent_id"`
+		NetworkScopeIDs []string `json:"network_scope_ids"`
+	}
+
+	runShards := []uint32{primaryFixtureVariant, conflictingFixtureVariant}
+	fences := make([]trustFence, 0, len(runShards))
+	for _, runShard := range runShards {
+		fences = append(fences, trustFence{
+			NetworkScopeID:       base64.StdEncoding.EncodeToString(fixtureNetworkScopeID()),
+			ProducerAssignmentID: base64.StdEncoding.EncodeToString(fixtureProducerAssignmentID()),
+			RunShard:             runShard,
+			AuthorityEpoch:       fixtureAuthorityEpoch,
+		})
+	}
+
+	document := struct {
+		TrustPolicyEpoch uint64       `json:"trust_policy_epoch"`
+		Keys             []trustKey   `json:"keys"`
+		Fences           []trustFence `json:"fences"`
+		Scopes           []trustScope `json:"scopes"`
+	}{
+		TrustPolicyEpoch: 1,
+		Keys: []trustKey{{
+			IssuerID:    base64.StdEncoding.EncodeToString([]byte(fixtureIssuerID)),
+			IssuerKeyID: base64.StdEncoding.EncodeToString([]byte(fixtureIssuerKeyID)),
+			PublicKey:   base64.StdEncoding.EncodeToString(FixtureIssuerPublicKey()),
+			Purposes:    []string{"production", "source", "delivery"},
+			Status:      "valid",
+		}},
+		Fences: fences,
+		Scopes: []trustScope{{
+			AgentID:         agentComponentID,
+			NetworkScopeIDs: []string{base64.StdEncoding.EncodeToString(fixtureNetworkScopeID())},
+		}},
+	}
+
+	body, err := json.Marshal(document)
+	if err != nil {
+		return fmt.Errorf("fixture: marshal gateway trust file: %w", err)
+	}
+
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		return fmt.Errorf("fixture: write gateway trust file: %w", err)
+	}
+
+	return nil
 }
 
 // sweepBatch builds a 3-host batch: host 0 is reachability-only (ICMP), host

@@ -348,6 +348,11 @@ func newHarness(t *testing.T) *harness {
 	h.certSet = certSet
 	h.gatewayServerName = certSet.GatewayServerName
 
+	trustFile := filepath.Join(dir, "edge-record-trust.json")
+	if err := WriteGatewayTrustFile(trustFile); err != nil {
+		t.Fatalf("write gateway edge-record trust file: %v", err)
+	}
+
 	natsH, err := StartEmbeddedNATS(filepath.Join(dir, "nats-store"), filepath.Join(dir, "nats-creds"))
 	if err != nil {
 		t.Fatalf("start embedded nats: %v", err)
@@ -380,21 +385,22 @@ func newHarness(t *testing.T) *harness {
 	// the SAME process, so it independently needs DATABASE_URL/CLOAK_KEY too
 	// -- see GatewayEnvConfig's doc comment for exactly why.
 	h.gatewayEnv = GatewayEnvConfig{
-		GRPCPort:      grpcPort,
-		MetricsPort:   gwMetricsPort,
-		CertDir:       certSet.Dir,
-		NATSURL:       gwNATS.URL,
-		NATSCredsFile: natsH.CredsPath,
-		PartitionID:   certSet.PartitionID,
-		GatewayID:     "vslice-gateway",
-		Domain:        "vslice",
-		CNPGHost:      cnpg.Host,
-		CNPGPort:      cnpg.Port,
-		CNPGDatabase:  cnpg.Database,
-		CNPGUsername:  cnpg.Username,
-		CNPGPassword:  cnpg.Password,
-		CNPGSSLMode:   cnpg.SSLMode,
-		CloakKey:      cloakKey,
+		GRPCPort:            grpcPort,
+		MetricsPort:         gwMetricsPort,
+		CertDir:             certSet.Dir,
+		NATSURL:             gwNATS.URL,
+		NATSCredsFile:       natsH.CredsPath,
+		PartitionID:         certSet.PartitionID,
+		GatewayID:           "vslice-gateway",
+		Domain:              "vslice",
+		CNPGHost:            cnpg.Host,
+		CNPGPort:            cnpg.Port,
+		CNPGDatabase:        cnpg.Database,
+		CNPGUsername:        cnpg.Username,
+		CNPGPassword:        cnpg.Password,
+		CNPGSSLMode:         cnpg.SSLMode,
+		CloakKey:            cloakKey,
+		EdgeRecordTrustFile: trustFile,
 	}
 	registryJSON, err := FixtureContractRegistryJSON()
 	if err != nil {
