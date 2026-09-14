@@ -577,8 +577,11 @@ func (s *Spool) Resolve(through uint64) error {
 // resolved watermark and after, in sequence order, invoking visit for each until
 // visit returns false (e.g. the sender's credit window is exhausted) or the
 // allocated sequences end. Ambiguous, lost, and in-flight slots are never visited.
+// Reaching the end adopts slots another handle on the same directory has committed
+// since, so a sender sees a producer that appends through its own handle.
 // Records are read one at a time, so a large backlog is never materialized. A closed
-// spool stays readable: its scan opens its own segment handle for the scan's duration.
+// spool stays readable over the slots it has indexed: its scan opens its own segment
+// handle for the scan's duration.
 func (s *Spool) ScanFrom(after uint64, visit func(Record) bool) error {
 	s.mu.Lock()
 	seq := max(s.resolved, after)
@@ -590,9 +593,17 @@ func (s *Spool) ScanFrom(after uint64, visit func(Record) bool) error {
 			_ = own.Close()
 		}
 	}()
+	refreshed := false
 	for {
 		seq++
 		s.mu.Lock()
+		if seq >= s.nextSeq && !refreshed && s.seg != nil {
+			refreshed = true
+			if err := s.refreshLocked(); err != nil {
+				s.mu.Unlock()
+				return err
+			}
+		}
 		if seq >= s.nextSeq {
 			s.mu.Unlock()
 			return nil

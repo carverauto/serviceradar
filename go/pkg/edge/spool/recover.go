@@ -30,12 +30,15 @@ import (
 	"path/filepath"
 )
 
-// openEvidence opens the evidence copies that exist. A missing copy is created, and
-// made discoverable, by the next commit. Nothing here rewrites a copy: an incomplete
-// trailing entry reads as absent, and the fixed position it occupies is simply
-// written again by the commit that owns it.
+// openEvidence opens the evidence copies that exist and are not open yet. A missing
+// copy is created, and made discoverable, by the next commit. Nothing here rewrites a
+// copy: an incomplete trailing entry reads as absent, and the fixed position it
+// occupies is simply written again by the commit that owns it.
 func (s *Spool) openEvidence() error {
 	for c := range evidenceCopies {
+		if s.evidence[c] != nil {
+			continue
+		}
 		path := s.evidencePath(c)
 		f, err := os.OpenFile(path, os.O_RDWR, filePerm)
 		if errors.Is(err, os.ErrNotExist) {
@@ -61,7 +64,7 @@ func (s *Spool) recover() error {
 	if err != nil {
 		return err
 	}
-	readers, evidenceSlots, err := s.evidenceReaders()
+	readers, evidenceSlots, err := s.evidenceReaders(1)
 	if err != nil {
 		return err
 	}
@@ -109,6 +112,9 @@ func (s *Spool) recover() error {
 		if hasEvidence || rec != nil {
 			ext = slotExtent{start: loc.offset, end: loc.offset + int64(loc.length)}
 		}
+		for _, v := range views {
+			ext.committed = ext.committed || v.kind == viewCommitted
+		}
 		minEnd = ext.end
 		extents = append(extents, ext)
 		if ResolveSlot(obs).Outcome == OutcomeCommitted {
@@ -131,7 +137,9 @@ func (s *Spool) recover() error {
 	// runs past the segment end or past where any later slot was placed. Commits made
 	// after a restart are placed at or above the segment end they found, so they
 	// cannot change the answer for a slot that already exists. The bytes such an
-	// extent now covers are not the slot's, so they are missing, not corrupt.
+	// extent now covers are not the slot's, so they are missing, not corrupt. A copy is
+	// marked committed only once the record is durable, so a slot any valid copy shows
+	// committed did land and lost its bytes afterwards: that is not a torn tail.
 	limit := s.segSize
 	above := highWater
 	for i := len(pending) - 1; i >= 0; i-- {
@@ -142,8 +150,8 @@ func (s *Spool) recover() error {
 		for ; above > obs.Sequence; above-- {
 			limit = min(limit, extents[above-1].start)
 		}
-		if extents[obs.Sequence-1].end > limit {
-			obs.InTornTail = true
+		if ext := extents[obs.Sequence-1]; ext.end > limit {
+			obs.InTornTail = !ext.committed
 			obs.Bytes = BytesMissing
 		}
 	}
@@ -169,10 +177,50 @@ func (s *Spool) recover() error {
 }
 
 // slotExtent is where a slot's record was placed and where its declared length ends.
-// start is math.MaxInt64 when neither evidence nor a record header places the slot.
+// start is math.MaxInt64 when neither evidence nor a record header places the slot;
+// committed is set when a valid evidence copy records the commit.
 type slotExtent struct {
-	start int64
-	end   int64
+	start     int64
+	end       int64
+	committed bool
+}
+
+// refreshLocked adopts slots that another handle on the same directory committed
+// above this handle's high-water. It stops at the first slot that does not resolve
+// COMMITTED: that slot may still be in flight in its writer, so a later scan looks at
+// it again.
+func (s *Spool) refreshLocked() error {
+	if err := s.openEvidence(); err != nil {
+		return err
+	}
+	info, err := s.seg.Stat()
+	if err != nil {
+		return fmt.Errorf("spool: stat segment: %w", err)
+	}
+	s.segSize = max(s.segSize, info.Size())
+	readers, slots, err := s.evidenceReaders(s.nextSeq)
+	if err != nil {
+		return err
+	}
+	buf := make([]byte, evidenceEntryLen)
+	for seq := s.nextSeq; seq <= slots; seq++ {
+		views, _, gen, err := readSlotEvidence(readers, seq, buf)
+		if err != nil {
+			return err
+		}
+		obs, loc, _, err := s.observeSlot(seq, views, nil)
+		if err != nil {
+			return err
+		}
+		if ResolveSlot(obs).Outcome != OutcomeCommitted {
+			break
+		}
+		loc.committed = true
+		s.slots = append(s.slots, loc)
+		s.nextSeq = seq + 1
+		s.nextGen = max(s.nextGen, gen+1)
+	}
+	return nil
 }
 
 // observeSlot gathers what the evidence copies, the segment, and the binding layers
@@ -270,9 +318,12 @@ func reconcileReceipt(v ReceiptVerdict, valid []evidenceEntry) (ReceiptState, bo
 	return v.State, required
 }
 
-func (s *Spool) evidenceReaders() ([evidenceCopies]*bufio.Reader, uint64, error) {
+// evidenceReaders positions a reader on each open copy at sequence from's entries, and
+// returns how many slots the longest copy holds entries for.
+func (s *Spool) evidenceReaders(from uint64) ([evidenceCopies]*bufio.Reader, uint64, error) {
 	var readers [evidenceCopies]*bufio.Reader
 	var entries int64
+	start := evidencePosition(from, statePrepared)
 	for c, f := range s.evidence {
 		if f == nil {
 			continue
@@ -281,7 +332,8 @@ func (s *Spool) evidenceReaders() ([evidenceCopies]*bufio.Reader, uint64, error)
 		if err != nil {
 			return readers, 0, fmt.Errorf("spool: stat evidence copy %c: %w", copyTag(c), err)
 		}
-		readers[c] = bufio.NewReaderSize(io.NewSectionReader(f, 0, info.Size()), resyncWindow)
+		section := io.NewSectionReader(f, start, max(info.Size()-start, 0))
+		readers[c] = bufio.NewReaderSize(section, resyncWindow)
 		entries = max(entries, info.Size()/evidenceEntryLen)
 	}
 	return readers, uint64((entries + 1) / 2), nil
@@ -439,9 +491,10 @@ func (s *Spool) scanChain() (chainScan, error) {
 }
 
 // resync finds the next plausible record header at or after from. A sequence can
-// advance by at most one per minimal record since the last header read, so a
-// header-shaped run of bytes cannot move the high-water past what the skipped bytes
-// could have held.
+// advance by at most one per byte since the last trusted position -- a record torn
+// inside its header leaves fewer bytes than a minimal record and still consumed its
+// sequence -- so a header-shaped run of bytes cannot move the high-water past what the
+// skipped bytes could have held.
 func (s *Spool) resync(from int64, lastSeq uint64, lastEnd int64) (int64, bool, error) {
 	var magic [4]byte
 	binary.LittleEndian.PutUint32(magic[:], recordMagic)
@@ -462,7 +515,7 @@ func (s *Spool) resync(from int64, lastSeq uint64, lastEnd int64) (int64, bool, 
 			at := i + j
 			candidate := off + int64(at)
 			h, ok := parseHeader(window[at : at+hdr])
-			if ok && h.seq > lastSeq && h.seq-lastSeq <= uint64((candidate-lastEnd)/minRecordLen)+1 {
+			if ok && h.seq > lastSeq && h.seq-lastSeq <= uint64(candidate-lastEnd)+1 {
 				return candidate, true, nil
 			}
 			i = at + 1

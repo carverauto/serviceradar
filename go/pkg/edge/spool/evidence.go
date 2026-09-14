@@ -196,7 +196,11 @@ func viewOf(p evidenceEntry, ps entryStatus, c evidenceEntry, cs entryStatus) co
 		}
 		return copyView{kind: viewCommitted, entry: c}
 	case entryCorrupt:
-		return copyView{kind: viewUnreadable}
+		// A commit write that tore leaves the preparation beneath it valid. It proves
+		// no commit, so the copy reads as prepared and disagrees with a copy that did.
+		if ps != entryValid {
+			return copyView{kind: viewUnreadable}
+		}
 	case entryAbsent:
 	}
 	switch ps {

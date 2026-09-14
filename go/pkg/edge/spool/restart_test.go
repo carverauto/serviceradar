@@ -512,6 +512,189 @@ func TestTornRecordLengthDoesNotHideLaterRecords(t *testing.T) {
 	}
 }
 
+// A commit write can tear on the second copy after the first copy committed, leaving
+// that copy's preparation valid beneath a commit entry that does not verify. No
+// receipt was issued, so the copies disagree: never COMMITTED, never discarded.
+func TestTornSecondCommitEntryIsAmbiguousInBothOrderings(t *testing.T) {
+	for _, order := range [][evidenceCopies]int{{copyA, copyB}, {copyB, copyA}} {
+		written, torn := order[0], order[1]
+		t.Run(fmt.Sprintf("%c committed, %c commit torn", copyTag(written), copyTag(torn)), func(t *testing.T) {
+			dir := t.TempDir()
+			s, err := Open(dir)
+			if err != nil {
+				t.Fatalf("open: %v", err)
+			}
+			s.copyOrder = order
+			mustAppend(t, s, 1, "prior")
+			s.beforeBarrier = crashBefore(commitBarrier(torn))
+			r, err := s.Commit(evid(2), []byte("torn"), Bindings{})
+			if err == nil {
+				t.Fatal("commit succeeded through an injected crash")
+			}
+			assertNoReceipt(t, r)
+			_ = s.Close()
+
+			// The first half of the commit entry lands; the rest reads back as zeros.
+			pos := evidencePosition(2, stateCommitted)
+			landed, err := os.ReadFile(evidenceFilePath(dir, written))
+			if err != nil {
+				t.Fatal(err)
+			}
+			entry := make([]byte, evidenceEntryLen)
+			copy(entry[:evidenceEntryLen/2], landed[pos:])
+			entry[5] = copyTag(torn)
+			f, err := os.OpenFile(evidenceFilePath(dir, torn), os.O_WRONLY, filePerm)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := f.WriteAt(entry, pos); err != nil {
+				t.Fatal(err)
+			}
+			_ = f.Close()
+			if st := entryStatusAt(t, dir, torn, 2, stateCommitted); st != entryCorrupt {
+				t.Fatalf("copy %c commit entry status %d, want corrupt", copyTag(torn), st)
+			}
+
+			s2 := openWith(t, dir, nil)
+			assertAmbiguous(t, slotOf(t, s2, 2), EvidenceDisagree, Coverage{Reason: reasonMissing})
+			if v := visibleSeqs(t, s2); !slices.Equal(v, []uint64{1}) {
+				t.Fatalf("sender-visible = %v, want [1]", v)
+			}
+			if d := s2.RestartResolution().Discarded; len(d) != 0 {
+				t.Fatalf("discarded = %+v, want none", d)
+			}
+			if got := s2.NextSequence(); got != 3 {
+				t.Fatalf("next sequence = %d, want 3", got)
+			}
+		})
+	}
+}
+
+// A commit marker is written only after the record is durable, so a committed slot
+// whose bytes were later lost did land: it is charged as a missing binding, not
+// excused as a torn tail, and later commits do not change that.
+func TestLostCommittedRecordIsNotTornTail(t *testing.T) {
+	cases := []struct {
+		name     string
+		evidence EvidenceState
+		commit   func(t *testing.T, s *Spool)
+	}{
+		{"both copies committed", EvidenceCommitted, func(t *testing.T, s *Spool) {
+			t.Helper()
+			mustAppend(t, s, 2, "two")
+		}},
+		{"one copy committed", EvidenceDisagree, func(t *testing.T, s *Spool) {
+			t.Helper()
+			s.beforeBarrier = crashBefore(barrierCommitB)
+			if _, err := s.Commit(evid(2), []byte("two"), Bindings{}); err == nil {
+				t.Fatal("commit succeeded through an injected crash")
+			}
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			s, err := Open(dir)
+			if err != nil {
+				t.Fatalf("open: %v", err)
+			}
+			mustAppend(t, s, 1, "one")
+			tc.commit(t, s)
+			_ = s.Close()
+			truncateSegment(t, dir, int64(minRecordLen+len("one")))
+
+			s1 := openWith(t, dir, nil)
+			assertAmbiguous(t, slotOf(t, s1, 2), tc.evidence, Coverage{Reason: reasonMissing})
+			if got := mustAppend(t, s1, 3, "0123456789"); got != 3 {
+				t.Fatalf("append = %d, want 3", got)
+			}
+			_ = s1.Close()
+
+			s2 := openWith(t, dir, nil)
+			assertAmbiguous(t, slotOf(t, s2, 2), tc.evidence, Coverage{Reason: reasonMissing})
+			if v := visibleSeqs(t, s2); !slices.Equal(v, []uint64{1, 3}) {
+				t.Fatalf("sender-visible = %v, want [1 3]", v)
+			}
+		})
+	}
+}
+
+// A record can tear inside its header, leaving fewer bytes than a minimal record. It
+// still consumed its sequence, so a record committed after it is found, and neither
+// sequence is reused, even once every evidence copy is lost.
+func TestRecordAfterTornHeaderSurvivesEvidenceLoss(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	mustAppend(t, s, 1, "one")
+	s.beforeBarrier = crashBefore(barrierCommitA)
+	if _, err := s.Commit(evid(2), []byte("two"), Bindings{}); err == nil {
+		t.Fatal("commit succeeded through an injected crash")
+	}
+	_ = s.Close()
+	truncateSegment(t, dir, int64(minRecordLen+len("one")+20))
+
+	s1 := openWith(t, dir, nil)
+	if got := mustAppend(t, s1, 3, "0123456789"); got != 3 {
+		t.Fatalf("append = %d, want 3", got)
+	}
+	_ = s1.Close()
+	for _, c := range []int{copyA, copyB} {
+		if err := os.RemoveAll(filepath.Join(dir, evidenceDirName(c))); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	s2 := openWith(t, dir, nil)
+	res := s2.RestartResolution()
+	if res.HighWater != 3 || len(res.Discarded) != 0 {
+		t.Fatalf("high-water %d discarded %+v, want 3 and none", res.HighWater, res.Discarded)
+	}
+	assertAmbiguous(t, slotOf(t, s2, 2), EvidenceNone, Coverage{Reason: reasonTornTail})
+	assertAmbiguous(t, slotOf(t, s2, 3), EvidenceNone, Coverage{Reason: reasonMissing})
+	if got := mustAppend(t, s2, 4, "four"); got != 4 {
+		t.Fatalf("append = %d, want 4 (sequences 2 and 3 must not be reused)", got)
+	}
+}
+
+// The agent's sender keeps one handle open while a producer appends through its own
+// handle on the same directory.
+func TestScanAdoptsCommitsFromAnotherHandle(t *testing.T) {
+	dir := t.TempDir()
+	reader := openWith(t, dir, nil)
+	if v := visibleSeqs(t, reader); len(v) != 0 {
+		t.Fatalf("sender-visible on an empty spool = %v, want none", v)
+	}
+
+	writer := openWith(t, dir, nil)
+	mustAppend(t, writer, 1, "one")
+	mustAppend(t, writer, 2, "two")
+	if v := visibleSeqs(t, reader); !slices.Equal(v, []uint64{1, 2}) {
+		t.Fatalf("sender-visible = %v, want [1 2]", v)
+	}
+
+	// A slot still in flight in its writer is neither exposed nor given up on.
+	var midCommit []uint64
+	writer.beforeBarrier = func(b barrier) error {
+		if b == barrierCommitB {
+			midCommit = visibleSeqs(t, reader)
+		}
+		return nil
+	}
+	mustAppend(t, writer, 3, "three")
+	if !slices.Equal(midCommit, []uint64{1, 2}) {
+		t.Fatalf("sender-visible mid-commit = %v, want [1 2]", midCommit)
+	}
+	if v := visibleSeqs(t, reader); !slices.Equal(v, []uint64{1, 2, 3}) {
+		t.Fatalf("sender-visible after the commit = %v, want [1 2 3]", v)
+	}
+	if got := reader.NextSequence(); got != 4 {
+		t.Fatalf("reader next sequence = %d, want 4", got)
+	}
+}
+
 func TestSplitWriteCommitIsAmbiguousInBothOrderings(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -583,15 +766,21 @@ func TestSingleCorruptMarkerCopyDoesNotCauseDiscard(t *testing.T) {
 	}
 
 	for _, c := range []int{copyA, copyB} {
-		t.Run(fmt.Sprintf("copy %c commit entry corrupt", copyTag(c)), func(t *testing.T) {
+		t.Run(fmt.Sprintf("copy %c commit entry corrupt over its preparation", copyTag(c)), func(t *testing.T) {
+			// On disk this is a commit write that tore before any receipt, so it cannot
+			// be taken as agreement with the other copy's commit.
 			dir := committedPair(t)
 			corruptEntry(t, dir, c, 1, stateCommitted)
 			s := openWith(t, dir, nil)
-			if got := slotOf(t, s, 1); got.Outcome != OutcomeCommitted {
-				t.Fatalf("slot 1 = %s, want COMMITTED from the redundant copy", got.Outcome)
+			assertAmbiguous(t, slotOf(t, s, 1), EvidenceDisagree, Coverage{Reason: reasonMissing})
+			if d := s.RestartResolution().Discarded; len(d) != 0 {
+				t.Fatalf("discarded = %+v, want none", d)
 			}
-			if v := visibleSeqs(t, s); !slices.Equal(v, []uint64{1, 2}) {
-				t.Fatalf("sender-visible = %v, want [1 2]", v)
+			if v := visibleSeqs(t, s); !slices.Equal(v, []uint64{2}) {
+				t.Fatalf("sender-visible = %v, want [2]", v)
+			}
+			if got := mustAppend(t, s, 3, "three"); got != 3 {
+				t.Fatalf("append = %d, want 3", got)
 			}
 		})
 		t.Run(fmt.Sprintf("copy %c both entries corrupt", copyTag(c)), func(t *testing.T) {
@@ -647,7 +836,7 @@ func TestSingleCorruptMarkerCopyDoesNotCauseDiscard(t *testing.T) {
 		corruptEntry(t, dir, copyA, 1, stateCommitted)
 		corruptEntry(t, dir, copyB, 1, stateCommitted)
 		s := openWith(t, dir, nil)
-		assertAmbiguous(t, slotOf(t, s, 1), EvidenceUnreadable, Coverage{Reason: reasonMissing})
+		assertAmbiguous(t, slotOf(t, s, 1), EvidencePrepared, Coverage{Reason: reasonMissing})
 		if v := visibleSeqs(t, s); !slices.Equal(v, []uint64{2}) {
 			t.Fatalf("sender-visible = %v, want [2]", v)
 		}
