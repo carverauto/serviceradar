@@ -143,7 +143,7 @@ type FixtureRecord struct {
 // originPrincipalID MUST equal the exact bytes the gateway will record as
 // edge_delivery_slots.authenticated_agent_id for the RPC session that sends
 // this fixture -- ServiceRadar.EventWriter.Processors.EdgeRecord.ingest/3's
-// check_slot_matches_record/2 (elixir/serviceradar_core/lib/serviceradar/event_writer/processors/edge_record.ex:147-159)
+// check_slot_matches_record/2 (elixir/serviceradar_core/lib/serviceradar/event_writer/processors/edge_record.ex)
 // rejects the WHOLE transaction with :agent_mismatch when
 // producer_context.origin_principal_id disagrees with the transport-header
 // slot's authenticated_agent_id, and edge_record_ingest_server.ex's

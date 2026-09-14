@@ -61,6 +61,7 @@ var (
 	errNATSNoTCPAddr   = errors.New("verticalslice: embedded nats server has no TCP address")
 	errNATSNilHarness  = errors.New("verticalslice: restart nil NATS harness")
 	errNATSLiveRestart = errors.New("verticalslice: restart with live server: Shutdown first")
+	errNATSNotRunning  = errors.New("verticalslice: embedded nats server is not running")
 )
 
 // NATSHarness is one embedded, JetStream-enabled nats-server instance with a
@@ -294,6 +295,29 @@ func (h *NATSHarness) Restart() error {
 		return errNATSLiveRestart
 	}
 	return h.boot()
+}
+
+// DisableJetStream turns JetStream off on the running server without stopping
+// it. The listener and every established client connection stay up, so a
+// publisher keeps its connection while each JetStream publish fails. Streams,
+// durable consumers and their acknowledgement state stay in the file store
+// for EnableJetStream to recover.
+func (h *NATSHarness) DisableJetStream() error {
+	if h == nil || h.Server == nil {
+		return errNATSNotRunning
+	}
+	return h.Server.DisableJetStream()
+}
+
+// EnableJetStream turns JetStream back on after DisableJetStream with the
+// configuration boot gave it -- the same store directory and storage
+// ceiling -- so the persisted streams and durable consumers come back as
+// they were.
+func (h *NATSHarness) EnableJetStream() error {
+	if h == nil || h.Server == nil {
+		return errNATSNotRunning
+	}
+	return h.Server.EnableJetStream(&server.JetStreamConfig{StoreDir: h.storeDir, MaxStore: jetStreamMaxStore})
 }
 
 // Shutdown stops the embedded server. The minted trust material, bound

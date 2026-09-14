@@ -179,6 +179,108 @@ func TestEmbeddedNATSRestartPreservesTrust(t *testing.T) {
 	}
 }
 
+// TestEmbeddedNATSJetStreamCutKeepsConnections proves DisableJetStream fails
+// JetStream publishes while the broker and an established client connection
+// stay up, and that EnableJetStream recovers the persisted stream and a
+// durable consumer's acknowledgement state on that same connection.
+func TestEmbeddedNATSJetStreamCutKeepsConnections(t *testing.T) {
+	dir := t.TempDir()
+
+	h, err := StartEmbeddedNATS(filepath.Join(dir, "store"), filepath.Join(dir, "creds"))
+	if err != nil {
+		t.Fatalf("StartEmbeddedNATS: %v", err)
+	}
+	t.Cleanup(h.Shutdown)
+
+	nc, err := nats.Connect(h.URL, nats.UserCredentials(h.CredsPath))
+	if err != nil {
+		t.Fatalf("nats.Connect: %v", err)
+	}
+	t.Cleanup(nc.Close)
+
+	js, err := jetstream.New(nc)
+	if err != nil {
+		t.Fatalf("jetstream.New: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	const streamName, durable = "VSLICE_CUT_SELFCHECK", "vslice_cut_selfcheck_consumer"
+	stream, err := js.CreateStream(ctx, jetstream.StreamConfig{
+		Name:     streamName,
+		Subjects: []string{"vslice.cut.>"},
+		Storage:  jetstream.FileStorage,
+	})
+	if err != nil {
+		t.Fatalf("CreateStream: %v", err)
+	}
+	if _, err := js.Publish(ctx, "vslice.cut.before", []byte("acked-before-cut")); err != nil {
+		t.Fatalf("Publish before cut: %v", err)
+	}
+	consumer, err := stream.CreateOrUpdateConsumer(ctx, jetstream.ConsumerConfig{
+		Durable:   durable,
+		AckPolicy: jetstream.AckExplicitPolicy,
+	})
+	if err != nil {
+		t.Fatalf("CreateOrUpdateConsumer: %v", err)
+	}
+	msg, err := consumer.Next(jetstream.FetchMaxWait(5 * time.Second))
+	if err != nil {
+		t.Fatalf("consumer.Next before cut: %v", err)
+	}
+	if err := msg.DoubleAck(ctx); err != nil {
+		t.Fatalf("DoubleAck before cut: %v", err)
+	}
+
+	if err := h.DisableJetStream(); err != nil {
+		t.Fatalf("DisableJetStream: %v", err)
+	}
+	if h.Server.JetStreamEnabled() {
+		t.Fatalf("JetStream still enabled after DisableJetStream")
+	}
+	if _, err := js.Publish(ctx, "vslice.cut.during", []byte("withheld")); err == nil {
+		t.Fatalf("JetStream publish succeeded while JetStream was disabled")
+	}
+	if !nc.IsConnected() {
+		t.Fatalf("client connection dropped while JetStream was disabled; the cut must leave connections up")
+	}
+
+	if err := h.EnableJetStream(); err != nil {
+		t.Fatalf("EnableJetStream: %v", err)
+	}
+	if _, err := js.Publish(ctx, "vslice.cut.after", []byte("after-restore")); err != nil {
+		t.Fatalf("Publish after restore on the pre-cut connection: %v", err)
+	}
+
+	restored, err := js.Consumer(ctx, streamName, durable)
+	if err != nil {
+		t.Fatalf("durable consumer did not survive the cut: %v", err)
+	}
+	next, err := restored.Next(jetstream.FetchMaxWait(5 * time.Second))
+	if err != nil {
+		t.Fatalf("consumer.Next after restore: %v", err)
+	}
+	if string(next.Data()) != "after-restore" {
+		t.Fatalf("durable delivered %q after restore, want %q: the pre-cut ack was lost or a publish landed during the cut", next.Data(), "after-restore")
+	}
+	if err := next.Ack(); err != nil {
+		t.Fatalf("Ack after restore: %v", err)
+	}
+
+	info, err := js.Stream(ctx, streamName)
+	if err != nil {
+		t.Fatalf("stream did not survive the cut: %v", err)
+	}
+	state, err := info.Info(ctx)
+	if err != nil {
+		t.Fatalf("stream info after restore: %v", err)
+	}
+	if state.State.Msgs != 2 {
+		t.Fatalf("stream holds %d messages after restore, want 2 (one before the cut, one after)", state.State.Msgs)
+	}
+}
+
 // TestEmbeddedNATSRestartRefusesLiveServer proves Restart does not
 // silently overlap a cut with its restore: it fails loudly unless Shutdown
 // ran first.
