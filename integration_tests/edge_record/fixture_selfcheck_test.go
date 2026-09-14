@@ -146,9 +146,9 @@ func TestBuildConflictingSweepFixtureSharesScopeButDiffersInContent(t *testing.T
 }
 
 // TestFixtureContractRegistryAdmitsEveryFixture proves the registry snapshot the gateway boots with
-// names exactly the contract reference both fixture variants carry. The gateway rejects a record
-// whose bundle digest or snapshot differs from the registry entry, so a drift here would refuse
-// Group A's record or stop Group C's conflict frame before it reaches EventWriter.
+// names exactly the contract reference both fixture variants carry. The gateway withholds a record
+// whose bundle digest or snapshot differs from the registry entry, so a drift here would never
+// publish Group A's record or would stop Group C's conflict frame before it reaches EventWriter.
 func TestFixtureContractRegistryAdmitsEveryFixture(t *testing.T) {
 	raw, err := FixtureContractRegistryJSON()
 	if err != nil {

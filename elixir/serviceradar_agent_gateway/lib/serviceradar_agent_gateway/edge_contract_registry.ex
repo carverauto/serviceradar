@@ -49,12 +49,14 @@ defmodule ServiceRadarAgentGateway.EdgeContractRegistry do
 
   The session -- the authenticated agent identity and the opened lane -- is the authority. The
   record's `origin_principal_id` must equal the authenticated component id, and its route
-  profile and traffic class must equal both the lane and the bundle. The gateway still derives
-  the published subject, partition and destination from the registry entry and the authenticated
-  slot, so a guest-supplied value can at most cause a rejection, never a different placement.
+  profile and traffic class must equal both the lane and the bundle. The gateway takes the
+  published route profile, traffic class and partition rule from the registry entry and the agent
+  identity from the authenticated session, so a guest-supplied principal, route or contract claim
+  can at most keep the record from publishing, never place it differently.
 
-  Network scope is NOT compared against the session here: the session carries no network scope,
-  and binding scope to the agent is the effective-grant verification of task 3.2.
+  Network scope is the exception and is NOT compared against the session here: the record's
+  `network_scope_id` still selects the partition, the session carries no network scope, and
+  binding scope to the agent is the effective-grant verification of task 3.2.
   """
 
   alias Serviceradar.Edge.V1.EdgeRecordV1

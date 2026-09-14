@@ -503,9 +503,6 @@ func sweepBatch(variant int, executionID, targetRangeID, sourceRunID []byte) *ed
 	}
 }
 
-// fixtureDigest returns a deterministic 32-byte filler digest for fields
-// that must be exactly 32 bytes but whose real provenance (contract bundle
-// hashes, registry snapshot hashes) is out of this fixture's scope.
 // The single output contract every fixture record names, and the registry snapshot it belongs to.
 const (
 	fixtureContractID      = "serviceradar.sweep.observation"
@@ -558,6 +555,9 @@ func FixtureContractRegistryJSON() (string, error) {
 	return string(out), nil
 }
 
+// fixtureDigest returns a deterministic 32-byte filler digest for fields
+// that must be exactly 32 bytes but whose real provenance (contract bundle
+// hashes, registry snapshot hashes) is out of this fixture's scope.
 func fixtureDigest(seed byte) []byte {
 	b := make([]byte, 32)
 	for i := range b {

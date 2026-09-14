@@ -312,8 +312,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
     end
   end
 
-  defp unresolved(%{first_unresolved_sequence: nil} = state, sequence),
-    do: %{state | first_unresolved_sequence: sequence}
+  defp unresolved(%{first_unresolved_sequence: nil} = state, sequence), do: %{state | first_unresolved_sequence: sequence}
 
   defp unresolved(state, _sequence), do: state
 
