@@ -145,6 +145,42 @@ func TestBuildConflictingSweepFixtureSharesScopeButDiffersInContent(t *testing.T
 	}
 }
 
+// TestBuildSweepFixtureInScopeSharesSpoolScope proves a fixture built for an
+// existing spool carries that spool's network scope in its decoded record,
+// still validates, and is a distinct record, so Group D's appends to the
+// agent's spool never present the gateway a second scope.
+func TestBuildSweepFixtureInScopeSharesSpoolScope(t *testing.T) {
+	primary, err := BuildSweepFixture([]byte("vslice-agent-01"))
+	if err != nil {
+		t.Fatalf("BuildSweepFixture: %v", err)
+	}
+	next, err := BuildSweepFixtureInScope(primary.NetworkScopeID, []byte("vslice-agent-01"))
+	if err != nil {
+		t.Fatalf("BuildSweepFixtureInScope: %v", err)
+	}
+
+	if bytes.Equal(primary.EventID, next.EventID) || bytes.Equal(primary.ExecutionID, next.ExecutionID) {
+		t.Fatalf("a scoped fixture must have its own event id and execution id")
+	}
+	if bytes.Equal(primary.SemanticEnvelopeSHA256, next.SemanticEnvelopeSHA256) {
+		t.Fatalf("a scoped fixture must have its own semantic envelope digest")
+	}
+
+	var record edgev1.EdgeRecordV1
+	if err := proto.Unmarshal(next.RecordBytes, &record); err != nil {
+		t.Fatalf("scoped record bytes must decode: %v", err)
+	}
+	if err := edgerecord.ValidateRecord(&record); err != nil {
+		t.Fatalf("scoped record must pass ValidateRecord: %v", err)
+	}
+	if !bytes.Equal(record.GetNetworkScopeId(), primary.NetworkScopeID) {
+		t.Fatalf("decoded scoped record's network_scope_id must match the spool's scope")
+	}
+	if sum := sha256.Sum256(next.RecordBytes); !bytes.Equal(sum[:], next.RecordSHA256) {
+		t.Fatalf("scoped fixture's RecordSHA256 must digest its RecordBytes")
+	}
+}
+
 // TestFixtureContractRegistryAdmitsEveryFixture proves the registry snapshot the gateway boots with
 // names exactly the contract reference both fixture variants carry. The gateway withholds a record
 // whose bundle digest or snapshot differs from the registry entry, so a drift here would never

@@ -1340,6 +1340,10 @@ func (h *harness) waitIngestObservation(t *testing.T, eventID []byte, point stri
 // ---------------------------------------------------------------------------
 // Group D: failure and watermark order.
 //
+// Every entry this group appends to the agent's spool is built in Group A's
+// network scope: one spool carries exactly one scope, and the gateway ends a
+// stream whose records name a second one.
+//
 //  1. NATSCutAfterSpoolCommit disables JetStream on the embedded broker,
 //     commits a fresh entry to the agent's spool, and reads the real agent's
 //     own sender log. The broker and every client connection stay up, so the
@@ -1391,7 +1395,7 @@ func (h *harness) testGroupD(t *testing.T) {
 		}
 		cutAt := h.agent.logOffset(t)
 
-		fx2, err := BuildSweepFixture([]byte(h.certSet.AgentComponentID))
+		fx2, err := BuildSweepFixtureInScope(fx.NetworkScopeID, []byte(h.certSet.AgentComponentID))
 		if err != nil {
 			t.Fatalf("build fixture: %v", err)
 		}
@@ -1512,7 +1516,7 @@ func (h *harness) testGroupD(t *testing.T) {
 	t.Run("RedeliveryAfterCoreKill", func(t *testing.T) {
 		h.requireJetStream(t)
 
-		fx4, err := BuildSweepFixture([]byte(h.certSet.AgentComponentID))
+		fx4, err := BuildSweepFixtureInScope(fx.NetworkScopeID, []byte(h.certSet.AgentComponentID))
 		if err != nil {
 			t.Fatalf("build fixture: %v", err)
 		}
