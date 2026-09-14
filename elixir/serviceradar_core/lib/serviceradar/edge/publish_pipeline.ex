@@ -108,7 +108,7 @@ defmodule ServiceRadar.Edge.PublishPipeline do
   ## In the supervision tree, LAST in each lane
 
   `ServiceRadar.Edge.LaneSupervisor` starts one pipeline per class under `via/1`, after the
-  accountant, the transport, and the task supervisor its workers run under -- whenever it is given
+  accountant, the task supervisor its workers run under, and the transport -- whenever it is given
   a `:publisher`, which only the gateway can supply. The offerer is the gateway's
   `ServiceRadarAgentGateway.EdgeRecordIngestServer`: each verified delivery frame is offered here,
   and its ack is built from the outcomes this process pushes back.
@@ -117,8 +117,9 @@ defmodule ServiceRadar.Edge.PublishPipeline do
   and a fresh one refuses every offer until the caller re-opens its lanes with an agent-reported
   `first_unresolved_sequence` -- the authoritative recovery rather than a guess, which is why the
   ingest server ends its stream instead of re-opening on its own. Transport death invalidates the
-  requests in flight on it, so this goes with it. Accountant death already takes everything after
-  it.
+  requests in flight on it, so this goes with it -- but not its workers, whose task supervisor comes
+  before the transport: each owns its attempt until its request returns. Accountant death already
+  takes everything after it.
   """
 
   use GenServer

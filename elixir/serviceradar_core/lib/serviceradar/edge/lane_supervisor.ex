@@ -82,8 +82,9 @@ defmodule ServiceRadar.Edge.LaneSupervisor do
   def task_supervisor(lane), do: :"edge_publish_tasks_#{lane}"
 
   @doc """
-  This lane's children, ACCOUNTANT FIRST: the accountant and the transport, then -- when a
-  `:publisher` is supplied -- the task supervisor and the `PublishPipeline`, LAST.
+  This lane's children, ACCOUNTANT FIRST: the accountant, then -- when a `:publisher` is supplied
+  -- the task supervisor its publish workers run under, then the transport, and the
+  `PublishPipeline` LAST.
 
   The order is the invariant, not a style choice, because `:rest_for_one` derives its behaviour
   from it: children after the accountant are torn down when it dies, and children before it are
@@ -98,11 +99,13 @@ defmodule ServiceRadar.Edge.LaneSupervisor do
     backoff = Keyword.fetch!(opts, :backoff_period)
     credits = Keyword.fetch!(opts, :credits)
 
-    [
+    accountant =
       Supervisor.child_spec(
         {PublisherPool, [class: lane, name: PublisherPool.via(lane)] ++ credits},
         id: PublisherPool.via(lane)
-      ),
+      )
+
+    transport =
       Supervisor.child_spec(
         {LaneTransportRuntime,
          lane: lane,
@@ -111,23 +114,26 @@ defmodule ServiceRadar.Edge.LaneSupervisor do
          accountant: PublisherPool.via(lane)},
         id: LaneTransportRuntime.via(lane)
       )
-    ] ++ pipeline_specs(lane, Keyword.get(opts, :publisher))
-  end
 
-  # Only with a publisher. `JetStreamPublisher` lives in the gateway, which depends on this
-  # application rather than the reverse, so only the gateway can hand one in -- and a pipeline
-  # nothing could publish through would be a process with no runtime reason.
-  defp pipeline_specs(_lane, nil), do: []
+    case Keyword.get(opts, :publisher) do
+      # Only with a publisher. `JetStreamPublisher` lives in the gateway, which depends on this
+      # application rather than the reverse, so only the gateway can hand one in -- and a pipeline
+      # nothing could publish through would be a process with no runtime reason.
+      nil ->
+        [accountant, transport]
 
-  defp pipeline_specs(lane, publisher) when is_function(publisher, 2) do
-    [
-      Supervisor.child_spec({Task.Supervisor, name: task_supervisor(lane)},
-        id: task_supervisor(lane)
-      ),
-      Supervisor.child_spec({PublishPipeline, pipeline_opts(lane, publisher)},
-        id: PublishPipeline.via(lane)
-      )
-    ]
+      publisher when is_function(publisher, 2) ->
+        [
+          accountant,
+          Supervisor.child_spec({Task.Supervisor, name: task_supervisor(lane)},
+            id: task_supervisor(lane)
+          ),
+          transport,
+          Supervisor.child_spec({PublishPipeline, pipeline_opts(lane, publisher)},
+            id: PublishPipeline.via(lane)
+          )
+        ]
+    end
   end
 
   defp pipeline_opts(lane, publisher) do
@@ -158,9 +164,16 @@ defmodule ServiceRadar.Edge.LaneSupervisor do
     #                        ingest server sees it go and ends each stream, and every agent
     #                        re-opens at its own first_unresolved_sequence.
     #
-    # Transport death also takes the task supervisor and the pipeline after it: the requests in
-    # flight on a dead transport cannot complete, so neither their workers nor the prefixes waiting
-    # on them outlive it.
+    # Transport death also takes the pipeline after it: the prefixes waiting on requests in flight
+    # on a dead transport do not outlive it.
+    #
+    # It does NOT take the task supervisor, which is BEFORE it. A publish worker is not part of a
+    # transport generation: it is the OWNER of its attempt, and the accountant fences a dead
+    # generation's attempts itself, never on an owner's death. Killed with the transport, no request
+    # could ever still be running beside the replacement generation -- the very overlap the restart
+    # invariant is about. The workers run on until their requests return, and exit. The task
+    # supervisor's own death takes the transport after it, so the generation its workers' attempts
+    # were issued on is fenced.
     #
     # :one_for_all would have been wrong in the first direction (it would restart the accountant
     # on every transport blip, emptying the ledger); :one_for_one wrong in the second (an

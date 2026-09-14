@@ -66,13 +66,13 @@ defmodule ServiceRadar.Edge.LaneSupervisorTest do
   describe "with a publisher, the pipeline comes LAST" do
     defp unused_publisher, do: fn _publication, _opts -> {:error, :unused} end
 
-    test "the task supervisor and the pipeline follow the accountant and the transport" do
+    test "the task supervisor precedes the transport, and the pipeline follows it" do
       specs = LaneSupervisor.child_specs(opts(:interactive, publisher: unused_publisher()))
 
       assert Enum.map(specs, & &1.id) === [
                PublisherPool.via(:interactive),
-               LaneTransportRuntime.via(:interactive),
                LaneSupervisor.task_supervisor(:interactive),
+               LaneTransportRuntime.via(:interactive),
                PublishPipeline.via(:interactive)
              ]
 
@@ -86,10 +86,18 @@ defmodule ServiceRadar.Edge.LaneSupervisorTest do
                LaneSupervisor.task_supervisor(:interactive)
     end
 
-    test "transport death replaces the pipeline and leaves the accountant alone" do
+    test "transport death replaces the pipeline, but not the workers that own attempts" do
+      test_pid = self()
+
+      # Stands in for a request still outstanding on the transport about to die.
+      publisher = fn _publication, _opts ->
+        send(test_pid, {:publishing, self()})
+        Process.sleep(:infinity)
+      end
+
       {:ok, sup} =
         LaneSupervisor.start_link(
-          opts(:bulk, name: :lane_sup_with_pipeline, publisher: unused_publisher())
+          opts(:bulk, name: :lane_sup_with_pipeline, publisher: publisher)
         )
 
       on_exit(fn ->
@@ -104,16 +112,35 @@ defmodule ServiceRadar.Edge.LaneSupervisorTest do
       pipeline = Process.whereis(PublishPipeline.via(:bulk))
       assert is_pid(pipeline)
 
+      lane = {<<0xA1>>, "agent-1", <<0xB2>>}
+      :ok = PublishPipeline.open_lane(pipeline, lane, 1)
+
+      :ok =
+        PublishPipeline.offer(pipeline, %{
+          slot: %{
+            network_scope_id: <<0xA1>>,
+            authenticated_agent_id: "agent-1",
+            spool_id: <<0xB2>>,
+            sequence: 1
+          }
+        })
+
+      assert_receive {:publishing, worker}
+
       Process.exit(transport_pid(sup), :kill)
 
-      # The requests in flight on the dead transport cannot complete, so the prefixes waiting on
-      # them go too -- while the ledger, which is FIRST, survives untouched.
+      # The prefixes waiting on the dead transport's requests go with it -- while the ledger, which
+      # is FIRST, survives untouched.
       await(fn ->
         replacement = Process.whereis(PublishPipeline.via(:bulk))
         is_pid(replacement) and replacement !== pipeline
       end)
 
       assert Process.whereis(PublisherPool.via(:bulk)) === accountant
+
+      # The worker is not taken with them. It owns its attempt, which the accountant fences on its
+      # own; killed here, no request could ever be seen outstanding beside the replacement.
+      assert Process.alive?(worker), "the transport restart killed a worker that owns an attempt"
     end
   end
 

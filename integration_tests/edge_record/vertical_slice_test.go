@@ -933,7 +933,7 @@ func (h *harness) testGroupC(t *testing.T) {
 			t.Fatalf("before snapshot = %+v, want no rows for a fresh fixture", before)
 		}
 
-		ack, err := h.sendOneRawFrame(t, tlsCfg, spoolID, 1, fxC.RecordBytes, fxC.RecordSHA256, 20*time.Second)
+		ack, err := h.sendOneRawFrame(context.Background(), t, tlsCfg, spoolID, 1, fxC.RecordBytes, fxC.RecordSHA256, 20*time.Second)
 		if err != nil {
 			t.Fatalf("send fixture: %v", err)
 		}
@@ -980,7 +980,7 @@ func (h *harness) testGroupC(t *testing.T) {
 		}
 
 		ack, err := h.sendOneRawFrame(
-			t, tlsCfg, h.spoolID, h.groupASequence, conflictFx.RecordBytes, conflictFx.RecordSHA256, 20*time.Second,
+			context.Background(), t, tlsCfg, h.spoolID, h.groupASequence, conflictFx.RecordBytes, conflictFx.RecordSHA256, 20*time.Second,
 		)
 		if err != nil {
 			t.Fatalf("conflicting frame was refused before JetStream publication: %v", err)
@@ -1463,7 +1463,7 @@ func (h *harness) testGroupD(t *testing.T) {
 		h.armIngestProbe(t, fx3.EventID, probeBeforeCommit, 1, probeRaise)
 		h.armIngestProbe(t, fx3.EventID, probeBeforeCommit, 2, probeHold)
 
-		ack, err := h.sendOneRawFrame(t, tlsCfg, spoolID, 1, fx3.RecordBytes, fx3.RecordSHA256, 20*time.Second)
+		ack, err := h.sendOneRawFrame(context.Background(), t, tlsCfg, spoolID, 1, fx3.RecordBytes, fx3.RecordSHA256, 20*time.Second)
 		if err != nil {
 			t.Fatalf("send fixture: %v", err)
 		}
@@ -2041,7 +2041,7 @@ func (h *harness) freshPublication(t *testing.T) (*FixtureRecord, []byte) {
 
 func (h *harness) sendPublication(t *testing.T, tlsCfg *tls.Config, spoolID []byte, fx *FixtureRecord, timeout time.Duration) frameResult {
 	t.Helper()
-	msg, err := h.sendOneRawFrame(t, tlsCfg, spoolID, 1, fx.RecordBytes, fx.RecordSHA256, timeout)
+	msg, err := h.sendOneRawFrame(context.Background(), t, tlsCfg, spoolID, 1, fx.RecordBytes, fx.RecordSHA256, timeout)
 	return frameResult{msg: msg, err: err}
 }
 
@@ -2291,12 +2291,17 @@ func probeHealth(url string, timeout time.Duration) error {
 //
 //  1. One publication is sent with its PubAck withheld. The watcher sees the
 //     hand-off: an ACTIVE attempt (the start) with token T1 and its owner, the
-//     gateway stream process that will issue the request.
-//  2. The identical publication is re-sent on a second stream. Its stream
-//     must end with no acknowledgement, and the first sample after that
-//     answer must still show T1 active under the same, living owner with a
-//     transport accepting -- so the refusal was the in-flight attempt, not
-//     missing transport, and the retry displaced nothing.
+//     gateway publish worker that issues the request. The stream that offered
+//     it is then dropped: the worker, not the stream, owns the attempt, so the
+//     request stays outstanding while the stream's lane is released.
+//  2. The identical publication is re-sent on a second stream. A retry that
+//     reaches the gateway before the dropped stream is gone is refused
+//     AlreadyExists at lane bind, before anything is offered, and is sent
+//     again. The retry that binds the lane must end with no acknowledgement,
+//     and the first sample after that answer must still show T1 active under
+//     the same, living owner with a transport accepting -- so the refusal was
+//     the in-flight attempt, not missing transport, and the retry displaced
+//     nothing.
 //  3. The fence: the first request's owner reports its termination, leaving
 //     the reservation charged with no attempt, and exits.
 //  4. Re-sent once more, the publication is accepted, is admitted at most once
@@ -2327,15 +2332,36 @@ func (h *harness) testGroupF(t *testing.T) {
 		}
 	}()
 
-	// (1) Hand the publication to its request owner.
+	// (1) Hand the publication to its request owner, then drop the stream
+	// that offered it.
+	firstCtx, dropFirst := context.WithCancel(context.Background())
+	defer dropFirst()
 	first := make(chan frameResult, 1)
-	go func() { first <- h.sendPublication(t, tlsCfg, spoolID, fx, 30*time.Second) }()
+	go func() {
+		msg, err := h.sendOneRawFrame(firstCtx, t, tlsCfg, spoolID, 1, fx.RecordBytes, fx.RecordSHA256, 30*time.Second)
+		first <- frameResult{msg: msg, err: err}
+	}()
 	if err := w.waitMarker(ledgerMarker(ledgerMarkerActive, spoolID), inFlightTimeout); err != nil {
 		t.Fatalf("the publication was never handed to a request owner: %v", err)
 	}
+	dropFirst()
+	select {
+	case r := <-first:
+		if acceptedAck(r.msg) {
+			t.Errorf("the first request was accepted although its PubAck was withheld; nothing was held for the retry to meet")
+		}
+	case <-time.After(inFlightTimeout):
+		t.Fatal("the first stream did not end after it was dropped")
+	}
 
-	// (2) The retry, while that request is outstanding.
+	// (2) The retry, while that request is outstanding. Until the gateway has
+	// seen the dropped stream go, its lane is still bound and the retry is
+	// refused AlreadyExists before anything is offered.
 	retry := h.sendPublication(t, tlsCfg, spoolID, fx, inFlightTimeout)
+	for deadline := time.Now().Add(inFlightTimeout); status.Code(retry.err) == codes.AlreadyExists && time.Now().Before(deadline); {
+		time.Sleep(pollInterval)
+		retry = h.sendPublication(t, tlsCfg, spoolID, fx, inFlightTimeout)
+	}
 	w.record(t, groupFRetryEvent)
 	if retry.msg != nil {
 		t.Errorf("a retry offered while the first request was outstanding got %v, want its stream to end with no acknowledgement", retry.msg)
@@ -2349,14 +2375,6 @@ func (h *harness) testGroupF(t *testing.T) {
 		if err := w.waitMarker(m, inFlightTimeout); err != nil {
 			t.Fatalf("the first request was never fenced: %v", err)
 		}
-	}
-	select {
-	case r := <-first:
-		if acceptedAck(r.msg) {
-			t.Errorf("the first request was accepted although its PubAck was withheld; nothing was held for the retry to meet")
-		}
-	case <-time.After(inFlightTimeout):
-		t.Fatal("the first request's stream did not end after its owner terminated")
 	}
 	h.gwNATS.Resume()
 	stalled = false
@@ -2388,8 +2406,9 @@ func (h *harness) testGroupF(t *testing.T) {
 // sequence, and returns the first server message received after the
 // delivery_frame (which may be a disposition ack, or nil if the stream
 // times out waiting -- callers decide what that means for their probe).
+// Cancelling ctx drops the stream.
 func (h *harness) sendOneRawFrame(
-	t *testing.T, tlsCfg *tls.Config, spoolID []byte, sequence uint64,
+	ctx context.Context, t *testing.T, tlsCfg *tls.Config, spoolID []byte, sequence uint64,
 	recordBytes, recordSHA256 []byte, timeout time.Duration,
 ) (*edgev1.EdgeRecordServerMessage, error) {
 	t.Helper()
@@ -2401,7 +2420,7 @@ func (h *harness) sendOneRawFrame(
 	defer conn.Close()
 
 	client := edgev1.NewEdgeRecordIngestServiceClient(conn)
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	stream, err := client.Stream(ctx)
