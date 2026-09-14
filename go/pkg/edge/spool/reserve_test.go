@@ -352,14 +352,20 @@ func TestConcurrentRecoveriesAreBounded(t *testing.T) {
 	if _, err := a.AcquireRecovery(); !errors.Is(err, ErrRecoveryConcurrencyExhausted) {
 		t.Fatalf("acquire 3 = %v, want ErrRecoveryConcurrencyExhausted", err)
 	}
-	if err := g1.Finish(0); err != nil {
+	if err := g1.Finish(); err != nil {
 		t.Fatalf("finish: %v", err)
 	}
-	if err := g1.Finish(0); !errors.Is(err, ErrRecoveryFinished) {
+	if err := g1.Finish(); !errors.Is(err, ErrRecoveryFinished) {
 		t.Fatalf("second finish = %v, want ErrRecoveryFinished", err)
 	}
 	if _, err := a.AcquireRecovery(); !errors.Is(err, ErrRecoveryConcurrencyExhausted) {
-		t.Fatalf("acquire after finish, before the source is released = %v, want ErrRecoveryConcurrencyExhausted", err)
+		t.Fatalf("acquire after finish, before any release = %v, want ErrRecoveryConcurrencyExhausted", err)
+	}
+	if err := g1.ReleaseArtifacts(); err != nil {
+		t.Fatalf("release artifacts: %v", err)
+	}
+	if _, err := a.AcquireRecovery(); !errors.Is(err, ErrRecoveryConcurrencyExhausted) {
+		t.Fatalf("acquire before the source is released = %v, want ErrRecoveryConcurrencyExhausted", err)
 	}
 	if err := g1.ReleaseSource("lane", 0, "lane"); err != nil {
 		t.Fatalf("release source: %v", err)
@@ -368,50 +374,54 @@ func TestConcurrentRecoveriesAreBounded(t *testing.T) {
 		t.Fatalf("second release = %v, want ErrRecoveryFinished", err)
 	}
 	if _, err := a.AcquireRecovery(); err != nil {
-		t.Fatalf("acquire after release: %v", err)
+		t.Fatalf("acquire after both releases: %v", err)
 	}
 }
 
-// A finished recovery releases nothing while the source segment it replaces is
-// still on disk: its output stays charged against the reserve and its slot stays
-// held, so no second recovery is granted a footprint the disk no longer holds.
-// Only deleting the source turns the retained output into ordinary usage.
-func TestRetainedOutputStaysInTheReserveUntilTheSourceIsDeleted(t *testing.T) {
+// A finished recovery releases its output in two stages, each only after the
+// bytes it covers are gone. Deleting the source moves just the destination
+// segment into its lane; the journals stay charged to the grant, with the slot
+// held, until they are deleted too, and reopening the lane in between re-measures
+// its segment without dropping them.
+func TestRecoveryOutputIsReleasedInTwoStages(t *testing.T) {
 	a := newTestAllocator(t, 500, 1)
 	dir := t.TempDir()
 	sourceLane := filepath.Join(dir, "source-lane")
-	destLane := filepath.Join(dir, "dest-lane")
+	lane := filepath.Join(dir, "new-lane")
 	sourceSeg := filepath.Join(dir, "source.seg")
+	journal := filepath.Join(dir, "journal-a")
 	if err := os.WriteFile(sourceSeg, []byte("synthetic source segment"), filePerm); err != nil {
 		t.Fatalf("seed source: %v", err)
 	}
 	if err := admitLanded(a, sourceLane, 500); err != nil {
 		t.Fatalf("fill the ordinary ceiling: %v", err)
 	}
+	if err := os.MkdirAll(lane, dirPerm); err != nil {
+		t.Fatalf("create new lane: %v", err)
+	}
 
 	g, err := a.AcquireRecovery()
 	if err != nil {
 		t.Fatalf("acquire: %v", err)
 	}
-	if err := g.WriteBarrier(ArtifactDestinationSegment, filepath.Join(dir, "dest.seg"), make([]byte, 64)); err != nil {
+	destination := encodeRecord(1, evid(1), bytes.Repeat([]byte{'d'}, 22))
+	if err := g.WriteBarrier(ArtifactDestinationSegment, filepath.Join(lane, segmentFile), destination); err != nil {
 		t.Fatalf("write destination: %v", err)
 	}
-	if err := g.WriteBarrier(ArtifactJournalA, filepath.Join(dir, "journal-a"), make([]byte, 32)); err != nil {
+	if err := g.WriteBarrier(ArtifactJournalA, journal, make([]byte, 32)); err != nil {
 		t.Fatalf("write journal: %v", err)
 	}
 
-	if err := g.ReleaseSource(sourceLane, 500, destLane); !errors.Is(err, ErrRecoveryNotFinished) {
-		t.Fatalf("release before finish = %v, want ErrRecoveryNotFinished", err)
+	if err := g.ReleaseSource(sourceLane, 500, lane); !errors.Is(err, ErrRecoveryNotFinished) {
+		t.Fatalf("release source before finish = %v, want ErrRecoveryNotFinished", err)
 	}
-	if err := g.Finish(97); !errors.Is(err, ErrReleaseExceedsCharge) {
-		t.Fatalf("retaining more than was written = %v, want ErrReleaseExceedsCharge", err)
+	if err := g.ReleaseArtifacts(); !errors.Is(err, ErrRecoveryNotFinished) {
+		t.Fatalf("release artifacts before finish = %v, want ErrRecoveryNotFinished", err)
 	}
-	if err := g.Finish(96); err != nil {
+	if err := g.Finish(); err != nil {
 		t.Fatalf("finish: %v", err)
 	}
-	if u := a.Usage(); u.OrdinaryUsed != 500 || u.RecoveryUsed != 96 || u.ActiveRecoveries != 1 {
-		t.Fatalf("after finish usage = %+v, want 500 ordinary, 96 recovery, 1 active", u)
-	}
+	assertUsage(t, a, "after finish", 500, 96, 1)
 	if _, err := a.AcquireRecovery(); !errors.Is(err, ErrRecoveryConcurrencyExhausted) {
 		t.Fatalf("second recovery while the source and its copy share the disk = %v, want ErrRecoveryConcurrencyExhausted", err)
 	}
@@ -419,29 +429,62 @@ func TestRetainedOutputStaysInTheReserveUntilTheSourceIsDeleted(t *testing.T) {
 		t.Fatalf("write after finish = %v, want ErrRecoveryFinished", err)
 	}
 
+	// The new lane serves producers while the coverage proof is pending.
+	opened, err := Open(lane, WithAllocator(a))
+	if err != nil {
+		t.Fatalf("open new lane on the destination: %v", err)
+	}
+	if err := opened.Close(); err != nil {
+		t.Fatalf("close new lane: %v", err)
+	}
+	assertUsage(t, a, "with the source and the opened destination on disk", 564, 96, 1)
+
 	if err := g.RunDestructive("delete source", func() error { return os.Remove(sourceSeg) }); err != nil {
 		t.Fatalf("coverage-proof deletion through the finished grant: %v", err)
 	}
-	if exists(t, sourceSeg) {
-		t.Fatal("source segment survived its deletion")
-	}
-	if err := g.ReleaseSource(sourceLane, 501, destLane); !errors.Is(err, ErrReleaseExceedsCharge) {
+	if err := g.ReleaseSource(sourceLane, 501, lane); !errors.Is(err, ErrReleaseExceedsCharge) {
 		t.Fatalf("releasing more than the source holds = %v, want ErrReleaseExceedsCharge", err)
 	}
-	if u := a.Usage(); u.OrdinaryUsed != 500 || u.RecoveryUsed != 96 || u.ActiveRecoveries != 1 {
-		t.Fatalf("a refused release changed the ledger: %+v", u)
-	}
-	if err := g.ReleaseSource(sourceLane, 500, destLane); err != nil {
+	assertUsage(t, a, "after a refused release", 564, 96, 1)
+	if err := g.ReleaseSource(sourceLane, 500, lane); err != nil {
 		t.Fatalf("release source after deleting it: %v", err)
 	}
-	if u := a.Usage(); u.OrdinaryUsed != 96 || u.RecoveryUsed != 0 || u.ActiveRecoveries != 0 {
-		t.Fatalf("after releasing the source usage = %+v, want 96 ordinary, 0 recovery, 0 active", u)
+	assertUsage(t, a, "after releasing the source", 64, 32, 1)
+	if _, err := a.AcquireRecovery(); !errors.Is(err, ErrRecoveryConcurrencyExhausted) {
+		t.Fatalf("second recovery while the journal is still on disk = %v, want ErrRecoveryConcurrencyExhausted", err)
 	}
-	if err := a.ReleaseOrdinary(destLane, 96); err != nil {
-		t.Fatalf("retained output is not charged to its owner: %v", err)
+	if err := g.ReleaseSource(sourceLane, 0, lane); !errors.Is(err, ErrRecoveryFinished) {
+		t.Fatalf("second source release = %v, want ErrRecoveryFinished", err)
+	}
+
+	reopened, err := Open(lane, WithAllocator(a))
+	if err != nil {
+		t.Fatalf("reopen new lane: %v", err)
+	}
+	if err := reopened.Close(); err != nil {
+		t.Fatalf("close reopened lane: %v", err)
+	}
+	assertUsage(t, a, "after reopening the lane", 64, 32, 1)
+
+	if err := g.RunDestructive("delete journal", func() error { return os.Remove(journal) }); err != nil {
+		t.Fatalf("delete journal once the recovery resolves: %v", err)
+	}
+	if err := g.ReleaseArtifacts(); err != nil {
+		t.Fatalf("release artifacts after deleting them: %v", err)
+	}
+	assertUsage(t, a, "after releasing the artifacts", 64, 0, 0)
+	if err := g.ReleaseArtifacts(); !errors.Is(err, ErrRecoveryFinished) {
+		t.Fatalf("second artifact release = %v, want ErrRecoveryFinished", err)
 	}
 	if _, err := a.AcquireRecovery(); err != nil {
-		t.Fatalf("acquire after the source is released: %v", err)
+		t.Fatalf("acquire after both releases: %v", err)
+	}
+}
+
+func assertUsage(t *testing.T, a *Allocator, when string, ordinary, recovery uint64, active int) {
+	t.Helper()
+	if u := a.Usage(); u.OrdinaryUsed != ordinary || u.RecoveryUsed != recovery || u.ActiveRecoveries != active {
+		t.Fatalf("%s usage = %+v, want %d ordinary, %d recovery, %d active", when, u, ordinary, recovery, active)
 	}
 }
 
@@ -699,7 +742,7 @@ func TestExhaustingTheReserveStopsRecoveryDeterministically(t *testing.T) {
 	if !errors.Is(err, ErrRecoveryStopped) || ran || !exists(t, source) {
 		t.Fatalf("destructive step after exhaustion: err=%v ran=%v; want refused and source intact", err, ran)
 	}
-	if err := g.Finish(0); !errors.Is(err, ErrRecoveryStopped) {
+	if err := g.Finish(); !errors.Is(err, ErrRecoveryStopped) {
 		t.Fatalf("finish after exhaustion = %v, want ErrRecoveryStopped", err)
 	}
 	if ff.calls != calls || exists(t, journalB) {
@@ -782,20 +825,7 @@ func TestFailedBarrierWriteIsFailStop(t *testing.T) {
 				ran := false
 				destroy := func() error { ran = true; return os.Remove(source) }
 				for name, grant := range map[string]*RecoveryGrant{"failed": g, "other": other} {
-					err := grant.RunDestructive("delete source", destroy)
-					if !errors.Is(err, ErrRecoveryStopped) || !errors.Is(err, errno) {
-						t.Fatalf("%s grant destructive step = %v, want ErrRecoveryStopped caused by %s", name, err, errName)
-					}
-					err = grant.WriteBarrier(ArtifactJournalA, filepath.Join(dir, name+"-journal"), []byte{1})
-					if !errors.Is(err, ErrRecoveryStopped) || !errors.Is(err, errno) {
-						t.Fatalf("%s grant write after fail-stop = %v, want refused", name, err)
-					}
-					if err := grant.Finish(0); !errors.Is(err, ErrRecoveryStopped) {
-						t.Fatalf("%s grant finish after fail-stop = %v, want refused", name, err)
-					}
-					if err := grant.ReleaseSource(source, 0, source); !errors.Is(err, ErrRecoveryStopped) {
-						t.Fatalf("%s grant release after fail-stop = %v, want refused", name, err)
-					}
+					assertStoppedGrantRefusesEverything(t, name, grant, errno, dir, source, destroy)
 				}
 				if ran {
 					t.Fatal("a destructive step ran after a failed barrier write")
@@ -819,6 +849,31 @@ func TestFailedBarrierWriteIsFailStop(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// assertStoppedGrantRefusesEverything checks that a grant stopped by errno runs
+// no destructive step, writes nothing, and cannot finish or release.
+func assertStoppedGrantRefusesEverything(t *testing.T, name string, grant *RecoveryGrant, errno error,
+	dir, source string, destroy func() error,
+) {
+	t.Helper()
+	err := grant.RunDestructive("delete source", destroy)
+	if !errors.Is(err, ErrRecoveryStopped) || !errors.Is(err, errno) {
+		t.Fatalf("%s grant destructive step = %v, want ErrRecoveryStopped caused by %v", name, err, errno)
+	}
+	err = grant.WriteBarrier(ArtifactJournalA, filepath.Join(dir, name+"-journal"), []byte{1})
+	if !errors.Is(err, ErrRecoveryStopped) || !errors.Is(err, errno) {
+		t.Fatalf("%s grant write after fail-stop = %v, want refused", name, err)
+	}
+	if err := grant.Finish(); !errors.Is(err, ErrRecoveryStopped) {
+		t.Fatalf("%s grant finish after fail-stop = %v, want refused", name, err)
+	}
+	if err := grant.ReleaseSource(source, 0, source); !errors.Is(err, ErrRecoveryStopped) {
+		t.Fatalf("%s grant source release after fail-stop = %v, want refused", name, err)
+	}
+	if err := grant.ReleaseArtifacts(); !errors.Is(err, ErrRecoveryStopped) {
+		t.Fatalf("%s grant artifact release after fail-stop = %v, want refused", name, err)
 	}
 }
 
@@ -1105,10 +1160,10 @@ func assertOnlyAdmissionStopped(t *testing.T, a *Allocator, errno error) {
 	if err := g.RunDestructive("synthetic step", func() error { ran = true; return nil }); err != nil || !ran {
 		t.Fatalf("recovery destructive step after a lane's append failure: err=%v ran=%v", err, ran)
 	}
-	if err := g.Finish(0); err != nil {
+	if err := g.Finish(); err != nil {
 		t.Fatalf("finish recovery after a lane's append failure: %v", err)
 	}
-	if err := g.ReleaseSource("lane", 0, "lane"); err != nil {
+	if err := errors.Join(g.ReleaseSource("lane", 0, "lane"), g.ReleaseArtifacts()); err != nil {
 		t.Fatalf("release recovery after a lane's append failure: %v", err)
 	}
 }

@@ -65,12 +65,14 @@ var ErrReserveExhausted = errors.New("spool: recovery reserve exhausted")
 // cannot be finished; its reserve slot stays held until the process restarts.
 var ErrRecoveryStopped = errors.New("spool: recovery stopped")
 
-// ErrRecoveryFinished is returned for a charge, write, or Finish on a grant whose
-// output Finish already sealed, and for every request after ReleaseSource.
+// ErrRecoveryFinished is returned for a lifecycle step a grant already took: a
+// charge, write, or Finish after Finish, a second ReleaseSource or
+// ReleaseArtifacts, and every request once both releases are done.
 var ErrRecoveryFinished = errors.New("spool: recovery already finished")
 
-// ErrRecoveryNotFinished is returned by ReleaseSource for a grant whose output
-// Finish has not sealed, because the bytes it retains are not yet known.
+// ErrRecoveryNotFinished is returned by ReleaseSource and ReleaseArtifacts for a
+// grant whose output Finish has not sealed: output that can still grow cannot be
+// released.
 var ErrRecoveryNotFinished = errors.New("spool: recovery not finished")
 
 // ErrReleaseExceedsCharge is returned when a caller releases, retains, or lands
@@ -497,12 +499,15 @@ func (e *ReserveExhaustedError) Is(target error) bool { return target == ErrRese
 // RecoveryGrant is one recovery's share of the reserve. A grant's steps are
 // serialized; the coordinator driving it owns the order.
 //
-// Its bytes are reserved, then landed, then released. Charge and WriteBarrier
-// reserve them and keep them in flight until they are durable; WriteBarrier
-// lands its own bytes, and Landed reports bytes the caller wrote. Finish seals
-// the output and releases nothing. ReleaseSource, once the source segment the
-// recovery replaced is physically deleted, turns the retained output into
-// ordinary usage and returns the slot and the rest of the reserve.
+// Its bytes are reserved, then landed, then released, and a charge lasts until
+// its bytes are physically gone. Charge and WriteBarrier reserve them and keep
+// them in flight until they are durable; WriteBarrier lands its own bytes, and
+// Landed reports bytes the caller wrote. Finish seals the output and releases
+// nothing. The output then leaves the grant in two stages, in either order:
+// ReleaseSource, once the source segment the recovery replaced is deleted, moves
+// the destination segment into its lane's ordinary charge; ReleaseArtifacts,
+// once every other artifact is deleted after the recovery resolves, releases the
+// rest. The grant holds its slot and reserve until both stages are done.
 //
 // A grant stops, permanently, the first time a request exhausts an artifact's
 // budget, a barrier write fails, a destructive step fails, or its caller reports
@@ -512,8 +517,8 @@ type RecoveryGrant struct {
 	alloc *Allocator
 
 	// step serializes the grant's charges, writes, destructive steps, Finish, and
-	// ReleaseSource, so a destructive step can never interleave with a failing
-	// barrier write.
+	// releases, so a destructive step can never interleave with a failing barrier
+	// write.
 	step sync.Mutex
 
 	// Guarded by alloc.mu.
@@ -522,11 +527,12 @@ type RecoveryGrant struct {
 	// in the allocator's in-flight count.
 	pending [artifactCount]uint64
 	stopErr error
-	// finished seals the output: nothing more is charged, and retained is fixed.
+	// finished seals the output: nothing more is charged.
 	finished bool
-	retained uint64
-	// released is set once ReleaseSource returns the grant to the reserve.
-	released bool
+	// sourceReleased and artifactsReleased record the two release stages; the
+	// grant leaves the reserve once both are set.
+	sourceReleased    bool
+	artifactsReleased bool
 }
 
 // Charge reserves n bytes of art from this grant's footprint, for output the
@@ -604,7 +610,7 @@ func (g *RecoveryGrant) WriteBarrier(art Artifact, path string, data []byte) err
 // data -- only if this grant and the allocator are still healthy. If fn fails,
 // the grant and allocator fail-stop, so no later step builds on a destruction
 // that may have half-happened. A finished grant still runs destructive steps:
-// deleting the source is what ReleaseSource waits for.
+// deleting the source and the other artifacts is what its releases wait for.
 //
 // Health is necessary, not sufficient: whether the step is AUTHORIZED is the
 // coverage proof's decision (task 2.28), and the caller must hold it first.
@@ -626,17 +632,16 @@ func (g *RecoveryGrant) RunDestructive(op string, fn func() error) error {
 	return nil
 }
 
-// Finish seals a healthy recovery's output. retained is the bytes of it that stay
-// on disk, such as the destination segment and the journals kept until the
-// recovery resolves; nothing more can be charged afterwards.
+// Finish seals a healthy recovery's output; nothing more can be charged.
 //
 // Finish RELEASES NOTHING. Until the source segment the recovery replaces is
-// physically deleted, the source and its copy both occupy the disk, so the grant
-// keeps its slot and every byte it charged against the reserve. Delete the source
-// with RunDestructive once the coverage proof authorizes it, then settle the
-// ledger with ReleaseSource. A stopped grant cannot finish: its partial output is
-// on disk, so its reserve stays held until the process restarts and re-measures.
-func (g *RecoveryGrant) Finish(retained uint64) error {
+// physically deleted, the source and its copy both occupy the disk, and the
+// journals, pages, and mapping stay on disk until the recovery resolves. So the
+// grant keeps its slot and every byte it charged. Delete each with RunDestructive
+// once it is authorized, then record the deletion with ReleaseSource or
+// ReleaseArtifacts. A stopped grant cannot finish: its partial output is on disk,
+// so its reserve stays held until the process restarts and re-measures.
+func (g *RecoveryGrant) Finish() error {
 	g.step.Lock()
 	defer g.step.Unlock()
 
@@ -649,52 +654,88 @@ func (g *RecoveryGrant) Finish(retained uint64) error {
 	if g.finished {
 		return ErrRecoveryFinished
 	}
-	if total := g.totalLocked(); retained > total {
-		return fmt.Errorf("%w: retain %d, recovery wrote %d", ErrReleaseExceedsCharge, retained, total)
-	}
 	g.finished = true
-	g.retained = retained
 	return nil
 }
 
-// ReleaseSource settles a finished recovery after the source segment it replaced
-// has been PHYSICALLY deleted. As one step it releases sourceBytes of source's
-// ordinary charge, charges the retained output to owner as ordinary usage, and
-// returns the grant's slot and the rest of its reserve. Like ReleaseOrdinary it
-// follows a completed deletion and neither authorizes nor performs one.
-// Releasing more than source holds is refused and changes nothing.
+// ReleaseSource records that the source segment a finished recovery replaced has
+// been PHYSICALLY deleted. As one step it releases sourceBytes of source's
+// ordinary charge and moves the destination segment into the ordinary charge of
+// lane, the directory the destination was written into. The lane's charge becomes
+// at least the destination's bytes, so a lane already opened on that segment is
+// not charged for it twice. Every other artifact, and the slot, stay with the
+// grant until ReleaseArtifacts has also run.
 //
-// Opening a lane re-measures its directory and replaces that charge, so retain
-// only a lane's segment under the lane's directory.
-func (g *RecoveryGrant) ReleaseSource(source string, sourceBytes uint64, owner string) error {
+// Like ReleaseOrdinary it follows a completed deletion and neither authorizes
+// nor performs one. Releasing more than source holds is refused and changes
+// nothing.
+func (g *RecoveryGrant) ReleaseSource(source string, sourceBytes uint64, lane string) error {
 	g.step.Lock()
 	defer g.step.Unlock()
 
 	a := g.alloc
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if err := g.releasableLocked(g.sourceReleased); err != nil {
+		return err
+	}
+	if err := a.releaseOrdinaryLocked(source, sourceBytes); err != nil {
+		return err
+	}
+	key := filepath.Clean(lane)
+	if dest := g.used[ArtifactDestinationSegment]; dest > a.ordinary[key] {
+		a.ordinary[key] = dest
+	}
+	g.sourceReleased = true
+	g.releaseStageLocked()
+	return nil
+}
+
+// ReleaseArtifacts records that every artifact of a finished recovery other than
+// its destination segment -- attribution sidecar, both journal copies, manifest
+// pages, mapping -- has been PHYSICALLY deleted, which task 2.28 allows only once
+// the recovery resolves, and releases their charge. The slot stays with the grant
+// until ReleaseSource has also run. Like ReleaseOrdinary it follows a completed
+// deletion and neither authorizes nor performs one.
+func (g *RecoveryGrant) ReleaseArtifacts() error {
+	g.step.Lock()
+	defer g.step.Unlock()
+
+	a := g.alloc
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if err := g.releasableLocked(g.artifactsReleased); err != nil {
+		return err
+	}
+	g.artifactsReleased = true
+	g.releaseStageLocked()
+	return nil
+}
+
+func (g *RecoveryGrant) releasableLocked(alreadyReleased bool) error {
 	if err := g.healthyLocked(); err != nil {
 		return err
 	}
 	if !g.finished {
 		return ErrRecoveryNotFinished
 	}
-	if err := a.releaseOrdinaryLocked(source, sourceBytes); err != nil {
-		return err
+	if alreadyReleased {
+		return ErrRecoveryFinished
 	}
-	g.clearInflightLocked()
-	g.released = true
-	delete(a.active, g)
-	if g.retained == 0 {
-		return nil
-	}
-	key := filepath.Clean(owner)
-	sum, carry := bits.Add64(a.ordinary[key], g.retained, 0)
-	if carry != 0 {
-		sum = ^uint64(0)
-	}
-	a.ordinary[key] = sum
 	return nil
+}
+
+// releaseStageLocked takes released artifacts out of flight, and returns the slot
+// and reserve once both stages are done.
+func (g *RecoveryGrant) releaseStageLocked() {
+	for art := range g.pending {
+		if !g.heldLocked(Artifact(art)) {
+			g.landLocked(Artifact(art), g.pending[art])
+		}
+	}
+	if g.doneLocked() {
+		delete(g.alloc.active, g)
+	}
 }
 
 // Err returns the error that stopped this grant, or nil.
@@ -761,7 +802,7 @@ func (g *RecoveryGrant) healthy() error {
 }
 
 func (g *RecoveryGrant) healthyLocked() error {
-	if g.released {
+	if g.doneLocked() {
 		return ErrRecoveryFinished
 	}
 	if cause := g.stopCauseLocked(); cause != nil {
@@ -779,10 +820,27 @@ func (g *RecoveryGrant) stopCauseLocked() error {
 	return g.alloc.failErr
 }
 
+// totalLocked is the bytes the grant still holds: everything it charged, less
+// the release stages already done.
 func (g *RecoveryGrant) totalLocked() uint64 {
 	var total uint64
-	for _, n := range g.used {
-		total += n
+	for art, n := range g.used {
+		if g.heldLocked(Artifact(art)) {
+			total += n
+		}
 	}
 	return total
+}
+
+// heldLocked reports whether the grant still holds art's charge: the destination
+// segment until ReleaseSource, every other artifact until ReleaseArtifacts.
+func (g *RecoveryGrant) heldLocked(art Artifact) bool {
+	if art == ArtifactDestinationSegment {
+		return !g.sourceReleased
+	}
+	return !g.artifactsReleased
+}
+
+func (g *RecoveryGrant) doneLocked() bool {
+	return g.sourceReleased && g.artifactsReleased
 }
