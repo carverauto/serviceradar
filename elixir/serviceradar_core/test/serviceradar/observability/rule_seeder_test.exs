@@ -112,6 +112,9 @@ defmodule ServiceRadar.Observability.RuleSeederTest do
     assert rule.group_by == ["device", "anomaly.series_key"]
     assert rule.threshold == 1
     assert rule.event["log_name"] == "alert.health.causal_prediction"
+    # Named the way the alert is ("Anomaly Finding"); the engine appends the
+    # triggering event's own message, so the event says what and where.
+    assert rule.event["message"] == "Anomaly finding"
     assert rule.alert["severity_from"] == "source"
   end
 
@@ -219,7 +222,7 @@ defmodule ServiceRadar.Observability.RuleSeederTest do
     assert reconciled.match["subject_prefix"] == "signals.analytics.predictions"
     assert reconciled.match["recovery"]["subject_prefix"] == "signals.analytics.predictions"
     assert reconciled.managed
-    assert reconciled.template_version == 2
+    assert reconciled.template_version == 3
     assert is_binary(reconciled.template_fingerprint)
   end
 

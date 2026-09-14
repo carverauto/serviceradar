@@ -37,7 +37,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
      |> assign(:event, nil)
      |> assign(:signal_display, nil)
      |> assign(:device_ref, nil)
-     |> assign(:related, %{log_id: nil, alert: nil})
+     |> assign(:related, %{log_id: nil, alert: nil, triggering_event_id: nil})
      |> assign(:error, nil)
      |> assign(:show_alert_rule_builder, false)
      |> assign(:alert_rule_form, %{})
@@ -1067,15 +1067,17 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   defp related_links(assigns) do
     log_id = Map.get(assigns.related, :log_id)
     alert = Map.get(assigns.related, :alert)
+    triggering_event_id = Map.get(assigns.related, :triggering_event_id)
 
     assigns =
       assigns
       |> assign(:log_id, log_id)
       |> assign(:alert, alert)
+      |> assign(:triggering_event_id, triggering_event_id)
 
     ~H"""
     <div
-      :if={is_binary(@log_id) or is_struct(@alert)}
+      :if={is_binary(@log_id) or is_struct(@alert) or is_binary(@triggering_event_id)}
       class="overflow-hidden rounded-sr-surface border border-sr-line bg-sr-surface shadow-sr-surface"
     >
       <div class="border-b border-sr-line bg-sr-subtle/30 px-4 py-2.5">
@@ -1086,6 +1088,14 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
       <div class="flex flex-wrap gap-2 p-4">
         <.ui_button :if={@log_id} href={~p"/logs/#{@log_id}"} size="sm" variant="outline">
           View source log
+        </.ui_button>
+        <.ui_button
+          :if={@triggering_event_id}
+          href={~p"/events/#{@triggering_event_id}"}
+          size="sm"
+          variant="outline"
+        >
+          View triggering event
         </.ui_button>
         <.ui_button
           :if={is_struct(@alert)}
@@ -3244,13 +3254,27 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
 
   defp parse_group_by(_value), do: []
 
-  defp build_related(nil, _scope), do: %{log_id: nil, alert: nil}
+  defp build_related(nil, _scope), do: %{log_id: nil, alert: nil, triggering_event_id: nil}
 
   defp build_related(event, scope) when is_map(event) do
     %{
       log_id: event |> log_id_from_event() |> existing_log_id(scope),
-      alert: fetch_alert(event, scope)
+      alert: fetch_alert(event, scope),
+      triggering_event_id: triggering_event_id(event)
     }
+  end
+
+  # A stateful rule's fired event records the event that set it off in its
+  # diagnostics. Without a link to it the fired event is a dead end: the device,
+  # the metric and the reason all live on the triggering event.
+  defp triggering_event_id(event) do
+    Enum.find(
+      [
+        nested_value(event, ["metadata", "serviceradar", "diagnostics", "source", "source_event_id"]),
+        nested_value(event, ["unmapped", "source_event_id"])
+      ],
+      fn id -> is_binary(id) and id != "" and id != Map.get(event, "id") end
+    )
   end
 
   defp log_id_from_event(event) do

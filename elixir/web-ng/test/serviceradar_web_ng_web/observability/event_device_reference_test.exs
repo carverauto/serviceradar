@@ -109,4 +109,39 @@ defmodule ServiceRadarWebNGWeb.Observability.EventDeviceReferenceTest do
       assert EventDeviceReference.extract(event) == nil
     end
   end
+
+  # A stateful rule's fired event is what the stream shows, and it used to carry no
+  # device at all: the device lived only in the rule's grouping diagnostics, so the
+  # event page could not say where the problem was.
+  describe "extract/1 for a rule-fired event" do
+    test "reads the OCSF device object uid" do
+      event = %{"message" => "Anomaly finding", "device" => %{"uid" => @device_uid}}
+
+      assert %{uid: @device_uid, via: :structured} = EventDeviceReference.extract(event)
+    end
+
+    test "falls back to the device the rule grouped on" do
+      event = %{
+        "message" => "Causal prediction finding detected",
+        "device" => %{},
+        "metadata" => %{
+          "serviceradar" => %{"diagnostics" => %{"group_values" => %{"device" => @device_uid}}}
+        }
+      }
+
+      assert %{uid: @device_uid, via: :structured} = EventDeviceReference.extract(event)
+    end
+
+    test "does not link a grouped device that is not a canonical uid" do
+      event = %{
+        "metadata" => %{
+          "serviceradar" => %{
+            "diagnostics" => %{"group_values" => %{"device" => "host01.example.com"}}
+          }
+        }
+      }
+
+      assert is_nil(EventDeviceReference.extract(event))
+    end
+  end
 end
