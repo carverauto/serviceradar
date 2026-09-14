@@ -751,9 +751,10 @@ func (h *harness) assertProjectedRowKeySet(t *testing.T, fx *FixtureRecord) {
 // SEPARATE raw gRPC session authenticated with the mismatched-identity
 // client certificate (SPIFFE component_type=desktop). This is expected to
 // be refused with permission_denied at lane_open, BEFORE any delivery_frame
-// is even accepted, per edge_record_ingest_server.ex's
-// require_agent_identity!/1 (runs on the very first message of the
-// stream).
+// is even accepted: edge_record_ingest_server.ex resolves the certificate on
+// the stream's very first message, and
+// ComponentIdentityResolver.resolve_edge_identity/3 refuses a SPIFFE id
+// naming a role other than agent as an identity conflict.
 func (h *harness) testMismatchedIdentityControl(t *testing.T, fx *FixtureRecord) {
 	t.Helper()
 
