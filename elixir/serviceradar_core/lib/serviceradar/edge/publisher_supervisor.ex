@@ -30,6 +30,13 @@ defmodule ServiceRadar.Edge.PublisherSupervisor do
   holds is about the SUPERVISED topology -- the application starts these and no others -- not
   about what a caller could construct in principle.
 
+  ## The publisher
+
+  `:publisher` -- `(publication, keyword() -> result)`, which the gateway supplies as
+  `&ServiceRadarAgentGateway.JetStreamPublisher.publish_record/2` -- reaches every lane, so each
+  lane starts its `PublishPipeline`. It is an option because this application cannot name the
+  gateway's module. Without one a lane starts its accountant and transport only.
+
   ## Credits
 
   Provisional: the lane-handshake grant is not frozen, so these are operational defaults rather
@@ -45,6 +52,27 @@ defmodule ServiceRadar.Edge.PublisherSupervisor do
   them "configurable" while the only caller passed nothing was the earlier mistake: the gateway
   started a bare supervisor, so every deployment got the hard-coded values with no way to change
   them.
+
+  ## Pipeline bounds
+
+  A lane's `PublishPipeline` is one process shared by every stream on its class, so its
+  `:max_inflight`, `:max_queue` and `:max_lanes` are sized per deployment from the same config, in
+  the same order, with `lane_pipeline` as the per-lane override:
+
+      config :serviceradar_core, ServiceRadar.Edge.PublisherSupervisor,
+        max_inflight: 64,
+        max_queue: 256,
+        max_lanes: 1024,
+        lane_pipeline: %{interactive: [max_inflight: 16]}
+
+  `:max_inflight` defaults to the lane's resolved frame credits. The grant is what really bounds
+  requests on the wire, and a lower default would leave a class under agent fan-in with fewer
+  publishes outstanding than the synchronous path the pipeline replaced, which had one per open
+  stream up to that grant. `:max_queue` defaults to four times the resolved `:max_inflight`.
+
+  `:max_lanes` defaults to 1024. Every open edge-record stream holds one lane on its class's
+  pipeline until it ends, so this caps a class's concurrent streams across the gateway, and a
+  stream past it is refused until another closes.
   """
 
   use Supervisor
@@ -58,6 +86,8 @@ defmodule ServiceRadar.Edge.PublisherSupervisor do
   # Provisional. See the moduledoc: NOT the frozen handshake bounds.
   @default_frame_credits 64
   @default_byte_credits 64 * 1024 * 1024
+  @queue_per_inflight 4
+  @default_max_lanes 1024
 
   def start_link(opts \\ []) do
     Supervisor.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
@@ -71,6 +101,24 @@ defmodule ServiceRadar.Edge.PublisherSupervisor do
     [
       frame_credits: pick(:frame_credits, opts, lane_config, config, @default_frame_credits),
       byte_credits: pick(:byte_credits, opts, lane_config, config, @default_byte_credits)
+    ]
+  end
+
+  @doc """
+  The bounds a lane's `PublishPipeline` starts with, after opts -> lane_pipeline -> global ->
+  default. `:max_inflight` defaults to the lane's frame credits from `credits_for/2`, `:max_queue`
+  to four times the resolved `:max_inflight`, and `:max_lanes` to 1024.
+  """
+  def pipeline_for(lane, opts \\ []) do
+    config = Application.get_env(:serviceradar_core, __MODULE__, [])
+    lane_config = config |> Keyword.get(:lane_pipeline, %{}) |> Map.get(lane, [])
+    frame_credits = lane |> credits_for(opts) |> Keyword.fetch!(:frame_credits)
+    max_inflight = pick(:max_inflight, opts, lane_config, config, frame_credits)
+
+    [
+      max_inflight: max_inflight,
+      max_queue: pick(:max_queue, opts, lane_config, config, max_inflight * @queue_per_inflight),
+      max_lanes: pick(:max_lanes, opts, lane_config, config, @default_max_lanes)
     ]
   end
 
@@ -90,10 +138,13 @@ defmodule ServiceRadar.Edge.PublisherSupervisor do
         Enum.map(PublisherLane.lanes(), fn lane ->
           Supervisor.child_spec(
             {LaneSupervisor,
-             lane: lane,
-             connection_settings: settings,
-             backoff_period: backoff,
-             credits: credits_for(lane, opts)},
+             [
+               lane: lane,
+               connection_settings: settings,
+               backoff_period: backoff,
+               credits: credits_for(lane, opts),
+               pipeline: pipeline_for(lane, opts)
+             ] ++ Keyword.take(opts, [:publisher])},
             id: LaneSupervisor.via(lane)
           )
         end)

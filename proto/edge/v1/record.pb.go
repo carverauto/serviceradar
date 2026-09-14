@@ -2650,10 +2650,12 @@ type EdgeRecordDisposition struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	Sequence uint64                 `protobuf:"varint,1,opt,name=sequence,proto3" json:"sequence,omitempty"`
 	// The event this disposition resolves. Present (16-byte UUID, == the transmitted
-	// event) for any accept and for a rejection made AFTER decode. MAY be absent ONLY
-	// for a rejection the gateway made BEFORE record decode (oversize/undecodable
-	// frame), which cannot read the inner id -- that disposition binds solely to the
-	// authenticated session/spool/sequence.
+	// event) for any accept and for a rejection made AFTER the record is trusted. MAY
+	// be absent for any rejection the gateway made BEFORE the record is TRUSTED -- an
+	// oversize/undecodable frame, or a decoded record whose bytes fail their
+	// record_sha256 digest check. An event id read from bytes that fail their digest
+	// cannot be trusted regardless of decode order, so that disposition binds solely
+	// to the authenticated session/spool/sequence.
 	EventId       []byte                    `protobuf:"bytes,2,opt,name=event_id,json=eventId,proto3" json:"event_id,omitempty"`
 	Kind          EdgeRecordDispositionKind `protobuf:"varint,3,opt,name=kind,proto3,enum=serviceradar.edge.v1.EdgeRecordDispositionKind" json:"kind,omitempty"` // spool-resolution eligibility derives from kind ALONE
 	RejectionCode string                    `protobuf:"bytes,4,opt,name=rejection_code,json=rejectionCode,proto3" json:"rejection_code,omitempty"`               // human/audit annotation only; never keys watermark logic

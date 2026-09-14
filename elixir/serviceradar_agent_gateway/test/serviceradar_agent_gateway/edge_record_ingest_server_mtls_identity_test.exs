@@ -60,7 +60,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerMtlsIdentityTest do
     AgentCertificateRevocation.clear()
 
     previous = %{
-      publisher: Application.get_env(:serviceradar_agent_gateway, :edge_record_ingest_publisher),
+      pipelines: Application.get_env(:serviceradar_agent_gateway, :edge_record_ingest_pipelines),
       capability: Application.get_env(:serviceradar_agent_gateway, :edge_record_ingest_capability),
       supervisor: Application.get_env(:serviceradar_agent_gateway, :edge_record_ingest_task_supervisor),
       registry: Application.get_env(:serviceradar_agent_gateway, :edge_record_contract_registry_impl)
@@ -70,7 +70,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerMtlsIdentityTest do
 
     _supervisor = start_supervised!({Task.Supervisor, name: __MODULE__.TaskSupervisor})
 
-    Application.put_env(:serviceradar_agent_gateway, :edge_record_ingest_publisher, EdgeRecordPublisherStub)
+    EdgeRecordPublisherStub.start_pipeline!(EdgeRecordPublisherStub.publisher(self()))
     Application.put_env(:serviceradar_agent_gateway, :edge_record_ingest_capability, EdgeRecordCapabilityStub)
 
     Application.put_env(
@@ -116,7 +116,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerMtlsIdentityTest do
     {:ok, control_identity} = ServiceRadarAgentGateway.ComponentIdentityResolver.resolve_from_cert(control_cert_der)
 
     on_exit(fn ->
-      restore_env(:edge_record_ingest_publisher, previous.publisher)
+      restore_env(:edge_record_ingest_pipelines, previous.pipelines)
       restore_env(:edge_record_ingest_capability, previous.capability)
       restore_env(:edge_record_ingest_task_supervisor, previous.supervisor)
       restore_env(:edge_record_contract_registry_impl, previous.registry)
@@ -140,7 +140,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerMtlsIdentityTest do
     assert :ok = EdgeRecordIngestServer.stream(messages, stream(cert_der))
 
     assert_receive {:edge_record_stream_reply, %EdgeRecordServerMessage{payload: {:lane_open_ack, _}}}
-    assert_received {:edge_record_published, publication}
+    assert_receive {:edge_record_published, publication}
     assert publication.slot.authenticated_agent_id == "agent-accepted"
     assert_receive {:edge_record_stream_reply, %EdgeRecordServerMessage{payload: {:ack, _}}}
   end

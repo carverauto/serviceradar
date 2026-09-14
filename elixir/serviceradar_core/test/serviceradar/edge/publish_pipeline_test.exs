@@ -25,9 +25,13 @@ defmodule ServiceRadar.Edge.PublishPipelineTest do
   """
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.Edge.PublisherLane
   alias ServiceRadar.Edge.PublisherPool
   alias ServiceRadar.Edge.PublishPipeline
   alias ServiceRadar.Edge.PublishWindow
+
+  @accepted :EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE
+  @permanent :EDGE_RECORD_DISPOSITION_KIND_REJECTED_PERMANENT
 
   @scope <<0xA1>>
   @agent "agent-1"
@@ -513,6 +517,237 @@ defmodule ServiceRadar.Edge.PublishPipelineTest do
       assert %{queued: 0, inflight: 0} = PublishPipeline.stats(pipe)
     end
   end
+
+  describe "lanes have an OWNER, and outcomes are pushed to it" do
+    test "every recorded outcome reaches the owner, with the watermark it produced" do
+      # An asynchronous publish has nobody waiting on it. Without the push, the caller would learn
+      # THAT the watermark moved and not which kinds moved it -- which the wire ack must carry.
+      p = pool(8, 4_000)
+      pipe = open(pipeline(p, windowed_publisher(self()), max_inflight: 2))
+
+      for sequence <- 1..2, do: :ok = PublishPipeline.offer(pipe, publication(sequence))
+      workers = started_any(2)
+
+      # 2 lands first and moves nothing: the outcome says so rather than implying progress.
+      release(workers[2], ack(2))
+      assert_receive {:edge_publish_outcome, @lane, 2, {:recorded, @accepted}, 0}, 5_000
+
+      release(workers[1], ack(1))
+      assert_receive {:edge_publish_outcome, @lane, 1, {:recorded, @accepted}, 2}, 5_000
+    end
+
+    test "reject_permanent resolves a sequence that was never published" do
+      # A frame that failed its integrity check never reaches offer/2. Without a way to record it,
+      # its sequence is a gap nothing can fill and the published sequence behind it never resolves.
+      p = pool(8, 4_000)
+      pipe = open(pipeline(p, windowed_publisher(self()), max_inflight: 2))
+
+      :ok = PublishPipeline.offer(pipe, publication(2))
+      worker = started(2)
+
+      assert :ok = PublishPipeline.reject_permanent(pipe, @lane, 1)
+      assert_receive {:edge_publish_outcome, @lane, 1, {:recorded, @permanent}, 1}
+
+      release(worker, ack(2))
+      assert_receive {:edge_publish_outcome, @lane, 2, {:recorded, @accepted}, 2}, 5_000
+
+      # Only the published sequence ever held credits, and it released them.
+      assert eventually(fn -> match?(%{outstanding_frames: 0}, PublisherPool.capacity(p)) end)
+    end
+
+    test "reject_permanent refuses what it cannot record, and records nothing for it" do
+      p = pool(8, 4_000)
+      pipe = pipeline(p, windowed_publisher(self()))
+
+      assert {:error, :lane_not_open} = PublishPipeline.reject_permanent(pipe, @lane, 1)
+
+      open(pipe)
+      assert {:error, :sequence} = PublishPipeline.reject_permanent(pipe, @lane, 0)
+
+      assert {:error, :not_owner} =
+               in_other_process(fn -> PublishPipeline.reject_permanent(pipe, @lane, 1) end)
+
+      assert resolved(pipe) == 0
+    end
+
+    test "only the owner closes its lane" do
+      # A stale session's cleanup must not be able to close the lane a newer session holds.
+      p = pool(8, 4_000)
+      pipe = open(pipeline(p, windowed_publisher(self())))
+
+      assert {:error, :not_owner} =
+               in_other_process(fn -> PublishPipeline.close_lane(pipe, @lane) end)
+
+      assert %{lanes: 1} = PublishPipeline.stats(pipe)
+
+      assert :ok = PublishPipeline.close_lane(pipe, @lane)
+      assert %{lanes: 0} = PublishPipeline.stats(pipe)
+    end
+
+    test "the owner's death closes its lane and frees the slot" do
+      # Nothing else may close it, so a killed stream handler would otherwise hold a lane forever.
+      p = pool(8, 4_000)
+      pipe = pipeline(p, windowed_publisher(self()), max_lanes: 1)
+      test = self()
+
+      owner =
+        spawn(fn ->
+          send(test, {:opened, PublishPipeline.open_lane(pipe, @lane, 1)})
+          Process.sleep(:infinity)
+        end)
+
+      assert_receive {:opened, :ok}
+      assert {:error, :lane_already_open} = PublishPipeline.open_lane(pipe, @lane, 1)
+
+      Process.exit(owner, :kill)
+
+      # With :max_lanes 1, a leaked lane would refuse this forever.
+      assert eventually(fn -> PublishPipeline.open_lane(pipe, @lane, 1) == :ok end),
+             "the dead owner's lane was never closed"
+    end
+
+    test "closing a lane discards its queued work, and another lane's queued work still publishes" do
+      # Queued work has admitted nothing and published nothing, so discarding it costs only the
+      # agent's retry. Left queued, it would publish for a lane nobody holds, ahead of live lanes.
+      p = pool(8, 4_000)
+      pipe = open(pipeline(p, windowed_publisher(self()), max_inflight: 1))
+      :ok = PublishPipeline.open_lane(pipe, {@scope, "agent-2", @spool}, 1)
+
+      other = publication(3)
+      other = put_in(other.slot.authenticated_agent_id, "agent-2")
+
+      :ok = PublishPipeline.offer(pipe, publication(1))
+      worker = started(1)
+      :ok = PublishPipeline.offer(pipe, publication(2))
+      :ok = PublishPipeline.offer(pipe, other)
+      assert %{queued: 2} = PublishPipeline.stats(pipe)
+
+      :ok = PublishPipeline.close_lane(pipe, @lane)
+      assert %{queued: 1, lanes: 1} = PublishPipeline.stats(pipe)
+
+      # The one slot goes to the other lane's work; the closed lane's sequence 2 never starts.
+      release(worker, ack(1))
+      release(started(3), ack(3))
+      refute_started(200)
+    end
+
+    test "the owner's death discards its lane's queued work too" do
+      p = pool(8, 4_000)
+      pipe = pipeline(p, windowed_publisher(self()), max_inflight: 1)
+      test = self()
+
+      owner =
+        spawn(fn ->
+          :ok = PublishPipeline.open_lane(pipe, @lane, 1)
+          for sequence <- 1..3, do: :ok = PublishPipeline.offer(pipe, publication(sequence))
+          send(test, :offered)
+          Process.sleep(:infinity)
+        end)
+
+      assert_receive :offered, 5_000
+      worker = started(1)
+
+      Process.exit(owner, :kill)
+
+      assert eventually(fn -> match?(%{lanes: 0, queued: 0}, PublishPipeline.stats(pipe)) end),
+             "the dead owner's queued work was kept"
+
+      release(worker, ack(1))
+      refute_started(200)
+    end
+
+    test "an outcome in flight when its lane closed is not recorded onto a later opening of it" do
+      # Session 1's publish of 7 outlives session 1. Session 2 opens the lane again at 5 and never
+      # offers 7, so 7's outcome recorded there would carry its watermark past 6 on work it never
+      # published, and push an outcome its owner is not waiting for.
+      p = pool(8, 4_000)
+      pipe = pipeline(p, windowed_publisher(self()), max_inflight: 2)
+      test = self()
+
+      owner =
+        spawn(fn ->
+          :ok = PublishPipeline.open_lane(pipe, @lane, 5)
+          :ok = PublishPipeline.offer(pipe, publication(7))
+          send(test, :offered)
+          Process.sleep(:infinity)
+        end)
+
+      assert_receive :offered, 5_000
+      worker = started(7)
+      Process.exit(owner, :kill)
+
+      assert eventually(fn -> PublishPipeline.open_lane(pipe, @lane, 5) == :ok end),
+             "the dead owner's lane was never closed"
+
+      release(worker, ack(7))
+      assert eventually(fn -> inflight(pipe) == 0 end), "sequence 7's publish never returned"
+
+      refute_received {:edge_publish_outcome, @lane, 7, _outcome, _resolved_through}
+      assert resolved(pipe) == 4
+
+      :ok = PublishPipeline.reject_permanent(pipe, @lane, 5)
+      :ok = PublishPipeline.reject_permanent(pipe, @lane, 6)
+      assert_receive {:edge_publish_outcome, @lane, 6, {:recorded, @permanent}, 6}
+      assert resolved(pipe) == 6
+    end
+
+    @tag :capture_log
+    test "reported dispositions are dropped, so a long-lived lane retains none it has reported" do
+      # Every resolved sequence is retained for the next ack. Without a release once it is
+      # reported, one lane grows this process's memory with every sequence it ever resolves.
+      p = pool(8, 4_000)
+      pipe = open(pipeline(p, windowed_publisher(self())))
+
+      for sequence <- 1..50 do
+        :ok = PublishPipeline.reject_permanent(pipe, @lane, sequence)
+        assert_receive {:edge_publish_outcome, @lane, ^sequence, {:recorded, @permanent}, through}
+        assert through == sequence
+
+        # NOT VACUOUS: the resolved sequence really is retained until it is reported.
+        assert %{retained_dispositions: 1} = PublishPipeline.stats(pipe)
+        assert :ok = PublishPipeline.reported_through(pipe, @lane, sequence)
+        assert %{retained_dispositions: 0} = PublishPipeline.stats(pipe)
+      end
+
+      assert resolved(pipe) == 50
+
+      # A reported sequence cannot be re-adjudicated: a repeat is refused, not agreed with.
+      assert :ok = PublishPipeline.reject_permanent(pipe, @lane, 50)
+
+      assert_receive {:edge_publish_outcome, @lane, 50,
+                      {:refused, @permanent, :evidence_released}, 50}
+
+      assert resolved(pipe) == 50
+    end
+
+    test "reported_through is owner-only, and refuses an unopened lane or unresolved sequence" do
+      p = pool(8, 4_000)
+      pipe = pipeline(p, windowed_publisher(self()))
+
+      assert {:error, :lane_not_open} = PublishPipeline.reported_through(pipe, @lane, 1)
+
+      open(pipe)
+      :ok = PublishPipeline.reject_permanent(pipe, @lane, 1)
+      assert_receive {:edge_publish_outcome, @lane, 1, {:recorded, @permanent}, 1}
+
+      assert {:error, :not_owner} =
+               in_other_process(fn -> PublishPipeline.reported_through(pipe, @lane, 1) end)
+
+      assert {:error, :not_resolved} = PublishPipeline.reported_through(pipe, @lane, 2)
+
+      # None of the refusals dropped anything.
+      assert %{retained_dispositions: 1} = PublishPipeline.stats(pipe)
+    end
+
+    test "via/1 names one pipeline per class, and accepts nothing else" do
+      names = Enum.map(PublisherLane.lanes(), &PublishPipeline.via/1)
+      assert length(Enum.uniq(names)) == length(PublisherLane.lanes())
+
+      assert_raise FunctionClauseError, fn -> PublishPipeline.via(:scope_a) end
+    end
+  end
+
+  defp in_other_process(fun), do: fun |> Task.async() |> Task.await()
 
   # How many publishes have been refused by the window so far. Drains the test mailbox, so it is
   # accumulated in the process dictionary rather than recounted.
