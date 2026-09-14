@@ -434,6 +434,13 @@ func (s *Spool) commitLocked(eventID, body []byte, b Bindings) (CommitReceipt, e
 		return CommitReceipt{}, err
 	}
 
+	if s.failErr != nil {
+		return 0, s.failErr
+	}
+	if s.seg == nil {
+		return 0, fmt.Errorf("spool: append: %w", os.ErrClosed)
+	}
+
 	seq := s.nextSeq
 	rec := encodeRecord(seq, eventID, body)
 	offset := s.segSize
