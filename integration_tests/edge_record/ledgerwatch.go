@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // ledgerwatch.go observes the gateway's :bulk lane accountant for Groups E
@@ -88,18 +89,30 @@ var (
 	errLedgerMarkerWait   = errors.New("verticalslice: ledger watcher marker not written in time")
 )
 
+// ledgerKillDwell is how long every kill-set attempt must have been active
+// before the watcher kills the lane's transport. An attempt turns :active when
+// the pool handles the :confirm_admission that PublisherPool.admit/4 casts,
+// which is BEFORE JetStreamPublisher.publish_record issues request/5 on its
+// captured connection pid. A kill inside that gap fails the request at once
+// instead of leaving it in flight, so its owner exits within milliseconds and
+// races the replacement generation. 250ms is well inside the 5s receive
+// timeout that keeps a request that did reach the connection in flight.
+const ledgerKillDwell = 250 * time.Millisecond
+
 // ledgerWatchExprTemplate is the Elixir the watcher runs inside the gateway
 // node. Parameters, in order: base64 of the marker directory, comma-separated
 // hex spool ids to watch, comma-separated hex spool ids whose attempts must
-// ALL be active before the watcher kills the lane's transport (empty: never
-// kill), and the watcher's own deadline in milliseconds. None of them is ever
-// spliced into source unencoded.
+// ALL have been active for the kill dwell before the watcher kills the lane's
+// transport (empty: never kill), that dwell in milliseconds, and the
+// watcher's own deadline in milliseconds. None of them is ever spliced into
+// source unencoded.
 const ledgerWatchExprTemplate = `
 alias ServiceRadar.Edge.{LaneTransportRuntime, PublisherLane, PublisherPool}
 pool = PublisherPool.via(:bulk)
 dir = Base.decode64!("%s")
 watched = String.split("%s", ",", trim: true)
 kill_set = String.split("%s", ",", trim: true)
+kill_dwell = %d
 started = System.monotonic_time(:millisecond)
 deadline = started + %d
 hex = fn b -> Base.encode16(b, case: :lower) end
@@ -133,13 +146,15 @@ loop = fn loop, st ->
     end)
   stopping = File.exists?(Path.join(dir, "stop"))
   l = PublisherPool.ledger(pool)
+  now = System.monotonic_time(:millisecond)
   mine =
     for %%{key: {{_scope, _agent, spool, seq}, _fp}} = r <- l.reservations, hex.(spool) in watched, into: %%{} do
       {hex.(spool), Map.put(r, :sequence, seq)}
     end
   active = for {s, %%{attempt: %%{phase: :active} = a}} <- mine, into: %%{}, do: {s, a}
   st = %%{st | owners: Map.merge(Map.new(active, fn {s, a} -> {s, a.owner} end), st.owners),
-               first_tokens: Map.merge(Map.new(active, fn {s, a} -> {s, a.token} end), st.first_tokens)}
+               first_tokens: Map.merge(Map.new(active, fn {s, a} -> {s, a.token} end), st.first_tokens),
+               first_active: Map.merge(Map.new(active, fn {s, _a} -> {s, now} end), st.first_active)}
   reservations =
     for {s, r} <- Enum.sort(mine) do
       %%{spool: s, sequence: r.sequence, bytes: r.bytes,
@@ -190,7 +205,8 @@ loop = fn loop, st ->
         end)
     end
   st =
-    if st.killed == nil and kill_set != [] and Enum.all?(kill_set, &Map.has_key?(active, &1)) do
+    if st.killed == nil and kill_set != [] and
+         Enum.all?(kill_set, &(Map.has_key?(active, &1) and now - st.first_active[&1] >= kill_dwell)) do
       transport = Process.whereis(LaneTransportRuntime.via(:bulk)) || raise "no :bulk lane transport registered"
       killed = %%{accepting: l.accepting, conn: conn_pid.(), transport: transport}
       Process.exit(transport, :kill)
@@ -207,18 +223,18 @@ loop = fn loop, st ->
   end
 end
 {timed_out, st} =
-  loop.(loop, %%{trace: [], last: nil, marks: MapSet.new(), events: MapSet.new(), owners: %%{}, first_tokens: %%{}, killed: nil})
+  loop.(loop, %%{trace: [], last: nil, marks: MapSet.new(), events: MapSet.new(), owners: %%{}, first_tokens: %%{}, first_active: %%{}, killed: nil})
 IO.puts(JSON.encode!(%%{timed_out: timed_out, trace: Enum.reverse(st.trace)}))
 `
 
 // buildLedgerWatchExpr renders the watcher for markerDir, watching the given
 // spool ids and, when killWhenActive is non-empty, killing the :bulk lane's
-// transport generation the first time every one of those spools has an
-// active attempt.
+// transport generation the first time every one of those spools has held an
+// active attempt for ledgerKillDwell.
 func buildLedgerWatchExpr(markerDir string, watched, killWhenActive [][]byte, deadlineMS int64) string {
 	return fmt.Sprintf(ledgerWatchExprTemplate,
 		base64.StdEncoding.EncodeToString([]byte(markerDir)),
-		joinHex(watched), joinHex(killWhenActive), deadlineMS)
+		joinHex(watched), joinHex(killWhenActive), ledgerKillDwell.Milliseconds(), deadlineMS)
 }
 
 func joinHex(ids [][]byte) string {

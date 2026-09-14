@@ -2105,8 +2105,10 @@ func (h *harness) awaitSingleLedgerRow(t *testing.T, fx *FixtureRecord) int {
 // pool pid, which the analyzer rejects.
 //
 //  1. Three publications are sent with the broker's PubAcks withheld, so all
-//     three requests stay outstanding. The watcher kills the transport the
-//     moment it sees all three attempts active.
+//     three requests stay outstanding. The watcher kills the transport once
+//     all three attempts have been active for ledgerKillDwell, giving each
+//     owner time to issue its request rather than catching it between
+//     admission and request.
 //  2. The watcher trace must then show a REPLACEMENT generation accepting
 //     while all three request owners are still alive, with the SAME
 //     accountant still charging all three reservations -- their bytes still
