@@ -365,21 +365,11 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
       refute_received {:edge_record_stream_reply, %EdgeRecordServerMessage{payload: {:ack, _}}}
     end
 
-    test "a grant for a network scope outside the agent's binding is rejected permanently, before binding the lane" do
+    test "a grant for a network scope outside the agent's binding is withheld, capping later sequences" do
       foreign = Factory.uuidv7()
       install_trust(fences: [default_fence(), {foreign, Factory.producer_assignment_id(), 0, 1}])
-      outside = record(network_scope_id: foreign)
-      valid = record()
 
-      assert :ok = EdgeRecordIngestServer.stream(open_and_records([outside, valid]), stream())
-
-      assert_receive {:edge_record_stream_reply, %EdgeRecordServerMessage{payload: {:lane_open_ack, _}}}
-      # The refusal did not bind the lane to the foreign scope: the bound scope's record behind it
-      # is published and acked.
-      assert Enum.map(acks_through(2), &{&1.sequence, &1.event_id, &1.kind}) ==
-               [{1, outside.event_id, @permanent}, {2, valid.event_id, @accepted}]
-
-      refute_received {:edge_record_published, %{slot: %{sequence: 1}}}
+      assert_caps_later_sequences(record(network_scope_id: foreign))
     end
 
     test "expired production authority without a delivery capability is withheld, capping later sequences" do

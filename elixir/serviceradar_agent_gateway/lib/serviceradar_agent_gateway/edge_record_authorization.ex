@@ -20,21 +20,24 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorization do
        the recovery lane, identity time and the semantic digest. A present delivery capability
        must name this record's `event_id`.
     3. IDENTITY -- the record's attested origin is an AGENT whose principal is exactly the
-       authenticated certificate principal, and its network scope is one the trust snapshot binds
-       to that principal (`EdgeRecordTrust.with_network_scopes/2`). The production grant names the
-       same principal and scope (step 2), so a scope needs both the local binding and the signed
-       grant. A principal with no binding is withheld; a scope outside its binding is rejected.
+       authenticated certificate principal.
     4. ROUTE/CLASS -- the record's route profile and traffic class are the lane's.
     5. SOURCE SHAPE -- a present source authorization's collection window lies inside its signed
        envelope, and its plan/range digests are well-formed, required for scheduler scan kinds.
        Source authorization is verified WHEN THE RECORD CARRIES ONE; nothing here requires a
        generic telemetry, event or inventory record to present a scanner collection capability.
     6. SIGNATURES -- production and (if present) source capabilities verify under keys the trust
-       snapshot authorizes for exactly that role. A key id the snapshot does not hold is withheld
-       as unavailable; a known key outside that role is rejected. The worst status wins: a
-       compromise-revoked key on either makes the frame a SECURITY QUARANTINE, before fence or
-       window classification.
-    7. AUTHORITY -- the producer fence and the production window decide publication. A producer
+       snapshot authorizes for exactly that role. A key id the snapshot does not hold, or holds
+       without that role, is withheld as unavailable: a snapshot loaded at boot cannot tell a key
+       or role issued since from one never issued. The worst status wins: a compromise-revoked key
+       on either makes the frame a SECURITY QUARANTINE, before fence or window classification.
+    7. NETWORK SCOPE -- the record's network scope is one the trust snapshot binds to its principal
+       (`EdgeRecordTrust.with_network_scopes/2`). The production grant names the same principal and
+       scope (step 2), so a scope needs both the local binding and the signed grant. It is checked
+       only after the signatures verify, so an unsigned scope claim is refused on its signature. A
+       principal with no binding, and a signed scope its binding lacks, are withheld: the binding
+       may predate the assignment.
+    8. AUTHORITY -- the producer fence and the production window decide publication. A producer
        with no fence entry, or one ahead of its entry, is withheld: this gateway does not know its
        authority is current. Current authority under a current fence publishes PRIMARY (a valid
        attached delivery grant only
@@ -47,9 +50,9 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorization do
   ## Refusal classes
 
   `{:error, class, reason, event_id}`: `:permanent` resolves the sequence as a rejection;
-  `:retryable` withholds it (the condition can clear -- a renewal, a learned fence or key, a clock
-  that catches up); `:paused` means this release cannot evaluate the record. `event_id` is empty only
-  for a refusal made before the record decoded.
+  `:retryable` withholds it (the condition can clear -- a renewal, a learned fence, key or scope
+  binding, a clock that catches up); `:paused` means this release cannot evaluate the record.
+  `event_id` is empty only for a refusal made before the record decoded.
   """
 
   alias ServiceRadar.Edge.CapabilitySigning
@@ -87,10 +90,10 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorization do
          {:ok, record} <- validate_record(frame.record_bytes),
          :ok <- with_event(delivery_event_binding(frame, record), record),
          :ok <- with_event(origin_identity(record, identity), record),
-         :ok <- with_event(network_scope(record, identity), record),
          :ok <- with_event(route_class(record, lane), record),
          :ok <- with_event(source_shape(record), record),
-         {:ok, status} <- with_event(record_key_status(record, snapshot), record) do
+         {:ok, status} <- with_event(record_key_status(record, snapshot), record),
+         :ok <- with_event(network_scope(record, identity), record) do
       record
       |> decide(frame, status, snapshot, now_unix_nano)
       |> with_event(record)
@@ -174,13 +177,6 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorization do
     )
   end
 
-  defp network_scope(record, identity) do
-    case Map.get(identity, :network_scope_ids) do
-      nil -> {:error, :retryable, :scope_unbound, ""}
-      scopes -> check(MapSet.member?(scopes, record.network_scope_id), :permanent, :scope_conflict)
-    end
-  end
-
   # --- 4. route/class --------------------------------------------------------------------------
 
   defp route_class(record, lane) do
@@ -239,11 +235,8 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorization do
           do: {:ok, status},
           else: {:error, :permanent, {purpose, :signature}, ""}
 
-      {:error, :key_unavailable} ->
-        {:error, :retryable, {purpose, :key_unavailable}, ""}
-
       {:error, reason} ->
-        {:error, :permanent, {purpose, reason}, ""}
+        {:error, :retryable, {purpose, reason}, ""}
     end
   end
 
@@ -251,7 +244,16 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorization do
   defp worst(_, :historically_revoked), do: :historically_revoked
   defp worst(status, _), do: status
 
-  # --- 7. authority ----------------------------------------------------------------------------
+  # --- 7. network scope ------------------------------------------------------------------------
+
+  defp network_scope(record, identity) do
+    case Map.get(identity, :network_scope_ids) do
+      nil -> {:error, :retryable, :scope_unbound, ""}
+      scopes -> check(MapSet.member?(scopes, record.network_scope_id), :retryable, :scope_not_bound)
+    end
+  end
+
+  # --- 8. authority ----------------------------------------------------------------------------
 
   # A compromise-revoked production or source key is a security downgrade that needs no delivery
   # grant and precedes fence and window classification.

@@ -993,12 +993,15 @@
   SPIFFE optional and conflict-checked. `EdgeRecordTrust` is the local trust snapshot (role-bound
   verifying keys, advanced fences, agent network-scope bindings), and `EdgeRecordCapability` is not
   ready without it. `EdgeRecordAuthorization` decides each frame with no core or database lookup,
-  in the order Go's `ValidateFrameSigned` uses. The vertical slice signs its fixture grant with a
+  in the order Go's `ValidateFrameSigned` uses, and checks the local network-scope binding only
+  after the signatures verify. The vertical slice signs its fixture grant with a
   synthetic issuer that the gateway trusts and fences, and binds the harness agent to the fixtures'
   network scope. Network scope authority is the certificate principal's binding in the trust
-  snapshot, cross-checked against the signed grant: an unbound agent is withheld as retryable, and a
-  scope outside its binding is rejected. A producer with no fence entry, and a key id the snapshot
-  does not hold, are withheld as retryable. Withheld frames follow task 3.3's gap contract (#459).
+  snapshot, cross-checked against the signed grant: an unbound agent, and a signed scope its binding
+  lacks, are withheld as retryable, because a boot-time binding may predate the assignment and no
+  rejection route keeps the record. A producer with no fence entry, and a key id the snapshot does
+  not hold or holds without the requested purpose, are withheld as retryable. Withheld frames
+  follow task 3.3's gap contract (#459).
   The runtime path is still incomplete: an AUDIT decision (a stale-epoch replay, decided with its
   `LATE_FENCED_DELIVERY` mode and proof) and a SECURITY-QUARANTINE decision are withheld rather
   than published. Publishing them is deferred to task 3.5, which owns their streams; EventWriter
@@ -1008,8 +1011,8 @@
   DEFERRED FOLLOW-UP -- a runtime trust-snapshot refresh: the gateway loads
   `EdgeRecordTrust` once at boot (`load_configured/0`, from
   `AGENT_GATEWAY_EDGE_RECORD_TRUST_FILE`) and never replaces it. Fence entries,
-  verifying keys and agent scope bindings added after boot are unknown until the
-  gateway restarts, so frames depending on them are withheld (retryable, no ack,
+  verifying keys, key purposes and agent scope bindings added after boot are
+  unknown until the gateway restarts, so frames depending on them are withheld (retryable, no ack,
   per 3.3's gap contract) and never authorized. A fence advanced after boot is
   not learned either: a handed-off producer's previous generation still reads
   as current, and its new one as future, until restart.

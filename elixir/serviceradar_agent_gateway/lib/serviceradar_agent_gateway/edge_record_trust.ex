@@ -11,11 +11,12 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrust do
   inside one frame:
 
     * `:keys` -- verifying Ed25519 keys by EXACT `{issuer_id, issuer_key_id}`, each with the set of
-      capability PURPOSES it may issue and its lifecycle status. A key that exists but is not
-      authorized for the requested purpose resolves `:key_invalid`: only this resolver knows which
-      roles a key may issue, so a scheduler key cannot mint a production grant. A key id the
-      snapshot does not hold resolves `:key_unavailable`: a key the issuer rotated to after this
-      snapshot was loaded looks exactly like an unknown one until the snapshot is replaced;
+      capability PURPOSES it may issue and its lifecycle status. Only this resolver knows which
+      roles a key may issue, so a scheduler key cannot mint a production grant. A key that exists
+      but is not authorized for the requested purpose resolves `:key_purpose_unavailable`, and a
+      key id the snapshot does not hold resolves `:key_unavailable`. Neither is a rejection: a key
+      the issuer rotated to, or a purpose it granted, after this snapshot was loaded looks exactly
+      like one never issued until the snapshot is replaced;
     * `:fences` -- the active producer authority generation by
       `{network_scope_id, producer_assignment_id, run_shard}`;
     * `:scopes` -- the network scopes each agent is assigned, by the certificate `component_id`
@@ -36,9 +37,9 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrust do
   principal it authenticates (`ServiceRadarAgentGateway.ComponentIdentityResolver`) and this
   snapshot's `:scopes` binding for that principal (`with_network_scopes/2`). A record is admitted
   only into a scope that binding lists AND its signed production grant names, so neither the grant
-  nor the binding authorizes a scope alone. A principal with no binding is unbound: nothing
-  authorizes its records, and they are withheld as retryable. A binding that excludes the record's
-  scope is a permanent scope conflict.
+  nor the binding authorizes a scope alone. A principal with no binding is unbound, and a binding
+  that lacks a scope the signed grant names may predate that assignment: in both cases nothing
+  authorizes the record, and it is withheld as retryable.
 
   ## Loading
 
@@ -68,7 +69,8 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrust do
 
   The snapshot is loaded ONCE, at application boot (`load_configured/0`, from
   `AGENT_GATEWAY_EDGE_RECORD_TRUST_FILE`), and is never replaced at runtime. Fence entries,
-  verifying keys and agent scope bindings added after boot are unknown until the gateway restarts:
+  verifying keys, key purposes and agent scope bindings added after boot are unknown until the
+  gateway restarts:
   frames that depend on them are withheld as retryable (no disposition is sent, so the gap caps the
   lane's watermark, per task 3.3) and are never authorized. A fence advanced after boot is not
   learned either, so a handed-off producer's previous generation still reads as current and its new
@@ -166,16 +168,18 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrust do
   @doc """
   Resolves the verifying key for `{issuer_id, issuer_key_id}` in the role `purpose`.
 
-  `{:ok, public_key, status}` for a known key authorized for that role; `{:error, :key_invalid}`
-  for a known key not authorized to issue `purpose`; `{:error, :key_unavailable}` for a key id this
-  snapshot does not hold.
+  `{:ok, public_key, status}` for a known key authorized for that role;
+  `{:error, :key_purpose_unavailable}` for a known key this snapshot does not authorize to issue
+  `purpose`; `{:error, :key_unavailable}` for a key id this snapshot does not hold.
   """
   @spec resolve_key(snapshot(), binary(), binary(), purpose()) ::
-          {:ok, binary(), key_status()} | {:error, :key_invalid | :key_unavailable}
+          {:ok, binary(), key_status()} | {:error, :key_purpose_unavailable | :key_unavailable}
   def resolve_key(%{keys: keys}, issuer_id, issuer_key_id, purpose) do
     case Map.get(keys, {issuer_id, issuer_key_id}) do
       %{public_key: public_key, purposes: purposes, status: status} ->
-        if MapSet.member?(purposes, purpose), do: {:ok, public_key, status}, else: {:error, :key_invalid}
+        if MapSet.member?(purposes, purpose),
+          do: {:ok, public_key, status},
+          else: {:error, :key_purpose_unavailable}
 
       nil ->
         {:error, :key_unavailable}

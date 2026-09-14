@@ -27,7 +27,8 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrustTest do
 
     key_id = EdgeRecordFactory.issuer_key_id()
     assert {:ok, _, :valid} = EdgeRecordTrust.resolve_key(snapshot, "test-edge-issuer", key_id, :delivery)
-    assert {:error, :key_invalid} = EdgeRecordTrust.resolve_key(snapshot, "test-edge-issuer", key_id, :production)
+    assert {:error, :key_purpose_unavailable} =
+             EdgeRecordTrust.resolve_key(snapshot, "test-edge-issuer", key_id, :production)
   end
 
   test "rejects documents that could not authorize a decision", %{keys: keys} do

@@ -99,12 +99,12 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorizationTest do
       assert {:ok, %{publication: :primary}} = authorize(ctx, record, snapshot: trust)
     end
 
-    test "a signed grant for a scope outside the agent's binding is rejected", ctx do
+    test "a signed grant for a scope outside the agent's binding is withheld, never authorized", ctx do
       foreign = Factory.uuidv7()
       record = Factory.record(ctx.keys.private, network_scope_id: foreign)
       trust = snapshot(ctx, fences: [fence(record)])
 
-      assert {:error, :permanent, :scope_conflict, event_id} = authorize(ctx, record, snapshot: trust)
+      assert {:error, :retryable, :scope_not_bound, event_id} = authorize(ctx, record, snapshot: trust)
       assert event_id == record.event_id
     end
 
@@ -114,6 +114,16 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorizationTest do
       for scopes <- [[], [{"agent-2", [Factory.network_scope_id()]}]] do
         assert {:error, :retryable, :scope_unbound, _} =
                  authorize(ctx, record, snapshot: snapshot(ctx, scopes: scopes))
+      end
+    end
+
+    test "a forged grant is refused on its signature before its scope is checked against the binding", ctx do
+      forger = Factory.keypair()
+      record = Factory.record(ctx.keys.private, network_scope_id: Factory.uuidv7(), production_signer: forger.private)
+
+      for scopes <- [[{"agent-1", [Factory.network_scope_id()]}], []] do
+        trust = snapshot(ctx, scopes: scopes, fences: [fence(record)])
+        assert {:error, :permanent, {:production, :signature}, _} = authorize(ctx, record, snapshot: trust)
       end
     end
   end
@@ -126,11 +136,14 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorizationTest do
       assert {:error, :permanent, {:production, :signature}, _} = authorize(ctx, record)
     end
 
-    test "a key not authorized to issue production grants", ctx do
+    test "a key not authorized to issue production grants is withheld, never authorized", ctx do
       record = Factory.record(ctx.keys.private)
       trust = snapshot(ctx, purposes: ["source", "delivery"])
 
-      assert {:error, :permanent, {:production, :key_invalid}, _} = authorize(ctx, record, snapshot: trust)
+      assert {:error, :retryable, {:production, :key_purpose_unavailable}, event_id} =
+               authorize(ctx, record, snapshot: trust)
+
+      assert event_id == record.event_id
     end
 
     test "a production grant under a key id the snapshot does not hold is withheld, not rejected", ctx do
