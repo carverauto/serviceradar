@@ -932,12 +932,13 @@ cnpg:
     pg_stat_statements.track: "all"
     pg_stat_statements.track_planning: "on"
     track_io_timing: "on"
-  extensionsSQL:
-    - CREATE EXTENSION IF NOT EXISTS timescaledb;
-    - CREATE EXTENSION IF NOT EXISTS age;
-    - CREATE EXTENSION IF NOT EXISTS postgis;
-    - CREATE EXTENSION IF NOT EXISTS vector;
-    - CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+  # SQL CNPG runs once, as superuser, when it initializes the application database.
+  # Empty on purpose: the schema baseline and migrations create every extension in the
+  # schema they reference, and an extension created here first lands in `public`, where
+  # the baseline cannot move it, so a fresh database fails to bootstrap (#454). If you add
+  # an extension here, create it where the baseline expects it (`platform`, or
+  # `ag_catalog` for age). sharedPreloadLibraries above is unrelated and stays as is.
+  extensionsSQL: []
   superuserSecret: cnpg-superuser
   superuserUsername: postgres
   superuserPassword: ""

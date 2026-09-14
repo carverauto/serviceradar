@@ -72,9 +72,10 @@ kind: Job
 metadata:
   name: serviceradar-cnpg-extension-update
   annotations:
-    {{- /* pre-upgrade ONLY. On a fresh install the Cluster does not exist yet and
-           bootstrap's postInitApplicationSQL already creates extensions at the
-           image's default version, so there is nothing to converge. */}}
+    {{- /* pre-upgrade ONLY. On a fresh install the Cluster does not exist yet and the
+           core migrations job creates each extension at the image's default version,
+           so there is nothing to converge. An extension that is not installed in a
+           database is skipped below. */}}
     "helm.sh/hook": pre-upgrade
     {{- /* Earlier than serviceradar-core-migrations (-1): application migrations may
            use extension features that only exist after the catalog is current. */}}
