@@ -457,18 +457,14 @@ gh release list --limit 1   # e.g., v1.0.70
 ./scripts/cut-release.sh --version 1.0.71 --hotfix --push
 ```
 
-### Manual Helm Chart Push (dev only)
-For quick iterations without a full release:
+### Chart Publishing
+The chart is published only by the release workflow, to
+`oci://registry.carverauto.dev/serviceradar/charts/serviceradar`, as part of a
+cut release; there is no manual push path. To try unreleased chart changes,
+render or install from the checkout instead:
 ```bash
-# Update VERSION and Chart.yaml manually
-echo "1.0.71-pre2" > VERSION
-sed -i 's/^version: .*/version: 1.0.71-pre2/' helm/serviceradar/Chart.yaml
-sed -i 's/^appVersion: .*/appVersion: "1.0.71-pre2"/' helm/serviceradar/Chart.yaml
-
-# Package and push
-helm package helm/serviceradar
-helm push serviceradar-1.0.71-pre2.tgz oci://ghcr.io/carverauto/charts
-rm serviceradar-1.0.71-pre2.tgz
+helm template serviceradar ./helm/serviceradar -f my-values.yaml
+helm upgrade --install serviceradar ./helm/serviceradar -n <namespace> -f my-values.yaml
 ```
 
 ## Development Environment

@@ -104,7 +104,7 @@ plugin SDK, build toolchain, and publishing workflow.
 
 ### Configure environment variables
 
-ServiceRadar exposes the operator-tunable knobs as env vars surfaced in both `docker-compose.yml` and `helm/serviceradar/values.yaml`. The defaults are conservative; tune only when needed.
+ServiceRadar exposes the operator-tunable knobs as env vars surfaced in both `docker-compose.yml` and the Helm chart values (`helm show values oci://registry.carverauto.dev/serviceradar/charts/serviceradar --version <chart-version>`). The defaults are conservative; tune only when needed.
 
 | Env var | Default | What it does |
 |---|---|---|

@@ -226,8 +226,9 @@ Initial scrape inventory:
 ### HA And JetStream Sizing
 
 The base chart defaults the core control plane, shared ingest workers, datasvc,
-and NATS to three replicas. The `demo` overlay in
-[values-demo.yaml](values-demo.yaml) repeats that validated topology and adds
+and NATS to three replicas. The `demo` overlay
+(`helm/serviceradar/values-demo.yaml` in the ServiceRadar repository; it is not
+shipped in the published chart) repeats that validated topology and adds
 demo-specific external ingest settings. Its effective replica layout is:
 
 - `core.replicas=3`

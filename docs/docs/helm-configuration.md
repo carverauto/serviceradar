@@ -169,7 +169,7 @@ Choose one exposure pattern:
 
 1. **Dedicated agent-gateway LoadBalancer.** Give the Service a dedicated DNS
    name, expose `50052` and `50053`, and point `webNg.gatewayAddress` at it.
-   This is the pattern used by the bundled `values-demo.yaml` overlay.
+   This is the pattern the repository's demo overlay (`helm/serviceradar/values-demo.yaml`) uses.
 
    ```yaml
    webNg:
