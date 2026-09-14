@@ -255,8 +255,8 @@ defmodule ServiceRadar.Edge.PublisherPool do
   def capacity(pool), do: GenServer.call(pool, :capacity)
 
   @doc """
-  A read-only copy of this lane's credit ledger: `PublishWindow.ledger/1`, plus the class and the
-  transport generations.
+  A read-only copy of this lane's credit ledger: `PublishWindow.ledger/1`, plus the transport
+  generation now `accepting`.
 
   `capacity/1` reports totals, and totals cannot show what the restart and fencing criteria are
   about. A replacement transport must not reopen a charge still held by an in-flight request, and a
@@ -422,11 +422,7 @@ defmodule ServiceRadar.Edge.PublisherPool do
     ledger =
       state.window
       |> PublishWindow.ledger()
-      |> Map.merge(%{
-        class: state.class,
-        accepting: state.accepting,
-        generations: Map.keys(state.transports)
-      })
+      |> Map.put(:accepting, state.accepting)
 
     {:reply, ledger, state}
   end

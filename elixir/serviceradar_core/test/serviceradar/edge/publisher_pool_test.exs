@@ -560,7 +560,6 @@ defmodule ServiceRadar.Edge.PublisherPoolTest do
       # admit/4 confirms the handoff with a cast before returning, and this call queues behind it,
       # so the attempt is already STARTED here.
       assert %{
-               class: :bulk,
                frame_credits: 2,
                byte_credits: 600,
                outstanding_frames: 1,
@@ -568,7 +567,6 @@ defmodule ServiceRadar.Edge.PublisherPoolTest do
                available_frames: 1,
                available_bytes: 550,
                accepting: ^generation,
-               generations: [^generation],
                reservations: [
                  %{
                    key: ^key,
@@ -621,7 +619,6 @@ defmodule ServiceRadar.Edge.PublisherPoolTest do
       # ledger rather than handed back to it.
       assert %{
                accepting: ^second_gen,
-               generations: [^second_gen],
                outstanding_frames: 1,
                available_frames: 1,
                reservations: [%{key: ^key, bytes: 50, attempt: nil}]

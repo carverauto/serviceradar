@@ -805,7 +805,6 @@ defmodule ServiceRadar.Edge.PublishWindow do
             %{
               key: key(),
               bytes: non_neg_integer(),
-              deadline_at: integer(),
               attempt:
                 nil
                 | %{
@@ -826,8 +825,8 @@ defmodule ServiceRadar.Edge.PublishWindow do
       available_frames: available_frames(w),
       available_bytes: available_bytes(w),
       reservations:
-        Enum.map(w.outstanding, fn {key, {bytes, deadline_at, attempt}} ->
-          %{key: key, bytes: bytes, deadline_at: deadline_at, attempt: attempt_view(attempt)}
+        Enum.map(w.outstanding, fn {key, {bytes, _deadline_at, attempt}} ->
+          %{key: key, bytes: bytes, attempt: attempt_view(attempt)}
         end)
     }
   end
