@@ -51,6 +51,28 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
   logic for today; MTR decode intentionally is not wired here, per 0.12's own
   scope freeze). A real per-`output_contract.contract_id` registry does not
   exist yet in this repository, so this is not a shortcut around one.
+
+  ## Test-only ingest hook
+
+  `//integration_tests/edge_record:vertical_slice_test` must force a real CNPG
+  rollback after broker delivery, and a real consumer redelivery of a message
+  whose transaction already committed, through the production JetStream
+  consumer. Neither can be triggered deterministically from outside the BEAM,
+  so `ingest/4` accepts a `:test_hook` option: a 3-arity fun called as
+  `hook.(point, event_id, result)` at two points.
+
+    * `:before_commit` -- inside the transaction, after every write succeeded,
+      with `{:ok, ledger_outcome}`. Raising here rolls the whole transaction
+      back.
+    * `:transaction_result` -- after the transaction returned, with
+      `{:ok, outcome}` or `{:error, reason}`. Raising here fails the batch
+      after a commit, so the pipeline NAKs a message whose rows are durable.
+
+  The EventWriter pipeline reads the hook from the
+  `:serviceradar_core, :edge_record_ingest_test_hook` application env. No
+  config file sets that key, so production passes `nil` and both points are
+  no-ops. Only code already running inside the node, such as the release
+  `rpc` command the harness uses, can install it.
   """
 
   @behaviour ServiceRadar.EventWriter.Processor
@@ -85,7 +107,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
   defp process_one(%{data: data, metadata: metadata}) when is_binary(data) do
     headers = Map.get(metadata || %{}, :headers, %{})
 
-    case ingest(data, headers) do
+    case ingest(data, headers, Repo, test_hook: test_hook()) do
       {:ok, outcome} ->
         :telemetry.execute(
           [:serviceradar, :event_writer, :edge_record, :ingested],
@@ -125,10 +147,13 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
   is `{:delivery_slot_conflict, existing}`, `{:event_id_conflict, existing}`,
   `{:sweep_batch_slot_conflict, existing}`, a header/slot decode reason, or a
   wire-decode reason from `ServiceRadar.Edge.WireDecode`.
+
+  `opts[:test_hook]` is the test-only hook described in the moduledoc; it
+  defaults to `nil`, which disables it.
   """
-  @spec ingest(binary(), map() | list(), module()) ::
+  @spec ingest(binary(), map() | list(), module(), keyword()) ::
           {:ok, :inserted | :replay} | {:error, term()}
-  def ingest(record_bytes, headers, repo \\ Repo) when is_binary(record_bytes) do
+  def ingest(record_bytes, headers, repo \\ Repo, opts \\ []) when is_binary(record_bytes) do
     with {:ok, header_set} <- PublicationIdentity.extract_header_set(headers),
          {:ok, provenance} <-
            PublicationIdentity.decode_transport_provenance(header_set.provenance),
@@ -137,7 +162,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
          :ok <- check_slot_matches_record(slot, record),
          {:ok, %SweepObservationBatchV1{} = batch} <- decode_payload(record) do
       record_sha256 = :crypto.hash(:sha256, record_bytes)
-      run_transaction(repo, slot, record, batch, record_sha256)
+      run_transaction(repo, slot, record, batch, record_sha256, Keyword.get(opts, :test_hook))
     else
       {:service, _slot} -> {:error, :unsupported_slot_kind}
       {:error, _reason} = err -> err
@@ -167,32 +192,46 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
 
   defp decode_payload(_record), do: {:error, :unsupported_payload_family}
 
-  defp run_transaction(repo, slot, record, batch, record_sha256) do
+  defp run_transaction(repo, slot, record, batch, record_sha256, test_hook) do
     network_scope_id = record.network_scope_id
     event_id = record.event_id
     semantic_digest = record.semantic_envelope_sha256
 
-    repo.transaction(fn ->
-      with {:ok, _slot_outcome} <-
-             upsert_delivery_slot(repo, slot, record_sha256, event_id, semantic_digest),
-           {:ok, ledger_outcome} <-
-             upsert_ledger(repo, network_scope_id, event_id, semantic_digest, record_sha256),
-           {:ok, _batch_outcome} <-
-             upsert_sweep_batch_slot(
-               repo,
-               network_scope_id,
-               batch,
-               event_id,
-               semantic_digest,
-               record.projected_row_count
-             ) do
-        project_domain_rows(repo, network_scope_id, event_id, semantic_digest, batch)
-        ledger_outcome
-      else
-        {:error, reason} -> repo.rollback(reason)
-      end
-    end)
+    result =
+      repo.transaction(fn ->
+        with {:ok, _slot_outcome} <-
+               upsert_delivery_slot(repo, slot, record_sha256, event_id, semantic_digest),
+             {:ok, ledger_outcome} <-
+               upsert_ledger(repo, network_scope_id, event_id, semantic_digest, record_sha256),
+             {:ok, _batch_outcome} <-
+               upsert_sweep_batch_slot(
+                 repo,
+                 network_scope_id,
+                 batch,
+                 event_id,
+                 semantic_digest,
+                 record.projected_row_count
+               ) do
+          project_domain_rows(repo, network_scope_id, event_id, semantic_digest, batch)
+          run_test_hook(test_hook, :before_commit, event_id, {:ok, ledger_outcome})
+          ledger_outcome
+        else
+          {:error, reason} -> repo.rollback(reason)
+        end
+      end)
+
+    run_test_hook(test_hook, :transaction_result, event_id, result)
+    result
   end
+
+  defp run_test_hook(nil, _point, _event_id, _result), do: :ok
+
+  defp run_test_hook(hook, point, event_id, result) when is_function(hook, 3) do
+    hook.(point, event_id, result)
+    :ok
+  end
+
+  defp test_hook, do: Application.get_env(:serviceradar_core, :edge_record_ingest_test_hook)
 
   defp upsert_delivery_slot(repo, slot, record_sha256, event_id, semantic_digest) do
     sql = """

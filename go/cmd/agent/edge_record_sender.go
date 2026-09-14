@@ -144,13 +144,30 @@ func runEdgeRecordSenderOnce(ctx context.Context, s *edgesender.Sender, log logg
 		if errors.Is(err, edgesender.ErrNoUnresolvedRecords) {
 			return
 		}
-		log.Warn().Err(err).Msg("Edge record sender run failed")
+		// A failed run still reports the highest sequence it sent and how far
+		// the gateway acknowledged: a run that never received a durability
+		// ack must show a remote prefix below the entries it attempted.
+		log.Warn().Err(err).
+			Int("sent", len(result.Sent)).
+			Uint64("highest_sent", highestSentSequence(result)).
+			Uint64("remote_resolved_through", result.RemoteResolvedThrough).
+			Msg("Edge record sender run failed")
 		return
 	}
 
 	log.Info().
 		Int("sent", len(result.Sent)).
+		Uint64("highest_sent", highestSentSequence(result)).
 		Int("dispositions", len(result.Dispositions)).
 		Uint64("remote_resolved_through", result.RemoteResolvedThrough).
 		Msg("Edge record sender drained spool lane")
+}
+
+// highestSentSequence is the last sequence a run sent, or 0 when it sent
+// none. The sender appends sequences in spool order.
+func highestSentSequence(result edgesender.Result) uint64 {
+	if n := len(result.Sent); n > 0 {
+		return result.Sent[n-1]
+	}
+	return 0
 }

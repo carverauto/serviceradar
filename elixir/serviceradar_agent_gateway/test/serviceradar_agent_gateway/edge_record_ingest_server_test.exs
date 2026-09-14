@@ -18,6 +18,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
   @spool_id :binary.copy(<<0xAB>>, 16)
   @session_nonce :binary.copy(<<0xCD>>, 8)
   @network_scope_id :binary.copy(<<0x40>>, 16)
+  @event_id :binary.copy(<<0x0E>>, 16)
 
   setup do
     previous = %{
@@ -98,6 +99,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
                            dispositions: [
                              %EdgeRecordDisposition{
                                sequence: 1,
+                               event_id: @event_id,
                                kind: :EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE
                              }
                            ]
@@ -235,6 +237,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
 
   defp record do
     %EdgeRecordV1{
+      event_id: @event_id,
       network_scope_id: @network_scope_id,
       route_profile: :EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
       traffic_class: :EDGE_RECORD_TRAFFIC_CLASS_BULK,
