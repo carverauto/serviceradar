@@ -490,11 +490,21 @@ func (s *Spool) scanChain() (chainScan, error) {
 	return cs, nil
 }
 
-// resync finds the next plausible record header at or after from. A sequence can
-// advance by at most one per byte since the last trusted position -- a record torn
-// inside its header leaves fewer bytes than a minimal record and still consumed its
-// sequence -- so a header-shaped run of bytes cannot move the high-water past what the
-// skipped bytes could have held.
+// resync finds the next record header at or after from that the walk can trust. A
+// record whose body checksum verifies is accepted however far its sequence is from the
+// last one read: an append that fails after its preparation consumes a sequence while
+// writing no bytes, so no byte distance bounds how many sequences a gap holds, and
+// rejecting that record would let its sequence be reused. A header whose record is not
+// intact must also be plausible -- its sequence may advance by at most one per byte
+// skipped since the last trusted position, the least a torn record leaves -- so a
+// damaged run of header-shaped bytes cannot move the high-water past what those bytes
+// could have held.
+//
+// KNOWN ACCEPTED RISK: the distance bound is the only guard against a checksum-valid
+// record header forged inside producer-controlled body bytes. Because an intact record
+// is accepted on its checksums alone, such a forgery reached while resyncing through a
+// damaged region can inflate the sequence high-water on open. That cost was weighed
+// against a receipted record vanishing and its sequence being reused, and accepted.
 func (s *Spool) resync(from int64, lastSeq uint64, lastEnd int64) (int64, bool, error) {
 	var magic [4]byte
 	binary.LittleEndian.PutUint32(magic[:], recordMagic)
@@ -515,8 +525,16 @@ func (s *Spool) resync(from int64, lastSeq uint64, lastEnd int64) (int64, bool, 
 			at := i + j
 			candidate := off + int64(at)
 			h, ok := parseHeader(window[at : at+hdr])
-			if ok && h.seq > lastSeq && h.seq-lastSeq <= uint64(candidate-lastEnd)+1 {
-				return candidate, true, nil
+			if ok && h.seq > lastSeq {
+				trusted := h.seq-lastSeq <= uint64(candidate-lastEnd)+1
+				if end := candidate + minRecordLen + int64(h.bodyLen); !trusted && end <= s.segSize {
+					if trusted, err = s.bodyIntactAt(candidate, h.bodyLen); err != nil {
+						return 0, false, err
+					}
+				}
+				if trusted {
+					return candidate, true, nil
+				}
 			}
 			i = at + 1
 		}

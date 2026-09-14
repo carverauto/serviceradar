@@ -659,6 +659,56 @@ func TestRecordAfterTornHeaderSurvivesEvidenceLoss(t *testing.T) {
 	}
 }
 
+// An append that fails after its preparation consumes a sequence and writes no record
+// bytes, so the next record lands where it would have. Past such a gap and a torn
+// one-byte fragment, a record committed later must still be found once every evidence
+// copy is lost: it is allocated and ambiguous, and no sequence up to it is reused.
+func TestRecordAfterZeroByteAllocationSurvivesEvidenceLoss(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	mustAppend(t, s, 1, "one")
+	s.beforeBarrier = crashBefore(barrierRecord)
+	if _, err := s.Commit(evid(2), []byte("two"), Bindings{}); err == nil {
+		t.Fatal("commit succeeded through an injected crash")
+	}
+	_ = s.Close()
+
+	s1 := openWith(t, dir, nil)
+	s1.beforeBarrier = crashBefore(barrierCommitA)
+	if _, err := s1.Commit(evid(3), []byte("three"), Bindings{}); err == nil {
+		t.Fatal("commit succeeded through an injected crash")
+	}
+	_ = s1.Close()
+	truncateSegment(t, dir, int64(minRecordLen+len("one")+1))
+
+	s2 := openWith(t, dir, nil)
+	if got := mustAppend(t, s2, 4, "0123456789"); got != 4 {
+		t.Fatalf("append = %d, want 4", got)
+	}
+	_ = s2.Close()
+	for _, c := range []int{copyA, copyB} {
+		if err := os.RemoveAll(filepath.Join(dir, evidenceDirName(c))); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	s3 := openWith(t, dir, nil)
+	res := s3.RestartResolution()
+	if res.HighWater != 4 || len(res.Discarded) != 0 {
+		t.Fatalf("high-water %d discarded %+v, want 4 and none", res.HighWater, res.Discarded)
+	}
+	for seq := uint64(2); seq <= 3; seq++ {
+		assertAmbiguous(t, slotOf(t, s3, seq), EvidenceNone, Coverage{Reason: reasonTornTail})
+	}
+	assertAmbiguous(t, slotOf(t, s3, 4), EvidenceNone, Coverage{Reason: reasonMissing})
+	if got := mustAppend(t, s3, 5, "five"); got != 5 {
+		t.Fatalf("append = %d, want 5 (sequences 2 through 4 must not be reused)", got)
+	}
+}
+
 // The agent's sender keeps one handle open while a producer appends through its own
 // handle on the same directory.
 func TestScanAdoptsCommitsFromAnotherHandle(t *testing.T) {
