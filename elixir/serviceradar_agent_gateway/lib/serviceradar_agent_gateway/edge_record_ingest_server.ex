@@ -23,7 +23,14 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
     * `lane_open` names a routable `{route_profile, traffic_class}` pair
       (`ServiceRadar.Edge.PublisherLane.for_lane/2`);
     * each frame decodes as a well-formed `EdgeRecordV1`
-      (`ServiceRadar.Edge.WireDecode.decode_record/1`) whose `record_sha256` matches its bytes.
+      (`ServiceRadar.Edge.WireDecode.decode_record/1`) whose `record_sha256` matches its bytes;
+    * each decoded record is admitted by `ServiceRadarAgentGateway.EdgeContractRegistry.admit/3`
+      BEFORE publication (task 3.8, narrowed): its provenance must match the authenticated
+      session, its output contract must be an `active` bundle of the loaded snapshot, and the
+      published route profile, traffic class and partition rule come from that registry entry.
+      A rejection resolves REJECTED_PERMANENT; a withhold (rollout lag, a bundle that is not
+      active) and a hold (security-revoked bundle) publish nothing and leave the sequence
+      unresolved.
 
   The disposition mapping used here is the subset `JetStreamPublisher.publish_record/2` can
   actually produce today, matching `ServiceRadar.Edge.PublishPipeline`'s own `disposition_of/1`:
@@ -32,6 +39,12 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
   REJECTED_RETRYABLE without resolving. `:not_ready`/`:systemic` decode faults are PAUSED (no
   disposition sent for that frame at all) per `WireDecode`'s own contract, rather than folded into
   either resolving class.
+
+  The watermark is cumulative: the agent (`edgerecord.ValidateAck`) accepts only dispositions
+  that continue its contiguous resolved prefix, and it sends each sequence once per session. So
+  the first sequence a session leaves unresolved -- withheld, held, paused or retryable -- caps
+  the lane: no later sequence of that session is acked, even one that published durably, and the
+  agent's next session replays from it.
 
   ## Lane isolation (task 3.6)
 
@@ -60,6 +73,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
   alias Serviceradar.Edge.V1.EdgeRecordServerMessage
   alias ServiceRadar.Edge.WireDecode
   alias ServiceRadarAgentGateway.ComponentIdentityResolver
+  alias ServiceRadarAgentGateway.EdgeContractRegistry
   alias ServiceRadarAgentGateway.EdgeRecordCapability
   alias ServiceRadarAgentGateway.MediaIdentity
 
@@ -171,7 +185,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
       session_nonce: lane_open.session_nonce,
       route_profile: route_profile,
       traffic_class: traffic_class,
-      resolved_through_sequence: 0
+      first_unresolved_sequence: nil
     }
   rescue
     error in ArgumentError ->
@@ -196,7 +210,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
 
     case decode_and_verify(frame) do
       {:ok, record} ->
-        publish_frame(stream, state, sequence, frame, record)
+        admit_frame(stream, state, sequence, frame, record)
 
       {:error, :permanent, reason} ->
         Logger.warning("edge record permanently rejected: #{inspect(reason)}")
@@ -205,7 +219,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
       {:error, :paused, reason} ->
         Logger.warning("edge record decode paused (not resolved, no disposition sent): #{inspect(reason)}")
 
-        state
+        unresolved(state, sequence)
     end
   end
 
@@ -234,7 +248,38 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
     end
   end
 
-  defp publish_frame(stream, state, sequence, frame, record) do
+  # The session is the authority the registry compares the record against; nothing on the frame
+  # is trusted to describe it.
+  defp admit_frame(stream, state, sequence, frame, record) do
+    session = %{
+      authenticated_agent_id: state.identity.component_id,
+      route_profile: state.route_profile,
+      traffic_class: state.traffic_class
+    }
+
+    case EdgeContractRegistry.admit(record, session, EdgeContractRegistry.impl().snapshot()) do
+      {:ok, route} ->
+        publish_frame(stream, state, sequence, frame, record, route)
+
+      {:reject, reason} ->
+        Logger.warning("edge record rejected by contract registry: #{inspect(reason)}")
+        ack(stream, state, sequence, record.event_id, @permanent)
+
+      {:withhold, reason} ->
+        # Not proof of poison: nothing is published and the sequence stays unresolved, exactly like
+        # a retryable publish outcome.
+        Logger.warning("edge record withheld by contract registry: #{inspect(reason)}")
+        unresolved(state, sequence)
+
+      {:hold, reason} ->
+        # A security-revoked bundle is never published and never resolved, and is reported apart
+        # from an ordinary withhold.
+        Logger.error("edge record held for a security-revoked contract: #{inspect(reason)}")
+        unresolved(state, sequence)
+    end
+  end
+
+  defp publish_frame(stream, state, sequence, frame, record, route) do
     publication = %{
       slot: %{
         network_scope_id: record.network_scope_id,
@@ -242,12 +287,10 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
         spool_id: state.spool_id,
         sequence: sequence
       },
-      route_profile: state.route_profile,
-      traffic_class: state.traffic_class,
-      # The only partition rule this installation can evaluate today; see
-      # `ServiceRadar.Edge.StreamRoute`'s moduledoc. The contract registry that pins a rule per
-      # output contract is task 3.8's scope.
-      partition_rule: :network_scope_v1,
+      # All three are pinned by the admitted contract's registry entry.
+      route_profile: route.route_profile,
+      traffic_class: route.traffic_class,
+      partition_rule: route.partition_rule,
       record_bytes: frame.record_bytes,
       record_sha256: frame.record_sha256,
       semantic_envelope_sha256: record.semantic_envelope_sha256
@@ -265,24 +308,25 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
         # RETRYABLE never resolves the sequence -- the watermark must not advance past a record
         # that may not be durable. No ack is sent for this frame; the agent's own deadline drives
         # its retry.
-        state
+        unresolved(state, sequence)
     end
   end
+
+  defp unresolved(%{first_unresolved_sequence: nil} = state, sequence), do: %{state | first_unresolved_sequence: sequence}
+
+  defp unresolved(state, _sequence), do: state
 
   # `event_id` is the decoded record's id, which the agent binds to the event it sent for
   # `sequence` (`edgerecord.ValidateAck`). Only a rejection made before the record decoded may
   # leave it empty; the agent refuses an ack whose accepted disposition carries no id.
-  defp ack(stream, state, sequence, event_id, disposition) do
-    resolved_through =
-      if disposition in [@accepted, @permanent], do: sequence, else: state.resolved_through_sequence
-
+  defp ack(stream, %{first_unresolved_sequence: nil} = state, sequence, event_id, disposition) do
     :ok =
       send_reply(stream, %EdgeRecordServerMessage{
         payload:
           {:ack,
            %EdgeDeliveryAckV1{
              spool_id: state.spool_id,
-             resolved_through_sequence: resolved_through,
+             resolved_through_sequence: sequence,
              dispositions: [
                %EdgeRecordDisposition{sequence: sequence, event_id: event_id, kind: disposition}
              ],
@@ -290,7 +334,16 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
            }}
       })
 
-    %{state | resolved_through_sequence: resolved_through}
+    state
+  end
+
+  defp ack(_stream, state, sequence, _event_id, _disposition) do
+    Logger.warning(
+      "edge record sequence #{sequence} resolved behind unresolved sequence " <>
+        "#{state.first_unresolved_sequence}; not acked"
+    )
+
+    state
   end
 
   defp finish_stream(:awaiting_lane_open) do

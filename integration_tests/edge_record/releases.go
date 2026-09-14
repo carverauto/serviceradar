@@ -116,6 +116,10 @@ type GatewayEnvConfig struct {
 	// to the SAME database with a mismatched key would be a needless
 	// divergence from how these two processes are actually deployed together.
 	CloakKey string
+	// ContractRegistryJSON is the installation-static output-contract registry
+	// snapshot (FixtureContractRegistryJSON). Without it the gateway's
+	// edge-records:v1 capability is never ready and every lane_open is refused.
+	ContractRegistryJSON string
 }
 
 // Env returns the environment variables StartRelease should merge in to boot
@@ -156,6 +160,7 @@ func (c GatewayEnvConfig) Env() map[string]string {
 		"CLOAK_KEY":                          c.CloakKey,
 		"POOL_SIZE":                          "2",
 		"CONTROL_REPO_POOL_SIZE":             "2",
+		"AGENT_GATEWAY_EDGE_RECORD_CONTRACT_REGISTRY": c.ContractRegistryJSON,
 	}
 }
 
