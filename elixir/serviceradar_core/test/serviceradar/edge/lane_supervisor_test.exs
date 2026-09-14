@@ -18,6 +18,7 @@ defmodule ServiceRadar.Edge.LaneSupervisorTest do
   alias ServiceRadar.Edge.LaneSupervisor
   alias ServiceRadar.Edge.LaneTransportRuntime
   alias ServiceRadar.Edge.PublisherPool
+  alias ServiceRadar.Edge.PublishPipeline
   alias ServiceRadar.Edge.PublishWindow
 
   # A port nothing is listening on: Gnat retries in the background with a long backoff, which is
@@ -59,6 +60,99 @@ defmodule ServiceRadar.Edge.LaneSupervisorTest do
                PublisherPool.via(:recovery),
                LaneTransportRuntime.via(:recovery)
              ]
+    end
+  end
+
+  describe "with a publisher, the pipeline comes LAST" do
+    defp unused_publisher, do: fn _publication, _opts -> {:error, :unused} end
+
+    test "the task supervisor precedes the transport, and the pipeline follows it" do
+      specs = LaneSupervisor.child_specs(opts(:interactive, publisher: unused_publisher()))
+
+      assert Enum.map(specs, & &1.id) === [
+               PublisherPool.via(:interactive),
+               LaneSupervisor.task_supervisor(:interactive),
+               LaneTransportRuntime.via(:interactive),
+               PublishPipeline.via(:interactive)
+             ]
+
+      # Bound to THIS lane's accountant and run under THIS lane's task supervisor. A pipeline
+      # pointed at another lane's window would be bounded by a grant it does not belong to.
+      {PublishPipeline, :start_link, [pipeline_opts]} = List.last(specs).start
+      assert Keyword.fetch!(pipeline_opts, :class) === :interactive
+      assert Keyword.fetch!(pipeline_opts, :pool) === PublisherPool.via(:interactive)
+
+      assert Keyword.fetch!(pipeline_opts, :task_supervisor) ===
+               LaneSupervisor.task_supervisor(:interactive)
+    end
+
+    test "the resolved pipeline bounds reach the PublishPipeline child spec" do
+      bounds = [max_inflight: 5, max_queue: 9, max_lanes: 3]
+
+      specs =
+        LaneSupervisor.child_specs(opts(:bulk, publisher: unused_publisher(), pipeline: bounds))
+
+      {PublishPipeline, :start_link, [pipeline_opts]} = List.last(specs).start
+      assert Keyword.fetch!(pipeline_opts, :max_inflight) === 5
+      assert Keyword.fetch!(pipeline_opts, :max_queue) === 9
+      assert Keyword.fetch!(pipeline_opts, :max_lanes) === 3
+    end
+
+    test "transport death replaces the pipeline, but not the workers that own attempts" do
+      test_pid = self()
+
+      # Stands in for a request still outstanding on the transport about to die.
+      publisher = fn _publication, _opts ->
+        send(test_pid, {:publishing, self()})
+        Process.sleep(:infinity)
+      end
+
+      {:ok, sup} =
+        LaneSupervisor.start_link(
+          opts(:bulk, name: :lane_sup_with_pipeline, publisher: publisher)
+        )
+
+      on_exit(fn ->
+        try do
+          Supervisor.stop(sup, :normal)
+        catch
+          :exit, _ -> :ok
+        end
+      end)
+
+      accountant = Process.whereis(PublisherPool.via(:bulk))
+      pipeline = Process.whereis(PublishPipeline.via(:bulk))
+      assert is_pid(pipeline)
+
+      lane = {<<0xA1>>, "agent-1", <<0xB2>>}
+      :ok = PublishPipeline.open_lane(pipeline, lane, 1)
+
+      :ok =
+        PublishPipeline.offer(pipeline, %{
+          slot: %{
+            network_scope_id: <<0xA1>>,
+            authenticated_agent_id: "agent-1",
+            spool_id: <<0xB2>>,
+            sequence: 1
+          }
+        })
+
+      assert_receive {:publishing, worker}
+
+      Process.exit(transport_pid(sup), :kill)
+
+      # The prefixes waiting on the dead transport's requests go with it -- while the ledger, which
+      # is FIRST, survives untouched.
+      await(fn ->
+        replacement = Process.whereis(PublishPipeline.via(:bulk))
+        is_pid(replacement) and replacement !== pipeline
+      end)
+
+      assert Process.whereis(PublisherPool.via(:bulk)) === accountant
+
+      # The worker is not taken with them. It owns its attempt, which the accountant fences on its
+      # own; killed here, no request could ever be seen outstanding beside the replacement.
+      assert Process.alive?(worker), "the transport restart killed a worker that owns an attempt"
     end
   end
 

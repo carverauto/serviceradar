@@ -932,8 +932,9 @@
   not reconstruct or re-encode the semantic record before publication.
   LANDED: `ServiceRadarAgentGateway.EdgeRecordIngestServer` terminates the RPC,
   requires an authenticated `:agent` identity, gates `lane_open` on
-  `ServiceRadarAgentGateway.EdgeRecordCapability` readiness, and is
-  `JetStreamPublisher.publish_record/2`'s first production caller. See that
+  `ServiceRadarAgentGateway.EdgeRecordCapability` readiness, and offers every
+  verified frame to `JetStreamPublisher.publish_record/2` through its class's
+  `ServiceRadar.Edge.PublishPipeline` (see 3.3). See that
   module's moduledoc for its deliberately narrow scope: it does NOT discharge
   3.2 (full grant/contract verification), 3.4 (exact-byte/retained-memory
   binding), 3.5 (complete outcome-to-disposition mapping), 3.9 (transport-
@@ -976,17 +977,23 @@
   returned PubAck. Refusal disposition was also corrected: only PROVEN poison is
   terminal, and an expected-stream refusal (`err_code` 10060) withholds source progress
   rather than routing to the DLQ.
-  STILL OPEN, and REQUIRED before this task may be checked: (c)'s pipelining is
-  now IMPLEMENTED -- `ServiceRadar.Edge.PublishPipeline` publishes asynchronously
-  under the hard frame/byte/PubAck-deadline window, records out-of-order PubAcks
-  through `ResolvedPrefix`, and exposes only the contiguous resolved prefix, with
-  both closure criteria re-proven under concurrency. What is NOT yet true is that
-  anything OFFERS to it: the gateway's per-lane session is task 3.1's mTLS
-  bidirectional record RPC, and `JetStreamPublisher.publish_record/2` still has no
-  production caller either, so the whole chain is exercised by tests rather than
-  running. This task stays UNCHECKED on that basis; whether a pre-production
-  implementation discharges (c) is a judgement for the change owner, not something
-  to settle by ticking the box. The separate pools below are landed. The property this task relies on is that the
+  (c)'s pipelining is IMPLEMENTED and now has a PRODUCTION OFFERER.
+  `ServiceRadar.Edge.PublishPipeline` publishes asynchronously under the hard
+  frame/byte/PubAck-deadline window, records out-of-order PubAcks through
+  `ResolvedPrefix`, and exposes only the contiguous resolved prefix, with both
+  closure criteria re-proven under concurrency. Task 3.1's
+  `ServiceRadarAgentGateway.EdgeRecordIngestServer` offers every verified delivery
+  frame to its class's pipeline instead of publishing it synchronously per frame;
+  the gateway starts one pipeline LAST in each `LaneSupervisor`, handing in
+  `JetStreamPublisher.publish_record/2` as its publisher. Each ack is built from
+  the outcomes the pipeline pushes to the lane's owning stream, and is sent only
+  when the contiguous watermark moves, as the contiguous disposition run the
+  agent's `edgerecord.ValidateAck` requires. Proven-permanent decode/integrity
+  rejections are recorded in the prefix through
+  `PublishPipeline.reject_permanent/3` so they cannot wedge the lane, and retryable
+  outcomes still withhold the ack. This task stays UNCHECKED: whether this
+  discharges (c) is a judgement for the change owner, not something to settle by
+  ticking the box. The separate pools below are landed. The property this task relies on is that the
   transcript commits both `record_sha256` and the semantic digest, so a slot reused
   with different bytes gets a distinct Msg-Id. Limit NATS
   headers to transport concerns; do not duplicate the semantic envelope as

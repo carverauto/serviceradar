@@ -64,8 +64,8 @@ defmodule ServiceRadar.Edge.PublisherPool do
   the number of requests on the wire.
 
   NOW OFFERED TO: task 3.1's gateway per-lane session,
-  `ServiceRadarAgentGateway.EdgeRecordIngestServer`, is `JetStreamPublisher.publish_record/2`'s
-  first production caller.
+  `ServiceRadarAgentGateway.EdgeRecordIngestServer`, offers every verified frame to its class's
+  `PublishPipeline`, whose workers call `JetStreamPublisher.publish_record/2` against this window.
 
   STILL NOT this module's: 3.4 owns exact-byte and retained-memory binding; 3.5 owns
   outcome-specific PubAck validation and prefix advancement. This module also does not bind byte
