@@ -894,17 +894,17 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer do
       :ok
   end
 
-  # A partial run (some source failed) records an UNHEALTHY heartbeat: the
-  # freshness tripwire only trusts healthy ones, so it still fires, and the
-  # health event now says which sources failed instead of going silent.
   defp default_heartbeat_recorder(metadata) do
-    {new_state, reason} =
-      if Map.get(metadata, :healthy, true),
-        do: {:healthy, :heartbeat},
-        else: {:unhealthy, :partial_delivery}
+    previous_state =
+      case HealthTracker.current_status(:core, @heartbeat_check_id) do
+        {:ok, %{new_state: state}} -> state
+        _ -> nil
+      end
+
+    {old_state, new_state, reason} = heartbeat_transition(previous_state, metadata)
 
     case HealthTracker.record_state_change(:core, @heartbeat_check_id,
-           old_state: :healthy,
+           old_state: old_state,
            new_state: new_state,
            reason: reason,
            metadata: metadata
@@ -920,6 +920,27 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer do
 
         :ok
     end
+  end
+
+  @doc false
+  # A partial run (some source failed) records an UNHEALTHY heartbeat: the
+  # freshness tripwire only trusts healthy ones, so it still fires, and the
+  # health event says which sources failed instead of going silent.
+  #
+  # The previous state is the one actually recorded last. It used to be hardcoded
+  # to healthy, so every run claimed a transition out of healthy: an unchanged run
+  # read "healthy to healthy", a repeated failure "healthy to unhealthy", and a
+  # recovery looked exactly like a heartbeat. Health tracking now publishes only
+  # real transitions, which would have silently dropped that recovery and left the
+  # core_health_check_unhealthy incident open.
+  @spec heartbeat_transition(atom() | nil, map()) :: {atom() | nil, atom(), atom()}
+  def heartbeat_transition(previous_state, metadata) do
+    {new_state, reason} =
+      if Map.get(metadata, :healthy, true),
+        do: {:healthy, :heartbeat},
+        else: {:unhealthy, :partial_delivery}
+
+    {previous_state, new_state, reason}
   end
 
   defp run_opts(%Oban.Job{}), do: []
