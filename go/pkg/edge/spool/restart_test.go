@@ -39,6 +39,11 @@ const (
 	reasonUnrepresentable = edgev1.EdgeUnattributableReason_EDGE_UNATTRIBUTABLE_REASON_DISCRIMINATOR_UNREPRESENTABLE
 )
 
+var (
+	errReaderNeverCaptured = errors.New("reader never captured the size")
+	errReaderScanStalled   = errors.New("reader scan never finished")
+)
+
 var allBarriers = []barrier{ //nolint:gochecknoglobals // test table
 	barrierEvidenceDirA, barrierEvidenceDirB, barrierPrepareA, barrierPrepareB,
 	barrierRecord, barrierCommitA, barrierCommitB,
@@ -157,6 +162,7 @@ func zeroEntry(t *testing.T, dir string, c int, seq uint64, state byte) {
 	mutate(t, evidenceFilePath(dir, c), evidencePosition(seq, state), evidenceEntryLen, func(b []byte) { clear(b) })
 }
 
+//nolint:unparam // seq addresses a slot the same way corruptEntry and zeroEntry do
 func entryStatusAt(t *testing.T, dir string, c int, seq uint64, state byte) entryStatus {
 	t.Helper()
 	buf, err := os.ReadFile(evidenceFilePath(dir, c))
@@ -841,7 +847,7 @@ func TestRefreshNeverSettlesACommitFromStaleSizes(t *testing.T) {
 					select {
 					case <-captured:
 					case <-time.After(10 * time.Second):
-						return errors.New("reader never captured the size")
+						return errReaderNeverCaptured
 					}
 				case 2:
 					// Sequence 2 is committed and sequence 3 is prepared.
@@ -849,7 +855,7 @@ func TestRefreshNeverSettlesACommitFromStaleSizes(t *testing.T) {
 					select {
 					case midScan = <-scanned:
 					case <-time.After(10 * time.Second):
-						return errors.New("reader scan never finished")
+						return errReaderScanStalled
 					}
 				}
 				return nil

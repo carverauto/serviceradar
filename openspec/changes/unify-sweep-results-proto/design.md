@@ -930,15 +930,16 @@ execution deadline or emits an aborted terminal event from reserved capacity.
 
 Spool records are length-delimited and checksummed, segment creation/rename and
 directory metadata are fsynced, ownership/mode are private to the agent, and the
-persistent sequence high-water is never reused. Startup truncates only an
-uncommitted torn tail and quarantines corrupt committed segments without
-silently skipping them. `ENOSPC`, `EIO`, fsync failure, or corrupt metadata
-stops all durable-producer admission immediately, preserves the bounded current
-window for retry when possible, marks the run delivery-failed/paused, and
-alerts. A producer record is never released or reported durable until its
-record bytes, delivery wrapper, receipt binding, and spool metadata are durable;
-if the process dies first, the control plane retries or fences the unfinished
-run/scope according to its contract.
+persistent sequence high-water is never reused. Startup does not truncate a torn
+tail: its bytes stay in place, later records are placed after them, and restart
+resolution classifies the torn slot like any other. Corrupt committed segments
+are quarantined without silently skipping them. `ENOSPC`, `EIO`, fsync failure,
+or corrupt metadata stops all durable-producer admission immediately, preserves
+the bounded current window for retry when possible, marks the run
+delivery-failed/paused, and alerts. A producer record is never released or
+reported durable until its record bytes, delivery wrapper, receipt binding, and
+spool metadata are durable; if the process dies first, the control plane retries
+or fences the unfinished run/scope according to its contract.
 
 A corrupt committed record in the middle of a lane is not silently skipped and
 does not permanently pin every later valid record. Using separately reserved

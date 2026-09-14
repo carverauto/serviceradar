@@ -82,9 +82,10 @@ const (
 //nolint:gochecknoglobals // immutable, derived from a format constant
 var crcTable = crc32.MakeTable(crc32.Castagnoli)
 
-// ErrCorruptHeader is returned when a record header is present but its checksum
-// or magic is invalid (as opposed to a cleanly torn tail, which is recovered
-// silently).
+// ErrCorruptHeader is returned when a committed slot's record is read back and its
+// header checksum or magic is invalid, or it names a sequence other than the slot's.
+// Open does not return it: restart resolution classifies damaged and torn bytes
+// instead (see RestartResolution).
 var ErrCorruptHeader = errors.New("spool: corrupt record header")
 
 // ErrResolveBeyondHighWater is returned when Resolve is asked to advance the
