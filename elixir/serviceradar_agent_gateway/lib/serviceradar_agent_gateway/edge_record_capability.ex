@@ -15,8 +15,9 @@ defmodule ServiceRadarAgentGateway.EdgeRecordCapability do
 
     * the `edge_records_publisher` flag is enabled (the same on/off switch every other gateway
       publisher uses, see `ServiceRadarAgentGateway.Application.gateway_publisher_enabled?/0`);
-    * every deployment-active publisher lane (`ServiceRadar.Edge.PublisherLane.lanes/0`) has both
-      its accountant (`PublisherPool`) and its transport (the named NATS connection) ALIVE;
+    * every deployment-active publisher lane (`ServiceRadar.Edge.PublisherLane.lanes/0`) has its
+      accountant (`PublisherPool`), its transport (the named NATS connection) and its
+      `PublishPipeline` ALIVE -- the pipeline being what the ingest server offers every frame to;
     * an output-contract registry snapshot is loaded
       (`ServiceRadarAgentGateway.EdgeContractRegistry.available?/0`). Without one every frame is
       withheld, so admitting a lane would advertise a capability that cannot publish anything.
@@ -29,6 +30,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordCapability do
 
   alias ServiceRadar.Edge.PublisherLane
   alias ServiceRadar.Edge.PublisherPool
+  alias ServiceRadar.Edge.PublishPipeline
   alias ServiceRadarAgentGateway.EdgeContractRegistry
 
   @capability_id "edge-records:v1"
@@ -40,9 +42,9 @@ defmodule ServiceRadarAgentGateway.EdgeRecordCapability do
   @doc """
   Whether the `edge-records:v1` capability is currently ready to advertise/admit.
 
-  False whenever the publisher is disabled, any deployment-active lane's accountant or transport
-  is not alive, or no contract registry is loaded -- fail closed rather than admit a lane that
-  cannot durably publish.
+  False whenever the publisher is disabled, any deployment-active lane's accountant, transport or
+  pipeline is not alive, or no contract registry is loaded -- fail closed rather than admit a lane
+  that cannot durably publish.
   """
   @spec ready?() :: boolean()
   def ready? do
@@ -58,7 +60,8 @@ defmodule ServiceRadarAgentGateway.EdgeRecordCapability do
   end
 
   defp lane_ready?(lane) do
-    alive?(PublisherPool.via(lane)) and alive?(PublisherLane.connection_name(lane))
+    alive?(PublisherPool.via(lane)) and alive?(PublisherLane.connection_name(lane)) and
+      alive?(PublishPipeline.via(lane))
   end
 
   defp alive?(name) when is_atom(name) do

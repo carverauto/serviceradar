@@ -50,6 +50,10 @@ defmodule ServiceRadar.Edge.PublishPipeline do
   does not quietly become unbounded retention instead. Task 3.4 owns the exact-byte and
   retained-memory bounds; what is bounded here is the COUNT.
 
+  Within a lane, what is retained does not grow with how much the lane resolves either. A resolved
+  disposition is kept only until the owner reports it in an ack through `reported_through/3`, and
+  the outcomes still above the watermark are bounded by what the owner offers.
+
   ## Backpressure is a refusal, and retry is NOT this module's decision
 
   An offer beyond `:max_queue` is refused `:queue_full`. That is the whole backpressure policy,
@@ -84,27 +88,56 @@ defmodule ServiceRadar.Edge.PublishPipeline do
   broker verdict, and nothing about it proves the record can never be accepted -- which is the
   only thing that makes a rejection terminal.
 
-  ## NOT IN THE SUPERVISION TREE, and that is not an oversight
+  ## Lanes have an OWNER, and outcomes are PUSHED to it
 
-  Nothing offers to this yet. The gateway's per-lane session is task 3.1's mTLS bidirectional
-  record RPC, which does not exist, and `JetStreamPublisher.publish_record/2` still has no
-  production caller either. Starting a pipeline per lane in the application would be a process
-  with no runtime reason, so it is constructed by its tests and by whatever drives it when 3.1
-  lands -- the same status `ResolvedPrefix` has today.
+  The process that opens a lane owns it, taken from the call's `from` for the same reason the pool
+  takes an attempt's owner that way: no caller can name another process. Every outcome recorded
+  for the lane is sent to that owner, in the order this process recorded them:
 
-  When it is wired, it belongs LAST under `LaneSupervisor`'s `:rest_for_one`, after the
-  accountant and the transport. The order follows from what each death invalidates: this process
-  dying loses only its trackers, and a fresh one refuses every offer until the caller re-opens
-  its lanes with an agent-reported `first_unresolved_sequence` -- which is the authoritative
-  recovery rather than a guess. Transport death invalidates the requests in flight on it, so this
-  should go with it. Accountant death already takes everything after it.
+      {:edge_publish_outcome, lane, sequence, {:recorded, disposition}, resolved_through}
+      {:edge_publish_outcome, lane, sequence, {:refused, disposition, reason}, resolved_through}
+
+  An asynchronous publish has nobody waiting on it, and polling `resolved_through/2` would tell a
+  caller THAT the watermark moved without saying which outcomes moved it -- while the wire ack has
+  to carry the kind of every sequence it resolves.
+
+  Only the owner may close the lane or record a rejection on it, and the owner's death closes it.
+  Without that, a stream handler killed mid-session would hold one of `:max_lanes` forever, and a
+  stale handler's cleanup could close a lane a newer session had since opened.
+
+  Closing a lane, either way, discards its queued work. None of it has admitted or published, so
+  the agent's retry covers it; published anyway, it would spend shared workers and credits on a
+  lane nobody holds, ahead of every live lane's work in the queue.
+
+  Work already in flight when its lane closes records nothing, and that holds even once a later
+  session opens the same lane again: each opening is a separate lane to its owner, whose outcomes
+  cover only the work offered on that opening.
+
+  ## In the supervision tree, LAST in each lane
+
+  `ServiceRadar.Edge.LaneSupervisor` starts one pipeline per class under `via/1`, after the
+  accountant, the task supervisor its workers run under, and the transport -- whenever it is given
+  a `:publisher`, which only the gateway can supply. The offerer is the gateway's
+  `ServiceRadarAgentGateway.EdgeRecordIngestServer`: each verified delivery frame is offered here,
+  and its ack is built from the outcomes this process pushes back.
+
+  The order follows from what each death invalidates: this process dying loses only its trackers,
+  and a fresh one refuses every offer until the caller re-opens its lanes with an agent-reported
+  `first_unresolved_sequence` -- the authoritative recovery rather than a guess, which is why the
+  ingest server ends its stream instead of re-opening on its own. Transport death invalidates the
+  requests in flight on it, so this goes with it -- but not its workers, whose task supervisor comes
+  before the transport: each owns its attempt until its request returns. Accountant death already
+  takes everything after it.
   """
 
   use GenServer
 
+  alias ServiceRadar.Edge.PublisherLane
   alias ServiceRadar.Edge.ResolvedPrefix
 
   require Logger
+
+  @classes PublisherLane.lanes()
 
   @accepted :EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE
   @permanent :EDGE_RECORD_DISPOSITION_KIND_REJECTED_PERMANENT
@@ -115,12 +148,15 @@ defmodule ServiceRadar.Edge.PublishPipeline do
   # processes and the memory they retain; :max_queue bounds work accepted but not started.
   # Collapsing them would let one grant shape decide all three.
   #
-  # The EFFECTIVE concurrency is the smaller of :max_inflight and what the lane's credits allow,
-  # and at these defaults that is :max_inflight -- `PublisherSupervisor` grants 64 frames. That is
-  # deliberate rather than an oversight: each worker retains a record body, minimal headers and
-  # NATS request state for as long as its request is outstanding, so 64 of them is a memory claim
-  # nothing has yet bounded. Task 3.4 owns the measured retained-memory bound; until it lands the
-  # process count is capped low, and a deployment that has measured its own can raise it.
+  # The EFFECTIVE concurrency is the smaller of :max_inflight and what the lane's credits allow.
+  #
+  # These defaults serve a pipeline started directly, as the tests start it. In production
+  # `PublisherSupervisor.pipeline_for/2` sizes each class's pipeline from application config and
+  # defaults :max_inflight to the lane's frame credits, so the grant rather than a process count
+  # bounds concurrent publishes, and a class under agent fan-in keeps as many requests on the wire
+  # as the synchronous path it replaced. Each worker retains a record body, minimal headers and
+  # NATS request state for as long as its request is outstanding; task 3.4 owns the measured
+  # retained-memory bound, and a deployment that has measured its own sets all three bounds there.
   @default_max_inflight 8
   @default_max_queue 256
   @default_max_lanes 1024
@@ -157,6 +193,9 @@ defmodule ServiceRadar.Edge.PublishPipeline do
     GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
   end
 
+  @doc "The registered name of a class's pipeline, as `LaneSupervisor` starts it."
+  def via(class) when class in @classes, do: :"edge_publish_pipeline_#{class}"
+
   @doc """
   Opens a lane's prefix tracker at the agent's `first_unresolved_sequence`.
 
@@ -166,20 +205,29 @@ defmodule ServiceRadar.Edge.PublishPipeline do
 
   Re-opening an OPEN lane is refused `:lane_already_open` rather than silently reseeding it,
   which would discard the outcomes recorded since.
+
+  The CALLER becomes the lane's owner: it receives the lane's outcomes, it alone may close the lane
+  or reject a sequence on it, and its death closes the lane.
   """
   @spec open_lane(GenServer.server(), lane(), pos_integer()) :: :ok | {:error, atom()}
   def open_lane(pipeline, lane, first_unresolved_sequence),
     do: GenServer.call(pipeline, {:open_lane, lane, first_unresolved_sequence})
 
-  @doc "Drops a lane's tracker, freeing one of `:max_lanes`."
-  @spec close_lane(GenServer.server(), lane()) :: :ok
+  @doc """
+  Drops a lane's tracker and its queued work, freeing one of `:max_lanes`.
+
+  Owner-only: any other caller is refused `:not_owner`. Closing a lane that is not open is `:ok`,
+  so a cleanup racing its owner's own death cannot fail.
+  """
+  @spec close_lane(GenServer.server(), lane()) :: :ok | {:error, :not_owner}
   def close_lane(pipeline, lane), do: GenServer.call(pipeline, {:close_lane, lane})
 
   @doc """
   Offers one publication for asynchronous publication.
 
   Returns as soon as the work is ACCEPTED, not when it is published -- that is the point. The
-  outcome lands in the lane's prefix, and `resolved_through/2` is where a caller reads it.
+  outcome lands in the lane's prefix and is pushed to the lane's owner; `resolved_through/2` reads
+  the watermark.
 
   Refusals: `:lane_not_open`, `:queue_full`, `:slot` (the publication carries no usable slot).
   """
@@ -187,10 +235,41 @@ defmodule ServiceRadar.Edge.PublishPipeline do
   def offer(pipeline, publication) when is_map(publication),
     do: GenServer.call(pipeline, {:offer, publication})
 
+  @doc """
+  Records REJECTED_PERMANENT for a sequence the caller has PROVEN can never be accepted -- an
+  undecodable frame, or one whose bytes do not match their digest -- without publishing it.
+
+  Such a frame never reaches `offer/2`, yet its sequence still has to resolve. Left out of the
+  prefix it is a gap nothing can fill, and every later sequence on the lane stays unresolved.
+
+  Like `offer/2`, this returns once the outcome is accepted; the outcome itself reaches the owner
+  as an `:edge_publish_outcome` message, so both paths arrive in the order they were recorded.
+
+  Refusals: `:lane_not_open`, `:not_owner`, `:sequence`.
+  """
+  @spec reject_permanent(GenServer.server(), lane(), pos_integer()) :: :ok | {:error, atom()}
+  def reject_permanent(pipeline, lane, sequence),
+    do: GenServer.call(pipeline, {:reject_permanent, lane, sequence})
+
   @doc "The lane's contiguous resolved watermark. Stops at a gap OR at a retryable outcome."
   @spec resolved_through(GenServer.server(), lane()) ::
           {:ok, non_neg_integer()} | {:error, atom()}
   def resolved_through(pipeline, lane), do: GenServer.call(pipeline, {:resolved_through, lane})
+
+  @doc """
+  Drops the lane's retained dispositions through `sequence`, once its owner has reported them in
+  an ack.
+
+  See `ResolvedPrefix.reported_through/2`: it bounds this process's memory for a long-lived lane
+  and is NOT a durability claim. The lane does not advance, and a later outcome for a reported
+  sequence is refused `:evidence_released`.
+
+  Refusals: `:lane_not_open`, `:not_owner`, `:not_resolved` (past the lane's watermark),
+  `:above_lane_max`.
+  """
+  @spec reported_through(GenServer.server(), lane(), non_neg_integer()) :: :ok | {:error, atom()}
+  def reported_through(pipeline, lane, sequence),
+    do: GenServer.call(pipeline, {:reported_through, lane, sequence})
 
   @doc """
   Releases prefix evidence below the agent's reported `first_unresolved_sequence`.
@@ -221,15 +300,19 @@ defmodule ServiceRadar.Edge.PublishPipeline do
        # Accepted but not started. Bounded by :max_queue.
        queue: :queue.new(),
        queued: 0,
-       # task ref => %{lane, sequence}. Bounded by :max_inflight.
+       # task ref => %{lane, monitor, sequence}, where `monitor` is the lane owner's monitor when
+       # the work was offered and so names that opening of the lane. Bounded by :max_inflight.
        inflight: %{},
        # lane => ResolvedPrefix.t(). DATA per lane, never a process. Bounded by :max_lanes.
-       lanes: %{}
+       lanes: %{},
+       # lane => {owner pid, monitor}, and monitor => lane. Exactly the keys of :lanes.
+       owners: %{},
+       owner_monitors: %{}
      }}
   end
 
   @impl true
-  def handle_call({:open_lane, lane, first_unresolved}, _from, state) do
+  def handle_call({:open_lane, lane, first_unresolved}, {owner, _tag}, state) do
     cond do
       Map.has_key?(state.lanes, lane) ->
         {:reply, {:error, :lane_already_open}, state}
@@ -243,12 +326,48 @@ defmodule ServiceRadar.Edge.PublishPipeline do
 
       true ->
         prefix = ResolvedPrefix.new(first_unresolved)
-        {:reply, :ok, %{state | lanes: Map.put(state.lanes, lane, prefix)}}
+        monitor = Process.monitor(owner)
+
+        {:reply, :ok,
+         %{
+           state
+           | lanes: Map.put(state.lanes, lane, prefix),
+             owners: Map.put(state.owners, lane, {owner, monitor}),
+             owner_monitors: Map.put(state.owner_monitors, monitor, lane)
+         }}
     end
   end
 
-  def handle_call({:close_lane, lane}, _from, state),
-    do: {:reply, :ok, %{state | lanes: Map.delete(state.lanes, lane)}}
+  def handle_call({:close_lane, lane}, {caller, _tag}, state) do
+    case Map.fetch(state.owners, lane) do
+      {:ok, {^caller, monitor}} ->
+        Process.demonitor(monitor, [:flush])
+        {:reply, :ok, drop_lane(state, lane, monitor)}
+
+      {:ok, _other_owner} ->
+        {:reply, {:error, :not_owner}, state}
+
+      :error ->
+        {:reply, :ok, state}
+    end
+  end
+
+  def handle_call({:reject_permanent, lane, sequence}, {caller, _tag}, state) do
+    cond do
+      not Map.has_key?(state.lanes, lane) ->
+        {:reply, {:error, :lane_not_open}, state}
+
+      not match?({:ok, {^caller, _monitor}}, Map.fetch(state.owners, lane)) ->
+        {:reply, {:error, :not_owner}, state}
+
+      not (is_integer(sequence) and sequence >= 1 and sequence <= @u64_max) ->
+        {:reply, {:error, :sequence}, state}
+
+      true ->
+        {_caller, monitor} = Map.fetch!(state.owners, lane)
+        {:reply, :ok, record(state, lane, monitor, sequence, @permanent)}
+    end
+  end
 
   def handle_call({:offer, publication}, _from, state) do
     case slot_of(publication) do
@@ -273,7 +392,28 @@ defmodule ServiceRadar.Edge.PublishPipeline do
     end
   end
 
+  def handle_call({:reported_through, lane, sequence}, {caller, _tag}, state) do
+    case Map.fetch(state.owners, lane) do
+      {:ok, {^caller, _monitor}} ->
+        case ResolvedPrefix.reported_through(Map.fetch!(state.lanes, lane), sequence) do
+          {:ok, reported} -> {:reply, :ok, %{state | lanes: Map.put(state.lanes, lane, reported)}}
+          {:error, reason} -> {:reply, {:error, reason}, state}
+        end
+
+      {:ok, _other_owner} ->
+        {:reply, {:error, :not_owner}, state}
+
+      :error ->
+        {:reply, {:error, :lane_not_open}, state}
+    end
+  end
+
   def handle_call(:stats, _from, state) do
+    retained =
+      Enum.reduce(state.lanes, 0, fn {_lane, prefix}, sum ->
+        sum + ResolvedPrefix.retained_dispositions(prefix)
+      end)
+
     {:reply,
      %{
        class: state.class,
@@ -281,7 +421,8 @@ defmodule ServiceRadar.Edge.PublishPipeline do
        queued: state.queued,
        lanes: map_size(state.lanes),
        max_inflight: state.max_inflight,
-       max_queue: state.max_queue
+       max_queue: state.max_queue,
+       retained_dispositions: retained
      }, state}
   end
 
@@ -294,7 +435,8 @@ defmodule ServiceRadar.Edge.PublishPipeline do
         {:reply, {:error, :queue_full}, state}
 
       true ->
-        work = %{lane: lane, sequence: sequence, publication: publication}
+        {_owner, monitor} = Map.fetch!(state.owners, lane)
+        work = %{lane: lane, monitor: monitor, sequence: sequence, publication: publication}
 
         {:reply, :ok,
          dispatch(%{state | queue: :queue.in(work, state.queue), queued: state.queued + 1})}
@@ -307,22 +449,22 @@ defmodule ServiceRadar.Edge.PublishPipeline do
       {nil, _} ->
         {:noreply, state}
 
-      {%{lane: lane, sequence: sequence}, rest} ->
+      {%{lane: lane, monitor: monitor, sequence: sequence}, rest} ->
         # The task succeeded, so its :DOWN carries no information and is flushed rather than
         # falling through to the crash clause below and recording a second outcome.
         Process.demonitor(ref, [:flush])
 
-        {:noreply,
-         dispatch(record(%{state | inflight: rest}, lane, sequence, disposition_of(result)))}
+        state = record(%{state | inflight: rest}, lane, monitor, sequence, disposition_of(result))
+        {:noreply, dispatch(state)}
     end
   end
 
   def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
     case Map.pop(state.inflight, ref) do
       {nil, _} ->
-        {:noreply, state}
+        {:noreply, owner_down(state, ref)}
 
-      {%{lane: lane, sequence: sequence}, rest} ->
+      {%{lane: lane, monitor: monitor, sequence: sequence}, rest} ->
         # The worker died without reporting. RETRYABLE, never resolved: process death says nothing
         # about whether the bytes reached the broker, and the reservation it owned stays charged in
         # the pool because owner death is not termination.
@@ -331,7 +473,8 @@ defmodule ServiceRadar.Edge.PublishPipeline do
             "(#{inspect(reason)}); the sequence stays unresolved and its reservation stays charged"
         )
 
-        {:noreply, dispatch(record(%{state | inflight: rest}, lane, sequence, @retryable))}
+        state = record(%{state | inflight: rest}, lane, monitor, sequence, @retryable)
+        {:noreply, dispatch(state)}
     end
   end
 
@@ -361,7 +504,7 @@ defmodule ServiceRadar.Edge.PublishPipeline do
     end
   end
 
-  defp start_worker(state, %{lane: lane, sequence: sequence, publication: publication}) do
+  defp start_worker(state, %{publication: publication} = work) do
     publisher = state.publisher
 
     # `:pools` is a lane => pool MAP, which is the option `JetStreamPublisher.pool_for/2` reads.
@@ -377,10 +520,7 @@ defmodule ServiceRadar.Edge.PublishPipeline do
         publisher.(publication, opts)
       end)
 
-    %{
-      state
-      | inflight: Map.put(state.inflight, task.ref, %{lane: lane, sequence: sequence})
-    }
+    %{state | inflight: Map.put(state.inflight, task.ref, Map.delete(work, :publication))}
   end
 
   # Only a durable PubAck and PROVEN poison resolve. Everything else caps the prefix, which is the
@@ -389,31 +529,69 @@ defmodule ServiceRadar.Edge.PublishPipeline do
   defp disposition_of({:error, :poison}), do: @permanent
   defp disposition_of(_other), do: @retryable
 
-  defp record(state, lane, sequence, disposition) do
-    case fetch_lane(state, lane) do
-      {:ok, prefix} ->
+  defp record(state, lane, monitor, sequence, disposition) do
+    case Map.fetch(state.owners, lane) do
+      {:ok, {owner, ^monitor}} ->
+        prefix = Map.fetch!(state.lanes, lane)
+
         case ResolvedPrefix.record(prefix, sequence, disposition) do
           {:ok, updated} ->
+            notify(owner, lane, sequence, {:recorded, disposition}, updated)
             %{state | lanes: Map.put(state.lanes, lane, updated)}
 
           # A refused outcome leaves the prefix EXACTLY as it was, which is the safe direction:
           # a conflicting or out-of-range sequence must not be able to advance a watermark. It is
           # logged rather than swallowed because it means the caller offered a sequence the lane
-          # had already released or resolved differently.
+          # had already released or resolved differently -- and the owner is told, because it is
+          # waiting on an outcome for that sequence.
           {:error, reason} ->
             Logger.warning(
               "edge publish outcome refused for lane #{inspect(lane)} sequence #{sequence}: " <>
                 "#{inspect(reason)}"
             )
 
+            notify(owner, lane, sequence, {:refused, disposition, reason}, prefix)
             state
         end
 
       # The lane was closed while its work was in flight. Nothing to record onto, and inventing a
-      # tracker here would resurrect a lane the caller deliberately dropped.
-      {:error, :lane_not_open} ->
+      # tracker here would resurrect a lane the caller deliberately dropped. A later session that
+      # opened the lane again offered none of this work, so neither its prefix nor its owner may
+      # see the outcome.
+      _closed_or_reopened ->
         state
     end
+  end
+
+  defp notify(owner, lane, sequence, outcome, prefix) do
+    send(
+      owner,
+      {:edge_publish_outcome, lane, sequence, outcome, ResolvedPrefix.resolved_through(prefix)}
+    )
+  end
+
+  # A lane's OWNER died, so its lane goes with it: nothing else may close it, and leaving it would
+  # hold one of :max_lanes forever. Work already in flight for it runs to completion -- its
+  # reservation is the pool's to account for -- and its outcome then finds no opening of the lane
+  # to record onto. Work still queued for it is discarded with the lane.
+  defp owner_down(state, monitor) do
+    case Map.fetch(state.owner_monitors, monitor) do
+      {:ok, lane} -> drop_lane(state, lane, monitor)
+      :error -> state
+    end
+  end
+
+  defp drop_lane(state, lane, monitor) do
+    queue = :queue.filter(&(&1.lane != lane), state.queue)
+
+    %{
+      state
+      | lanes: Map.delete(state.lanes, lane),
+        owners: Map.delete(state.owners, lane),
+        owner_monitors: Map.delete(state.owner_monitors, monitor),
+        queue: queue,
+        queued: :queue.len(queue)
+    }
   end
 
   defp fetch_lane(state, lane) do

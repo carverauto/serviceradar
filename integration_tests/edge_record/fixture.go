@@ -158,6 +158,21 @@ func BuildSweepFixture(originPrincipalID []byte) (*FixtureRecord, error) {
 	return buildFixture(1, originPrincipalID)
 }
 
+// BuildSweepFixtureInScope is BuildSweepFixture with the record bound to
+// networkScopeID instead of a fresh scope. A fixture appended to a spool that
+// already holds records must use this: one agent spool carries exactly one
+// network scope (ingestion-routing), and the gateway ends a stream whose
+// records name a second one.
+func BuildSweepFixtureInScope(networkScopeID, originPrincipalID []byte) (*FixtureRecord, error) {
+	fx, err := buildFixture(1, originPrincipalID)
+	if err != nil {
+		return nil, err
+	}
+	fx.NetworkScopeID = networkScopeID
+	rebindNetworkScope(fx)
+	return fx, nil
+}
+
 // BuildConflictingSweepFixture returns a SECOND, independently valid
 // EdgeRecordV1 sharing networkScopeID and originPrincipalID but otherwise
 // different in every content field (different event_id, different
