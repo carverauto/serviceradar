@@ -34,7 +34,7 @@ Traps complement polling by pushing urgent events:
 2. Make the trap listener reachable only from trusted device networks, for example through a private `LoadBalancer`, private `NodePort`, VPN-routed service, or Docker Compose port mapping. Keep the actual collector address in private operations material; see [Kubernetes External Ingestion](./kubernetes-ingestion.md).
 3. Confirm delivery with `tcpdump` or `kubectl logs` on the trap receiver pod.
 
-`serviceradar-trapd` is stateless; see `helm/serviceradar/files/serviceradar-config.yaml` or `build/packaging/trapd/config/trapd.json` for base settings you can override through file edits or a pinned overlay.
+`serviceradar-trapd` is stateless; see `files/serviceradar-config.yaml` in the published chart (`helm pull oci://registry.carverauto.dev/serviceradar/charts/serviceradar --version <chart-version> --untar`) or `build/packaging/trapd/config/trapd.json` for base settings you can override through file edits or a pinned overlay.
 
 **trapd security:** trapd's gRPC interface supports a `SecurityMode` of `mtls` (the default), `spiffe`, or `none`. When `grpc_listen_addr` is set, `none` is rejected — the gRPC endpoint must use `mtls` or `spiffe`. The default gRPC health/listener address is `0.0.0.0:50043`. For SPIFFE mode, a `trust_domain` is required. Keep the trap UDP port (162) and the gRPC port restricted to trusted networks.
 

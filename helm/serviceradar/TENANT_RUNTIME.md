@@ -18,7 +18,8 @@ to enable them.
 
 ## Validate The Baseline
 
-Render the chart locally before changing tenant-facing values:
+From a chart source checkout, render the chart locally before changing
+tenant-facing values:
 
 ```bash
 helm template serviceradar ./helm/serviceradar \

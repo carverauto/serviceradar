@@ -12,24 +12,28 @@ Official chart location (OCI/Harbor):
 
 ```bash
 helm upgrade --install serviceradar oci://registry.carverauto.dev/serviceradar/charts/serviceradar \
-  --version 1.2.20 \
+  --version <chart-version> \
   -n serviceradar --create-namespace \
-  --set global.imageTag="v1.2.20"
+  -f my-values.yaml
 ```
 
+`my-values.yaml` holds only your site overrides. The chart version is the
+release version without the leading `v` (release `vX.Y.Z` is chart `X.Y.Z`).
+The chart and the first-party images under `registry.carverauto.dev/serviceradar`
+pull anonymously, so no registry login is needed. Every first-party image tag
+except `serviceradar-cnpg` (pinned by digest) defaults to the chart appVersion, so `--version` alone selects matching images.
+Leave `global.imageTag` unset; if you do set it, it must be `v<chart-version>`,
+or the core migrations `expectedVersion` and the templates drift from the
+images. To upgrade, rerun the same command with the new `--version`.
+
 ### From Repository Checkout (Development)
+
+Use a local chart path only when developing or testing chart changes:
 
 ```bash
 helm upgrade --install serviceradar ./helm/serviceradar \
   -n serviceradar --create-namespace
 ```
-
-### Hosted Tenant Runtime Baseline
-
-Dedicated hosted tenant clusters use [values-tenant.yaml](values-tenant.yaml)
-as the chart baseline rendered by the ServiceRadar control plane. See
-[TENANT_RUNTIME.md](TENANT_RUNTIME.md) for the render-validation command and
-hosted exposure model.
 
 Optional dev overrides to follow mutable tags on restart:
 ```bash
@@ -38,6 +42,17 @@ helm upgrade --install serviceradar ./helm/serviceradar \
   --set global.imageTag="latest" \
   --set global.imagePullPolicy="Always"
 ```
+
+`latest` is not tied to the checkout's chart version, so the migrations
+`expectedVersion` and templates can drift from the images. Never use it for an
+operator install.
+
+### Hosted Tenant Runtime Baseline
+
+Dedicated hosted tenant clusters use [values-tenant.yaml](values-tenant.yaml)
+as the chart baseline rendered by the ServiceRadar control plane. See
+[TENANT_RUNTIME.md](TENANT_RUNTIME.md) for the render-validation command and
+hosted exposure model.
 
 ## Architecture
 
@@ -78,7 +93,7 @@ For detailed edge agent deployment, see the [Edge Agent Guide](../docs/docs/edge
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `global.imageTag` | Docker image tag for all first-party components | `v1.2.54` |
+| `global.imageTag` | Override image tag for first-party components (not `serviceradar-cnpg`). Empty uses `v<appVersion>` from the chart; if set, it must equal `v<chart-version>` | `""` |
 | `image.digests.<service>` | Optional digest pin for a first-party component, overriding tags | `{}` |
 | `ingress.enabled` | Enable ingress for web UI | `false` |
 | `ingress.host` | Hostname for ingress | `""` |
@@ -288,7 +303,7 @@ for the failure mode and recovery instructions.
 - That shared secret also owns the default edge onboarding signing key and Erlang cluster cookie. Leave `secrets.edgeOnboardingKey` and `webNg.clusterCookie` empty to auto-generate unique install-scoped values; set them explicitly only when you need deterministic secret material or are rotating to a planned replacement.
 - If `secrets.autoGenerate=false`, your pre-created secret must also include `edge-onboarding-key`, `cluster-cookie`, `web-ng-secret-key-base`, and the other runtime keys expected by the chart.
 - A pre-install hook also generates the runtime certificate bundle and publishes it to `certs.runtimeSecretName` (default `serviceradar-runtime-certs`).
-- The chart does not generate image pull secrets; create `registry-carverauto-dev-cred` (or override `image.registryPullSecret`).
+- The chart does not generate image pull secrets. Published images pull anonymously, so none is required; set `image.registryPullSecret=""` to drop the default `registry-carverauto-dev-cred` reference, or create that secret (or override the name) when pulling through an authenticated mirror. Keep a real secret name there if you enable `argocdImageUpdater.pullSecretReader`, whose Role needs one.
 - The in-cluster agent writes mutable checker config, cache files, and managed release payloads under `/var/lib/serviceradar`; keep the default PVC-backed `agent.*Storage` settings enabled in Kubernetes production environments.
 - SPIFFE/SPIRE is optional. Enable it with `--set spire.enabled=true` (and `--set spire.postgres.enabled=true` if you also want the in-chart SPIRE database resources).
 - When SPIRE mode is enabled, the SPIRE server now stays internal by default (`spire.server.serviceType=ClusterIP`), the SPIRE health port is not published unless you explicitly set `spire.server.exposeHealthPort=true`, and kubelet verification stays enabled unless you explicitly set `spire.agent.skipKubeletVerification=true`.

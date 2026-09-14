@@ -19,14 +19,16 @@ podDisruptionBudgets:
 global:
   # Override all ServiceRadar image tags at once. Leave empty to track the
   # chart appVersion, which is almost always what you want -- the chart and the
-  # application it deploys are released together. Set a sha-* tag or use
-  # image.digests.* for production rollouts needing immutable references.
+  # application it deploys are released together, so `--version` alone selects
+  # matching images. If you set it, use v<chart-version>: any other tag drifts
+  # from the core.migrations.expectedVersion and templates this chart ships.
+  # For immutable references, pin image.digests.* instead.
   imageTag: ""
   # The ServiceRadar RELEASE this deployment corresponds to, as a `v<semver>`
   # tag. Distinct from imageTag on purpose: web-ng resolves plugin and native
   # add-on assets from the GitHub release with this name, and shows it in the
-  # product status UI. Immutable rollouts set imageTag to a `sha-<gitsha>`, and
-  # no release is ever named that, so the two cannot share one value.
+  # product status UI. Development rollouts may set imageTag to a `sha-<gitsha>`
+  # build tag, and no release is ever named that, so the two cannot share one value.
   # Empty means "use the chart appVersion", which is what you want unless you are
   # deliberately pulling add-ons from a different release than the chart.
   releaseVersion: ""
@@ -48,9 +50,12 @@ global:
     allowInsecureStorage: false
 
 image:
-  # Base registry/repository prefix for first-party ServiceRadar images.
-  # Override with ghcr.io/carverauto to pull published GHCR images.
+  # Base registry/repository prefix for first-party ServiceRadar images. They
+  # are published only here and pull anonymously; ghcr.io/carverauto does not
+  # carry current releases. Override only to pull from your own mirror.
   registry: registry.carverauto.dev/serviceradar
+  # Published images pull anonymously, so this secret is only needed for an
+  # authenticated mirror. Set it to "" to drop the reference.
   registryPullSecret: registry-carverauto-dev-cred
   tags:
     # Default tag for first-party ServiceRadar images. Empty means "use the

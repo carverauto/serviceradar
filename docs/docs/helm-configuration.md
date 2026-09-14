@@ -21,7 +21,7 @@ Install/upgrade
 - Namespace: create once: `kubectl create ns serviceradar` (or change `namespace` in chart values).
 - Deploy from the official OCI chart (recommended):
   - `helm upgrade --install serviceradar oci://registry.carverauto.dev/serviceradar/charts/serviceradar --version <chart-version> -n serviceradar --create-namespace -f my-values.yaml`
-- Deploy from a repo checkout (development):
+- Test unreleased chart changes from a source checkout (chart development only; operators use the OCI chart above):
   - `helm upgrade --install serviceradar ./helm/serviceradar -n serviceradar -f my-values.yaml`
 - Quick overrides without a file: add `--set` flags (examples below).
 - MCP (`/mcp`) is off by default. Enable with `--set webNg.mcpEnabled="true"`
@@ -32,21 +32,27 @@ Install/upgrade
 OCI chart quick start
 - Inspect chart metadata and defaults:
   - `helm show chart oci://registry.carverauto.dev/serviceradar/charts/serviceradar --version <chart-version>`
-  - `helm show values oci://registry.carverauto.dev/serviceradar/charts/serviceradar --version <chart-version> > values.yaml`
+  - `helm show values oci://registry.carverauto.dev/serviceradar/charts/serviceradar --version <chart-version> > default-values.yaml` (reference only; put just the keys you change in `my-values.yaml`)
 - Image tags follow the chart by default:
   - If you leave `global.imageTag` empty (the default), every first-party
-    ServiceRadar image uses the chart's `appVersion`. The chart and the
-    application it deploys are released together, so this is normally what you
-    want and needs no configuration.
+    ServiceRadar image except `serviceradar-cnpg` (pinned by digest) uses the
+    chart's `appVersion`, pulled as
+    `registry.carverauto.dev/serviceradar/serviceradar-<component>:v<chart-version>`.
+    The chart and the application it deploys are released together, so
+    `--version <chart-version>` alone selects matching images and needs no
+    further configuration.
+- Treat `global.imageTag` as an override, not a release selector:
+  - If you set it, it must be `v<chart-version>` for the same `--version` you
+    install. Any other tag drifts from the `core.migrations.expectedVersion`
+    and templates that chart version ships. To change releases, change
+    `--version`.
 - Pin images explicitly (immutable rollouts):
-  - `--set global.imageTag="sha-<gitsha>"`, or pin per-service digests with
+  - Pin per-service digests of those `v<chart-version>` images with
     `image.digests.*`.
-- Track mutable images (staging/dev):
-  - `--set global.imageTag="latest" --set global.imagePullPolicy="Always"`
 
 HA profile overlay
 - `values.yaml` stays conservative by default. Most stateful or queue-backed services start at `1` replica unless you opt into a larger topology.
-- `helm/serviceradar/values-ha.yaml` ships as a purpose-named HA overlay. Apply it with `-f values-ha.yaml` as the starting point for a multi-replica deployment. (`values-demo.yaml` is a broader demo overlay that also raises replica counts.)
+- `values-ha.yaml` ships inside the published chart as a purpose-named HA overlay. Extract it from the chart version you install with `helm pull oci://registry.carverauto.dev/serviceradar/charts/serviceradar --version <chart-version> --untar --untardir serviceradar-<chart-version>`, then apply it with `-f serviceradar-<chart-version>/serviceradar/values-ha.yaml`, before your own `-f my-values.yaml`, as the starting point for a multi-replica deployment.
 - The HA overlay runs these at `3` replicas:
   - `core`
   - `webNg`
@@ -530,7 +536,8 @@ kubectl create configmap serviceradar-device-enrichment-rules \
 Apply/verify:
 
 ```bash
-helm upgrade --install serviceradar ./helm/serviceradar -n serviceradar -f my-values.yaml
+helm upgrade --install serviceradar oci://registry.carverauto.dev/serviceradar/charts/serviceradar \
+  --version <chart-version> -n serviceradar -f my-values.yaml
 kubectl logs deploy/serviceradar-core -n serviceradar | rg "Device enrichment rules loaded"
 ```
 

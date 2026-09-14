@@ -20,15 +20,17 @@ docker compose logs config-updater | grep \"Password:\"
 
 ```bash
 helm upgrade --install serviceradar oci://registry.carverauto.dev/serviceradar/charts/serviceradar \
-  -n serviceradar --create-namespace
+  --version <chart-version> -n serviceradar --create-namespace -f my-values.yaml
 ```
+
+`<chart-version>` is the release version without the leading `v` (release `vX.Y.Z` is chart `X.Y.Z`). `my-values.yaml` holds only the keys you override and can start empty (`touch my-values.yaml`). The chart and its images pull anonymously, so no repository checkout or registry login is needed.
 
 ### Verify Harbor Images
 
-ServiceRadar signs published Harbor images with Cosign. The public key is available in [docs/cosign.pub](/Users/mfreeman/src/serviceradar/docs/cosign.pub).
+ServiceRadar signs published Harbor images with Cosign. The public key is available in [docs/cosign.pub](docs/cosign.pub).
 
 When self-hosted keyless signing is enabled, the corresponding trust material
-lives under [docs/sigstore/README.md](/home/mfreeman/src/serviceradar/docs/sigstore/README.md).
+lives under [docs/sigstore/README.md](docs/sigstore/README.md).
 Existing key-based releases continue to verify with `docs/cosign.pub`.
 
 ```bash

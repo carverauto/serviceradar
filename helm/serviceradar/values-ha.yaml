@@ -1,10 +1,15 @@
 # High-availability overlay for production-like ServiceRadar installs.
 #
-# Usage:
-#   helm upgrade --install serviceradar ./helm/serviceradar \
-#     -n <namespace> \
-#     -f helm/serviceradar/values.yaml \
-#     -f helm/serviceradar/values-ha.yaml
+# Usage (no repository checkout needed; this overlay ships inside the chart):
+#   helm pull oci://registry.carverauto.dev/serviceradar/charts/serviceradar \
+#     --version <chart-version> --untar --untardir serviceradar-<chart-version>
+#   helm upgrade --install serviceradar oci://registry.carverauto.dev/serviceradar/charts/serviceradar \
+#     --version <chart-version> \
+#     -n <namespace> --create-namespace \
+#     -f serviceradar-<chart-version>/serviceradar/values-ha.yaml \
+#     -f my-values.yaml
+#
+# List your own values file last so its site overrides win.
 #
 # This mirrors the demo namespace control-plane shape without carrying
 # demo-specific hostnames, MetalLB addresses, or sample-data services.
