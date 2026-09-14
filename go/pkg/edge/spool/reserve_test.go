@@ -65,13 +65,25 @@ func newTestAllocator(t *testing.T, ordinary uint64, maxRecoveries int) *Allocat
 	return a
 }
 
+// admitLanded admits n ordinary bytes for owner and reports them written, as
+// Spool.Append does around its write.
+func admitLanded(a *Allocator, owner string, n uint64) error {
+	if err := a.admit(owner, n); err != nil {
+		return err
+	}
+	a.settle(n, nil)
+	return nil
+}
+
 // faultFS fails exactly one barrier operation with a chosen errno and counts
 // every storage call, so a test can prove a stopped recovery touches nothing.
+// beforeWrite, when set, runs while a write is in progress, before its bytes land.
 type faultFS struct {
-	inner  fileSystem
-	failOp string
-	errno  error
-	calls  int
+	inner       fileSystem
+	failOp      string
+	errno       error
+	calls       int
+	beforeWrite func()
 }
 
 func (f *faultFS) fail(op string) bool {
@@ -120,6 +132,9 @@ func (f *faultFile) Write(p []byte) (int, error) {
 	if f.fs.fail("write") {
 		n, _ := f.inner.Write(p[:len(p)/2])
 		return n, f.fs.errno
+	}
+	if f.fs.beforeWrite != nil {
+		f.fs.beforeWrite()
 	}
 	return f.inner.Write(p)
 }
@@ -241,10 +256,10 @@ func TestNewAllocatorRejectsUnsafeConfig(t *testing.T) {
 func TestOrdinaryAdmissionCannotBorrowTheReserve(t *testing.T) {
 	a := newTestAllocator(t, 500, 2)
 
-	if err := a.Admit(500); err != nil {
+	if err := admitLanded(a, "lane", 500); err != nil {
 		t.Fatalf("Admit up to the ordinary ceiling: %v", err)
 	}
-	if err := a.Admit(1); !errors.Is(err, ErrAdmissionRefused) {
+	if err := admitLanded(a, "other-lane", 1); !errors.Is(err, ErrAdmissionRefused) {
 		t.Fatalf("Admit past the ceiling = %v, want ErrAdmissionRefused", err)
 	}
 	if got := a.Usage().OrdinaryUsed; got != 500 {
@@ -269,13 +284,13 @@ func TestOrdinaryAdmissionCannotBorrowTheReserve(t *testing.T) {
 		t.Fatalf("recovery used = %d, want both full footprints %d", got, 2*testPerRecovery)
 	}
 
-	if err := a.ReleaseOrdinary(100); err != nil {
+	if err := a.ReleaseOrdinary("lane", 100); err != nil {
 		t.Fatalf("ReleaseOrdinary: %v", err)
 	}
-	if err := a.Admit(100); err != nil {
+	if err := admitLanded(a, "lane", 100); err != nil {
 		t.Fatalf("Admit after release: %v", err)
 	}
-	if err := a.ReleaseOrdinary(10_000); !errors.Is(err, ErrReleaseExceedsCharge) {
+	if err := a.ReleaseOrdinary("lane", 10_000); !errors.Is(err, ErrReleaseExceedsCharge) {
 		t.Fatalf("over-release = %v, want ErrReleaseExceedsCharge", err)
 	}
 }
@@ -299,10 +314,10 @@ func TestAdmissionRequiresThePhysicalFloor(t *testing.T) {
 	// Another process has eaten the disk: the nominal ceiling still has 500
 	// bytes, but only 49 exist above the floor.
 	free = floor + 49
-	if err := a.Admit(50); !errors.Is(err, ErrAdmissionRefused) {
+	if err := admitLanded(a, "lane", 50); !errors.Is(err, ErrAdmissionRefused) {
 		t.Fatalf("Admit beyond physical free space = %v, want ErrAdmissionRefused", err)
 	}
-	if err := a.Admit(49); err != nil {
+	if err := admitLanded(a, "lane", 49); err != nil {
 		t.Fatalf("Admit within physical free space: %v", err)
 	}
 
@@ -315,7 +330,7 @@ func TestAdmissionRequiresThePhysicalFloor(t *testing.T) {
 	}
 
 	free, probeErr = floor+1000, errProbe
-	if err := a.Admit(1); !errors.Is(err, ErrAdmissionRefused) || !errors.Is(err, errProbe) {
+	if err := admitLanded(a, "lane", 1); !errors.Is(err, ErrAdmissionRefused) || !errors.Is(err, errProbe) {
 		t.Fatalf("Admit with a failing probe = %v, want ErrAdmissionRefused wrapping the probe error", err)
 	}
 	if a.Err() != nil {
@@ -335,10 +350,10 @@ func TestConcurrentRecoveriesAreBounded(t *testing.T) {
 	if _, err := a.AcquireRecovery(); !errors.Is(err, ErrRecoveryConcurrencyExhausted) {
 		t.Fatalf("acquire 3 = %v, want ErrRecoveryConcurrencyExhausted", err)
 	}
-	if err := g1.Finish(0); err != nil {
+	if err := g1.Finish("", 0); err != nil {
 		t.Fatalf("finish: %v", err)
 	}
-	if err := g1.Finish(0); !errors.Is(err, ErrRecoveryFinished) {
+	if err := g1.Finish("", 0); !errors.Is(err, ErrRecoveryFinished) {
 		t.Fatalf("second finish = %v, want ErrRecoveryFinished", err)
 	}
 	if _, err := a.AcquireRecovery(); err != nil {
@@ -360,17 +375,137 @@ func TestFinishMovesRetainedOutputIntoOrdinaryUsage(t *testing.T) {
 		t.Fatalf("write journal: %v", err)
 	}
 
-	if err := g.Finish(97); !errors.Is(err, ErrReleaseExceedsCharge) {
+	owner := filepath.Join(dir, "new-lane")
+	if err := g.Finish(owner, 97); !errors.Is(err, ErrReleaseExceedsCharge) {
 		t.Fatalf("retaining more than was written = %v, want ErrReleaseExceedsCharge", err)
 	}
 	if got := a.Usage().ActiveRecoveries; got != 1 {
 		t.Fatalf("a refused finish released the slot: active = %d", got)
 	}
-	if err := g.Finish(96); err != nil {
+	if err := g.Finish(owner, 96); err != nil {
 		t.Fatalf("finish: %v", err)
 	}
 	if u := a.Usage(); u.OrdinaryUsed != 96 || u.RecoveryUsed != 0 || u.ActiveRecoveries != 0 {
 		t.Fatalf("after finish usage = %+v, want 96 ordinary, 0 recovery, 0 active", u)
+	}
+	if err := a.ReleaseOrdinary("another-lane", 96); !errors.Is(err, ErrReleaseExceedsCharge) {
+		t.Fatalf("releasing retained output under the wrong owner = %v, want ErrReleaseExceedsCharge", err)
+	}
+	if err := a.ReleaseOrdinary(owner, 96); err != nil {
+		t.Fatalf("release retained output after deletion: %v", err)
+	}
+	if got := a.Usage().OrdinaryUsed; got != 0 {
+		t.Fatalf("after releasing retained output ordinary used = %d, want 0", got)
+	}
+}
+
+// Every footprint field bounds CUMULATIVE writes: each rewrite of the same path
+// is charged in full, so a journal is sized for all of its rewrites, not one copy.
+func TestFootprintBoundsCumulativeRewrites(t *testing.T) {
+	a := newTestAllocator(t, 500, 1)
+	g, err := a.AcquireRecovery()
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	journal := filepath.Join(t.TempDir(), "journal-a")
+	phase1 := bytes.Repeat([]byte{1}, 16)
+	if err := g.WriteBarrier(ArtifactJournalA, journal, bytes.Repeat([]byte{0}, 16)); err != nil {
+		t.Fatalf("phase 0 journal write: %v", err)
+	}
+	if err := g.WriteBarrier(ArtifactJournalA, journal, phase1); err != nil {
+		t.Fatalf("phase 1 rewrite within the cumulative budget: %v", err)
+	}
+	if got := g.Used(ArtifactJournalA); got != 32 {
+		t.Fatalf("journal A charged %d after two 16-byte writes of one path, want 32", got)
+	}
+
+	err = g.WriteBarrier(ArtifactJournalA, journal, []byte{2})
+	if !errors.Is(err, ErrReserveExhausted) {
+		t.Fatalf("rewrite past the cumulative budget with one 16-byte copy on disk = %v, want ErrReserveExhausted", err)
+	}
+	got, err := os.ReadFile(journal)
+	if err != nil || !bytes.Equal(got, phase1) {
+		t.Fatalf("journal after a refused rewrite = %v, %v; want the phase 1 copy untouched", got, err)
+	}
+}
+
+// Bytes charged but not yet on disk stay in the physically backed floor. The
+// probe cannot see them until they land, so neither a lane's admission nor
+// another recovery's acquisition may spend them in the meantime.
+func TestInFlightBytesStayInTheBackedFloor(t *testing.T) {
+	var free uint64
+	a, err := NewAllocator(AllocatorConfig{
+		Capacity:                testPerRecovery*2 + testMinFree + 10_000,
+		Recovery:                testFootprint(),
+		MaxConcurrentRecoveries: 2,
+		MinFree:                 testMinFree,
+		FreeBytes:               func() (uint64, error) { return free, nil },
+	})
+	if err != nil {
+		t.Fatalf("NewAllocator: %v", err)
+	}
+	ff := &faultFS{inner: osFS{}}
+	a.fs = ff
+	floor := a.Usage().Floor
+	free = floor + 100
+
+	lane, err := Open(t.TempDir(), WithAllocator(a))
+	if err != nil {
+		t.Fatalf("open lane: %v", err)
+	}
+	defer func() { _ = lane.Close() }()
+	// record returns a body whose framed record is exactly n bytes.
+	record := func(n int) []byte { return bytes.Repeat([]byte{'x'}, n-headerLen-headerCRC-bodyCRCLen) }
+
+	g, err := a.AcquireRecovery()
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	dir := t.TempDir()
+
+	hooked := false
+	ff.beforeWrite = func() {
+		hooked = true
+		// 100 free bytes sit above the floor, but 64 of them belong to the
+		// destination write in progress.
+		if _, err := lane.Append(evid(1), record(101)); !errors.Is(err, ErrAdmissionRefused) {
+			t.Errorf("lane admission during the recovery write = %v, want ErrAdmissionRefused", err)
+		}
+		free = floor - 1
+		if _, err := a.AcquireRecovery(); !errors.Is(err, ErrReserveUnbacked) {
+			t.Errorf("acquisition backed only by in-flight bytes = %v, want ErrReserveUnbacked", err)
+		}
+		free = floor + 100
+	}
+	if err := g.WriteBarrier(ArtifactDestinationSegment, filepath.Join(dir, "dest.seg"), make([]byte, 64)); err != nil {
+		t.Fatalf("destination write: %v", err)
+	}
+	ff.beforeWrite = nil
+	if !hooked {
+		t.Fatal("the in-flight checks never ran")
+	}
+	free -= 64
+
+	// Mapping bytes the caller writes itself are in flight from Charge on.
+	if err := g.Charge(ArtifactMapping, 8); err != nil {
+		t.Fatalf("charge mapping: %v", err)
+	}
+	if _, err := lane.Append(evid(1), record(101)); !errors.Is(err, ErrAdmissionRefused) {
+		t.Fatalf("lane admission into charged, unwritten mapping bytes = %v, want ErrAdmissionRefused", err)
+	}
+	// The destination write settled once it landed, so exactly the rest fits.
+	if _, err := lane.Append(evid(1), record(100)); err != nil {
+		t.Fatalf("lane admission after the destination landed: %v", err)
+	}
+	free -= 100 + 8
+
+	// The grant's next step settles the mapping.
+	if err := g.WriteBarrier(ArtifactAttributionSidecar, filepath.Join(dir, "sidecar"), make([]byte, 16)); err != nil {
+		t.Fatalf("sidecar write: %v", err)
+	}
+	free -= 16
+	if _, err := a.AcquireRecovery(); err != nil {
+		t.Fatalf("acquisition once every charged byte landed and settled: %v", err)
 	}
 }
 
@@ -422,7 +557,7 @@ func TestExhaustingTheReserveStopsRecoveryDeterministically(t *testing.T) {
 	if !errors.Is(err, ErrRecoveryStopped) || ran || !exists(t, source) {
 		t.Fatalf("destructive step after exhaustion: err=%v ran=%v; want refused and source intact", err, ran)
 	}
-	if err := g.Finish(0); !errors.Is(err, ErrRecoveryStopped) {
+	if err := g.Finish("", 0); !errors.Is(err, ErrRecoveryStopped) {
 		t.Fatalf("finish after exhaustion = %v, want ErrRecoveryStopped", err)
 	}
 	if ff.calls != calls || exists(t, journalB) {
@@ -437,7 +572,7 @@ func TestExhaustingTheReserveStopsRecoveryDeterministically(t *testing.T) {
 	if a.Err() != nil {
 		t.Fatalf("allocator fail-stopped on a refused charge: %v", a.Err())
 	}
-	if err := a.Admit(1); err != nil {
+	if err := admitLanded(a, "lane", 1); err != nil {
 		t.Fatalf("ordinary admission after another recovery's exhaustion: %v", err)
 	}
 	other, err := a.AcquireRecovery()
@@ -513,7 +648,7 @@ func TestFailedBarrierWriteIsFailStop(t *testing.T) {
 					if !errors.Is(err, ErrRecoveryStopped) || !errors.Is(err, errno) {
 						t.Fatalf("%s grant write after fail-stop = %v, want refused", name, err)
 					}
-					if err := grant.Finish(0); !errors.Is(err, ErrRecoveryStopped) {
+					if err := grant.Finish("", 0); !errors.Is(err, ErrRecoveryStopped) {
 						t.Fatalf("%s grant finish after fail-stop = %v, want refused", name, err)
 					}
 				}
@@ -528,7 +663,7 @@ func TestFailedBarrierWriteIsFailStop(t *testing.T) {
 					t.Fatalf("storage touched after fail-stop: %d calls", ff.calls-calls)
 				}
 
-				if err := a.Admit(1); !errors.Is(err, ErrFailStopped) || !errors.Is(err, errno) {
+				if err := admitLanded(a, "lane", 1); !errors.Is(err, ErrFailStopped) || !errors.Is(err, errno) {
 					t.Fatalf("Admit after fail-stop = %v, want ErrFailStopped caused by %s", err, errName)
 				}
 				if _, err := a.AcquireRecovery(); !errors.Is(err, ErrFailStopped) {
@@ -559,8 +694,60 @@ func TestFailedDestructiveStepIsFailStop(t *testing.T) {
 			if err := g.RunDestructive("delete next", func() error { ran = true; return nil }); !errors.Is(err, ErrRecoveryStopped) || ran {
 				t.Fatalf("destructive step after a failed one: err=%v ran=%v; want refused", err, ran)
 			}
-			if err := a.Admit(1); !errors.Is(err, ErrFailStopped) {
+			if err := admitLanded(a, "lane", 1); !errors.Is(err, ErrFailStopped) {
 				t.Fatalf("Admit after failed destructive step = %v, want ErrFailStopped", err)
+			}
+		})
+	}
+}
+
+// Output a recovery writes itself after Charge fail-stops through FailStop
+// exactly as a failed barrier write does: no grant runs a destructive step after.
+func TestCallerWrittenOutputFailureIsFailStop(t *testing.T) {
+	for errName, errno := range map[string]error{"ENOSPC": syscall.ENOSPC, "EIO": syscall.EIO} {
+		t.Run(errName, func(t *testing.T) {
+			a := newTestAllocator(t, 500, 2)
+			source := filepath.Join(t.TempDir(), "source.seg")
+			if err := os.WriteFile(source, []byte("synthetic source segment"), filePerm); err != nil {
+				t.Fatalf("seed source: %v", err)
+			}
+			g, err := a.AcquireRecovery()
+			if err != nil {
+				t.Fatalf("acquire: %v", err)
+			}
+			other, err := a.AcquireRecovery()
+			if err != nil {
+				t.Fatalf("acquire other: %v", err)
+			}
+
+			if err := g.Charge(ArtifactDestinationSegment, 64); err != nil {
+				t.Fatalf("charge destination: %v", err)
+			}
+			err = g.FailStop("stream destination segment", errno)
+			var stop *FailStopError
+			if !errors.Is(err, errno) || !errors.Is(err, ErrFailStopped) || !errors.As(err, &stop) ||
+				stop.Op != "stream destination segment" {
+				t.Fatalf("FailStop = %v, want *FailStopError(stream destination segment) wrapping %s", err, errName)
+			}
+
+			ran := false
+			for name, grant := range map[string]*RecoveryGrant{"failed": g, "other": other} {
+				err := grant.RunDestructive("delete source", func() error { ran = true; return os.Remove(source) })
+				if !errors.Is(err, ErrRecoveryStopped) || !errors.Is(err, errno) {
+					t.Fatalf("%s grant destructive step = %v, want ErrRecoveryStopped caused by %s", name, err, errName)
+				}
+				if err := grant.Charge(ArtifactMapping, 1); !errors.Is(err, ErrRecoveryStopped) {
+					t.Fatalf("%s grant charge after FailStop = %v, want ErrRecoveryStopped", name, err)
+				}
+			}
+			if ran || !exists(t, source) {
+				t.Fatalf("destructive step ran=%v after FailStop; want refused and source intact", ran)
+			}
+			if err := admitLanded(a, "lane", 1); !errors.Is(err, ErrFailStopped) || !errors.Is(err, errno) {
+				t.Fatalf("Admit after FailStop = %v, want ErrFailStopped caused by %s", err, errName)
+			}
+			if _, err := a.AcquireRecovery(); !errors.Is(err, ErrFailStopped) {
+				t.Fatalf("AcquireRecovery after FailStop = %v, want ErrFailStopped", err)
 			}
 		})
 	}
@@ -595,22 +782,6 @@ func TestSpoolAdmissionRefusalWritesNothing(t *testing.T) {
 		t.Fatalf("close: %v", err)
 	}
 
-	if got := a.Usage().OrdinaryUsed; got != 0 {
-		t.Fatalf("close left %d bytes charged, want 0", got)
-	}
-
-	// Reopening on the SAME allocator charges the lane once, not twice.
-	same, err := Open(dir, WithAllocator(a))
-	if err != nil {
-		t.Fatalf("reopen on the same allocator: %v", err)
-	}
-	if got := a.Usage().OrdinaryUsed; got != 2*recLen {
-		t.Fatalf("reopen on the same allocator charged %d, want %d", got, 2*recLen)
-	}
-	if err := same.Close(); err != nil {
-		t.Fatalf("close: %v", err)
-	}
-
 	// A restart re-measures: the recovered segment is charged to the new ledger.
 	a2 := newTestAllocator(t, 2*recLen, 1)
 	s2, err := Open(dir, WithAllocator(a2))
@@ -626,8 +797,67 @@ func TestSpoolAdmissionRefusalWritesNothing(t *testing.T) {
 	}
 }
 
-// The spool fail-stops on its own; a shared allocator additionally stops every
-// other lane and recovery. Both configurations run, so neither can mask the other.
+// A closed lane's segment is still on disk, so its charge survives Close and is
+// released only after the segment is deleted. Reopening re-measures instead of
+// adding, and releasing one lane can never spend another lane's charge.
+func TestLaneChargeLastsUntilPhysicalDeletion(t *testing.T) {
+	body := "synthetic payload"
+	recLen := uint64(headerLen + headerCRC + len(body) + bodyCRCLen)
+	a := newTestAllocator(t, 3*recLen, 1)
+	dirA, dirB := t.TempDir(), t.TempDir()
+
+	laneA, err := Open(dirA, WithAllocator(a))
+	if err != nil {
+		t.Fatalf("open lane A: %v", err)
+	}
+	mustAppend(t, laneA, 1, body)
+	mustAppend(t, laneA, 2, body)
+	if err := laneA.Close(); err != nil {
+		t.Fatalf("close lane A: %v", err)
+	}
+	if got := a.Usage().OrdinaryUsed; got != 2*recLen {
+		t.Fatalf("after closing lane A ordinary used = %d, want its on-disk %d", got, 2*recLen)
+	}
+
+	laneB, err := Open(dirB, WithAllocator(a))
+	if err != nil {
+		t.Fatalf("open lane B: %v", err)
+	}
+	defer func() { _ = laneB.Close() }()
+	mustAppend(t, laneB, 1, body)
+	if _, err := laneB.Append(evid(2), []byte(body)); !errors.Is(err, ErrAdmissionRefused) {
+		t.Fatalf("lane B append into space closed lane A still occupies = %v, want ErrAdmissionRefused", err)
+	}
+
+	reopened, err := Open(dirA, WithAllocator(a))
+	if err != nil {
+		t.Fatalf("reopen lane A: %v", err)
+	}
+	if got := a.Usage().OrdinaryUsed; got != 3*recLen {
+		t.Fatalf("reopening lane A on the same allocator: ordinary used = %d, want %d", got, 3*recLen)
+	}
+	if err := reopened.Close(); err != nil {
+		t.Fatalf("close reopened lane A: %v", err)
+	}
+
+	if err := os.Remove(filepath.Join(dirA, segmentFile)); err != nil {
+		t.Fatalf("delete lane A segment: %v", err)
+	}
+	if err := a.ReleaseOrdinary(dirA, 2*recLen); err != nil {
+		t.Fatalf("release lane A after deleting its segment: %v", err)
+	}
+	mustAppend(t, laneB, 2, body)
+	if err := a.ReleaseOrdinary(dirA, recLen); !errors.Is(err, ErrReleaseExceedsCharge) {
+		t.Fatalf("second release of lane A while lane B holds %d = %v, want ErrReleaseExceedsCharge", 2*recLen, err)
+	}
+	if got := a.Usage().OrdinaryUsed; got != 2*recLen {
+		t.Fatalf("ordinary used = %d, want lane B's %d", got, 2*recLen)
+	}
+}
+
+// The spool fail-stops on its own. A shared allocator additionally stops every
+// lane's admission but keeps recovery running, since recovery repairs a failed
+// lane. Both configurations run, so neither can mask the other.
 func TestSpoolAppendStorageFailureIsFailStop(t *testing.T) {
 	for _, op := range []string{"write", "fsync"} {
 		for errName, errno := range map[string]error{"ENOSPC": syscall.ENOSPC, "EIO": syscall.EIO} {
@@ -674,12 +904,7 @@ func testSpoolAppendFailStop(t *testing.T, op string, errno error, shared bool) 
 		t.Fatal("append after fail-stop touched the segment")
 	}
 	if shared {
-		if err := a.Admit(1); !errors.Is(err, ErrFailStopped) {
-			t.Fatalf("shared allocator admission after spool fail-stop = %v, want ErrFailStopped", err)
-		}
-		if _, err := a.AcquireRecovery(); !errors.Is(err, ErrFailStopped) {
-			t.Fatalf("AcquireRecovery after spool fail-stop = %v, want ErrFailStopped", err)
-		}
+		assertOnlyAdmissionStopped(t, a, errno)
 	}
 	if err := s.Close(); err != nil {
 		t.Fatalf("close: %v", err)
@@ -697,6 +922,46 @@ func testSpoolAppendFailStop(t *testing.T, op string, errno error, shared bool) 
 	}
 	if seq := mustAppend(t, s2, 4, "after reopen"); seq < 2 {
 		t.Fatalf("append after reopen reused sequence %d", seq)
+	}
+}
+
+// assertOnlyAdmissionStopped checks that a lane's failed append stopped every
+// lane's admission on a, and that recovery still runs end to end.
+func assertOnlyAdmissionStopped(t *testing.T, a *Allocator, errno error) {
+	t.Helper()
+	if err := a.Err(); !errors.Is(err, errno) || !errors.Is(err, ErrFailStopped) {
+		t.Fatalf("shared allocator Err after spool fail-stop = %v, want the lane's failure", err)
+	}
+	otherDir := t.TempDir()
+	otherLane, err := Open(otherDir, WithAllocator(a))
+	if err != nil {
+		t.Fatalf("open other lane: %v", err)
+	}
+	if _, err := otherLane.Append(evid(1), []byte("other lane")); !errors.Is(err, ErrFailStopped) ||
+		!errors.Is(err, errno) {
+		t.Fatalf("other lane append after spool fail-stop = %v, want ErrFailStopped caused by %v", err, errno)
+	}
+	if info, err := os.Stat(filepath.Join(otherDir, segmentFile)); err != nil || info.Size() != 0 {
+		t.Fatalf("other lane segment after refused append: %v, %v; want empty", info, err)
+	}
+	if err := otherLane.Close(); err != nil {
+		t.Fatalf("close other lane: %v", err)
+	}
+
+	g, err := a.AcquireRecovery()
+	if err != nil {
+		t.Fatalf("AcquireRecovery after a lane's append failure: %v", err)
+	}
+	journal := filepath.Join(t.TempDir(), "journal-a")
+	if err := g.WriteBarrier(ArtifactJournalA, journal, []byte("synthetic journal")); err != nil {
+		t.Fatalf("recovery write after a lane's append failure: %v", err)
+	}
+	ran := false
+	if err := g.RunDestructive("synthetic step", func() error { ran = true; return nil }); err != nil || !ran {
+		t.Fatalf("recovery destructive step after a lane's append failure: err=%v ran=%v", err, ran)
+	}
+	if err := g.Finish("", 0); err != nil {
+		t.Fatalf("finish recovery after a lane's append failure: %v", err)
 	}
 }
 

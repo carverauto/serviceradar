@@ -853,13 +853,17 @@
   proceed or partially delete. This task depends only on the spool, so it does NOT
   wait on the coordinator.
   DONE in `go/pkg/edge/spool` (`reserve.go`, `barrier.go`): `Footprint` sizes all
-  seven artifacts (journal twice) and `Allocator` multiplies it by
-  `MaxConcurrentRecoveries`; the floor is that reserve plus `MinFree`, and
-  `Admit` (wired into `Spool.Append` via `WithAllocator`) refuses beyond
-  capacity minus the floor, or beyond physically free bytes. Any failed barrier
-  write, record write/fsync, or destructive step fail-stops every grant and all
-  admission; per-artifact exhaustion stops its recovery. Whether a destructive
-  step is AUTHORIZED stays with 2.28.
+  seven artifacts (journal twice), each field bounding cumulative writes with
+  rewrites included, and `Allocator` multiplies it by `MaxConcurrentRecoveries`;
+  the floor is that reserve plus `MinFree`. `Spool.Append` (via `WithAllocator`)
+  refuses admission beyond capacity minus the floor, or beyond physically free
+  bytes less everything charged but not yet written. Ordinary charges are keyed
+  by lane directory and last until `ReleaseOrdinary` after physical deletion. A
+  failed barrier write, caller-reported write (`RecoveryGrant.FailStop`), or
+  destructive step fail-stops every grant and all admission; a failed record
+  write/fsync stops its lane and all admission but not recovery; per-artifact
+  exhaustion stops its recovery. Whether a destructive step is AUTHORIZED stays
+  with 2.28.
 - [ ] 2.27 **Resume the saved rollover work as the agent recovery coordinator
   (needs companion ABI task 1.6a plus local 2.10 and 2.21-2.26).** The paged-manifest/tombstone implementation
   preserved at `rescue/usp13-v2-wip-20260725` (`9a3a701f`) already builds pages,

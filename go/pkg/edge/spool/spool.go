@@ -112,9 +112,6 @@ type Spool struct {
 	seg      durableFile
 	nextSeq  uint64
 	resolved uint64
-	// charged is the bytes this spool holds charged to alloc, released on Close
-	// so reopening the lane on the same allocator does not count them twice.
-	charged uint64
 	// failErr is set by the first failed record write or fsync. From then on
 	// Append refuses: the segment tail is in an unknown state, and appending past
 	// it would bury a torn record mid-segment. Reopening truncates the torn tail.
@@ -125,9 +122,12 @@ type Spool struct {
 type Option func(*Spool)
 
 // WithAllocator makes every Append pass through a's ordinary producer admission,
-// and charges the segment bytes recovered at open to a. Share one allocator
-// across every lane on the same filesystem. Close releases the lane's charge; the
-// next Open re-measures and charges it again.
+// charged to the lane directory. Open charges the segment bytes it recovers to
+// that directory with Allocator.ChargeMeasured, replacing any earlier charge, so
+// reopening a lane never counts it twice. Close keeps the charge, because the
+// segment is still on disk; release it with Allocator.ReleaseOrdinary once the
+// segment is physically deleted. Share one allocator across every lane on the
+// same filesystem.
 func WithAllocator(a *Allocator) Option {
 	return func(s *Spool) { s.alloc = a }
 }
@@ -175,8 +175,7 @@ func Open(dir string, opts ...Option) (*Spool, error) {
 	s.resolved = resolved
 
 	if s.alloc != nil {
-		s.charged = uint64(validLen)
-		s.alloc.ChargeExisting(s.charged)
+		s.alloc.ChargeMeasured(dir, uint64(validLen))
 	}
 	return s, nil
 }
@@ -187,7 +186,8 @@ func Open(dir string, opts ...Option) (*Spool, error) {
 // With an allocator, a refused admission returns an error matching
 // ErrAdmissionRefused and writes nothing. A failed write or fsync returns a
 // *FailStopError, and every later Append is refused with it without touching
-// the segment.
+// the segment. It also stops ordinary admission on a shared allocator for every
+// lane, but leaves recovery running: recovery is how a failed lane is repaired.
 func (s *Spool) Append(eventID, body []byte) (uint64, error) {
 	if len(eventID) != 16 {
 		return 0, fmt.Errorf("%w: got %d", ErrEventIDLength, len(eventID))
@@ -208,16 +208,16 @@ func (s *Spool) Append(eventID, body []byte) (uint64, error) {
 	if s.alloc != nil {
 		// Admitted bytes stay charged even if the write below fails: a failed
 		// write may still have put some of them on disk.
-		if err := s.alloc.Admit(uint64(len(rec))); err != nil {
+		if err := s.alloc.admit(s.dir, uint64(len(rec))); err != nil {
 			return 0, err
 		}
-		s.charged += uint64(len(rec))
 	}
-	if err := writeAndSync(s.seg, filepath.Join(s.dir, segmentFile), rec); err != nil {
+	err := writeAndSync(s.seg, filepath.Join(s.dir, segmentFile), rec)
+	if s.alloc != nil {
+		s.alloc.settle(uint64(len(rec)), err)
+	}
+	if err != nil {
 		s.failErr = err
-		if s.alloc != nil {
-			s.alloc.failStop(err)
-		}
 		return 0, err
 	}
 
@@ -342,12 +342,6 @@ func (s *Spool) Close() error {
 	}
 	err := s.seg.Close()
 	s.seg = nil
-	if s.alloc != nil {
-		// Release only this lane's own charge. The ledger refuses a release it
-		// cannot cover, so a double release can never create capacity.
-		_ = s.alloc.ReleaseOrdinary(s.charged)
-		s.charged = 0
-	}
 	return err
 }
 

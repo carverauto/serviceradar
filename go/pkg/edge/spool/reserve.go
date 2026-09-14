@@ -121,11 +121,18 @@ func (a Artifact) String() string {
 // none of the artifacts a recovery produces, and runs out partway through the
 // first recovery that needs them. Every field must therefore be sized, and a
 // zero is refused rather than read as "not needed".
+//
+// Each field bounds the CUMULATIVE bytes written for its artifact over the whole
+// recovery, every rewrite included, not the size of one copy on disk. Every
+// write is charged in full, even one that replaces an earlier copy at the same
+// path: the replacement's temporary file coexists with that copy until the
+// rename. A journal rewritten once per phase is sized for all of its phases.
 type Footprint struct {
 	DestinationSegment uint64
 	AttributionSidecar uint64
-	// JournalCopy is the bound of ONE journal copy. Recovery writes two
-	// independent copies, and both are reserved.
+	// JournalCopy bounds the cumulative bytes written to ONE journal copy,
+	// every rewrite included. Recovery writes two independent copies, and both
+	// are reserved.
 	JournalCopy        uint64
 	ManifestPages      uint64
 	Mapping            uint64
@@ -176,7 +183,7 @@ type AllocatorConfig struct {
 	// FreeBytes, when set, reports the bytes actually free on the filesystem.
 	// Nominal accounting cannot see another process filling the disk, so every
 	// ordinary admission and recovery acquisition also requires the outstanding
-	// floor to be physically backed.
+	// floor, plus every byte charged but not yet written, to be physically backed.
 	FreeBytes func() (uint64, error)
 }
 
@@ -198,9 +205,13 @@ type Usage struct {
 // Allocator is the byte allocator shared by every lane and recovery on one
 // spool filesystem. It is safe for concurrent use.
 //
+// Ordinary bytes are charged to an owner: the directory holding them. A lane's
+// owner is its spool directory. A charge lasts until the bytes are physically
+// deleted, not until the lane closes.
+//
 // Its ledger is in memory by design. The durable truth is the files on disk:
 // after a restart, the opener re-measures them (Open charges each segment it
-// recovers through ChargeExisting), so there is no second on-disk ledger that
+// recovers through ChargeMeasured), so there is no second on-disk ledger that
 // could disagree with them.
 type Allocator struct {
 	fs              fileSystem
@@ -213,10 +224,18 @@ type Allocator struct {
 	floor           uint64
 	ordinaryCeiling uint64
 
-	mu           sync.Mutex
-	ordinaryUsed uint64
-	active       map[*RecoveryGrant]struct{}
-	failErr      error
+	mu       sync.Mutex
+	ordinary map[string]uint64
+	// inflight is bytes charged but not yet durably written. The free-space
+	// probe cannot see them until they land, so they stay in every backed check.
+	inflight uint64
+	active   map[*RecoveryGrant]struct{}
+	// admitErr refuses ordinary admission. Every storage failure sets it.
+	admitErr error
+	// failErr additionally refuses recovery acquisition and every grant. Only a
+	// failure on the recovery path sets it: a failed producer write must not
+	// block the recovery that exists to repair its lane.
+	failErr error
 }
 
 // NewAllocator validates cfg and returns an allocator with nothing charged.
@@ -255,62 +274,84 @@ func NewAllocator(cfg AllocatorConfig) (*Allocator, error) {
 		reserve:         reserve,
 		floor:           floor,
 		ordinaryCeiling: cfg.Capacity - floor,
+		ordinary:        make(map[string]uint64),
 		active:          make(map[*RecoveryGrant]struct{}),
 	}, nil
 }
 
-// Admit charges n bytes of ordinary producer data, or refuses. A refusal charges
-// nothing, and it is never partial.
+// admit charges n bytes of ordinary producer data to owner, or refuses. A
+// refusal charges nothing, and it is never partial. Admitted bytes count as in
+// flight until the caller reports the write with settle.
 //
 // Ordinary data may only use OrdinaryCeiling; the recovery reserve and MinFree
 // are unborrowable no matter how empty they are. Admission is also refused once
-// the allocator has fail-stopped.
-func (a *Allocator) Admit(n uint64) error {
+// any storage failure has stopped it.
+func (a *Allocator) admit(owner string, n uint64) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	if a.failErr != nil {
-		return a.failErr
+	if a.admitErr != nil {
+		return a.admitErr
 	}
 	var left uint64
-	if a.ordinaryUsed < a.ordinaryCeiling {
-		left = a.ordinaryCeiling - a.ordinaryUsed
+	if used := a.ordinaryUsedLocked(); used < a.ordinaryCeiling {
+		left = a.ordinaryCeiling - used
 	}
 	if n > left {
 		return fmt.Errorf("%w: requested %d, ordinary space left %d of ceiling %d",
 			ErrAdmissionRefused, n, left, a.ordinaryCeiling)
 	}
-	if err := a.requireBackedLocked(n); err != nil {
+	if err := a.requireBackedLocked(ErrAdmissionRefused, n); err != nil {
 		return err
 	}
-	a.ordinaryUsed += n
+	a.ordinary[owner] += n
+	a.inflight += n
 	return nil
 }
 
-// ChargeExisting charges n bytes already on disk -- a segment recovered at open,
-// or a recovery's retained output. It cannot refuse: those bytes exist whether or
-// not they fit. If they push usage past the ordinary ceiling, later Admit calls
-// are refused until space is released.
-func (a *Allocator) ChargeExisting(n uint64) {
+// settle ends the write of n admitted bytes. A failed write stops all ordinary
+// admission, but not recovery.
+func (a *Allocator) settle(n uint64, err error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	sum, carry := bits.Add64(a.ordinaryUsed, n, 0)
-	if carry != 0 {
-		sum = ^uint64(0)
+	a.inflight -= n
+	if err != nil && a.admitErr == nil {
+		a.admitErr = asFailStop(err)
 	}
-	a.ordinaryUsed = sum
 }
 
-// ReleaseOrdinary returns n ordinary bytes after they have been PHYSICALLY
-// removed from disk. It is accounting that follows a completed deletion; it
-// neither authorizes one nor performs one.
-func (a *Allocator) ReleaseOrdinary(n uint64) error {
+// ChargeMeasured records that owner holds n bytes measured on disk -- a segment
+// recovered at open, or a recovery's output re-measured after a restart. It
+// REPLACES whatever owner was charged before, so re-measuring the same
+// directory never counts its bytes twice. It cannot refuse: those bytes exist
+// whether or not they fit. If they push usage past the ordinary ceiling, later
+// admissions are refused until space is released.
+func (a *Allocator) ChargeMeasured(owner string, n uint64) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if n > a.ordinaryUsed {
-		return fmt.Errorf("%w: release %d, charged %d", ErrReleaseExceedsCharge, n, a.ordinaryUsed)
+	if n == 0 {
+		delete(a.ordinary, owner)
+		return
 	}
-	a.ordinaryUsed -= n
+	a.ordinary[owner] = n
+}
+
+// ReleaseOrdinary returns n of owner's ordinary bytes after they have been
+// PHYSICALLY removed from disk. It is accounting that follows a completed
+// deletion; it neither authorizes one nor performs one. Releasing more than
+// owner holds is refused, whatever other owners hold.
+func (a *Allocator) ReleaseOrdinary(owner string, n uint64) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	held := a.ordinary[owner]
+	if n > held {
+		return fmt.Errorf("%w: release %d, %q holds %d", ErrReleaseExceedsCharge, n, owner, held)
+	}
+	if n == held {
+		delete(a.ordinary, owner)
+		return nil
+	}
+	a.ordinary[owner] = held - n
 	return nil
 }
 
@@ -325,14 +366,8 @@ func (a *Allocator) AcquireRecovery() (*RecoveryGrant, error) {
 	if len(a.active) >= a.maxActive {
 		return nil, fmt.Errorf("%w: %d active", ErrRecoveryConcurrencyExhausted, len(a.active))
 	}
-	if a.freeBytes != nil {
-		free, err := a.freeBytes()
-		if err != nil {
-			return nil, fmt.Errorf("%w: measure free space: %w", ErrReserveUnbacked, err)
-		}
-		if need := a.outstandingFloorLocked(); free < need {
-			return nil, fmt.Errorf("%w: free %d, outstanding floor %d", ErrReserveUnbacked, free, need)
-		}
+	if err := a.requireBackedLocked(ErrReserveUnbacked, 0); err != nil {
+		return nil, err
 	}
 
 	g := &RecoveryGrant{alloc: a}
@@ -340,11 +375,13 @@ func (a *Allocator) AcquireRecovery() (*RecoveryGrant, error) {
 	return g, nil
 }
 
-// Err returns the error that fail-stopped the allocator, or nil.
+// Err returns the storage failure that stopped ordinary admission, or nil. Any
+// storage failure stops admission. Only one on the recovery path also stops
+// acquisition and every grant, which then report it themselves.
 func (a *Allocator) Err() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.failErr
+	return a.admitErr
 }
 
 // Usage returns a snapshot of the ledger.
@@ -356,29 +393,42 @@ func (a *Allocator) Usage() Usage {
 		RecoveryReserve:  a.reserve,
 		Floor:            a.floor,
 		OrdinaryCeiling:  a.ordinaryCeiling,
-		OrdinaryUsed:     a.ordinaryUsed,
+		OrdinaryUsed:     a.ordinaryUsedLocked(),
 		ActiveRecoveries: len(a.active),
 		RecoveryUsed:     a.recoveryUsedLocked(),
 	}
 }
 
-// failStop makes the allocator refuse all further admission, acquisition, and
-// grant work. The first cause wins, so the error every caller sees is stable.
-func (a *Allocator) failStop(err error) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.failStopLocked(err)
+// failStopLocked makes the allocator refuse all further admission, acquisition,
+// and grant work. The first cause wins, so the error every caller sees is stable.
+func (a *Allocator) failStopLocked(err error) {
+	err = asFailStop(err)
+	if a.admitErr == nil {
+		a.admitErr = err
+	}
+	if a.failErr == nil {
+		a.failErr = err
+	}
 }
 
-func (a *Allocator) failStopLocked(err error) {
-	if a.failErr != nil {
-		return
-	}
+func asFailStop(err error) error {
 	var fs *FailStopError
 	if !errors.As(err, &fs) {
-		err = &FailStopError{Op: "storage", Err: err}
+		return &FailStopError{Op: "storage", Err: err}
 	}
-	a.failErr = err
+	return err
+}
+
+func (a *Allocator) ordinaryUsedLocked() uint64 {
+	var used uint64
+	for _, n := range a.ordinary {
+		sum, carry := bits.Add64(used, n, 0)
+		if carry != 0 {
+			return ^uint64(0)
+		}
+		used = sum
+	}
+	return used
 }
 
 func (a *Allocator) recoveryUsedLocked() uint64 {
@@ -390,23 +440,27 @@ func (a *Allocator) recoveryUsedLocked() uint64 {
 }
 
 // outstandingFloorLocked is the free space the floor still needs on disk: the
-// whole reserve less what active recoveries have already written, plus MinFree.
+// whole reserve less what active recoveries have already charged, plus MinFree.
 func (a *Allocator) outstandingFloorLocked() uint64 {
 	return a.reserve - a.recoveryUsedLocked() + a.minFree
 }
 
-func (a *Allocator) requireBackedLocked(n uint64) error {
+// requireBackedLocked refuses with refusal unless free space covers the
+// outstanding floor, the bytes still in flight, and n more.
+func (a *Allocator) requireBackedLocked(refusal error, n uint64) error {
 	if a.freeBytes == nil {
 		return nil
 	}
 	free, err := a.freeBytes()
 	if err != nil {
-		return fmt.Errorf("%w: measure free space: %w", ErrAdmissionRefused, err)
+		return fmt.Errorf("%w: measure free space: %w", refusal, err)
 	}
-	need, carry := bits.Add64(a.outstandingFloorLocked(), n, 0)
-	if carry != 0 || free < need {
-		return fmt.Errorf("%w: requested %d, free %d, outstanding floor %d",
-			ErrAdmissionRefused, n, free, a.outstandingFloorLocked())
+	floor := a.outstandingFloorLocked()
+	need, c1 := bits.Add64(floor, a.inflight, 0)
+	need, c2 := bits.Add64(need, n, 0)
+	if c1|c2 != 0 || free < need {
+		return fmt.Errorf("%w: requested %d, free %d, outstanding floor %d, in flight %d",
+			refusal, n, free, floor, a.inflight)
 	}
 	return nil
 }
@@ -431,8 +485,9 @@ func (e *ReserveExhaustedError) Is(target error) bool { return target == ErrRese
 // serialized; the coordinator driving it owns the order.
 //
 // A grant stops, permanently, the first time a request exhausts an artifact's
-// budget, a barrier write fails, or a destructive step fails. The allocator also
-// stops every grant when it fail-stops. Nothing that follows a stop proceeds.
+// budget, a barrier write fails, a destructive step fails, or its caller reports
+// a failed write with FailStop. The allocator also stops every grant when a
+// recovery-path failure fail-stops it. Nothing that follows a stop proceeds.
 type RecoveryGrant struct {
 	alloc *Allocator
 
@@ -441,18 +496,37 @@ type RecoveryGrant struct {
 	step sync.Mutex
 
 	// Guarded by alloc.mu.
-	used     [artifactCount]uint64
+	used [artifactCount]uint64
+	// pending is the bytes this grant's latest step charged that may not have
+	// landed yet; they are in the allocator's in-flight count.
+	pending  uint64
 	stopErr  error
 	finished bool
 }
 
 // Charge reserves n bytes of art from this grant's footprint, for output the
-// caller writes itself. Prefer WriteBarrier, which charges and writes as one
-// step.
+// caller writes itself. Until the grant's next step the bytes count as in
+// flight, so no free-space check spends them before they land. A failed write
+// of that output must be reported with FailStop. Prefer WriteBarrier, which
+// charges, writes, and fail-stops as one step.
 func (g *RecoveryGrant) Charge(art Artifact, n uint64) error {
 	g.step.Lock()
 	defer g.step.Unlock()
 	return g.charge(art, n)
+}
+
+// FailStop reports that output the caller wrote itself -- a write, fsync, or
+// close after Charge -- did not become durable. It stops this grant, every other
+// grant, and all admission exactly as a failed WriteBarrier does, and returns
+// the *FailStopError describing op.
+func (g *RecoveryGrant) FailStop(op string, err error) error {
+	a := g.alloc
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	g.settleLocked()
+	stop := &FailStopError{Op: op, Err: err}
+	a.failStopLocked(stop)
+	return stop
 }
 
 // WriteBarrier charges len(data) bytes of art and durably writes data to path
@@ -460,6 +534,9 @@ func (g *RecoveryGrant) Charge(art Artifact, n uint64) error {
 // charge is refused. A storage failure at any barrier position fail-stops the
 // grant and the whole allocator, and the returned error still matches its cause
 // (syscall.ENOSPC, syscall.EIO, ...).
+//
+// Every call is charged in full, including one that replaces an earlier write
+// to the same path; see Footprint.
 func (g *RecoveryGrant) WriteBarrier(art Artifact, path string, data []byte) error {
 	g.step.Lock()
 	defer g.step.Unlock()
@@ -467,11 +544,16 @@ func (g *RecoveryGrant) WriteBarrier(art Artifact, path string, data []byte) err
 	if err := g.charge(art, uint64(len(data))); err != nil {
 		return err
 	}
-	if err := writeBarrier(g.alloc.fs, path, data); err != nil {
-		g.alloc.failStop(err)
-		return err
+	err := writeBarrier(g.alloc.fs, path, data)
+
+	a := g.alloc
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	g.settleLocked()
+	if err != nil {
+		a.failStopLocked(err)
 	}
-	return nil
+	return err
 }
 
 // RunDestructive runs fn -- a delete, truncate, or other step that destroys
@@ -485,29 +567,35 @@ func (g *RecoveryGrant) RunDestructive(op string, fn func() error) error {
 	g.step.Lock()
 	defer g.step.Unlock()
 
-	if err := g.healthy(); err != nil {
+	if err := g.beginStep(); err != nil {
 		return err
 	}
 	if err := fn(); err != nil {
 		stop := &FailStopError{Op: op, Err: err}
-		g.alloc.failStop(stop)
+		a := g.alloc
+		a.mu.Lock()
+		a.failStopLocked(stop)
+		a.mu.Unlock()
 		return stop
 	}
 	return nil
 }
 
 // Finish ends a healthy recovery, returns its concurrency slot and reserve, and
-// moves retained bytes -- output that stays on disk, such as the destination
-// segment and journals kept until the recovery resolves -- into ordinary usage.
-// A stopped grant cannot finish: its partial output is on disk, so its reserve
-// stays held until the process restarts and re-measures.
-func (g *RecoveryGrant) Finish(retained uint64) error {
+// charges retained bytes -- output that stays on disk, such as the destination
+// segment and journals kept until the recovery resolves -- to owner as ordinary
+// usage, released with ReleaseOrdinary once deleted. Opening a lane re-measures
+// its directory and replaces that charge, so retain only a lane's segment under
+// the lane's directory. A stopped grant cannot finish: its partial output is on
+// disk, so its reserve stays held until the process restarts and re-measures.
+func (g *RecoveryGrant) Finish(owner string, retained uint64) error {
 	g.step.Lock()
 	defer g.step.Unlock()
 
 	a := g.alloc
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	g.settleLocked()
 	if err := g.healthyLocked(); err != nil {
 		return err
 	}
@@ -516,11 +604,14 @@ func (g *RecoveryGrant) Finish(retained uint64) error {
 	}
 	g.finished = true
 	delete(a.active, g)
-	sum, carry := bits.Add64(a.ordinaryUsed, retained, 0)
+	if retained == 0 {
+		return nil
+	}
+	sum, carry := bits.Add64(a.ordinary[owner], retained, 0)
 	if carry != 0 {
 		sum = ^uint64(0)
 	}
-	a.ordinaryUsed = sum
+	a.ordinary[owner] = sum
 	return nil
 }
 
@@ -546,6 +637,7 @@ func (g *RecoveryGrant) charge(art Artifact, n uint64) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
+	g.settleLocked()
 	if err := g.healthyLocked(); err != nil {
 		return err
 	}
@@ -559,13 +651,23 @@ func (g *RecoveryGrant) charge(art Artifact, n uint64) error {
 		return exhausted
 	}
 	g.used[art] += n
+	g.pending = n
+	a.inflight += n
 	return nil
 }
 
-func (g *RecoveryGrant) healthy() error {
+// beginStep settles the previous step's in-flight bytes and reports whether the
+// grant may take another step.
+func (g *RecoveryGrant) beginStep() error {
 	g.alloc.mu.Lock()
 	defer g.alloc.mu.Unlock()
+	g.settleLocked()
 	return g.healthyLocked()
+}
+
+func (g *RecoveryGrant) settleLocked() {
+	g.alloc.inflight -= g.pending
+	g.pending = 0
 }
 
 func (g *RecoveryGrant) healthyLocked() error {
@@ -578,8 +680,8 @@ func (g *RecoveryGrant) healthyLocked() error {
 	return nil
 }
 
-// stopCauseLocked prefers the grant's own stop; an allocator fail-stop stops
-// every grant.
+// stopCauseLocked prefers the grant's own stop; a recovery-path fail-stop of the
+// allocator stops every grant.
 func (g *RecoveryGrant) stopCauseLocked() error {
 	if g.stopErr != nil {
 		return g.stopErr

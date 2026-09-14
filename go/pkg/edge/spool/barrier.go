@@ -31,8 +31,10 @@ import (
 var ErrFailStopped = errors.New("spool: fail-stopped")
 
 // FailStopError reports the storage operation whose failure stopped durable
-// work. It is sticky: once returned, the spool or allocator that produced it
-// refuses all further durable writes until the process reopens and re-measures.
+// work. It is sticky until the process reopens and re-measures: a spool that
+// returned it refuses further appends, and an allocator refuses ordinary
+// admission. A failure on the recovery path also refuses recovery acquisition
+// and every grant.
 //
 // Every barrier failure is fail-stop, not only ENOSPC and EIO. After a failed
 // write or fsync the bytes on disk, and whether they are durable, are unknown;
