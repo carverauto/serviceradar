@@ -17,15 +17,20 @@
 // Package spool is the crash-safe, fsynced agent result spool. A Spool holds one
 // lane's records; LaneSet (lanes.go) binds each generation, one Spool, to a lane
 // and freezes that generation's identity. Each appended frame is persisted as a
-// length-prefixed, CRC-checked record before the caller is told it is durable, so
-// a restart never loses or reuses an unacknowledged sequence. On open the spool
-// recovers by scanning its segment, validating record checksums, and truncating a
-// torn trailing record.
+// length-prefixed, CRC-checked record, and its commit is recorded in REDUNDANT
+// COMMIT EVIDENCE stored independently of the record segment (see evidence.go). A
+// producer receipt is returned only after the record, BOTH evidence copies, and
+// the directory metadata that makes those copies discoverable are durable.
 //
-// The Spool is the single-segment core (append + fsync + recovery +
-// ack watermark). Multi-segment rotation/physical reclaim, corrupt-segment
-// quarantine, and the loss-manifest/recovery-generation rollover are follow-on
-// slices within task 2.4.
+// On open the spool resolves every allocated slot to exactly one outcome over the
+// evidence copies, the sequence high-water, the receipt and attribution bindings,
+// and the record bytes (see resolve.go). Only COMMITTED slots are exposed to the
+// sender; every other allocated sequence is reported for rollover coverage and is
+// never reused.
+//
+// This slice implements a single segment. Multi-segment rotation/physical reclaim,
+// corrupt-segment quarantine, and the loss-manifest/recovery-generation rollover
+// are follow-on slices within task 2.4.
 //
 // Capacity (task 2.26) lives in reserve.go: an Allocator shared by every lane
 // keeps the aggregate recovery reserve and a minimum-free floor out of producer
@@ -34,11 +39,14 @@ package spool
 
 import (
 	"bufio"
+	"bytes"
+	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"hash/crc32"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"sync"
@@ -53,9 +61,15 @@ const (
 	recordVersion = 1
 
 	// headerLen is magic(4)+version(1)+flags(1)+seq(8)+eventID(16)+bodyLen(4).
-	headerLen  = 34
-	headerCRC  = 4
-	bodyCRCLen = 4
+	headerLen    = 34
+	headerCRC    = 4
+	bodyCRCLen   = 4
+	minRecordLen = headerLen + headerCRC + bodyCRCLen
+	maxBodyLen   = math.MaxUint32 - minRecordLen
+
+	// resyncWindow is how much of the segment is searched per read when looking for
+	// the next record header after an unreadable one.
+	resyncWindow = 64 << 10
 
 	dirPerm  = 0o700
 	filePerm = 0o600
@@ -68,9 +82,10 @@ const (
 //nolint:gochecknoglobals // immutable, derived from a format constant
 var crcTable = crc32.MakeTable(crc32.Castagnoli)
 
-// ErrCorruptHeader is returned when a record header is present but its checksum
-// or magic is invalid (as opposed to a cleanly torn tail, which is recovered
-// silently).
+// ErrCorruptHeader is returned when a committed slot's record is read back and its
+// header checksum or magic is invalid, or it names a sequence other than the slot's.
+// Open does not return it: restart resolution classifies damaged and torn bytes
+// instead (see RestartResolution).
 var ErrCorruptHeader = errors.New("spool: corrupt record header")
 
 // ErrResolveBeyondHighWater is returned when Resolve is asked to advance the
@@ -84,12 +99,17 @@ var ErrResolveBeyondHighWater = errors.New("spool: resolve beyond durable high-w
 // so a short or long id would silently shift every field after it.
 var ErrEventIDLength = errors.New("spool: event id must be 16 bytes")
 
+// ErrBindingDigestLength is returned when a commit names a binding digest that is
+// not a 32-byte SHA-256.
+var ErrBindingDigestLength = errors.New("spool: binding digest must be 32 bytes")
+
+// ErrBodyTooLarge is returned when a frame cannot be length-prefixed by the record
+// header.
+var ErrBodyTooLarge = errors.New("spool: record body too large")
+
 // CorruptBodyError reports a record whose header is valid and whose body and
 // CRC were fully present but did not match: genuine committed-record corruption,
-// distinct from a cleanly torn (short) trailing record. Recovery must route this
-// through the loss-manifest/rollover path (task 2.4) rather than silently
-// truncating, because later readable records would otherwise be dropped
-// unaudited.
+// distinct from a cleanly torn (short) trailing record.
 type CorruptBodyError struct{ Sequence uint64 }
 
 func (e *CorruptBodyError) Error() string {
@@ -103,99 +123,188 @@ type Record struct {
 	Body     []byte // opaque encoded EdgeRecordV1 bytes
 }
 
+// Bindings names the digests of the producer idempotency/receipt binding and the
+// attribution binding that a commit carries. A nil digest declares that the append
+// carries no such binding. A declared binding is part of the commit: on restart it
+// must verify, and match the digest named here, or the slot is not COMMITTED.
+type Bindings struct {
+	ReceiptSHA256     []byte
+	AttributionSHA256 []byte
+}
+
+// CommitReceipt is the producer receipt. It exists only once the record, both commit
+// evidence copies, and their directory metadata are durable.
+type CommitReceipt struct {
+	Sequence           uint64
+	EventID            []byte
+	RecordSHA256       []byte
+	EvidenceGeneration uint64
+}
+
+// barrier names one durability barrier of a commit, in protocol order.
+type barrier uint8
+
+const (
+	barrierEvidenceDirA barrier = iota
+	barrierEvidenceDirB
+	barrierPrepareA
+	barrierPrepareB
+	barrierRecord
+	barrierCommitA
+	barrierCommitB
+)
+
+func dirBarrier(c int) barrier     { return barrierEvidenceDirA + barrier(c) }
+func prepareBarrier(c int) barrier { return barrierPrepareA + barrier(c) }
+func commitBarrier(c int) barrier  { return barrierCommitA + barrier(c) }
+
+// slotLoc locates one allocated slot's record. committed is set only for a slot the
+// sender may expose.
+type slotLoc struct {
+	offset    int64
+	length    uint32
+	committed bool
+}
+
+// segmentHandle is the part of *os.File a lane's segment needs. Tests wrap it to
+// inject storage failures into record writes.
+type segmentHandle interface {
+	io.ReaderAt
+	io.WriterAt
+	Sync() error
+	Close() error
+	Stat() (os.FileInfo, error)
+}
+
 // Spool is a single-lane append-only spool. It is safe for concurrent use.
 type Spool struct {
-	dir   string
-	alloc *Allocator
+	dir      string
+	bindings BindingInspector
+	alloc    *Allocator
 
-	mu       sync.Mutex
-	seg      durableFile
-	nextSeq  uint64
-	resolved uint64
-	// failErr is set by the first failed record write or fsync. From then on
-	// Append refuses: the segment tail is in an unknown state, and appending past
-	// it would bury a torn record mid-segment. Reopening truncates the torn tail.
+	mu              sync.Mutex
+	seg             segmentHandle
+	segSize         int64
+	evidence        [evidenceCopies]*os.File
+	evidenceDurable [evidenceCopies]bool
+	nextSeq         uint64
+	nextGen         uint64
+	resolved        uint64
+	slots           []slotLoc // index seq-1, for every allocated sequence
+	restart         Resolution
+	// failErr is set by the first failed barrier, and every later commit is refused
+	// with it: the interrupted slot's durable state is unknown until restart
+	// resolution classifies it, so the spool does not append past it.
 	failErr error
+
+	// copyOrder is the order evidence copies are written in, and beforeBarrier is
+	// crossed immediately before each durability barrier. Both exist so tests can
+	// inject a crash at every barrier position in both copy orderings. afterStat is
+	// crossed right after a file size, or an evidence copy's absence, is captured, so
+	// tests can move another handle's writer on between the captures a scan is bounded by.
+	copyOrder     [evidenceCopies]int
+	beforeBarrier func(barrier) error
+	afterStat     func(file string)
 }
 
 // Option configures Open.
 type Option func(*Spool)
 
-// WithAllocator makes every Append pass through a's ordinary producer admission,
+// WithBindings supplies the receipt and attribution binding verdicts restart
+// resolution uses. Without it no binding exists for any slot.
+func WithBindings(b BindingInspector) Option {
+	return func(s *Spool) { s.bindings = b }
+}
+
+// WithAllocator makes every commit pass through a's ordinary producer admission,
 // charged to the lane directory: dir itself, which for a LaneSet is a generation
 // directory, the one Allocator.AcquireRecovery names for a recovery writing into
 // it, not the route profile/traffic class directory above. Open charges every
-// file in that directory to it with Allocator.ChargeMeasured, replacing any
-// earlier charge, so reopening a lane never counts it twice; a lane Open rejects
-// as corrupt stays charged at its size on disk. Close keeps the charge, because
-// the files are still on disk; release it with Allocator.ReleaseOrdinary once
-// they are physically deleted. Share one allocator across every lane on the same
-// filesystem.
+// file in that directory and in its commit evidence directories to it with
+// Allocator.ChargeMeasured, replacing any earlier charge, so reopening a lane
+// never counts it twice; a lane Open then fails on stays charged at its size on
+// disk. Close keeps the charge, because the files are still on disk; release it
+// with Allocator.ReleaseOrdinary once they are physically deleted. Share one
+// allocator across every lane on the same filesystem.
 func WithAllocator(a *Allocator) Option {
 	return func(s *Spool) { s.alloc = a }
 }
 
-// Open opens (creating if needed) the spool at dir and recovers durable state.
+// Open opens (creating if needed) the spool at dir and resolves durable state.
+// Resolution reads the segment twice -- once walking record headers and body
+// checksums, once judging each slot's bytes against its commit evidence -- and keeps an
+// in-memory index entry for every allocated sequence for the life of the handle. Both
+// the time to open and the memory held grow with every record the segment has ever
+// held; reclaim and segment rotation (tasks 2.4, 2.24, and 2.28) are what bound them.
 func Open(dir string, opts ...Option) (*Spool, error) {
 	if err := os.MkdirAll(dir, dirPerm); err != nil {
 		return nil, fmt.Errorf("spool: mkdir: %w", err)
 	}
-	if err := fsyncDir(dir); err != nil {
-		return nil, err
-	}
-
-	s := &Spool{dir: dir}
+	s := &Spool{dir: dir, copyOrder: [evidenceCopies]int{copyA, copyB}}
 	for _, opt := range opts {
 		opt(s)
 	}
-
 	if s.alloc != nil {
 		if err := s.chargeLane(); err != nil {
 			return nil, err
 		}
 	}
-	maxSeq, validLen, err := s.scanSegment()
-	if err != nil {
-		return nil, err
-	}
-
 	f, err := os.OpenFile(filepath.Join(dir, segmentFile), os.O_RDWR|os.O_CREATE, filePerm)
 	if err != nil {
 		return nil, fmt.Errorf("spool: open segment: %w", err)
 	}
-	// Truncate any torn trailing bytes past the last fully-valid record.
-	if err := f.Truncate(validLen); err != nil {
-		_ = f.Close()
-		return nil, fmt.Errorf("spool: truncate torn tail: %w", err)
-	}
-	if s.alloc != nil {
-		if err := s.chargeLane(); err != nil {
-			_ = f.Close()
-			return nil, err
-		}
-	}
-	if _, err := f.Seek(validLen, io.SeekStart); err != nil {
-		_ = f.Close()
-		return nil, fmt.Errorf("spool: seek: %w", err)
-	}
 	s.seg = f
-	s.nextSeq = maxSeq + 1
-
-	resolved, err := s.readResolved()
-	if err != nil {
-		_ = f.Close()
+	if err := s.open(); err != nil {
+		_ = s.closeFiles()
 		return nil, err
 	}
-	s.resolved = resolved
 	return s, nil
 }
 
-// chargeLane charges every regular file in the lane directory to the allocator,
-// not only the segment: whatever the lane keeps beside it occupies its disk too.
-func (s *Spool) chargeLane() error {
-	entries, err := os.ReadDir(s.dir)
+func (s *Spool) open() error {
+	if err := fsyncDir(s.dir); err != nil {
+		return err
+	}
+	info, err := s.seg.Stat()
 	if err != nil {
-		return fmt.Errorf("spool: measure lane: %w", err)
+		return fmt.Errorf("spool: stat segment: %w", err)
+	}
+	s.segSize = info.Size()
+	if err := s.recover(); err != nil {
+		return err
+	}
+	resolved, err := s.readResolved()
+	if err != nil {
+		return err
+	}
+	s.resolved = resolved
+	return nil
+}
+
+// chargeLane charges every regular file in the lane directory to the allocator,
+// not only the segment: whatever the lane keeps beside it occupies its disk too,
+// including both commit evidence copies in their own directories.
+func (s *Spool) chargeLane() error {
+	total, err := regularFileBytes(s.dir)
+	if err != nil {
+		return err
+	}
+	for c := range evidenceCopies {
+		n, err := regularFileBytes(filepath.Join(s.dir, evidenceDirName(c)))
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		total += n
+	}
+	s.alloc.ChargeMeasured(s.dir, total)
+	return nil
+}
+
+// regularFileBytes sums the sizes of the regular files directly in dir.
+func regularFileBytes(dir string) (uint64, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0, fmt.Errorf("spool: measure lane: %w", err)
 	}
 	var total uint64
 	for _, entry := range entries {
@@ -204,94 +313,261 @@ func (s *Spool) chargeLane() error {
 		}
 		info, err := entry.Info()
 		if err != nil {
-			return fmt.Errorf("spool: measure lane: %w", err)
+			return 0, fmt.Errorf("spool: measure lane: %w", err)
 		}
 		total += uint64(info.Size())
 	}
-	s.alloc.ChargeMeasured(s.dir, total)
-	return nil
+	return total, nil
 }
 
-// Append persists one frame durably and returns its assigned sequence. The
-// sequence space starts at 1 and is never reused. eventID must be 16 bytes.
-//
-// With an allocator, a refused admission returns an error matching
-// ErrAdmissionRefused and writes nothing. A failed write or fsync returns a
-// *FailStopError, and every later Append is refused with it without touching
-// the segment. It also stops ordinary admission on a shared allocator for every
-// lane, but leaves recovery running: recovery is how a failed lane is repaired.
+// Append persists one frame with no receipt or attribution binding and returns its
+// sequence once it is committed. The sequence space starts at 1 and is never reused.
+// Admission and fail-stop are as for Commit.
 func (s *Spool) Append(eventID, body []byte) (uint64, error) {
+	r, err := s.Commit(eventID, body, Bindings{})
+	if err != nil {
+		return 0, err
+	}
+	return r.Sequence, nil
+}
+
+// Commit persists one frame under redundant commit evidence and returns the producer
+// receipt. The receipt is withheld until every barrier below has passed:
+//
+//  1. each evidence copy's file and directory entry are durable (first commit only);
+//  2. a PREPARED entry is durable in each copy -- the sequence is now allocated;
+//  3. the record is durable in the segment;
+//  4. a COMMITTED entry is durable in each copy.
+//
+// If any barrier fails, no receipt is returned and the spool fail-stops; restart
+// resolution decides what the interrupted slot is. The failure is a *FailStopError,
+// and every later commit is refused with it without touching the segment. On a
+// shared allocator it also stops ordinary admission for every lane, but leaves
+// recovery running: recovery is how a failed lane is repaired.
+//
+// With an allocator, a commit is first admitted for every byte it adds on disk: its
+// record and the growth of both evidence copies. A refused admission returns an
+// error matching ErrAdmissionRefused, writes nothing, and allocates no sequence.
+func (s *Spool) Commit(eventID, body []byte, b Bindings) (CommitReceipt, error) {
 	if len(eventID) != 16 {
-		return 0, fmt.Errorf("%w: got %d", ErrEventIDLength, len(eventID))
+		return CommitReceipt{}, fmt.Errorf("%w: got %d", ErrEventIDLength, len(eventID))
+	}
+	if len(body) > maxBodyLen {
+		return CommitReceipt{}, fmt.Errorf("%w: %d bytes", ErrBodyTooLarge, len(body))
+	}
+	for _, d := range [][]byte{b.ReceiptSHA256, b.AttributionSHA256} {
+		if d != nil && len(d) != sha256.Size {
+			return CommitReceipt{}, fmt.Errorf("%w: got %d", ErrBindingDigestLength, len(d))
+		}
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	if s.failErr != nil {
-		return 0, s.failErr
-	}
 	if s.seg == nil {
-		return 0, fmt.Errorf("spool: append: %w", os.ErrClosed)
+		return CommitReceipt{}, fmt.Errorf("spool: commit: %w", os.ErrClosed)
+	}
+	if s.failErr != nil {
+		return CommitReceipt{}, s.failErr
+	}
+	var charged uint64
+	if s.alloc != nil {
+		n, err := s.commitBytes(len(body))
+		if err != nil {
+			return CommitReceipt{}, err
+		}
+		if err := s.alloc.admit(s.dir, n); err != nil {
+			return CommitReceipt{}, err
+		}
+		charged = n
+	}
+	r, err := s.commitLocked(eventID, body, b)
+	if s.alloc != nil {
+		// Admitted bytes stay charged even if the commit fails: a failed write may
+		// still have put some of them on disk.
+		s.alloc.settle(charged, err)
+	}
+	if err != nil {
+		s.failErr = asFailStop(err)
+		return CommitReceipt{}, s.failErr
+	}
+	return r, nil
+}
+
+// commitBytes is what committing the next sequence with a body of bodyLen adds on
+// disk: its record, plus however far each evidence copy must grow to hold the
+// slot's fixed-position entries.
+func (s *Spool) commitBytes(bodyLen int) (uint64, error) {
+	n := uint64(minRecordLen + bodyLen)
+	end := evidencePosition(s.nextSeq, stateCommitted) + evidenceEntryLen
+	for c := range evidenceCopies {
+		var size int64
+		info, err := os.Stat(s.evidencePath(c))
+		switch {
+		case err == nil:
+			size = info.Size()
+		case !errors.Is(err, os.ErrNotExist):
+			return 0, fmt.Errorf("spool: measure evidence copy %c: %w", copyTag(c), err)
+		}
+		if size < end {
+			n += uint64(end - size)
+		}
+	}
+	return n, nil
+}
+
+func (s *Spool) commitLocked(eventID, body []byte, b Bindings) (CommitReceipt, error) {
+	if err := s.ensureEvidence(); err != nil {
+		return CommitReceipt{}, err
 	}
 
 	seq := s.nextSeq
 	rec := encodeRecord(seq, eventID, body)
-	if s.alloc != nil {
-		// Admitted bytes stay charged even if the write below fails: a failed
-		// write may still have put some of them on disk.
-		if err := s.alloc.admit(s.dir, uint64(len(rec))); err != nil {
-			return 0, err
-		}
+	offset := s.segSize
+	entry := evidenceEntry{
+		state:        statePrepared,
+		sequence:     seq,
+		generation:   s.nextGen,
+		recordOffset: uint64(offset),
+		recordLen:    uint32(len(rec)),
+		recordSHA256: sha256.Sum256(body),
 	}
-	err := writeAndSync(s.seg, filepath.Join(s.dir, segmentFile), rec)
-	if s.alloc != nil {
-		s.alloc.settle(uint64(len(rec)), err)
+	copy(entry.eventID[:], eventID)
+	if b.ReceiptSHA256 != nil {
+		entry.flags |= flagReceiptBinding
+		copy(entry.receiptSHA256[:], b.ReceiptSHA256)
 	}
-	if err != nil {
-		s.failErr = err
-		return 0, err
+	if b.AttributionSHA256 != nil {
+		entry.flags |= flagAttributionBinding
+		copy(entry.attributionSHA256[:], b.AttributionSHA256)
 	}
 
+	// Consume the sequence before any durable write. Once one PREPARED copy lands the
+	// sequence is allocated and must never be reused, and a failure below fail-stops
+	// the spool with the slot still uncommitted.
 	s.nextSeq++
-	return seq, nil
+	s.nextGen++
+	s.slots = append(s.slots, slotLoc{offset: offset, length: entry.recordLen})
+
+	for _, c := range s.copyOrder {
+		if err := s.crossAndWriteEvidence(prepareBarrier(c), c, entry); err != nil {
+			return CommitReceipt{}, err
+		}
+	}
+
+	if err := s.cross(barrierRecord); err != nil {
+		return CommitReceipt{}, err
+	}
+	segPath := filepath.Join(s.dir, segmentFile)
+	if _, err := s.seg.WriteAt(rec, offset); err != nil {
+		return CommitReceipt{}, &FailStopError{Op: "write", Path: segPath, Err: err}
+	}
+	s.segSize += int64(len(rec))
+	if err := s.seg.Sync(); err != nil {
+		return CommitReceipt{}, &FailStopError{Op: "fsync", Path: segPath, Err: err}
+	}
+
+	entry.state = stateCommitted
+	entry.generation = s.nextGen
+	s.nextGen++
+	for _, c := range s.copyOrder {
+		if err := s.crossAndWriteEvidence(commitBarrier(c), c, entry); err != nil {
+			return CommitReceipt{}, err
+		}
+	}
+
+	s.slots[seq-1].committed = true
+	return CommitReceipt{
+		Sequence:           seq,
+		EventID:            append([]byte(nil), eventID...),
+		RecordSHA256:       append([]byte(nil), entry.recordSHA256[:]...),
+		EvidenceGeneration: entry.generation,
+	}, nil
 }
 
-// Unresolved returns, in sequence order, every record with sequence greater than
-// the resolved watermark.
-func (s *Spool) Unresolved() ([]Record, error) {
-	s.mu.Lock()
-	watermark := s.resolved
-	s.mu.Unlock()
-
-	f, err := os.Open(filepath.Join(s.dir, segmentFile))
-	if err != nil {
-		return nil, fmt.Errorf("spool: open for read: %w", err)
+func (s *Spool) cross(b barrier) error {
+	if s.beforeBarrier == nil {
+		return nil
 	}
-	defer func() { _ = f.Close() }()
+	return s.beforeBarrier(b)
+}
 
-	var out []Record
-	r := bufio.NewReader(f)
-	for {
-		rec, _, err := readRecord(r)
-		if err != nil {
-			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-				break // torn/absent tail
+func (s *Spool) crossStat(file string) {
+	if s.afterStat != nil {
+		s.afterStat(file)
+	}
+}
+
+func (s *Spool) evidencePath(c int) string {
+	return filepath.Join(s.dir, evidenceDirName(c), evidenceFile)
+}
+
+// ensureEvidence makes each evidence copy's file AND the directory entries that make
+// it discoverable durable. A copy that restart cannot find is not redundancy, so no
+// receipt is issued until this has succeeded for both copies.
+func (s *Spool) ensureEvidence() error {
+	for _, c := range s.copyOrder {
+		if s.evidenceDurable[c] {
+			continue
+		}
+		path := s.evidencePath(c)
+		if s.evidence[c] == nil {
+			if err := os.MkdirAll(filepath.Dir(path), dirPerm); err != nil {
+				return fmt.Errorf("spool: mkdir evidence copy %c: %w", copyTag(c), err)
 			}
-			return nil, err
+			f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, filePerm)
+			if err != nil {
+				return fmt.Errorf("spool: create evidence copy %c: %w", copyTag(c), err)
+			}
+			s.evidence[c] = f
+			if err := f.Sync(); err != nil {
+				return fmt.Errorf("spool: fsync evidence copy %c: %w", copyTag(c), err)
+			}
 		}
-		if rec.Sequence > watermark {
-			out = append(out, rec)
+		if err := s.cross(dirBarrier(c)); err != nil {
+			return err
 		}
+		if err := fsyncDir(s.dir); err != nil {
+			return err
+		}
+		if err := fsyncDir(filepath.Dir(path)); err != nil {
+			return err
+		}
+		s.evidenceDurable[c] = true
 	}
-	return out, nil
+	return nil
+}
+
+func (s *Spool) crossAndWriteEvidence(b barrier, c int, e evidenceEntry) error {
+	if err := s.cross(b); err != nil {
+		return err
+	}
+	e.copyTag = copyTag(c)
+	path := s.evidencePath(c)
+	if _, err := s.evidence[c].WriteAt(e.encode(), evidencePosition(e.sequence, e.state)); err != nil {
+		return &FailStopError{Op: "write", Path: path, Err: err}
+	}
+	if err := s.evidence[c].Sync(); err != nil {
+		return &FailStopError{Op: "fsync", Path: path, Err: err}
+	}
+	return nil
+}
+
+// Unresolved returns, in sequence order, every committed record with sequence
+// greater than the resolved watermark.
+func (s *Spool) Unresolved() ([]Record, error) {
+	var out []Record
+	err := s.ScanFrom(0, func(rec Record) bool {
+		out = append(out, rec)
+		return true
+	})
+	return out, err
 }
 
 // Resolve advances the durable resolved watermark to through (inclusive),
 // persisting it. Records at or below the watermark are considered handled and
 // are excluded from Unresolved. The watermark only advances, and never past the
-// highest durably appended sequence: a watermark beyond the append high-water
-// would hide frames that were never spooled (permanent loss), so it is rejected.
+// highest allocated sequence: a watermark beyond the high-water would hide frames
+// that were never spooled (permanent loss), so it is rejected.
 func (s *Spool) Resolve(through uint64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -309,39 +585,67 @@ func (s *Spool) Resolve(through uint64) error {
 	return nil
 }
 
-// ScanFrom streams unresolved records whose sequence is greater than both the
+// ScanFrom streams COMMITTED records whose sequence is greater than both the
 // resolved watermark and after, in sequence order, invoking visit for each until
 // visit returns false (e.g. the sender's credit window is exhausted) or the
-// durable prefix ends. Only the records visit chooses to retain are held, so a
-// multi-gigabyte backlog is never materialized to apply a small credit window.
+// allocated sequences end. Ambiguous, lost, and in-flight slots are never visited, so
+// the visited sequences can have gaps. The sender's lane cannot cross such a gap yet:
+// it wedges there until the wire-level rollover/coverage handling of task 2.27 lands
+// (see package sender). Reaching the end adopts slots another handle on the same
+// directory has allocated since, so a sender sees a producer that appends through its
+// own handle. Record bodies are read one at a time, but they are located through an
+// index that holds an entry for every allocated sequence (see Open). A closed spool
+// stays readable over the slots it has indexed: its scan opens its own segment handle
+// for the scan's duration.
 func (s *Spool) ScanFrom(after uint64, visit func(Record) bool) error {
 	s.mu.Lock()
-	start := s.resolved
+	seq := max(s.resolved, after)
 	s.mu.Unlock()
-	if after > start {
-		start = after
-	}
 
-	f, err := os.Open(filepath.Join(s.dir, segmentFile))
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
+	var own *os.File
+	defer func() {
+		if own != nil {
+			_ = own.Close()
+		}
+	}()
+	refreshed := false
+	for {
+		seq++
+		s.mu.Lock()
+		if seq >= s.nextSeq && !refreshed && s.seg != nil {
+			refreshed = true
+			if err := s.refreshLocked(); err != nil {
+				s.mu.Unlock()
+				return err
+			}
+		}
+		if seq >= s.nextSeq {
+			s.mu.Unlock()
 			return nil
 		}
-		return fmt.Errorf("spool: open for scan: %w", err)
-	}
-	defer func() { _ = f.Close() }()
+		loc := s.slots[seq-1]
+		seg := s.seg
+		s.mu.Unlock()
 
-	r := bufio.NewReader(f)
-	for {
-		rec, _, err := readRecord(r)
-		if err != nil {
-			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-				return nil // clean/absent tail
-			}
-			return err // ErrCorruptHeader / *CorruptBodyError propagate
-		}
-		if rec.Sequence <= start {
+		if !loc.committed {
 			continue
+		}
+		if seg == nil {
+			if own == nil {
+				f, err := os.Open(filepath.Join(s.dir, segmentFile))
+				if err != nil {
+					return fmt.Errorf("spool: open for scan: %w", err)
+				}
+				own = f
+			}
+			seg = own
+		}
+		rec, err := readRecordAt(seg, loc)
+		if err != nil {
+			return err
+		}
+		if rec.Sequence != seq {
+			return fmt.Errorf("%w: slot %d holds sequence %d", ErrCorruptHeader, seq, rec.Sequence)
 		}
 		if !visit(rec) {
 			return nil
@@ -365,16 +669,38 @@ func (s *Spool) Resolved() uint64 {
 	return s.resolved
 }
 
-// Close closes the underlying segment file.
+// RestartResolution returns how every allocated slot resolved when the spool was
+// opened. Slots that did not resolve COMMITTED are what rollover coverage must
+// account for.
+func (s *Spool) RestartResolution() Resolution {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r := s.restart
+	r.Slots = append([]SlotResolution(nil), r.Slots...)
+	r.Discarded = append([]SlotResolution(nil), r.Discarded...)
+	return r
+}
+
+// Close closes the segment and evidence files.
 func (s *Spool) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.seg == nil {
-		return nil
+	return s.closeFiles()
+}
+
+func (s *Spool) closeFiles() error {
+	var errs []error
+	if s.seg != nil {
+		errs = append(errs, s.seg.Close())
+		s.seg = nil
 	}
-	err := s.seg.Close()
-	s.seg = nil
-	return err
+	for c, f := range s.evidence {
+		if f != nil {
+			errs = append(errs, f.Close())
+			s.evidence[c] = nil
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // --- record framing ---
@@ -397,6 +723,26 @@ func encodeRecord(seq uint64, eventID, body []byte) []byte {
 	return buf
 }
 
+type recordHeader struct {
+	seq     uint64
+	eventID [16]byte
+	bodyLen uint32
+}
+
+// parseHeader validates a headerLen+headerCRC byte header.
+func parseHeader(header []byte) (recordHeader, bool) {
+	if binary.LittleEndian.Uint32(header[0:]) != recordMagic ||
+		binary.LittleEndian.Uint32(header[headerLen:]) != crc32.Checksum(header[:headerLen], crcTable) {
+		return recordHeader{}, false
+	}
+	h := recordHeader{
+		seq:     binary.LittleEndian.Uint64(header[6:]),
+		bodyLen: binary.LittleEndian.Uint32(header[30:]),
+	}
+	copy(h.eventID[:], header[14:30])
+	return h, true
+}
+
 // readRecord reads one record. A cleanly-torn or absent tail returns io.EOF /
 // io.ErrUnexpectedEOF; a present-but-invalid header returns ErrCorruptHeader.
 func readRecord(r *bufio.Reader) (Record, int, error) {
@@ -405,19 +751,12 @@ func readRecord(r *bufio.Reader) (Record, int, error) {
 	if err != nil {
 		return Record{}, 0, err
 	}
-
-	if binary.LittleEndian.Uint32(header[0:]) != recordMagic {
-		return Record{}, 0, ErrCorruptHeader
-	}
-	if binary.LittleEndian.Uint32(header[headerLen:]) != crc32.Checksum(header[:headerLen], crcTable) {
+	h, ok := parseHeader(header)
+	if !ok {
 		return Record{}, 0, ErrCorruptHeader
 	}
 
-	seq := binary.LittleEndian.Uint64(header[6:])
-	eventID := append([]byte(nil), header[14:30]...)
-	bodyLen := binary.LittleEndian.Uint32(header[30:])
-
-	body := make([]byte, bodyLen)
+	body := make([]byte, h.bodyLen)
 	if _, err := io.ReadFull(r, body); err != nil {
 		if errors.Is(err, io.EOF) {
 			err = io.ErrUnexpectedEOF
@@ -433,42 +772,24 @@ func readRecord(r *bufio.Reader) (Record, int, error) {
 	}
 	if binary.LittleEndian.Uint32(crcBuf) != crc32.Checksum(body, crcTable) {
 		// Header, body, and CRC were all fully present but the CRC does not match:
-		// this is committed-record corruption, not a torn (short) tail. Surface it
-		// distinctly so recovery routes it through the loss-manifest/rollover path
-		// instead of silently truncating and dropping every later record.
-		return Record{}, 0, &CorruptBodyError{Sequence: seq}
+		// this is committed-record corruption, not a torn (short) tail.
+		return Record{}, 0, &CorruptBodyError{Sequence: h.seq}
 	}
 
-	recLen := headerLen + headerCRC + int(bodyLen) + bodyCRCLen
-	return Record{Sequence: seq, EventID: eventID, Body: body}, recLen, nil
+	recLen := headerLen + headerCRC + int(h.bodyLen) + bodyCRCLen
+	return Record{Sequence: h.seq, EventID: h.eventID[:], Body: body}, recLen, nil
 }
 
-// scanSegment walks the segment and returns the highest valid sequence and the
-// byte length of the fully-valid prefix (where a torn tail is truncated).
-func (s *Spool) scanSegment() (maxSeq uint64, validLen int64, err error) {
-	f, err := os.Open(filepath.Join(s.dir, segmentFile))
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return 0, 0, nil
+func readRecordAt(f io.ReaderAt, loc slotLoc) (Record, error) {
+	buf := make([]byte, loc.length)
+	if _, err := f.ReadAt(buf, loc.offset); err != nil {
+		if errors.Is(err, io.EOF) {
+			err = io.ErrUnexpectedEOF
 		}
-		return 0, 0, fmt.Errorf("spool: open for scan: %w", err)
+		return Record{}, fmt.Errorf("spool: read record: %w", err)
 	}
-	defer func() { _ = f.Close() }()
-
-	r := bufio.NewReader(f)
-	for {
-		rec, recLen, rerr := readRecord(r)
-		if rerr != nil {
-			if errors.Is(rerr, io.EOF) || errors.Is(rerr, io.ErrUnexpectedEOF) {
-				return maxSeq, validLen, nil
-			}
-			return 0, 0, rerr
-		}
-		if rec.Sequence > maxSeq {
-			maxSeq = rec.Sequence
-		}
-		validLen += int64(recLen)
-	}
+	rec, _, err := readRecord(bufio.NewReader(bytes.NewReader(buf)))
+	return rec, err
 }
 
 // --- resolved watermark ---

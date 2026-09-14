@@ -177,7 +177,7 @@ func TestRecoveryPreservesSequenceAndData(t *testing.T) {
 	}
 }
 
-func TestTornTailIsTruncatedOnRecovery(t *testing.T) {
+func TestTornTailIsDiscardedOnRecovery(t *testing.T) {
 	dir := t.TempDir()
 
 	s, _ := Open(dir)
@@ -211,6 +211,10 @@ func TestTornTailIsTruncatedOnRecovery(t *testing.T) {
 	}
 	if s2.NextSequence() != 3 {
 		t.Fatalf("next seq = %d, want 3", s2.NextSequence())
+	}
+	discarded := s2.RestartResolution().Discarded
+	if len(discarded) != 1 || discarded[0].Outcome != OutcomeDiscardablePreparation {
+		t.Fatalf("discarded = %+v, want one discardable preparation", discarded)
 	}
 
 	// Recovery left the segment writable and consistent.
@@ -296,13 +300,24 @@ func TestCorruptCommittedBodyIsDetected(t *testing.T) {
 		t.Fatalf("write seg: %v", err)
 	}
 
-	_, err = Open(dir)
-	var corrupt *CorruptBodyError
-	if !errors.As(err, &corrupt) {
-		t.Fatalf("Open on corrupt committed body = %v, want *CorruptBodyError", err)
+	// Restart resolution is total: the corrupt slot is classified, not fatal, and it
+	// is never handed to the sender. With no attribution binding it cannot be an
+	// attributed loss, so it is an ambiguous slot for rollover coverage.
+	s2, err := Open(dir)
+	if err != nil {
+		t.Fatalf("Open on corrupt committed body: %v", err)
 	}
-	if corrupt.Sequence != 1 {
-		t.Fatalf("corruption reported at seq %d, want 1", corrupt.Sequence)
+	defer func() { _ = s2.Close() }()
+	got, ok := s2.RestartResolution().Slot(1)
+	if !ok || got.Outcome != OutcomeAmbiguousAllocated || got.Evidence != EvidenceCommitted {
+		t.Fatalf("slot 1 = %+v (allocated %v), want ambiguous with committed evidence", got, ok)
+	}
+	recs, err := s2.Unresolved()
+	if err != nil {
+		t.Fatalf("unresolved: %v", err)
+	}
+	if len(recs) != 1 || recs[0].Sequence != 2 {
+		t.Fatalf("sender-visible records = %+v, want only sequence 2", recs)
 	}
 }
 
