@@ -4,8 +4,15 @@ defmodule ServiceRadar.CompositeChecks.EvaluationWorkerTest do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.CompositeChecks.CompositeCheck
   alias ServiceRadar.CompositeChecks.EvaluationWorker
+  alias ServiceRadar.Repo
 
   defp actor, do: SystemActor.system(:composite_check_test)
+
+  defp insert_evaluation_job!(check_id) do
+    %{check_id: check_id}
+    |> EvaluationWorker.new(schedule_in: 60)
+    |> Repo.insert!()
+  end
 
   defp build_check(state) do
     {:ok, check} =
@@ -63,6 +70,17 @@ defmodule ServiceRadar.CompositeChecks.EvaluationWorkerTest do
              EvaluationWorker.perform(%Oban.Job{args: %{"check_id" => Ash.UUID.generate()}})
 
     assert reason =~ "no longer exists"
+  end
+
+  test "cancel/1 cancels only the given check's pending evaluation jobs" do
+    check_id = Ash.UUID.generate()
+    pending = insert_evaluation_job!(check_id)
+    other = insert_evaluation_job!(Ash.UUID.generate())
+
+    assert :ok = EvaluationWorker.cancel(check_id)
+
+    assert Repo.get!(Oban.Job, pending.id).state == "cancelled"
+    assert Repo.get!(Oban.Job, other.id).state == "scheduled"
   end
 
   test "ensure_scheduled does not raise when Oban is unavailable" do

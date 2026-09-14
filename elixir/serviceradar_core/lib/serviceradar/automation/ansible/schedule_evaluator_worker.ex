@@ -277,7 +277,7 @@ defmodule ServiceRadar.Automation.Ansible.ScheduleEvaluatorWorker do
     query =
       from job in Oban.Job,
         where:
-          job.worker == ^to_string(__MODULE__) and
+          job.worker == ^Oban.Worker.to_string(__MODULE__) and
             job.state in ["available", "scheduled", "executing", "retryable"],
         limit: 1
 

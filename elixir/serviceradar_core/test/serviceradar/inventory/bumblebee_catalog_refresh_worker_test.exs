@@ -1,11 +1,14 @@
 defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorkerTest do
   use ServiceRadar.DataCase, async: false
 
+  import Ecto.Query, only: [from: 2]
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.BumblebeeCatalogRefreshWorker
   alias ServiceRadar.Inventory.BumblebeeCatalogSnapshot
   alias ServiceRadar.Inventory.BumblebeeCatalogSource
   alias ServiceRadar.Monitoring.OcsfEvent
+  alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
 
   require Ash.Query
@@ -161,6 +164,73 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorkerTest do
     assert event.unmapped["reason"] =~ "connection refused"
 
     assert_rescheduled!("failure")
+  end
+
+  # The pending job is a successor, as in production: successors carry "scheduled_at" and
+  # "last_result", so a guard that only recognises `%{}` args would insert a second chain.
+  test "ensure_scheduled/0 reports a pending refresh job instead of inserting another" do
+    delete_refresh_jobs()
+    pending = insert_scheduled_refresh_job!(3_600, successor_args("success"))
+
+    assert {:ok, :already_scheduled} = BumblebeeCatalogRefreshWorker.ensure_scheduled()
+    assert refresh_job_states() == %{pending.id => "scheduled"}
+  end
+
+  # A guard that misses the pending job inserts another self-rescheduling chain on every
+  # coordinator start, and those chains never stop on their own; ensure_scheduled/0 must trim
+  # them back to a single pending job. The chain mixes the first `%{}` job with successors, and
+  # a forced refresh is a one-off that is due first yet is neither counted nor cancelled.
+  test "ensure_scheduled/0 cancels duplicate chains down to the earliest-due job" do
+    delete_refresh_jobs()
+    executing = insert_executing_refresh_job!()
+    forced = insert_scheduled_refresh_job!(60, %{"force" => true})
+    earliest = insert_scheduled_refresh_job!(600, successor_args("success"))
+    later = insert_scheduled_refresh_job!(3_600, %{})
+    latest = insert_scheduled_refresh_job!(7_200, successor_args("failure"))
+
+    expected = %{
+      executing.id => "executing",
+      forced.id => "scheduled",
+      earliest.id => "scheduled",
+      later.id => "cancelled",
+      latest.id => "cancelled"
+    }
+
+    assert {:ok, :already_scheduled} = BumblebeeCatalogRefreshWorker.ensure_scheduled()
+    assert refresh_job_states() == expected
+
+    # A repeated call, as from another node, cancels nothing further.
+    assert {:ok, :already_scheduled} = BumblebeeCatalogRefreshWorker.ensure_scheduled()
+    assert refresh_job_states() == expected
+  end
+
+  defp insert_scheduled_refresh_job!(schedule_in, args) do
+    args
+    |> BumblebeeCatalogRefreshWorker.new(schedule_in: schedule_in)
+    |> Repo.insert!()
+  end
+
+  defp successor_args(last_result) do
+    %{"scheduled_at" => DateTime.to_iso8601(DateTime.utc_now()), "last_result" => last_result}
+  end
+
+  defp insert_executing_refresh_job! do
+    %{}
+    |> BumblebeeCatalogRefreshWorker.new()
+    |> Ecto.Changeset.change(state: "executing", attempt: 1, attempted_at: DateTime.utc_now())
+    |> Repo.insert!()
+  end
+
+  defp refresh_job_states do
+    worker = Oban.Worker.to_string(BumblebeeCatalogRefreshWorker)
+    query = from(job in Oban.Job, where: job.worker == ^worker, select: {job.id, job.state})
+
+    query |> Repo.all() |> Map.new()
+  end
+
+  defp delete_refresh_jobs do
+    worker = Oban.Worker.to_string(BumblebeeCatalogRefreshWorker)
+    Repo.delete_all(from(job in Oban.Job, where: job.worker == ^worker))
   end
 
   defp assert_rescheduled!(last_result) do

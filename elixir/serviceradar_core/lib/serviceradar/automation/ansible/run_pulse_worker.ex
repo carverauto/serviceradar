@@ -189,7 +189,7 @@ defmodule ServiceRadar.Automation.Ansible.RunPulseWorker do
     query =
       from job in Oban.Job,
         where:
-          job.worker == ^to_string(__MODULE__) and
+          job.worker == ^Oban.Worker.to_string(__MODULE__) and
             fragment("? -> ?", job.args, "controller_id") == ^controller_id and
             job.state in ["available", "scheduled", "executing", "retryable"],
         limit: 1

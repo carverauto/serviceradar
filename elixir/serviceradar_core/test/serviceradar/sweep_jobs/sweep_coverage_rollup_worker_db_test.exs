@@ -123,6 +123,73 @@ defmodule ServiceRadar.SweepJobs.SweepCoverageRollupWorkerDbTest do
     assert length(coverage_rows(day3, "device-catchup-3")) == 1
   end
 
+  test "ensure_scheduled/0 reports a pending rollup job instead of inserting another" do
+    delete_rollup_jobs()
+    pending = insert_scheduled_rollup_job!(3_600)
+
+    assert {:ok, :already_scheduled} = SweepCoverageRollupWorker.ensure_scheduled()
+    assert rollup_job_states() == %{pending.id => "scheduled"}
+  end
+
+  # The rollup is one daily chain that reschedules itself, so duplicate chains never go away
+  # on their own; ensure_scheduled/0 must trim them back to a single pending job. A one-off
+  # "day" re-run is not part of the chain: it is due first, yet the chain keeps its own
+  # earliest job and the re-run is left alone.
+  test "ensure_scheduled/0 cancels duplicate chains down to the earliest-due job" do
+    delete_rollup_jobs()
+    executing = insert_executing_rollup_job!()
+    day_rerun = insert_day_rollup_job!(Date.add(Date.utc_today(), -2))
+    earliest = insert_scheduled_rollup_job!(600)
+    later = insert_scheduled_rollup_job!(3_600)
+    latest = insert_scheduled_rollup_job!(7_200)
+
+    expected = %{
+      executing.id => "executing",
+      day_rerun.id => "available",
+      earliest.id => "scheduled",
+      later.id => "cancelled",
+      latest.id => "cancelled"
+    }
+
+    assert {:ok, :already_scheduled} = SweepCoverageRollupWorker.ensure_scheduled()
+    assert rollup_job_states() == expected
+
+    # A repeated call, as from another node, cancels nothing further.
+    assert {:ok, :already_scheduled} = SweepCoverageRollupWorker.ensure_scheduled()
+    assert rollup_job_states() == expected
+  end
+
+  defp insert_scheduled_rollup_job!(schedule_in) do
+    %{}
+    |> SweepCoverageRollupWorker.new(schedule_in: schedule_in)
+    |> Repo.insert!()
+  end
+
+  defp insert_day_rollup_job!(%Date{} = day) do
+    %{"day" => Date.to_iso8601(day)}
+    |> SweepCoverageRollupWorker.new()
+    |> Repo.insert!()
+  end
+
+  defp insert_executing_rollup_job! do
+    %{}
+    |> SweepCoverageRollupWorker.new()
+    |> Ecto.Changeset.change(state: "executing", attempt: 1, attempted_at: DateTime.utc_now())
+    |> Repo.insert!()
+  end
+
+  defp rollup_job_states do
+    worker = Oban.Worker.to_string(SweepCoverageRollupWorker)
+    query = from(job in Oban.Job, where: job.worker == ^worker, select: {job.id, job.state})
+
+    query |> Repo.all() |> Map.new()
+  end
+
+  defp delete_rollup_jobs do
+    worker = Oban.Worker.to_string(SweepCoverageRollupWorker)
+    Repo.delete_all(from(job in Oban.Job, where: job.worker == ^worker))
+  end
+
   # Inserts one sweep_group_executions row plus one sweep_host_results row,
   # then backdates the result's inserted_at into `day`. Each call creates its
   # own execution (and its own disabled sweep group, to avoid the global Oban

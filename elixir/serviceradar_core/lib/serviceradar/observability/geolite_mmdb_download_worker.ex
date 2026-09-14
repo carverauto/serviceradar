@@ -68,7 +68,7 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
         {:error, :oban_unavailable}
 
       not required_files_present?(dir) ->
-        case promote_scheduled_now() do
+        case promote_scheduled_now(failure_reschedule_seconds) do
           {:ok, :promoted} ->
             {:ok, :already_scheduled}
 
@@ -132,7 +132,7 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
 
     query =
       from(j in Oban.Job,
-        where: j.worker == ^to_string(__MODULE__),
+        where: j.worker == ^Oban.Worker.to_string(__MODULE__),
         where:
           j.state in ["available", "scheduled", "executing", "retryable"] or
             (j.state in ["completed", "discarded"] and j.attempted_at >= ^cooldown_started_at),
@@ -336,13 +336,19 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
     Enum.all?(@required_files, &File.regular?(Path.join(dir, &1)))
   end
 
-  defp promote_scheduled_now do
+  # Runs a pending download now when the files are missing, e.g. after an emptyDir was wiped. A
+  # successor inserted inside the failure backoff window comes from a run that just ended without
+  # the files, typically a failed download; promoting it on every scheduler tick would retry
+  # about once a minute instead of backing off, so only successors older than the window move.
+  defp promote_scheduled_now(failure_reschedule_seconds) do
     now = DateTime.utc_now()
+    backoff_started_at = DateTime.add(now, -max(failure_reschedule_seconds, 3_600), :second)
 
     query =
       from(j in Oban.Job,
-        where: j.worker == ^to_string(__MODULE__),
-        where: j.state == "scheduled"
+        where: j.worker == ^Oban.Worker.to_string(__MODULE__),
+        where: j.state == "scheduled",
+        where: j.inserted_at < ^backoff_started_at
       )
 
     case Repo.update_all(query, [set: [scheduled_at: now]], prefix: ObanSupport.prefix()) do

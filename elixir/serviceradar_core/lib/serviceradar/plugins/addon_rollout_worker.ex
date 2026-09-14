@@ -54,7 +54,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutWorker do
 
     query =
       from(job in Oban.Job,
-        where: job.worker == ^to_string(__MODULE__),
+        where: job.worker == ^Oban.Worker.to_string(__MODULE__),
         where: job.state in ["available", "scheduled", "executing", "retryable"],
         limit: 1
       )

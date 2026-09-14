@@ -51,7 +51,7 @@ defmodule ServiceRadar.PrefixTags.ObanSchedule do
   defp job_exists?(worker_mod) do
     query =
       from(j in Oban.Job,
-        where: j.worker == ^to_string(worker_mod),
+        where: j.worker == ^Oban.Worker.to_string(worker_mod),
         where: j.state in ["available", "scheduled", "executing", "retryable"],
         limit: 1
       )

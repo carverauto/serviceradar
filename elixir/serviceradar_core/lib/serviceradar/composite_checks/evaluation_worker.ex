@@ -91,7 +91,7 @@ defmodule ServiceRadar.CompositeChecks.EvaluationWorker do
     import Ecto.Query
 
     Oban.Job
-    |> where([j], j.worker == ^to_string(__MODULE__))
+    |> where([j], j.worker == ^Oban.Worker.to_string(__MODULE__))
     |> where([j], j.state in ["available", "scheduled", "retryable"])
     |> where([j], fragment("? ->> 'check_id' = ?", j.args, ^to_string(check_id)))
     |> Oban.cancel_all_jobs()

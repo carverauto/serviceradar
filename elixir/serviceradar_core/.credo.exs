@@ -36,7 +36,8 @@ extra_checks = ex_slop_checks ++ ex_dna_checks ++ jump_checks
       plugins: [{AshCredo, []}],
       requires: [
         "deps/ex_dna/lib/ex_dna/integrations/credo.ex",
-        "credo/check/warning/authorize_false_usage.ex"
+        "credo/check/warning/authorize_false_usage.ex",
+        "credo/check/warning/oban_worker_name_comparison.ex"
       ],
       strict: false,
       parse_timeout: 5000,
@@ -46,6 +47,7 @@ extra_checks = ex_slop_checks ++ ex_dna_checks ++ jump_checks
         enabled: [
           # Custom checks
           {ServiceRadar.Credo.Check.Warning.AuthorizeFalseUsage, []},
+          {ServiceRadar.Credo.Check.Warning.ObanWorkerNameComparison, []},
 
           # Consistency checks
           {Credo.Check.Consistency.ExceptionNames, []},

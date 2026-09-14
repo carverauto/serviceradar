@@ -21,7 +21,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
 
-  @stateful_cleanup_worker "Elixir.ServiceRadar.Observability.StatefulAlertCleanupWorker"
+  @stateful_cleanup_worker "ServiceRadar.Observability.StatefulAlertCleanupWorker"
 
   @moduletag :integration
 
