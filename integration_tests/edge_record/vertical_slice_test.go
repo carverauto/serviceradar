@@ -31,7 +31,10 @@
 // -- and the real go/cmd/agent binary (agentproc.go) in its normal push-mode
 // entry point. Task 0.12's acceptance matrix (groups A-F) is CONJUNCTIVE;
 // each is one t.Run subtest below, run in sequence (not parallel) because
-// later groups depend on state earlier ones create.
+// later groups depend on state earlier ones create. Group G is outside that
+// matrix: it is task 3.2's composed observation of a record whose origin
+// principal differs from the authenticated agent's, and it uses no state an
+// earlier group creates.
 //
 // What is proven exactly, and what is a documented approximation, is called
 // out per group below -- see each t.Run's doc comment. Groups E and F make
@@ -528,6 +531,7 @@ func TestVerticalSlice(t *testing.T) {
 	t.Run("GroupD_FailureAndWatermarkOrder", h.testGroupD)
 	t.Run("GroupE_RestartOverlap", h.testGroupE)
 	t.Run("GroupF_PostHandoffFencing", h.testGroupF)
+	t.Run("GroupG_RecordIdentityMismatch", h.testGroupG)
 }
 
 // ---------------------------------------------------------------------------
@@ -1071,6 +1075,18 @@ func (h *harness) snapshotFixtureRows(t *testing.T, fx *FixtureRecord, spoolID [
 // writes only after a durable JetStream PubAck.
 func requireAcceptedAck(t *testing.T, msg *edgev1.EdgeRecordServerMessage, spoolID []byte, sequence uint64) {
 	t.Helper()
+	requireSingleDisposition(t, msg, spoolID, sequence,
+		edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE)
+}
+
+// requireSingleDisposition fails t unless msg is an EdgeDeliveryAckV1
+// resolving exactly sequence on spoolID as kind, and returns that
+// disposition.
+func requireSingleDisposition(
+	t *testing.T, msg *edgev1.EdgeRecordServerMessage, spoolID []byte, sequence uint64,
+	kind edgev1.EdgeRecordDispositionKind,
+) *edgev1.EdgeRecordDisposition {
+	t.Helper()
 	ack := msg.GetAck()
 	if ack == nil {
 		t.Fatalf("expected an EdgeDeliveryAckV1, got %T", msg.GetPayload())
@@ -1080,10 +1096,10 @@ func requireAcceptedAck(t *testing.T, msg *edgev1.EdgeRecordServerMessage, spool
 			ack.GetSpoolId(), ack.GetResolvedThroughSequence(), spoolID, sequence)
 	}
 	disps := ack.GetDispositions()
-	if len(disps) != 1 || disps[0].GetSequence() != sequence ||
-		disps[0].GetKind() != edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE {
-		t.Fatalf("ack dispositions = %v, want one ACCEPTED_AUTHORITATIVE for sequence %d", disps, sequence)
+	if len(disps) != 1 || disps[0].GetSequence() != sequence || disps[0].GetKind() != kind {
+		t.Fatalf("ack dispositions = %v, want one %s for sequence %d", disps, kind, sequence)
 	}
+	return disps[0]
 }
 
 // edgeRecordStream opens the edge-record stream over a fresh NATS connection
@@ -2416,6 +2432,89 @@ func (h *harness) testGroupF(t *testing.T) {
 
 	if n := h.awaitSingleLedgerRow(t, fx); n != 1 {
 		t.Errorf("the fenced-then-admitted publication has %d event_ledger rows, want exactly 1", n)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Group G: record identity mismatch.
+//
+// Task 0.12 item A leaves this observation to task 3.2. Group A's
+// mismatched-identity control is a non-agent certificate refused at
+// lane_open. This group presents the harness agent's OWN certificate, which
+// passes that gate, with a record attributed to a different origin principal,
+// and observes the gateway refuse the record as an identity conflict before
+// NATS publication.
+//
+// The record is BuildSweepFixture's, validly signed by the fixture issuer and
+// naming the fixtures' network scope, contract and fenced producer, so the
+// only thing about it the gateway cannot authorize is
+// producer_context.origin_principal_id, which its grant signs as
+// otherAgentPrincipalID. It is sent on its own fresh spool id:
+//
+//  1. The frame is answered by an EdgeDeliveryAckV1, which the gateway sends
+//     only on an opened lane, resolving it REJECTED_PERMANENT bound to its
+//     event id.
+//  2. A correctly attributed publication, sent afterwards on another fresh
+//     spool id, lands in CNPG, so the JetStream route and EventWriter were
+//     live after the refusal.
+//  3. The refused record then has no event_ledger row and no message in the
+//     edge-record stream.
+// ---------------------------------------------------------------------------
+
+// otherAgentPrincipalID is a synthetic agent principal no harness
+// certificate carries.
+const otherAgentPrincipalID = "vslice-agent-other"
+
+func (h *harness) testGroupG(t *testing.T) {
+	h.requireJetStream(t)
+
+	tlsCfg, err := h.certSet.AgentTLSConfig(h.gatewayServerName)
+	if err != nil {
+		t.Fatalf("agent tls config: %v", err)
+	}
+	fx, err := BuildSweepFixture([]byte(otherAgentPrincipalID))
+	if err != nil {
+		t.Fatalf("build fixture: %v", err)
+	}
+	spoolID, err := edgerecord.NewUUIDv7()
+	if err != nil {
+		t.Fatalf("spool id: %v", err)
+	}
+	if n := h.rpcQueryCount(t, eventLedgerExistsSQL(fx.NetworkScopeID, fx.EventID)); n != 0 {
+		t.Fatalf("event_ledger row already present before send (count=%d) -- fixture ids not fresh", n)
+	}
+
+	// (1) Refused on an opened lane. A lane_open refused Unavailable while the
+	// lane's capability is not ready offered nothing, so it is sent again.
+	r := h.sendPublication(t, tlsCfg, spoolID, fx, 20*time.Second)
+	for deadline := time.Now().Add(pollTimeout); status.Code(r.err) == codes.Unavailable && time.Now().Before(deadline); {
+		time.Sleep(pollInterval)
+		r = h.sendPublication(t, tlsCfg, spoolID, fx, 20*time.Second)
+	}
+	if r.err != nil {
+		t.Fatalf("the record attributed to another principal was not answered on the agent's session: %v", r.err)
+	}
+	d := requireSingleDisposition(t, r.msg, spoolID, 1,
+		edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_REJECTED_PERMANENT)
+	if !bytes.Equal(d.GetEventId(), fx.EventID) {
+		t.Errorf("REJECTED_PERMANENT disposition event_id = %x, want the fixture's %x", d.GetEventId(), fx.EventID)
+	}
+
+	// (2) The pipeline was live after the refusal.
+	control, controlSpoolID := h.freshPublication(t)
+	if err := h.sendUntilAccepted(t, tlsCfg, controlSpoolID, control, pollTimeout); err != nil {
+		t.Fatalf("a correctly attributed control publication was not accepted after the refusal: %v", err)
+	}
+	if n := h.awaitSingleLedgerRow(t, control); n != 1 {
+		t.Fatalf("the control publication has %d event_ledger rows after %s, want exactly 1; without it the refused record's absence proves nothing", n, pollTimeout)
+	}
+
+	// (3) Nothing of the refused record reached NATS or CNPG.
+	if n := h.rpcQueryCount(t, eventLedgerExistsSQL(fx.NetworkScopeID, fx.EventID)); n != 0 {
+		t.Errorf("the refused record has %d event_ledger rows, want 0", n)
+	}
+	if seqs := h.storedMessagesCarrying(t, fx.RecordBytes); len(seqs) != 0 {
+		t.Errorf("stream %s stores the refused record at sequences %v, want none", edgeRecordStreamName, seqs)
 	}
 }
 

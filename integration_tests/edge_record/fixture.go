@@ -150,7 +150,9 @@ type FixtureRecord struct {
 // the UTF-8 bytes of ComponentIdentityResolver.resolve_edge_identity/3's parsed
 // CN component-id label, i.e. exactly CertSet.AgentComponentID's bytes for
 // the real agent client certificate this harness generates (certs.go). The
-// caller MUST pass []byte(certSet.AgentComponentID), not a placeholder.
+// caller MUST pass []byte(certSet.AgentComponentID), not a placeholder --
+// except vertical_slice_test.go's Group G, which passes another principal to
+// observe the gateway refuse the record before publication.
 func BuildSweepFixture(originPrincipalID []byte) (*FixtureRecord, error) {
 	return buildFixture(primaryFixtureVariant, originPrincipalID)
 }

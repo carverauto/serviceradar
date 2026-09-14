@@ -65,6 +65,14 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrust do
   `"status"` is `"valid"` (includes a normally rotated key retained for history) or
   `"historically_revoked"` (compromise-revoked: the signature still verifies, but trust is
   deliberately withdrawn and the record can only reach security quarantine).
+
+  The snapshot is loaded ONCE, at application boot (`load_configured/0`, from
+  `AGENT_GATEWAY_EDGE_RECORD_TRUST_FILE`), and is never replaced at runtime. Fence entries,
+  verifying keys and agent scope bindings added after boot are unknown until the gateway restarts:
+  frames that depend on them are withheld as retryable (no disposition is sent, so the gap caps the
+  lane's watermark, per task 3.3) and are never authorized. A fence advanced after boot is not
+  learned either, so a handed-off producer's previous generation still reads as current and its new
+  one as future. A runtime snapshot refresh is deferred follow-up work.
   """
 
   alias ServiceRadar.Edge.PlanValidate
