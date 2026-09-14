@@ -40,8 +40,9 @@ This is not merely a serialization problem:
 
 ## Active milestone scope and review contract
 
-Task 0.12, the first green vertical slice, is the active milestone. Until it is
-green, this section governs what may BLOCK its implementation PRs and what must
+Task 0.12, the first green vertical slice, is the milestone this section scopes;
+its checkbox in `tasks.md` records whether it is closed. Until it is green,
+this section governs what may BLOCK its implementation PRs and what must
 be deferred. It exists because independently expanding proof surfaces has no
 natural stopping point and had displaced the first composed runtime result.
 
