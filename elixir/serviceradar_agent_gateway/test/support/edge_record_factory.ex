@@ -44,7 +44,6 @@ defmodule ServiceRadarAgentGateway.TestSupport.EdgeRecordFactory do
 
   def trust_document(public_key, opts \\ []) do
     %{
-      "trust_policy_epoch" => 1,
       "keys" => [key_entry(public_key, opts) | Keyword.get(opts, :extra_keys, [])],
       "fences" =>
         opts

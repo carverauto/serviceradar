@@ -5,10 +5,11 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrust do
   Every capability an edge record carries -- the production grant, an optional source
   authorization, and an optional delivery capability on the wrapper -- is verified against this
   snapshot, in process, with no core, ERTS or database round trip per frame. The snapshot is the
-  gateway's peer of Go's `edgerecord.CapabilityTrust` plus `AuthorizationPolicy`:
+  gateway's peer of Go's `edgerecord.CapabilityTrust` plus `AuthorizationPolicy`. The snapshot is
+  immutable and replaced whole, and each frame decision reads it once, so every key, fence and
+  scope binding in one decision comes from the same snapshot and a replacement cannot mix two
+  inside one frame:
 
-    * `:trust_policy_epoch` -- the single pinned, nonzero policy generation every key in one
-      frame decision resolves at, so a revocation cannot mix snapshots inside one frame;
     * `:keys` -- verifying Ed25519 keys by EXACT `{issuer_id, issuer_key_id}`, each with the set of
       capability PURPOSES it may issue and its lifecycle status. A key that exists but is not
       authorized for the requested purpose resolves `:key_invalid`: only this resolver knows which
@@ -47,7 +48,6 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrust do
   base64:
 
       {
-        "trust_policy_epoch": 1,
         "clock_tolerance_nano": 0,
         "keys": [
           {"issuer_id": "<b64>", "issuer_key_id": "<b64>", "public_key": "<b64, 32 bytes>",
@@ -85,7 +85,6 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrust do
   @type fence_key :: {binary(), binary(), non_neg_integer()}
 
   @type snapshot :: %{
-          trust_policy_epoch: pos_integer(),
           clock_tolerance_nano: non_neg_integer(),
           keys: %{{binary(), binary()} => %{public_key: binary(), purposes: MapSet.t(), status: key_status()}},
           fences: %{fence_key() => non_neg_integer()},
@@ -201,7 +200,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrust do
 
   # --- parsing ---------------------------------------------------------------------------------
 
-  defp parse(%{"trust_policy_epoch" => epoch} = document) when is_integer(epoch) and epoch > 0 and epoch <= @u64_max do
+  defp parse(%{} = document) do
     tolerance = Map.get(document, "clock_tolerance_nano", 0)
 
     with :ok <-
@@ -215,7 +214,6 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrust do
          :ok <- check(unique?(Enum.map(scopes, &elem(&1, 0))), :duplicate_scope_binding) do
       {:ok,
        %{
-         trust_policy_epoch: epoch,
          clock_tolerance_nano: tolerance,
          keys: Map.new(keys),
          fences: Map.new(fences),
@@ -224,7 +222,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrust do
     end
   end
 
-  defp parse(_document), do: {:error, :trust_policy_epoch}
+  defp parse(_document), do: {:error, :document}
 
   defp parse_list(items, parser) when is_list(items) do
     items

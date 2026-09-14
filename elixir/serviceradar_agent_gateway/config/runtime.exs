@@ -364,8 +364,7 @@ config :serviceradar_agent_gateway,
        System.get_env("AGENT_GATEWAY_EDGE_RECORD_CONTRACT_REGISTRY")
 
 # The local trust snapshot every edge-record frame is authorized against (verifying public keys,
-# trust-policy epoch, producer fences, agent network-scope bindings). Without it
-# `edge-records:v1` never becomes ready.
+# producer fences, agent network-scope bindings). Without it `edge-records:v1` never becomes ready.
 config :serviceradar_agent_gateway, :edge_record_trust, file: System.get_env("AGENT_GATEWAY_EDGE_RECORD_TRUST_FILE")
 config :serviceradar_agent_gateway, :edge_records_publisher, enabled: edge_records_publish_enabled
 

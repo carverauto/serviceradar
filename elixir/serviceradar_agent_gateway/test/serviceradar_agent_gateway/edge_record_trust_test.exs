@@ -12,8 +12,6 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrustTest do
   test "a valid document becomes a snapshot keyed by exact issuer and key id", %{keys: keys} do
     assert {:ok, snapshot} = EdgeRecordTrust.new(EdgeRecordFactory.trust_document(keys.public))
 
-    assert snapshot.trust_policy_epoch == 1
-
     assert {:ok, public_key, :valid} =
              EdgeRecordTrust.resolve_key(snapshot, "test-edge-issuer", EdgeRecordFactory.issuer_key_id(), :production)
 
@@ -32,11 +30,11 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrustTest do
     assert {:error, :key_invalid} = EdgeRecordTrust.resolve_key(snapshot, "test-edge-issuer", key_id, :production)
   end
 
-  test "rejects documents that could not pin a decision", %{keys: keys} do
+  test "rejects documents that could not authorize a decision", %{keys: keys} do
     valid = EdgeRecordFactory.trust_document(keys.public)
     [key] = valid["keys"]
 
-    assert {:error, :trust_policy_epoch} = EdgeRecordTrust.new(%{valid | "trust_policy_epoch" => 0})
+    assert {:error, :document} = EdgeRecordTrust.new([valid])
     assert {:error, :no_keys} = EdgeRecordTrust.new(%{valid | "keys" => []})
     assert {:error, :duplicate_key} = EdgeRecordTrust.new(%{valid | "keys" => [key, key]})
 
@@ -100,12 +98,12 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrustTest do
     good = Path.join(dir, "trust.json")
     File.write!(good, Jason.encode!(EdgeRecordFactory.trust_document(keys.public)))
     bad = Path.join(dir, "bad.json")
-    File.write!(bad, ~s({"trust_policy_epoch": 0}))
+    File.write!(bad, ~s({"keys": []}))
 
     EdgeRecordTrust.clear()
     refute EdgeRecordTrust.available?()
 
-    assert {:error, :trust_policy_epoch} = EdgeRecordTrust.load_file(bad)
+    assert {:error, :no_keys} = EdgeRecordTrust.load_file(bad)
     refute EdgeRecordTrust.available?()
 
     assert :ok = EdgeRecordTrust.load_file(good)

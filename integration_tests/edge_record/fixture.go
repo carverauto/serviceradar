@@ -461,10 +461,10 @@ func FixtureIssuerPublicKey() ed25519.PublicKey {
 // WriteGatewayTrustFile writes the gateway's edge-record trust snapshot
 // (ServiceRadarAgentGateway.EdgeRecordTrust, read from
 // AGENT_GATEWAY_EDGE_RECORD_TRUST_FILE): the fixture issuer's verifying key,
-// authorized for production, source and delivery capabilities, at trust
-// policy epoch 1, and a fence entry for each fixture producer at
-// fixtureAuthorityEpoch. No other producer is fenced, so the gateway withholds
-// anything else. It binds agentComponentID -- the CN component id of the
+// authorized for production, source and delivery capabilities, and a fence
+// entry for each fixture producer at fixtureAuthorityEpoch. No other producer
+// is fenced, so the gateway withholds anything else. It binds
+// agentComponentID -- the CN component id of the
 // harness agent's client certificate -- to the fixtures' network scope and to
 // nothing else, and binds no other agent.
 func WriteGatewayTrustFile(path, agentComponentID string) error {
@@ -500,12 +500,10 @@ func WriteGatewayTrustFile(path, agentComponentID string) error {
 	}
 
 	document := struct {
-		TrustPolicyEpoch uint64       `json:"trust_policy_epoch"`
-		Keys             []trustKey   `json:"keys"`
-		Fences           []trustFence `json:"fences"`
-		Scopes           []trustScope `json:"scopes"`
+		Keys   []trustKey   `json:"keys"`
+		Fences []trustFence `json:"fences"`
+		Scopes []trustScope `json:"scopes"`
 	}{
-		TrustPolicyEpoch: 1,
 		Keys: []trustKey{{
 			IssuerID:    base64.StdEncoding.EncodeToString([]byte(fixtureIssuerID)),
 			IssuerKeyID: base64.StdEncoding.EncodeToString([]byte(fixtureIssuerKeyID)),

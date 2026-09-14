@@ -985,7 +985,7 @@
   `ComponentIdentityResolver.resolve_edge_identity/3` derives installation trust (deployment-CA
   SPKI digest), agent principal, partition and gateway from the CA and certificate subject, with
   SPIFFE optional and conflict-checked. `EdgeRecordTrust` is the local trust snapshot (role-bound
-  verifying keys, pinned trust-policy epoch, advanced fences), and `EdgeRecordCapability` is not
+  verifying keys, advanced fences, agent network-scope bindings), and `EdgeRecordCapability` is not
   ready without it. `EdgeRecordAuthorization` decides each frame with no core or database lookup,
   in the order Go's `ValidateFrameSigned` uses. The vertical slice signs its fixture grant with a
   synthetic issuer that the gateway trusts and fences, and binds the harness agent to the fixtures'

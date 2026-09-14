@@ -270,8 +270,7 @@ func TestFixtureCapabilityVerifiesUnderGatewayTrustFile(t *testing.T) {
 	}
 
 	var document struct {
-		TrustPolicyEpoch uint64 `json:"trust_policy_epoch"`
-		Keys             []struct {
+		Keys []struct {
 			IssuerID    string   `json:"issuer_id"`
 			IssuerKeyID string   `json:"issuer_key_id"`
 			PublicKey   string   `json:"public_key"`
@@ -291,8 +290,8 @@ func TestFixtureCapabilityVerifiesUnderGatewayTrustFile(t *testing.T) {
 	if err := json.Unmarshal(body, &document); err != nil {
 		t.Fatalf("trust file must be JSON: %v", err)
 	}
-	if document.TrustPolicyEpoch == 0 || len(document.Keys) != 1 {
-		t.Fatalf("trust file must pin a nonzero epoch and one key, got %+v", document)
+	if len(document.Keys) != 1 {
+		t.Fatalf("trust file must carry exactly one key, got %+v", document)
 	}
 
 	key := document.Keys[0]
