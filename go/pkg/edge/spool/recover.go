@@ -60,11 +60,11 @@ func (s *Spool) openEvidence() error {
 // segment, one over both evidence copies in lockstep -- so it is bounded by the
 // segment's files, not by how many slots turn out to be damaged.
 func (s *Spool) recover() error {
-	chain, err := s.scanChain()
+	readers, evidenceSlots, err := s.evidenceReaders(1)
 	if err != nil {
 		return err
 	}
-	readers, evidenceSlots, err := s.evidenceReaders(1)
+	chain, err := s.scanChain(evidenceSlots)
 	if err != nil {
 		return err
 	}
@@ -78,15 +78,7 @@ func (s *Spool) recover() error {
 		cursor       int
 	)
 	buf := make([]byte, evidenceEntryLen)
-	// A record header can name any sequence, but the files hold only so many slots: one
-	// per sequence the evidence copies have entries for, one per record the walk found,
-	// and one per minimal record the segment could hold for appends that left neither.
-	// Slots are materialized up to that and no further, so open is bounded by the files
-	// rather than by a header value (see resync).
-	top := min(
-		max(evidenceSlots, chain.maxHeaderSeq),
-		evidenceSlots+uint64(len(chain.records))+uint64(s.segSize/minRecordLen),
-	)
+	top := max(evidenceSlots, chain.maxHeaderSeq)
 	s.slots = make([]slotLoc, 0, top)
 	extents := make([]slotExtent, 0, top)
 
@@ -136,7 +128,7 @@ func (s *Spool) recover() error {
 	// Every sequence up to the highest one any evidence or record names is allocated:
 	// sequences are assigned contiguously, so a gap below it is a slot whose evidence
 	// was lost, not a slot that never existed.
-	highWater := min(max(lastEvidence, chain.maxHeaderSeq), top)
+	highWater := max(lastEvidence, chain.maxHeaderSeq)
 	s.slots = s.slots[:highWater]
 
 	// The torn tail is the crash boundary: a slot whose own record never fully landed.
@@ -443,12 +435,45 @@ type tailFragment struct {
 
 // scanChain walks the segment. It finds records whose commit evidence was lost -- a
 // complete record with no marker -- and the sequences their headers allocate.
-func (s *Spool) scanChain() (chainScan, error) {
-	var cs chainScan
-	var lastSeq uint64
-	var lastEnd int64
+//
+// A header in the clean prefix -- reached from the start of the segment by stepping
+// over intact records -- was placed there by the spool, so its sequence counts however
+// far it jumps: an append that fails after its preparation consumes a sequence while
+// writing no bytes. Past the first damage a header can lie in producer-written body
+// bytes, so the walk trusts it only when its sequence advances by at most one per byte
+// skipped since the last trusted position -- the least a torn record leaves -- or when
+// its record is intact and its sequence is within what the files account for: the
+// higher of evidenceSlots and the clean prefix's high-water, plus one for each record
+// and torn fragment the walk has found, itself included. A header beyond that is not
+// trusted, so it neither raises the high-water nor hides the records after it, and
+// open materializes the slots the files hold rather than a sequence a header names.
+//
+// KNOWN ACCEPTED RISK: a genuine record found past damage whose sequence lies beyond
+// that bound is not counted, so its sequence can be reused.
+func (s *Spool) scanChain(evidenceSlots uint64) (chainScan, error) {
+	var (
+		cs        chainScan
+		lastSeq   uint64
+		lastEnd   int64
+		cleanHigh uint64
+		fragments uint64
+		clean     = true
+	)
 	hdr := int64(headerLen + headerCRC)
 	header := make([]byte, hdr)
+	trusts := func(h recordHeader, at int64) (bool, error) {
+		switch {
+		case h.seq <= lastSeq:
+			return false, nil
+		case clean || h.seq-lastSeq <= uint64(at-lastEnd)+1:
+			return true, nil
+		case h.seq > max(evidenceSlots, cleanHigh)+uint64(len(cs.records))+fragments+1,
+			at+minRecordLen+int64(h.bodyLen) > s.segSize:
+			return false, nil
+		default:
+			return s.bodyIntactAt(at, h.bodyLen)
+		}
+	}
 
 	for pos := int64(0); pos < s.segSize; {
 		if pos+hdr > s.segSize {
@@ -459,8 +484,16 @@ func (s *Spool) scanChain() (chainScan, error) {
 			return cs, fmt.Errorf("spool: read segment: %w", err)
 		}
 		h, ok := parseHeader(header)
+		if ok && h.seq > lastSeq {
+			var err error
+			if ok, err = trusts(h, pos); err != nil {
+				return cs, err
+			}
+		}
 		if !ok {
-			next, found, err := s.resync(pos+1, lastSeq, lastEnd)
+			clean = false
+			fragments++
+			next, found, err := s.resync(pos+1, trusts)
 			if err != nil {
 				return cs, err
 			}
@@ -485,6 +518,9 @@ func (s *Spool) scanChain() (chainScan, error) {
 			if whole {
 				cs.maxHeaderSeq = h.seq
 			}
+			if clean {
+				cleanHigh = h.seq
+			}
 			lastSeq, lastEnd = h.seq, pos+hdr
 			if intact {
 				lastEnd = end
@@ -497,7 +533,8 @@ func (s *Spool) scanChain() (chainScan, error) {
 		// Only an intact record proves its length. A record that never fully landed
 		// declares an extent later records were placed inside, so the walk continues
 		// at the next readable header rather than at the declared end.
-		next, found, err := s.resync(pos+hdr, lastSeq, lastEnd)
+		clean = false
+		next, found, err := s.resync(pos+hdr, trusts)
 		if err != nil {
 			return cs, err
 		}
@@ -513,29 +550,8 @@ func (s *Spool) scanChain() (chainScan, error) {
 	return cs, nil
 }
 
-// resync finds the next record header at or after from that the walk can trust. A
-// record whose body checksum verifies is accepted however far its sequence is from the
-// last one read: an append that fails after its preparation consumes a sequence while
-// writing no bytes, so no byte distance bounds how many sequences a gap holds, and
-// rejecting that record would let its sequence be reused. A header whose record is not
-// intact must also be plausible -- its sequence may advance by at most one per byte
-// skipped since the last trusted position, the least a torn record leaves -- so a
-// damaged run of header-shaped bytes cannot move the high-water past what those bytes
-// could have held.
-//
-// KNOWN ACCEPTED RISK: the distance bound is the only guard against a checksum-valid
-// record header forged inside producer-controlled body bytes. Because an intact record
-// is accepted on its checksums alone, such a forgery reached while resyncing through a
-// damaged region can name any sequence. Were open to size its slot index and per-slot
-// pass from that value, a far sequence would panic the process on every restart
-// (makeslice: cap out of range) and a moderate one would allocate gigabytes and loop
-// once per sequence; recover caps both at what the files can hold instead. What stays
-// accepted is that a forgery raises the high-water up to that cap, spending those
-// sequences as ambiguous slots, and hides the headers of later records from the walk,
-// so those records resolve from their evidence alone; and that a genuine record whose
-// sequence lies beyond the cap would see that sequence reused. These were weighed
-// against a receipted record vanishing and its sequence being reused, and accepted.
-func (s *Spool) resync(from int64, lastSeq uint64, lastEnd int64) (int64, bool, error) {
+// resync finds the first record header at or after from that trusts accepts.
+func (s *Spool) resync(from int64, trusts func(recordHeader, int64) (bool, error)) (int64, bool, error) {
 	var magic [4]byte
 	binary.LittleEndian.PutUint32(magic[:], recordMagic)
 	hdr := headerLen + headerCRC
@@ -554,13 +570,10 @@ func (s *Spool) resync(from int64, lastSeq uint64, lastEnd int64) (int64, bool, 
 			}
 			at := i + j
 			candidate := off + int64(at)
-			h, ok := parseHeader(window[at : at+hdr])
-			if ok && h.seq > lastSeq {
-				trusted := h.seq-lastSeq <= uint64(candidate-lastEnd)+1
-				if end := candidate + minRecordLen + int64(h.bodyLen); !trusted && end <= s.segSize {
-					if trusted, err = s.bodyIntactAt(candidate, h.bodyLen); err != nil {
-						return 0, false, err
-					}
+			if h, ok := parseHeader(window[at : at+hdr]); ok {
+				trusted, err := trusts(h, candidate)
+				if err != nil {
+					return 0, false, err
 				}
 				if trusted {
 					return candidate, true, nil

@@ -899,16 +899,74 @@ func TestForgedFarSequenceInTornBodyKeepsOpenBounded(t *testing.T) {
 		t.Fatalf("open allocated %d bytes", grew)
 	}
 
-	res := s2.RestartResolution()
-	if res.HighWater < 2 || res.HighWater > 64 {
-		t.Fatalf("high-water = %d, want the torn slot allocated and no more than the files hold", res.HighWater)
+	if hw := s2.RestartResolution().HighWater; hw != 2 {
+		t.Fatalf("high-water = %d, want 2: the forged sequence allocates nothing", hw)
 	}
 	assertAmbiguous(t, slotOf(t, s2, 2), EvidencePrepared, Coverage{Reason: reasonTornTail})
 	if v := visibleSeqs(t, s2); !slices.Equal(v, []uint64{1}) {
 		t.Fatalf("sender-visible = %v, want [1]", v)
 	}
-	if got := mustAppend(t, s2, 3, "after"); got != res.HighWater+1 {
-		t.Fatalf("append = %d, want %d", got, res.HighWater+1)
+	if got := mustAppend(t, s2, 3, "after"); got != 3 {
+		t.Fatalf("append = %d, want 3", got)
+	}
+	_ = s2.Close()
+
+	// The forged header stays in the segment; later restarts must not spend sequences on it.
+	for restart := 1; restart <= 2; restart++ {
+		s3 := openWith(t, dir, nil)
+		if hw := s3.RestartResolution().HighWater; hw != 3 {
+			t.Fatalf("restart %d after a later commit: high-water = %d, want 3", restart, hw)
+		}
+		assertAmbiguous(t, slotOf(t, s3, 2), EvidencePrepared, Coverage{Reason: reasonTornTail})
+		if v := visibleSeqs(t, s3); !slices.Equal(v, []uint64{1, 3}) {
+			t.Fatalf("restart %d: sender-visible = %v, want [1 3]", restart, v)
+		}
+		_ = s3.Close()
+	}
+}
+
+// Appends that fail after their preparation consume sequences and write nothing, so the
+// next record lands right after the last one and the walk reaches it by stepping over
+// intact records. With every evidence copy lost, that record's sequence counts however
+// far it jumps: it stays allocated and ambiguous, and no sequence up to it is reused.
+func TestCleanWalkRecordAfterZeroByteAllocationsKeepsItsSequence(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	mustAppend(t, s, 1, "one")
+	_ = s.Close()
+
+	const failures = 4
+	for i := range failures {
+		failing := openWith(t, dir, nil)
+		failing.beforeBarrier = crashBefore(barrierRecord)
+		if _, err := failing.Commit(evid(byte(2+i)), []byte("lost"), Bindings{}); err == nil {
+			t.Fatal("commit succeeded through an injected crash")
+		}
+		_ = failing.Close()
+	}
+	kept := uint64(2 + failures)
+	last := openWith(t, dir, nil)
+	if got := mustAppend(t, last, byte(kept), "kept"); got != kept {
+		t.Fatalf("append = %d, want %d", got, kept)
+	}
+	_ = last.Close()
+	for _, c := range []int{copyA, copyB} {
+		if err := os.RemoveAll(filepath.Join(dir, evidenceDirName(c))); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	reopened := openWith(t, dir, nil)
+	res := reopened.RestartResolution()
+	if res.HighWater != kept || len(res.Discarded) != 0 {
+		t.Fatalf("high-water %d discarded %+v, want %d and none", res.HighWater, res.Discarded, kept)
+	}
+	assertAmbiguous(t, slotOf(t, reopened, kept), EvidenceNone, Coverage{Reason: reasonMissing})
+	if got := mustAppend(t, reopened, byte(kept+1), "next"); got != kept+1 {
+		t.Fatalf("append = %d, want %d (no sequence up to %d may be reused)", got, kept+1, kept)
 	}
 }
 
