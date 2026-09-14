@@ -15,8 +15,12 @@ defmodule ServiceRadarAgentGateway.ComponentIdentityResolver do
 
   ## SPIFFE ID Format
 
-  Component type is extracted from the SPIFFE URI SAN:
+  `resolve_from_cert/1` extracts the component type from the SPIFFE URI SAN:
   `spiffe://serviceradar.local/<component_type>/<partition_id>/<component_id>`
+
+  `resolve_edge_identity/3` does not require one: it admits a certificate in an expected edge
+  role, derives installation trust from the deployment CA, and only conflict-checks a SPIFFE id
+  that is present (see its documentation).
   """
 
   alias ServiceRadar.Edge.PublicationIdentity

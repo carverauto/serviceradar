@@ -155,8 +155,7 @@ defmodule ServiceRadarAgentGateway.TestSupport.EdgeRecordFactory do
 
     claims = %EdgeDeliveryClaimsV1{
       event_id: Keyword.get(opts, :event_id, record.event_id),
-      record_sha256:
-        Keyword.get_lazy(opts, :record_sha256, fn -> :crypto.hash(:sha256, EdgeRecordV1.encode(record)) end),
+      record_sha256: Keyword.get_lazy(opts, :record_sha256, fn -> :crypto.hash(:sha256, EdgeRecordV1.encode(record)) end),
       spool_id: Keyword.fetch!(opts, :spool_id),
       sequence: Keyword.get(opts, :sequence, 1),
       transition:

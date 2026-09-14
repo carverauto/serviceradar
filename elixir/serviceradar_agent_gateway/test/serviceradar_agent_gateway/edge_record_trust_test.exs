@@ -18,6 +18,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrustTest do
              EdgeRecordTrust.resolve_key(snapshot, "test-edge-issuer", EdgeRecordFactory.issuer_key_id(), :production)
 
     assert public_key == keys.public
+
     assert {:error, :key_unavailable} =
              EdgeRecordTrust.resolve_key(snapshot, "test-edge-issuer", "other-key", :production)
   end

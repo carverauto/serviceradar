@@ -60,11 +60,9 @@ defmodule ServiceRadarAgentGateway.ComponentIdentityResolverTest do
       assert identity.installation_trust_id == CertificateTestHelpers.spki_sha256!(ctx.ca_cert)
     end
 
-    test "accepts a SPIFFE id that agrees with the certificate subject", ctx do
+    test "accepts a SPIFFE id that agrees with the certificate subject", %{cert_der: cert_der} = ctx do
       assert {:ok, identity} =
-               ComponentIdentityResolver.resolve_edge_identity(ctx.cert_der, :agent,
-                 trust_anchors: anchors(ctx.ca_cert)
-               )
+               ComponentIdentityResolver.resolve_edge_identity(cert_der, :agent, trust_anchors: anchors(ctx.ca_cert))
 
       assert identity.component_id == "agent-1"
       assert identity.spiffe_id == "spiffe://serviceradar.local/agent/default/agent-1"
@@ -117,13 +115,11 @@ defmodule ServiceRadarAgentGateway.ComponentIdentityResolverTest do
                ComponentIdentityResolver.resolve_edge_identity(cert_der, :agent, trust_anchors: anchors(ctx.ca_cert))
     end
 
-    test "rejects a revoked principal", ctx do
+    test "rejects a revoked principal", %{cert_der: cert_der} = ctx do
       assert :ok = AgentCertificateRevocation.revoke_component_id("agent-1", reason: "compromised")
 
       assert {:error, :revoked_certificate} =
-               ComponentIdentityResolver.resolve_edge_identity(ctx.cert_der, :agent,
-                 trust_anchors: anchors(ctx.ca_cert)
-               )
+               ComponentIdentityResolver.resolve_edge_identity(cert_der, :agent, trust_anchors: anchors(ctx.ca_cert))
     end
 
     test "fails closed when the deployment CA cannot be read", ctx do

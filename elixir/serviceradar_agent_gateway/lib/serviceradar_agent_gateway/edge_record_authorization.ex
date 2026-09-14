@@ -221,18 +221,16 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorization do
   # --- 6. signatures ---------------------------------------------------------------------------
 
   defp record_key_status(record, snapshot) do
-    with {:ok, production} <- verify(record.production_capability, :production, snapshot) do
-      case record.source_authorization do
-        nil ->
-          {:ok, production}
-
-        sa ->
-          with {:ok, source} <- verify(sa.capability, :source, snapshot) do
-            {:ok, worst(production, source)}
-          end
-      end
+    with {:ok, production} <- verify(record.production_capability, :production, snapshot),
+         {:ok, source} <- source_key_status(record.source_authorization, snapshot) do
+      {:ok, worst(production, source)}
     end
   end
+
+  # `:valid` is neutral under `worst/2`, so a record without a source authorization keeps its
+  # production key's status.
+  defp source_key_status(nil, _snapshot), do: {:ok, :valid}
+  defp source_key_status(sa, snapshot), do: verify(sa.capability, :source, snapshot)
 
   defp verify(cap, purpose, snapshot) do
     case EdgeRecordTrust.resolve_key(snapshot, cap.issuer_id, cap.issuer_key_id, purpose) do
@@ -277,7 +275,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorization do
       now < cap.not_before_unix_nano - tolerance ->
         {:error, :retryable, :authority_not_yet_valid, ""}
 
-      fence == :current and current_at?(now, cap.not_before_unix_nano, cap.expires_at_unix_nano, tolerance) ->
+      current_authority?(fence, cap, now, tolerance) ->
         attached_grant(record, dc, snapshot, now)
 
       is_nil(dc) and fence == :stale ->
@@ -331,12 +329,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorization do
            ) do
       case dc.claims do
         {:delivery, %{transition: {:renewal, renewal}}} ->
-          inside? =
-            renewal.renewed_not_before_unix_nano >= dc.not_before_unix_nano and
-              renewal.renewed_expires_unix_nano <= dc.expires_at_unix_nano and
-              current_at?(now, renewal.renewed_not_before_unix_nano, renewal.renewed_expires_unix_nano, tolerance)
-
-          with :ok <- check(inside?, :retryable, {:delivery, :renewal_window}), do: {:ok, :renewal}
+          renewal_grant(dc, renewal, now, tolerance)
 
         {:delivery, %{transition: {:rollover, _}}} ->
           {:ok, :rollover}
@@ -344,8 +337,19 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorization do
     end
   end
 
-  defp current_at?(now, not_before, expires, tolerance),
-    do: now >= not_before - tolerance and now <= expires + tolerance
+  defp renewal_grant(dc, renewal, now, tolerance) do
+    inside? =
+      renewal.renewed_not_before_unix_nano >= dc.not_before_unix_nano and
+        renewal.renewed_expires_unix_nano <= dc.expires_at_unix_nano and
+        current_at?(now, renewal.renewed_not_before_unix_nano, renewal.renewed_expires_unix_nano, tolerance)
+
+    with :ok <- check(inside?, :retryable, {:delivery, :renewal_window}), do: {:ok, :renewal}
+  end
+
+  defp current_at?(now, not_before, expires, tolerance), do: now >= not_before - tolerance and now <= expires + tolerance
+
+  defp current_authority?(fence, cap, now, tolerance),
+    do: fence == :current and current_at?(now, cap.not_before_unix_nano, cap.expires_at_unix_nano, tolerance)
 
   defp decision(record, publication, mode, proof, grant) do
     %{record: record, publication: publication, delivery_mode: mode, delivery_proof: proof, grant: grant}
