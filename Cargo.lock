@@ -178,7 +178,7 @@ checksum = "b9d89e0ee34594eef8dd4ffd24bd111b5a6d64e321d81850006c00d8cfe5d1f0"
 dependencies = [
  "ahash 0.8.12",
  "anyhow",
- "bgpkit-parser",
+ "bgpkit-parser 0.20.0",
  "bytes",
  "chrono",
  "metrics",
@@ -753,6 +753,24 @@ dependencies = [
  "num_enum",
  "regex",
  "serde",
+ "smallvec",
+ "zerocopy",
+]
+
+[[package]]
+name = "bgpkit-parser"
+version = "0.22.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8bce2cf116fbed4de34213de4b2722d2a966854033d378d644f35809e28824df"
+dependencies = [
+ "bitflags 2.13.1",
+ "bytes",
+ "chrono",
+ "ipnet",
+ "itertools 0.15.0",
+ "log",
+ "num_enum",
+ "regex",
  "smallvec",
  "zerocopy",
 ]
@@ -6326,7 +6344,7 @@ dependencies = [
  "anyhow",
  "arancini-lib",
  "async-nats",
- "bgpkit-parser",
+ "bgpkit-parser 0.22.0",
  "bytes",
  "chrono",
  "clap 4.6.6",
@@ -8133,7 +8151,7 @@ version = "1.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "97fee6b57c6a41524a810daee9286c02d7752c4253064d0b05472833a438f675"
 dependencies = [
- "cfg-if 0.1.10",
+ "cfg-if 1.0.4",
  "rand 0.8.7",
  "static_assertions",
 ]
