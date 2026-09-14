@@ -861,8 +861,10 @@
   caller-written output). Ordinary charges are keyed by cleaned lane directory,
   cover a lane `Open` rejects as corrupt, and last until `ReleaseOrdinary` after
   physical deletion. `Finish` releases nothing: a recovery's destination segment
-  stays in the reserve until `ReleaseSource` follows deletion of its source, and
-  its other artifacts and slot until `ReleaseArtifacts` follows their deletion. A
+  and attribution sidecar stay with the grant, left out of the lane `Open`
+  measures, until `ReleaseSource` follows deletion of its source, and its
+  journals, pages, mapping and slot until `ReleaseArtifacts` follows their
+  deletion. A
   failed barrier write, caller-reported write (`RecoveryGrant.FailStop`), or
   destructive step fail-stops every grant and all admission; a failed record
   write/fsync stops its lane and all admission but not recovery; per-artifact

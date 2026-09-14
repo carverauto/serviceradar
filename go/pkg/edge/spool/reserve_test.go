@@ -49,6 +49,8 @@ const (
 	testMinFree     = 100
 	// syntheticBody is an invented record body for ledger tests.
 	syntheticBody = "synthetic payload"
+	// testLane is the destination lane of recoveries whose lane no test measures.
+	testLane = "recovery-lane"
 )
 
 // newTestAllocator sizes capacity so exactly ordinary bytes sit above the floor.
@@ -271,7 +273,7 @@ func TestOrdinaryAdmissionCannotBorrowTheReserve(t *testing.T) {
 	dir := t.TempDir()
 	budgets := testFootprint().budgets()
 	for i := range 2 {
-		g, err := a.AcquireRecovery()
+		g, err := a.AcquireRecovery(testLane)
 		if err != nil {
 			t.Fatalf("recovery %d: AcquireRecovery with ordinary full: %v", i, err)
 		}
@@ -324,7 +326,7 @@ func TestAdmissionRequiresThePhysicalFloor(t *testing.T) {
 	}
 
 	free = floor - 1
-	if _, err := a.AcquireRecovery(); !errors.Is(err, ErrReserveUnbacked) {
+	if _, err := a.AcquireRecovery(testLane); !errors.Is(err, ErrReserveUnbacked) {
 		t.Fatalf("AcquireRecovery with the reserve unbacked = %v, want ErrReserveUnbacked", err)
 	}
 	if got := a.Usage().ActiveRecoveries; got != 0 {
@@ -342,14 +344,14 @@ func TestAdmissionRequiresThePhysicalFloor(t *testing.T) {
 
 func TestConcurrentRecoveriesAreBounded(t *testing.T) {
 	a := newTestAllocator(t, 500, 2)
-	g1, err := a.AcquireRecovery()
+	g1, err := a.AcquireRecovery(testLane)
 	if err != nil {
 		t.Fatalf("acquire 1: %v", err)
 	}
-	if _, err := a.AcquireRecovery(); err != nil {
+	if _, err := a.AcquireRecovery(testLane); err != nil {
 		t.Fatalf("acquire 2: %v", err)
 	}
-	if _, err := a.AcquireRecovery(); !errors.Is(err, ErrRecoveryConcurrencyExhausted) {
+	if _, err := a.AcquireRecovery(testLane); !errors.Is(err, ErrRecoveryConcurrencyExhausted) {
 		t.Fatalf("acquire 3 = %v, want ErrRecoveryConcurrencyExhausted", err)
 	}
 	if err := g1.Finish(); err != nil {
@@ -358,31 +360,33 @@ func TestConcurrentRecoveriesAreBounded(t *testing.T) {
 	if err := g1.Finish(); !errors.Is(err, ErrRecoveryFinished) {
 		t.Fatalf("second finish = %v, want ErrRecoveryFinished", err)
 	}
-	if _, err := a.AcquireRecovery(); !errors.Is(err, ErrRecoveryConcurrencyExhausted) {
+	if _, err := a.AcquireRecovery(testLane); !errors.Is(err, ErrRecoveryConcurrencyExhausted) {
 		t.Fatalf("acquire after finish, before any release = %v, want ErrRecoveryConcurrencyExhausted", err)
 	}
 	if err := g1.ReleaseArtifacts(); err != nil {
 		t.Fatalf("release artifacts: %v", err)
 	}
-	if _, err := a.AcquireRecovery(); !errors.Is(err, ErrRecoveryConcurrencyExhausted) {
+	if _, err := a.AcquireRecovery(testLane); !errors.Is(err, ErrRecoveryConcurrencyExhausted) {
 		t.Fatalf("acquire before the source is released = %v, want ErrRecoveryConcurrencyExhausted", err)
 	}
-	if err := g1.ReleaseSource("lane", 0, "lane"); err != nil {
+	if err := g1.ReleaseSource("lane", 0); err != nil {
 		t.Fatalf("release source: %v", err)
 	}
-	if err := g1.ReleaseSource("lane", 0, "lane"); !errors.Is(err, ErrRecoveryFinished) {
+	if err := g1.ReleaseSource("lane", 0); !errors.Is(err, ErrRecoveryFinished) {
 		t.Fatalf("second release = %v, want ErrRecoveryFinished", err)
 	}
-	if _, err := a.AcquireRecovery(); err != nil {
+	if _, err := a.AcquireRecovery(testLane); err != nil {
 		t.Fatalf("acquire after both releases: %v", err)
 	}
 }
 
 // A finished recovery releases its output in two stages, each only after the
-// bytes it covers are gone. Deleting the source moves just the destination
-// segment into its lane; the journals stay charged to the grant, with the slot
-// held, until they are deleted too, and reopening the lane in between re-measures
-// its segment without dropping them.
+// bytes it covers are gone, and never counts a byte twice. The new lane serves
+// producers while the coverage proof is pending without paying again for the
+// destination the grant still holds. Deleting the source moves the destination
+// segment and its attribution sidecar into the lane; the journal stays charged to
+// the grant, with the slot held, until it is deleted too, and reopening the lane
+// in between re-measures its files without dropping anything.
 func TestRecoveryOutputIsReleasedInTwoStages(t *testing.T) {
 	a := newTestAllocator(t, 500, 1)
 	dir := t.TempDir()
@@ -390,17 +394,18 @@ func TestRecoveryOutputIsReleasedInTwoStages(t *testing.T) {
 	lane := filepath.Join(dir, "new-lane")
 	sourceSeg := filepath.Join(dir, "source.seg")
 	journal := filepath.Join(dir, "journal-a")
+	recLen := uint64(headerLen + headerCRC + len(syntheticBody) + bodyCRCLen)
 	if err := os.WriteFile(sourceSeg, []byte("synthetic source segment"), filePerm); err != nil {
 		t.Fatalf("seed source: %v", err)
 	}
-	if err := admitLanded(a, sourceLane, 500); err != nil {
-		t.Fatalf("fill the ordinary ceiling: %v", err)
+	if err := admitLanded(a, sourceLane, 400); err != nil {
+		t.Fatalf("charge the source lane: %v", err)
 	}
 	if err := os.MkdirAll(lane, dirPerm); err != nil {
 		t.Fatalf("create new lane: %v", err)
 	}
 
-	g, err := a.AcquireRecovery()
+	g, err := a.AcquireRecovery(lane)
 	if err != nil {
 		t.Fatalf("acquire: %v", err)
 	}
@@ -408,11 +413,14 @@ func TestRecoveryOutputIsReleasedInTwoStages(t *testing.T) {
 	if err := g.WriteBarrier(ArtifactDestinationSegment, filepath.Join(lane, segmentFile), destination); err != nil {
 		t.Fatalf("write destination: %v", err)
 	}
+	if err := g.WriteBarrier(ArtifactAttributionSidecar, filepath.Join(lane, "attribution"), make([]byte, 16)); err != nil {
+		t.Fatalf("write sidecar: %v", err)
+	}
 	if err := g.WriteBarrier(ArtifactJournalA, journal, make([]byte, 32)); err != nil {
 		t.Fatalf("write journal: %v", err)
 	}
 
-	if err := g.ReleaseSource(sourceLane, 500, lane); !errors.Is(err, ErrRecoveryNotFinished) {
+	if err := g.ReleaseSource(sourceLane, 400); !errors.Is(err, ErrRecoveryNotFinished) {
 		t.Fatalf("release source before finish = %v, want ErrRecoveryNotFinished", err)
 	}
 	if err := g.ReleaseArtifacts(); !errors.Is(err, ErrRecoveryNotFinished) {
@@ -421,39 +429,40 @@ func TestRecoveryOutputIsReleasedInTwoStages(t *testing.T) {
 	if err := g.Finish(); err != nil {
 		t.Fatalf("finish: %v", err)
 	}
-	assertUsage(t, a, "after finish", 500, 96, 1)
-	if _, err := a.AcquireRecovery(); !errors.Is(err, ErrRecoveryConcurrencyExhausted) {
+	assertUsage(t, a, "after finish", 400, 112, 1)
+	if _, err := a.AcquireRecovery(testLane); !errors.Is(err, ErrRecoveryConcurrencyExhausted) {
 		t.Fatalf("second recovery while the source and its copy share the disk = %v, want ErrRecoveryConcurrencyExhausted", err)
 	}
 	if err := g.WriteBarrier(ArtifactMapping, filepath.Join(dir, "mapping"), []byte{1}); !errors.Is(err, ErrRecoveryFinished) {
 		t.Fatalf("write after finish = %v, want ErrRecoveryFinished", err)
 	}
 
-	// The new lane serves producers while the coverage proof is pending.
-	opened, err := Open(lane, WithAllocator(a))
+	newLane, err := Open(lane, WithAllocator(a))
 	if err != nil {
 		t.Fatalf("open new lane on the destination: %v", err)
 	}
-	if err := opened.Close(); err != nil {
+	assertUsage(t, a, "after opening the new lane on the destination", 400, 112, 1)
+	mustAppend(t, newLane, 2, syntheticBody)
+	assertUsage(t, a, "after the new lane appends", 400+recLen, 112, 1)
+	if err := newLane.Close(); err != nil {
 		t.Fatalf("close new lane: %v", err)
 	}
-	assertUsage(t, a, "with the source and the opened destination on disk", 564, 96, 1)
 
 	if err := g.RunDestructive("delete source", func() error { return os.Remove(sourceSeg) }); err != nil {
 		t.Fatalf("coverage-proof deletion through the finished grant: %v", err)
 	}
-	if err := g.ReleaseSource(sourceLane, 501, lane); !errors.Is(err, ErrReleaseExceedsCharge) {
+	if err := g.ReleaseSource(sourceLane, 401); !errors.Is(err, ErrReleaseExceedsCharge) {
 		t.Fatalf("releasing more than the source holds = %v, want ErrReleaseExceedsCharge", err)
 	}
-	assertUsage(t, a, "after a refused release", 564, 96, 1)
-	if err := g.ReleaseSource(sourceLane, 500, lane); err != nil {
+	assertUsage(t, a, "after a refused release", 400+recLen, 112, 1)
+	if err := g.ReleaseSource(sourceLane, 400); err != nil {
 		t.Fatalf("release source after deleting it: %v", err)
 	}
-	assertUsage(t, a, "after releasing the source", 64, 32, 1)
-	if _, err := a.AcquireRecovery(); !errors.Is(err, ErrRecoveryConcurrencyExhausted) {
+	assertUsage(t, a, "after releasing the source", 80+recLen, 32, 1)
+	if _, err := a.AcquireRecovery(testLane); !errors.Is(err, ErrRecoveryConcurrencyExhausted) {
 		t.Fatalf("second recovery while the journal is still on disk = %v, want ErrRecoveryConcurrencyExhausted", err)
 	}
-	if err := g.ReleaseSource(sourceLane, 0, lane); !errors.Is(err, ErrRecoveryFinished) {
+	if err := g.ReleaseSource(sourceLane, 0); !errors.Is(err, ErrRecoveryFinished) {
 		t.Fatalf("second source release = %v, want ErrRecoveryFinished", err)
 	}
 
@@ -464,7 +473,7 @@ func TestRecoveryOutputIsReleasedInTwoStages(t *testing.T) {
 	if err := reopened.Close(); err != nil {
 		t.Fatalf("close reopened lane: %v", err)
 	}
-	assertUsage(t, a, "after reopening the lane", 64, 32, 1)
+	assertUsage(t, a, "after reopening the lane", 80+recLen, 32, 1)
 
 	if err := g.RunDestructive("delete journal", func() error { return os.Remove(journal) }); err != nil {
 		t.Fatalf("delete journal once the recovery resolves: %v", err)
@@ -472,11 +481,11 @@ func TestRecoveryOutputIsReleasedInTwoStages(t *testing.T) {
 	if err := g.ReleaseArtifacts(); err != nil {
 		t.Fatalf("release artifacts after deleting them: %v", err)
 	}
-	assertUsage(t, a, "after releasing the artifacts", 64, 0, 0)
+	assertUsage(t, a, "after releasing the artifacts", 80+recLen, 0, 0)
 	if err := g.ReleaseArtifacts(); !errors.Is(err, ErrRecoveryFinished) {
 		t.Fatalf("second artifact release = %v, want ErrRecoveryFinished", err)
 	}
-	if _, err := a.AcquireRecovery(); err != nil {
+	if _, err := a.AcquireRecovery(testLane); err != nil {
 		t.Fatalf("acquire after both releases: %v", err)
 	}
 }
@@ -492,7 +501,7 @@ func assertUsage(t *testing.T, a *Allocator, when string, ordinary, recovery uin
 // is charged in full, so a journal is sized for all of its rewrites, not one copy.
 func TestFootprintBoundsCumulativeRewrites(t *testing.T) {
 	a := newTestAllocator(t, 500, 1)
-	g, err := a.AcquireRecovery()
+	g, err := a.AcquireRecovery(testLane)
 	if err != nil {
 		t.Fatalf("acquire: %v", err)
 	}
@@ -546,7 +555,7 @@ func TestInFlightBytesStayInTheBackedFloor(t *testing.T) {
 	// record returns a body whose framed record is exactly n bytes.
 	record := func(n int) []byte { return bytes.Repeat([]byte{'x'}, n-headerLen-headerCRC-bodyCRCLen) }
 
-	g, err := a.AcquireRecovery()
+	g, err := a.AcquireRecovery(testLane)
 	if err != nil {
 		t.Fatalf("acquire: %v", err)
 	}
@@ -561,7 +570,7 @@ func TestInFlightBytesStayInTheBackedFloor(t *testing.T) {
 			t.Errorf("lane admission during the recovery write = %v, want ErrAdmissionRefused", err)
 		}
 		free = floor - 1
-		if _, err := a.AcquireRecovery(); !errors.Is(err, ErrReserveUnbacked) {
+		if _, err := a.AcquireRecovery(testLane); !errors.Is(err, ErrReserveUnbacked) {
 			t.Errorf("acquisition backed only by in-flight bytes = %v, want ErrReserveUnbacked", err)
 		}
 		free = floor + 100
@@ -594,7 +603,7 @@ func TestInFlightBytesStayInTheBackedFloor(t *testing.T) {
 	free -= 100
 
 	free -= 8
-	if _, err := a.AcquireRecovery(); !errors.Is(err, ErrReserveUnbacked) {
+	if _, err := a.AcquireRecovery(testLane); !errors.Is(err, ErrReserveUnbacked) {
 		t.Fatalf("acquisition before the mapping is reported landed = %v, want ErrReserveUnbacked", err)
 	}
 	if err := g.Landed(ArtifactMapping, 9); !errors.Is(err, ErrReleaseExceedsCharge) {
@@ -603,7 +612,7 @@ func TestInFlightBytesStayInTheBackedFloor(t *testing.T) {
 	if err := g.Landed(ArtifactMapping, 8); err != nil {
 		t.Fatalf("land mapping: %v", err)
 	}
-	if _, err := a.AcquireRecovery(); err != nil {
+	if _, err := a.AcquireRecovery(testLane); err != nil {
 		t.Fatalf("acquisition once every charged byte landed: %v", err)
 	}
 }
@@ -706,7 +715,7 @@ func TestExhaustingTheReserveStopsRecoveryDeterministically(t *testing.T) {
 		t.Fatalf("seed source: %v", err)
 	}
 
-	g, err := a.AcquireRecovery()
+	g, err := a.AcquireRecovery(testLane)
 	if err != nil {
 		t.Fatalf("acquire: %v", err)
 	}
@@ -760,7 +769,7 @@ func TestExhaustingTheReserveStopsRecoveryDeterministically(t *testing.T) {
 	if err := admitLanded(a, "lane", 1); err != nil {
 		t.Fatalf("ordinary admission after another recovery's exhaustion: %v", err)
 	}
-	other, err := a.AcquireRecovery()
+	other, err := a.AcquireRecovery(testLane)
 	if err != nil {
 		t.Fatalf("second recovery: %v", err)
 	}
@@ -788,11 +797,11 @@ func TestFailedBarrierWriteIsFailStop(t *testing.T) {
 					t.Fatalf("seed source: %v", err)
 				}
 
-				g, err := a.AcquireRecovery()
+				g, err := a.AcquireRecovery(testLane)
 				if err != nil {
 					t.Fatalf("acquire: %v", err)
 				}
-				other, err := a.AcquireRecovery()
+				other, err := a.AcquireRecovery(testLane)
 				if err != nil {
 					t.Fatalf("acquire other: %v", err)
 				}
@@ -841,7 +850,7 @@ func TestFailedBarrierWriteIsFailStop(t *testing.T) {
 				if err := admitLanded(a, "lane", 1); !errors.Is(err, ErrFailStopped) || !errors.Is(err, errno) {
 					t.Fatalf("Admit after fail-stop = %v, want ErrFailStopped caused by %s", err, errName)
 				}
-				if _, err := a.AcquireRecovery(); !errors.Is(err, ErrFailStopped) {
+				if _, err := a.AcquireRecovery(testLane); !errors.Is(err, ErrFailStopped) {
 					t.Fatalf("AcquireRecovery after fail-stop = %v, want ErrFailStopped", err)
 				}
 				if got := a.Usage().ActiveRecoveries; got != 2 {
@@ -869,7 +878,7 @@ func assertStoppedGrantRefusesEverything(t *testing.T, name string, grant *Recov
 	if err := grant.Finish(); !errors.Is(err, ErrRecoveryStopped) {
 		t.Fatalf("%s grant finish after fail-stop = %v, want refused", name, err)
 	}
-	if err := grant.ReleaseSource(source, 0, source); !errors.Is(err, ErrRecoveryStopped) {
+	if err := grant.ReleaseSource(source, 0); !errors.Is(err, ErrRecoveryStopped) {
 		t.Fatalf("%s grant source release after fail-stop = %v, want refused", name, err)
 	}
 	if err := grant.ReleaseArtifacts(); !errors.Is(err, ErrRecoveryStopped) {
@@ -881,7 +890,7 @@ func TestFailedDestructiveStepIsFailStop(t *testing.T) {
 	for errName, errno := range map[string]error{"ENOSPC": syscall.ENOSPC, "EIO": syscall.EIO} {
 		t.Run(errName, func(t *testing.T) {
 			a := newTestAllocator(t, 500, 1)
-			g, err := a.AcquireRecovery()
+			g, err := a.AcquireRecovery(testLane)
 			if err != nil {
 				t.Fatalf("acquire: %v", err)
 			}
@@ -911,11 +920,11 @@ func TestCallerWrittenOutputFailureIsFailStop(t *testing.T) {
 			if err := os.WriteFile(source, []byte("synthetic source segment"), filePerm); err != nil {
 				t.Fatalf("seed source: %v", err)
 			}
-			g, err := a.AcquireRecovery()
+			g, err := a.AcquireRecovery(testLane)
 			if err != nil {
 				t.Fatalf("acquire: %v", err)
 			}
-			other, err := a.AcquireRecovery()
+			other, err := a.AcquireRecovery(testLane)
 			if err != nil {
 				t.Fatalf("acquire other: %v", err)
 			}
@@ -946,7 +955,7 @@ func TestCallerWrittenOutputFailureIsFailStop(t *testing.T) {
 			if err := admitLanded(a, "lane", 1); !errors.Is(err, ErrFailStopped) || !errors.Is(err, errno) {
 				t.Fatalf("Admit after FailStop = %v, want ErrFailStopped caused by %s", err, errName)
 			}
-			if _, err := a.AcquireRecovery(); !errors.Is(err, ErrFailStopped) {
+			if _, err := a.AcquireRecovery(testLane); !errors.Is(err, ErrFailStopped) {
 				t.Fatalf("AcquireRecovery after FailStop = %v, want ErrFailStopped", err)
 			}
 		})
@@ -1148,7 +1157,7 @@ func assertOnlyAdmissionStopped(t *testing.T, a *Allocator, errno error) {
 		t.Fatalf("close other lane: %v", err)
 	}
 
-	g, err := a.AcquireRecovery()
+	g, err := a.AcquireRecovery(testLane)
 	if err != nil {
 		t.Fatalf("AcquireRecovery after a lane's append failure: %v", err)
 	}
@@ -1163,7 +1172,7 @@ func assertOnlyAdmissionStopped(t *testing.T, a *Allocator, errno error) {
 	if err := g.Finish(); err != nil {
 		t.Fatalf("finish recovery after a lane's append failure: %v", err)
 	}
-	if err := errors.Join(g.ReleaseSource("lane", 0, "lane"), g.ReleaseArtifacts()); err != nil {
+	if err := errors.Join(g.ReleaseSource("lane", 0), g.ReleaseArtifacts()); err != nil {
 		t.Fatalf("release recovery after a lane's append failure: %v", err)
 	}
 }

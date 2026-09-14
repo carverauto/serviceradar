@@ -122,13 +122,12 @@ type Spool struct {
 type Option func(*Spool)
 
 // WithAllocator makes every Append pass through a's ordinary producer admission,
-// charged to the lane directory. Open charges the segment bytes it finds to that
-// directory with Allocator.ChargeMeasured, replacing any earlier charge, so
-// reopening a lane never counts it twice; a segment Open rejects as corrupt stays
-// charged at its size on disk. Close keeps the charge, because the
-// segment is still on disk; release it with Allocator.ReleaseOrdinary once the
-// segment is physically deleted. Share one allocator across every lane on the
-// same filesystem.
+// charged to the lane directory. Open charges every file in that directory to it
+// with Allocator.ChargeMeasured, replacing any earlier charge, so reopening a
+// lane never counts it twice; a lane Open rejects as corrupt stays charged at its
+// size on disk. Close keeps the charge, because the files are still on disk;
+// release it with Allocator.ReleaseOrdinary once they are physically deleted.
+// Share one allocator across every lane on the same filesystem.
 func WithAllocator(a *Allocator) Option {
 	return func(s *Spool) { s.alloc = a }
 }
@@ -148,8 +147,8 @@ func Open(dir string, opts ...Option) (*Spool, error) {
 	}
 
 	if s.alloc != nil {
-		if info, err := os.Stat(filepath.Join(dir, segmentFile)); err == nil {
-			s.alloc.ChargeMeasured(dir, uint64(info.Size()))
+		if err := s.chargeLane(); err != nil {
+			return nil, err
 		}
 	}
 	maxSeq, validLen, err := s.scanSegment()
@@ -167,7 +166,10 @@ func Open(dir string, opts ...Option) (*Spool, error) {
 		return nil, fmt.Errorf("spool: truncate torn tail: %w", err)
 	}
 	if s.alloc != nil {
-		s.alloc.ChargeMeasured(dir, uint64(validLen))
+		if err := s.chargeLane(); err != nil {
+			_ = f.Close()
+			return nil, err
+		}
 	}
 	if _, err := f.Seek(validLen, io.SeekStart); err != nil {
 		_ = f.Close()
@@ -183,6 +185,28 @@ func Open(dir string, opts ...Option) (*Spool, error) {
 	}
 	s.resolved = resolved
 	return s, nil
+}
+
+// chargeLane charges every regular file in the lane directory to the allocator,
+// not only the segment: whatever the lane keeps beside it occupies its disk too.
+func (s *Spool) chargeLane() error {
+	entries, err := os.ReadDir(s.dir)
+	if err != nil {
+		return fmt.Errorf("spool: measure lane: %w", err)
+	}
+	var total uint64
+	for _, entry := range entries {
+		if !entry.Type().IsRegular() {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return fmt.Errorf("spool: measure lane: %w", err)
+		}
+		total += uint64(info.Size())
+	}
+	s.alloc.ChargeMeasured(s.dir, total)
+	return nil
 }
 
 // Append persists one frame durably and returns its assigned sequence. The

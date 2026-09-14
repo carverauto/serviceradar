@@ -219,9 +219,9 @@ type Usage struct {
 // physically deleted, not until the lane closes.
 //
 // Its ledger is in memory by design. The durable truth is the files on disk:
-// after a restart, the opener re-measures them (Open charges each segment it
-// finds through ChargeMeasured, even one it then rejects as corrupt), so there
-// is no second on-disk ledger that could disagree with them.
+// after a restart, the opener re-measures them (Open charges every file in each
+// lane directory through ChargeMeasured, even a lane it then rejects as
+// corrupt), so there is no second on-disk ledger that could disagree with them.
 type Allocator struct {
 	fs              fileSystem
 	freeBytes       func() (uint64, error)
@@ -329,16 +329,19 @@ func (a *Allocator) settle(n uint64, err error) {
 	}
 }
 
-// ChargeMeasured records that owner holds n bytes measured on disk -- a segment
-// recovered at open, or a recovery's output re-measured after a restart. It
-// REPLACES whatever owner was charged before, so re-measuring the same
-// directory never counts its bytes twice. It cannot refuse: those bytes exist
-// whether or not they fit. If they push usage past the ordinary ceiling, later
-// admissions are refused until space is released.
+// ChargeMeasured records that owner holds n bytes measured on disk -- a lane
+// directory measured at open, or a recovery's output re-measured after a
+// restart. It REPLACES whatever owner was charged before, so re-measuring the
+// same directory never counts its bytes twice. The destination segment and
+// sidecar bytes an active recovery still holds in owner are excluded, because
+// the grant is charged for them until ReleaseSource moves them in. It cannot
+// refuse: those bytes exist whether or not they fit. If they push usage past the
+// ordinary ceiling, later admissions are refused until space is released.
 func (a *Allocator) ChargeMeasured(owner string, n uint64) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	key := filepath.Clean(owner)
+	n -= min(n, a.heldInLaneLocked(key))
 	if n == 0 {
 		delete(a.ordinary, key)
 		return
@@ -370,8 +373,12 @@ func (a *Allocator) releaseOrdinaryLocked(owner string, n uint64) error {
 	return nil
 }
 
-// AcquireRecovery takes one concurrent-recovery slot and its full footprint.
-func (a *Allocator) AcquireRecovery() (*RecoveryGrant, error) {
+// AcquireRecovery takes one concurrent-recovery slot and its full footprint for
+// a recovery that writes its destination segment and attribution sidecar into
+// the directory lane. Naming the lane up front counts those bytes once: the
+// grant is charged for them until ReleaseSource, and measuring lane meanwhile
+// leaves them out.
+func (a *Allocator) AcquireRecovery(lane string) (*RecoveryGrant, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -385,7 +392,7 @@ func (a *Allocator) AcquireRecovery() (*RecoveryGrant, error) {
 		return nil, err
 	}
 
-	g := &RecoveryGrant{alloc: a}
+	g := &RecoveryGrant{alloc: a, lane: filepath.Clean(lane)}
 	a.active[g] = struct{}{}
 	return g, nil
 }
@@ -505,9 +512,10 @@ func (e *ReserveExhaustedError) Is(target error) bool { return target == ErrRese
 // Landed reports bytes the caller wrote. Finish seals the output and releases
 // nothing. The output then leaves the grant in two stages, in either order:
 // ReleaseSource, once the source segment the recovery replaced is deleted, moves
-// the destination segment into its lane's ordinary charge; ReleaseArtifacts,
-// once every other artifact is deleted after the recovery resolves, releases the
-// rest. The grant holds its slot and reserve until both stages are done.
+// the destination segment and its attribution sidecar into the lane's ordinary
+// charge; ReleaseArtifacts, once the journals, manifest pages, and mapping are
+// deleted after the recovery resolves, releases the rest. The grant holds its
+// slot and reserve until both stages are done.
 //
 // A grant stops, permanently, the first time a request exhausts an artifact's
 // budget, a barrier write fails, a destructive step fails, or its caller reports
@@ -515,6 +523,8 @@ func (e *ReserveExhaustedError) Is(target error) bool { return target == ErrRese
 // recovery-path failure fail-stops it. Nothing that follows a stop proceeds.
 type RecoveryGrant struct {
 	alloc *Allocator
+	// lane is the cleaned directory holding the destination segment and sidecar.
+	lane string
 
 	// step serializes the grant's charges, writes, destructive steps, Finish, and
 	// releases, so a destructive step can never interleave with a failing barrier
@@ -660,16 +670,16 @@ func (g *RecoveryGrant) Finish() error {
 
 // ReleaseSource records that the source segment a finished recovery replaced has
 // been PHYSICALLY deleted. As one step it releases sourceBytes of source's
-// ordinary charge and moves the destination segment into the ordinary charge of
-// lane, the directory the destination was written into. The lane's charge becomes
-// at least the destination's bytes, so a lane already opened on that segment is
-// not charged for it twice. Every other artifact, and the slot, stay with the
-// grant until ReleaseArtifacts has also run.
+// ordinary charge and moves the destination segment and its attribution sidecar
+// into the ordinary charge of the grant's lane, where they stay for as long as
+// the lane does. A lane opened on the destination earlier was charged without
+// those bytes, so they are counted exactly once. The journals, pages, mapping,
+// and the slot stay with the grant until ReleaseArtifacts has also run.
 //
 // Like ReleaseOrdinary it follows a completed deletion and neither authorizes
 // nor performs one. Releasing more than source holds is refused and changes
 // nothing.
-func (g *RecoveryGrant) ReleaseSource(source string, sourceBytes uint64, lane string) error {
+func (g *RecoveryGrant) ReleaseSource(source string, sourceBytes uint64) error {
 	g.step.Lock()
 	defer g.step.Unlock()
 
@@ -682,21 +692,25 @@ func (g *RecoveryGrant) ReleaseSource(source string, sourceBytes uint64, lane st
 	if err := a.releaseOrdinaryLocked(source, sourceBytes); err != nil {
 		return err
 	}
-	key := filepath.Clean(lane)
-	if dest := g.used[ArtifactDestinationSegment]; dest > a.ordinary[key] {
-		a.ordinary[key] = dest
+	if moved := g.laneHeldLocked(); moved > 0 {
+		sum, carry := bits.Add64(a.ordinary[g.lane], moved, 0)
+		if carry != 0 {
+			sum = ^uint64(0)
+		}
+		a.ordinary[g.lane] = sum
 	}
 	g.sourceReleased = true
 	g.releaseStageLocked()
 	return nil
 }
 
-// ReleaseArtifacts records that every artifact of a finished recovery other than
-// its destination segment -- attribution sidecar, both journal copies, manifest
-// pages, mapping -- has been PHYSICALLY deleted, which task 2.28 allows only once
-// the recovery resolves, and releases their charge. The slot stays with the grant
-// until ReleaseSource has also run. Like ReleaseOrdinary it follows a completed
-// deletion and neither authorizes nor performs one.
+// ReleaseArtifacts records that a finished recovery's journal copies, manifest
+// pages, and mapping have been PHYSICALLY deleted, which task 2.28 allows only
+// once the recovery resolves, and releases their charge together with the
+// filesystem metadata they cost. The destination segment and sidecar are not
+// among them: they belong to the lane and move there at ReleaseSource. The slot
+// stays with the grant until ReleaseSource has also run. Like ReleaseOrdinary it
+// follows a completed deletion and neither authorizes nor performs one.
 func (g *RecoveryGrant) ReleaseArtifacts() error {
 	g.step.Lock()
 	defer g.step.Unlock()
@@ -832,13 +846,42 @@ func (g *RecoveryGrant) totalLocked() uint64 {
 	return total
 }
 
-// heldLocked reports whether the grant still holds art's charge: the destination
-// segment until ReleaseSource, every other artifact until ReleaseArtifacts.
+// heldLocked reports whether the grant still holds art's charge: the lane's
+// artifacts until ReleaseSource, every other artifact until ReleaseArtifacts.
 func (g *RecoveryGrant) heldLocked(art Artifact) bool {
-	if art == ArtifactDestinationSegment {
+	if laneArtifact(art) {
 		return !g.sourceReleased
 	}
 	return !g.artifactsReleased
+}
+
+// laneArtifact reports whether art lives in the destination lane for as long as
+// the lane's segment does: the segment itself and its attribution sidecar.
+func laneArtifact(art Artifact) bool {
+	return art == ArtifactDestinationSegment || art == ArtifactAttributionSidecar
+}
+
+// laneHeldLocked is the bytes of lane artifacts the grant is still charged for.
+func (g *RecoveryGrant) laneHeldLocked() uint64 {
+	var held uint64
+	for art, n := range g.used {
+		if laneArtifact(Artifact(art)) && g.heldLocked(Artifact(art)) {
+			held += n
+		}
+	}
+	return held
+}
+
+// heldInLaneLocked is the bytes active recoveries are charged for in the lane
+// directory key and have not yet moved into its ordinary charge.
+func (a *Allocator) heldInLaneLocked(key string) uint64 {
+	var held uint64
+	for g := range a.active {
+		if g.lane == key {
+			held += g.laneHeldLocked()
+		}
+	}
+	return held
 }
 
 func (g *RecoveryGrant) doneLocked() bool {
