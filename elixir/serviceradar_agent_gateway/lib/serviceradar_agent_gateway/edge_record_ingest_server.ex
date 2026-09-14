@@ -162,7 +162,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
 
       {:error, :permanent, reason} ->
         Logger.warning("edge record permanently rejected: #{inspect(reason)}")
-        ack(stream, state, sequence, @permanent)
+        ack(stream, state, sequence, "", @permanent)
 
       {:error, :paused, reason} ->
         Logger.warning("edge record decode paused (not resolved, no disposition sent): #{inspect(reason)}")
@@ -217,10 +217,10 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
 
     case publisher().publish_record(publication) do
       {:ok, _pub_ack} ->
-        ack(stream, state, sequence, @accepted)
+        ack(stream, state, sequence, record.event_id, @accepted)
 
       {:error, :poison} ->
-        ack(stream, state, sequence, @permanent)
+        ack(stream, state, sequence, record.event_id, @permanent)
 
       {:error, reason} ->
         Logger.warning("edge record publish did not resolve: #{inspect(reason)}")
@@ -231,7 +231,10 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
     end
   end
 
-  defp ack(stream, state, sequence, disposition) do
+  # `event_id` is the decoded record's id, which the agent binds to the event it sent for
+  # `sequence` (`edgerecord.ValidateAck`). Only a rejection made before the record decoded may
+  # leave it empty; the agent refuses an ack whose accepted disposition carries no id.
+  defp ack(stream, state, sequence, event_id, disposition) do
     resolved_through =
       if disposition in [@accepted, @permanent], do: sequence, else: state.resolved_through_sequence
 
@@ -243,7 +246,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
              spool_id: state.spool_id,
              resolved_through_sequence: resolved_through,
              dispositions: [
-               %EdgeRecordDisposition{sequence: sequence, kind: disposition}
+               %EdgeRecordDisposition{sequence: sequence, event_id: event_id, kind: disposition}
              ],
              session_nonce: state.session_nonce
            }}
