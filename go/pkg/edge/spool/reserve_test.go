@@ -384,7 +384,8 @@ func TestConcurrentRecoveriesAreBounded(t *testing.T) {
 // bytes it covers are gone, and never counts a byte twice. The new lane serves
 // producers while the coverage proof is pending without paying again for the
 // destination the grant still holds. Deleting the source moves the destination
-// segment and its attribution sidecar into the lane; the journal stays charged to
+// segment and its attribution sidecar into the lane at what their files hold, so
+// a sidecar rebound over the same path counts once; the journal stays charged to
 // the grant, with the slot held, until it is deleted too, and reopening the lane
 // in between re-measures its files without dropping anything.
 func TestRecoveryOutputIsReleasedInTwoStages(t *testing.T) {
@@ -410,11 +411,15 @@ func TestRecoveryOutputIsReleasedInTwoStages(t *testing.T) {
 		t.Fatalf("acquire: %v", err)
 	}
 	destination := encodeRecord(1, evid(1), bytes.Repeat([]byte{'d'}, 22))
-	if err := g.WriteBarrier(ArtifactDestinationSegment, filepath.Join(lane, segmentFile), destination); err != nil {
-		t.Fatalf("write destination: %v", err)
+	destPath := filepath.Join(lane, segmentFile)
+	for _, chunk := range [][]byte{destination[:30], destination[30:]} {
+		streamDestinationChunk(t, g, destPath, chunk)
 	}
-	if err := g.WriteBarrier(ArtifactAttributionSidecar, filepath.Join(lane, "attribution"), make([]byte, 16)); err != nil {
-		t.Fatalf("write sidecar: %v", err)
+	sidecar := filepath.Join(lane, "attribution")
+	for _, binding := range []byte{1, 2} {
+		if err := g.WriteBarrier(ArtifactAttributionSidecar, sidecar, bytes.Repeat([]byte{binding}, 8)); err != nil {
+			t.Fatalf("write sidecar binding %d: %v", binding, err)
+		}
 	}
 	if err := g.WriteBarrier(ArtifactJournalA, journal, make([]byte, 32)); err != nil {
 		t.Fatalf("write journal: %v", err)
@@ -458,7 +463,7 @@ func TestRecoveryOutputIsReleasedInTwoStages(t *testing.T) {
 	if err := g.ReleaseSource(sourceLane, 400); err != nil {
 		t.Fatalf("release source after deleting it: %v", err)
 	}
-	assertUsage(t, a, "after releasing the source", 80+recLen, 32, 1)
+	assertUsage(t, a, "after releasing the source", 72+recLen, 32, 1)
 	if _, err := a.AcquireRecovery(testLane); !errors.Is(err, ErrRecoveryConcurrencyExhausted) {
 		t.Fatalf("second recovery while the journal is still on disk = %v, want ErrRecoveryConcurrencyExhausted", err)
 	}
@@ -473,7 +478,7 @@ func TestRecoveryOutputIsReleasedInTwoStages(t *testing.T) {
 	if err := reopened.Close(); err != nil {
 		t.Fatalf("close reopened lane: %v", err)
 	}
-	assertUsage(t, a, "after reopening the lane", 80+recLen, 32, 1)
+	assertUsage(t, a, "after reopening the lane", 72+recLen, 32, 1)
 
 	if err := g.RunDestructive("delete journal", func() error { return os.Remove(journal) }); err != nil {
 		t.Fatalf("delete journal once the recovery resolves: %v", err)
@@ -481,12 +486,36 @@ func TestRecoveryOutputIsReleasedInTwoStages(t *testing.T) {
 	if err := g.ReleaseArtifacts(); err != nil {
 		t.Fatalf("release artifacts after deleting them: %v", err)
 	}
-	assertUsage(t, a, "after releasing the artifacts", 80+recLen, 0, 0)
+	assertUsage(t, a, "after releasing the artifacts", 72+recLen, 0, 0)
 	if err := g.ReleaseArtifacts(); !errors.Is(err, ErrRecoveryFinished) {
 		t.Fatalf("second artifact release = %v, want ErrRecoveryFinished", err)
 	}
 	if _, err := a.AcquireRecovery(testLane); err != nil {
 		t.Fatalf("acquire after both releases: %v", err)
+	}
+}
+
+// streamDestinationChunk appends chunk to path as caller-written destination
+// output: charged first, then reported landed once it is on disk.
+func streamDestinationChunk(t *testing.T, g *RecoveryGrant, path string, chunk []byte) {
+	t.Helper()
+	n := uint64(len(chunk))
+	if err := g.Charge(ArtifactDestinationSegment, n); err != nil {
+		t.Fatalf("charge destination chunk: %v", err)
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, filePerm)
+	if err != nil {
+		t.Fatalf("open destination: %v", err)
+	}
+	if _, err := f.Write(chunk); err != nil {
+		_ = f.Close()
+		t.Fatalf("write destination chunk: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("close destination: %v", err)
+	}
+	if err := g.Landed(ArtifactDestinationSegment, path, n); err != nil {
+		t.Fatalf("land destination chunk: %v", err)
 	}
 }
 
@@ -606,10 +635,10 @@ func TestInFlightBytesStayInTheBackedFloor(t *testing.T) {
 	if _, err := a.AcquireRecovery(testLane); !errors.Is(err, ErrReserveUnbacked) {
 		t.Fatalf("acquisition before the mapping is reported landed = %v, want ErrReserveUnbacked", err)
 	}
-	if err := g.Landed(ArtifactMapping, 9); !errors.Is(err, ErrReleaseExceedsCharge) {
+	if err := g.Landed(ArtifactMapping, filepath.Join(dir, "mapping"), 9); !errors.Is(err, ErrReleaseExceedsCharge) {
 		t.Fatalf("landing more than is in flight = %v, want ErrReleaseExceedsCharge", err)
 	}
-	if err := g.Landed(ArtifactMapping, 8); err != nil {
+	if err := g.Landed(ArtifactMapping, filepath.Join(dir, "mapping"), 8); err != nil {
 		t.Fatalf("land mapping: %v", err)
 	}
 	if _, err := a.AcquireRecovery(testLane); err != nil {

@@ -392,7 +392,7 @@ func (a *Allocator) AcquireRecovery(lane string) (*RecoveryGrant, error) {
 		return nil, err
 	}
 
-	g := &RecoveryGrant{alloc: a, lane: filepath.Clean(lane)}
+	g := &RecoveryGrant{alloc: a, lane: filepath.Clean(lane), laneFiles: make(map[string]uint64)}
 	a.active[g] = struct{}{}
 	return g, nil
 }
@@ -537,6 +537,10 @@ type RecoveryGrant struct {
 	// in the allocator's in-flight count.
 	pending [artifactCount]uint64
 	stopErr error
+	// laneFiles is what each destination segment and sidecar path holds on disk.
+	// A rewritten path is counted at its last size, unlike used, which charges
+	// every write.
+	laneFiles map[string]uint64
 	// finished seals the output: nothing more is charged.
 	finished bool
 	// sourceReleased and artifactsReleased record the two release stages; the
@@ -556,11 +560,13 @@ func (g *RecoveryGrant) Charge(art Artifact, n uint64) error {
 	return g.charge(art, n)
 }
 
-// Landed reports that n bytes of art the caller wrote after Charge are durably
-// on disk, where the free-space probe sees them, and takes them out of the
-// in-flight count. They stay charged to this grant. Reporting more than is in
-// flight for art is refused and changes nothing.
-func (g *RecoveryGrant) Landed(art Artifact, n uint64) error {
+// Landed reports that n bytes of art the caller wrote to path after Charge are
+// durably on disk, where the free-space probe sees them, and takes them out of
+// the in-flight count. They stay charged to this grant. For the destination
+// segment and sidecar the landed bytes extend path, and the lane is charged for
+// what those paths hold; rewrite a lane file with WriteBarrier, which replaces
+// it. Reporting more than is in flight for art is refused and changes nothing.
+func (g *RecoveryGrant) Landed(art Artifact, path string, n uint64) error {
 	a := g.alloc
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -571,6 +577,9 @@ func (g *RecoveryGrant) Landed(art Artifact, n uint64) error {
 		return fmt.Errorf("%w: landed %d of %s, %d in flight", ErrReleaseExceedsCharge, n, art, g.pending[art])
 	}
 	g.landLocked(art, n)
+	if laneArtifact(art) {
+		g.laneFiles[filepath.Clean(path)] += n
+	}
 	return nil
 }
 
@@ -595,7 +604,8 @@ func (g *RecoveryGrant) FailStop(op string, err error) error {
 // (syscall.ENOSPC, syscall.EIO, ...).
 //
 // Every call is charged in full, including one that replaces an earlier write
-// to the same path; see Footprint.
+// to the same path; see Footprint. The lane, by contrast, is charged only for
+// what a destination segment or sidecar path holds after its last write.
 func (g *RecoveryGrant) WriteBarrier(art Artifact, path string, data []byte) error {
 	g.step.Lock()
 	defer g.step.Unlock()
@@ -612,8 +622,12 @@ func (g *RecoveryGrant) WriteBarrier(art Artifact, path string, data []byte) err
 	g.landLocked(art, n)
 	if err != nil {
 		a.failStopLocked(err)
+		return err
 	}
-	return err
+	if laneArtifact(art) {
+		g.laneFiles[filepath.Clean(path)] = n
+	}
+	return nil
 }
 
 // RunDestructive runs fn -- a delete, truncate, or other step that destroys
@@ -672,8 +686,9 @@ func (g *RecoveryGrant) Finish() error {
 // been PHYSICALLY deleted. As one step it releases sourceBytes of source's
 // ordinary charge and moves the destination segment and its attribution sidecar
 // into the ordinary charge of the grant's lane, where they stay for as long as
-// the lane does. A lane opened on the destination earlier was charged without
-// those bytes, so they are counted exactly once. The journals, pages, mapping,
+// the lane does. What moves is what their paths hold on disk, not every byte
+// written to them, and a lane opened on the destination earlier was charged
+// without those bytes, so they are counted exactly once. The journals, pages, mapping,
 // and the slot stay with the grant until ReleaseArtifacts has also run.
 //
 // Like ReleaseOrdinary it follows a completed deletion and neither authorizes
@@ -861,13 +876,15 @@ func laneArtifact(art Artifact) bool {
 	return art == ArtifactDestinationSegment || art == ArtifactAttributionSidecar
 }
 
-// laneHeldLocked is the bytes of lane artifacts the grant is still charged for.
+// laneHeldLocked is what the lane artifacts' paths hold on disk while the grant,
+// not yet the lane, is charged for them.
 func (g *RecoveryGrant) laneHeldLocked() uint64 {
+	if g.sourceReleased {
+		return 0
+	}
 	var held uint64
-	for art, n := range g.used {
-		if laneArtifact(Artifact(art)) && g.heldLocked(Artifact(art)) {
-			held += n
-		}
+	for _, n := range g.laneFiles {
+		held += n
 	}
 	return held
 }
