@@ -8,8 +8,6 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorker do
     max_attempts: 3,
     unique: [period: :infinity, states: :incomplete]
 
-  import Ecto.Query, only: [from: 2]
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.AgentArtifacts
   alias ServiceRadar.Edge.AgentCommandBus
@@ -45,11 +43,8 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorker do
       not ObanSupport.available?() ->
         {:error, :oban_unavailable}
 
-      scheduled?() ->
-        {:ok, :already_scheduled}
-
       true ->
-        %{} |> new() |> ObanSupport.safe_insert()
+        schedule_single_chain()
     end
   end
 
@@ -486,15 +481,23 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorker do
     end
   end
 
-  defp scheduled? do
-    query =
-      from(j in Oban.Job,
-        where: j.worker == ^to_string(__MODULE__),
-        where: j.state in ["available", "scheduled", "executing", "retryable"],
-        limit: 1
-      )
+  # The refresh is meant to be one self-rescheduling chain. Its jobs do not all share args: the
+  # first is inserted with `%{}`, each successor carries "scheduled_at" and "last_result". More
+  # than one incomplete chain job means duplicate chains, each rescheduling itself indefinitely,
+  # so they are cancelled down to the earliest-due pending job rather than left to run in
+  # parallel. A forced refresh carries "force" and is not part of the chain.
+  defp schedule_single_chain do
+    case ObanSupport.incomplete_chain_job_count(__MODULE__, "force") do
+      0 ->
+        %{} |> new() |> ObanSupport.safe_insert()
 
-    Repo.exists?(query, prefix: ObanSupport.prefix())
+      1 ->
+        {:ok, :already_scheduled}
+
+      _duplicates ->
+        ObanSupport.cancel_duplicate_pending_jobs(__MODULE__, "force")
+        {:ok, :already_scheduled}
+    end
   end
 
   defp enabled?(config) do

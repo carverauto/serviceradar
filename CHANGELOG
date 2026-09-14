@@ -30,6 +30,16 @@ anomaly settings pick up the per-class drift mode defaults.
   class has none (cpu, memory and interface
   `deseasonalized_only`; disk, icmp and other `off`). Values an
   operator already set are left untouched (PR #452).
+- Jobs: 49 Oban queries looked up a worker's jobs by
+  `to_string(Module)`, which keeps the `Elixir.` prefix Oban strips
+  from the stored name, so none of them matched. "Already
+  scheduled" guards now work: the sweep coverage rollup stops
+  adding a daily chain every hour and the Bumblebee catalog
+  refresh stops adding one per coordinator start, and both cancel
+  existing duplicates. Composite check cancel, the GeoLite and
+  IPinfo "download now" promotion and the IP enrichment stuck-job
+  reaper now take effect. A Credo check rejects the old form
+  (PR #455, issue #448).
 
 ## Upgrade Notes
 
@@ -39,6 +49,11 @@ anomaly settings pick up the per-class drift mode defaults.
   Helm installs) must bump it in the same upgrade.
 - The add-on supervisor fix ships in the agent binary, so hosts
   pick it up through the normal agent release rollout.
+- On first start, the sweep coverage rollup and Bumblebee
+  catalog refresh cancel duplicate scheduled jobs down to one
+  chain each and log "Cancelled duplicate pending Oban jobs" once.
+  IP enrichment refresh runs now stop after half of
+  `stale_executing_minutes` (30 minutes by default).
 
 # ServiceRadar v1.4.65
 

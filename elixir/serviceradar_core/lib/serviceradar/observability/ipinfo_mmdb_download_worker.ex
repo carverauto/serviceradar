@@ -39,6 +39,9 @@ defmodule ServiceRadar.Observability.IpinfoMmdbDownloadWorker do
   def ensure_scheduled do
     config = Application.get_env(:serviceradar_core, __MODULE__, [])
 
+    failure_reschedule_seconds =
+      Keyword.get(config, :failure_reschedule_seconds, @default_failure_reschedule_seconds)
+
     dir = Keyword.get(config, :dir, System.get_env("GEOLITE_MMDB_DIR") || @default_dir)
 
     cond do
@@ -49,7 +52,7 @@ defmodule ServiceRadar.Observability.IpinfoMmdbDownloadWorker do
         {:error, :oban_unavailable}
 
       not file_present?(dir) ->
-        case promote_scheduled_now() do
+        case promote_scheduled_now(failure_reschedule_seconds) do
           {:ok, :promoted} ->
             {:ok, :already_scheduled}
 
@@ -113,7 +116,7 @@ defmodule ServiceRadar.Observability.IpinfoMmdbDownloadWorker do
   defp check_existing_job do
     query =
       from(j in Oban.Job,
-        where: j.worker == ^to_string(__MODULE__),
+        where: j.worker == ^Oban.Worker.to_string(__MODULE__),
         where: j.state in ["available", "scheduled", "executing", "retryable"],
         limit: 1
       )
@@ -265,13 +268,19 @@ defmodule ServiceRadar.Observability.IpinfoMmdbDownloadWorker do
     File.regular?(Path.join(dir, @mmdb_filename))
   end
 
-  defp promote_scheduled_now do
+  # Runs a pending download now when the file is missing, e.g. after an emptyDir was wiped. A
+  # successor inserted inside the failure backoff window comes from a run that just ended without
+  # the file, typically a failed download or a missing token; promoting it on every scheduler
+  # tick would rerun about once a minute, so only successors older than the window move.
+  defp promote_scheduled_now(failure_reschedule_seconds) do
     now = DateTime.utc_now()
+    backoff_started_at = DateTime.add(now, -max(failure_reschedule_seconds, 3_600), :second)
 
     query =
       from(j in Oban.Job,
-        where: j.worker == ^to_string(__MODULE__),
-        where: j.state == "scheduled"
+        where: j.worker == ^Oban.Worker.to_string(__MODULE__),
+        where: j.state == "scheduled",
+        where: j.inserted_at < ^backoff_started_at
       )
 
     case Repo.update_all(query, [set: [scheduled_at: now]], prefix: ObanSupport.prefix()) do

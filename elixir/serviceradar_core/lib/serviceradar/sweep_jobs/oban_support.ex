@@ -93,6 +93,104 @@ defmodule ServiceRadar.SweepJobs.ObanSupport do
 
   def recover_stale_executing_conflict(_conflict_job, _now, _cutoff_seconds), do: {0, nil}
 
+  @doc """
+  Counts the incomplete (`available`, `scheduled`, `executing` or `retryable`) chain jobs of a
+  worker designed to run as a single self-rescheduling chain.
+
+  A chain job is any job of `worker` whose args do not carry `one_off_key`. Chain jobs cannot be
+  recognised by comparing args with `%{}`: a successor usually carries bookkeeping args such as
+  `"scheduled_at"`. A one-off run is recognised by its key instead (a `"day"` re-run, a `"force"`
+  refresh) and is never counted.
+  """
+  @spec incomplete_chain_job_count(module(), String.t()) :: non_neg_integer()
+  def incomplete_chain_job_count(worker, one_off_key)
+      when is_atom(worker) and is_binary(one_off_key) do
+    Oban.Job
+    |> where([j], j.worker == ^Oban.Worker.to_string(worker))
+    |> where([j], j.state in ["available", "scheduled", "executing", "retryable"])
+    |> where([j], fragment("(? ->> ?) IS NULL", j.args, ^one_off_key))
+    |> Repo.aggregate(:count, prefix: prefix())
+  end
+
+  @doc """
+  Cancels every pending (`scheduled` or `available`) chain job of `worker` except the earliest
+  due. Chain jobs are those whose args do not carry `one_off_key`, as in
+  `incomplete_chain_job_count/2`, so a one-off run is never cancelled.
+
+  A broken "already scheduled" guard lets every call insert another chain, and each chain keeps
+  rescheduling itself, so repairing the guard does not remove the ones that already exist. Those
+  workers call this when `incomplete_chain_job_count/2` finds more than one chain job.
+
+  `executing` and `retryable` jobs are never touched: an executing job inserts its own successor
+  when it finishes, and a later call trims that one. Pending rows are locked with
+  `FOR UPDATE SKIP LOCKED`, so a call never waits on, or deadlocks with, a row held by Oban's
+  stager or by a concurrent call on another node. Each call keeps the earliest of the rows it
+  locked, so concurrent calls never cancel every pending job; under contention a duplicate can
+  survive until the next call.
+
+  Does nothing inside an open transaction, such as an Ash action's `after_action` hook, so the
+  caller's save never holds `oban_jobs` row locks or fails because of the repair; the periodic
+  schedulers repeat the call outside one. A database error is logged and cancels nothing.
+
+  Returns the number of jobs cancelled, and logs it when non-zero.
+  """
+  @spec cancel_duplicate_pending_jobs(module(), String.t()) :: non_neg_integer()
+  def cancel_duplicate_pending_jobs(worker, one_off_key)
+      when is_atom(worker) and is_binary(one_off_key) do
+    if Repo.in_transaction?() do
+      0
+    else
+      cancel_duplicates(Oban.Worker.to_string(worker), one_off_key)
+    end
+  end
+
+  defp cancel_duplicates(worker_name, one_off_key) do
+    {:ok, cancelled} =
+      Repo.transaction(fn -> cancel_all_but_earliest_pending(worker_name, one_off_key) end)
+
+    if cancelled > 0 do
+      Logger.warning("Cancelled duplicate pending Oban jobs",
+        worker: worker_name,
+        cancelled_jobs: cancelled
+      )
+    end
+
+    cancelled
+  rescue
+    error ->
+      Logger.warning("Failed to cancel duplicate pending Oban jobs",
+        worker: worker_name,
+        reason: inspect(error)
+      )
+
+      0
+  end
+
+  defp cancel_all_but_earliest_pending(worker_name, one_off_key) do
+    query =
+      Oban.Job
+      |> where([j], j.worker == ^worker_name and j.state in ["scheduled", "available"])
+      |> where([j], fragment("(? ->> ?) IS NULL", j.args, ^one_off_key))
+      |> order_by([j], asc: j.scheduled_at, asc: j.id)
+      |> lock("FOR UPDATE SKIP LOCKED")
+      |> select([j], j.id)
+
+    case Repo.all(query, prefix: prefix()) do
+      [_earliest | [_ | _] = duplicate_ids] ->
+        cancel = [set: [state: "cancelled", cancelled_at: DateTime.utc_now()]]
+
+        {cancelled, _} =
+          Oban.Job
+          |> where([j], j.id in ^duplicate_ids)
+          |> Repo.update_all(cancel, prefix: prefix())
+
+        cancelled
+
+      _at_most_one ->
+        0
+    end
+  end
+
   defp maybe_retry_stale_executing_conflict(
          {:ok, %Oban.Job{conflict?: true, state: "executing"} = conflict_job},
          original_job,

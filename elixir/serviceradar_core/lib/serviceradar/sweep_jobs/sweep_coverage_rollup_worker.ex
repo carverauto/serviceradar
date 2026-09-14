@@ -43,8 +43,6 @@ defmodule ServiceRadar.SweepJobs.SweepCoverageRollupWorker do
     max_attempts: 3,
     unique: [period: 3600, fields: [:worker, :args], states: :incomplete]
 
-  import Ecto.Query
-
   alias ServiceRadar.Jobs.SelfScheduling
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
@@ -60,31 +58,34 @@ defmodule ServiceRadar.SweepJobs.SweepCoverageRollupWorker do
   # Oban execution run unboundedly.
   @max_catch_up_days 30
 
+  # A job carrying this arg is a one-off re-run of one day, not part of the daily chain.
+  @one_off_arg "day"
+
   @doc """
   Schedules the daily coverage rollup if not already scheduled.
+
+  More than one incomplete chain job means duplicate daily chains, each of which reschedules
+  itself indefinitely; they are cancelled down to the earliest-due pending chain job by
+  `ServiceRadar.SweepJobs.ObanSupport.cancel_duplicate_pending_jobs/2`. A one-off `"day"` run is
+  not part of the chain, so it is neither counted nor cancelled.
   """
   @spec ensure_scheduled() :: {:ok, Oban.Job.t()} | {:ok, :already_scheduled} | {:error, term()}
   def ensure_scheduled do
     if ObanSupport.available?() do
-      if check_existing_job() do
-        {:ok, :already_scheduled}
-      else
-        %{} |> new() |> ObanSupport.safe_insert()
+      case ObanSupport.incomplete_chain_job_count(__MODULE__, @one_off_arg) do
+        0 ->
+          %{} |> new() |> ObanSupport.safe_insert()
+
+        1 ->
+          {:ok, :already_scheduled}
+
+        _duplicates ->
+          ObanSupport.cancel_duplicate_pending_jobs(__MODULE__, @one_off_arg)
+          {:ok, :already_scheduled}
       end
     else
       {:error, :oban_unavailable}
     end
-  end
-
-  defp check_existing_job do
-    query =
-      from(j in Oban.Job,
-        where: j.worker == ^to_string(__MODULE__),
-        where: j.state in ["available", "scheduled", "executing", "retryable"],
-        limit: 1
-      )
-
-    Repo.exists?(query, prefix: ObanSupport.prefix())
   end
 
   @impl Oban.Worker
