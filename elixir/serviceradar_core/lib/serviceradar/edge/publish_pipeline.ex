@@ -101,6 +101,10 @@ defmodule ServiceRadar.Edge.PublishPipeline do
   Without that, a stream handler killed mid-session would hold one of `:max_lanes` forever, and a
   stale handler's cleanup could close a lane a newer session had since opened.
 
+  Closing a lane, either way, discards its queued work. None of it has admitted or published, so
+  the agent's retry covers it; published anyway, it would spend shared workers and credits on a
+  lane nobody holds, ahead of every live lane's work in the queue.
+
   ## In the supervision tree, LAST in each lane
 
   `ServiceRadar.Edge.LaneSupervisor` starts one pipeline per class under `via/1`, after the
@@ -198,7 +202,7 @@ defmodule ServiceRadar.Edge.PublishPipeline do
     do: GenServer.call(pipeline, {:open_lane, lane, first_unresolved_sequence})
 
   @doc """
-  Drops a lane's tracker, freeing one of `:max_lanes`.
+  Drops a lane's tracker and its queued work, freeing one of `:max_lanes`.
 
   Owner-only: any other caller is refused `:not_owner`. Closing a lane that is not open is `:ok`,
   so a cleanup racing its owner's own death cannot fail.
@@ -523,6 +527,7 @@ defmodule ServiceRadar.Edge.PublishPipeline do
   # A lane's OWNER died, so its lane goes with it: nothing else may close it, and leaving it would
   # hold one of :max_lanes forever. Work already in flight for it runs to completion -- its
   # reservation is the pool's to account for -- and its outcome then finds no lane to record onto.
+  # Work still queued for it is discarded with the lane.
   defp owner_down(state, monitor) do
     case Map.fetch(state.owner_monitors, monitor) do
       {:ok, lane} -> drop_lane(state, lane, monitor)
@@ -531,11 +536,15 @@ defmodule ServiceRadar.Edge.PublishPipeline do
   end
 
   defp drop_lane(state, lane, monitor) do
+    queue = :queue.filter(&(&1.lane != lane), state.queue)
+
     %{
       state
       | lanes: Map.delete(state.lanes, lane),
         owners: Map.delete(state.owners, lane),
-        owner_monitors: Map.delete(state.owner_monitors, monitor)
+        owner_monitors: Map.delete(state.owner_monitors, monitor),
+        queue: queue,
+        queued: :queue.len(queue)
     }
   end
 

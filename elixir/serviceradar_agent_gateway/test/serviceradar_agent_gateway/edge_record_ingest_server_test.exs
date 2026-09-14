@@ -409,6 +409,60 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
       refute_received {:edge_record_published, %{slot: %{sequence: 2}}}
     end
 
+    test "an offer refused :queue_full waits for the stream's own outcome, then is offered again and acked" do
+      # One publish in flight and one queued fill the class, so sequence 3 is refused :queue_full.
+      pipeline = EdgeRecordPublisherStub.start_pipeline!(gated_publisher(self()), max_inflight: 1, max_queue: 1)
+      trace_offers(pipeline)
+      stream_pid = start_stream(open_and_frames([1, 2, 3]))
+
+      worker = started(1)
+      assert_offered(pipeline, 3)
+      assert %{inflight: 1, queued: 1} = PublishPipeline.stats(pipeline)
+
+      # Nothing of its own has resolved, so the stream waits instead of offering 3 again in a loop.
+      refute_receive {:trace, ^pipeline, :receive, {:"$gen_call", _from, {:offer, %{slot: %{sequence: 3}}}}}, 200
+
+      # 1's outcome frees 1's place, and sequence 3 is offered again.
+      release(worker, durable())
+      assert_offered(pipeline, 3)
+
+      release(started(2), durable())
+      release(started(3), durable())
+
+      assert Enum.map(acks_through(3), &{&1.sequence, &1.kind}) == [{1, @accepted}, {2, @accepted}, {3, @accepted}]
+      assert_receive {:stream_result, ^stream_pid, :ok}, 5_000
+    end
+
+    test "a full queue with nothing of the stream's own outstanding ends it :resource_exhausted" do
+      pipeline = EdgeRecordPublisherStub.start_pipeline!(gated_publisher(self()), max_inflight: 1, max_queue: 1)
+      trace_offers(pipeline)
+
+      # Another spool's stream fills the class: 1 in flight, 2 queued.
+      busy = start_stream(open_and_frames([1, 2]))
+      worker = started(1)
+      assert_offered(pipeline, 2)
+
+      other_spool = :binary.copy(<<0xAC>>, 16)
+
+      error =
+        assert_raise GRPC.RPCError, fn ->
+          EdgeRecordIngestServer.stream(
+            [
+              client({:lane_open, %{lane_open() | spool_id: other_spool}}),
+              client({:delivery_frame, %{frame(1, record()) | spool_id: other_spool}})
+            ],
+            stream()
+          )
+        end
+
+      assert error.status == GRPC.Status.resource_exhausted()
+
+      release(worker, durable())
+      release(started(2), durable())
+      assert_receive {:stream_result, ^busy, :ok}, 5_000
+      refute_received {:started, 1, _worker}
+    end
+
     test "losing the pipeline ends the stream :unavailable" do
       pipeline = EdgeRecordPublisherStub.start_pipeline!(gated_publisher(self()))
       stream_pid = start_stream(open_and_frames([1]))
@@ -551,6 +605,17 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
   end
 
   defp release(worker, result), do: send(worker, {:release, result})
+
+  # Every message the pipeline receives is copied here, so an offer is observed as the call it is.
+  defp trace_offers(pipeline), do: :erlang.trace(pipeline, true, [:receive])
+
+  defp assert_offered(pipeline, sequence) do
+    assert_receive {:trace, ^pipeline, :receive, {:"$gen_call", _from, {:offer, %{slot: %{sequence: ^sequence}}}}},
+                   5_000
+
+    # The pipeline answers calls in order, so this returns only after that offer was answered.
+    _stats = PublishPipeline.stats(pipeline)
+  end
 
   defp started(sequence) do
     receive do

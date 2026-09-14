@@ -308,6 +308,29 @@ after authoritative PubAck.
   executions or snapshots partial, preserve any prior current snapshot, record a
   continuous-source gap where applicable, and emit a critical incident
 
+### Requirement: An agent spool carries exactly one network scope
+One agent spool SHALL NOT carry records from more than one `network_scope_id`,
+and the gateway SHALL end an ingest stream `permission_denied` when a verified
+record on it names a scope other than the one its lane is bound to.
+
+The gateway resolves a spool's sequences as ONE contiguous prefix keyed by
+(`network_scope_id`, authenticated agent, spool ID). `EdgeRecordLaneOpen` does
+not carry the scope, so the gateway binds that key from the first record it
+verifies. A spool whose sequences spanned two scopes would split into two
+prefixes, neither of them contiguous, and no acknowledgement could advance past
+the first sequence belonging to the other scope. This is the ingest-side form of
+the identity a spool generation freezes under `edge-producer-data-plane`: the
+gateway SHALL NOT open a second lane for the second scope, and SHALL NOT resolve
+any sequence of that spool under it.
+
+#### Scenario: A verified record names a second scope
+- **GIVEN** an ingest stream whose lane was bound to scope A by its first
+  verified record
+- **WHEN** a later record on the same spool verifies and names scope B
+- **THEN** the gateway SHALL end the stream `permission_denied` without
+  publishing that record
+- **AND** it SHALL NOT open a lane for scope B or resolve any sequence under it
+
 ### Requirement: Traffic-class routing is immutable and physically disjoint
 Every result SHALL carry exactly one control-plane-attested `traffic_class` of
 `bulk` or `interactive`. All approved durable output contracts SHALL publish to

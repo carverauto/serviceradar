@@ -39,6 +39,13 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
   publishing is no longer one synchronous request per frame. Outcomes come back as
   `:edge_publish_outcome` messages, in whatever order the PubAcks land.
 
+  The class's queue is shared by every stream on it, so an offer can be refused `:queue_full`. The
+  frame is not dropped for that: this process waits for one of its own outstanding outcomes,
+  handles it exactly as the receive loop would, and offers the frame again. Its own work leaving
+  the pipeline is what makes room, so a saturated class slows each stream to the pace of its own
+  PubAcks. A stream with nothing of its own outstanding has nothing to wait for, and ends
+  `:resource_exhausted` for the agent to retry rather than polling a queue other streams fill.
+
   An ack is sent only when the pipeline's contiguous resolved watermark moves, and it carries the
   kind of EVERY sequence it newly covers, in order. That is the agent's contract rather than a
   presentation choice: `edgerecord.ValidateAck` accepts dispositions only as a contiguous ascending
@@ -65,8 +72,11 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
 
   A pipeline lane is `{network_scope_id, agent, spool}`, and the network scope arrives on the
   record rather than on `lane_open`. The lane is therefore opened when the first frame decodes and
-  matches its digest, and a later verified record naming a different scope ends the stream: one
-  spool's sequences cannot be split across two prefixes without wedging both.
+  matches its digest, and a later verified record naming a different scope ends the stream
+  `:permission_denied`. One agent spool never carries records from more than one
+  `network_scope_id` (ingestion-routing, "An agent spool carries exactly one network scope"), so a
+  second scope breaks that invariant rather than naming a second lane: one spool's sequences cannot
+  be split across two prefixes without wedging both.
 
   A frame rejected permanently before that point has no lane to be recorded on. Its outcome is
   kept here and acked by the same contiguous rule. The lane then opens at the first sequence this
@@ -373,7 +383,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
       {:ok, route} ->
         state
         |> remember_event_id(sequence, record.event_id)
-        |> offer_frame(sequence, frame, record, route)
+        |> offer_frame(stream, sequence, frame, record, route)
 
       {:reject, reason} ->
         # Proven invalid for this session and snapshot: it resolves in the prefix exactly like an
@@ -395,7 +405,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
     end
   end
 
-  defp offer_frame(state, sequence, frame, record, route) do
+  defp offer_frame(state, stream, sequence, frame, record, route) do
     publication = %{
       slot: %{
         network_scope_id: record.network_scope_id,
@@ -412,18 +422,48 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
       semantic_envelope_sha256: record.semantic_envelope_sha256
     }
 
+    offer(state, stream, sequence, publication)
+  end
+
+  defp offer(state, stream, sequence, publication) do
     case pipeline_call(fn -> PublishPipeline.offer(state.pipeline, publication) end) do
       :ok ->
         track(state, sequence)
 
+      {:error, :queue_full} ->
+        state
+        |> await_own_outcome!(stream)
+        |> offer(stream, sequence, publication)
+
       {:error, :lane_not_open} ->
         pipeline_lost!(:lane_not_open)
 
-      # :queue_full is the pipeline's backpressure. Nothing was published or recorded, so the
-      # sequence stays a gap and caps the watermark exactly as a retryable outcome does.
       {:error, reason} ->
         Logger.warning("edge record not offered for publication, ack withheld: #{inspect(reason)}")
         state
+    end
+  end
+
+  defp await_own_outcome!(%{outstanding: outstanding}, _stream) when map_size(outstanding) == 0 do
+    raise GRPC.RPCError, status: :resource_exhausted, message: "edge record publish queue is full"
+  end
+
+  defp await_own_outcome!(state, stream) do
+    {:ok, state} = await_outcome(stream, state, :infinity)
+    state
+  end
+
+  defp await_outcome(stream, state, timeout) do
+    pipeline_monitor = state.pipeline_monitor
+
+    receive do
+      {:edge_publish_outcome, lane, sequence, outcome, resolved_through} ->
+        {:ok, handle_outcome(stream, state, lane, sequence, outcome, resolved_through)}
+
+      {:DOWN, ^pipeline_monitor, :process, _pid, reason} ->
+        pipeline_lost!(reason)
+    after
+      timeout -> :timeout
     end
   end
 
@@ -559,16 +599,11 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
   defp drain(_stream, %{outstanding: outstanding} = state, _deadline) when map_size(outstanding) == 0, do: state
 
   defp drain(stream, state, deadline) do
-    pipeline_monitor = state.pipeline_monitor
+    case await_outcome(stream, state, max(deadline - System.monotonic_time(:millisecond), 0)) do
+      {:ok, state} ->
+        drain(stream, state, deadline)
 
-    receive do
-      {:edge_publish_outcome, lane, sequence, outcome, resolved_through} ->
-        drain(stream, handle_outcome(stream, state, lane, sequence, outcome, resolved_through), deadline)
-
-      {:DOWN, ^pipeline_monitor, :process, _pid, reason} ->
-        pipeline_lost!(reason)
-    after
-      max(deadline - System.monotonic_time(:millisecond), 0) ->
+      :timeout ->
         Logger.warning(
           "edge record stream ended with #{map_size(state.outstanding)} sequence(s) unresolved; the agent retries them"
         )

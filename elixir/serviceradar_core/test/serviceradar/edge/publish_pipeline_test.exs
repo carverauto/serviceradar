@@ -606,6 +606,56 @@ defmodule ServiceRadar.Edge.PublishPipelineTest do
              "the dead owner's lane was never closed"
     end
 
+    test "closing a lane discards its queued work, and another lane's queued work still publishes" do
+      # Queued work has admitted nothing and published nothing, so discarding it costs only the
+      # agent's retry. Left queued, it would publish for a lane nobody holds, ahead of live lanes.
+      p = pool(8, 4_000)
+      pipe = open(pipeline(p, windowed_publisher(self()), max_inflight: 1))
+      :ok = PublishPipeline.open_lane(pipe, {@scope, "agent-2", @spool}, 1)
+
+      other = publication(3)
+      other = put_in(other.slot.authenticated_agent_id, "agent-2")
+
+      :ok = PublishPipeline.offer(pipe, publication(1))
+      worker = started(1)
+      :ok = PublishPipeline.offer(pipe, publication(2))
+      :ok = PublishPipeline.offer(pipe, other)
+      assert %{queued: 2} = PublishPipeline.stats(pipe)
+
+      :ok = PublishPipeline.close_lane(pipe, @lane)
+      assert %{queued: 1, lanes: 1} = PublishPipeline.stats(pipe)
+
+      # The one slot goes to the other lane's work; the closed lane's sequence 2 never starts.
+      release(worker, ack(1))
+      release(started(3), ack(3))
+      refute_started(200)
+    end
+
+    test "the owner's death discards its lane's queued work too" do
+      p = pool(8, 4_000)
+      pipe = pipeline(p, windowed_publisher(self()), max_inflight: 1)
+      test = self()
+
+      owner =
+        spawn(fn ->
+          :ok = PublishPipeline.open_lane(pipe, @lane, 1)
+          for sequence <- 1..3, do: :ok = PublishPipeline.offer(pipe, publication(sequence))
+          send(test, :offered)
+          Process.sleep(:infinity)
+        end)
+
+      assert_receive :offered, 5_000
+      worker = started(1)
+
+      Process.exit(owner, :kill)
+
+      assert eventually(fn -> match?(%{lanes: 0, queued: 0}, PublishPipeline.stats(pipe)) end),
+             "the dead owner's queued work was kept"
+
+      release(worker, ack(1))
+      refute_started(200)
+    end
+
     test "via/1 names one pipeline per class, and accepts nothing else" do
       names = Enum.map(PublisherLane.lanes(), &PublishPipeline.via/1)
       assert length(Enum.uniq(names)) == length(PublisherLane.lanes())
