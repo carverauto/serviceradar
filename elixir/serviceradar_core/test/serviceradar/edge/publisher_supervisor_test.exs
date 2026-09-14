@@ -12,12 +12,8 @@ defmodule ServiceRadar.Edge.PublisherSupervisorTest do
   alias ServiceRadar.Edge.LaneSupervisor
   alias ServiceRadar.Edge.PublisherLane
   alias ServiceRadar.Edge.PublisherPool
-  alias ServiceRadar.Edge.PublishPipeline
-
-  # Reservations key on the COMPLETE authenticated slot, never the bare sequence: one pool serves
-  # every agent and spool in its class. `fp/1` fingerprints the publication, so the same sequence
-  # is the same record retrying.
   alias ServiceRadar.Edge.PublisherSupervisor
+  alias ServiceRadar.Edge.PublishPipeline
 
   # Pools live inside each lane's restart unit now, so their specs come from LaneSupervisor. The
   # credits still come from PublisherSupervisor, which is what these tests are about.
@@ -34,6 +30,9 @@ defmodule ServiceRadar.Edge.PublisherSupervisorTest do
     end)
   end
 
+  # Reservations key on the COMPLETE authenticated slot, never the bare sequence: one pool serves
+  # every agent and spool in its class. `fp/1` fingerprints the publication, so the same sequence
+  # is the same record retrying.
   defp k(seq),
     do: ServiceRadar.Edge.PublishWindow.key(<<0xA1>>, "agent-1", <<0xB2>>, seq, fp(seq))
 
