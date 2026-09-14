@@ -47,6 +47,8 @@ const (
 	// testPerRecovery is testFootprint's aggregate with BOTH journal copies.
 	testPerRecovery = 64 + 16 + 2*32 + 24 + 8 + 12
 	testMinFree     = 100
+	// syntheticBody is an invented record body for ledger tests.
+	syntheticBody = "synthetic payload"
 )
 
 // newTestAllocator sizes capacity so exactly ordinary bytes sit above the floor.
@@ -350,52 +352,96 @@ func TestConcurrentRecoveriesAreBounded(t *testing.T) {
 	if _, err := a.AcquireRecovery(); !errors.Is(err, ErrRecoveryConcurrencyExhausted) {
 		t.Fatalf("acquire 3 = %v, want ErrRecoveryConcurrencyExhausted", err)
 	}
-	if err := g1.Finish("", 0); err != nil {
+	if err := g1.Finish(0); err != nil {
 		t.Fatalf("finish: %v", err)
 	}
-	if err := g1.Finish("", 0); !errors.Is(err, ErrRecoveryFinished) {
+	if err := g1.Finish(0); !errors.Is(err, ErrRecoveryFinished) {
 		t.Fatalf("second finish = %v, want ErrRecoveryFinished", err)
 	}
+	if _, err := a.AcquireRecovery(); !errors.Is(err, ErrRecoveryConcurrencyExhausted) {
+		t.Fatalf("acquire after finish, before the source is released = %v, want ErrRecoveryConcurrencyExhausted", err)
+	}
+	if err := g1.ReleaseSource("lane", 0, "lane"); err != nil {
+		t.Fatalf("release source: %v", err)
+	}
+	if err := g1.ReleaseSource("lane", 0, "lane"); !errors.Is(err, ErrRecoveryFinished) {
+		t.Fatalf("second release = %v, want ErrRecoveryFinished", err)
+	}
 	if _, err := a.AcquireRecovery(); err != nil {
-		t.Fatalf("acquire after finish: %v", err)
+		t.Fatalf("acquire after release: %v", err)
 	}
 }
 
-func TestFinishMovesRetainedOutputIntoOrdinaryUsage(t *testing.T) {
+// A finished recovery releases nothing while the source segment it replaces is
+// still on disk: its output stays charged against the reserve and its slot stays
+// held, so no second recovery is granted a footprint the disk no longer holds.
+// Only deleting the source turns the retained output into ordinary usage.
+func TestRetainedOutputStaysInTheReserveUntilTheSourceIsDeleted(t *testing.T) {
 	a := newTestAllocator(t, 500, 1)
+	dir := t.TempDir()
+	sourceLane := filepath.Join(dir, "source-lane")
+	destLane := filepath.Join(dir, "dest-lane")
+	sourceSeg := filepath.Join(dir, "source.seg")
+	if err := os.WriteFile(sourceSeg, []byte("synthetic source segment"), filePerm); err != nil {
+		t.Fatalf("seed source: %v", err)
+	}
+	if err := admitLanded(a, sourceLane, 500); err != nil {
+		t.Fatalf("fill the ordinary ceiling: %v", err)
+	}
+
 	g, err := a.AcquireRecovery()
 	if err != nil {
 		t.Fatalf("acquire: %v", err)
 	}
-	dir := t.TempDir()
-	if err := g.WriteBarrier(ArtifactDestinationSegment, filepath.Join(dir, "dest"), make([]byte, 64)); err != nil {
+	if err := g.WriteBarrier(ArtifactDestinationSegment, filepath.Join(dir, "dest.seg"), make([]byte, 64)); err != nil {
 		t.Fatalf("write destination: %v", err)
 	}
 	if err := g.WriteBarrier(ArtifactJournalA, filepath.Join(dir, "journal-a"), make([]byte, 32)); err != nil {
 		t.Fatalf("write journal: %v", err)
 	}
 
-	owner := filepath.Join(dir, "new-lane")
-	if err := g.Finish(owner, 97); !errors.Is(err, ErrReleaseExceedsCharge) {
+	if err := g.ReleaseSource(sourceLane, 500, destLane); !errors.Is(err, ErrRecoveryNotFinished) {
+		t.Fatalf("release before finish = %v, want ErrRecoveryNotFinished", err)
+	}
+	if err := g.Finish(97); !errors.Is(err, ErrReleaseExceedsCharge) {
 		t.Fatalf("retaining more than was written = %v, want ErrReleaseExceedsCharge", err)
 	}
-	if got := a.Usage().ActiveRecoveries; got != 1 {
-		t.Fatalf("a refused finish released the slot: active = %d", got)
-	}
-	if err := g.Finish(owner, 96); err != nil {
+	if err := g.Finish(96); err != nil {
 		t.Fatalf("finish: %v", err)
 	}
+	if u := a.Usage(); u.OrdinaryUsed != 500 || u.RecoveryUsed != 96 || u.ActiveRecoveries != 1 {
+		t.Fatalf("after finish usage = %+v, want 500 ordinary, 96 recovery, 1 active", u)
+	}
+	if _, err := a.AcquireRecovery(); !errors.Is(err, ErrRecoveryConcurrencyExhausted) {
+		t.Fatalf("second recovery while the source and its copy share the disk = %v, want ErrRecoveryConcurrencyExhausted", err)
+	}
+	if err := g.WriteBarrier(ArtifactMapping, filepath.Join(dir, "mapping"), []byte{1}); !errors.Is(err, ErrRecoveryFinished) {
+		t.Fatalf("write after finish = %v, want ErrRecoveryFinished", err)
+	}
+
+	if err := g.RunDestructive("delete source", func() error { return os.Remove(sourceSeg) }); err != nil {
+		t.Fatalf("coverage-proof deletion through the finished grant: %v", err)
+	}
+	if exists(t, sourceSeg) {
+		t.Fatal("source segment survived its deletion")
+	}
+	if err := g.ReleaseSource(sourceLane, 501, destLane); !errors.Is(err, ErrReleaseExceedsCharge) {
+		t.Fatalf("releasing more than the source holds = %v, want ErrReleaseExceedsCharge", err)
+	}
+	if u := a.Usage(); u.OrdinaryUsed != 500 || u.RecoveryUsed != 96 || u.ActiveRecoveries != 1 {
+		t.Fatalf("a refused release changed the ledger: %+v", u)
+	}
+	if err := g.ReleaseSource(sourceLane, 500, destLane); err != nil {
+		t.Fatalf("release source after deleting it: %v", err)
+	}
 	if u := a.Usage(); u.OrdinaryUsed != 96 || u.RecoveryUsed != 0 || u.ActiveRecoveries != 0 {
-		t.Fatalf("after finish usage = %+v, want 96 ordinary, 0 recovery, 0 active", u)
+		t.Fatalf("after releasing the source usage = %+v, want 96 ordinary, 0 recovery, 0 active", u)
 	}
-	if err := a.ReleaseOrdinary("another-lane", 96); !errors.Is(err, ErrReleaseExceedsCharge) {
-		t.Fatalf("releasing retained output under the wrong owner = %v, want ErrReleaseExceedsCharge", err)
+	if err := a.ReleaseOrdinary(destLane, 96); err != nil {
+		t.Fatalf("retained output is not charged to its owner: %v", err)
 	}
-	if err := a.ReleaseOrdinary(owner, 96); err != nil {
-		t.Fatalf("release retained output after deletion: %v", err)
-	}
-	if got := a.Usage().OrdinaryUsed; got != 0 {
-		t.Fatalf("after releasing retained output ordinary used = %d, want 0", got)
+	if _, err := a.AcquireRecovery(); err != nil {
+		t.Fatalf("acquire after the source is released: %v", err)
 	}
 }
 
@@ -486,26 +532,122 @@ func TestInFlightBytesStayInTheBackedFloor(t *testing.T) {
 	}
 	free -= 64
 
-	// Mapping bytes the caller writes itself are in flight from Charge on.
+	// Mapping bytes the caller writes itself are in flight from Charge until
+	// Landed; an unrelated step in between does not take them out of flight.
 	if err := g.Charge(ArtifactMapping, 8); err != nil {
 		t.Fatalf("charge mapping: %v", err)
 	}
-	if _, err := lane.Append(evid(1), record(101)); !errors.Is(err, ErrAdmissionRefused) {
-		t.Fatalf("lane admission into charged, unwritten mapping bytes = %v, want ErrAdmissionRefused", err)
-	}
-	// The destination write settled once it landed, so exactly the rest fits.
-	if _, err := lane.Append(evid(1), record(100)); err != nil {
-		t.Fatalf("lane admission after the destination landed: %v", err)
-	}
-	free -= 100 + 8
-
-	// The grant's next step settles the mapping.
 	if err := g.WriteBarrier(ArtifactAttributionSidecar, filepath.Join(dir, "sidecar"), make([]byte, 16)); err != nil {
 		t.Fatalf("sidecar write: %v", err)
 	}
 	free -= 16
+	if _, err := lane.Append(evid(1), record(101)); !errors.Is(err, ErrAdmissionRefused) {
+		t.Fatalf("lane admission into charged, unwritten mapping bytes = %v, want ErrAdmissionRefused", err)
+	}
+	// The destination and sidecar writes landed, so exactly the rest fits.
+	if _, err := lane.Append(evid(1), record(100)); err != nil {
+		t.Fatalf("lane admission after the barrier writes landed: %v", err)
+	}
+	free -= 100
+
+	free -= 8
+	if _, err := a.AcquireRecovery(); !errors.Is(err, ErrReserveUnbacked) {
+		t.Fatalf("acquisition before the mapping is reported landed = %v, want ErrReserveUnbacked", err)
+	}
+	if err := g.Landed(ArtifactMapping, 9); !errors.Is(err, ErrReleaseExceedsCharge) {
+		t.Fatalf("landing more than is in flight = %v, want ErrReleaseExceedsCharge", err)
+	}
+	if err := g.Landed(ArtifactMapping, 8); err != nil {
+		t.Fatalf("land mapping: %v", err)
+	}
 	if _, err := a.AcquireRecovery(); err != nil {
-		t.Fatalf("acquisition once every charged byte landed and settled: %v", err)
+		t.Fatalf("acquisition once every charged byte landed: %v", err)
+	}
+}
+
+// A lane Open rejects as corrupt still occupies its segment on disk, so its
+// bytes stay charged even though Open fails.
+func TestCorruptLaneIsChargedWhenOpenFails(t *testing.T) {
+	body := syntheticBody
+	recLen := uint64(headerLen + headerCRC + len(body) + bodyCRCLen)
+	dirA := t.TempDir()
+	s, err := Open(dirA)
+	if err != nil {
+		t.Fatalf("open lane A: %v", err)
+	}
+	mustAppend(t, s, 1, body)
+	mustAppend(t, s, 2, body)
+	if err := s.Close(); err != nil {
+		t.Fatalf("close lane A: %v", err)
+	}
+	seg := filepath.Join(dirA, segmentFile)
+	data, err := os.ReadFile(seg)
+	if err != nil {
+		t.Fatalf("read segment: %v", err)
+	}
+	data[headerLen+headerCRC] ^= 0xFF
+	if err := os.WriteFile(seg, data, filePerm); err != nil {
+		t.Fatalf("corrupt the first record body: %v", err)
+	}
+
+	a := newTestAllocator(t, 3*recLen, 1)
+	var corrupt *CorruptBodyError
+	if _, err := Open(dirA, WithAllocator(a)); !errors.As(err, &corrupt) {
+		t.Fatalf("open corrupt lane = %v, want *CorruptBodyError", err)
+	}
+	if got := a.Usage().OrdinaryUsed; got != 2*recLen {
+		t.Fatalf("corrupt lane charged %d, want its on-disk %d", got, 2*recLen)
+	}
+
+	laneB, err := Open(t.TempDir(), WithAllocator(a))
+	if err != nil {
+		t.Fatalf("open lane B: %v", err)
+	}
+	defer func() { _ = laneB.Close() }()
+	mustAppend(t, laneB, 1, body)
+	if _, err := laneB.Append(evid(2), []byte(body)); !errors.Is(err, ErrAdmissionRefused) {
+		t.Fatalf("lane B append into space the corrupt lane occupies = %v, want ErrAdmissionRefused", err)
+	}
+}
+
+// One directory spelled two ways is one owner: reopening replaces its charge,
+// and a release under another spelling finds it.
+func TestOwnerSpellingsOfOneDirectoryShareACharge(t *testing.T) {
+	body := syntheticBody
+	recLen := uint64(headerLen + headerCRC + len(body) + bodyCRCLen)
+	a := newTestAllocator(t, 10*recLen, 1)
+	dir := t.TempDir()
+
+	s, err := Open(dir+string(filepath.Separator), WithAllocator(a))
+	if err != nil {
+		t.Fatalf("open with a trailing separator: %v", err)
+	}
+	mustAppend(t, s, 1, body)
+	mustAppend(t, s, 2, body)
+	if err := s.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	sep := string(filepath.Separator)
+	reopened, err := Open(dir+sep+"."+sep, WithAllocator(a))
+	if err != nil {
+		t.Fatalf("reopen under another spelling: %v", err)
+	}
+	if got := a.Usage().OrdinaryUsed; got != 2*recLen {
+		t.Fatalf("reopening under another spelling charged %d, want %d", got, 2*recLen)
+	}
+	if err := reopened.Close(); err != nil {
+		t.Fatalf("close reopened: %v", err)
+	}
+
+	if err := os.Remove(filepath.Join(dir, segmentFile)); err != nil {
+		t.Fatalf("delete segment: %v", err)
+	}
+	if err := a.ReleaseOrdinary(dir+sep+sep, 2*recLen); err != nil {
+		t.Fatalf("release under a third spelling: %v", err)
+	}
+	if got := a.Usage().OrdinaryUsed; got != 0 {
+		t.Fatalf("ordinary used after release = %d, want 0", got)
 	}
 }
 
@@ -557,7 +699,7 @@ func TestExhaustingTheReserveStopsRecoveryDeterministically(t *testing.T) {
 	if !errors.Is(err, ErrRecoveryStopped) || ran || !exists(t, source) {
 		t.Fatalf("destructive step after exhaustion: err=%v ran=%v; want refused and source intact", err, ran)
 	}
-	if err := g.Finish("", 0); !errors.Is(err, ErrRecoveryStopped) {
+	if err := g.Finish(0); !errors.Is(err, ErrRecoveryStopped) {
 		t.Fatalf("finish after exhaustion = %v, want ErrRecoveryStopped", err)
 	}
 	if ff.calls != calls || exists(t, journalB) {
@@ -648,8 +790,11 @@ func TestFailedBarrierWriteIsFailStop(t *testing.T) {
 					if !errors.Is(err, ErrRecoveryStopped) || !errors.Is(err, errno) {
 						t.Fatalf("%s grant write after fail-stop = %v, want refused", name, err)
 					}
-					if err := grant.Finish("", 0); !errors.Is(err, ErrRecoveryStopped) {
+					if err := grant.Finish(0); !errors.Is(err, ErrRecoveryStopped) {
 						t.Fatalf("%s grant finish after fail-stop = %v, want refused", name, err)
+					}
+					if err := grant.ReleaseSource(source, 0, source); !errors.Is(err, ErrRecoveryStopped) {
+						t.Fatalf("%s grant release after fail-stop = %v, want refused", name, err)
 					}
 				}
 				if ran {
@@ -754,7 +899,7 @@ func TestCallerWrittenOutputFailureIsFailStop(t *testing.T) {
 }
 
 func TestSpoolAdmissionRefusalWritesNothing(t *testing.T) {
-	body := "synthetic payload"
+	body := syntheticBody
 	recLen := uint64(headerLen + headerCRC + len(body) + bodyCRCLen)
 	a := newTestAllocator(t, 2*recLen, 1)
 	dir := t.TempDir()
@@ -801,7 +946,7 @@ func TestSpoolAdmissionRefusalWritesNothing(t *testing.T) {
 // released only after the segment is deleted. Reopening re-measures instead of
 // adding, and releasing one lane can never spend another lane's charge.
 func TestLaneChargeLastsUntilPhysicalDeletion(t *testing.T) {
-	body := "synthetic payload"
+	body := syntheticBody
 	recLen := uint64(headerLen + headerCRC + len(body) + bodyCRCLen)
 	a := newTestAllocator(t, 3*recLen, 1)
 	dirA, dirB := t.TempDir(), t.TempDir()
@@ -960,8 +1105,11 @@ func assertOnlyAdmissionStopped(t *testing.T, a *Allocator, errno error) {
 	if err := g.RunDestructive("synthetic step", func() error { ran = true; return nil }); err != nil || !ran {
 		t.Fatalf("recovery destructive step after a lane's append failure: err=%v ran=%v", err, ran)
 	}
-	if err := g.Finish("", 0); err != nil {
+	if err := g.Finish(0); err != nil {
 		t.Fatalf("finish recovery after a lane's append failure: %v", err)
+	}
+	if err := g.ReleaseSource("lane", 0, "lane"); err != nil {
+		t.Fatalf("release recovery after a lane's append failure: %v", err)
 	}
 }
 

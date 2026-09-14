@@ -857,8 +857,11 @@
   rewrites included, and `Allocator` multiplies it by `MaxConcurrentRecoveries`;
   the floor is that reserve plus `MinFree`. `Spool.Append` (via `WithAllocator`)
   refuses admission beyond capacity minus the floor, or beyond physically free
-  bytes less everything charged but not yet written. Ordinary charges are keyed
-  by lane directory and last until `ReleaseOrdinary` after physical deletion. A
+  bytes less everything charged but not yet landed (`RecoveryGrant.Landed` for
+  caller-written output). Ordinary charges are keyed by cleaned lane directory,
+  cover a lane `Open` rejects as corrupt, and last until `ReleaseOrdinary` after
+  physical deletion. `Finish` releases nothing: a recovery's retained output stays
+  in the reserve until `ReleaseSource` follows deletion of its source. A
   failed barrier write, caller-reported write (`RecoveryGrant.FailStop`), or
   destructive step fail-stops every grant and all admission; a failed record
   write/fsync stops its lane and all admission but not recovery; per-artifact
