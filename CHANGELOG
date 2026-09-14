@@ -1,3 +1,49 @@
+# ServiceRadar v1.4.67
+
+A new CNPG cluster created by the chart now bootstraps its
+database instead of failing the core migrations hook, and core
+health events stop reporting an hourly "healthy to healthy"
+change.
+
+## Whats New
+
+**1.4.67**
+- Helm: a new CNPG cluster created by the chart now bootstraps
+  its database. The cluster's initdb SQL created timescaledb,
+  postgis and vector before the `platform` schema existed, so
+  they landed in `public`, where the schema baseline cannot move
+  them, and the `serviceradar-core-migrations` hook failed on
+  `platform.create_hypertable`. The chart now runs no initdb SQL
+  by default and leaves the core migrations job to create those
+  extensions in `platform`. `cnpg.extensionsSQL` still renders
+  when set, and an explicit `[]` now means none instead of
+  falling back to the old list. Existing clusters and SPIRE-mode
+  Postgres are unaffected (PR #461, issue #454).
+- Core: health tracking no longer announces an unchanged state as
+  a transition. The seasonal baseline producer records a heartbeat
+  on every hourly run, and each one was published as "changed from
+  healthy to healthy", which became a `health.core.state_change`
+  event every hour. Unchanged records still land on the health
+  timeline, so the baseline freshness check keeps working, but
+  only a real change or a first record now publishes the health
+  log, the event and the live broadcast. The heartbeat also
+  reports the state it last recorded instead of always "healthy",
+  so a repeated failure publishes nothing, a lasting failure keeps
+  one `core_health_check_unhealthy` incident open instead of
+  resolving and reopening it every hour, and a recovery still
+  clears it. Events already recorded stay until retention removes
+  them (PR #457).
+
+## Upgrade Notes
+
+- If your values set `cnpg.extensionsSQL`, CNPG still runs that
+  SQL when it creates a new cluster, and an override that copies
+  the old unqualified `CREATE EXTENSION` list still leaves a new
+  cluster unable to bootstrap. Drop the override, or run
+  `CREATE SCHEMA IF NOT EXISTS platform;` first and create each
+  extension `WITH SCHEMA platform` (`age` in `ag_catalog`).
+  Existing clusters never re-run this SQL and need no action.
+
 # ServiceRadar v1.4.66
 
 Add-on rollouts no longer wedge: a superseded rollout finishes
