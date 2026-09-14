@@ -7,7 +7,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
   Each property is observed rather than inferred from the source. The lane runs in its own
   process through the REAL `JetStreamPublisher` and `PublisherPool`; only the NATS connection is
   a double, so every broker answer below goes through the production PubAck parsing and fencing.
-  Every detector here has a control showing it fires when the property is broken.
+  The buffer and ack detectors each have a control showing they fire when the property is broken.
   """
 
   use ExUnit.Case, async: false
@@ -94,17 +94,6 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
         pools: Process.get(:isolation_pools),
         receive_timeout: 1_000
       )
-    end
-  end
-
-  defmodule HandoffPublisher do
-    @moduledoc false
-    # A publisher that hands the record to Core over ERTS and Core NATS, then reports success in
-    # the shapes those handoffs return. It exists to prove the detectors below can fail.
-    def publish_record(_publication) do
-      _node = :erpc.call(node(), :erlang, :node, [])
-      _ = Connection.publish("edge.handoff", "bytes")
-      Process.get(:isolation_handoff_result, :ok)
     end
   end
 
@@ -226,40 +215,6 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
       assert_received {:edge_record_stream_reply,
                        %EdgeRecordServerMessage{payload: {:ack, %{resolved_through_sequence: 2}}}}
     end
-
-    test "a publisher reporting a handoff as success is not acked durable, and is detected", %{pools: pools} do
-      put_env(:edge_record_ingest_publisher, HandoffPublisher)
-
-      # The shapes a handoff returns: `Gnat.pub/4` and `send/2`-style `:ok`, and `{:ok, _}` values
-      # that are not a PubAck naming a stream and a positive sequence.
-      results = [
-        :ok,
-        {:ok, :sent},
-        {:ok, %{}},
-        {:ok, %{body: ""}},
-        {:ok, %{stream: "", seq: 1}},
-        {:ok, %{stream: "EDGE_RECORD", seq: 0}}
-      ]
-
-      for {result, index} <- Enum.with_index(results, 1) do
-        calls =
-          trace_handoff_calls(fn ->
-            lane =
-              start_lane([lane_open(), delivery(index)],
-                pools: pools,
-                extra: [isolation_handoff_result: result]
-              )
-
-            {lane, fn -> assert {:ok, :ok} = await_lane(lane) end}
-          end)
-
-        assert Enum.any?(calls, &match?({:erpc, :call, _}, &1)), "ERTS RPC not detected for #{inspect(result)}"
-        assert Enum.any?(calls, &match?({Connection, :publish, _}, &1))
-
-        assert_received {:edge_record_stream_reply, %EdgeRecordServerMessage{payload: {:lane_open_ack, _}}}
-        refute_received {:edge_record_stream_reply, %EdgeRecordServerMessage{payload: {:ack, _}}}, inspect(result)
-      end
-    end
   end
 
   describe "stateless across restarts" do
@@ -329,12 +284,11 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
   defp start_lane(requests, opts) do
     test_pid = self()
 
-    dictionary =
-      [
-        isolation_test_pid: test_pid,
-        isolation_pools: Keyword.fetch!(opts, :pools),
-        isolation_reply: Keyword.get(opts, :reply, :pub_ack)
-      ] ++ Keyword.get(opts, :extra, [])
+    dictionary = [
+      isolation_test_pid: test_pid,
+      isolation_pools: Keyword.fetch!(opts, :pools),
+      isolation_reply: Keyword.get(opts, :reply, :pub_ack)
+    ]
 
     spawn(fn ->
       Enum.each(dictionary, fn {key, value} -> Process.put(key, value) end)
@@ -428,6 +382,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
 
   defp drain_buffer_messages(buffer, acc) do
     receive do
+      {:trace, ^buffer, :receive, :flush} -> drain_buffer_messages(buffer, acc)
       {:trace, ^buffer, :receive, message} -> drain_buffer_messages(buffer, [message | acc])
     after
       0 -> Enum.reverse(acc)

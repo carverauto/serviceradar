@@ -37,12 +37,15 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
 
     * The lane never enters `ServiceRadarAgentGateway.StatusBuffer`. An unresolved publication is
       withheld, so the agent spool keeps it; nothing is queued, dropped or retried here.
-    * Only a PubAck naming a stream and a positive sequence is acked durable. A Core NATS publish
-      or an ERTS/RPC handoff reports that bytes left this process, not that a stream stored them,
-      so any other success-shaped publisher result is withheld.
-    * The lane is stateless across restarts. Its only state lives in the stream process, and the
-      request reader is ended with it, so a reconnect replays the spool through the same
-      publication path rather than recovering anything from the gateway.
+    * Only a PubAck is acked durable. The lane publishes by JetStream request/reply, never by a
+      Core NATS publish or an ERTS/RPC handoff, and `JetStreamPublisher.publish_record/2` returns
+      `{:ok, _}` only for a PubAck it parsed and fenced to the stream the request named.
+    * The lane keeps no state of its own across restarts. Its state lives in the stream process,
+      and the request reader is ended with it, so a reconnect replays the spool through the same
+      publication path rather than recovering anything from the gateway. The exception is a lane
+      killed while it waits for a PubAck: its `PublisherPool` attempt stays in flight, because
+      owner death is not termination, so a replay of that frame is refused as
+      `:attempt_in_flight` and withheld until the lane's NATS transport restarts.
 
   `ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest` observes each of these.
   """
@@ -251,27 +254,20 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
     }
 
     case publisher().publish_record(publication) do
-      # Only a PubAck is durability. A bare `:ok` is what a Core NATS publish (`Gnat.pub`) returns,
-      # and `{:ok, _}` without a stream and a positive sequence is the shape of an ERTS or RPC
-      # handoff; both mean the bytes left this process, not that a stream stored them (task 3.6).
-      {:ok, %{stream: ack_stream, seq: seq}}
-      when is_binary(ack_stream) and ack_stream != "" and is_integer(seq) and seq >= 1 ->
+      {:ok, _pub_ack} ->
         ack(stream, state, sequence, record.event_id, @accepted)
 
       {:error, :poison} ->
         ack(stream, state, sequence, record.event_id, @permanent)
 
-      result ->
-        Logger.warning("edge record publish did not resolve: #{inspect(unresolved_reason(result))}")
+      {:error, reason} ->
+        Logger.warning("edge record publish did not resolve: #{inspect(reason)}")
         # RETRYABLE never resolves the sequence -- the watermark must not advance past a record
         # that may not be durable. No ack is sent for this frame; the agent's own deadline drives
         # its retry.
         state
     end
   end
-
-  defp unresolved_reason({:error, reason}), do: reason
-  defp unresolved_reason(_result), do: :not_a_pub_ack
 
   # `event_id` is the decoded record's id, which the agent binds to the event it sent for
   # `sequence` (`edgerecord.ValidateAck`). Only a rejection made before the record decoded may

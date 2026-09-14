@@ -1001,19 +1001,24 @@
   and its telemetry no event, across every non-durable broker answer and pool
   saturation. (2) Call-tracing the lane process sees no ERTS RPC, Core NATS
   publish, or `StatusProcessor` call, and only a PubAck from the requested stream
-  is acked. Two defects were fixed to make these hold: the server acked ANY
-  `{:ok, _}` publisher result as ACCEPTED_AUTHORITATIVE and crashed on a bare
-  `:ok`; it now requires a PubAck shape and withholds everything else. (3) A
-  lane killed by an exit signal left its request reader blocked forever under
-  `DeliveryTaskSupervisor`, because grpc's Cowboy read waits with no monitor or
-  timeout and the exit skipped the `after` cleanup; a watcher now ends the reader
-  with its owner. After the kill no reader, registered name, ETS table,
-  persistent term, or gateway env survives, and a reconnect replays the same
-  frames through identical publish requests to identical dispositions -- and is
-  withheld, not re-acked, once the broker refuses.
+  is acked: the server acks durable only on `{:ok, _}`, which
+  `JetStreamPublisher` returns only for a PubAck it parsed and fenced to the
+  expected stream. (3) A lane killed by an exit signal left its request reader
+  blocked forever under `DeliveryTaskSupervisor`, because grpc's Cowboy read
+  waits with no monitor or timeout and the exit skipped the `after` cleanup; a
+  watcher now ends the reader with its owner. After a lane killed between frames,
+  no reader, registered name, ETS table, persistent term, or gateway env
+  survives, and a reconnect replays the same frames through identical publish
+  requests to identical dispositions -- and is withheld, not re-acked, once the
+  broker refuses.
   NOT discharged here: the ack still sets `resolved_through_sequence` to the
   acked sequence even across a withheld earlier one, which is task 3.5's
-  contiguous-prefix work.
+  contiguous-prefix work. A lane killed while waiting for a PubAck leaves its
+  `PublisherPool` attempt marked in flight (owner death is deliberately not
+  treated as termination), so a reconnect replay of that frame is refused as
+  `:attempt_in_flight` and withheld until the NATS transport restarts, rather
+  than getting an identical disposition; ending that attempt needs evidence the
+  request terminated, which is task 3.5's request-correlation work.
 - [ ] 3.7 Add byte-bounded fair queues and rate limits across network/site scope,
   agent, producer assignment, run/execution, and attested traffic class so a
   noisy stream cannot starve other edge sessions before JetStream partitioning.
