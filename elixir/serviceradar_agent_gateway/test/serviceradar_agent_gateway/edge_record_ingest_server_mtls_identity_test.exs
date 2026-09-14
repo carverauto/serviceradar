@@ -38,6 +38,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerMtlsIdentityTest do
   use ExUnit.Case, async: false
 
   alias Serviceradar.Edge.V1.EdgeDeliveryFrameV1
+  alias Serviceradar.Edge.V1.EdgeProducerContext
   alias Serviceradar.Edge.V1.EdgeRecordClientMessage
   alias Serviceradar.Edge.V1.EdgeRecordLaneOpen
   alias Serviceradar.Edge.V1.EdgeRecordServerMessage
@@ -46,6 +47,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerMtlsIdentityTest do
   alias ServiceRadarAgentGateway.CertificateTestHelpers
   alias ServiceRadarAgentGateway.CertIssuer
   alias ServiceRadarAgentGateway.EdgeRecordIngestServer
+  alias ServiceRadarAgentGateway.TestSupport.EdgeContractRegistryStub
   alias ServiceRadarAgentGateway.TestSupport.EdgeRecordCapabilityStub
   alias ServiceRadarAgentGateway.TestSupport.EdgeRecordPublisherStub
 
@@ -60,8 +62,11 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerMtlsIdentityTest do
     previous = %{
       publisher: Application.get_env(:serviceradar_agent_gateway, :edge_record_ingest_publisher),
       capability: Application.get_env(:serviceradar_agent_gateway, :edge_record_ingest_capability),
-      supervisor: Application.get_env(:serviceradar_agent_gateway, :edge_record_ingest_task_supervisor)
+      supervisor: Application.get_env(:serviceradar_agent_gateway, :edge_record_ingest_task_supervisor),
+      registry: Application.get_env(:serviceradar_agent_gateway, :edge_record_contract_registry_impl)
     }
+
+    Application.put_env(:serviceradar_agent_gateway, :edge_record_contract_registry_impl, EdgeContractRegistryStub)
 
     _supervisor = start_supervised!({Task.Supervisor, name: __MODULE__.TaskSupervisor})
 
@@ -114,6 +119,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerMtlsIdentityTest do
       restore_env(:edge_record_ingest_publisher, previous.publisher)
       restore_env(:edge_record_ingest_capability, previous.capability)
       restore_env(:edge_record_ingest_task_supervisor, previous.supervisor)
+      restore_env(:edge_record_contract_registry_impl, previous.registry)
     end)
 
     %{
@@ -177,11 +183,16 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerMtlsIdentityTest do
     }
   end
 
+  # The accepted certificate's principal: the registry admits a record only when its provenance
+  # matches the authenticated session, so this is the identity the fixture was produced under.
   defp record do
     %EdgeRecordV1{
       network_scope_id: @network_scope_id,
       route_profile: :EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
       traffic_class: :EDGE_RECORD_TRAFFIC_CLASS_BULK,
+      output_contract: EdgeContractRegistryStub.contract_ref(),
+      producer_context: %EdgeProducerContext{origin_principal_id: "agent-accepted"},
+      cost_model_version: 1,
       semantic_envelope_sha256: :binary.copy(<<0xAA>>, 32)
     }
   end
