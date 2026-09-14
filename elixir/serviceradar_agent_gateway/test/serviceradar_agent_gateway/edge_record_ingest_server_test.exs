@@ -539,6 +539,43 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
     end
   end
 
+  describe "acked outcomes are not retained by the shared pipeline" do
+    test "a long stream acked frame by frame leaves at most its latest outcome in the pipeline",
+         %{pipeline: pipeline} do
+      test = self()
+
+      # Each frame is released only once the previous one is acked, so the stream stays inside its
+      # 4-frame window however long it runs.
+      paced =
+        Stream.flat_map(1..40, fn sequence ->
+          send(test, {:ready, self(), sequence})
+
+          receive do
+            :next -> [client({:delivery_frame, frame(sequence, record())})]
+          end
+        end)
+
+      stream_pid = start_stream(Stream.concat([client({:lane_open, lane_open()})], paced))
+
+      for sequence <- 1..40 do
+        assert_receive {:ready, reader, ^sequence}, 5_000
+        send(reader, :next)
+
+        assert_receive {:edge_record_stream_reply,
+                        %EdgeRecordServerMessage{
+                          payload: {:ack, %EdgeDeliveryAckV1{resolved_through_sequence: ^sequence}}
+                        }},
+                       5_000
+
+        # The ack for this sequence may not have reached the pipeline yet, but every earlier one has,
+        # so no more than this one outcome may still be retained.
+        assert PublishPipeline.stats(pipeline).retained_dispositions <= 1
+      end
+
+      assert_receive {:stream_result, ^stream_pid, :ok}, 5_000
+    end
+  end
+
   defmodule AddonIdentityResolverStub do
     @moduledoc false
 

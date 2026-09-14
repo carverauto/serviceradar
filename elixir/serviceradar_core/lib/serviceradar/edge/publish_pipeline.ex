@@ -50,6 +50,10 @@ defmodule ServiceRadar.Edge.PublishPipeline do
   does not quietly become unbounded retention instead. Task 3.4 owns the exact-byte and
   retained-memory bounds; what is bounded here is the COUNT.
 
+  Within a lane, what is retained does not grow with how much the lane resolves either. A resolved
+  disposition is kept only until the owner reports it in an ack through `reported_through/3`, and
+  the outcomes still above the watermark are bounded by what the owner offers.
+
   ## Backpressure is a refusal, and retry is NOT this module's decision
 
   An offer beyond `:max_queue` is refused `:queue_full`. That is the whole backpressure policy,
@@ -253,6 +257,21 @@ defmodule ServiceRadar.Edge.PublishPipeline do
   def resolved_through(pipeline, lane), do: GenServer.call(pipeline, {:resolved_through, lane})
 
   @doc """
+  Drops the lane's retained dispositions through `sequence`, once its owner has reported them in
+  an ack.
+
+  See `ResolvedPrefix.reported_through/2`: it bounds this process's memory for a long-lived lane
+  and is NOT a durability claim. The lane does not advance, and a later outcome for a reported
+  sequence is refused `:evidence_released`.
+
+  Refusals: `:lane_not_open`, `:not_owner`, `:not_resolved` (past the lane's watermark),
+  `:above_lane_max`.
+  """
+  @spec reported_through(GenServer.server(), lane(), non_neg_integer()) :: :ok | {:error, atom()}
+  def reported_through(pipeline, lane, sequence),
+    do: GenServer.call(pipeline, {:reported_through, lane, sequence})
+
+  @doc """
   Releases prefix evidence below the agent's reported `first_unresolved_sequence`.
 
   See `ResolvedPrefix.release_below/2`: this is the only local-durability signal the gateway can
@@ -281,8 +300,8 @@ defmodule ServiceRadar.Edge.PublishPipeline do
        # Accepted but not started. Bounded by :max_queue.
        queue: :queue.new(),
        queued: 0,
-       # task ref => %{lane, monitor, sequence}, where `monitor` is the lane owner's monitor when the
-       # work was offered and so names that opening of the lane. Bounded by :max_inflight.
+       # task ref => %{lane, monitor, sequence}, where `monitor` is the lane owner's monitor when
+       # the work was offered and so names that opening of the lane. Bounded by :max_inflight.
        inflight: %{},
        # lane => ResolvedPrefix.t(). DATA per lane, never a process. Bounded by :max_lanes.
        lanes: %{},
@@ -373,7 +392,28 @@ defmodule ServiceRadar.Edge.PublishPipeline do
     end
   end
 
+  def handle_call({:reported_through, lane, sequence}, {caller, _tag}, state) do
+    case Map.fetch(state.owners, lane) do
+      {:ok, {^caller, _monitor}} ->
+        case ResolvedPrefix.reported_through(Map.fetch!(state.lanes, lane), sequence) do
+          {:ok, reported} -> {:reply, :ok, %{state | lanes: Map.put(state.lanes, lane, reported)}}
+          {:error, reason} -> {:reply, {:error, reason}, state}
+        end
+
+      {:ok, _other_owner} ->
+        {:reply, {:error, :not_owner}, state}
+
+      :error ->
+        {:reply, {:error, :lane_not_open}, state}
+    end
+  end
+
   def handle_call(:stats, _from, state) do
+    retained =
+      Enum.reduce(state.lanes, 0, fn {_lane, prefix}, sum ->
+        sum + ResolvedPrefix.retained_dispositions(prefix)
+      end)
+
     {:reply,
      %{
        class: state.class,
@@ -381,7 +421,8 @@ defmodule ServiceRadar.Edge.PublishPipeline do
        queued: state.queued,
        lanes: map_size(state.lanes),
        max_inflight: state.max_inflight,
-       max_queue: state.max_queue
+       max_queue: state.max_queue,
+       retained_dispositions: retained
      }, state}
   end
 
@@ -531,8 +572,8 @@ defmodule ServiceRadar.Edge.PublishPipeline do
 
   # A lane's OWNER died, so its lane goes with it: nothing else may close it, and leaving it would
   # hold one of :max_lanes forever. Work already in flight for it runs to completion -- its
-  # reservation is the pool's to account for -- and its outcome then finds no opening of the lane to record onto.
-  # Work still queued for it is discarded with the lane.
+  # reservation is the pool's to account for -- and its outcome then finds no opening of the lane
+  # to record onto. Work still queued for it is discarded with the lane.
   defp owner_down(state, monitor) do
     case Map.fetch(state.owner_monitors, monitor) do
       {:ok, lane} -> drop_lane(state, lane, monitor)

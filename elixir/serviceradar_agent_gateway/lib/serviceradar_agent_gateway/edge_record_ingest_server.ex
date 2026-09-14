@@ -56,6 +56,11 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
   for an out-of-order PubAck, or one that moved the watermark past a withheld sequence, is refused
   there.
 
+  Once an ack is sent for a bound lane, the pipeline drops the dispositions it covers
+  (`PublishPipeline.reported_through/3`), so a long-lived stream does not grow the class's shared
+  process with every sequence it resolves. That bounds gateway memory only; it claims nothing about
+  what the agent has durably done.
+
   The watermark is cumulative, and the agent sends each sequence once per session. So the first
   sequence a session leaves unresolved -- withheld or held by the contract registry, paused, or
   retryable -- caps the lane: no later sequence of that session is acked, even one that published
@@ -496,6 +501,15 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
     end
   end
 
+  defp report_on_pipeline!(_pipeline, nil, _sequence), do: :ok
+
+  defp report_on_pipeline!(pipeline, lane, sequence) do
+    case pipeline_call(fn -> PublishPipeline.reported_through(pipeline, lane, sequence) end) do
+      :ok -> :ok
+      {:error, reason} -> pipeline_lost!(reason)
+    end
+  end
+
   defp handle_outcome(stream, %{lane: lane} = state, lane, sequence, outcome, resolved_through) when lane != nil do
     state = untrack(state, sequence)
 
@@ -573,6 +587,8 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
              session_nonce: state.session_nonce
            }}
       })
+
+    report_on_pipeline!(state.pipeline, state.lane, resolved_through)
 
     %{
       state

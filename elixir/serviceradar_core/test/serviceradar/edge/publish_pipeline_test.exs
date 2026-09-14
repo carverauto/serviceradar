@@ -691,6 +691,54 @@ defmodule ServiceRadar.Edge.PublishPipelineTest do
       assert resolved(pipe) == 6
     end
 
+    @tag :capture_log
+    test "reported dispositions are dropped, so a long-lived lane retains none it has reported" do
+      # Every resolved sequence is retained for the next ack. Without a release once it is
+      # reported, one lane grows this process's memory with every sequence it ever resolves.
+      p = pool(8, 4_000)
+      pipe = open(pipeline(p, windowed_publisher(self())))
+
+      for sequence <- 1..50 do
+        :ok = PublishPipeline.reject_permanent(pipe, @lane, sequence)
+        assert_receive {:edge_publish_outcome, @lane, ^sequence, {:recorded, @permanent}, through}
+        assert through == sequence
+
+        # NOT VACUOUS: the resolved sequence really is retained until it is reported.
+        assert %{retained_dispositions: 1} = PublishPipeline.stats(pipe)
+        assert :ok = PublishPipeline.reported_through(pipe, @lane, sequence)
+        assert %{retained_dispositions: 0} = PublishPipeline.stats(pipe)
+      end
+
+      assert resolved(pipe) == 50
+
+      # A reported sequence cannot be re-adjudicated: a repeat is refused, not agreed with.
+      assert :ok = PublishPipeline.reject_permanent(pipe, @lane, 50)
+
+      assert_receive {:edge_publish_outcome, @lane, 50,
+                      {:refused, @permanent, :evidence_released}, 50}
+
+      assert resolved(pipe) == 50
+    end
+
+    test "reported_through is owner-only, and refuses an unopened lane or unresolved sequence" do
+      p = pool(8, 4_000)
+      pipe = pipeline(p, windowed_publisher(self()))
+
+      assert {:error, :lane_not_open} = PublishPipeline.reported_through(pipe, @lane, 1)
+
+      open(pipe)
+      :ok = PublishPipeline.reject_permanent(pipe, @lane, 1)
+      assert_receive {:edge_publish_outcome, @lane, 1, {:recorded, @permanent}, 1}
+
+      assert {:error, :not_owner} =
+               in_other_process(fn -> PublishPipeline.reported_through(pipe, @lane, 1) end)
+
+      assert {:error, :not_resolved} = PublishPipeline.reported_through(pipe, @lane, 2)
+
+      # None of the refusals dropped anything.
+      assert %{retained_dispositions: 1} = PublishPipeline.stats(pipe)
+    end
+
     test "via/1 names one pipeline per class, and accepts nothing else" do
       names = Enum.map(PublisherLane.lanes(), &PublishPipeline.via/1)
       assert length(Enum.uniq(names)) == length(PublisherLane.lanes())
