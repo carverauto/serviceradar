@@ -57,6 +57,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -999,23 +1000,44 @@ type fixtureRowSnapshot struct {
 	Ledger, Slots, Batch, Rows int
 }
 
+// snapshotFixtureRows takes all four counts in one rpc call, so a probe that
+// holds a delivery inside its CNPG transaction can snapshot while it holds.
 func (h *harness) snapshotFixtureRows(t *testing.T, fx *FixtureRecord, spoolID []byte) fixtureRowSnapshot {
 	t.Helper()
-	return fixtureRowSnapshot{
-		Ledger: h.rpcQueryCount(t, eventLedgerExistsSQL(fx.NetworkScopeID, fx.EventID)),
-		Slots: h.rpcQueryCount(t, fmt.Sprintf(
+	expr := fmt.Sprintf(
+		`[%q, %q, %q, %q] |> Enum.map(fn sql -> %%Postgrex.Result{rows: [[n]]} = ServiceRadar.Repo.query!(sql, []); n end) |> Enum.join(",") |> IO.puts()`,
+		eventLedgerExistsSQL(fx.NetworkScopeID, fx.EventID),
+		fmt.Sprintf(
 			"SELECT count(*) FROM platform.edge_delivery_slots WHERE network_scope_id = %s AND spool_id = %s",
 			uuidLiteral(fx.NetworkScopeID), uuidLiteral(spoolID),
-		)),
-		Batch: h.rpcQueryCount(t, fmt.Sprintf(
+		),
+		fmt.Sprintf(
 			"SELECT count(*) FROM platform.edge_sweep_batch_slots WHERE network_scope_id = %s AND execution_id = %s",
 			uuidLiteral(fx.NetworkScopeID), uuidLiteral(fx.ExecutionID),
-		)),
-		Rows: h.rpcQueryCount(t, fmt.Sprintf(
+		),
+		fmt.Sprintf(
 			"SELECT count(*) FROM platform.edge_sweep_projected_rows WHERE network_scope_id = %s AND event_id = %s",
 			uuidLiteral(fx.NetworkScopeID), uuidLiteral(fx.EventID),
-		)),
+		),
+	)
+	out, err := h.coreProc.RPC(expr, rpcTimeout)
+	if err != nil {
+		t.Fatalf("rpc fixture row snapshot: %v", err)
 	}
+
+	fields := strings.Split(strings.TrimSpace(out), ",")
+	if len(fields) != 4 {
+		t.Fatalf("rpc fixture row snapshot: unparsable output %q", out)
+	}
+	counts := make([]int, len(fields))
+	for i, field := range fields {
+		n, err := strconv.Atoi(field)
+		if err != nil {
+			t.Fatalf("rpc fixture row snapshot: unparsable output %q: %v", out, err)
+		}
+		counts[i] = n
+	}
+	return fixtureRowSnapshot{Ledger: counts[0], Slots: counts[1], Batch: counts[2], Rows: counts[3]}
 }
 
 // requireAcceptedAck fails t unless msg is an EdgeDeliveryAckV1 resolving
@@ -1299,23 +1321,35 @@ func (h *harness) waitIngestObservation(t *testing.T, eventID []byte, point stri
 // ---------------------------------------------------------------------------
 // Group D: failure and watermark order.
 //
-//  1. NATSCutAfterSpoolCommit stops the broker, commits a fresh entry to the
-//     agent's spool, and reads the real agent's own sender log. Every sender
-//     run that ends after the commit must report a remote resolved prefix
-//     below the entry, which means no gateway durability ack. At least two
-//     of those runs must fail; runs are sequential, so the second one began
-//     after the commit. The entry stays above the local reclaim watermark,
-//     readable on the spool, and absent from CNPG until the broker returns.
-//     Then it lands.
+//  1. NATSCutAfterSpoolCommit disables JetStream on the embedded broker,
+//     commits a fresh entry to the agent's spool, and reads the real agent's
+//     own sender log. The broker and every client connection stay up, so the
+//     gateway keeps opening lanes and what fails is the JetStream publish
+//     itself. At least one failed sender run must have sent the entry, and no
+//     sender run in the outage may report a remote resolved prefix covering
+//     it, which means the gateway withheld its durability ack. The entry
+//     stays above the local reclaim watermark, readable on the spool, and
+//     absent from CNPG until JetStream is re-enabled. Then it lands.
 //  2. RedeliveryAfterEventWriterRollback publishes a fresh fixture. The ingest
 //     probe raises inside its FIRST CNPG transaction, after every write
 //     succeeded, so the transaction really rolls back. EventWriter must not
 //     ACK it: the probe sees a second delivery of the SAME stored message and
-//     holds it inside its transaction. While it is held, the test checks
-//     there are no committed rows and that the durable's ack floor is still
-//     below the message. Once released, that delivery commits and the ack
-//     floor passes the message.
-//  3. PositiveAckDoesNotReclaimSpool reads the gateway's EdgeDeliveryAckV1s on
+//     holds it inside its transaction. The hold keeps a pooled connection
+//     checked out, and DBConnection disconnects a checkout older than the
+//     repo timeout, so only broker reads and one snapshot rpc run while it is
+//     held: no committed rows, and the durable's ack floor still below the
+//     message. Once released, the probe must have recorded exactly two
+//     deliveries reaching commit and one transaction result, :inserted, so
+//     the released delivery is the one that committed. The ack floor then
+//     passes the message.
+//  3. RedeliveryAfterCoreKill appends a fresh entry to the agent's spool, lets
+//     the agent publish it, SIGKILLs the core release before it can ack the
+//     message, restarts core, and waits for the fixture to land. It is the
+//     only coverage here of core crashing before it acknowledges and then
+//     consuming again after a restart. The kill races EventWriter, so it does
+//     not prove the message was still unacknowledged when core died. The
+//     replacement core gets the ingest probe reinstalled.
+//  4. PositiveAckDoesNotReclaimSpool reads the gateway's EdgeDeliveryAckV1s on
 //     a real session and checks their spool-ID/session-nonce binding and
 //     cumulative resolved_through_sequence with the agent's own
 //     edgerecord.ValidateAck. It waits for the real agent to report a remote
@@ -1331,9 +1365,12 @@ func (h *harness) testGroupD(t *testing.T) {
 	}
 
 	t.Run("NATSCutAfterSpoolCommit", func(t *testing.T) {
-		// Stop NATS FIRST, then commit a fresh entry, so every sender run that
-		// can carry the entry runs into the outage.
-		h.nats.Shutdown()
+		// Disable JetStream FIRST, then commit a fresh entry, so every sender
+		// run that can carry the entry runs into the outage.
+		if err := h.nats.DisableJetStream(); err != nil {
+			t.Fatalf("disable jetstream: %v", err)
+		}
+		cutAt := h.agent.logOffset(t)
 
 		fx2, err := BuildSweepFixture([]byte(h.certSet.AgentComponentID))
 		if err != nil {
@@ -1343,35 +1380,36 @@ func (h *harness) testGroupD(t *testing.T) {
 		if err != nil {
 			t.Fatalf("append: %v", err)
 		}
-		committedAt := h.agent.logOffset(t)
 
-		h.waitAgentSenderRuns(t, committedAt, natsCutTimeout, "two failed sender runs during the NATS outage",
-			func(runs []agentSenderRun) bool { return countFailedRuns(runs) >= 2 })
+		h.waitAgentSenderRuns(t, cutAt, natsCutTimeout,
+			fmt.Sprintf("a failed sender run that sent sequence %d during the JetStream outage", seq),
+			func(runs []agentSenderRun) bool {
+				for _, run := range runs {
+					if run.Failed && run.HighestSent >= seq {
+						return true
+					}
+				}
+				return false
+			})
 
-		// Every run that ended during the outage, re-read just before the
-		// broker returns so no run in the window goes unchecked.
-		for _, run := range h.agentSenderRuns(t, committedAt) {
+		// Every run that ended during the outage, re-read just before
+		// JetStream returns so no run in the window goes unchecked.
+		for _, run := range h.agentSenderRuns(t, cutAt) {
 			if run.RemoteResolvedThrough >= seq {
-				t.Errorf("agent reported remote_resolved_through=%d covering withheld sequence %d during the NATS outage (%+v); the gateway acknowledged an entry it could not have made durable",
+				t.Errorf("agent reported remote_resolved_through=%d covering withheld sequence %d during the JetStream outage (%+v); the gateway acknowledged an entry it could not have made durable",
 					run.RemoteResolvedThrough, seq, run)
 			}
 		}
 		h.requireSpoolEntryUnreclaimed(t, seq)
 		if n := h.rpcQueryCount(t, eventLedgerExistsSQL(fx2.NetworkScopeID, fx2.EventID)); n != 0 {
-			t.Errorf("event_ledger row appeared for an entry that should have been withheld by a NATS outage")
+			t.Errorf("event_ledger row appeared for an entry that should have been withheld by a JetStream outage")
 		}
 
-		// Restore the broker on the SAME port with the SAME operator/
-		// account/user JWT trust material (NATSHarness.Restart), so the
-		// gateway/core releases' already-distributed .creds files and
-		// reconnect logic keep working and every later group runs against
-		// a live broker. A fresh StartEmbeddedNATS would mint a new trust
-		// chain the running releases reject, so it must not be used here.
-		if err := h.nats.Restart(); err != nil {
-			t.Fatalf("restart embedded nats after cut probe: %v", err)
+		if err := h.nats.EnableJetStream(); err != nil {
+			t.Fatalf("re-enable jetstream after cut probe: %v", err)
 		}
 
-		deadline := time.Now().Add(pollTimeout)
+		deadline := time.Now().Add(natsCutTimeout)
 		var landed int
 		for time.Now().Before(deadline) {
 			landed = h.rpcQueryCount(t, eventLedgerExistsSQL(fx2.NetworkScopeID, fx2.EventID))
@@ -1381,16 +1419,14 @@ func (h *harness) testGroupD(t *testing.T) {
 			time.Sleep(pollInterval)
 		}
 		if landed != 1 {
-			t.Fatalf("withheld entry never landed in event_ledger within %s after NATS restart (count=%d); the gateway or core did not reconnect, so D2/E/F cannot run against a live pipeline -- see %s and %s in this test's undeclared outputs",
-				pollTimeout, landed,
-				h.preservedLogName(h.gwProc.stderrPath), h.preservedLogName(h.coreProc.stderrPath))
+			t.Fatalf("withheld entry never landed in event_ledger within %s after JetStream was re-enabled (count=%d); the gateway or core did not recover, so the rest of Group D, E and F cannot run against a live pipeline -- see %s, %s and %s in this test's undeclared outputs",
+				natsCutTimeout, landed,
+				h.preservedLogName(h.agent.stdoutPath), h.preservedLogName(h.gwProc.stderrPath), h.preservedLogName(h.coreProc.stderrPath))
 		}
 	})
 
 	t.Run("RedeliveryAfterEventWriterRollback", func(t *testing.T) {
-		if h.nats.Server == nil {
-			t.Fatal("NATS broker is down when RedeliveryAfterEventWriterRollback runs -- the cut probe must have restarted it via NATSHarness.Restart; a missing broker must fail loudly, never skip")
-		}
+		h.requireJetStream(t)
 
 		fx3, err := BuildSweepFixture([]byte(h.certSet.AgentComponentID))
 		if err != nil {
@@ -1413,28 +1449,29 @@ func (h *harness) testGroupD(t *testing.T) {
 			t.Fatalf("send fixture: %v", err)
 		}
 		requireAcceptedAck(t, ack, spoolID, 1)
-		storedSeq := h.requireOneStoredMessage(t, fx3.RecordBytes)
 
 		h.waitIngestObservation(t, fx3.EventID, probeBeforeCommit, 2)
 
-		for _, o := range h.ingestObservations(t, fx3.EventID) {
-			if o.Point == probeTransactionResult {
-				t.Errorf("a delivery finished its transaction (%+v) before the held redelivery; the injected fault must abort the first one inside it", o)
-			}
-		}
-		if got := h.snapshotFixtureRows(t, fx3, spoolID); got != (fixtureRowSnapshot{}) {
-			t.Errorf("committed rows while the redelivery is held = %+v, want none: the first transaction must have rolled back", got)
-		}
-		h.requireOneStoredMessage(t, fx3.RecordBytes)
-		if floor := h.edgeRecordAckFloor(t); floor >= storedSeq {
-			t.Errorf("durable ack floor %d reached stream sequence %d before any delivery committed; EventWriter acknowledged a rolled-back message", floor, storedSeq)
-		}
-
+		storedSeq := h.requireOneStoredMessage(t, fx3.RecordBytes)
+		heldFloor := h.edgeRecordAckFloor(t)
+		held := h.snapshotFixtureRows(t, fx3, spoolID)
 		h.releaseIngestProbe(t, fx3.EventID, probeBeforeCommit, 2)
 
-		result := h.waitIngestObservation(t, fx3.EventID, probeTransactionResult, 1)
-		if result.Tag != "ok:inserted" {
-			t.Fatalf("redelivery ended with %q, want ok:inserted", result.Tag)
+		if heldFloor >= storedSeq {
+			t.Errorf("durable ack floor %d reached stream sequence %d before any delivery committed; EventWriter acknowledged a rolled-back message", heldFloor, storedSeq)
+		}
+		if held != (fixtureRowSnapshot{}) {
+			t.Errorf("committed rows while the redelivery is held = %+v, want none: the first transaction must have rolled back", held)
+		}
+
+		h.waitIngestObservation(t, fx3.EventID, probeTransactionResult, 1)
+		wantObservations := []ingestObservation{
+			{Point: probeBeforeCommit, N: 1, Tag: "ok:inserted"},
+			{Point: probeBeforeCommit, N: 2, Tag: "ok:inserted"},
+			{Point: probeTransactionResult, N: 1, Tag: "ok:inserted"},
+		}
+		if got := h.ingestObservations(t, fx3.EventID); !slices.Equal(got, wantObservations) {
+			t.Fatalf("ingest probe recorded %+v, want %+v: only the first delivery may abort inside its transaction, and the released redelivery must be the one that commits", got, wantObservations)
 		}
 		want := fixtureRowSnapshot{Ledger: 1, Slots: 1, Batch: 1, Rows: fx3.ProjectedRowCount}
 		if got := h.snapshotFixtureRows(t, fx3, spoolID); got != want {
@@ -1450,6 +1487,62 @@ func (h *harness) testGroupD(t *testing.T) {
 		}
 		if floor < storedSeq {
 			t.Errorf("durable ack floor %d never reached stream sequence %d within %s after the redelivery committed", floor, storedSeq, pollTimeout)
+		}
+	})
+
+	t.Run("RedeliveryAfterCoreKill", func(t *testing.T) {
+		h.requireJetStream(t)
+
+		fx4, err := BuildSweepFixture([]byte(h.certSet.AgentComponentID))
+		if err != nil {
+			t.Fatalf("build fixture: %v", err)
+		}
+		if _, err := h.sp.Append(fx4.EventID, fx4.RecordBytes); err != nil {
+			t.Fatalf("append: %v", err)
+		}
+
+		// Let the agent get it published to NATS (gateway ack does not
+		// depend on core being alive), then SIGKILL core before it can
+		// process/ack it. This is deliberately NOT ReleaseProcess.Stop:
+		// Stop runs the release's graceful `stop` first, which drains the
+		// EventWriter and commits fx4 before exit, so the redelivery path
+		// would never execute. The SIGKILLed process is reaped by the
+		// Stop cleanup newHarness registered for it.
+		time.Sleep(3 * agentPollInterval)
+		if h.coreProc == nil || h.coreProc.cmd == nil || h.coreProc.cmd.Process == nil {
+			t.Fatal("core release has no OS process to SIGKILL")
+		}
+		if err := h.coreProc.cmd.Process.Kill(); err != nil {
+			t.Fatalf("SIGKILL core release: %v", err)
+		}
+
+		coreTarPath := mustRlocation(t, coreReleaseTarRlocation)
+		restarted, err := StartRelease(
+			coreTarPath, "serviceradar_core_elx", filepath.Join(h.dir, "core-restart"),
+			h.coreEnv, fmt.Sprintf("http://127.0.0.1:%d/health", h.coreEnv.MetricsPort), 90*time.Second,
+		)
+		if err != nil {
+			t.Fatalf("restart core release: %v", err)
+		}
+		// Registered on the HARNESS test, not this subtest: a subtest-scoped
+		// Cleanup would stop the replacement core the moment this subtest
+		// returns, and every later query (PositiveAckDoesNotReclaimSpool,
+		// Groups E and F) would then hit a node that no longer exists.
+		h.t.Cleanup(restarted.Stop)
+		h.coreProc = restarted
+		h.installIngestProbe(t)
+
+		deadline := time.Now().Add(pollTimeout)
+		var n int
+		for time.Now().Before(deadline) {
+			n = h.rpcQueryCount(t, eventLedgerExistsSQL(fx4.NetworkScopeID, fx4.EventID))
+			if n == 1 {
+				break
+			}
+			time.Sleep(pollInterval)
+		}
+		if n != 1 {
+			t.Errorf("fixture was not redelivered/processed after core restarted (count=%d)", n)
 		}
 	})
 
@@ -1619,6 +1712,15 @@ func (h *harness) edgeRecordAckFloor(t *testing.T) uint64 {
 	return consumers[0].AckFloor.Stream
 }
 
+// requireJetStream fails t when the broker has JetStream off, which only a
+// cut probe that stopped before re-enabling it leaves behind.
+func (h *harness) requireJetStream(t *testing.T) {
+	t.Helper()
+	if !h.nats.Server.JetStreamEnabled() {
+		t.Fatalf("JetStream is unavailable when %s runs -- NATSCutAfterSpoolCommit must re-enable it via NATSHarness.EnableJetStream; a missing JetStream must fail loudly, never skip", t.Name())
+	}
+}
+
 // requireSpoolEntryUnreclaimed reopens the agent's spool and fails t unless
 // sequence is still above the local reclaim watermark and readable through
 // the spool's public read path.
@@ -1649,42 +1751,34 @@ func (h *harness) requireSpoolEntryUnreclaimed(t *testing.T, sequence uint64) {
 // Agent sender log: the real agent's remote resolved prefix.
 //
 // go/pkg/edge/sender keeps the gateway-acknowledged prefix in memory only,
-// and go/cmd/agent logs it (remote_resolved_through) once at the end of every
-// sender run, successful or failed. The agent writes zerolog JSON, one object
-// per line, to its stdout log.
+// and go/cmd/agent logs it (remote_resolved_through), with the highest
+// sequence the run sent (highest_sent), once at the end of every sender run,
+// successful or failed. The agent writes zerolog JSON, one object per line,
+// to its stdout log.
 // ---------------------------------------------------------------------------
 
 const (
 	agentSenderDrainedMessage = "Edge record sender drained spool lane"
 	agentSenderFailedMessage  = "Edge record sender run failed"
 
-	// natsCutTimeout bounds the wait for two failed sender runs during the
-	// outage. A run whose publish times out at the gateway takes several
-	// seconds to fail.
+	// natsCutTimeout bounds the JetStream outage's waits: for a failed sender
+	// run that sent the withheld entry, and for that entry to land once
+	// JetStream is back. A run whose publishes time out at the gateway takes
+	// several seconds to fail.
 	natsCutTimeout = 60 * time.Second
 )
 
 var (
 	errAgentLogShorterThanOffset = errors.New("agent log is shorter than the requested offset")
-	errSenderRunMissingPrefix    = errors.New("sender run line lacks sent/remote_resolved_through")
+	errSenderRunMissingPrefix    = errors.New("sender run line lacks highest_sent/remote_resolved_through")
 )
 
 // agentSenderRun is one sender run the agent logged when it ended.
 type agentSenderRun struct {
 	Failed                bool
-	Sent                  int
+	HighestSent           uint64
 	RemoteResolvedThrough uint64
 	Err                   string
-}
-
-func countFailedRuns(runs []agentSenderRun) int {
-	n := 0
-	for _, run := range runs {
-		if run.Failed {
-			n++
-		}
-	}
-	return n
 }
 
 // logOffset is the current size of the agent's stdout log.
@@ -1698,8 +1792,8 @@ func (p *AgentProcess) logOffset(t *testing.T) int64 {
 }
 
 // senderRuns parses every sender run whose line the agent finished writing
-// after offset. A run line without sent or remote_resolved_through is an
-// error: the prefix is the observation, so an agent that stops logging it
+// after offset. A run line without highest_sent or remote_resolved_through is
+// an error: they are the observation, so an agent that stops logging them
 // must fail the test rather than satisfy it vacuously.
 func (p *AgentProcess) senderRuns(offset int64) ([]agentSenderRun, error) {
 	data, err := os.ReadFile(p.stdoutPath)
@@ -1716,7 +1810,7 @@ func (p *AgentProcess) senderRuns(offset int64) ([]agentSenderRun, error) {
 	for _, line := range bytes.Split(data, []byte("\n")) {
 		var entry struct {
 			Message               string  `json:"message"`
-			Sent                  *int    `json:"sent"`
+			HighestSent           *uint64 `json:"highest_sent"`
 			RemoteResolvedThrough *uint64 `json:"remote_resolved_through"`
 			Error                 string  `json:"error"`
 		}
@@ -1726,12 +1820,12 @@ func (p *AgentProcess) senderRuns(offset int64) ([]agentSenderRun, error) {
 		if entry.Message != agentSenderDrainedMessage && entry.Message != agentSenderFailedMessage {
 			continue
 		}
-		if entry.Sent == nil || entry.RemoteResolvedThrough == nil {
+		if entry.HighestSent == nil || entry.RemoteResolvedThrough == nil {
 			return nil, fmt.Errorf("%w: %s", errSenderRunMissingPrefix, line)
 		}
 		runs = append(runs, agentSenderRun{
 			Failed:                entry.Message == agentSenderFailedMessage,
-			Sent:                  *entry.Sent,
+			HighestSent:           *entry.HighestSent,
 			RemoteResolvedThrough: *entry.RemoteResolvedThrough,
 			Err:                   entry.Error,
 		})
@@ -1786,9 +1880,7 @@ func (h *harness) waitAgentSenderRuns(
 // more (no double-admission from the restart).
 // ---------------------------------------------------------------------------
 func (h *harness) testGroupE(t *testing.T) {
-	if h.nats.Server == nil {
-		t.Fatal("NATS broker is down when GroupE_RestartOverlap runs -- the cut probe must have restarted it via NATSHarness.Restart; a missing broker must fail loudly, never skip")
-	}
+	h.requireJetStream(t)
 
 	const concurrency = 3
 	type attempt struct {
@@ -1950,9 +2042,7 @@ func probeHealth(url string, timeout time.Duration) error {
 // left in a jammed/permanently-refusing state by the concurrent attempt).
 // ---------------------------------------------------------------------------
 func (h *harness) testGroupF(t *testing.T) {
-	if h.nats.Server == nil {
-		t.Fatal("NATS broker is down when GroupF_PostHandoffFencing runs -- the cut probe must have restarted it via NATSHarness.Restart; a missing broker must fail loudly, never skip")
-	}
+	h.requireJetStream(t)
 
 	fx, err := BuildSweepFixture([]byte(h.certSet.AgentComponentID))
 	if err != nil {
