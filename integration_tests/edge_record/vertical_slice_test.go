@@ -349,7 +349,7 @@ func newHarness(t *testing.T) *harness {
 	h.gatewayServerName = certSet.GatewayServerName
 
 	trustFile := filepath.Join(dir, "edge-record-trust.json")
-	if err := WriteGatewayTrustFile(trustFile); err != nil {
+	if err := WriteGatewayTrustFile(trustFile, certSet.AgentComponentID); err != nil {
 		t.Fatalf("write gateway edge-record trust file: %v", err)
 	}
 

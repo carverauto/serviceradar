@@ -27,7 +27,8 @@ defmodule ServiceRadarAgentGateway.TestSupport.EdgeRecordFactory do
   @hour_nanos 3_600 * 1_000_000_000
 
   # The producer a record is attributed to unless a test names another. `trust_document/2` fences it
-  # at authority epoch 1 by default, because the gateway withholds a producer it has no fence for.
+  # at authority epoch 1 and binds the default principal "agent-1" to its network scope by default,
+  # because the gateway withholds a producer it has no fence for and an agent it has no binding for.
   @network_scope_id <<0x0190_0000_0001::48, 7::4, 0x001::12, 2::2, 0x5C::62>>
   @producer_assignment_id <<0x0190_0000_0001::48, 7::4, 0x002::12, 2::2, 0xA5::62>>
 
@@ -55,6 +56,12 @@ defmodule ServiceRadarAgentGateway.TestSupport.EdgeRecordFactory do
             "run_shard" => shard,
             "authority_epoch" => epoch
           }
+        end),
+      "scopes" =>
+        opts
+        |> Keyword.get(:scopes, [{"agent-1", [@network_scope_id]}])
+        |> Enum.map(fn {agent_id, network_scope_ids} ->
+          %{"agent_id" => agent_id, "network_scope_ids" => Enum.map(network_scope_ids, &Base.encode64/1)}
         end)
     }
   end

@@ -20,8 +20,10 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorization do
        the recovery lane, identity time and the semantic digest. A present delivery capability
        must name this record's `event_id`.
     3. IDENTITY -- the record's attested origin is an AGENT whose principal is exactly the
-       authenticated certificate principal. The production grant is bound to that principal by
-       step 2, so its network scope is authorized for this agent and no other.
+       authenticated certificate principal, and its network scope is one the trust snapshot binds
+       to that principal (`EdgeRecordTrust.with_network_scopes/2`). The production grant names the
+       same principal and scope (step 2), so a scope needs both the local binding and the signed
+       grant. A principal with no binding is withheld; a scope outside its binding is rejected.
     4. ROUTE/CLASS -- the record's route profile and traffic class are the lane's.
     5. SOURCE SHAPE -- a present source authorization's collection window lies inside its signed
        envelope, and its plan/range digests are well-formed, required for scheduler scan kinds.
@@ -73,8 +75,9 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorization do
 
   @doc """
   Decides one frame. `lane` carries the opened lane's `:spool_id`, `:route_profile` and
-  `:traffic_class`; `identity` is the resolved edge identity; `now_unix_nano` is the trusted
-  evaluation instant.
+  `:traffic_class`; `identity` is the resolved edge identity carrying the `:network_scope_ids`
+  `snapshot` binds to it (`EdgeRecordTrust.with_network_scopes/2`), and an identity without them is
+  unbound; `now_unix_nano` is the trusted evaluation instant.
   """
   @spec authorize_frame(struct(), map(), map(), EdgeRecordTrust.snapshot(), integer()) ::
           {:ok, decision()} | refusal()
@@ -84,6 +87,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorization do
          {:ok, record} <- validate_record(frame.record_bytes),
          :ok <- with_event(delivery_event_binding(frame, record), record),
          :ok <- with_event(origin_identity(record, identity), record),
+         :ok <- with_event(network_scope(record, identity), record),
          :ok <- with_event(route_class(record, lane), record),
          :ok <- with_event(source_shape(record), record),
          {:ok, status} <- with_event(record_key_status(record, snapshot), record) do
@@ -168,6 +172,13 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorization do
       :permanent,
       :identity_conflict
     )
+  end
+
+  defp network_scope(record, identity) do
+    case Map.get(identity, :network_scope_ids) do
+      nil -> {:error, :retryable, :scope_unbound, ""}
+      scopes -> check(MapSet.member?(scopes, record.network_scope_id), :permanent, :scope_conflict)
+    end
   end
 
   # --- 4. route/class --------------------------------------------------------------------------

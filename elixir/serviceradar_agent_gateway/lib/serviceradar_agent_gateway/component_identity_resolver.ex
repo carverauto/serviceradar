@@ -71,10 +71,12 @@ defmodule ServiceRadarAgentGateway.ComponentIdentityResolver do
   component type (or that carries more than one SPIFFE id) is an authenticated principal in the
   wrong role, not an agent.
 
-  Network scope is deliberately NOT read from the certificate, which carries none. A record's
-  scope is authorized by its control-plane-signed production grant, and that grant is only
-  accepted when it is bound to this exact principal
-  (`ServiceRadarAgentGateway.EdgeRecordAuthorization`).
+  NETWORK SCOPE authority is derived from the principal this resolves. The certificate subject
+  names no scope, so the gateway's local trust snapshot binds each authenticated `component_id` to
+  the network scopes it is assigned
+  (`ServiceRadarAgentGateway.EdgeRecordTrust.with_network_scopes/2`), and
+  `ServiceRadarAgentGateway.EdgeRecordAuthorization` admits a record only into a scope that binding
+  lists and its control-plane-signed production grant also names for this exact principal.
 
   Errors: `{:identity_conflict, reason}` for a certificate that is valid but names a different
   role; any other `{:error, atom}` means the certificate does not authenticate an edge principal

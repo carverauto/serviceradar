@@ -60,6 +60,37 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrustTest do
     assert EdgeRecordTrust.fence_relation(snapshot, {EdgeRecordFactory.uuidv7(), assignment, 0}, 5) == :unavailable
   end
 
+  test "binds each agent principal to its network scopes, and leaves any other principal unbound", %{keys: keys} do
+    first = EdgeRecordFactory.uuidv7()
+    second = EdgeRecordFactory.uuidv7()
+    document = EdgeRecordFactory.trust_document(keys.public, scopes: [{"agent-1", [first, second]}])
+    {:ok, snapshot} = EdgeRecordTrust.new(document)
+
+    assert %{component_id: "agent-1", network_scope_ids: scopes} =
+             EdgeRecordTrust.with_network_scopes(snapshot, %{component_id: "agent-1"})
+
+    assert scopes == MapSet.new([first, second])
+    assert %{network_scope_ids: nil} = EdgeRecordTrust.with_network_scopes(snapshot, %{component_id: "agent-2"})
+  end
+
+  test "rejects scope bindings that could not bind one exact principal to exact scopes", %{keys: keys} do
+    valid = EdgeRecordFactory.trust_document(keys.public, scopes: [{"agent-1", [EdgeRecordFactory.uuidv7()]}])
+    [binding] = valid["scopes"]
+    with_binding = fn changes -> %{valid | "scopes" => [Map.merge(binding, changes)]} end
+
+    assert {:error, :duplicate_scope_binding} = EdgeRecordTrust.new(%{valid | "scopes" => [binding, binding]})
+    assert {:error, :agent_id} = EdgeRecordTrust.new(with_binding.(%{"agent_id" => "agent.1"}))
+    assert {:error, :scope_binding} = EdgeRecordTrust.new(with_binding.(%{"network_scope_ids" => []}))
+
+    assert {:error, :network_scope_id} =
+             EdgeRecordTrust.new(with_binding.(%{"network_scope_ids" => [Base.encode64(<<0::128>>)]}))
+
+    assert {:error, :duplicate_network_scope} =
+             EdgeRecordTrust.new(
+               with_binding.(%{"network_scope_ids" => binding["network_scope_ids"] ++ binding["network_scope_ids"]})
+             )
+  end
+
   test "installs from a JSON file, and an invalid file leaves nothing installed", %{keys: keys} do
     dir = Path.join(System.tmp_dir!(), "edge-record-trust-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)

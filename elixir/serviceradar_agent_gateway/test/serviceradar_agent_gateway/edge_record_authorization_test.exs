@@ -90,6 +90,34 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorizationTest do
     end
   end
 
+  describe "network scope authority" do
+    test "a record in a scope bound to its agent publishes", ctx do
+      extra = Factory.uuidv7()
+      record = Factory.record(ctx.keys.private, network_scope_id: extra)
+      trust = snapshot(ctx, scopes: [{"agent-1", [Factory.network_scope_id(), extra]}], fences: [fence(record)])
+
+      assert {:ok, %{publication: :primary}} = authorize(ctx, record, snapshot: trust)
+    end
+
+    test "a signed grant for a scope outside the agent's binding is rejected", ctx do
+      foreign = Factory.uuidv7()
+      record = Factory.record(ctx.keys.private, network_scope_id: foreign)
+      trust = snapshot(ctx, fences: [fence(record)])
+
+      assert {:error, :permanent, :scope_conflict, event_id} = authorize(ctx, record, snapshot: trust)
+      assert event_id == record.event_id
+    end
+
+    test "an agent with no scope binding is withheld", ctx do
+      record = Factory.record(ctx.keys.private)
+
+      for scopes <- [[], [{"agent-2", [Factory.network_scope_id()]}]] do
+        assert {:error, :retryable, :scope_unbound, _} =
+                 authorize(ctx, record, snapshot: snapshot(ctx, scopes: scopes))
+      end
+    end
+  end
+
   describe "signatures and keys" do
     test "a production grant signed by an unknown key", ctx do
       forger = Factory.keypair()
@@ -167,7 +195,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorizationTest do
 
     test "a producer ahead of the locally known fence is withheld", ctx do
       assignment = Factory.uuidv7()
-      scope = Factory.uuidv7()
+      scope = Factory.network_scope_id()
 
       record =
         Factory.record(ctx.keys.private,
@@ -234,13 +262,15 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorizationTest do
     frame =
       Factory.frame(record, spool_id: ctx.spool_id, delivery_capability: Keyword.get(opts, :delivery_capability))
 
-    EdgeRecordAuthorization.authorize_frame(
-      frame,
-      Keyword.get(opts, :lane, ctx.lane),
-      Keyword.get(opts, :identity, ctx.identity),
-      Keyword.get_lazy(opts, :snapshot, fn -> snapshot(ctx) end),
-      now()
-    )
+    snapshot = Keyword.get_lazy(opts, :snapshot, fn -> snapshot(ctx) end)
+    identity = EdgeRecordTrust.with_network_scopes(snapshot, Keyword.get(opts, :identity, ctx.identity))
+
+    EdgeRecordAuthorization.authorize_frame(frame, Keyword.get(opts, :lane, ctx.lane), identity, snapshot, now())
+  end
+
+  defp fence(record) do
+    context = record.producer_context
+    {record.network_scope_id, context.producer_assignment_id, context.run_shard, context.authority_epoch}
   end
 
   defp snapshot(ctx, opts \\ []) do
@@ -255,7 +285,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorizationTest do
 
   defp stale_record(ctx) do
     assignment = Factory.uuidv7()
-    scope = Factory.uuidv7()
+    scope = Factory.network_scope_id()
 
     record =
       Factory.record(ctx.keys.private, producer_assignment_id: assignment, network_scope_id: scope, authority_epoch: 1)

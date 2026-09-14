@@ -17,6 +17,8 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrust do
       snapshot was loaded looks exactly like an unknown one until the snapshot is replaced;
     * `:fences` -- the active producer authority generation by
       `{network_scope_id, producer_assignment_id, run_shard}`;
+    * `:scopes` -- the network scopes each agent is assigned, by the certificate `component_id`
+      the edge identity resolver authenticates;
     * `:clock_tolerance_nano` -- bounded skew applied to every current-at-now window check.
 
   ## Fence semantics
@@ -26,6 +28,16 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrust do
   A producer with NO entry is unavailable: this snapshot does not know its active generation, and
   a missing entry never reads as current. Future and unavailable are both retryable and never
   authorized. An absent SNAPSHOT is unavailable, and nothing authorizes.
+
+  ## Network scope authority
+
+  A certificate subject names no network scope, so an agent's scope authority is derived from the
+  principal it authenticates (`ServiceRadarAgentGateway.ComponentIdentityResolver`) and this
+  snapshot's `:scopes` binding for that principal (`with_network_scopes/2`). A record is admitted
+  only into a scope that binding lists AND its signed production grant names, so neither the grant
+  nor the binding authorizes a scope alone. A principal with no binding is unbound: nothing
+  authorizes its records, and they are withheld as retryable. A binding that excludes the record's
+  scope is a permanent scope conflict.
 
   ## Loading
 
@@ -44,6 +56,9 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrust do
         "fences": [
           {"network_scope_id": "<b64>", "producer_assignment_id": "<b64>", "run_shard": 0,
            "authority_epoch": 2}
+        ],
+        "scopes": [
+          {"agent_id": "<certificate component id>", "network_scope_ids": ["<b64, 16-byte UUID>"]}
         ]
       }
 
@@ -51,6 +66,9 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrust do
   `"historically_revoked"` (compromise-revoked: the signature still verifies, but trust is
   deliberately withdrawn and the record can only reach security quarantine).
   """
+
+  alias ServiceRadar.Edge.PlanValidate
+  alias ServiceRadar.Edge.PublicationIdentity
 
   require Logger
 
@@ -70,7 +88,8 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrust do
           trust_policy_epoch: pos_integer(),
           clock_tolerance_nano: non_neg_integer(),
           keys: %{{binary(), binary()} => %{public_key: binary(), purposes: MapSet.t(), status: key_status()}},
-          fences: %{fence_key() => non_neg_integer()}
+          fences: %{fence_key() => non_neg_integer()},
+          scopes: %{String.t() => MapSet.t()}
         }
 
   @doc "The installed snapshot, or `{:error, :trust_unavailable}` when none is loaded."
@@ -171,6 +190,15 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrust do
     end
   end
 
+  @doc """
+  `identity` with `:network_scope_ids` set to the network scopes this snapshot binds its
+  authenticated `:component_id` to, or to `nil` when the snapshot has no binding for that principal.
+  """
+  @spec with_network_scopes(snapshot(), map()) :: map()
+  def with_network_scopes(%{scopes: scopes}, identity) do
+    Map.put(identity, :network_scope_ids, Map.get(scopes, Map.get(identity, :component_id)))
+  end
+
   # --- parsing ---------------------------------------------------------------------------------
 
   defp parse(%{"trust_policy_epoch" => epoch} = document) when is_integer(epoch) and epoch > 0 and epoch <= @u64_max do
@@ -180,15 +208,18 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrust do
            check(is_integer(tolerance) and tolerance >= 0 and tolerance <= @max_clock_tolerance_nano, :clock_tolerance),
          {:ok, keys} <- parse_list(Map.get(document, "keys", []), &parse_key/1),
          {:ok, fences} <- parse_list(Map.get(document, "fences", []), &parse_fence/1),
+         {:ok, scopes} <- parse_list(Map.get(document, "scopes", []), &parse_scope/1),
          :ok <- check(keys != [], :no_keys),
          :ok <- check(unique?(Enum.map(keys, &elem(&1, 0))), :duplicate_key),
-         :ok <- check(unique?(Enum.map(fences, &elem(&1, 0))), :duplicate_fence) do
+         :ok <- check(unique?(Enum.map(fences, &elem(&1, 0))), :duplicate_fence),
+         :ok <- check(unique?(Enum.map(scopes, &elem(&1, 0))), :duplicate_scope_binding) do
       {:ok,
        %{
          trust_policy_epoch: epoch,
          clock_tolerance_nano: tolerance,
          keys: Map.new(keys),
-         fences: Map.new(fences)
+         fences: Map.new(fences),
+         scopes: Map.new(scopes)
        }}
     end
   end
@@ -245,6 +276,25 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrust do
   end
 
   defp parse_fence(_fence), do: {:error, :fence}
+
+  defp parse_scope(%{"network_scope_ids" => [_ | _] = ids} = binding) do
+    agent_id = binding["agent_id"]
+
+    with :ok <- check(PublicationIdentity.valid_authenticated_principal?(agent_id), :agent_id),
+         {:ok, network_scope_ids} <- parse_list(ids, &network_scope_id/1),
+         :ok <- check(unique?(network_scope_ids), :duplicate_network_scope) do
+      {:ok, {agent_id, MapSet.new(network_scope_ids)}}
+    end
+  end
+
+  defp parse_scope(_binding), do: {:error, :scope_binding}
+
+  defp network_scope_id(value) do
+    with {:ok, bytes} <- nonempty_bytes(value, :network_scope_id),
+         :ok <- check(PlanValidate.canonical_uuid?(bytes), :network_scope_id) do
+      {:ok, bytes}
+    end
+  end
 
   defp nonempty_bytes(value, field) when is_binary(value) do
     case Base.decode64(value) do
