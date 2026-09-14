@@ -14,13 +14,15 @@
  * limitations under the License.
  */
 
-// Package spool is the crash-safe, fsynced agent result spool for one delivery
-// lane. Each appended frame is persisted as a length-prefixed, CRC-checked
-// record before the caller is told it is durable, so a restart never loses or
-// reuses an unacknowledged sequence. On open the spool recovers by scanning its
-// segment, validating record checksums, and truncating a torn trailing record.
+// Package spool is the crash-safe, fsynced agent result spool. A Spool holds one
+// lane's records; LaneSet (lanes.go) binds each generation, one Spool, to a lane
+// and freezes that generation's identity. Each appended frame is persisted as a
+// length-prefixed, CRC-checked record before the caller is told it is durable, so
+// a restart never loses or reuses an unacknowledged sequence. On open the spool
+// recovers by scanning its segment, validating record checksums, and truncating a
+// torn trailing record.
 //
-// This slice implements the single-segment core (append + fsync + recovery +
+// The Spool is the single-segment core (append + fsync + recovery +
 // ack watermark). Multi-segment rotation/physical reclaim, corrupt-segment
 // quarantine, and the loss-manifest/recovery-generation rollover are follow-on
 // slices within task 2.4.
