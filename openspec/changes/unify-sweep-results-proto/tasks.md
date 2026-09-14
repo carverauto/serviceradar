@@ -793,7 +793,7 @@
   APPEND-TIME semantic-join mismatch, which MUST be a permanent refusal with
   nothing stored; and LATER CORRUPTION of a binding that verified at append time,
   which MUST degrade the span to unattributable rather than to a wrong authority.
-- [ ] 2.23 **Make restart resolution total over redundant commit evidence.**
+- [x] 2.23 **Make restart resolution total over redundant commit evidence.**
   Store commit evidence with redundancy INDEPENDENT of the record segment, each
   copy carrying a MONOTONIC EVIDENCE GENERATION and a digest over its own
   contents, so copies can be COMPARED and not merely read. Never classify evidence
@@ -832,6 +832,24 @@
   copy B yields AMBIGUOUS ALLOCATED SLOT (not COMMITTED, and not discarded) in
   both orderings; and no producer receipt is observable when any required copy or
   its directory metadata is not yet durable.
+  DONE in `go/pkg/edge/spool` (`evidence.go`, `resolve.go`, `recover.go`,
+  `spool.go`); their doc comments own the restart contract. Two evidence copies
+  live in their own files and directories, each entry carrying its generation and
+  a digest over its own bytes, and `combineViews` compares them: agreeing valid
+  copies give the agreed state, any valid-copy disagreement is AMBIGUOUS whichever
+  generation is higher, and an unreadable copy decides nothing. The producer
+  receipt waits for the record, both copies, and their directory entries. On open
+  `recover.go` observes every slot and `ResolveSlot` applies the rows in contract
+  order; `rolloverCoverage` gives ATTRIBUTED only when both predicates hold.
+  `ScanFrom` visits COMMITTED slots only. The receipt and attribution layers plug
+  in through `BindingInspector`; the tests are in `restart_test.go`. Accepted
+  limits: (1) the sender lane wedges on an ambiguous sequence gap until task 2.27's
+  wire-level rollover/coverage handling lands (package `sender` doc); (2) opening a
+  spool keeps an index entry per allocated sequence and reads the segment twice, an
+  O(records) cost until the reclaim/rotation work of tasks 2.4, 2.24 and 2.28
+  (`Open` doc); (3) a genuine record found by resync past damage whose sequence
+  lies beyond the open cap is excluded from the high-water, so its sequence can be
+  reused (the KNOWN ACCEPTED RISK on `scanChain`).
 - [ ] 2.24 **Bound segments on keys, runs, AND manifest size.** Rotate on
   whichever binds first. Include an ALTERNATING-attribution test (keys A,B,A,B,…)
   proving the run bound triggers rotation where a distinct-key bound alone would
