@@ -91,6 +91,10 @@ defmodule ServiceRadar.Edge.LaneSupervisor do
   not. Accountant first therefore means transport death leaves the ledger alone, while accountant
   death fences the transport before a fresh, empty ledger can exist.
 
+  `:pipeline` carries the pipeline's `:max_inflight` and `:max_queue`, as
+  `ServiceRadar.Edge.PublisherSupervisor.pipeline_for/2` resolves them. Without it the pipeline
+  runs at its own defaults.
+
   Public so both the inventory and that order can be asserted without a NATS server.
   """
   def child_specs(opts) do
@@ -98,6 +102,7 @@ defmodule ServiceRadar.Edge.LaneSupervisor do
     settings = Keyword.fetch!(opts, :connection_settings)
     backoff = Keyword.fetch!(opts, :backoff_period)
     credits = Keyword.fetch!(opts, :credits)
+    bounds = Keyword.get(opts, :pipeline, [])
 
     accountant =
       Supervisor.child_spec(
@@ -129,14 +134,14 @@ defmodule ServiceRadar.Edge.LaneSupervisor do
             id: task_supervisor(lane)
           ),
           transport,
-          Supervisor.child_spec({PublishPipeline, pipeline_opts(lane, publisher)},
+          Supervisor.child_spec({PublishPipeline, pipeline_opts(lane, publisher, bounds)},
             id: PublishPipeline.via(lane)
           )
         ]
     end
   end
 
-  defp pipeline_opts(lane, publisher) do
+  defp pipeline_opts(lane, publisher, bounds) do
     [
       class: lane,
       # The accountant's NAME, not a pid: a worker resolves it when it admits, and a pid captured
@@ -145,7 +150,7 @@ defmodule ServiceRadar.Edge.LaneSupervisor do
       publisher: publisher,
       task_supervisor: task_supervisor(lane),
       name: PublishPipeline.via(lane)
-    ]
+    ] ++ bounds
   end
 
   @impl true

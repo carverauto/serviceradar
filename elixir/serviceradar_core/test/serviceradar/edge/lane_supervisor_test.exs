@@ -86,6 +86,17 @@ defmodule ServiceRadar.Edge.LaneSupervisorTest do
                LaneSupervisor.task_supervisor(:interactive)
     end
 
+    test "the resolved pipeline bounds reach the PublishPipeline child spec" do
+      bounds = [max_inflight: 5, max_queue: 9]
+
+      specs =
+        LaneSupervisor.child_specs(opts(:bulk, publisher: unused_publisher(), pipeline: bounds))
+
+      {PublishPipeline, :start_link, [pipeline_opts]} = List.last(specs).start
+      assert Keyword.fetch!(pipeline_opts, :max_inflight) === 5
+      assert Keyword.fetch!(pipeline_opts, :max_queue) === 9
+    end
+
     test "transport death replaces the pipeline, but not the workers that own attempts" do
       test_pid = self()
 
