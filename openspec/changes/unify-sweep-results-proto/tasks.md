@@ -852,24 +852,20 @@
   failing a barrier write must stop recovery deterministically, never silently
   proceed or partially delete. This task depends only on the spool, so it does NOT
   wait on the coordinator.
-  DONE in `go/pkg/edge/spool` (`reserve.go`, `barrier.go`): `Footprint` sizes all
-  seven artifacts (journal twice), each field bounding cumulative writes with
-  rewrites included, and `Allocator` multiplies it by `MaxConcurrentRecoveries`;
-  the floor is that reserve plus `MinFree`. `Spool.Append` (via `WithAllocator`)
-  refuses admission beyond capacity minus the floor, or beyond physically free
-  bytes less everything charged but not yet landed (`RecoveryGrant.Landed` for
-  caller-written output). Ordinary charges are keyed by cleaned lane directory,
-  cover a lane `Open` rejects as corrupt, and last until `ReleaseOrdinary` after
-  physical deletion. `Finish` releases nothing: a recovery's destination segment
-  and attribution sidecar, counted at what their files hold, stay with the grant,
-  left out of the lane `Open` measures, until `ReleaseSource` follows deletion of its source, and its
-  journals, pages, mapping and slot until `ReleaseArtifacts` follows their
-  deletion. A
-  failed barrier write, caller-reported write (`RecoveryGrant.FailStop`), or
-  destructive step fail-stops every grant and all admission; a failed record
-  write/fsync stops its lane and all admission but not recovery; per-artifact
-  exhaustion stops its recovery. Whether a destructive step is AUTHORIZED stays
-  with 2.28.
+  DONE in `go/pkg/edge/spool` (`reserve.go`, `barrier.go`); their doc comments
+  own the accounting contract. `Footprint` sizes all seven artifacts (journal
+  twice) for cumulative writes, and `Allocator` multiplies it by
+  `MaxConcurrentRecoveries`; the unborrowable floor is that reserve plus
+  `MinFree`. `Spool.Append` (via `WithAllocator`) refuses admission above
+  capacity minus the floor, or when free space cannot back the outstanding floor
+  plus every byte still in flight. A charge lasts until its bytes are physically
+  deleted: `Finish` releases nothing, `ReleaseSource` moves the destination
+  segment and sidecar into the lane's charge, `ReleaseArtifacts` releases the
+  journals, pages and mapping, and the slot returns only after both. A failed
+  barrier write, caller-reported write (`RecoveryGrant.FailStop`), or destructive
+  step fail-stops every grant and all admission; a failed record write/fsync
+  stops its lane and all admission but not recovery; per-artifact exhaustion
+  stops its recovery. Whether a destructive step is AUTHORIZED stays with 2.28.
 - [ ] 2.27 **Resume the saved rollover work as the agent recovery coordinator
   (needs companion ABI task 1.6a plus local 2.10 and 2.21-2.26).** The paged-manifest/tombstone implementation
   preserved at `rescue/usp13-v2-wip-20260725` (`9a3a701f`) already builds pages,
