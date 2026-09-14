@@ -34,6 +34,17 @@
 // observability and tests; it never calls (*spool.Spool).Resolve. Physically
 // reclaiming the spool from confirmed remote delivery remains the explicit
 // responsibility of a later milestone (task 0.12's own scope note, group D).
+//
+// # Ambiguous sequence gaps
+//
+// The spool never reuses a sequence that restart resolution left AMBIGUOUS, and
+// spool.ScanFrom never visits one, so after a crash mid-append this sender sends the
+// committed sequences on either side of the gap. The gateway's disposition for the
+// first sequence past the gap is not the session's resolved watermark plus one, so
+// edgerecord.ValidateAck rejects the ack; every later run replays from the same
+// watermark and fails the same way. The lane stays wedged on the gap until the
+// wire-level rollover/coverage handling of task 2.27 carries ambiguous sequences to
+// the gateway. This is a known limitation of this opt-in, unreleased sender.
 package sender
 
 import (
@@ -255,9 +266,9 @@ func recvLaneOpenAck(
 }
 
 // sendUnresolved streams every unresolved spool record up to the granted
-// credit window, updating sess bookkeeping as it goes. Only the records
-// visit chooses to send are read off disk, so a large backlog is never
-// materialized to apply a small credit window (spool.ScanFrom's contract).
+// credit window, updating sess bookkeeping as it goes. Record bodies are read
+// off disk one at a time and the scan stops once the window is exhausted, so a
+// small credit window never reads a large backlog (spool.ScanFrom's contract).
 func (s *Sender) sendUnresolved(
 	stream grpc.BidiStreamingClient[edgev1.EdgeRecordClientMessage, edgev1.EdgeRecordServerMessage],
 	sess *edgerecord.Session,

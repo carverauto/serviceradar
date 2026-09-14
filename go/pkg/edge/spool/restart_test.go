@@ -745,6 +745,42 @@ func TestScanAdoptsCommitsFromAnotherHandle(t *testing.T) {
 	}
 }
 
+// A writer that fails a barrier abandons its slot and reopens to resolve it. A reader
+// that stays open waits on that slot only until the writer moves past it: the slot is
+// then settled, stays uncommitted and unreused, and later commits become visible.
+func TestScanMovesPastSlotAbandonedByAnotherHandle(t *testing.T) {
+	dir := t.TempDir()
+	reader := openWith(t, dir, nil)
+	writer := openWith(t, dir, nil)
+	mustAppend(t, writer, 1, "one")
+	mustAppend(t, writer, 2, "two")
+	if v := visibleSeqs(t, reader); !slices.Equal(v, []uint64{1, 2}) {
+		t.Fatalf("sender-visible = %v, want [1 2]", v)
+	}
+
+	writer.beforeBarrier = crashBefore(barrierRecord)
+	if _, err := writer.Commit(evid(3), []byte("three"), Bindings{}); err == nil {
+		t.Fatal("commit succeeded through an injected barrier failure")
+	}
+	_ = writer.Close()
+	if v := visibleSeqs(t, reader); !slices.Equal(v, []uint64{1, 2}) {
+		t.Fatalf("sender-visible with the abandoned slot on top = %v, want [1 2]", v)
+	}
+
+	reopened := openWith(t, dir, nil)
+	for _, want := range []uint64{4, 5} {
+		if got := mustAppend(t, reopened, byte(want), "later"); got != want {
+			t.Fatalf("append after reopen = %d, want %d", got, want)
+		}
+	}
+	if v := visibleSeqs(t, reader); !slices.Equal(v, []uint64{1, 2, 4, 5}) {
+		t.Fatalf("sender-visible after the writer moved on = %v, want [1 2 4 5]", v)
+	}
+	if got := reader.NextSequence(); got != 6 {
+		t.Fatalf("reader next sequence = %d, want 6 (sequence 3 must not be reused)", got)
+	}
+}
+
 func TestSplitWriteCommitIsAmbiguousInBothOrderings(t *testing.T) {
 	cases := []struct {
 		name  string

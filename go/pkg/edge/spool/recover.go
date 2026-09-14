@@ -185,10 +185,12 @@ type slotExtent struct {
 	committed bool
 }
 
-// refreshLocked adopts slots that another handle on the same directory committed
-// above this handle's high-water. It stops at the first slot that does not resolve
-// COMMITTED: that slot may still be in flight in its writer, so a later scan looks at
-// it again.
+// refreshLocked adopts slots that another handle on the same directory allocated
+// above this handle's high-water. A writer prepares a sequence only after the one
+// before it committed or a restart resolved it, so every slot below the highest one
+// any copy held entries for when the scan began is settled, and is adopted as it
+// resolves -- committed or not, and never reused. The highest slot may still be in
+// flight in its writer: unless it is already COMMITTED, a later scan looks at it again.
 func (s *Spool) refreshLocked() error {
 	if err := s.openEvidence(); err != nil {
 		return err
@@ -212,10 +214,11 @@ func (s *Spool) refreshLocked() error {
 		if err != nil {
 			return err
 		}
-		if ResolveSlot(obs).Outcome != OutcomeCommitted {
+		committed := ResolveSlot(obs).Outcome == OutcomeCommitted
+		if !committed && seq == slots {
 			break
 		}
-		loc.committed = true
+		loc.committed = committed
 		s.slots = append(s.slots, loc)
 		s.nextSeq = seq + 1
 		s.nextGen = max(s.nextGen, gen+1)

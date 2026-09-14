@@ -227,6 +227,11 @@ func WithAllocator(a *Allocator) Option {
 }
 
 // Open opens (creating if needed) the spool at dir and resolves durable state.
+// Resolution reads the segment twice -- once walking record headers and body
+// checksums, once judging each slot's bytes against its commit evidence -- and keeps an
+// in-memory index entry for every allocated sequence for the life of the handle. Both
+// the time to open and the memory held grow with every record the segment has ever
+// held; reclaim and segment rotation (tasks 2.4, 2.24, and 2.28) are what bound them.
 func Open(dir string, opts ...Option) (*Spool, error) {
 	if err := os.MkdirAll(dir, dirPerm); err != nil {
 		return nil, fmt.Errorf("spool: mkdir: %w", err)
@@ -576,12 +581,15 @@ func (s *Spool) Resolve(through uint64) error {
 // ScanFrom streams COMMITTED records whose sequence is greater than both the
 // resolved watermark and after, in sequence order, invoking visit for each until
 // visit returns false (e.g. the sender's credit window is exhausted) or the
-// allocated sequences end. Ambiguous, lost, and in-flight slots are never visited.
-// Reaching the end adopts slots another handle on the same directory has committed
-// since, so a sender sees a producer that appends through its own handle.
-// Records are read one at a time, so a large backlog is never materialized. A closed
-// spool stays readable over the slots it has indexed: its scan opens its own segment
-// handle for the scan's duration.
+// allocated sequences end. Ambiguous, lost, and in-flight slots are never visited, so
+// the visited sequences can have gaps. The sender's lane cannot cross such a gap yet:
+// it wedges there until the wire-level rollover/coverage handling of task 2.27 lands
+// (see package sender). Reaching the end adopts slots another handle on the same
+// directory has allocated since, so a sender sees a producer that appends through its
+// own handle. Record bodies are read one at a time, but they are located through an
+// index that holds an entry for every allocated sequence (see Open). A closed spool
+// stays readable over the slots it has indexed: its scan opens its own segment handle
+// for the scan's duration.
 func (s *Spool) ScanFrom(after uint64, visit func(Record) bool) error {
 	s.mu.Lock()
 	seq := max(s.resolved, after)
