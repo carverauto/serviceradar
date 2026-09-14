@@ -175,8 +175,9 @@ type SlotObservation struct {
 	Allocated bool
 	// CompleteRecord: a complete, checksum-valid record exists for the slot.
 	CompleteRecord bool
-	// InTornTail: the slot lies in the spool's torn tail (no complete record at or
-	// after it).
+	// InTornTail: the slot lies in the spool's torn tail -- its own record never fully
+	// landed, so its declared extent runs past the segment end or past where a later
+	// slot was placed. Fully present but damaged bytes are not a torn tail.
 	InTornTail bool
 	// Bytes is judged against the committed entry; meaningful for EvidenceCommitted.
 	Bytes BytesState

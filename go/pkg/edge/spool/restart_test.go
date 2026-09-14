@@ -332,7 +332,183 @@ func TestCrashInjectionAtEveryBarrier(t *testing.T) {
 			if got := mustAppend(t, s2, 3, "after restart"); got != wantNext {
 				t.Fatalf("append after restart = %d, want %d", got, wantNext)
 			}
+			_ = s2.Close()
+
+			// The later commit is placed where the interrupted append left the segment
+			// end; it must not change how the interrupted slot resolves.
+			s3 := openWith(t, dir, nil)
+			if again, ok := s3.RestartResolution().Slot(inFlight); tc.allocated && (!ok || again != got) {
+				t.Fatalf("sequence %d after a later commit = %+v (allocated %v), want %+v", inFlight, again, ok, got)
+			}
+			if d := s3.RestartResolution().Discarded; len(d) != 0 {
+				t.Fatalf("discarded after a later commit = %+v, want none", d)
+			}
+			if v := visibleSeqs(t, s3); !slices.Equal(v, append(wantVisible, wantNext)) {
+				t.Fatalf("sender-visible after a later commit = %v, want %v", v, append(wantVisible, wantNext))
+			}
 		})
+	}
+}
+
+// crashDuringRecordBody leaves sequence 2 as power loss while its record body was
+// being written leaves it: both PREPARED entries durable, and only the record header
+// and the first 100 of its 1000 body bytes in the segment, which then ends at 183.
+func crashDuringRecordBody(t *testing.T, dir string, s *Spool) {
+	t.Helper()
+	s.beforeBarrier = crashBefore(barrierCommitA)
+	if _, err := s.Commit(evid(2), bytes.Repeat([]byte{'x'}, 1000), Bindings{}); err == nil {
+		t.Fatal("commit succeeded through an injected crash")
+	}
+	_ = s.Close()
+	truncateSegment(t, dir, int64(minRecordLen+len("one")+headerLen+headerCRC+100))
+}
+
+func truncateSegment(t *testing.T, dir string, size int64) {
+	t.Helper()
+	if err := os.Truncate(filepath.Join(dir, segmentFile), size); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A slot's restart resolution is a function of durable facts about that slot. Commits
+// appended after a restart land at the segment end the torn slot left, inside the
+// extent its evidence declares, and must not move it out of the torn tail or change
+// its outcome.
+func TestTornSlotResolutionIsStableAcrossLaterCommits(t *testing.T) {
+	torn := SlotResolution{
+		Sequence: 2, Outcome: OutcomeAmbiguousAllocated, Evidence: EvidencePrepared,
+		Coverage: Coverage{Reason: reasonTornTail},
+	}
+	cases := []struct {
+		name     string
+		later    int
+		bindings BindingInspector
+		crash    func(t *testing.T, dir string, s *Spool)
+		want     SlotResolution
+	}{
+		{name: "record body torn, one later commit", later: 1, crash: crashDuringRecordBody, want: torn},
+		{name: "record body torn, later commits cover its declared extent", later: 25, crash: crashDuringRecordBody, want: torn},
+		{
+			name:  "only preparation unreadable and no record",
+			later: 1,
+			crash: func(t *testing.T, dir string, s *Spool) {
+				t.Helper()
+				s.beforeBarrier = crashBefore(barrierPrepareB)
+				if _, err := s.Commit(evid(2), []byte("two"), Bindings{}); err == nil {
+					t.Fatal("commit succeeded through an injected crash")
+				}
+				_ = s.Close()
+				corruptEntry(t, dir, copyA, 2, statePrepared)
+			},
+			want: SlotResolution{
+				Sequence: 2, Outcome: OutcomeAmbiguousAllocated, Evidence: EvidenceUnreadable,
+				Coverage: Coverage{Reason: reasonTornTail},
+			},
+		},
+		{
+			name:     "committed record lost, later commit placed at its offset",
+			later:    1,
+			bindings: attributionAt(2, AttributionVerdict{State: AttributionVerifies, Representable: true, Digest: digestOf(7)}),
+			crash: func(t *testing.T, dir string, s *Spool) {
+				t.Helper()
+				if _, err := s.Commit(evid(2), []byte("two"), Bindings{AttributionSHA256: digestOf(7)}); err != nil {
+					t.Fatalf("commit: %v", err)
+				}
+				_ = s.Close()
+				truncateSegment(t, dir, int64(minRecordLen+len("one")))
+			},
+			want: SlotResolution{
+				Sequence: 2, Outcome: OutcomeAttributedLoss, Evidence: EvidenceCommitted,
+				Coverage: Coverage{Attributed: true},
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			s, err := Open(dir)
+			if err != nil {
+				t.Fatalf("open: %v", err)
+			}
+			mustAppend(t, s, 1, "one")
+			tc.crash(t, dir, s)
+
+			assertTornSlot := func(t *testing.T, s *Spool, when string) {
+				t.Helper()
+				if got := slotOf(t, s, 2); got != tc.want {
+					t.Fatalf("%s: slot 2 = %+v, want %+v", when, got, tc.want)
+				}
+				if d := s.RestartResolution().Discarded; len(d) != 0 {
+					t.Fatalf("%s: discarded = %+v, want none", when, d)
+				}
+			}
+
+			s1 := openWith(t, dir, tc.bindings)
+			assertTornSlot(t, s1, "first restart")
+			later := make([]uint64, 0, tc.later)
+			for i := range tc.later {
+				later = append(later, mustAppend(t, s1, byte(3+i), "0123456789"))
+			}
+			_ = s1.Close()
+
+			s2 := openWith(t, dir, tc.bindings)
+			assertTornSlot(t, s2, "restart after later commits")
+			for _, seq := range later {
+				if got := slotOf(t, s2, seq); got.Outcome != OutcomeCommitted {
+					t.Fatalf("later slot %d = %s, want COMMITTED", seq, got.Outcome)
+				}
+			}
+			if v, want := visibleSeqs(t, s2), append([]uint64{1}, later...); !slices.Equal(v, want) {
+				t.Fatalf("sender-visible = %v, want %v", v, want)
+			}
+			if got, want := s2.NextSequence(), uint64(3+tc.later); got != want {
+				t.Fatalf("next sequence = %d, want %d", got, want)
+			}
+		})
+	}
+}
+
+// A torn record's header declares a length that runs through records committed after
+// the restart. Trusting it would skip them: the walk would stop inside a committed
+// record, report a discardable preparation there, and -- with the evidence copies
+// gone -- lose their sequences from the high-water so they would be reused.
+func TestTornRecordLengthDoesNotHideLaterRecords(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	mustAppend(t, s, 1, "one")
+	crashDuringRecordBody(t, dir, s)
+
+	s1 := openWith(t, dir, nil)
+	for id := byte(3); id <= 27; id++ {
+		mustAppend(t, s1, id, "0123456789")
+	}
+	_ = s1.Close()
+
+	s2 := openWith(t, dir, nil)
+	if d := s2.RestartResolution().Discarded; len(d) != 0 {
+		t.Fatalf("discarded = %+v, want none", d)
+	}
+	_ = s2.Close()
+
+	for _, c := range []int{copyA, copyB} {
+		if err := os.RemoveAll(filepath.Join(dir, evidenceDirName(c))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s3 := openWith(t, dir, nil)
+	res := s3.RestartResolution()
+	if res.HighWater != 27 || len(res.Discarded) != 0 {
+		t.Fatalf("high-water %d discarded %+v, want 27 and none", res.HighWater, res.Discarded)
+	}
+	assertAmbiguous(t, slotOf(t, s3, 2), EvidenceNone, Coverage{Reason: reasonTornTail})
+	for seq := uint64(3); seq <= 27; seq++ {
+		assertAmbiguous(t, slotOf(t, s3, seq), EvidenceNone, Coverage{Reason: reasonMissing})
+	}
+	if got := mustAppend(t, s3, 28, "after"); got != 28 {
+		t.Fatalf("append = %d, want 28 (sequences 3..27 must not be reused)", got)
 	}
 }
 

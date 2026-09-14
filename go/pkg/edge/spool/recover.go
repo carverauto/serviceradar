@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"hash/crc32"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 )
@@ -65,24 +66,18 @@ func (s *Spool) recover() error {
 		return err
 	}
 
-	// pendingSlot is a slot that did not resolve COMMITTED. bytesAbsent records whether
-	// its record bytes are missing outright rather than present but damaged; only a
-	// missing record can lie in the torn tail.
-	type pendingSlot struct {
-		obs         SlotObservation
-		bytesAbsent bool
-	}
 	var (
-		pending      []pendingSlot
+		pending      []SlotObservation // slots that did not resolve COMMITTED
 		lastEvidence uint64
 		maxGen       uint64
-		maxComplete  uint64
+		minEnd       int64
 		tailClaimed  bool
 		cursor       int
 	)
 	buf := make([]byte, evidenceEntryLen)
 	top := max(evidenceSlots, chain.maxHeaderSeq)
 	s.slots = make([]slotLoc, 0, top)
+	extents := make([]slotExtent, 0, top)
 
 	for seq := uint64(1); seq <= top; seq++ {
 		views, present, gen, err := readSlotEvidence(readers, seq, buf)
@@ -101,20 +96,25 @@ func (s *Spool) recover() error {
 			rec = &chain.records[cursor]
 		}
 
-		obs, loc, hasEvidence, bytesAbsent, err := s.observeSlot(seq, views, rec)
+		obs, loc, hasEvidence, err := s.observeSlot(seq, views, rec)
 		if err != nil {
 			return err
 		}
 		if hasEvidence && chain.tail != nil && loc.offset == chain.tail.offset {
 			tailClaimed = true
 		}
-		if obs.CompleteRecord {
-			maxComplete = max(maxComplete, seq)
+		// A slot nothing places still occupies at least a minimal record after the
+		// slot before it.
+		ext := slotExtent{start: math.MaxInt64, end: minEnd + minRecordLen}
+		if hasEvidence || rec != nil {
+			ext = slotExtent{start: loc.offset, end: loc.offset + int64(loc.length)}
 		}
+		minEnd = ext.end
+		extents = append(extents, ext)
 		if ResolveSlot(obs).Outcome == OutcomeCommitted {
 			loc.committed = true
 		} else {
-			pending = append(pending, pendingSlot{obs: obs, bytesAbsent: bytesAbsent})
+			pending = append(pending, obs)
 		}
 		s.slots = append(s.slots, loc)
 	}
@@ -125,17 +125,35 @@ func (s *Spool) recover() error {
 	highWater := max(lastEvidence, chain.maxHeaderSeq)
 	s.slots = s.slots[:highWater]
 
+	// The torn tail is the crash boundary: a slot whose own record never fully landed.
+	// Every slot is placed at the segment end, and a record that landed was durable
+	// before anything was placed after it, so a record never landed when its extent
+	// runs past the segment end or past where any later slot was placed. Commits made
+	// after a restart are placed at or above the segment end they found, so they
+	// cannot change the answer for a slot that already exists. The bytes such an
+	// extent now covers are not the slot's, so they are missing, not corrupt.
+	limit := s.segSize
+	above := highWater
+	for i := len(pending) - 1; i >= 0; i-- {
+		obs := &pending[i]
+		if obs.Sequence > highWater {
+			continue
+		}
+		for ; above > obs.Sequence; above-- {
+			limit = min(limit, extents[above-1].start)
+		}
+		if extents[obs.Sequence-1].end > limit {
+			obs.InTornTail = true
+			obs.Bytes = BytesMissing
+		}
+	}
+
 	res := Resolution{HighWater: highWater}
-	for _, p := range pending {
-		obs := p.obs
+	for _, obs := range pending {
 		if obs.Sequence > highWater {
 			break
 		}
 		obs.Allocated = true
-		// The torn tail is the crash boundary: a record that never landed, with no
-		// complete record after it. Damaged bytes that are fully present are not a
-		// crash boundary and must not excuse a missing binding.
-		obs.InTornTail = p.bytesAbsent && obs.Sequence > maxComplete
 		res.Slots = append(res.Slots, ResolveSlot(obs))
 	}
 	if t := chain.tail; t != nil && !tailClaimed && (t.seq == 0 || t.seq > highWater) {
@@ -150,16 +168,22 @@ func (s *Spool) recover() error {
 	return nil
 }
 
+// slotExtent is where a slot's record was placed and where its declared length ends.
+// start is math.MaxInt64 when neither evidence nor a record header places the slot.
+type slotExtent struct {
+	start int64
+	end   int64
+}
+
 // observeSlot gathers what the evidence copies, the segment, and the binding layers
 // say about one slot. hasEvidence reports whether loc came from a valid evidence
-// entry; bytesAbsent whether no full-length record exists for the slot.
+// entry.
 func (s *Spool) observeSlot(
 	seq uint64, views [evidenceCopies]copyView, rec *chainRecord,
-) (obs SlotObservation, loc slotLoc, hasEvidence, bytesAbsent bool, err error) {
+) (obs SlotObservation, loc slotLoc, hasEvidence bool, err error) {
 	state, valid := combineViews(views)
 	obs = SlotObservation{Sequence: seq, Evidence: state, CompleteRecord: rec != nil && rec.intact}
 	ev := SlotEvidence{Sequence: seq}
-	bytesAbsent = rec == nil
 
 	switch {
 	case len(valid) > 0:
@@ -167,17 +191,16 @@ func (s *Spool) observeSlot(
 		ev.EventID, ev.RecordSHA256 = agreedIdentity(valid)
 		bytesState, jerr := s.judgeBytes(&valid[0])
 		if jerr != nil {
-			return obs, loc, false, false, jerr
+			return obs, loc, false, jerr
 		}
 		obs.Bytes = bytesState
 		obs.CompleteRecord = obs.CompleteRecord || bytesState == BytesIntact
-		bytesAbsent = bytesAbsent && bytesState == BytesMissing
 	case rec != nil:
-		loc = slotLoc{offset: rec.offset}
+		loc = slotLoc{offset: rec.offset, length: uint32(rec.end - rec.offset)}
 		if rec.intact {
 			identity, ierr := s.chainIdentity(*rec)
 			if ierr != nil {
-				return obs, loc, false, false, ierr
+				return obs, loc, false, ierr
 			}
 			ev = identity
 		}
@@ -191,7 +214,7 @@ func (s *Spool) observeSlot(
 	}
 	obs.Attribution, obs.AttributionRequired = reconcileAttribution(attribution, valid)
 	obs.Receipt, obs.ReceiptRequired = reconcileReceipt(receipt, valid)
-	return obs, loc, len(valid) > 0, bytesAbsent, nil
+	return obs, loc, len(valid) > 0, nil
 }
 
 // agreedIdentity returns the event id and record hash every valid entry agrees on,
@@ -320,11 +343,13 @@ func (s *Spool) judgeBytes(e *evidenceEntry) (BytesState, error) {
 	return BytesIntact, nil
 }
 
-// chainRecord is a fully present record with a valid header found by walking the
-// segment; intact reports whether its body checksum also verifies.
+// chainRecord is a record with a valid header found by walking the segment. end is
+// where its header says it ends, which may lie past the segment end; intact reports
+// whether it is fully present and its body checksum verifies.
 type chainRecord struct {
 	seq    uint64
 	offset int64
+	end    int64
 	intact bool
 }
 
@@ -347,10 +372,11 @@ func (s *Spool) scanChain() (chainScan, error) {
 	var cs chainScan
 	var lastSeq uint64
 	var lastEnd int64
-	header := make([]byte, headerLen+headerCRC)
+	hdr := int64(headerLen + headerCRC)
+	header := make([]byte, hdr)
 
 	for pos := int64(0); pos < s.segSize; {
-		if pos+int64(len(header)) > s.segSize {
+		if pos+hdr > s.segSize {
 			cs.tail = &tailFragment{offset: pos}
 			break
 		}
@@ -371,20 +397,43 @@ func (s *Spool) scanChain() (chainScan, error) {
 			continue
 		}
 		end := pos + int64(minRecordLen) + int64(h.bodyLen)
-		if end > s.segSize {
+		whole := end <= s.segSize
+		intact := false
+		if whole {
+			var err error
+			if intact, err = s.bodyIntactAt(pos, h.bodyLen); err != nil {
+				return cs, err
+			}
+		}
+		if h.seq > lastSeq {
+			cs.records = append(cs.records, chainRecord{seq: h.seq, offset: pos, end: end, intact: intact})
+			if whole {
+				cs.maxHeaderSeq = h.seq
+			}
+			lastSeq, lastEnd = h.seq, pos+hdr
+			if intact {
+				lastEnd = end
+			}
+		}
+		if intact {
+			pos = end
+			continue
+		}
+		// Only an intact record proves its length. A record that never fully landed
+		// declares an extent later records were placed inside, so the walk continues
+		// at the next readable header rather than at the declared end.
+		next, found, err := s.resync(pos+hdr, lastSeq, lastEnd)
+		if err != nil {
+			return cs, err
+		}
+		if !found && !whole {
 			cs.tail = &tailFragment{offset: pos, seq: h.seq}
 			break
 		}
-		if h.seq > lastSeq {
-			intact, err := s.bodyIntactAt(pos, h.bodyLen)
-			if err != nil {
-				return cs, err
-			}
-			cs.records = append(cs.records, chainRecord{seq: h.seq, offset: pos, intact: intact})
-			cs.maxHeaderSeq = h.seq
-			lastSeq, lastEnd = h.seq, end
-		}
 		pos = end
+		if found {
+			pos = next
+		}
 	}
 	return cs, nil
 }
