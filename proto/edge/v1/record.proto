@@ -528,10 +528,12 @@ enum EdgeRecordDispositionKind {
 message EdgeRecordDisposition {
   uint64 sequence = 1;
   // The event this disposition resolves. Present (16-byte UUID, == the transmitted
-  // event) for any accept and for a rejection made AFTER decode. MAY be absent ONLY
-  // for a rejection the gateway made BEFORE record decode (oversize/undecodable
-  // frame), which cannot read the inner id -- that disposition binds solely to the
-  // authenticated session/spool/sequence.
+  // event) for any accept and for a rejection made AFTER the record is trusted. MAY
+  // be absent for any rejection the gateway made BEFORE the record is TRUSTED -- an
+  // oversize/undecodable frame, or a decoded record whose bytes fail their
+  // record_sha256 digest check. An event id read from bytes that fail their digest
+  // cannot be trusted regardless of decode order, so that disposition binds solely
+  // to the authenticated session/spool/sequence.
   bytes event_id = 2;
   EdgeRecordDispositionKind kind = 3; // spool-resolution eligibility derives from kind ALONE
   string rejection_code = 4;          // human/audit annotation only; never keys watermark logic
