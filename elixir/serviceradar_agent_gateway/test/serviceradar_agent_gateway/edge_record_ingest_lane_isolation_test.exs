@@ -18,6 +18,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
   alias ServiceRadar.Edge.PublisherPool
   alias Serviceradar.Edge.V1.EdgeDeliveryAckV1
   alias Serviceradar.Edge.V1.EdgeDeliveryFrameV1
+  alias Serviceradar.Edge.V1.EdgeProducerContext
   alias Serviceradar.Edge.V1.EdgeRecordClientMessage
   alias Serviceradar.Edge.V1.EdgeRecordDisposition
   alias Serviceradar.Edge.V1.EdgeRecordLaneOpen
@@ -32,6 +33,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
   alias ServiceRadarAgentGateway.StatusProcessor
   alias ServiceRadarAgentGateway.TestSupport.CameraMediaAdapterStub
   alias ServiceRadarAgentGateway.TestSupport.CameraMediaIdentityResolverStub
+  alias ServiceRadarAgentGateway.TestSupport.EdgeContractRegistryStub
   alias ServiceRadarAgentGateway.TestSupport.EdgeRecordCapabilityStub
 
   @accepted :EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE
@@ -102,7 +104,8 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
       :edge_record_ingest_publisher,
       :edge_record_ingest_identity_resolver,
       :edge_record_ingest_capability,
-      :edge_record_ingest_task_supervisor
+      :edge_record_ingest_task_supervisor,
+      :edge_record_contract_registry_impl
     ]
 
     previous = Map.new(keys, &{&1, Application.get_env(:serviceradar_agent_gateway, &1)})
@@ -113,6 +116,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
     put_env(:edge_record_ingest_identity_resolver, CameraMediaIdentityResolverStub)
     put_env(:edge_record_ingest_capability, EdgeRecordCapabilityStub)
     put_env(:edge_record_ingest_task_supervisor, __MODULE__.TaskSupervisor)
+    put_env(:edge_record_contract_registry_impl, EdgeContractRegistryStub)
 
     on_exit(fn ->
       Enum.each(previous, fn
@@ -495,6 +499,9 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
         network_scope_id: uuidv7(0x40),
         route_profile: :EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
         traffic_class: :EDGE_RECORD_TRAFFIC_CLASS_BULK,
+        output_contract: EdgeContractRegistryStub.contract_ref(),
+        producer_context: %EdgeProducerContext{origin_principal_id: "agent-1"},
+        cost_model_version: 1,
         semantic_envelope_sha256: :crypto.hash(:sha256, "semantic-#{sequence}")
       })
 

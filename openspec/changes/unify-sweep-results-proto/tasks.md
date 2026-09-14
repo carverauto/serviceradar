@@ -1120,14 +1120,15 @@
   survives, and a reconnect replays the same frames through identical publish
   requests to identical dispositions -- and is withheld, not re-acked, once the
   broker refuses.
-  NOT discharged here: the ack still sets `resolved_through_sequence` to the
-  acked sequence even across a withheld earlier one, which is task 3.5's
-  contiguous-prefix work. A lane killed while waiting for a PubAck leaves its
+  NOT discharged here: a lane killed while waiting for a PubAck leaves its
   `PublisherPool` attempt marked in flight (owner death is deliberately not
   treated as termination), so a reconnect replay of that frame is refused as
   `:attempt_in_flight` and withheld until the NATS transport restarts, rather
   than getting an identical disposition; ending that attempt needs evidence the
-  request terminated, which is task 3.5's request-correlation work.
+  request terminated, which is task 3.5's request-correlation work. The ack no
+  longer moves `resolved_through_sequence` past a withheld earlier sequence: the
+  first sequence a session leaves unresolved caps it (see
+  `EdgeRecordIngestServer`'s moduledoc).
 - [ ] 3.7 Add byte-bounded fair queues and rate limits across network/site scope,
   agent, producer assignment, run/execution, and attested traffic class so a
   noisy stream cannot starve other edge sessions before JetStream partitioning.
@@ -1143,6 +1144,22 @@
   provenance stamped by the trusted agent sink against the authenticated
   session and never trust guest-supplied subject, agent, scope, class, cost, or
   database destination claims.
+  PARTIALLY LANDED as a deliberately NARROWED slice, so this task stays unchecked.
+  `ServiceRadarAgentGateway.EdgeContractRegistry` admits every decoded record
+  before publication against an installation-static snapshot
+  (`AGENT_GATEWAY_EDGE_RECORD_CONTRACT_REGISTRY`) keyed by the existing
+  `EdgeOutputContractRef` fields: it rejects a missing contract, a route or cost
+  model the bundle does not pin, and provenance that contradicts the
+  authenticated session; withholds (no publish, sequence unresolved) on no
+  registry, an epoch or snapshot the gateway does not hold, an unknown or
+  digest-mismatched contract, and any non-active bundle; holds security-revoked
+  bundles; and takes the published route profile, traffic class and partition
+  rule from the registry entry. The edge-records:v1 capability is not ready
+  without a loaded snapshot.
+  STILL OPEN and blocked on tasks 1.10/1.11 defining the signed format: signed
+  snapshot loading, signed readiness reporting, the atomic epoch switch and
+  stale-generation fencing, planned-retirement drain under the exact bundle and
+  watermark, and binding network scope to the session (task 3.2's grant).
 - [ ] 3.9 Stamp the `Sr-Edge-Transport-Provenance` header on every gateway publish,
   alongside `Nats-Msg-Id` and `Sr-Edge-Delivery-Id`, over the edge slot. Its slot
   kind, framed members, delivery-proof presence rule, `delivery_mode` constants, and
