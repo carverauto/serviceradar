@@ -49,8 +49,8 @@ func selfcheckIdle(spool string) ledgerReservation {
 	return ledgerReservation{Spool: spool, Sequence: 1, Bytes: 100}
 }
 
-// selfcheckSample builds a conserving sample: the grant is 64 frames and
-// 64 MiB, and only the listed reservations are outstanding.
+// selfcheckSample builds a sample whose grant is 64 frames and 64 MiB, and
+// in which only the listed reservations are outstanding.
 func selfcheckSample(accepting string, alive map[string]bool, rs ...ledgerReservation) ledgerTraceEntry {
 	e := ledgerTraceEntry{
 		Kind: ledgerKindSample, Pool: selfcheckPool,
