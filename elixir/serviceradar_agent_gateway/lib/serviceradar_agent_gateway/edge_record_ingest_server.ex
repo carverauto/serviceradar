@@ -32,6 +32,22 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
   REJECTED_RETRYABLE without resolving. `:not_ready`/`:systemic` decode faults are PAUSED (no
   disposition sent for that frame at all) per `WireDecode`'s own contract, rather than folded into
   either resolving class.
+
+  ## Lane isolation (task 3.6)
+
+    * The lane never enters `ServiceRadarAgentGateway.StatusBuffer`. An unresolved publication is
+      withheld, so the agent spool keeps it; nothing is queued, dropped or retried here.
+    * Only a PubAck is acked durable. The lane publishes by JetStream request/reply, never by a
+      Core NATS publish or an ERTS/RPC handoff, and `JetStreamPublisher.publish_record/2` returns
+      `{:ok, _}` only for a PubAck it parsed and fenced to the stream the request named.
+    * The lane keeps no state of its own across restarts. Its state lives in the stream process,
+      and the request reader is ended with it, so a reconnect replays the spool through the same
+      publication path rather than recovering anything from the gateway. The exception is a lane
+      killed while it waits for a PubAck: its `PublisherPool` attempt stays in flight, because
+      owner death is not termination, so a replay of that frame is refused as
+      `:attempt_in_flight` and withheld until the lane's NATS transport restarts.
+
+  `ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest` observes each of these.
   """
 
   use GRPC.Server, service: Serviceradar.Edge.V1.EdgeRecordIngestService.Service
@@ -63,6 +79,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
 
     task =
       Task.Supervisor.async_nolink(task_supervisor(), fn ->
+        stop_with_owner(owner)
         Enum.each(request_stream, &send(owner, {:edge_record_message, &1}))
       end)
 
@@ -71,6 +88,27 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
     after
       Task.shutdown(task, :brutal_kill)
     end
+  end
+
+  # The reader is unlinked so a request-stream failure becomes a clean RPC error rather than
+  # killing this process, which means it does not die with this process either. An exit signal
+  # (a client disconnect tearing down the handler, a kill) skips the `after` above, and grpc's
+  # Cowboy read waits for the handler's reply with no monitor and no timeout, so the reader would
+  # stay blocked under the task supervisor forever -- lane state outliving the lane (task 3.6).
+  # This watcher ends the reader when the owner goes, and exits on its own when the reader
+  # finishes first.
+  defp stop_with_owner(owner) do
+    reader = self()
+
+    spawn(fn ->
+      owner_ref = Process.monitor(owner)
+      reader_ref = Process.monitor(reader)
+
+      receive do
+        {:DOWN, ^owner_ref, :process, _pid, _reason} -> Process.exit(reader, :kill)
+        {:DOWN, ^reader_ref, :process, _pid, _reason} -> :ok
+      end
+    end)
   end
 
   defp receive_stream(stream, task, state) do
