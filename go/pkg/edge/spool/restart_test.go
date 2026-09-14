@@ -925,6 +925,65 @@ func TestForgedFarSequenceInTornBodyKeepsOpenBounded(t *testing.T) {
 	}
 }
 
+// A forged header in a torn record's body can skip fewer sequences than there are bytes
+// before it, so no per-byte distance rules it out. It lies past damage and beyond what
+// the files account for, so it is excluded whether or not the tear leaves it whole: it
+// allocates and discards nothing, and later commits and restarts do not change that.
+func TestForgedNearSequenceInTornBodyIsExcluded(t *testing.T) {
+	forged := encodeRecord(200, evid(9), nil)
+	prefix := bytes.Repeat([]byte{'x'}, 300)
+	body := slices.Concat(prefix, forged, bytes.Repeat([]byte{'y'}, 100))
+	forgedAt := int64(minRecordLen+len("one")) + headerLen + headerCRC + int64(len(prefix))
+	cases := []struct {
+		name string
+		size int64
+	}{
+		{"tear leaves the forged record whole", forgedAt + int64(len(forged))},
+		{"tear cuts the forged record short", forgedAt + headerLen + headerCRC},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			s, err := Open(dir)
+			if err != nil {
+				t.Fatalf("open: %v", err)
+			}
+			mustAppend(t, s, 1, "one")
+			s.beforeBarrier = crashBefore(barrierCommitA)
+			if _, err := s.Commit(evid(2), body, Bindings{}); err == nil {
+				t.Fatal("commit succeeded through an injected crash")
+			}
+			_ = s.Close()
+			truncateSegment(t, dir, tc.size)
+
+			s2 := openWith(t, dir, nil)
+			res := s2.RestartResolution()
+			if res.HighWater != 2 || len(res.Discarded) != 0 {
+				t.Fatalf("high-water %d discarded %+v, want 2 and none", res.HighWater, res.Discarded)
+			}
+			assertAmbiguous(t, slotOf(t, s2, 2), EvidencePrepared, Coverage{Reason: reasonTornTail})
+			if got := mustAppend(t, s2, 3, "after"); got != 3 {
+				t.Fatalf("append = %d, want 3", got)
+			}
+			_ = s2.Close()
+
+			for restart := 1; restart <= 2; restart++ {
+				s3 := openWith(t, dir, nil)
+				res := s3.RestartResolution()
+				if res.HighWater != 3 || len(res.Discarded) != 0 {
+					t.Fatalf("restart %d: high-water %d discarded %+v, want 3 and none",
+						restart, res.HighWater, res.Discarded)
+				}
+				assertAmbiguous(t, slotOf(t, s3, 2), EvidencePrepared, Coverage{Reason: reasonTornTail})
+				if v := visibleSeqs(t, s3); !slices.Equal(v, []uint64{1, 3}) {
+					t.Fatalf("restart %d: sender-visible = %v, want [1 3]", restart, v)
+				}
+				_ = s3.Close()
+			}
+		})
+	}
+}
+
 // Appends that fail after their preparation consume sequences and write nothing, so the
 // next record lands right after the last one and the walk reaches it by stepping over
 // intact records. With every evidence copy lost, that record's sequence counts however

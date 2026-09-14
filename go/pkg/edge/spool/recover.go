@@ -440,16 +440,17 @@ type tailFragment struct {
 // over intact records -- was placed there by the spool, so its sequence counts however
 // far it jumps: an append that fails after its preparation consumes a sequence while
 // writing no bytes. Past the first damage a header can lie in producer-written body
-// bytes, so the walk trusts it only when its sequence advances by at most one per byte
-// skipped since the last trusted position -- the least a torn record leaves -- or when
-// its record is intact and its sequence is within what the files account for: the
-// higher of evidenceSlots and the clean prefix's high-water, plus one for each record
-// and torn fragment the walk has found, itself included. A header beyond that is not
-// trusted, so it neither raises the high-water nor hides the records after it, and
-// open materializes the slots the files hold rather than a sequence a header names.
+// bytes, so the walk trusts it only when its sequence is within what the files account
+// for -- the higher of evidenceSlots and the clean prefix's high-water, plus one for
+// each record and torn fragment the walk has found, itself included -- and, within that
+// bound, when its sequence advances by at most one per byte skipped since the last
+// trusted position (the least a torn record leaves) or its record is intact. A header
+// beyond the bound is not trusted however few sequences it skips per byte, so it
+// neither raises the high-water nor hides the records after it, and open materializes
+// the slots the files hold rather than a sequence a header names.
 //
 // KNOWN ACCEPTED RISK: a genuine record found past damage whose sequence lies beyond
-// that bound is not counted, so its sequence can be reused.
+// that bound is excluded from the high-water, so its sequence can be reused.
 func (s *Spool) scanChain(evidenceSlots uint64) (chainScan, error) {
 	var (
 		cs        chainScan
@@ -465,10 +466,13 @@ func (s *Spool) scanChain(evidenceSlots uint64) (chainScan, error) {
 		switch {
 		case h.seq <= lastSeq:
 			return false, nil
-		case clean || h.seq-lastSeq <= uint64(at-lastEnd)+1:
+		case clean:
 			return true, nil
-		case h.seq > max(evidenceSlots, cleanHigh)+uint64(len(cs.records))+fragments+1,
-			at+minRecordLen+int64(h.bodyLen) > s.segSize:
+		case h.seq > max(evidenceSlots, cleanHigh)+uint64(len(cs.records))+fragments+1:
+			return false, nil
+		case h.seq-lastSeq <= uint64(at-lastEnd)+1:
+			return true, nil
+		case at+minRecordLen+int64(h.bodyLen) > s.segSize:
 			return false, nil
 		default:
 			return s.bodyIntactAt(at, h.bodyLen)
