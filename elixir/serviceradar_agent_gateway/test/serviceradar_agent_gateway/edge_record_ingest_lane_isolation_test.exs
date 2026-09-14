@@ -5,9 +5,10 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
   stateless across restarts.
 
   Each property is observed rather than inferred from the source. The lane runs in its own
-  process through the REAL `JetStreamPublisher` and `PublisherPool`; only the NATS connection is
-  a double, so every broker answer below goes through the production PubAck parsing and fencing.
-  The buffer and ack detectors each have a control showing they fire when the property is broken.
+  process and offers to a REAL `PublishPipeline`, whose workers publish through the REAL
+  `JetStreamPublisher` and `PublisherPool`; only the NATS connection is a double, so every broker
+  answer below goes through the production PubAck parsing and fencing. The buffer, ack and call
+  detectors each have a control showing they fire when the property is broken.
   """
 
   use ExUnit.Case, async: false
@@ -16,6 +17,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
 
   alias ServiceRadar.Edge.PublisherLane
   alias ServiceRadar.Edge.PublisherPool
+  alias ServiceRadar.Edge.PublishPipeline
   alias Serviceradar.Edge.V1.EdgeDeliveryAckV1
   alias Serviceradar.Edge.V1.EdgeDeliveryFrameV1
   alias Serviceradar.Edge.V1.EdgeProducerContext
@@ -61,7 +63,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
 
   defmodule FakeConn do
     @moduledoc false
-    # Stands in for the lane's NATS connection inside the lane process. Only `get/1` and
+    # Stands in for the NATS connection inside a pipeline's publish worker. Only `get/1` and
     # `request/4` exist: a fire-and-forget publish on this double would be an UndefinedFunctionError.
 
     def get(_name), do: {:ok, self()}
@@ -87,21 +89,9 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
     defp expected_stream(headers), do: Enum.find_value(headers, fn {k, v} -> if k == "Nats-Expected-Stream", do: v end)
   end
 
-  defmodule RealPublisher do
-    @moduledoc false
-    # The production publisher with the lane process's pools and the connection double.
-    def publish_record(publication) do
-      JetStreamPublisher.publish_record(publication,
-        connection: ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest.FakeConn,
-        pools: Process.get(:isolation_pools),
-        receive_timeout: 1_000
-      )
-    end
-  end
-
   setup do
     keys = [
-      :edge_record_ingest_publisher,
+      :edge_record_ingest_pipelines,
       :edge_record_ingest_identity_resolver,
       :edge_record_ingest_capability,
       :edge_record_ingest_task_supervisor,
@@ -112,7 +102,6 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
 
     supervisor = start_supervised!({Task.Supervisor, name: __MODULE__.TaskSupervisor})
 
-    put_env(:edge_record_ingest_publisher, RealPublisher)
     put_env(:edge_record_ingest_identity_resolver, CameraMediaIdentityResolverStub)
     put_env(:edge_record_ingest_capability, EdgeRecordCapabilityStub)
     put_env(:edge_record_ingest_task_supervisor, __MODULE__.TaskSupervisor)
@@ -125,7 +114,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
       end)
     end)
 
-    %{supervisor: supervisor, pools: start_pools()}
+    %{supervisor: supervisor, pipeline: start_pipeline(start_pools())}
   end
 
   describe "never enters StatusBuffer" do
@@ -155,22 +144,22 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
       %{buffer: buffer}
     end
 
-    test "no non-durable publish outcome reaches the buffer", %{buffer: buffer, pools: pools} do
+    test "no non-durable publish outcome reaches the buffer", %{buffer: buffer, pipeline: pipeline} do
       baseline = StatusBuffer.size()
       flush_telemetry()
       :erlang.trace(buffer, true, [:receive, {:tracer, self()}])
 
       for {{_name, reply}, index} <- Enum.with_index(@non_durable_replies, 1) do
-        run_lane_to_end([lane_open(), delivery(index)], pools: pools, reply: reply)
+        run_lane_to_end(single(index), pipeline: pipeline, reply: reply)
         assert_receive {:jetstream_request, _, _, _, _}
         refute_received {:edge_record_stream_reply, %EdgeRecordServerMessage{payload: {:ack, _}}}
       end
 
       # A pool with no frame credits left: refused before any I/O, the saturation case.
-      exhausted = start_pools(frame_credits: 1)
-      run_lane_to_end([lane_open(), delivery(100)], pools: exhausted, reply: {:error, :timeout})
+      exhausted = start_pipeline(start_pools(frame_credits: 1))
+      run_lane_to_end(single(100), pipeline: exhausted, reply: {:error, :timeout})
       assert_received {:jetstream_request, _, _, _, _}
-      run_lane_to_end([lane_open(), delivery(101)], pools: exhausted, reply: :pub_ack)
+      run_lane_to_end(single(101), pipeline: exhausted, reply: :pub_ack)
       refute_received {:jetstream_request, _, _, _, _}
       refute_received {:edge_record_stream_reply, %EdgeRecordServerMessage{payload: {:ack, _}}}
 
@@ -187,9 +176,9 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
   end
 
   describe "never acknowledges an ERTS/Core NATS handoff as durable" do
-    test "only a PubAck from the requested stream is acked, over request/reply", %{pools: pools} do
+    test "only a PubAck from the requested stream is acked, over request/reply", %{pipeline: pipeline} do
       for {{name, reply}, index} <- Enum.with_index(@non_durable_replies, 1) do
-        run_lane_to_end([lane_open(), delivery(index)], pools: pools, reply: reply)
+        run_lane_to_end(single(index), pipeline: pipeline, reply: reply)
 
         assert_receive {:jetstream_request, _, _subject, _payload, headers},
                        100,
@@ -201,20 +190,26 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
 
       # Control: the authoritative PubAck on the same path is acked, so the refutations above are
       # not an artifact of a lane that never acks.
-      run_lane_to_end([lane_open(), delivery(50)], pools: pools, reply: :pub_ack)
+      run_lane_to_end(single(50), pipeline: pipeline, reply: :pub_ack)
       assert_receive {:jetstream_request, _, _, _, _}
       assert_received {:edge_record_stream_reply, %EdgeRecordServerMessage{payload: {:ack, ack}}}
       assert [%EdgeRecordDisposition{sequence: 50, kind: @accepted}] = ack.dispositions
     end
 
-    test "the lane makes no ERTS RPC, Core NATS publish or StatusProcessor call", %{pools: pools} do
+    test "neither the lane nor its publish workers make an ERTS RPC, Core NATS publish or StatusProcessor call",
+         %{pipeline: pipeline} do
       calls =
-        trace_handoff_calls(fn ->
-          lane = start_lane([lane_open(), delivery(1), delivery(2)], pools: pools, reply: :pub_ack)
+        trace_handoff_calls(pipeline, fn ->
+          lane = start_lane([lane_open(), delivery(1), delivery(2)], pipeline: pipeline, reply: :pub_ack)
           {lane, fn -> await_lane(lane) end}
         end)
 
-      assert calls == []
+      {publishes, handoffs} = Enum.split_with(calls, &match?({JetStreamPublisher, _, _}, &1))
+      assert handoffs == []
+
+      # Control: the trace reached the processes that actually publish, which are the pipeline's
+      # workers rather than the lane, so the empty result above is not a trace that saw nothing.
+      assert {JetStreamPublisher, :publish_record, :called} in publishes
 
       assert_received {:edge_record_stream_reply,
                        %EdgeRecordServerMessage{payload: {:ack, %{resolved_through_sequence: 2}}}}
@@ -223,10 +218,10 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
 
   describe "stateless across restarts" do
     test "a killed lane leaves nothing behind and its replay re-derives every disposition",
-         %{supervisor: supervisor, pools: pools} do
+         %{supervisor: supervisor, pipeline: pipeline} do
       # Warm-up, so lazily created VM state (logger, telemetry) exists before the snapshot.
-      run_lane_to_end([lane_open(), delivery(1)], pools: pools, reply: :pub_ack)
-      run_lane_to_end([lane_open(), delivery(99)], pools: pools, reply: {:error, :timeout})
+      run_lane_to_end([lane_open(), delivery(1)], pipeline: pipeline, reply: :pub_ack)
+      run_lane_to_end([lane_open(), delivery(99)], pipeline: pipeline, reply: {:error, :timeout})
       flush_mailbox()
       before = global_state()
 
@@ -234,7 +229,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
       # with the reader blocked in a Cowboy-style read against the connection handler.
       handler = spawn(fn -> Process.sleep(:infinity) end)
       frames = [lane_open(nonce(1)), delivery(1), delivery(2)]
-      lane = start_lane(Stream.concat(frames, cowboy_read_body(handler)), pools: pools, reply: :pub_ack)
+      lane = start_lane(Stream.concat(frames, cowboy_read_body(handler)), pipeline: pipeline, reply: :pub_ack)
       go(lane)
 
       first = collect_replies(3)
@@ -244,6 +239,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
                first
 
       assert [_reader] = Task.Supervisor.children(supervisor)
+      assert %{lanes: 1} = PublishPipeline.stats(pipeline.pid)
 
       # The restart: the client connection drops, taking the handler and the lane process with it.
       # An exit signal, so nothing in the lane gets to clean up after itself.
@@ -251,12 +247,18 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
       Process.exit(lane, :kill)
 
       assert_eventually(fn -> Task.Supervisor.children(supervisor) == [] end, "the lane's request reader outlived it")
+
+      assert_eventually(
+        fn -> PublishPipeline.stats(pipeline.pid).lanes == 0 end,
+        "the lane's pipeline tracker outlived it"
+      )
+
       assert global_state() == before
       refute_received {:edge_record_stream_reply, _}
 
       # Session 2, a reconnect with a new nonce replaying the same spool: every disposition comes
       # back through a fresh publish request, identical to the first, rather than from memory.
-      run_lane_to_end([lane_open(nonce(2)), delivery(1), delivery(2)], pools: pools, reply: :pub_ack)
+      run_lane_to_end([lane_open(nonce(2)), delivery(1), delivery(2)], pipeline: pipeline, reply: :pub_ack)
 
       second = collect_replies(3)
       assert collect_requests(2) == first_requests
@@ -266,7 +268,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
       # Session 3: the broker now refuses. A lane that remembered session 2's durable acks would
       # re-ack them; this one publishes again and withholds.
       run_lane_to_end([lane_open(nonce(3)), delivery(1), delivery(2)],
-        pools: pools,
+        pipeline: pipeline,
         reply: {:ok, %{body: ~s({"error":{"code":503,"description":"no responders available"}})}}
       )
 
@@ -285,18 +287,44 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
 
   # --- lanes ---------------------------------------------------------------------------------
 
+  # The bulk class pipeline, publishing through the real `JetStreamPublisher` into `pools`. Its
+  # workers are not the lane process, so each takes the test pid and the broker's current answer
+  # from here. One worker at a time, so a session's requests and acks arrive in sequence order and
+  # compare exactly; concurrency is `ServiceRadar.Edge.PublishPipelineTest`'s subject.
+  defp start_pipeline(pools) do
+    test_pid = self()
+    reply = start_supervised!({Agent, fn -> :pub_ack end}, id: make_ref())
+    tasks = start_supervised!({Task.Supervisor, []}, id: make_ref())
+
+    publisher = fn publication, opts ->
+      Process.put(:isolation_test_pid, test_pid)
+      Process.put(:isolation_reply, Agent.get(reply, & &1))
+      JetStreamPublisher.publish_record(publication, Keyword.merge(opts, connection: FakeConn, receive_timeout: 1_000))
+    end
+
+    pid =
+      start_supervised!(
+        {PublishPipeline,
+         class: :bulk,
+         pool: Map.fetch!(pools, :bulk),
+         publisher: publisher,
+         task_supervisor: tasks,
+         max_inflight: 1,
+         name: nil},
+        id: make_ref()
+      )
+
+    %{pid: pid, tasks: tasks, reply: reply}
+  end
+
   defp start_lane(requests, opts) do
     test_pid = self()
+    pipeline = Keyword.fetch!(opts, :pipeline)
 
-    dictionary = [
-      isolation_test_pid: test_pid,
-      isolation_pools: Keyword.fetch!(opts, :pools),
-      isolation_reply: Keyword.get(opts, :reply, :pub_ack)
-    ]
+    put_env(:edge_record_ingest_pipelines, %{bulk: pipeline.pid})
+    :ok = Agent.update(pipeline.reply, fn _ -> Keyword.get(opts, :reply, :pub_ack) end)
 
     spawn(fn ->
-      Enum.each(dictionary, fn {key, value} -> Process.put(key, value) end)
-
       receive do
         :go -> :ok
       end
@@ -326,6 +354,10 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
     assert {:ok, :ok} = await_lane(lane)
   end
 
+  # One frame on a lane opened at its own sequence, so a durable outcome for it WOULD be acked:
+  # acks follow the contiguous prefix, and a refutation over a gap could not fail.
+  defp single(sequence), do: [lane_open(nonce(1), sequence), delivery(sequence)]
+
   # grpc's Cowboy adapter reads the next request chunk by messaging the connection handler and
   # waiting for its answer, with no monitor and no timeout.
   defp cowboy_read_body(handler) do
@@ -339,17 +371,24 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
     end)
   end
 
-  # Runs `start` with call tracing on the lane process and returns every call it made into a
-  # module that could hand a record to Core.
-  defp trace_handoff_calls(start) do
-    Enum.each(@handoff_modules, fn module ->
+  # Runs `start` with call tracing on the lane process, the pipeline and the task supervisor its
+  # workers are spawned by, and returns every call they made into a module that could hand a
+  # record to Core, or into `JetStreamPublisher`.
+  defp trace_handoff_calls(pipeline, start) do
+    modules = [JetStreamPublisher | @handoff_modules]
+
+    Enum.each(modules, fn module ->
       Code.ensure_loaded!(module)
       :erlang.trace_pattern({module, :_, :_}, true, [:global])
     end)
 
     try do
       {lane, await} = start.()
-      :erlang.trace(lane, true, [:call, :set_on_spawn, {:tracer, self()}])
+
+      for pid <- [lane, pipeline.pid, pipeline.tasks] do
+        :erlang.trace(pid, true, [:call, :set_on_spawn, {:tracer, self()}])
+      end
+
       go(lane)
       await.()
 
@@ -361,7 +400,8 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
 
       drain_calls([])
     after
-      Enum.each(@handoff_modules, &:erlang.trace_pattern({&1, :_, :_}, false, [:global]))
+      Enum.each(modules, &:erlang.trace_pattern({&1, :_, :_}, false, [:global]))
+      Enum.each([pipeline.pid, pipeline.tasks], &:erlang.trace(&1, false, [:call, :set_on_spawn]))
     end
   end
 
@@ -429,7 +469,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
 
   defp collect_requests(count) do
     for _ <- 1..count do
-      assert_receive {:jetstream_request, _lane, subject, payload, headers}, 5_000
+      assert_receive {:jetstream_request, _worker, subject, payload, headers}, 5_000
       {subject, payload, headers}
     end
   end
@@ -476,7 +516,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
 
   # --- wire fixtures -------------------------------------------------------------------------
 
-  defp lane_open(session_nonce \\ nonce(1)) do
+  defp lane_open(session_nonce \\ nonce(1), first_unresolved_sequence \\ 1) do
     %EdgeRecordClientMessage{
       payload:
         {:lane_open,
@@ -485,7 +525,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
            traffic_class: :EDGE_RECORD_TRAFFIC_CLASS_BULK,
            spool_id: uuidv7(0x01),
            sequence_base: 1,
-           first_unresolved_sequence: 1,
+           first_unresolved_sequence: first_unresolved_sequence,
            session_nonce: session_nonce,
            requested_byte_credits: 1024 * 1024,
            requested_frame_credits: 16
