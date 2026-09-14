@@ -262,9 +262,9 @@ type LaneSet struct {
 // readable and resolvable under their frozen identity.
 //
 // A recovered OPEN generation frozen under a different identity (the agent was
-// re-enrolled) keeps that identity and marks its lane rotation-required: it is
-// never appended to under the new identity, and it stays recoverable after it
-// closes.
+// re-enrolled) keeps that identity: appends under the new session identity answer
+// ErrRotationRequired from Append's frozen-identity check until the lane rotates,
+// and the generation stays recoverable after it closes.
 //
 // Recovery fails the whole set closed when any generation on any lane cannot be
 // trusted, including a corrupt retained segment; per-lane quarantine is task 2.27.
@@ -347,8 +347,7 @@ func (ls *LaneSet) Append(key LaneKey, presented Identity, eventID, body []byte)
 		}
 	}
 	// A generation's identity is frozen: an append never lands in a generation
-	// frozen under another identity. Recovery marks such a lane pending, so this
-	// is the same answer reached without trusting that bookkeeping.
+	// frozen under another identity, such as one recovered after re-enrollment.
 	if !l.open.id.Identity.equal(presented) {
 		return Receipt{}, fmt.Errorf("%w: lane %s open generation is frozen under another identity", ErrRotationRequired, key)
 	}
@@ -665,9 +664,6 @@ func (ls *LaneSet) recoverLane(key LaneKey) (*lane, error) {
 		l.retained = append(l.retained, g)
 	}
 
-	if l.open != nil && !l.open.id.Identity.equal(ls.session) {
-		l.rotationPending = true
-	}
 	return l, nil
 }
 
