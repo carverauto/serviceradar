@@ -312,6 +312,15 @@ managed defaults < operator-explicit top-level profile/assignment params
 The baseline producer writes `seasonal_baselines`; the config projector writes
 `managed`. The writers are intentionally disjoint.
 
+The settings singleton is seeded once, from chart values, and never rewritten
+afterwards, so a default added in a later release does not reach an existing
+deployment on its own. Per-class `drift_mode` is the exception that was
+backfilled: migration `20260914120000_backfill_anomaly_drift_mode_defaults`
+fills in `drift_mode` for every metric class that has none (cpu, memory and
+interface `deseasonalized_only`; disk, icmp and other `off`) and leaves any
+value an operator set untouched. The projector carries the filled values to the
+edge on its next run.
+
 The projector is enabled by default and its cron ships in the production
 release (default `57 * * * *`), so operator Settings reach the edge without
 extra deployment config. The projector writes only the reserved `managed`
