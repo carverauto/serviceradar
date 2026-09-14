@@ -56,18 +56,23 @@ defmodule ServiceRadar.Edge.PublisherSupervisor do
   ## Pipeline bounds
 
   A lane's `PublishPipeline` is one process shared by every stream on its class, so its
-  `:max_inflight` and `:max_queue` are sized per deployment from the same config, in the same
-  order, with `lane_pipeline` as the per-lane override:
+  `:max_inflight`, `:max_queue` and `:max_lanes` are sized per deployment from the same config, in
+  the same order, with `lane_pipeline` as the per-lane override:
 
       config :serviceradar_core, ServiceRadar.Edge.PublisherSupervisor,
         max_inflight: 64,
         max_queue: 256,
+        max_lanes: 1024,
         lane_pipeline: %{interactive: [max_inflight: 16]}
 
   `:max_inflight` defaults to the lane's resolved frame credits. The grant is what really bounds
   requests on the wire, and a lower default would leave a class under agent fan-in with fewer
   publishes outstanding than the synchronous path the pipeline replaced, which had one per open
   stream up to that grant. `:max_queue` defaults to four times the resolved `:max_inflight`.
+
+  `:max_lanes` defaults to 1024. Every open edge-record stream holds one lane on its class's
+  pipeline until it ends, so this caps a class's concurrent streams across the gateway, and a
+  stream past it is refused until another closes.
   """
 
   use Supervisor
@@ -82,6 +87,7 @@ defmodule ServiceRadar.Edge.PublisherSupervisor do
   @default_frame_credits 64
   @default_byte_credits 64 * 1024 * 1024
   @queue_per_inflight 4
+  @default_max_lanes 1024
 
   def start_link(opts \\ []) do
     Supervisor.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
@@ -100,8 +106,8 @@ defmodule ServiceRadar.Edge.PublisherSupervisor do
 
   @doc """
   The bounds a lane's `PublishPipeline` starts with, after opts -> lane_pipeline -> global ->
-  default. `:max_inflight` defaults to the lane's frame credits from `credits_for/2`, and
-  `:max_queue` to four times the resolved `:max_inflight`.
+  default. `:max_inflight` defaults to the lane's frame credits from `credits_for/2`, `:max_queue`
+  to four times the resolved `:max_inflight`, and `:max_lanes` to 1024.
   """
   def pipeline_for(lane, opts \\ []) do
     config = Application.get_env(:serviceradar_core, __MODULE__, [])
@@ -111,7 +117,8 @@ defmodule ServiceRadar.Edge.PublisherSupervisor do
 
     [
       max_inflight: max_inflight,
-      max_queue: pick(:max_queue, opts, lane_config, config, max_inflight * @queue_per_inflight)
+      max_queue: pick(:max_queue, opts, lane_config, config, max_inflight * @queue_per_inflight),
+      max_lanes: pick(:max_lanes, opts, lane_config, config, @default_max_lanes)
     ]
   end
 

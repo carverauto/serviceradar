@@ -656,6 +656,41 @@ defmodule ServiceRadar.Edge.PublishPipelineTest do
       refute_started(200)
     end
 
+    test "an outcome in flight when its lane closed is not recorded onto a later opening of it" do
+      # Session 1's publish of 7 outlives session 1. Session 2 opens the lane again at 5 and never
+      # offers 7, so 7's outcome recorded there would carry its watermark past 6 on work it never
+      # published, and push an outcome its owner is not waiting for.
+      p = pool(8, 4_000)
+      pipe = pipeline(p, windowed_publisher(self()), max_inflight: 2)
+      test = self()
+
+      owner =
+        spawn(fn ->
+          :ok = PublishPipeline.open_lane(pipe, @lane, 5)
+          :ok = PublishPipeline.offer(pipe, publication(7))
+          send(test, :offered)
+          Process.sleep(:infinity)
+        end)
+
+      assert_receive :offered, 5_000
+      worker = started(7)
+      Process.exit(owner, :kill)
+
+      assert eventually(fn -> PublishPipeline.open_lane(pipe, @lane, 5) == :ok end),
+             "the dead owner's lane was never closed"
+
+      release(worker, ack(7))
+      assert eventually(fn -> inflight(pipe) == 0 end), "sequence 7's publish never returned"
+
+      refute_received {:edge_publish_outcome, @lane, 7, _outcome, _resolved_through}
+      assert resolved(pipe) == 4
+
+      :ok = PublishPipeline.reject_permanent(pipe, @lane, 5)
+      :ok = PublishPipeline.reject_permanent(pipe, @lane, 6)
+      assert_receive {:edge_publish_outcome, @lane, 6, {:recorded, @permanent}, 6}
+      assert resolved(pipe) == 6
+    end
+
     test "via/1 names one pipeline per class, and accepts nothing else" do
       names = Enum.map(PublisherLane.lanes(), &PublishPipeline.via/1)
       assert length(Enum.uniq(names)) == length(PublisherLane.lanes())

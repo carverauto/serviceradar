@@ -221,7 +221,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
          %{supervisor: supervisor, pipeline: pipeline} do
       # Warm-up, so lazily created VM state (logger, telemetry) exists before the snapshot.
       run_lane_to_end([lane_open(), delivery(1)], pipeline: pipeline, reply: :pub_ack)
-      run_lane_to_end([lane_open(), delivery(99)], pipeline: pipeline, reply: {:error, :timeout})
+      run_lane_to_end(single(99), pipeline: pipeline, reply: {:error, :timeout})
       flush_mailbox()
       before = global_state()
 

@@ -105,6 +105,10 @@ defmodule ServiceRadar.Edge.PublishPipeline do
   the agent's retry covers it; published anyway, it would spend shared workers and credits on a
   lane nobody holds, ahead of every live lane's work in the queue.
 
+  Work already in flight when its lane closes records nothing, and that holds even once a later
+  session opens the same lane again: each opening is a separate lane to its owner, whose outcomes
+  cover only the work offered on that opening.
+
   ## In the supervision tree, LAST in each lane
 
   `ServiceRadar.Edge.LaneSupervisor` starts one pipeline per class under `via/1`, after the
@@ -148,7 +152,7 @@ defmodule ServiceRadar.Edge.PublishPipeline do
   # bounds concurrent publishes, and a class under agent fan-in keeps as many requests on the wire
   # as the synchronous path it replaced. Each worker retains a record body, minimal headers and
   # NATS request state for as long as its request is outstanding; task 3.4 owns the measured
-  # retained-memory bound, and a deployment that has measured its own sets both bounds there.
+  # retained-memory bound, and a deployment that has measured its own sets all three bounds there.
   @default_max_inflight 8
   @default_max_queue 256
   @default_max_lanes 1024
@@ -277,7 +281,8 @@ defmodule ServiceRadar.Edge.PublishPipeline do
        # Accepted but not started. Bounded by :max_queue.
        queue: :queue.new(),
        queued: 0,
-       # task ref => %{lane, sequence}. Bounded by :max_inflight.
+       # task ref => %{lane, monitor, sequence}, where `monitor` is the lane owner's monitor when the
+       # work was offered and so names that opening of the lane. Bounded by :max_inflight.
        inflight: %{},
        # lane => ResolvedPrefix.t(). DATA per lane, never a process. Bounded by :max_lanes.
        lanes: %{},
@@ -340,7 +345,8 @@ defmodule ServiceRadar.Edge.PublishPipeline do
         {:reply, {:error, :sequence}, state}
 
       true ->
-        {:reply, :ok, record(state, lane, sequence, @permanent)}
+        {_caller, monitor} = Map.fetch!(state.owners, lane)
+        {:reply, :ok, record(state, lane, monitor, sequence, @permanent)}
     end
   end
 
@@ -388,7 +394,8 @@ defmodule ServiceRadar.Edge.PublishPipeline do
         {:reply, {:error, :queue_full}, state}
 
       true ->
-        work = %{lane: lane, sequence: sequence, publication: publication}
+        {_owner, monitor} = Map.fetch!(state.owners, lane)
+        work = %{lane: lane, monitor: monitor, sequence: sequence, publication: publication}
 
         {:reply, :ok,
          dispatch(%{state | queue: :queue.in(work, state.queue), queued: state.queued + 1})}
@@ -401,13 +408,13 @@ defmodule ServiceRadar.Edge.PublishPipeline do
       {nil, _} ->
         {:noreply, state}
 
-      {%{lane: lane, sequence: sequence}, rest} ->
+      {%{lane: lane, monitor: monitor, sequence: sequence}, rest} ->
         # The task succeeded, so its :DOWN carries no information and is flushed rather than
         # falling through to the crash clause below and recording a second outcome.
         Process.demonitor(ref, [:flush])
 
-        {:noreply,
-         dispatch(record(%{state | inflight: rest}, lane, sequence, disposition_of(result)))}
+        state = record(%{state | inflight: rest}, lane, monitor, sequence, disposition_of(result))
+        {:noreply, dispatch(state)}
     end
   end
 
@@ -416,7 +423,7 @@ defmodule ServiceRadar.Edge.PublishPipeline do
       {nil, _} ->
         {:noreply, owner_down(state, ref)}
 
-      {%{lane: lane, sequence: sequence}, rest} ->
+      {%{lane: lane, monitor: monitor, sequence: sequence}, rest} ->
         # The worker died without reporting. RETRYABLE, never resolved: process death says nothing
         # about whether the bytes reached the broker, and the reservation it owned stays charged in
         # the pool because owner death is not termination.
@@ -425,7 +432,8 @@ defmodule ServiceRadar.Edge.PublishPipeline do
             "(#{inspect(reason)}); the sequence stays unresolved and its reservation stays charged"
         )
 
-        {:noreply, dispatch(record(%{state | inflight: rest}, lane, sequence, @retryable))}
+        state = record(%{state | inflight: rest}, lane, monitor, sequence, @retryable)
+        {:noreply, dispatch(state)}
     end
   end
 
@@ -455,7 +463,7 @@ defmodule ServiceRadar.Edge.PublishPipeline do
     end
   end
 
-  defp start_worker(state, %{lane: lane, sequence: sequence, publication: publication}) do
+  defp start_worker(state, %{publication: publication} = work) do
     publisher = state.publisher
 
     # `:pools` is a lane => pool MAP, which is the option `JetStreamPublisher.pool_for/2` reads.
@@ -471,10 +479,7 @@ defmodule ServiceRadar.Edge.PublishPipeline do
         publisher.(publication, opts)
       end)
 
-    %{
-      state
-      | inflight: Map.put(state.inflight, task.ref, %{lane: lane, sequence: sequence})
-    }
+    %{state | inflight: Map.put(state.inflight, task.ref, Map.delete(work, :publication))}
   end
 
   # Only a durable PubAck and PROVEN poison resolve. Everything else caps the prefix, which is the
@@ -483,18 +488,15 @@ defmodule ServiceRadar.Edge.PublishPipeline do
   defp disposition_of({:error, :poison}), do: @permanent
   defp disposition_of(_other), do: @retryable
 
-  defp record(state, lane, sequence, disposition) do
-    case fetch_lane(state, lane) do
-      {:ok, prefix} ->
+  defp record(state, lane, monitor, sequence, disposition) do
+    case Map.fetch(state.owners, lane) do
+      {:ok, {owner, ^monitor}} ->
+        prefix = Map.fetch!(state.lanes, lane)
+
         case ResolvedPrefix.record(prefix, sequence, disposition) do
           {:ok, updated} ->
-            notify(
-              %{state | lanes: Map.put(state.lanes, lane, updated)},
-              lane,
-              sequence,
-              {:recorded, disposition},
-              updated
-            )
+            notify(owner, lane, sequence, {:recorded, disposition}, updated)
+            %{state | lanes: Map.put(state.lanes, lane, updated)}
 
           # A refused outcome leaves the prefix EXACTLY as it was, which is the safe direction:
           # a conflicting or out-of-range sequence must not be able to advance a watermark. It is
@@ -507,30 +509,29 @@ defmodule ServiceRadar.Edge.PublishPipeline do
                 "#{inspect(reason)}"
             )
 
-            notify(state, lane, sequence, {:refused, disposition, reason}, prefix)
+            notify(owner, lane, sequence, {:refused, disposition, reason}, prefix)
+            state
         end
 
       # The lane was closed while its work was in flight. Nothing to record onto, and inventing a
-      # tracker here would resurrect a lane the caller deliberately dropped.
-      {:error, :lane_not_open} ->
+      # tracker here would resurrect a lane the caller deliberately dropped. A later session that
+      # opened the lane again offered none of this work, so neither its prefix nor its owner may
+      # see the outcome.
+      _closed_or_reopened ->
         state
     end
   end
 
-  defp notify(state, lane, sequence, outcome, prefix) do
-    {owner, _monitor} = Map.fetch!(state.owners, lane)
-
+  defp notify(owner, lane, sequence, outcome, prefix) do
     send(
       owner,
       {:edge_publish_outcome, lane, sequence, outcome, ResolvedPrefix.resolved_through(prefix)}
     )
-
-    state
   end
 
   # A lane's OWNER died, so its lane goes with it: nothing else may close it, and leaving it would
   # hold one of :max_lanes forever. Work already in flight for it runs to completion -- its
-  # reservation is the pool's to account for -- and its outcome then finds no lane to record onto.
+  # reservation is the pool's to account for -- and its outcome then finds no opening of the lane to record onto.
   # Work still queued for it is discarded with the lane.
   defp owner_down(state, monitor) do
     case Map.fetch(state.owner_monitors, monitor) do

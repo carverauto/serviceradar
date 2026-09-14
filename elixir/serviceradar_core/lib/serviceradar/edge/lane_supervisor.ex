@@ -91,7 +91,7 @@ defmodule ServiceRadar.Edge.LaneSupervisor do
   not. Accountant first therefore means transport death leaves the ledger alone, while accountant
   death fences the transport before a fresh, empty ledger can exist.
 
-  `:pipeline` carries the pipeline's `:max_inflight` and `:max_queue`, as
+  `:pipeline` carries the pipeline's `:max_inflight`, `:max_queue` and `:max_lanes`, as
   `ServiceRadar.Edge.PublisherSupervisor.pipeline_for/2` resolves them. Without it the pipeline
   runs at its own defaults.
 

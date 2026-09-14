@@ -22,6 +22,9 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
     * the `edge-records:v1` capability is ready (`ServiceRadarAgentGateway.EdgeRecordCapability`);
     * `lane_open` names a routable `{route_profile, traffic_class}` pair
       (`ServiceRadar.Edge.PublisherLane.for_lane/2`) whose `PublishPipeline` is running;
+    * each `delivery_frame` names a sequence inside the frame credits granted at `lane_open`, counted
+      from the watermark this session has acked; one beyond it ends the stream `:resource_exhausted`
+      before anything about it is kept;
     * each frame decodes as a well-formed `EdgeRecordV1`
       (`ServiceRadar.Edge.WireDecode.decode_record/1`) whose `record_sha256` matches its bytes;
     * each decoded record is admitted by `ServiceRadarAgentGateway.EdgeContractRegistry.admit/3`
@@ -266,6 +269,8 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
       lane: nil,
       # The watermark this session has acked. The agent validates every ack against it.
       acked_through: first_unresolved - 1,
+      # Granted at lane_open. A frame above acked_through plus these is refused.
+      frame_credits: frame_credits,
       # sequence => resolving kind, above acked_through and not yet covered by an ack.
       resolved: %{},
       # sequence => the decoded record's event id, above acked_through, for the ack that covers it.
@@ -293,6 +298,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
     end
 
     sequence = required_positive_sequence(frame.sequence)
+    require_within_credit_window!(state, sequence)
 
     case decode_and_verify(frame) do
       {:ok, record} ->
@@ -683,6 +689,16 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
 
   defp required_positive_sequence(_sequence) do
     raise GRPC.RPCError, status: :invalid_argument, message: "sequence must be a positive integer"
+  end
+
+  defp require_within_credit_window!(state, sequence) do
+    window_end = state.acked_through + state.frame_credits
+
+    if sequence > window_end do
+      raise GRPC.RPCError,
+        status: :resource_exhausted,
+        message: "delivery_frame sequence #{sequence} is beyond the frame credit window ending at #{window_end}"
+    end
   end
 
   defp required_first_unresolved(sequence) when is_integer(sequence) and sequence >= 1 and sequence <= @max_uint64,

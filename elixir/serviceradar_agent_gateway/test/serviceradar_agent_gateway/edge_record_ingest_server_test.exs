@@ -487,6 +487,58 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
     end
   end
 
+  describe "a frame must lie inside the granted frame credit window" do
+    test "the window's last sequence is offered, and the one past it ends the stream before it is kept",
+         %{pipeline: pipeline} do
+      trace_offers(pipeline)
+
+      # lane_open is granted 4 frames. Sequence 1 is rejected before a lane is bound, which acks it at
+      # once and moves the window to 2..5.
+      messages = [
+        client({:lane_open, lane_open()}),
+        client({:delivery_frame, tampered(1)}),
+        client({:delivery_frame, frame(5, record())}),
+        client({:delivery_frame, frame(6, record())})
+      ]
+
+      error = assert_raise GRPC.RPCError, fn -> EdgeRecordIngestServer.stream(messages, stream()) end
+      assert error.status == GRPC.Status.resource_exhausted()
+
+      assert_receive {:edge_record_stream_reply,
+                      %EdgeRecordServerMessage{
+                        payload: {:lane_open_ack, %EdgeRecordLaneOpenAck{granted_frame_credits: 4}}
+                      }}
+
+      assert Enum.map(acks_through(1), &{&1.sequence, &1.kind}) == [{1, @permanent}]
+      assert_receive {:edge_record_published, %{slot: %{sequence: 5}}}, 5_000
+
+      _stats = PublishPipeline.stats(pipeline)
+      refute_received {:trace, ^pipeline, :receive, {:"$gen_call", _from, {:offer, %{slot: %{sequence: 6}}}}}
+      refute_received {:edge_record_published, %{slot: %{sequence: 6}}}
+    end
+
+    test "digest-failing frames past the window are refused before the stream or the pipeline keeps them",
+         %{pipeline: pipeline} do
+      trace_offers(pipeline)
+      beyond = Enum.map(5..64, &client({:delivery_frame, tampered(&1)}))
+
+      # Before a lane is bound, and after sequence 2 binds it at 1. Sequence 1 never arrives, so nothing
+      # is acked and a kept rejection would stay kept until the stream ended.
+      unbound = [client({:lane_open, lane_open()})]
+      bound = unbound ++ [client({:delivery_frame, frame(2, record())})]
+
+      for opening <- [unbound, bound] do
+        stream_pid = start_stream(opening ++ beyond)
+        assert_receive {:stream_result, ^stream_pid, {:raised, %GRPC.RPCError{} = error}}, 5_000
+        assert error.status == GRPC.Status.resource_exhausted()
+      end
+
+      _stats = PublishPipeline.stats(pipeline)
+      refute_received {:trace, ^pipeline, :receive, {:"$gen_call", _from, {:reject_permanent, _lane, _sequence}}}
+      refute_received {:edge_record_stream_reply, %EdgeRecordServerMessage{payload: {:ack, _}}}
+    end
+  end
+
   defmodule AddonIdentityResolverStub do
     @moduledoc false
 
