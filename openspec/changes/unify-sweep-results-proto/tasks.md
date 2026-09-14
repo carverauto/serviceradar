@@ -126,21 +126,27 @@
   amendment. Implementation and review agents MAY propose an amendment; they
   SHALL NOT promote it into the milestone themselves.
 
-  CLOSED 2026-09-14 under the ACCEPTED DEFERRALS below, which are this block's
+  CLOSED 2026-09-14 under the ACCEPTED DEFERRAL below, which is this block's
   maintainer-approved docs-only scope amendment (`design.md`, "Scope
   amendments"). https://github.com/carverauto/serviceradar/pull/443 made Groups
   D2, E and F execute instead of skipping (its own run was BuildBuddy invocation
-  `7111e870-8bd0-41b7-a813-3c6d8dfa33cc`), and
+  `7111e870-8bd0-41b7-a813-3c6d8dfa33cc`),
   https://github.com/carverauto/serviceradar/pull/450 made Groups C and D prove
-  what they claim. Evidence: the required `BazelCI` check on the head of
-  https://github.com/carverauto/serviceradar/pull/450, `5191de79d9`, ran the
-  integration wave as BuildBuddy invocation
+  what they claim, and https://github.com/carverauto/serviceradar/pull/456 made
+  Groups E and F prove theirs. Evidence: the required `BazelCI` check on the
+  head of https://github.com/carverauto/serviceradar/pull/450, `5191de79d9`, ran
+  the integration wave as BuildBuddy invocation
   `41ba8a08-3901-4591-9b7e-530f1a4b4152`, which reported
-  `//integration_tests/edge_record:vertical_slice_test PASSED`. The
-  `usp-01-proposal` tip after
-  https://github.com/carverauto/serviceradar/pull/458 is `b794adbb6e`, whose
-  tree is identical to that PR's head `0c1e0298c5`; its integration wave,
-  BuildBuddy invocation `bc085c92-12b8-4e86-9983-84b7a6edaa10`, also reported
+  `//integration_tests/edge_record:vertical_slice_test PASSED`.
+  https://github.com/carverauto/serviceradar/pull/458 merged into
+  `usp-01-proposal` as `b794adbb6e`, whose tree is identical to that PR's head
+  `0c1e0298c5`; its integration wave, BuildBuddy invocation
+  `bc085c92-12b8-4e86-9983-84b7a6edaa10`, also reported
+  `vertical_slice_test PASSED`.
+  https://github.com/carverauto/serviceradar/pull/456 then merged as
+  `76d6eda5e5`, whose tree is identical to that PR's head `dbadb382d6`; its
+  integration wave, BuildBuddy invocation
+  `19851940-b6af-4093-ae88-0743f44128b3`, also reported
   `vertical_slice_test PASSED`. The target runs without `-test.v`, so its test
   log carries no per-group lines. A pass still means every group ran. The
   harness's only `t.Skip` guards are `-short` and a nil Group A fixture, which
@@ -151,8 +157,10 @@
   and the cut probe itself fails if its withheld entry does not land once
   JetStream is re-enabled.
 
-  ACCEPTED DEFERRALS. Groups C and D carry none: their observations were closed
-  by https://github.com/carverauto/serviceradar/pull/450, not deferred. C
+  ACCEPTED DEFERRAL. Groups C, D, E and F carry none: their observations were
+  closed, not deferred -- C and D by
+  https://github.com/carverauto/serviceradar/pull/450, E and F by
+  https://github.com/carverauto/serviceradar/pull/456. C
   `Redelivery` makes the ingest probe raise after the first delivery commits
   and before it is acknowledged, so the production pipeline NAKs, JetStream
   redelivers the same stored message, and that second entry must report
@@ -165,28 +173,25 @@
   the redelivery commits. D3 validates the gateway's cumulative
   `EdgeDeliveryAckV1` with `edgerecord.ValidateAck`, including its
   spool-ID/session-nonce binding, and waits for the agent's remote resolved
-  prefix before asserting that neither moved the local reclaim watermark.
+  prefix before asserting that neither moved the local reclaim watermark. E and
+  F read the gateway's `:bulk` lane accountant through `PublisherPool.ledger/1`
+  while the broker's PubAcks are withheld, so each request is genuinely in
+  flight. E kills the lane transport under three such requests: a replacement
+  transport generation accepts while all request owners are alive and the same
+  accountant still charges their reservations; after each owner's termination
+  the retry is a new attempt on the same reservation, and new work is admitted
+  within the unchanged grant. F shows the identical retry refused while the
+  first attempt is active under its living owner, and admitted once after that
+  owner reports termination.
 
-  The three observations below remain weaker than the text of groups E, F and
-  A. Each is a known approximation documented in
-  `integration_tests/edge_record/vertical_slice_test.go`, reviewed and accepted
-  as a deliberate scope reduction that applies only to closing this milestone
-  gate. None is waived: each remains owed by the named owner task, which SHALL
-  NOT be checked until its own closure proves the full behavior, including the
-  composed-level observation. Unit-level and in-BEAM proofs do not substitute
-  for that observation, and the owner task's closure does not require
-  re-litigating whether this milestone should have demanded it.
-  - E RESTART OVERLAP -> 3.3(i). The probe kills the bulk lane transport under
-    concurrent requests and asserts exactly-once rows plus post-restart
-    admission, retrying `Unavailable` until the replacement is ready. It does
-    not assert that the replacement leaves capacity still occupied by the
-    in-flight request closed. Hardening is tracked in the open PR
-    https://github.com/carverauto/serviceradar/pull/456.
-  - F POST-HANDOFF FENCING -> 3.3(ii). The probe sends two concurrent identical
-    publications and asserts that they produce one row, then that a fresh
-    publication is admitted. It does not observe a retry refused until the
-    prior attempt is fenced and then admitted once. Hardening is tracked in the
-    open PR https://github.com/carverauto/serviceradar/pull/456.
+  The one observation below remains weaker than the text of group A. It is a
+  known approximation, reviewed and accepted as a deliberate scope reduction
+  that applies only to closing this milestone gate. It is not waived: it remains
+  owed by the named owner task, which SHALL NOT be checked until its own closure
+  proves the full behavior, including the composed-level observation. Unit-level
+  and in-BEAM proofs do not substitute for that observation, and the owner
+  task's closure does not require re-litigating whether this milestone should
+  have demanded it.
   - A MISMATCHED IDENTITY -> 3.2. The control presents a certificate with a
     non-agent component type and is refused `PermissionDenied` at `lane_open`. It
     is not an agent principal that differs from the record's
@@ -983,9 +988,10 @@
   validation and prefix advancement). This task MAY NOT be checked until BOTH
   hold, each covered by a scenario under `ingestion-routing`'s "Backpressure and
   fairness are bounded at every hop":
-  (i) RESTART OVERLAP -- CLOSED inside the BEAM, and now under CONCURRENCY as
-  well. The composed-level observation is still owed (0.12 item E) before this
-  task may be checked. An earlier version of this note said the invariant was
+  (i) RESTART OVERLAP -- CLOSED, and now under CONCURRENCY as well; its
+  composed-level observation landed in
+  https://github.com/carverauto/serviceradar/pull/456 (see the note at the end of
+  this task). An earlier version of this note said the invariant was
   proven only against the serial
   publisher, which was the honest state at the time: with one caller able to hold
   exactly one outstanding request, "old and replacement requests together cannot
@@ -1011,8 +1017,9 @@
   additionally starts CLOSED -- `admit` returns `:no_transport` until a new
   generation registers, which cannot happen until the previous send capability is
   gone.
-  (ii) POST-HANDOFF FENCING -- CLOSED inside the BEAM. The composed-level
-  observation is still owed (0.12 item F) before this task may be checked. Once
+  (ii) POST-HANDOFF FENCING -- CLOSED; its composed-level observation landed in
+  https://github.com/carverauto/serviceradar/pull/456 (see the note at the end of
+  this task). Once
   a reservation is handed to a caller, a
   retry MUST NOT be admitted until the previous attempt is fenced by its REQUEST
   (owner, start, termination). A passed deadline or an absent PubAck is NOT
@@ -1042,16 +1049,17 @@
   published -- but it is a real retention gap and it remains OPEN. Bounding it needs
   evidence that the specific request terminated, which is the correlation work in
   3.5, not a supervision change here.
-  0.12 DEFERRALS (accepted 2026-09-14, see 0.12 items E and F): (i) and (ii) are
-  proven inside the BEAM, but the composed vertical slice observes neither
-  precisely. It shows exactly-once rows and post-restart admission, not
-  capacity held closed while a request is in flight. It also shows exactly one
-  row for concurrent identical sends, not refusal until fencing followed by one
-  admission. The open PR https://github.com/carverauto/serviceradar/pull/456
-  tracks hardening both groups to observe (i) and (ii) against the lane ledger.
-  This task's own closure still requires that composed observation of (i) and
-  (ii); 0.12's deferral waives it only for 0.12's milestone gate, not for this
-  task.
+  COMPOSED OBSERVATION (0.12 Groups E and F):
+  https://github.com/carverauto/serviceradar/pull/456 makes the vertical slice
+  observe (i) and (ii) against the lane ledger, so 0.12 records no deferral
+  against this task. Group E holds three requests in flight with PubAcks
+  withheld and kills the `:bulk` transport: a replacement generation accepts
+  while every request owner is alive and the same accountant still charges their
+  reservations, and after each owner's termination the retry is a new attempt on
+  the same reservation while new work is admitted within the unchanged grant.
+  Group F shows the identical retry refused while the first attempt is active
+  under its living owner, and admitted once after that owner reports
+  termination. This does not check this task: (c) above is still open.
 - [ ] 3.4 Bounded-decode and verify the bounded binary record against the mTLS
   session, grant, registry, route, cost, size, and digest, but publish the exact
   `EdgeDeliveryFrameV1.record_bytes` unchanged to JetStream, never the delivery
