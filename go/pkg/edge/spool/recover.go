@@ -42,6 +42,7 @@ func (s *Spool) openEvidence() error {
 		path := s.evidencePath(c)
 		f, err := os.OpenFile(path, os.O_RDWR, filePerm)
 		if errors.Is(err, os.ErrNotExist) {
+			s.crossStat(evidenceDirName(c))
 			continue
 		}
 		if err != nil {
@@ -196,9 +197,6 @@ type slotExtent struct {
 // segment size after them, so every write a settled slot made -- its record and each
 // copy's entries -- landed before any size this scan judges it by.
 func (s *Spool) refreshLocked() error {
-	if err := s.openEvidence(); err != nil {
-		return err
-	}
 	readers, slots, err := s.evidenceReaders(s.nextSeq)
 	if err != nil {
 		return err
@@ -326,12 +324,18 @@ func reconcileReceipt(v ReceiptVerdict, valid []evidenceEntry) (ReceiptState, bo
 	return v.State, required
 }
 
-// evidenceReaders positions a reader on each open copy at sequence from's entries, and
-// returns how many slots the longest copy holds entries for. Every copy's size is
+// evidenceReaders positions a reader on each copy at sequence from's entries, and
+// returns how many slots the longest copy holds entries for. Every open copy's size is
 // captured before any reader is made, and each reader reads up to the largest of them,
-// so an entry any copy wrote before the last capture is visible in every copy.
+// so an entry any copy wrote before the last capture is visible in every copy. Copies
+// are looked for again once the sizes are captured: a commit creates every copy before
+// it prepares its slot, so each copy holding entries for a counted slot is read, even
+// one that did not exist yet when the scan first looked.
 func (s *Spool) evidenceReaders(from uint64) ([evidenceCopies]*bufio.Reader, uint64, error) {
 	var readers [evidenceCopies]*bufio.Reader
+	if err := s.openEvidence(); err != nil {
+		return readers, 0, err
+	}
 	var size int64
 	for c, f := range s.evidence {
 		if f == nil {
@@ -343,6 +347,9 @@ func (s *Spool) evidenceReaders(from uint64) ([evidenceCopies]*bufio.Reader, uin
 		}
 		size = max(size, info.Size())
 		s.crossStat(evidenceDirName(c))
+	}
+	if err := s.openEvidence(); err != nil {
+		return readers, 0, err
 	}
 	start := evidencePosition(from, statePrepared)
 	for c, f := range s.evidence {

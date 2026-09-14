@@ -872,6 +872,71 @@ func TestRefreshNeverSettlesACommitFromStaleSizes(t *testing.T) {
 	}
 }
 
+// A reader looks for the evidence copies before it captures their sizes, and a producer
+// making its first commit can create the second copy in between. That copy must still be
+// read in the same scan: otherwise the first copy's commit alone would expose a slot
+// whose other copy has not committed yet, which restart would resolve ambiguous.
+func TestRefreshReadsEvidenceCopyCreatedDuringScan(t *testing.T) {
+	dir := t.TempDir()
+	reader := openWith(t, dir, nil)
+	writer := openWith(t, dir, nil)
+
+	missing := make(chan struct{})
+	resume := make(chan struct{})
+	var pause, release sync.Once
+	resumeReader := func() { release.Do(func() { close(resume) }) }
+	defer resumeReader()
+	reader.afterStat = func(file string) {
+		if file == evidenceDirName(copyB) {
+			pause.Do(func() {
+				close(missing)
+				<-resume
+			})
+		}
+	}
+
+	type scan struct {
+		recs []Record
+		err  error
+	}
+	scanned := make(chan scan, 1)
+	var midCommit scan
+	writer.beforeBarrier = func(b barrier) error {
+		switch b {
+		case barrierEvidenceDirA:
+			// Copy A exists and copy B does not yet.
+			go func() {
+				recs, err := reader.Unresolved()
+				scanned <- scan{recs: recs, err: err}
+			}()
+			select {
+			case <-missing:
+			case <-time.After(10 * time.Second):
+				return errors.New("reader never found copy B missing")
+			}
+		case barrierCommitB:
+			// Copy A is committed and copy B is not yet updated.
+			resumeReader()
+			select {
+			case midCommit = <-scanned:
+			case <-time.After(10 * time.Second):
+				return errors.New("reader scan never finished")
+			}
+		}
+		return nil
+	}
+	mustAppend(t, writer, 1, "one")
+	if midCommit.err != nil {
+		t.Fatalf("scan racing the first commit: %v", midCommit.err)
+	}
+	if len(midCommit.recs) != 0 {
+		t.Fatalf("sender-visible mid-commit = %d records, want none", len(midCommit.recs))
+	}
+	if v := visibleSeqs(t, reader); !slices.Equal(v, []uint64{1}) {
+		t.Fatalf("sender-visible after the commit = %v, want [1]", v)
+	}
+}
+
 // A torn record's body can hold a forged record header whose checksums verify and
 // whose sequence is far beyond anything the files could hold. Open must stay bounded
 // by the files: it succeeds, without sizing its work from that sequence, and still
