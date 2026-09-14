@@ -80,6 +80,11 @@ var ErrRecoveryNotFinished = errors.New("spool: recovery not finished")
 // silently create capacity that does not exist on disk.
 var ErrReleaseExceedsCharge = errors.New("spool: release exceeds charged bytes")
 
+// ErrOutsideLane is returned when a destination segment or attribution sidecar
+// path is not directly in the grant's lane. Nothing is charged, written, or
+// landed, and the grant is not stopped.
+var ErrOutsideLane = errors.New("spool: lane artifact outside the recovery's lane")
+
 // Artifact is one durable output a recovery writes. Each has its own budget, so
 // an undersized artifact exhausts its reserve instead of borrowing another's.
 type Artifact uint8
@@ -374,10 +379,12 @@ func (a *Allocator) releaseOrdinaryLocked(owner string, n uint64) error {
 }
 
 // AcquireRecovery takes one concurrent-recovery slot and its full footprint for
-// a recovery that writes its destination segment and attribution sidecar into
-// the directory lane. Naming the lane up front counts those bytes once: the
-// grant is charged for them until ReleaseSource, and measuring lane meanwhile
-// leaves them out.
+// a recovery that writes its destination segment and attribution sidecar
+// directly into the directory lane. lane is the Spool directory Open measures:
+// for a LaneSet, the destination generation directory, not the route
+// profile/traffic class directory above it. Naming the lane up front counts
+// those bytes once: the grant is charged for them until ReleaseSource, and
+// measuring lane meanwhile leaves them out.
 func (a *Allocator) AcquireRecovery(lane string) (*RecoveryGrant, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -565,13 +572,17 @@ func (g *RecoveryGrant) Charge(art Artifact, n uint64) error {
 // the in-flight count. They stay charged to this grant. For the destination
 // segment and sidecar the landed bytes extend path, and the lane is charged for
 // what those paths hold; rewrite a lane file with WriteBarrier, which replaces
-// it. Reporting more than is in flight for art is refused and changes nothing.
+// it. Reporting more than is in flight for art, or a destination segment or
+// sidecar path outside the grant's lane, is refused and changes nothing.
 func (g *RecoveryGrant) Landed(art Artifact, path string, n uint64) error {
 	a := g.alloc
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if art >= artifactCount {
 		return fmt.Errorf("%w: unknown %s", ErrInvalidAllocatorConfig, art)
+	}
+	if err := g.inLane(art, path); err != nil {
+		return err
 	}
 	if n > g.pending[art] {
 		return fmt.Errorf("%w: landed %d of %s, %d in flight", ErrReleaseExceedsCharge, n, art, g.pending[art])
@@ -605,11 +616,16 @@ func (g *RecoveryGrant) FailStop(op string, err error) error {
 //
 // Every call is charged in full, including one that replaces an earlier write
 // to the same path; see Footprint. The lane, by contrast, is charged only for
-// what a destination segment or sidecar path holds after its last write.
+// what a destination segment or sidecar path holds after its last write. Either
+// path must be directly in the grant's lane; one outside it is refused with
+// ErrOutsideLane before anything is charged or written.
 func (g *RecoveryGrant) WriteBarrier(art Artifact, path string, data []byte) error {
 	g.step.Lock()
 	defer g.step.Unlock()
 
+	if err := g.inLane(art, path); err != nil {
+		return err
+	}
 	n := uint64(len(data))
 	if err := g.charge(art, n); err != nil {
 		return err
@@ -874,6 +890,16 @@ func (g *RecoveryGrant) heldLocked(art Artifact) bool {
 // the lane's segment does: the segment itself and its attribution sidecar.
 func laneArtifact(art Artifact) bool {
 	return art == ArtifactDestinationSegment || art == ArtifactAttributionSidecar
+}
+
+// inLane refuses a destination segment or sidecar path that is not directly in
+// the grant's lane, the only directory that measuring leaves it out of and that
+// ReleaseSource moves it into.
+func (g *RecoveryGrant) inLane(art Artifact, path string) error {
+	if laneArtifact(art) && filepath.Dir(filepath.Clean(path)) != g.lane {
+		return fmt.Errorf("%w: %s %q is not in %q", ErrOutsideLane, art, path, g.lane)
+	}
+	return nil
 }
 
 // laneHeldLocked is what the lane artifacts' paths hold on disk while the grant,

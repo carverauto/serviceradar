@@ -49,7 +49,7 @@ const (
 	testMinFree     = 100
 	// syntheticBody is an invented record body for ledger tests.
 	syntheticBody = "synthetic payload"
-	// testLane is the destination lane of recoveries whose lane no test measures.
+	// testLane is the lane of recoveries that land no destination segment or sidecar.
 	testLane = "recovery-lane"
 )
 
@@ -270,7 +270,7 @@ func TestOrdinaryAdmissionCannotBorrowTheReserve(t *testing.T) {
 	dir := t.TempDir()
 	budgets := testFootprint().budgets()
 	for i := range 2 {
-		g, err := a.AcquireRecovery(testLane)
+		g, err := a.AcquireRecovery(dir)
 		if err != nil {
 			t.Fatalf("recovery %d: AcquireRecovery with ordinary full: %v", i, err)
 		}
@@ -553,6 +553,71 @@ func TestFootprintBoundsCumulativeRewrites(t *testing.T) {
 	}
 }
 
+// A destination segment or sidecar counts in the lane the grant names, the
+// directory Open measures. One written or landed anywhere else, such as a
+// generation below a LaneSet lane directory, is refused before it is charged,
+// written, or landed, so the lane neither pays again for bytes the grant holds
+// nor loses bytes ReleaseSource moves.
+func TestLaneArtifactOutsideTheGrantLaneIsRefused(t *testing.T) {
+	a := newTestAllocator(t, 500, 1)
+	ff := &faultFS{inner: osFS{}}
+	a.fs = ff
+	lane := filepath.Join(t.TempDir(), "1-2")
+	generation := filepath.Join(lane, "generation")
+	if err := os.MkdirAll(generation, dirPerm); err != nil {
+		t.Fatalf("create generation: %v", err)
+	}
+	g, err := a.AcquireRecovery(lane)
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+
+	outsideSeg := filepath.Join(generation, segmentFile)
+	calls := ff.calls
+	if err := g.WriteBarrier(ArtifactDestinationSegment, outsideSeg, make([]byte, 64)); !errors.Is(err, ErrOutsideLane) {
+		t.Fatalf("destination write outside the lane = %v, want ErrOutsideLane", err)
+	}
+	if ff.calls != calls || onDisk(t, outsideSeg) || onDisk(t, outsideSeg+".tmp") {
+		t.Fatal("a destination write outside the lane reached storage")
+	}
+	if got := g.Used(ArtifactDestinationSegment); got != 0 {
+		t.Fatalf("refused destination write charged %d", got)
+	}
+
+	binding := bytes.Repeat([]byte{1}, 16)
+	if err := g.Charge(ArtifactAttributionSidecar, uint64(len(binding))); err != nil {
+		t.Fatalf("charge sidecar: %v", err)
+	}
+	outsideSidecar := filepath.Join(generation, "attribution")
+	if err := g.Landed(ArtifactAttributionSidecar, outsideSidecar, uint64(len(binding))); !errors.Is(err, ErrOutsideLane) {
+		t.Fatalf("sidecar landed outside the lane = %v, want ErrOutsideLane", err)
+	}
+	if err := errors.Join(g.Err(), a.Err()); err != nil {
+		t.Fatalf("a refused lane artifact stopped recovery: %v", err)
+	}
+
+	destination := encodeRecord(1, evid(1), bytes.Repeat([]byte{'d'}, 22))
+	if err := g.WriteBarrier(ArtifactDestinationSegment, filepath.Join(lane, segmentFile), destination); err != nil {
+		t.Fatalf("destination write in the lane: %v", err)
+	}
+	sidecar := filepath.Join(lane, "attribution")
+	if err := os.WriteFile(sidecar, binding, filePerm); err != nil {
+		t.Fatalf("write sidecar in the lane: %v", err)
+	}
+	if err := g.Landed(ArtifactAttributionSidecar, sidecar, uint64(len(binding))); err != nil {
+		t.Fatalf("land sidecar in the lane, still in flight after the refusal: %v", err)
+	}
+
+	s, err := Open(lane, WithAllocator(a))
+	if err != nil {
+		t.Fatalf("open the lane: %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("close the lane: %v", err)
+	}
+	assertUsage(t, a, "after opening the lane on its recovery output", 0, 80, 1)
+}
+
 // Bytes charged but not yet on disk stay in the physically backed floor. The
 // probe cannot see them until they land, so neither a lane's admission nor
 // another recovery's acquisition may spend them in the meantime.
@@ -581,11 +646,11 @@ func TestInFlightBytesStayInTheBackedFloor(t *testing.T) {
 	// record returns a body whose framed record is exactly n bytes.
 	record := func(n int) []byte { return bytes.Repeat([]byte{'x'}, n-headerLen-headerCRC-bodyCRCLen) }
 
-	g, err := a.AcquireRecovery(testLane)
+	dir := t.TempDir()
+	g, err := a.AcquireRecovery(dir)
 	if err != nil {
 		t.Fatalf("acquire: %v", err)
 	}
-	dir := t.TempDir()
 
 	hooked := false
 	ff.beforeWrite = func() {
@@ -823,7 +888,7 @@ func TestFailedBarrierWriteIsFailStop(t *testing.T) {
 					t.Fatalf("seed source: %v", err)
 				}
 
-				g, err := a.AcquireRecovery(testLane)
+				g, err := a.AcquireRecovery(dir)
 				if err != nil {
 					t.Fatalf("acquire: %v", err)
 				}

@@ -122,12 +122,15 @@ type Spool struct {
 type Option func(*Spool)
 
 // WithAllocator makes every Append pass through a's ordinary producer admission,
-// charged to the lane directory. Open charges every file in that directory to it
-// with Allocator.ChargeMeasured, replacing any earlier charge, so reopening a
-// lane never counts it twice; a lane Open rejects as corrupt stays charged at its
-// size on disk. Close keeps the charge, because the files are still on disk;
-// release it with Allocator.ReleaseOrdinary once they are physically deleted.
-// Share one allocator across every lane on the same filesystem.
+// charged to the lane directory: dir itself, which for a LaneSet is a generation
+// directory, the one Allocator.AcquireRecovery names for a recovery writing into
+// it, not the route profile/traffic class directory above. Open charges every
+// file in that directory to it with Allocator.ChargeMeasured, replacing any
+// earlier charge, so reopening a lane never counts it twice; a lane Open rejects
+// as corrupt stays charged at its size on disk. Close keeps the charge, because
+// the files are still on disk; release it with Allocator.ReleaseOrdinary once
+// they are physically deleted. Share one allocator across every lane on the same
+// filesystem.
 func WithAllocator(a *Allocator) Option {
 	return func(s *Spool) { s.alloc = a }
 }
