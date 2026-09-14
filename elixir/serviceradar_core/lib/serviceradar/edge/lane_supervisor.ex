@@ -31,18 +31,19 @@ defmodule ServiceRadar.Edge.LaneSupervisor do
 
   ALSO CLOSED, and separately: the reporting. `JetStreamPublisher` refuses to report a publish
   durable when the accounting that authorised it did not survive -- it returns a RETRYABLE error
-  instead of reporting the record delivered. Nothing at this layer republishes; there is no
-  production caller, so what is established is only the RETURN VALUE. Withholding progress for
-  that source sequence is the future caller's obligation.
+  instead of reporting the record delivered. Nothing at this layer republishes: `PublishPipeline`
+  records that error REJECTED_RETRYABLE, which caps the lane's prefix, and
+  `ServiceRadarAgentGateway.EdgeRecordIngestServer` withholds the ack for it, so the agent's own
+  deadline drives the retry.
 
   NOT CLOSED: an owner that dies mid-request. Fencing fires on the death of a transport
   GENERATION, not of an owner, so such a reservation stays charged with no attempt against it.
   That is deliberate -- owner death is not evidence the record went unpublished -- and bounding it
   needs evidence that the specific REQUEST terminated, which is task 3.5's correlation work.
 
-  NOT CLOSED EITHER: this holds against the SERIAL publisher that exists today. An invariant
-  exercised only serially is not an invariant under concurrency, and 3.3's asynchronous pipeline
-  is what must also hold it.
+  UNDER CONCURRENCY TOO: `PublishPipeline`, started last in this unit when a `:publisher` is
+  supplied, runs several publishes through one window at once, and its tests exercise the restart
+  invariant with four requests on the wire when the generation dies.
 
   ## What this does NOT cover: an ordinary reconnect
 
@@ -67,6 +68,7 @@ defmodule ServiceRadar.Edge.LaneSupervisor do
 
   alias ServiceRadar.Edge.LaneTransportRuntime
   alias ServiceRadar.Edge.PublisherPool
+  alias ServiceRadar.Edge.PublishPipeline
 
   def start_link(opts) do
     lane = Keyword.fetch!(opts, :lane)
@@ -76,8 +78,12 @@ defmodule ServiceRadar.Edge.LaneSupervisor do
   @doc "The registered name of a lane's restart unit."
   def via(lane), do: :"edge_publisher_lane_#{lane}"
 
+  @doc "The registered name of the task supervisor a lane's publish workers run under."
+  def task_supervisor(lane), do: :"edge_publish_tasks_#{lane}"
+
   @doc """
-  This lane's two children, ACCOUNTANT FIRST.
+  This lane's children, ACCOUNTANT FIRST: the accountant and the transport, then -- when a
+  `:publisher` is supplied -- the task supervisor and the `PublishPipeline`, LAST.
 
   The order is the invariant, not a style choice, because `:rest_for_one` derives its behaviour
   from it: children after the accountant are torn down when it dies, and children before it are
@@ -105,6 +111,34 @@ defmodule ServiceRadar.Edge.LaneSupervisor do
          accountant: PublisherPool.via(lane)},
         id: LaneTransportRuntime.via(lane)
       )
+    ] ++ pipeline_specs(lane, Keyword.get(opts, :publisher))
+  end
+
+  # Only with a publisher. `JetStreamPublisher` lives in the gateway, which depends on this
+  # application rather than the reverse, so only the gateway can hand one in -- and a pipeline
+  # nothing could publish through would be a process with no runtime reason.
+  defp pipeline_specs(_lane, nil), do: []
+
+  defp pipeline_specs(lane, publisher) when is_function(publisher, 2) do
+    [
+      Supervisor.child_spec({Task.Supervisor, name: task_supervisor(lane)},
+        id: task_supervisor(lane)
+      ),
+      Supervisor.child_spec({PublishPipeline, pipeline_opts(lane, publisher)},
+        id: PublishPipeline.via(lane)
+      )
+    ]
+  end
+
+  defp pipeline_opts(lane, publisher) do
+    [
+      class: lane,
+      # The accountant's NAME, not a pid: a worker resolves it when it admits, and a pid captured
+      # here would outlive nothing, since accountant death restarts this whole unit.
+      pool: PublisherPool.via(lane),
+      publisher: publisher,
+      task_supervisor: task_supervisor(lane),
+      name: PublishPipeline.via(lane)
     ]
   end
 
@@ -120,6 +154,13 @@ defmodule ServiceRadar.Edge.LaneSupervisor do
     #                        with live send capability is the over-admission defect again; the
     #                        accountant additionally starts CLOSED, so it admits nothing until a
     #                        new generation registers.
+    #   pipeline dies     -> it is LAST, so nothing else restarts. It loses only its trackers; the
+    #                        ingest server sees it go and ends each stream, and every agent
+    #                        re-opens at its own first_unresolved_sequence.
+    #
+    # Transport death also takes the task supervisor and the pipeline after it: the requests in
+    # flight on a dead transport cannot complete, so neither their workers nor the prefixes waiting
+    # on them outlive it.
     #
     # :one_for_all would have been wrong in the first direction (it would restart the accountant
     # on every transport blip, emptying the ledger); :one_for_one wrong in the second (an

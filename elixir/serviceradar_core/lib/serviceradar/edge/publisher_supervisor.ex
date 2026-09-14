@@ -30,6 +30,13 @@ defmodule ServiceRadar.Edge.PublisherSupervisor do
   holds is about the SUPERVISED topology -- the application starts these and no others -- not
   about what a caller could construct in principle.
 
+  ## The publisher
+
+  `:publisher` -- `(publication, keyword() -> result)`, which the gateway supplies as
+  `&ServiceRadarAgentGateway.JetStreamPublisher.publish_record/2` -- reaches every lane, so each
+  lane starts its `PublishPipeline`. It is an option because this application cannot name the
+  gateway's module. Without one a lane starts its accountant and transport only.
+
   ## Credits
 
   Provisional: the lane-handshake grant is not frozen, so these are operational defaults rather
@@ -90,10 +97,12 @@ defmodule ServiceRadar.Edge.PublisherSupervisor do
         Enum.map(PublisherLane.lanes(), fn lane ->
           Supervisor.child_spec(
             {LaneSupervisor,
-             lane: lane,
-             connection_settings: settings,
-             backoff_period: backoff,
-             credits: credits_for(lane, opts)},
+             [
+               lane: lane,
+               connection_settings: settings,
+               backoff_period: backoff,
+               credits: credits_for(lane, opts)
+             ] ++ Keyword.take(opts, [:publisher])},
             id: LaneSupervisor.via(lane)
           )
         end)

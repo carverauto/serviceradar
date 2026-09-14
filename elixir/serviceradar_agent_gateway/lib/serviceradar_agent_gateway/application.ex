@@ -73,6 +73,7 @@ defmodule ServiceRadarAgentGateway.Application do
   alias ServiceRadar.Edge.PublisherSupervisor
   alias ServiceRadar.NATS.Connection
   alias ServiceRadar.Telemetry.OtelSetup
+  alias ServiceRadarAgentGateway.JetStreamPublisher
 
   require Logger
 
@@ -307,13 +308,14 @@ defmodule ServiceRadarAgentGateway.Application do
   end
 
   # Use the same enablement gate as the shared NATS connection. PublisherSupervisor owns
-  # lane connections and pools; LaneSupervisor owns their startup and readiness ordering.
+  # lane connections, pools and publish pipelines; LaneSupervisor owns their startup and readiness
+  # ordering. The publisher is handed in here because core cannot name JetStreamPublisher.
   defp edge_publisher_pools_child do
     if gateway_publisher_enabled?() do
       if Process.whereis(PublisherSupervisor) do
         nil
       else
-        PublisherSupervisor
+        {PublisherSupervisor, publisher: &JetStreamPublisher.publish_record/2}
       end
     end
   end

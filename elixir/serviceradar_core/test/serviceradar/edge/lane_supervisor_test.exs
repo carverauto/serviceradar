@@ -18,6 +18,7 @@ defmodule ServiceRadar.Edge.LaneSupervisorTest do
   alias ServiceRadar.Edge.LaneSupervisor
   alias ServiceRadar.Edge.LaneTransportRuntime
   alias ServiceRadar.Edge.PublisherPool
+  alias ServiceRadar.Edge.PublishPipeline
   alias ServiceRadar.Edge.PublishWindow
 
   # A port nothing is listening on: Gnat retries in the background with a long backoff, which is
@@ -59,6 +60,60 @@ defmodule ServiceRadar.Edge.LaneSupervisorTest do
                PublisherPool.via(:recovery),
                LaneTransportRuntime.via(:recovery)
              ]
+    end
+  end
+
+  describe "with a publisher, the pipeline comes LAST" do
+    defp unused_publisher, do: fn _publication, _opts -> {:error, :unused} end
+
+    test "the task supervisor and the pipeline follow the accountant and the transport" do
+      specs = LaneSupervisor.child_specs(opts(:interactive, publisher: unused_publisher()))
+
+      assert Enum.map(specs, & &1.id) === [
+               PublisherPool.via(:interactive),
+               LaneTransportRuntime.via(:interactive),
+               LaneSupervisor.task_supervisor(:interactive),
+               PublishPipeline.via(:interactive)
+             ]
+
+      # Bound to THIS lane's accountant and run under THIS lane's task supervisor. A pipeline
+      # pointed at another lane's window would be bounded by a grant it does not belong to.
+      {PublishPipeline, :start_link, [pipeline_opts]} = List.last(specs).start
+      assert Keyword.fetch!(pipeline_opts, :class) === :interactive
+      assert Keyword.fetch!(pipeline_opts, :pool) === PublisherPool.via(:interactive)
+
+      assert Keyword.fetch!(pipeline_opts, :task_supervisor) ===
+               LaneSupervisor.task_supervisor(:interactive)
+    end
+
+    test "transport death replaces the pipeline and leaves the accountant alone" do
+      {:ok, sup} =
+        LaneSupervisor.start_link(
+          opts(:bulk, name: :lane_sup_with_pipeline, publisher: unused_publisher())
+        )
+
+      on_exit(fn ->
+        try do
+          Supervisor.stop(sup, :normal)
+        catch
+          :exit, _ -> :ok
+        end
+      end)
+
+      accountant = Process.whereis(PublisherPool.via(:bulk))
+      pipeline = Process.whereis(PublishPipeline.via(:bulk))
+      assert is_pid(pipeline)
+
+      Process.exit(transport_pid(sup), :kill)
+
+      # The requests in flight on the dead transport cannot complete, so the prefixes waiting on
+      # them go too -- while the ledger, which is FIRST, survives untouched.
+      await(fn ->
+        replacement = Process.whereis(PublishPipeline.via(:bulk))
+        is_pid(replacement) and replacement !== pipeline
+      end)
+
+      assert Process.whereis(PublisherPool.via(:bulk)) === accountant
     end
   end
 

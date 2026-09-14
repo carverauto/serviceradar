@@ -6,6 +6,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordCapabilityTest do
 
   alias ServiceRadar.Edge.PublisherLane
   alias ServiceRadar.Edge.PublisherPool
+  alias ServiceRadar.Edge.PublishPipeline
   alias ServiceRadarAgentGateway.EdgeRecordCapability
   alias ServiceRadarAgentGateway.TestSupport.EdgeContractRegistryStub
 
@@ -57,11 +58,20 @@ defmodule ServiceRadarAgentGateway.EdgeRecordCapabilityTest do
     refute EdgeRecordCapability.ready?()
   end
 
-  test "ready when enabled and every lane's accountant and transport are alive" do
+  test "ready when enabled and every lane's accountant, transport and pipeline are alive" do
     Application.put_env(:serviceradar_agent_gateway, :edge_records_publisher, enabled: true)
     start_every_lane!()
 
     assert EdgeRecordCapability.ready?()
+  end
+
+  test "not ready when every lane's accountant and transport are alive but no pipeline is" do
+    # The ingest server offers every frame to the pipeline, so a lane without one cannot publish
+    # anything -- however healthy its accountant and transport are.
+    Application.put_env(:serviceradar_agent_gateway, :edge_records_publisher, enabled: true)
+    Enum.each(PublisherLane.lanes(), &start_lane!(&1, pipeline?: false))
+
+    refute EdgeRecordCapability.ready?()
   end
 
   test "not ready when every lane is alive but no contract registry is loaded" do
@@ -76,12 +86,15 @@ defmodule ServiceRadarAgentGateway.EdgeRecordCapabilityTest do
     Enum.each(PublisherLane.lanes(), &start_lane!/1)
   end
 
-  defp start_lane!(lane) do
+  defp start_lane!(lane, opts \\ []) do
     # Defensive: force a clean slate under these registered names first. A leaked process from a
     # prior test (or a killed :DOWN not yet processed) must not turn this into an unrelated
     # {:already_started, _} failure -- a fresh registration is the thing under test.
     clear_registered!(PublisherPool.via(lane))
     clear_registered!(PublisherLane.connection_name(lane))
+    clear_registered!(PublishPipeline.via(lane))
+
+    if Keyword.get(opts, :pipeline?, true), do: start_pipeline!(lane)
 
     {:ok, pool} =
       PublisherPool.start_link(
@@ -101,6 +114,21 @@ defmodule ServiceRadarAgentGateway.EdgeRecordCapabilityTest do
     connection = spawn(fn -> Process.sleep(:infinity) end)
     Process.register(connection, connection_name)
     on_exit(fn -> Process.exit(connection, :kill) end)
+  end
+
+  defp start_pipeline!(lane) do
+    {:ok, tasks} = Task.Supervisor.start_link()
+
+    {:ok, pipeline} =
+      PublishPipeline.start_link(
+        class: lane,
+        pool: PublisherPool.via(lane),
+        publisher: fn _publication, _opts -> {:error, :unused} end,
+        task_supervisor: tasks,
+        name: PublishPipeline.via(lane)
+      )
+
+    on_exit(fn -> stop_if_alive(pipeline) end)
   end
 
   defp clear_registered!(name) do
