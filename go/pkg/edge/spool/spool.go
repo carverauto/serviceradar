@@ -26,6 +26,10 @@
 // ack watermark). Multi-segment rotation/physical reclaim, corrupt-segment
 // quarantine, and the loss-manifest/recovery-generation rollover are follow-on
 // slices within task 2.4.
+//
+// Capacity (task 2.26) lives in reserve.go: an Allocator shared by every lane
+// keeps the aggregate recovery reserve and a minimum-free floor out of producer
+// admission, and a failed storage barrier fail-stops durable work (barrier.go).
 package spool
 
 import (
@@ -101,16 +105,38 @@ type Record struct {
 
 // Spool is a single-lane append-only spool. It is safe for concurrent use.
 type Spool struct {
-	dir string
+	dir   string
+	alloc *Allocator
 
 	mu       sync.Mutex
-	seg      *os.File
+	seg      durableFile
 	nextSeq  uint64
 	resolved uint64
+	// failErr is set by the first failed record write or fsync. From then on
+	// Append refuses: the segment tail is in an unknown state, and appending past
+	// it would bury a torn record mid-segment. Reopening truncates the torn tail.
+	failErr error
+}
+
+// Option configures Open.
+type Option func(*Spool)
+
+// WithAllocator makes every Append pass through a's ordinary producer admission,
+// charged to the lane directory: dir itself, which for a LaneSet is a generation
+// directory, the one Allocator.AcquireRecovery names for a recovery writing into
+// it, not the route profile/traffic class directory above. Open charges every
+// file in that directory to it with Allocator.ChargeMeasured, replacing any
+// earlier charge, so reopening a lane never counts it twice; a lane Open rejects
+// as corrupt stays charged at its size on disk. Close keeps the charge, because
+// the files are still on disk; release it with Allocator.ReleaseOrdinary once
+// they are physically deleted. Share one allocator across every lane on the same
+// filesystem.
+func WithAllocator(a *Allocator) Option {
+	return func(s *Spool) { s.alloc = a }
 }
 
 // Open opens (creating if needed) the spool at dir and recovers durable state.
-func Open(dir string) (*Spool, error) {
+func Open(dir string, opts ...Option) (*Spool, error) {
 	if err := os.MkdirAll(dir, dirPerm); err != nil {
 		return nil, fmt.Errorf("spool: mkdir: %w", err)
 	}
@@ -119,7 +145,15 @@ func Open(dir string) (*Spool, error) {
 	}
 
 	s := &Spool{dir: dir}
+	for _, opt := range opts {
+		opt(s)
+	}
 
+	if s.alloc != nil {
+		if err := s.chargeLane(); err != nil {
+			return nil, err
+		}
+	}
 	maxSeq, validLen, err := s.scanSegment()
 	if err != nil {
 		return nil, err
@@ -134,6 +168,12 @@ func Open(dir string) (*Spool, error) {
 		_ = f.Close()
 		return nil, fmt.Errorf("spool: truncate torn tail: %w", err)
 	}
+	if s.alloc != nil {
+		if err := s.chargeLane(); err != nil {
+			_ = f.Close()
+			return nil, err
+		}
+	}
 	if _, err := f.Seek(validLen, io.SeekStart); err != nil {
 		_ = f.Close()
 		return nil, fmt.Errorf("spool: seek: %w", err)
@@ -147,12 +187,39 @@ func Open(dir string) (*Spool, error) {
 		return nil, err
 	}
 	s.resolved = resolved
-
 	return s, nil
+}
+
+// chargeLane charges every regular file in the lane directory to the allocator,
+// not only the segment: whatever the lane keeps beside it occupies its disk too.
+func (s *Spool) chargeLane() error {
+	entries, err := os.ReadDir(s.dir)
+	if err != nil {
+		return fmt.Errorf("spool: measure lane: %w", err)
+	}
+	var total uint64
+	for _, entry := range entries {
+		if !entry.Type().IsRegular() {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return fmt.Errorf("spool: measure lane: %w", err)
+		}
+		total += uint64(info.Size())
+	}
+	s.alloc.ChargeMeasured(s.dir, total)
+	return nil
 }
 
 // Append persists one frame durably and returns its assigned sequence. The
 // sequence space starts at 1 and is never reused. eventID must be 16 bytes.
+//
+// With an allocator, a refused admission returns an error matching
+// ErrAdmissionRefused and writes nothing. A failed write or fsync returns a
+// *FailStopError, and every later Append is refused with it without touching
+// the segment. It also stops ordinary admission on a shared allocator for every
+// lane, but leaves recovery running: recovery is how a failed lane is repaired.
 func (s *Spool) Append(eventID, body []byte) (uint64, error) {
 	if len(eventID) != 16 {
 		return 0, fmt.Errorf("%w: got %d", ErrEventIDLength, len(eventID))
@@ -161,13 +228,29 @@ func (s *Spool) Append(eventID, body []byte) (uint64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if s.failErr != nil {
+		return 0, s.failErr
+	}
+	if s.seg == nil {
+		return 0, fmt.Errorf("spool: append: %w", os.ErrClosed)
+	}
+
 	seq := s.nextSeq
 	rec := encodeRecord(seq, eventID, body)
-	if _, err := s.seg.Write(rec); err != nil {
-		return 0, fmt.Errorf("spool: write record: %w", err)
+	if s.alloc != nil {
+		// Admitted bytes stay charged even if the write below fails: a failed
+		// write may still have put some of them on disk.
+		if err := s.alloc.admit(s.dir, uint64(len(rec))); err != nil {
+			return 0, err
+		}
 	}
-	if err := s.seg.Sync(); err != nil {
-		return 0, fmt.Errorf("spool: fsync record: %w", err)
+	err := writeAndSync(s.seg, filepath.Join(s.dir, segmentFile), rec)
+	if s.alloc != nil {
+		s.alloc.settle(uint64(len(rec)), err)
+	}
+	if err != nil {
+		s.failErr = err
+		return 0, err
 	}
 
 	s.nextSeq++

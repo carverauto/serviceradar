@@ -842,7 +842,7 @@
   re-checksum at the destination BEFORE the source becomes eligible for release;
   degrade a span that cannot be verified to unattributable rather than dropping or
   blindly copying it.
-- [ ] 2.26 **Implement the reserve and allocation primitives (no coordinator
+- [x] 2.26 **Implement the reserve and allocation primitives (no coordinator
   dependency).** Reserve a budget excluded from producer admission and sized for
   the AGGREGATE a recovery must durably write — destination segment, attribution
   sidecar, BOTH journal copies, manifest/tombstone pages, old->new mapping, and
@@ -852,6 +852,20 @@
   failing a barrier write must stop recovery deterministically, never silently
   proceed or partially delete. This task depends only on the spool, so it does NOT
   wait on the coordinator.
+  DONE in `go/pkg/edge/spool` (`reserve.go`, `barrier.go`); their doc comments
+  own the accounting contract. `Footprint` sizes all seven artifacts (journal
+  twice) for cumulative writes, and `Allocator` multiplies it by
+  `MaxConcurrentRecoveries`; the unborrowable floor is that reserve plus
+  `MinFree`. `Spool.Append` (via `WithAllocator`) refuses admission above
+  capacity minus the floor, or when free space cannot back the outstanding floor
+  plus every byte still in flight. A charge lasts until its bytes are physically
+  deleted: `Finish` releases nothing, `ReleaseSource` moves the destination
+  segment and sidecar into the lane's charge, `ReleaseArtifacts` releases the
+  journals, pages and mapping, and the slot returns only after both. A failed
+  barrier write, caller-reported write (`RecoveryGrant.FailStop`), or destructive
+  step fail-stops every grant and all admission; a failed record write/fsync
+  stops its lane and all admission but not recovery; per-artifact exhaustion
+  stops its recovery. Whether a destructive step is AUTHORIZED stays with 2.28.
 - [ ] 2.27 **Resume the saved rollover work as the agent recovery coordinator
   (needs companion ABI task 1.6a plus local 2.10 and 2.21-2.26).** The paged-manifest/tombstone implementation
   preserved at `rescue/usp13-v2-wip-20260725` (`9a3a701f`) already builds pages,
