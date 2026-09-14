@@ -26,6 +26,10 @@
 // ack watermark). Multi-segment rotation/physical reclaim, corrupt-segment
 // quarantine, and the loss-manifest/recovery-generation rollover are follow-on
 // slices within task 2.4.
+//
+// Capacity (task 2.26) lives in reserve.go: an Allocator shared by every lane
+// keeps the aggregate recovery reserve and a minimum-free floor out of producer
+// admission, and a failed storage barrier fail-stops durable work (barrier.go).
 package spool
 
 import (
@@ -101,16 +105,35 @@ type Record struct {
 
 // Spool is a single-lane append-only spool. It is safe for concurrent use.
 type Spool struct {
-	dir string
+	dir   string
+	alloc *Allocator
 
 	mu       sync.Mutex
-	seg      *os.File
+	seg      durableFile
 	nextSeq  uint64
 	resolved uint64
+	// charged is the bytes this spool holds charged to alloc, released on Close
+	// so reopening the lane on the same allocator does not count them twice.
+	charged uint64
+	// failErr is set by the first failed record write or fsync. From then on
+	// Append refuses: the segment tail is in an unknown state, and appending past
+	// it would bury a torn record mid-segment. Reopening truncates the torn tail.
+	failErr error
+}
+
+// Option configures Open.
+type Option func(*Spool)
+
+// WithAllocator makes every Append pass through a's ordinary producer admission,
+// and charges the segment bytes recovered at open to a. Share one allocator
+// across every lane on the same filesystem. Close releases the lane's charge; the
+// next Open re-measures and charges it again.
+func WithAllocator(a *Allocator) Option {
+	return func(s *Spool) { s.alloc = a }
 }
 
 // Open opens (creating if needed) the spool at dir and recovers durable state.
-func Open(dir string) (*Spool, error) {
+func Open(dir string, opts ...Option) (*Spool, error) {
 	if err := os.MkdirAll(dir, dirPerm); err != nil {
 		return nil, fmt.Errorf("spool: mkdir: %w", err)
 	}
@@ -119,6 +142,9 @@ func Open(dir string) (*Spool, error) {
 	}
 
 	s := &Spool{dir: dir}
+	for _, opt := range opts {
+		opt(s)
+	}
 
 	maxSeq, validLen, err := s.scanSegment()
 	if err != nil {
@@ -148,11 +174,20 @@ func Open(dir string) (*Spool, error) {
 	}
 	s.resolved = resolved
 
+	if s.alloc != nil {
+		s.charged = uint64(validLen)
+		s.alloc.ChargeExisting(s.charged)
+	}
 	return s, nil
 }
 
 // Append persists one frame durably and returns its assigned sequence. The
 // sequence space starts at 1 and is never reused. eventID must be 16 bytes.
+//
+// With an allocator, a refused admission returns an error matching
+// ErrAdmissionRefused and writes nothing. A failed write or fsync returns a
+// *FailStopError, and every later Append is refused with it without touching
+// the segment.
 func (s *Spool) Append(eventID, body []byte) (uint64, error) {
 	if len(eventID) != 16 {
 		return 0, fmt.Errorf("%w: got %d", ErrEventIDLength, len(eventID))
@@ -161,13 +196,29 @@ func (s *Spool) Append(eventID, body []byte) (uint64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if s.failErr != nil {
+		return 0, s.failErr
+	}
+	if s.seg == nil {
+		return 0, fmt.Errorf("spool: append: %w", os.ErrClosed)
+	}
+
 	seq := s.nextSeq
 	rec := encodeRecord(seq, eventID, body)
-	if _, err := s.seg.Write(rec); err != nil {
-		return 0, fmt.Errorf("spool: write record: %w", err)
+	if s.alloc != nil {
+		// Admitted bytes stay charged even if the write below fails: a failed
+		// write may still have put some of them on disk.
+		if err := s.alloc.Admit(uint64(len(rec))); err != nil {
+			return 0, err
+		}
+		s.charged += uint64(len(rec))
 	}
-	if err := s.seg.Sync(); err != nil {
-		return 0, fmt.Errorf("spool: fsync record: %w", err)
+	if err := writeAndSync(s.seg, filepath.Join(s.dir, segmentFile), rec); err != nil {
+		s.failErr = err
+		if s.alloc != nil {
+			s.alloc.failStop(err)
+		}
+		return 0, err
 	}
 
 	s.nextSeq++
@@ -291,6 +342,12 @@ func (s *Spool) Close() error {
 	}
 	err := s.seg.Close()
 	s.seg = nil
+	if s.alloc != nil {
+		// Release only this lane's own charge. The ledger refuses a release it
+		// cannot cover, so a double release can never create capacity.
+		_ = s.alloc.ReleaseOrdinary(s.charged)
+		s.charged = 0
+	}
 	return err
 }
 
