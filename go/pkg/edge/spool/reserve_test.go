@@ -192,6 +192,8 @@ func onDisk(t *testing.T, path string) bool {
 // laneCommitLen is what committing body adds on disk to a lane whose evidence
 // covers every earlier sequence: the framed record plus a PREPARED and a
 // COMMITTED entry in each evidence copy.
+//
+//nolint:unparam // body sizes the record the same way the caller's append does
 func laneCommitLen(body string) uint64 {
 	return uint64(minRecordLen+len(body)) + evidenceCopies*2*evidenceEntryLen
 }
@@ -199,7 +201,8 @@ func laneCommitLen(body string) uint64 {
 // deleteLane physically removes a lane's segment and both evidence copies.
 func deleteLane(t *testing.T, dir string) {
 	t.Helper()
-	paths := []string{filepath.Join(dir, segmentFile)}
+	paths := make([]string, 0, 1+evidenceCopies)
+	paths = append(paths, filepath.Join(dir, segmentFile))
 	for c := range evidenceCopies {
 		paths = append(paths, filepath.Join(dir, evidenceDirName(c)))
 	}

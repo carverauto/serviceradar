@@ -42,6 +42,7 @@ const (
 var (
 	errReaderNeverCaptured = errors.New("reader never captured the size")
 	errReaderScanStalled   = errors.New("reader scan never finished")
+	errReaderMissedCopy    = errors.New("reader never found copy B missing")
 )
 
 var allBarriers = []barrier{ //nolint:gochecknoglobals // test table
@@ -902,6 +903,7 @@ func TestRefreshReadsEvidenceCopyCreatedDuringScan(t *testing.T) {
 	scanned := make(chan scan, 1)
 	var midCommit scan
 	writer.beforeBarrier = func(b barrier) error {
+		//nolint:exhaustive // every other barrier position is crossed without pausing
 		switch b {
 		case barrierEvidenceDirA:
 			// Copy A exists and copy B does not yet.
@@ -912,7 +914,7 @@ func TestRefreshReadsEvidenceCopyCreatedDuringScan(t *testing.T) {
 			select {
 			case <-missing:
 			case <-time.After(10 * time.Second):
-				return errors.New("reader never found copy B missing")
+				return errReaderMissedCopy
 			}
 		case barrierCommitB:
 			// Copy A is committed and copy B is not yet updated.
@@ -920,7 +922,7 @@ func TestRefreshReadsEvidenceCopyCreatedDuringScan(t *testing.T) {
 			select {
 			case midCommit = <-scanned:
 			case <-time.After(10 * time.Second):
-				return errors.New("reader scan never finished")
+				return errReaderScanStalled
 			}
 		}
 		return nil
