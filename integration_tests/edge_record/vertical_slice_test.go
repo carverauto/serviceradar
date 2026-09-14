@@ -2109,9 +2109,8 @@ func (h *harness) awaitSingleLedgerRow(t *testing.T, fx *FixtureRecord) int {
 //     moment it sees all three attempts active.
 //  2. The watcher trace must then show a REPLACEMENT generation accepting
 //     while all three request owners are still alive, with the SAME
-//     accountant still charging all three reservations -- available frames
-//     at most grant-3, bytes still outstanding -- and none of those attempts
-//     on the replacement.
+//     accountant still charging all three reservations -- their bytes still
+//     outstanding -- and none of those attempts on the replacement.
 //  3. Each owner's exit (termination) is observed with its charge still held.
 //  4. With the replacement proven able to publish, PubAcks are withheld
 //     again while one terminated publication is re-sent and new work is

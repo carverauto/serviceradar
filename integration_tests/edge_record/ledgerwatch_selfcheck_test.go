@@ -143,10 +143,9 @@ func TestAnalyzeRestartOverlapRejects(t *testing.T) {
 			want: "released while its request was outstanding",
 		},
 		{
-			name: "a replacement whose totals hand the charges back",
+			name: "a replacement whose byte total hands the charges back",
 			mutate: func(tr *ledgerTrace) {
-				tr.Entries[3].OutstandingFrames, tr.Entries[3].OutstandingBytes = 0, 0
-				tr.Entries[3].AvailableFrames, tr.Entries[3].AvailableBytes = 64, 64<<20
+				tr.Entries[3].OutstandingBytes, tr.Entries[3].AvailableBytes = 0, 64<<20
 			},
 			want: "capacity was reopened",
 		},

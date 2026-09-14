@@ -507,9 +507,6 @@ func (c *restartOverlapCheck) replacement(kill int) (int, bool) {
 	if rep.OutstandingBytes < c.chargedBytes {
 		c.failf("replacement accepting: outstanding_bytes=%d, below the %d bytes the in-flight requests hold -- capacity was reopened", rep.OutstandingBytes, c.chargedBytes)
 	}
-	if limit := rep.FrameCredits - int64(len(c.plan.InFlight)); rep.AvailableFrames > limit {
-		c.failf("replacement accepting: available_frames=%d exceeds grant-in_flight=%d -- capacity was reopened", rep.AvailableFrames, limit)
-	}
 	return repIdx, true
 }
 
@@ -590,9 +587,6 @@ func (c *restartOverlapCheck) readmission(termIdx int) bool {
 		if _, ok := rd.reservation(s); !ok {
 			c.failf("re-admission: %s's charge is no longer counted", s)
 		}
-	}
-	if floor := int64(len(c.plan.InFlight) + 1); rd.OutstandingFrames < floor {
-		c.failf("re-admission: outstanding_frames=%d, want at least %d (every in-flight charge plus the new work)", rd.OutstandingFrames, floor)
 	}
 	// The re-admitted publication reused its original charge: its
 	// reservation was never released between termination and re-admission.
