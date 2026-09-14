@@ -108,6 +108,7 @@ ASYNC_INTEGRATION_SRCS = [
     "test/serviceradar/observability/anomaly_addon_config_projector_test.exs",
     "test/serviceradar/observability/anomaly_config_seeder_db_test.exs",
     "test/serviceradar/observability/anomaly_config_seeder_test.exs",
+    "test/serviceradar/observability/anomaly_drift_mode_backfill_migration_db_test.exs",
     "test/serviceradar/observability/anomaly_ingest_silence_worker_db_test.exs",
     "test/serviceradar/observability/capacity_forecast_config_test.exs",
     "test/serviceradar/observability/capacity_forecasting/verdict_emitter_test.exs",
