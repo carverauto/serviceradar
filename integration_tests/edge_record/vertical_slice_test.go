@@ -34,13 +34,15 @@
 // later groups depend on state earlier ones create.
 //
 // What is proven exactly, and what is a documented approximation, is called
-// out per group below -- see each t.Run's doc comment. Groups E and F are
-// the hardest to pin down from outside the BEAM without a purpose-built admin
-// surface (none exists in production code today beyond release `rpc`);
-// where a fully precise black-box proof was not achievable, the closest real
-// approximation is used and clearly labeled, per this repo's Hard Rule that
-// "a verification must be able to FAIL" -- an approximation that cannot fail
-// is called out as such, not disguised as a stronger proof.
+// out per group below -- see each t.Run's doc comment. Groups E and F make
+// claims about a request that is still outstanding, so they read the lane
+// accountant's credit ledger (PublisherPool.ledger/1) from inside the gateway
+// node over release `rpc` (ledgerwatch.go) while the gateway's NATS proxy
+// holds that request in flight (natsproxy.go). Where a fully precise
+// black-box proof was not achievable, the closest real approximation is used
+// and clearly labeled, per this repo's Hard Rule that "a verification must be
+// able to FAIL" -- an approximation that cannot fail is called out as such,
+// not disguised as a stronger proof.
 package verticalslice
 
 import (
@@ -52,6 +54,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -241,6 +244,10 @@ type harness struct {
 	certSet *CertSet
 
 	nats *NATSHarness
+	// gwNATS is the relay the GATEWAY reaches NATS through. Groups E and F
+	// withhold the broker's replies there to hold a publish request in
+	// flight; core and the test's own clients connect to the broker directly.
+	gwNATS *NATSProxy
 
 	gatewayEnv GatewayEnvConfig
 	coreEnv    CoreEnvConfig
@@ -348,6 +355,13 @@ func newHarness(t *testing.T) *harness {
 	t.Cleanup(natsH.Shutdown)
 	h.nats = natsH
 
+	gwNATS, err := StartNATSProxy(natsH.URL)
+	if err != nil {
+		t.Fatalf("start gateway nats proxy: %v", err)
+	}
+	t.Cleanup(gwNATS.Close)
+	h.gwNATS = gwNATS
+
 	cnpg, cnpgCAFile := resolveCNPG(t, dir)
 
 	grpcPort := freePort(t)
@@ -369,7 +383,7 @@ func newHarness(t *testing.T) *harness {
 		GRPCPort:      grpcPort,
 		MetricsPort:   gwMetricsPort,
 		CertDir:       certSet.Dir,
-		NATSURL:       natsH.URL,
+		NATSURL:       gwNATS.URL,
 		NATSCredsFile: natsH.CredsPath,
 		PartitionID:   certSet.PartitionID,
 		GatewayID:     "vslice-gateway",
@@ -1863,144 +1877,379 @@ func (h *harness) waitAgentSenderRuns(
 }
 
 // ---------------------------------------------------------------------------
+// Ledger observation for Groups E and F.
+//
+// Both groups read the gateway's :bulk lane accountant
+// (ServiceRadar.Edge.PublisherPool.ledger/1) through ONE long-running rpc
+// watcher inside the gateway node (ledgerwatch.go), and hold a real publish
+// request in flight by withholding the broker's bytes at the NATS proxy the
+// gateway connects through (natsproxy.go). The claims are then decided over
+// the watcher's trace by analyzeRestartOverlap / analyzePostHandoffFencing,
+// whose ability to fail is proven in ledgerwatch_selfcheck_test.go.
+// ---------------------------------------------------------------------------
+
+const (
+	// ledgerWatchDeadline bounds a watcher nothing stops -- a subtest that
+	// failed before stopping it. A passing subtest stops it far sooner.
+	ledgerWatchDeadline = 120 * time.Second
+	// inFlightTimeout bounds a wait on a held request: JetStreamPublisher's
+	// 5s receive timeout, plus slack for a loaded executor.
+	inFlightTimeout = 15 * time.Second
+
+	groupEReadmittedEvent = "readmitted"
+	groupFRetryEvent      = "retry-refused"
+)
+
+type ledgerWatcher struct {
+	name   string
+	dir    string
+	result chan ledgerWatchResult
+	done   *ledgerWatchResult
+}
+
+type ledgerWatchResult struct {
+	out string
+	err error
+}
+
+type frameResult struct {
+	msg *edgev1.EdgeRecordServerMessage
+	err error
+}
+
+// startLedgerWatcher starts a watcher over watched (see
+// buildLedgerWatchExpr) and returns once it is sampling.
+func (h *harness) startLedgerWatcher(t *testing.T, name string, watched, killWhenActive [][]byte) *ledgerWatcher {
+	t.Helper()
+
+	w := &ledgerWatcher{
+		name:   name,
+		dir:    filepath.Join(h.dir, "ledger-watch-"+name),
+		result: make(chan ledgerWatchResult, 1),
+	}
+	if err := os.MkdirAll(w.dir, 0o700); err != nil {
+		t.Fatalf("ledger watcher %s: mkdir: %v", name, err)
+	}
+
+	expr := buildLedgerWatchExpr(w.dir, watched, killWhenActive, ledgerWatchDeadline.Milliseconds())
+	gw := h.gwProc
+	go func() {
+		out, err := gw.RPC(expr, ledgerWatchDeadline+rpcTimeout)
+		w.result <- ledgerWatchResult{out: out, err: err}
+	}()
+	// A subtest that fails early must not leave the watcher sampling until
+	// its deadline, into the next group.
+	t.Cleanup(func() { _ = os.WriteFile(filepath.Join(w.dir, ledgerStopFile), nil, 0o600) })
+
+	if err := w.waitMarker(ledgerMarkerReady, rpcTimeout); err != nil {
+		t.Fatalf("ledger watcher %s did not start: %v", name, err)
+	}
+	return w
+}
+
+// waitMarker waits for the watcher to write marker, and fails at once if the
+// watcher has already exited without writing it.
+func (w *ledgerWatcher) waitMarker(marker string, timeout time.Duration) error {
+	path := filepath.Join(w.dir, marker)
+	deadline := time.Now().Add(timeout)
+	for {
+		if _, err := os.Stat(path); err == nil {
+			return nil
+		}
+		if w.done == nil {
+			select {
+			case r := <-w.result:
+				w.done = &r
+			default:
+			}
+		}
+		if w.done != nil {
+			if _, err := os.Stat(path); err == nil {
+				return nil
+			}
+			if w.done.err != nil {
+				return fmt.Errorf("%w %q: %w; output=%s", errLedgerWatchExited, marker, w.done.err, w.done.out)
+			}
+			return fmt.Errorf("%w %q; output=%s", errLedgerWatchExited, marker, w.done.out)
+		}
+		if !time.Now().Before(deadline) {
+			return fmt.Errorf("%w: %q within %s", errLedgerMarkerWait, marker, timeout)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// record tells the watcher an action has finished and waits until the event
+// is in the trace, so anything the test does next is ordered after it.
+func (w *ledgerWatcher) record(t *testing.T, event string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(w.dir, ledgerEventPrefix+event), nil, 0o600); err != nil {
+		t.Fatalf("ledger watcher %s: signal %s: %v", w.name, event, err)
+	}
+	if err := w.waitMarker(ledgerMarkerRecorded+event, rpcTimeout); err != nil {
+		t.Fatalf("ledger watcher %s never recorded %s: %v", w.name, event, err)
+	}
+}
+
+// stop ends the watch and returns its trace and raw output.
+func (w *ledgerWatcher) stop(t *testing.T) (*ledgerTrace, string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(w.dir, ledgerStopFile), nil, 0o600); err != nil {
+		t.Fatalf("ledger watcher %s: stop: %v", w.name, err)
+	}
+	if w.done == nil {
+		select {
+		case r := <-w.result:
+			w.done = &r
+		case <-time.After(rpcTimeout):
+			t.Fatalf("ledger watcher %s did not exit within %s of being stopped", w.name, rpcTimeout)
+		}
+	}
+	if w.done.err != nil {
+		t.Fatalf("ledger watcher %s failed: %v", w.name, w.done.err)
+	}
+	tr, err := parseLedgerTrace(w.done.out)
+	if err != nil && !errors.Is(err, errLedgerWatchTimeout) {
+		t.Fatalf("ledger watcher %s: %v\noutput: %s", w.name, err, w.done.out)
+	}
+	return tr, w.done.out
+}
+
+func ledgerMarker(prefix string, spoolID []byte) string {
+	return prefix + hex.EncodeToString(spoolID)
+}
+
+// freshPublication is a new fixture on its own fresh spool id: a publication
+// no earlier group has touched.
+func (h *harness) freshPublication(t *testing.T) (*FixtureRecord, []byte) {
+	t.Helper()
+	fx, err := BuildSweepFixture([]byte(h.certSet.AgentComponentID))
+	if err != nil {
+		t.Fatalf("build fixture: %v", err)
+	}
+	spoolID, err := edgerecord.NewUUIDv7()
+	if err != nil {
+		t.Fatalf("spool id: %v", err)
+	}
+	return fx, spoolID
+}
+
+func (h *harness) sendPublication(t *testing.T, tlsCfg *tls.Config, spoolID []byte, fx *FixtureRecord, timeout time.Duration) frameResult {
+	t.Helper()
+	msg, err := h.sendOneRawFrame(t, tlsCfg, spoolID, 1, fx.RecordBytes, fx.RecordSHA256, timeout)
+	return frameResult{msg: msg, err: err}
+}
+
+// acceptedAck reports whether msg resolves sequence 1 -- the only sequence
+// Groups E and F send, each publication on its own fresh spool id --
+// ACCEPTED_AUTHORITATIVE.
+func acceptedAck(msg *edgev1.EdgeRecordServerMessage) bool {
+	for _, d := range msg.GetAck().GetDispositions() {
+		if d.GetSequence() == 1 &&
+			d.GetKind() == edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE {
+			return true
+		}
+	}
+	return false
+}
+
+// sendUntilAccepted re-sends one publication until the gateway accepts it.
+// Only outcomes that published nothing are retried: a lane_open refused
+// Unavailable while the lane's capability is not ready, and a stream that
+// ended with no acknowledgement because the publish did not resolve (for
+// example a replacement connection not yet registered). Neither leaves a
+// request outstanding, and the broker deduplicates a republish.
+func (h *harness) sendUntilAccepted(t *testing.T, tlsCfg *tls.Config, spoolID []byte, fx *FixtureRecord, timeout time.Duration) error {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		r := h.sendPublication(t, tlsCfg, spoolID, fx, 20*time.Second)
+		if acceptedAck(r.msg) {
+			return nil
+		}
+		retryable := status.Code(r.err) == codes.Unavailable || (r.msg == nil && errors.Is(r.err, io.EOF))
+		if !retryable || !time.Now().Before(deadline) {
+			return fmt.Errorf("not accepted within %s: msg=%v err=%w", timeout, r.msg, r.err)
+		}
+		time.Sleep(pollInterval)
+	}
+}
+
+// awaitSingleLedgerRow waits for fx's event_ledger row and reports its count.
+func (h *harness) awaitSingleLedgerRow(t *testing.T, fx *FixtureRecord) int {
+	t.Helper()
+	deadline := time.Now().Add(pollTimeout)
+	var n int
+	for time.Now().Before(deadline) {
+		n = h.rpcQueryCount(t, eventLedgerExistsSQL(fx.NetworkScopeID, fx.EventID))
+		if n == 1 {
+			break
+		}
+		time.Sleep(pollInterval)
+	}
+	return n
+}
+
+// ---------------------------------------------------------------------------
 // Group E: restart overlap.
 //
-// Fires several concurrent real gRPC deliveries, then kills the :bulk
-// lane's transport process from OUTSIDE the gateway BEAM via
-// `bin/serviceradar_agent_gateway rpc` -- the only real admin surface this
-// repo exposes for reaching into a specific supervised process (there is no
-// HTTP/gRPC admin endpoint for this). Proves the accountant survives
-// (:rest_for_one) and a replacement transport eventually admits new work,
-// via observable CNPG outcomes; does NOT attempt to assert an exact,
-// numeric mid-flight capacity bound (this harness has no cheap way to
-// read the accountant's live credit ledger from outside the BEAM), so that
-// specific numeric claim in task 0.12's text is APPROXIMATED here by a
-// weaker but real check: total accepted rows across every fixture sent in
-// this subtest equal exactly the number of distinct fixtures sent, never
-// more (no double-admission from the restart).
+// Task 0.12: "While one publish request is in flight, restart the lane
+// publisher/pool and prove replacement state does not reopen capacity still
+// occupied by that request. After that request's termination is observed,
+// the replacement SHALL admit work within the original grant."
+//
+// The lane's restart unit is its TRANSPORT generation: LaneSupervisor keeps
+// the accountant stable and replaces the transport (:rest_for_one, accountant
+// first), so killing ServiceRadar.Edge.LaneTransportRuntime.via(:bulk) is the
+// restart. The accountant being replaced instead would show up as a changed
+// pool pid, which the analyzer rejects.
+//
+//  1. Three publications are sent with the broker's PubAcks withheld, so all
+//     three requests stay outstanding. The watcher kills the transport the
+//     moment it sees all three attempts active.
+//  2. The watcher trace must then show a REPLACEMENT generation accepting
+//     while all three request owners are still alive, with the SAME
+//     accountant still charging all three reservations -- available frames
+//     at most grant-3, bytes still outstanding -- and none of those attempts
+//     on the replacement.
+//  3. Each owner's exit (termination) is observed with its charge still held.
+//  4. With the replacement proven able to publish, PubAcks are withheld
+//     again while one terminated publication is re-sent and new work is
+//     sent beside it. The ledger must show the retry as a NEW attempt on the
+//     SAME reservation (never released in between, so no second credit) and
+//     the new work admitted, with every earlier charge still counted and the
+//     grant unchanged. Both are then accepted.
+//  5. Every publication settles and lands in CNPG exactly once.
+//
 // ---------------------------------------------------------------------------
 func (h *harness) testGroupE(t *testing.T) {
 	h.requireJetStream(t)
-
-	const concurrency = 3
-	type attempt struct {
-		fx      *FixtureRecord
-		spoolID []byte
-	}
-	attempts := make([]attempt, concurrency)
-	for i := range attempts {
-		fx, err := BuildSweepFixture([]byte(h.certSet.AgentComponentID))
-		if err != nil {
-			t.Fatalf("build fixture %d: %v", i, err)
-		}
-		spoolID, err := edgerecord.NewUUIDv7()
-		if err != nil {
-			t.Fatalf("spool id %d: %v", i, err)
-		}
-		attempts[i] = attempt{fx: fx, spoolID: spoolID}
-	}
 
 	tlsCfg, err := h.certSet.AgentTLSConfig(h.gatewayServerName)
 	if err != nil {
 		t.Fatalf("agent tls config: %v", err)
 	}
 
+	const inFlight = 3
+	fxs := make([]*FixtureRecord, inFlight)
+	spools := make([][]byte, inFlight)
+	for i := range fxs {
+		fxs[i], spools[i] = h.freshPublication(t)
+	}
+	newWork, newWorkSpool := h.freshPublication(t)
+	probe, probeSpool := h.freshPublication(t)
+
+	w := h.startLedgerWatcher(t, "group-e", append(append([][]byte{}, spools...), newWorkSpool), spools)
+
+	stalled := false
+	stall := func() {
+		if n := h.gwNATS.StallServerToClient(); n == 0 {
+			t.Fatal("the gateway holds no NATS connection through the proxy; nothing can be held in flight")
+		}
+		stalled = true
+	}
+	resume := func() {
+		if stalled {
+			h.gwNATS.Resume()
+			stalled = false
+		}
+	}
+	defer resume()
+
+	// (1) Hold three requests in flight; the watcher kills the transport.
+	stall()
+	results := make([]frameResult, inFlight)
 	var wg sync.WaitGroup
-	results := make([]error, concurrency)
-	for i, a := range attempts {
+	for i := range fxs {
 		wg.Add(1)
-		go func(i int, a attempt) {
+		go func(i int) {
 			defer wg.Done()
-			_, err := h.sendOneRawFrame(t, tlsCfg, a.spoolID, 1, a.fx.RecordBytes, a.fx.RecordSHA256, 20*time.Second)
-			results[i] = err
-		}(i, a)
+			results[i] = h.sendPublication(t, tlsCfg, spools[i], fxs[i], 30*time.Second)
+		}(i)
 	}
 
-	// Give the in-flight requests a brief moment to open their lanes before
-	// killing the transport out from under them.
-	time.Sleep(500 * time.Millisecond)
-
-	killExpr := "pid = Process.whereis(ServiceRadar.Edge.LaneTransportRuntime.via(:bulk)); if pid, do: Process.exit(pid, :kill); IO.puts(inspect(pid))"
-	killedPID, err := h.gwProc.RPC(killExpr, rpcTimeout)
-	if err != nil {
-		t.Fatalf("rpc kill lane transport: %v", err)
+	// (2, 3) Replacement accepting, then every owner's termination.
+	waits := make([]string, 0, 2+len(spools))
+	waits = append(waits, ledgerMarkerKilled, ledgerMarkerReplacementAccepted)
+	for _, s := range spools {
+		waits = append(waits, ledgerMarker(ledgerMarkerOwnerExited, s))
 	}
-	if strings.TrimSpace(killedPID) == "nil" {
-		t.Fatalf("ServiceRadar.Edge.LaneTransportRuntime.via(:bulk) was not registered -- cannot exercise restart overlap")
+	for _, m := range waits {
+		if err := w.waitMarker(m, inFlightTimeout); err != nil {
+			t.Fatalf("restart overlap: %v", err)
+		}
 	}
-
 	wg.Wait()
+	for i, r := range results {
+		if acceptedAck(r.msg) {
+			t.Errorf("in-flight request %d was accepted although its PubAck was withheld; nothing was held across the restart", i)
+		}
+	}
+	resume()
 
-	// Server survived (did not crash the gateway release): its health
-	// endpoint still answers.
+	if err := w.waitMarker(ledgerMarkerConnectionReplaced, pollTimeout); err != nil {
+		t.Fatalf("the killed transport's lane connection was never replaced: %v", err)
+	}
+	// The replacement carries a publish end to end before it is stalled, so
+	// step 4 cannot catch its connection mid-handshake.
+	if err := h.sendUntilAccepted(t, tlsCfg, probeSpool, probe, pollTimeout); err != nil {
+		t.Fatalf("the replacement transport never carried a publish: %v", err)
+	}
+
+	// (4) Re-admission of a terminated publication beside new work, both
+	// held so the ledger is read while they are outstanding.
+	stall()
+	readmitted := make(chan frameResult, 1)
+	fresh := make(chan frameResult, 1)
+	go func() { readmitted <- h.sendPublication(t, tlsCfg, spools[0], fxs[0], 30*time.Second) }()
+	go func() { fresh <- h.sendPublication(t, tlsCfg, newWorkSpool, newWork, 30*time.Second) }()
+	for _, m := range []string{ledgerMarker(ledgerMarkerReactivated, spools[0]), ledgerMarker(ledgerMarkerActive, newWorkSpool)} {
+		if err := w.waitMarker(m, inFlightTimeout); err != nil {
+			t.Fatalf("re-admission on the replacement: %v", err)
+		}
+	}
+	w.record(t, groupEReadmittedEvent)
+	resume()
+	if r := <-readmitted; !acceptedAck(r.msg) {
+		t.Errorf("the re-admitted publication was not accepted once its PubAck was released: msg=%v err=%v", r.msg, r.err)
+	}
+	if r := <-fresh; !acceptedAck(r.msg) {
+		t.Errorf("new work on the replacement was not accepted once its PubAck was released: msg=%v err=%v", r.msg, r.err)
+	}
+
+	// (5) Settle the other two held publications on their original charges.
+	for i := 1; i < inFlight; i++ {
+		if err := h.sendUntilAccepted(t, tlsCfg, spools[i], fxs[i], pollTimeout); err != nil {
+			t.Errorf("held publication %d was not accepted after the restart: %v", i, err)
+		}
+	}
+	for _, s := range append(append([][]byte{}, spools...), newWorkSpool) {
+		if err := w.waitMarker(ledgerMarker(ledgerMarkerReleased, s), pollTimeout); err != nil {
+			t.Errorf("settlement: %v", err)
+		}
+	}
+
+	tr, raw := w.stop(t)
+	violations := analyzeRestartOverlap(tr, restartOverlapPlan{
+		InFlight:        []string{hex.EncodeToString(spools[0]), hex.EncodeToString(spools[1]), hex.EncodeToString(spools[2])},
+		Readmitted:      hex.EncodeToString(spools[0]),
+		NewWork:         hex.EncodeToString(newWorkSpool),
+		ReadmittedEvent: groupEReadmittedEvent,
+	})
+	for _, v := range violations {
+		t.Errorf("restart overlap: %s", v)
+	}
+	if len(violations) > 0 {
+		t.Logf("ledger trace: %s", raw)
+	}
+
 	if err := probeHealth(fmt.Sprintf("http://127.0.0.1:%d/health", h.gatewayEnv.MetricsPort), 10*time.Second); err != nil {
-		t.Fatalf("gateway health check failed after killing the lane transport: %v", err)
+		t.Errorf("gateway health check failed after the lane transport restart: %v", err)
 	}
-
-	// Every fixture eventually lands exactly once (no loss, no
-	// double-admission across the restart).
-	deadline := time.Now().Add(pollTimeout)
-	var total int
-	for time.Now().Before(deadline) {
-		total = 0
-		for _, a := range attempts {
-			total += h.rpcQueryCount(t, eventLedgerExistsSQL(a.fx.NetworkScopeID, a.fx.EventID))
+	for i, fx := range append(append([]*FixtureRecord{}, fxs...), newWork, probe) {
+		if n := h.awaitSingleLedgerRow(t, fx); n != 1 {
+			t.Errorf("publication %d has %d event_ledger rows after the restart, want exactly 1", i, n)
 		}
-		if total == concurrency {
-			break
-		}
-		time.Sleep(pollInterval)
-	}
-	if total != concurrency {
-		t.Errorf("after lane-transport restart, %d/%d concurrent fixtures landed exactly once in CNPG (want all %d, no duplicates)", total, concurrency, concurrency)
-	}
-
-	// Replacement transport admits new work: one more fixture, sent after
-	// the restart, must succeed end-to-end.
-	post, err := BuildSweepFixture([]byte(h.certSet.AgentComponentID))
-	if err != nil {
-		t.Fatalf("build post-restart fixture: %v", err)
-	}
-	postSpoolID, err := edgerecord.NewUUIDv7()
-	if err != nil {
-		t.Fatalf("post-restart spool id: %v", err)
-	}
-	// "Eventually" is load-bearing. Killing the transport generation with
-	// :kill leaves its old NATS connection process still registered under
-	// the lane's name for a moment after the supervisor itself is gone, so
-	// the replacement generation's FIRST connect attempt is refused with
-	// already_started and Gnat.ConnectionSupervisor retries only after its
-	// backoff period (5s). Until that retry succeeds, the gateway's
-	// readiness gate (EdgeRecordCapability.ready?) fails closed and every
-	// lane_open is refused with Unavailable. A refused lane_open publishes
-	// nothing, so re-sending the same (spool_id, sequence) is a fresh
-	// publication, not a retry of one in flight. Only Unavailable is
-	// retried; any other error is a real post-restart failure. The bound is
-	// pollTimeout (20s), comfortably above the backoff, and a lane that
-	// never reopens fails loudly below.
-	deadline = time.Now().Add(pollTimeout)
-	var sendErr error
-	for {
-		_, sendErr = h.sendOneRawFrame(t, tlsCfg, postSpoolID, 1, post.RecordBytes, post.RecordSHA256, 20*time.Second)
-		if sendErr == nil || status.Code(sendErr) != codes.Unavailable || !time.Now().Before(deadline) {
-			break
-		}
-		time.Sleep(pollInterval)
-	}
-	if sendErr != nil {
-		t.Fatalf("post-restart send failed (replacement transport did not admit new work within %s): %v", pollTimeout, sendErr)
-	}
-	deadline = time.Now().Add(pollTimeout)
-	var landed int
-	for time.Now().Before(deadline) {
-		landed = h.rpcQueryCount(t, eventLedgerExistsSQL(post.NetworkScopeID, post.EventID))
-		if landed == 1 {
-			break
-		}
-		time.Sleep(pollInterval)
-	}
-	if landed != 1 {
-		t.Errorf("post-restart fixture did not land within the original grant (count=%d)", landed)
 	}
 }
 
@@ -2029,84 +2278,102 @@ func probeHealth(url string, timeout time.Duration) error {
 // ---------------------------------------------------------------------------
 // Group F: post-handoff fencing.
 //
-// APPROXIMATION, documented: this repo's only production fencing tests
-// (publish_pipeline_test.exs) exercise PublishWindow directly inside the
-// BEAM with a controllable clock/process; a black-box gRPC-only client
-// cannot observe the exact "refused until fenced by observable owner/
-// start/termination state" transition with the same precision. What IS
-// verified here, over the REAL registered RPC: sending the identical
-// publication (same spool_id, same sequence, same record content) twice
-// CONCURRENTLY results in at most one accepted CNPG row for that content
-// (no double-admission of the same publication), and a THIRD, later attempt
-// for a NEW sequence on the same lane succeeds normally (the lane is not
-// left in a jammed/permanently-refusing state by the concurrent attempt).
+// Task 0.12: "After a reservation is handed to its request owner, attempt a
+// retry of that publication and observe refusal until the previous request
+// is fenced by observable owner/start/termination state. After that fence,
+// the same publication SHALL be admitted once and proceed."
+//
+//  1. One publication is sent with its PubAck withheld. The watcher sees the
+//     hand-off: an ACTIVE attempt (the start) with token T1 and its owner, the
+//     gateway stream process that will issue the request.
+//  2. The identical publication is re-sent on a second stream. Its stream
+//     must end with no acknowledgement, and the first sample after that
+//     answer must still show T1 active under the same, living owner with a
+//     transport accepting -- so the refusal was the in-flight attempt, not
+//     missing transport, and the retry displaced nothing.
+//  3. The fence: the first request's owner reports its termination, leaving
+//     the reservation charged with no attempt, and exits.
+//  4. Re-sent once more, the publication is accepted, is admitted at most once
+//     (one new token), settles, and lands in CNPG exactly once.
+//
+// The refusal is decided by attempt state, never by the PubAck deadline: the
+// retry is answered well inside the first attempt's deadline, and admission
+// waits for the owner's termination. That a passed deadline authorises
+// nothing is PublishWindow's own unit-tested contract.
 // ---------------------------------------------------------------------------
 func (h *harness) testGroupF(t *testing.T) {
 	h.requireJetStream(t)
-
-	fx, err := BuildSweepFixture([]byte(h.certSet.AgentComponentID))
-	if err != nil {
-		t.Fatalf("build fixture: %v", err)
-	}
-	spoolID, err := edgerecord.NewUUIDv7()
-	if err != nil {
-		t.Fatalf("spool id: %v", err)
-	}
 
 	tlsCfg, err := h.certSet.AgentTLSConfig(h.gatewayServerName)
 	if err != nil {
 		t.Fatalf("agent tls config: %v", err)
 	}
+	fx, spoolID := h.freshPublication(t)
+	w := h.startLedgerWatcher(t, "group-f", [][]byte{spoolID}, nil)
 
-	var wg sync.WaitGroup
-	errs := make([]error, 2)
-	for i := 0; i < 2; i++ {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			_, err := h.sendOneRawFrame(t, tlsCfg, spoolID, 1, fx.RecordBytes, fx.RecordSHA256, 20*time.Second)
-			errs[i] = err
-		}(i)
+	if n := h.gwNATS.StallServerToClient(); n == 0 {
+		t.Fatal("the gateway holds no NATS connection through the proxy; nothing can be held in flight")
 	}
-	wg.Wait()
-
-	deadline := time.Now().Add(pollTimeout)
-	var n int
-	for time.Now().Before(deadline) {
-		n = h.rpcQueryCount(t, eventLedgerExistsSQL(fx.NetworkScopeID, fx.EventID))
-		if n > 0 {
-			break
+	stalled := true
+	defer func() {
+		if stalled {
+			h.gwNATS.Resume()
 		}
-		time.Sleep(pollInterval)
-	}
-	if n != 1 {
-		t.Errorf("two concurrent identical publications produced %d event_ledger rows, want exactly 1 (no double-admission)", n)
+	}()
+
+	// (1) Hand the publication to its request owner.
+	first := make(chan frameResult, 1)
+	go func() { first <- h.sendPublication(t, tlsCfg, spoolID, fx, 30*time.Second) }()
+	if err := w.waitMarker(ledgerMarker(ledgerMarkerActive, spoolID), inFlightTimeout); err != nil {
+		t.Fatalf("the publication was never handed to a request owner: %v", err)
 	}
 
-	// A subsequent, distinct sequence on the same lane still works -- the
-	// lane is not left jammed by the concurrent attempt.
-	fx2, err := BuildSweepFixture([]byte(h.certSet.AgentComponentID))
-	if err != nil {
-		t.Fatalf("build second fixture: %v", err)
+	// (2) The retry, while that request is outstanding.
+	retry := h.sendPublication(t, tlsCfg, spoolID, fx, inFlightTimeout)
+	w.record(t, groupFRetryEvent)
+	if retry.msg != nil {
+		t.Errorf("a retry offered while the first request was outstanding got %v, want its stream to end with no acknowledgement", retry.msg)
 	}
-	spoolID2, err := edgerecord.NewUUIDv7()
-	if err != nil {
-		t.Fatalf("spool id 2: %v", err)
+	if !errors.Is(retry.err, io.EOF) {
+		t.Errorf("a retry offered while the first request was outstanding ended with %v, want a clean end of stream (refused before any I/O)", retry.err)
 	}
-	if _, err := h.sendOneRawFrame(t, tlsCfg, spoolID2, 1, fx2.RecordBytes, fx2.RecordSHA256, 20*time.Second); err != nil {
-		t.Fatalf("send after concurrent-attempt probe failed: %v", err)
-	}
-	deadline = time.Now().Add(pollTimeout)
-	var n2 int
-	for time.Now().Before(deadline) {
-		n2 = h.rpcQueryCount(t, eventLedgerExistsSQL(fx2.NetworkScopeID, fx2.EventID))
-		if n2 == 1 {
-			break
+
+	// (3) The fence: charged with no attempt, and the owner gone.
+	for _, m := range []string{ledgerMarker(ledgerMarkerIdle, spoolID), ledgerMarker(ledgerMarkerOwnerExited, spoolID)} {
+		if err := w.waitMarker(m, inFlightTimeout); err != nil {
+			t.Fatalf("the first request was never fenced: %v", err)
 		}
-		time.Sleep(pollInterval)
 	}
-	if n2 != 1 {
-		t.Errorf("lane did not admit a fresh publication after the concurrent-attempt probe (count=%d)", n2)
+	select {
+	case r := <-first:
+		if acceptedAck(r.msg) {
+			t.Errorf("the first request was accepted although its PubAck was withheld; nothing was held for the retry to meet")
+		}
+	case <-time.After(inFlightTimeout):
+		t.Fatal("the first request's stream did not end after its owner terminated")
+	}
+	h.gwNATS.Resume()
+	stalled = false
+
+	// (4) Admitted once after the fence.
+	if r := h.sendPublication(t, tlsCfg, spoolID, fx, 20*time.Second); !acceptedAck(r.msg) {
+		t.Fatalf("the publication was not accepted after its previous request was fenced: msg=%v err=%v", r.msg, r.err)
+	}
+	if err := w.waitMarker(ledgerMarker(ledgerMarkerReleased, spoolID), pollTimeout); err != nil {
+		t.Errorf("settlement: %v", err)
+	}
+
+	tr, raw := w.stop(t)
+	violations := analyzePostHandoffFencing(tr, hex.EncodeToString(spoolID), groupFRetryEvent)
+	for _, v := range violations {
+		t.Errorf("post-handoff fencing: %s", v)
+	}
+	if len(violations) > 0 {
+		t.Logf("ledger trace: %s", raw)
+	}
+
+	if n := h.awaitSingleLedgerRow(t, fx); n != 1 {
+		t.Errorf("the fenced-then-admitted publication has %d event_ledger rows, want exactly 1", n)
 	}
 }
 

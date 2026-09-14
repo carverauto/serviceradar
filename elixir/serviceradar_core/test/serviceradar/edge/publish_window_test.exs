@@ -266,6 +266,30 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
       refute match?({_, %PublishWindow{}}, result)
     end
 
+    test "ledger/1 CANNOT release: it returns plain data, never a window" do
+      # The same structural guarantee as expired/2. The ledger exists to be READ from outside the
+      # owning process, so it must not become a channel that hands back a modified window.
+      w = 2 |> window(1000) |> admit!(1, 400, 100)
+      ledger = PublishWindow.ledger(w)
+
+      refute is_struct(ledger)
+      refute Enum.any?(Map.values(ledger), &match?(%PublishWindow{}, &1))
+
+      assert %{
+               frame_credits: 2,
+               byte_credits: 1000,
+               outstanding_frames: 1,
+               outstanding_bytes: 400,
+               available_frames: 1,
+               available_bytes: 600,
+               reservations: [%{bytes: 400, attempt: %{phase: :active}}]
+             } = ledger
+
+      # Reading it changed nothing.
+      assert PublishWindow.outstanding_frames(w) === 1
+      assert PublishWindow.available_bytes(w) === 600
+    end
+
     # The EXACT exported surface. Not a name filter: matching on "release"/"drop"/"reclaim" is
     # fail-open by spelling, so `free_credits/2` or `settle_expired/2` would pass the very guard
     # meant to catch them. An exact inventory makes ANY new public function fail until someone
@@ -289,6 +313,8 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
       {:expired, 2},
       {:fence_generation, 2},
       {:key, 5},
+      # READ-ONLY: returns plain data and no window -- see the test below.
+      {:ledger, 1},
       {:live_generations, 1},
       {:reservation, 2},
       {:new, 2},
