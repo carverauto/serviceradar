@@ -11,21 +11,21 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrust do
       frame decision resolves at, so a revocation cannot mix snapshots inside one frame;
     * `:keys` -- verifying Ed25519 keys by EXACT `{issuer_id, issuer_key_id}`, each with the set of
       capability PURPOSES it may issue and its lifecycle status. A key that exists but is not
-      authorized for the requested purpose resolves `:invalid`: only this resolver knows which
-      roles a key may issue, so a scheduler key cannot mint a production grant;
+      authorized for the requested purpose resolves `:key_invalid`: only this resolver knows which
+      roles a key may issue, so a scheduler key cannot mint a production grant. A key id the
+      snapshot does not hold resolves `:key_unavailable`: a key the issuer rotated to after this
+      snapshot was loaded looks exactly like an unknown one until the snapshot is replaced;
     * `:fences` -- the active producer authority generation by
       `{network_scope_id, producer_assignment_id, run_shard}`;
     * `:clock_tolerance_nano` -- bounded skew applied to every current-at-now window check.
 
   ## Fence semantics
 
-  A fence entry exists only once the control plane has ADVANCED a producer's authority generation
-  (for example, an execution shard fenced to a replacement agent). A producer key with no entry has
-  never been fenced, so the grant's own `authority_epoch` is the active generation. A record whose
-  epoch is below its entry is stale; above it is a generation this gateway has not learned yet and
-  is retryable, never authorized. An absent SNAPSHOT is unavailable, and nothing authorizes.
-  EventWriter still re-checks the fence transactionally at apply time: a fence current at
-  publication can be stale by projection.
+  A fence entry names a producer's ACTIVE authority generation. A record whose epoch equals its
+  entry is current; below it is stale; above it is a generation this gateway has not learned yet.
+  A producer with NO entry is unavailable: this snapshot does not know its active generation, and
+  a missing entry never reads as current. Future and unavailable are both retryable and never
+  authorized. An absent SNAPSHOT is unavailable, and nothing authorizes.
 
   ## Loading
 
@@ -141,28 +141,30 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrust do
   Resolves the verifying key for `{issuer_id, issuer_key_id}` in the role `purpose`.
 
   `{:ok, public_key, status}` for a known key authorized for that role; `{:error, :key_invalid}`
-  for an unknown key or one not authorized to issue `purpose`.
+  for a known key not authorized to issue `purpose`; `{:error, :key_unavailable}` for a key id this
+  snapshot does not hold.
   """
   @spec resolve_key(snapshot(), binary(), binary(), purpose()) ::
-          {:ok, binary(), key_status()} | {:error, :key_invalid}
+          {:ok, binary(), key_status()} | {:error, :key_invalid | :key_unavailable}
   def resolve_key(%{keys: keys}, issuer_id, issuer_key_id, purpose) do
     case Map.get(keys, {issuer_id, issuer_key_id}) do
       %{public_key: public_key, purposes: purposes, status: status} ->
         if MapSet.member?(purposes, purpose), do: {:ok, public_key, status}, else: {:error, :key_invalid}
 
       nil ->
-        {:error, :key_invalid}
+        {:error, :key_unavailable}
     end
   end
 
   @doc """
   Classifies a producer authority epoch against the active fence for `fence_key`: `:current`,
-  `:stale` (below the active generation) or `:future` (a generation not yet learned locally).
+  `:stale` (below the active generation), `:future` (a generation not yet learned locally) or
+  `:unavailable` (no fence entry, so the active generation is unknown here).
   """
-  @spec fence_relation(snapshot(), fence_key(), non_neg_integer()) :: :current | :stale | :future
+  @spec fence_relation(snapshot(), fence_key(), non_neg_integer()) :: :current | :stale | :future | :unavailable
   def fence_relation(%{fences: fences}, fence_key, epoch) do
     case Map.fetch(fences, fence_key) do
-      :error -> :current
+      :error -> :unavailable
       {:ok, active} when epoch < active -> :stale
       {:ok, active} when epoch > active -> :future
       {:ok, _active} -> :current

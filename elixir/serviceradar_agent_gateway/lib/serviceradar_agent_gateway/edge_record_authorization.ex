@@ -28,10 +28,14 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorization do
        Source authorization is verified WHEN THE RECORD CARRIES ONE; nothing here requires a
        generic telemetry, event or inventory record to present a scanner collection capability.
     6. SIGNATURES -- production and (if present) source capabilities verify under keys the trust
-       snapshot authorizes for exactly that role. The worst status wins: a compromise-revoked key
-       on either makes the frame a SECURITY QUARANTINE, before fence or window classification.
-    7. AUTHORITY -- the producer fence and the production window decide publication. Current
-       authority under a current fence publishes PRIMARY (a valid attached delivery grant only
+       snapshot authorizes for exactly that role. A key id the snapshot does not hold is withheld
+       as unavailable; a known key outside that role is rejected. The worst status wins: a
+       compromise-revoked key on either makes the frame a SECURITY QUARANTINE, before fence or
+       window classification.
+    7. AUTHORITY -- the producer fence and the production window decide publication. A producer
+       with no fence entry, or one ahead of its entry, is withheld: this gateway does not know its
+       authority is current. Current authority under a current fence publishes PRIMARY (a valid
+       attached delivery grant only
        changes the delivery mode to renewal/rollover). Otherwise only a current delivery grant can
        authorize delivery: an expired grant under a current fence is an ordinary late drain
        (PRIMARY, renewal/rollover mode); a STALE fence is an immutable replay published only for
@@ -41,8 +45,8 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorization do
   ## Refusal classes
 
   `{:error, class, reason, event_id}`: `:permanent` resolves the sequence as a rejection;
-  `:retryable` withholds it (the condition can clear -- a renewal, a learned fence, a clock that
-  catches up); `:paused` means this release cannot evaluate the record. `event_id` is empty only
+  `:retryable` withholds it (the condition can clear -- a renewal, a learned fence or key, a clock
+  that catches up); `:paused` means this release cannot evaluate the record. `event_id` is empty only
   for a refusal made before the record decoded.
   """
 
@@ -226,6 +230,9 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorization do
           do: {:ok, status},
           else: {:error, :permanent, {purpose, :signature}, ""}
 
+      {:error, :key_unavailable} ->
+        {:error, :retryable, {purpose, :key_unavailable}, ""}
+
       {:error, reason} ->
         {:error, :permanent, {purpose, reason}, ""}
     end
@@ -252,7 +259,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorization do
     dc = frame.delivery_capability
 
     cond do
-      fence == :future ->
+      fence in [:future, :unavailable] ->
         {:error, :retryable, :fence_not_ready, ""}
 
       # A future-dated grant is never usable early, even with a current delivery grant.

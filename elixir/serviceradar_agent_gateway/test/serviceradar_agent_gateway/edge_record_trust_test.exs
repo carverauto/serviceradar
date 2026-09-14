@@ -18,7 +18,8 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrustTest do
              EdgeRecordTrust.resolve_key(snapshot, "test-edge-issuer", EdgeRecordFactory.issuer_key_id(), :production)
 
     assert public_key == keys.public
-    assert {:error, :key_invalid} = EdgeRecordTrust.resolve_key(snapshot, "test-edge-issuer", "other-key", :production)
+    assert {:error, :key_unavailable} =
+             EdgeRecordTrust.resolve_key(snapshot, "test-edge-issuer", "other-key", :production)
   end
 
   test "a key resolves only for the purposes it may issue", %{keys: keys} do
@@ -46,7 +47,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrustTest do
     assert {:error, :clock_tolerance} = EdgeRecordTrust.new(Map.put(valid, "clock_tolerance_nano", -1))
   end
 
-  test "classifies producer epochs against advanced fences, and treats an unfenced producer as current", %{keys: keys} do
+  test "classifies producer epochs against their fence, and never reads an unfenced producer as current", %{keys: keys} do
     scope = EdgeRecordFactory.uuidv7()
     assignment = EdgeRecordFactory.uuidv7()
     document = EdgeRecordFactory.trust_document(keys.public, fences: [{scope, assignment, 0, 5}])
@@ -55,7 +56,8 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrustTest do
     assert EdgeRecordTrust.fence_relation(snapshot, {scope, assignment, 0}, 4) == :stale
     assert EdgeRecordTrust.fence_relation(snapshot, {scope, assignment, 0}, 5) == :current
     assert EdgeRecordTrust.fence_relation(snapshot, {scope, assignment, 0}, 6) == :future
-    assert EdgeRecordTrust.fence_relation(snapshot, {scope, assignment, 1}, 1) == :current
+    assert EdgeRecordTrust.fence_relation(snapshot, {scope, assignment, 1}, 5) == :unavailable
+    assert EdgeRecordTrust.fence_relation(snapshot, {EdgeRecordFactory.uuidv7(), assignment, 0}, 5) == :unavailable
   end
 
   test "installs from a JSON file, and an invalid file leaves nothing installed", %{keys: keys} do

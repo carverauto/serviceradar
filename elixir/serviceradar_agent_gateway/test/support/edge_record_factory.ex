@@ -26,8 +26,15 @@ defmodule ServiceRadarAgentGateway.TestSupport.EdgeRecordFactory do
   @issuer_key_id "test-edge-key-1"
   @hour_nanos 3_600 * 1_000_000_000
 
+  # The producer a record is attributed to unless a test names another. `trust_document/2` fences it
+  # at authority epoch 1 by default, because the gateway withholds a producer it has no fence for.
+  @network_scope_id <<0x0190_0000_0001::48, 7::4, 0x001::12, 2::2, 0x5C::62>>
+  @producer_assignment_id <<0x0190_0000_0001::48, 7::4, 0x002::12, 2::2, 0xA5::62>>
+
   def issuer_key_id, do: @issuer_key_id
   def hour_nanos, do: @hour_nanos
+  def network_scope_id, do: @network_scope_id
+  def producer_assignment_id, do: @producer_assignment_id
 
   def keypair do
     {public, private} = :crypto.generate_key(:eddsa, :ed25519)
@@ -40,7 +47,7 @@ defmodule ServiceRadarAgentGateway.TestSupport.EdgeRecordFactory do
       "keys" => [key_entry(public_key, opts) | Keyword.get(opts, :extra_keys, [])],
       "fences" =>
         opts
-        |> Keyword.get(:fences, [])
+        |> Keyword.get(:fences, [{@network_scope_id, @producer_assignment_id, 0, 1}])
         |> Enum.map(fn {scope, assignment, shard, epoch} ->
           %{
             "network_scope_id" => Base.encode64(scope),
@@ -85,7 +92,7 @@ defmodule ServiceRadarAgentGateway.TestSupport.EdgeRecordFactory do
         origin_kind: :EDGE_ORIGIN_KIND_AGENT,
         origin_principal_id: Keyword.get(opts, :principal, "agent-1"),
         producer_instance_id: "test-instance",
-        producer_assignment_id: Keyword.get_lazy(opts, :producer_assignment_id, &uuidv7/0),
+        producer_assignment_id: Keyword.get(opts, :producer_assignment_id, @producer_assignment_id),
         run_id: uuidv7(),
         run_shard: 0,
         authority_epoch: Keyword.get(opts, :authority_epoch, 1),
@@ -96,7 +103,7 @@ defmodule ServiceRadarAgentGateway.TestSupport.EdgeRecordFactory do
       },
       route_profile: :EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
       traffic_class: :EDGE_RECORD_TRAFFIC_CLASS_BULK,
-      network_scope_id: Keyword.get_lazy(opts, :network_scope_id, &uuidv7/0),
+      network_scope_id: Keyword.get(opts, :network_scope_id, @network_scope_id),
       projected_row_count: 1,
       projected_write_bytes: 256,
       cost_model_version: 1,

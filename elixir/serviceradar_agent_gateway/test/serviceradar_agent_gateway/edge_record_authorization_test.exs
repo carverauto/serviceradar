@@ -105,6 +105,14 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorizationTest do
       assert {:error, :permanent, {:production, :key_invalid}, _} = authorize(ctx, record, snapshot: trust)
     end
 
+    test "a production grant under a key id the snapshot does not hold is withheld, not rejected", ctx do
+      record = Factory.record(ctx.keys.private)
+      trust = snapshot(ctx, issuer_key_id: "test-edge-key-2")
+
+      assert {:error, :retryable, {:production, :key_unavailable}, event_id} = authorize(ctx, record, snapshot: trust)
+      assert event_id == record.event_id
+    end
+
     test "a forged source authorization", ctx do
       forger = Factory.keypair()
       record = Factory.record(ctx.keys.private, source: [signer: forger.private])
@@ -145,6 +153,16 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorizationTest do
       assert decision.delivery_mode == @mode_renewal
       assert decision.grant == :renewal
       assert byte_size(decision.delivery_proof) == 32
+    end
+
+    test "a producer with no fence entry is withheld, never authorized as current", ctx do
+      record = Factory.record(ctx.keys.private)
+      assert {:ok, %{publication: :primary}} = authorize(ctx, record)
+
+      assert {:error, :retryable, :fence_not_ready, event_id} =
+               authorize(ctx, record, snapshot: snapshot(ctx, fences: []))
+
+      assert event_id == record.event_id
     end
 
     test "a producer ahead of the locally known fence is withheld", ctx do
