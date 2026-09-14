@@ -22,8 +22,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
+	"sync"
 	"testing"
+	"time"
 
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 )
@@ -778,6 +781,134 @@ func TestScanMovesPastSlotAbandonedByAnotherHandle(t *testing.T) {
 	}
 	if got := reader.NextSequence(); got != 6 {
 		t.Fatalf("reader next sequence = %d, want 6 (sequence 3 must not be reused)", got)
+	}
+}
+
+// A reader settles slots by file sizes it captures while another handle keeps
+// appending. However far the writer gets between those captures, a record it committed
+// is never settled as uncommitted: once the writer is done, the reader sees it.
+func TestRefreshNeverSettlesACommitFromStaleSizes(t *testing.T) {
+	cases := []struct {
+		name  string
+		after string
+	}{
+		{"writer moves on after the segment size is captured", segmentFile},
+		{"writer moves on between the evidence copies' sizes", evidenceDirName(copyA)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			reader := openWith(t, dir, nil)
+			writer := openWith(t, dir, nil)
+			mustAppend(t, writer, 1, "one")
+			if v := visibleSeqs(t, reader); !slices.Equal(v, []uint64{1}) {
+				t.Fatalf("sender-visible = %v, want [1]", v)
+			}
+
+			captured := make(chan struct{})
+			resume := make(chan struct{})
+			var pause, release sync.Once
+			resumeReader := func() { release.Do(func() { close(resume) }) }
+			defer resumeReader()
+			reader.afterStat = func(file string) {
+				if file == tc.after {
+					pause.Do(func() {
+						close(captured)
+						<-resume
+					})
+				}
+			}
+
+			type scan struct {
+				recs []Record
+				err  error
+			}
+			scanned := make(chan scan, 1)
+			var midScan scan
+			records := 0
+			writer.beforeBarrier = func(b barrier) error {
+				if b != barrierRecord {
+					return nil
+				}
+				records++
+				switch records {
+				case 1:
+					// Sequence 2 is prepared but its record is not written yet.
+					go func() {
+						recs, err := reader.Unresolved()
+						scanned <- scan{recs: recs, err: err}
+					}()
+					select {
+					case <-captured:
+					case <-time.After(10 * time.Second):
+						return errors.New("reader never captured the size")
+					}
+				case 2:
+					// Sequence 2 is committed and sequence 3 is prepared.
+					resumeReader()
+					select {
+					case midScan = <-scanned:
+					case <-time.After(10 * time.Second):
+						return errors.New("reader scan never finished")
+					}
+				}
+				return nil
+			}
+			mustAppend(t, writer, 2, "two")
+			mustAppend(t, writer, 3, "three")
+			if midScan.err != nil {
+				t.Fatalf("scan racing the writer: %v", midScan.err)
+			}
+			if v := visibleSeqs(t, reader); !slices.Equal(v, []uint64{1, 2, 3}) {
+				t.Fatalf("sender-visible once the writer finished = %v, want [1 2 3]", v)
+			}
+		})
+	}
+}
+
+// A torn record's body can hold a forged record header whose checksums verify and
+// whose sequence is far beyond anything the files could hold. Open must stay bounded
+// by the files: it succeeds, without sizing its work from that sequence, and still
+// allocates and never reuses the torn slot.
+func TestForgedFarSequenceInTornBodyKeepsOpenBounded(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	mustAppend(t, s, 1, "one")
+	forged := encodeRecord(1<<60, evid(9), []byte("forged"))
+	body := slices.Concat(bytes.Repeat([]byte{'x'}, 16), forged, bytes.Repeat([]byte{'y'}, 100))
+	s.beforeBarrier = crashBefore(barrierCommitA)
+	if _, err := s.Commit(evid(2), body, Bindings{}); err == nil {
+		t.Fatal("commit succeeded through an injected crash")
+	}
+	_ = s.Close()
+	// The tear keeps the forged record whole and cuts the body just after it.
+	truncateSegment(t, dir, int64(minRecordLen+len("one")+headerLen+headerCRC+16+len(forged)))
+
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	s2, err := Open(dir)
+	runtime.ReadMemStats(&after)
+	if err != nil {
+		t.Fatalf("open with a forged far sequence: %v", err)
+	}
+	t.Cleanup(func() { _ = s2.Close() })
+	if grew := after.TotalAlloc - before.TotalAlloc; grew > 64<<20 {
+		t.Fatalf("open allocated %d bytes", grew)
+	}
+
+	res := s2.RestartResolution()
+	if res.HighWater < 2 || res.HighWater > 64 {
+		t.Fatalf("high-water = %d, want the torn slot allocated and no more than the files hold", res.HighWater)
+	}
+	assertAmbiguous(t, slotOf(t, s2, 2), EvidencePrepared, Coverage{Reason: reasonTornTail})
+	if v := visibleSeqs(t, s2); !slices.Equal(v, []uint64{1}) {
+		t.Fatalf("sender-visible = %v, want [1]", v)
+	}
+	if got := mustAppend(t, s2, 3, "after"); got != res.HighWater+1 {
+		t.Fatalf("append = %d, want %d", got, res.HighWater+1)
 	}
 }
 

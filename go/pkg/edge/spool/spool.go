@@ -198,9 +198,12 @@ type Spool struct {
 
 	// copyOrder is the order evidence copies are written in, and beforeBarrier is
 	// crossed immediately before each durability barrier. Both exist so tests can
-	// inject a crash at every barrier position in both copy orderings.
+	// inject a crash at every barrier position in both copy orderings. afterStat is
+	// crossed right after a file size is captured, so tests can move another handle's
+	// writer on between the captures a scan is bounded by.
 	copyOrder     [evidenceCopies]int
 	beforeBarrier func(barrier) error
+	afterStat     func(file string)
 }
 
 // Option configures Open.
@@ -488,6 +491,12 @@ func (s *Spool) cross(b barrier) error {
 		return nil
 	}
 	return s.beforeBarrier(b)
+}
+
+func (s *Spool) crossStat(file string) {
+	if s.afterStat != nil {
+		s.afterStat(file)
+	}
 }
 
 func (s *Spool) evidencePath(c int) string {

@@ -78,7 +78,15 @@ func (s *Spool) recover() error {
 		cursor       int
 	)
 	buf := make([]byte, evidenceEntryLen)
-	top := max(evidenceSlots, chain.maxHeaderSeq)
+	// A record header can name any sequence, but the files hold only so many slots: one
+	// per sequence the evidence copies have entries for, one per record the walk found,
+	// and one per minimal record the segment could hold for appends that left neither.
+	// Slots are materialized up to that and no further, so open is bounded by the files
+	// rather than by a header value (see resync).
+	top := min(
+		max(evidenceSlots, chain.maxHeaderSeq),
+		evidenceSlots+uint64(len(chain.records))+uint64(s.segSize/minRecordLen),
+	)
 	s.slots = make([]slotLoc, 0, top)
 	extents := make([]slotExtent, 0, top)
 
@@ -128,7 +136,7 @@ func (s *Spool) recover() error {
 	// Every sequence up to the highest one any evidence or record names is allocated:
 	// sequences are assigned contiguously, so a gap below it is a slot whose evidence
 	// was lost, not a slot that never existed.
-	highWater := max(lastEvidence, chain.maxHeaderSeq)
+	highWater := min(max(lastEvidence, chain.maxHeaderSeq), top)
 	s.slots = s.slots[:highWater]
 
 	// The torn tail is the crash boundary: a slot whose own record never fully landed.
@@ -191,8 +199,16 @@ type slotExtent struct {
 // any copy held entries for when the scan began is settled, and is adopted as it
 // resolves -- committed or not, and never reused. The highest slot may still be in
 // flight in its writer: unless it is already COMMITTED, a later scan looks at it again.
+//
+// The evidence sizes that fix that bound are captured before anything else, and the
+// segment size after them, so every write a settled slot made -- its record and each
+// copy's entries -- landed before any size this scan judges it by.
 func (s *Spool) refreshLocked() error {
 	if err := s.openEvidence(); err != nil {
+		return err
+	}
+	readers, slots, err := s.evidenceReaders(s.nextSeq)
+	if err != nil {
 		return err
 	}
 	info, err := s.seg.Stat()
@@ -200,10 +216,7 @@ func (s *Spool) refreshLocked() error {
 		return fmt.Errorf("spool: stat segment: %w", err)
 	}
 	s.segSize = max(s.segSize, info.Size())
-	readers, slots, err := s.evidenceReaders(s.nextSeq)
-	if err != nil {
-		return err
-	}
+	s.crossStat(segmentFile)
 	buf := make([]byte, evidenceEntryLen)
 	for seq := s.nextSeq; seq <= slots; seq++ {
 		views, _, gen, err := readSlotEvidence(readers, seq, buf)
@@ -322,11 +335,12 @@ func reconcileReceipt(v ReceiptVerdict, valid []evidenceEntry) (ReceiptState, bo
 }
 
 // evidenceReaders positions a reader on each open copy at sequence from's entries, and
-// returns how many slots the longest copy holds entries for.
+// returns how many slots the longest copy holds entries for. Every copy's size is
+// captured before any reader is made, and each reader reads up to the largest of them,
+// so an entry any copy wrote before the last capture is visible in every copy.
 func (s *Spool) evidenceReaders(from uint64) ([evidenceCopies]*bufio.Reader, uint64, error) {
 	var readers [evidenceCopies]*bufio.Reader
-	var entries int64
-	start := evidencePosition(from, statePrepared)
+	var size int64
 	for c, f := range s.evidence {
 		if f == nil {
 			continue
@@ -335,11 +349,17 @@ func (s *Spool) evidenceReaders(from uint64) ([evidenceCopies]*bufio.Reader, uin
 		if err != nil {
 			return readers, 0, fmt.Errorf("spool: stat evidence copy %c: %w", copyTag(c), err)
 		}
-		section := io.NewSectionReader(f, start, max(info.Size()-start, 0))
-		readers[c] = bufio.NewReaderSize(section, resyncWindow)
-		entries = max(entries, info.Size()/evidenceEntryLen)
+		size = max(size, info.Size())
+		s.crossStat(evidenceDirName(c))
 	}
-	return readers, uint64((entries + 1) / 2), nil
+	start := evidencePosition(from, statePrepared)
+	for c, f := range s.evidence {
+		if f != nil {
+			section := io.NewSectionReader(f, start, max(size-start, 0))
+			readers[c] = bufio.NewReaderSize(section, resyncWindow)
+		}
+	}
+	return readers, uint64((size/evidenceEntryLen + 1) / 2), nil
 }
 
 // readSlotEvidence reads one slot's PREPARED and COMMITTED entries from each copy.
@@ -506,7 +526,14 @@ func (s *Spool) scanChain() (chainScan, error) {
 // KNOWN ACCEPTED RISK: the distance bound is the only guard against a checksum-valid
 // record header forged inside producer-controlled body bytes. Because an intact record
 // is accepted on its checksums alone, such a forgery reached while resyncing through a
-// damaged region can inflate the sequence high-water on open. That cost was weighed
+// damaged region can name any sequence. Were open to size its slot index and per-slot
+// pass from that value, a far sequence would panic the process on every restart
+// (makeslice: cap out of range) and a moderate one would allocate gigabytes and loop
+// once per sequence; recover caps both at what the files can hold instead. What stays
+// accepted is that a forgery raises the high-water up to that cap, spending those
+// sequences as ambiguous slots, and hides the headers of later records from the walk,
+// so those records resolve from their evidence alone; and that a genuine record whose
+// sequence lies beyond the cap would see that sequence reused. These were weighed
 // against a receipted record vanishing and its sequence being reused, and accepted.
 func (s *Spool) resync(from int64, lastSeq uint64, lastEnd int64) (int64, bool, error) {
 	var magic [4]byte
