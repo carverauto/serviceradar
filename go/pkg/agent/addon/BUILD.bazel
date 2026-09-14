@@ -39,6 +39,7 @@ go_test(
         "state_env_test.go",
         "resource_limits_linux_test.go",
         "status_proto_test.go",
+        "supervise_unresponsive_test.go",
         "telemetry_env_test.go",
         "telemetry_test.go",
     ],
@@ -66,6 +67,9 @@ go_test(
     deps = [
         "//go/pkg/addon",
         "//proto/agent/addon/v1:addonpb",
+        "@com_github_hashicorp_go_plugin//:go-plugin",
         "@com_github_rs_zerolog//:zerolog",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//status",
     ],
 )
