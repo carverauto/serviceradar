@@ -65,12 +65,12 @@ type Config struct {
 	GatewayEndpoint string
 
 	// CoreEndpoint is the Core service gRPC endpoint (optional: legacy/on-prem use)
-	// Format: "host:port" e.g., "23.138.124.18:50052"
+	// Format: "host:port" e.g., "192.0.2.10:50052"
 	CoreEndpoint string
 
 	// KVEndpoint is the KV service (datasvc) gRPC endpoint (optional: legacy/on-prem use)
 	// In SaaS mode, agents get configuration from gateway via GetConfig.
-	// Format: "host:port" e.g., "23.138.124.23:50057"
+	// Format: "host:port" e.g., "192.0.2.10:50057"
 	KVEndpoint string
 
 	// CoreAPIURL is the HTTP(S) endpoint for the Core API (e.g., https://serviceradar.local)

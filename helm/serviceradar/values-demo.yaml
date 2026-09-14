@@ -10,9 +10,12 @@ topologySpread:
   whenUnsatisfiable: ScheduleAnyway
 
 global:
-  # Demo uses an immutable ServiceRadar image tag so Kyverno can verify
-  # signatures without requiring digest-pinned user-facing values.
-  imageTag: "sha-217d693de66908133302bffea9a1091b03e45d87"
+  # No imageTag here. Images follow the chart version (v<appVersion>); release
+  # images are signed with the release key, so Kyverno verification still holds.
+  # The Git-sourced demo Application sets the release tag through its Argo CD
+  # source override, and the chart-sourced one clears global.imageTag in its own
+  # valuesObject, so a tag pinned here would either be ignored or point every
+  # workload at a build that may no longer exist.
   imagePullPolicy: Always
   forceRolloutOnUpgrade: true
   storage:
