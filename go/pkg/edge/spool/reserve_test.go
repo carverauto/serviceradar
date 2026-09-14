@@ -158,16 +158,13 @@ func (f *faultFile) Close() error {
 	return err
 }
 
-func exists(t *testing.T, path string) bool {
+func onDisk(t *testing.T, path string) bool {
 	t.Helper()
-	_, err := os.Stat(path)
-	if err == nil {
-		return true
+	ok, err := exists(path)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("stat %s: %v", path, err)
-	}
-	return false
+	return ok
 }
 
 func TestFootprintCountsEveryArtifactAndBothJournalCopies(t *testing.T) {
@@ -762,7 +759,7 @@ func TestExhaustingTheReserveStopsRecoveryDeterministically(t *testing.T) {
 	if exhausted.Artifact != ArtifactJournalA || exhausted.Remaining != 0 || exhausted.Requested != 1 {
 		t.Fatalf("exhaustion = %+v, want journal copy A, requested 1, remaining 0", exhausted)
 	}
-	if ff.calls != calls || exists(t, over) || exists(t, over+".tmp") {
+	if ff.calls != calls || onDisk(t, over) || onDisk(t, over+".tmp") {
 		t.Fatal("a refused charge reached storage")
 	}
 
@@ -777,13 +774,13 @@ func TestExhaustingTheReserveStopsRecoveryDeterministically(t *testing.T) {
 	}
 	ran := false
 	err = g.RunDestructive("delete source", func() error { ran = true; return os.Remove(source) })
-	if !errors.Is(err, ErrRecoveryStopped) || ran || !exists(t, source) {
+	if !errors.Is(err, ErrRecoveryStopped) || ran || !onDisk(t, source) {
 		t.Fatalf("destructive step after exhaustion: err=%v ran=%v; want refused and source intact", err, ran)
 	}
 	if err := g.Finish(); !errors.Is(err, ErrRecoveryStopped) {
 		t.Fatalf("finish after exhaustion = %v, want ErrRecoveryStopped", err)
 	}
-	if ff.calls != calls || exists(t, journalB) {
+	if ff.calls != calls || onDisk(t, journalB) {
 		t.Fatal("a stopped recovery reached storage")
 	}
 	if got := a.Usage().ActiveRecoveries; got != 1 {
@@ -850,11 +847,11 @@ func TestFailedBarrierWriteIsFailStop(t *testing.T) {
 				// barrier may already have committed is deleted.
 				switch op {
 				case "create", "write", "fsync", "close":
-					if exists(t, dest) || exists(t, dest+".tmp") {
+					if onDisk(t, dest) || onDisk(t, dest+".tmp") {
 						t.Fatalf("failed %s left a destination or temporary file", op)
 					}
 				case "fsync dir":
-					if !exists(t, dest) {
+					if !onDisk(t, dest) {
 						t.Fatal("a failed directory fsync deleted the renamed destination")
 					}
 				}
@@ -978,7 +975,7 @@ func TestCallerWrittenOutputFailureIsFailStop(t *testing.T) {
 					t.Fatalf("%s grant charge after FailStop = %v, want ErrRecoveryStopped", name, err)
 				}
 			}
-			if ran || !exists(t, source) {
+			if ran || !onDisk(t, source) {
 				t.Fatalf("destructive step ran=%v after FailStop; want refused and source intact", ran)
 			}
 			if err := admitLanded(a, "lane", 1); !errors.Is(err, ErrFailStopped) || !errors.Is(err, errno) {
