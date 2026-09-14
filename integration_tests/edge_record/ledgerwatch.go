@@ -239,7 +239,6 @@ type ledgerTrace struct {
 type ledgerTraceEntry struct {
 	Kind  string `json:"kind"` // "sample" or "event"
 	Event string `json:"event,omitempty"`
-	AtMS  int64  `json:"at_ms"`
 
 	// Pool is the accountant's pid. A change means the accountant was
 	// restarted, and a restarted accountant starts from an empty ledger.
@@ -248,12 +247,9 @@ type ledgerTraceEntry struct {
 	// or nil while no transport is registered.
 	Accepting *string `json:"accepting,omitempty"`
 
-	FrameCredits      int64 `json:"frame_credits"`
-	ByteCredits       int64 `json:"byte_credits"`
-	OutstandingFrames int64 `json:"outstanding_frames"`
-	OutstandingBytes  int64 `json:"outstanding_bytes"`
-	AvailableFrames   int64 `json:"available_frames"`
-	AvailableBytes    int64 `json:"available_bytes"`
+	FrameCredits     int64 `json:"frame_credits"`
+	ByteCredits      int64 `json:"byte_credits"`
+	OutstandingBytes int64 `json:"outstanding_bytes"`
 
 	Reservations []ledgerReservation `json:"reservations"`
 	// FirstOwners is the first process seen owning an active attempt for
@@ -265,7 +261,6 @@ type ledgerTraceEntry struct {
 
 type ledgerReservation struct {
 	Spool       string  `json:"spool"`
-	Sequence    uint64  `json:"sequence"`
 	Bytes       int64   `json:"bytes"`
 	Phase       *string `json:"phase"`
 	Token       *int64  `json:"token"`

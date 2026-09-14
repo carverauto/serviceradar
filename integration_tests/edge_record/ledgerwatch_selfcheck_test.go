@@ -39,14 +39,14 @@ func selfcheckInt(n int64) *int64 { return &n }
 // selfcheckActive is an active attempt on the sample's accepting generation.
 func selfcheckActive(spool string, token int64, owner string) ledgerReservation {
 	return ledgerReservation{
-		Spool: spool, Sequence: 1, Bytes: 100,
+		Spool: spool, Bytes: 100,
 		Phase: selfcheckStr("active"), Token: selfcheckInt(token), Owner: selfcheckStr(owner),
 		OnAccepting: true,
 	}
 }
 
 func selfcheckIdle(spool string) ledgerReservation {
-	return ledgerReservation{Spool: spool, Sequence: 1, Bytes: 100}
+	return ledgerReservation{Spool: spool, Bytes: 100}
 }
 
 // selfcheckSample builds a sample whose grant is 64 frames and 64 MiB, and
@@ -61,11 +61,8 @@ func selfcheckSample(accepting string, alive map[string]bool, rs ...ledgerReserv
 		e.Accepting = selfcheckStr(accepting)
 	}
 	for _, r := range rs {
-		e.OutstandingFrames++
 		e.OutstandingBytes += r.Bytes
 	}
-	e.AvailableFrames = e.FrameCredits - e.OutstandingFrames
-	e.AvailableBytes = e.ByteCredits - e.OutstandingBytes
 	for _, spool := range []string{"a", "b", "c", "d", "e"} {
 		if a, ok := alive[spool]; ok {
 			e.FirstOwners = append(e.FirstOwners, ledgerOwner{Spool: spool, Owner: "owner-" + spool, Alive: a})
@@ -145,7 +142,7 @@ func TestAnalyzeRestartOverlapRejects(t *testing.T) {
 		{
 			name: "a replacement whose byte total hands the charges back",
 			mutate: func(tr *ledgerTrace) {
-				tr.Entries[3].OutstandingBytes, tr.Entries[3].AvailableBytes = 0, 64<<20
+				tr.Entries[3].OutstandingBytes = 0
 			},
 			want: "capacity was reopened",
 		},
