@@ -455,6 +455,44 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducerTes
     assert :ok = ConfigSchema.validate_params(load_addon_schema(), assignment_params)
   end
 
+  # The heartbeat is written every run, because the freshness tripwire needs one
+  # inside its window, but it always claimed the previous state was healthy. Every
+  # hourly run then published "changed from healthy to healthy", a failed run after
+  # a failed run said "healthy to unhealthy", and a recovery was indistinguishable
+  # from a heartbeat, so suppressing unchanged records alone would have hidden it.
+  describe "heartbeat_transition/2" do
+    test "the first heartbeat has no previous state" do
+      assert {nil, :healthy, :heartbeat} =
+               EdgeBaselineProducer.heartbeat_transition(nil, %{healthy: true})
+    end
+
+    test "a healthy run after a healthy one is unchanged" do
+      assert {:healthy, :healthy, :heartbeat} =
+               EdgeBaselineProducer.heartbeat_transition(:healthy, %{healthy: true})
+    end
+
+    test "a healthy run after a failed one is a recovery" do
+      assert {:unhealthy, :healthy, :heartbeat} =
+               EdgeBaselineProducer.heartbeat_transition(:unhealthy, %{healthy: true})
+    end
+
+    test "a failed run after a healthy one is a real failure" do
+      assert {:healthy, :unhealthy, :partial_delivery} =
+               EdgeBaselineProducer.heartbeat_transition(:healthy, %{
+                 healthy: false,
+                 failed_sources: ["cpu_seasonal"]
+               })
+    end
+
+    test "a failed run after a failed one stays unhealthy" do
+      assert {:unhealthy, :unhealthy, :partial_delivery} =
+               EdgeBaselineProducer.heartbeat_transition(:unhealthy, %{
+                 healthy: false,
+                 failed_sources: ["cpu_seasonal"]
+               })
+    end
+  end
+
   defmodule CpuSourceFailsRunner do
     @moduledoc false
     # The statement for the cpu source is cancelled (what a 20-device full-profile

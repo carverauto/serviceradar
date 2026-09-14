@@ -113,6 +113,11 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
   - `:node` - Cluster node recording this (defaults to current node)
   - `:metadata` - Additional context
   - `:broadcast` - Whether to broadcast via PubSub (default: true)
+
+  A record whose `:new_state` equals its `:old_state` is persisted, because
+  heartbeats rely on landing on the timeline, but it is not a transition: it
+  publishes no health log (and so no `health.core.state_change` event), no
+  PubSub broadcast and no state-change feed entry. See `transition?/2`.
   """
   @spec record_state_change(entity_type(), String.t(), keyword()) ::
           {:ok, struct()} | {:error, term()}
@@ -147,9 +152,12 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
         case result do
           {:ok, event} ->
             Logger.debug("Recorded health event: #{entity_type} #{entity_id} -> #{new_state}")
-            maybe_publish_health_log(event)
-            maybe_broadcast_health_event(event, broadcast)
-            maybe_publish_state_change(event)
+
+            if transition?(event.old_state, event.new_state) do
+              maybe_publish_health_log(event)
+              maybe_broadcast_health_event(event, broadcast)
+              maybe_publish_state_change(event)
+            end
 
             {:ok, event}
 
@@ -162,6 +170,18 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
         return_with_skip(entity_type, entity_id, reason)
     end
   end
+
+  @doc """
+  Whether a recorded health event is a state transition worth announcing.
+
+  An unchanged state is not one. The seasonal baseline producer records a
+  heartbeat every run, and each used to be published as "changed from healthy to
+  healthy" (33 of the 34 core health events on demo in a week). A first record,
+  with no previous state, is a transition.
+  """
+  @spec transition?(atom() | nil, atom() | nil) :: boolean()
+  def transition?(state, state) when not is_nil(state), do: false
+  def transition?(_old_state, _new_state), do: true
 
   defp maybe_publish_health_log(event) do
     case HealthWriter.write(event) do

@@ -196,6 +196,62 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
     end
   end
 
+  # A record whose state did not change is a heartbeat, not a transition. The
+  # seasonal baseline producer writes one every run because the freshness tripwire
+  # reads them from the timeline, and each used to be published as "changed from
+  # healthy to healthy": 33 of the 34 core health events on demo in a week.
+  describe "same-state records" do
+    test "stay on the timeline but are not broadcast as a transition", %{
+      unique_id: unique_id
+    } do
+      entity_id = "core-heartbeat-#{unique_id}"
+      Phoenix.PubSub.subscribe(ServiceRadar.PubSub, HealthPubSub.topic())
+
+      {:ok, heartbeat} =
+        HealthTracker.record_state_change(:core, entity_id,
+          old_state: :healthy,
+          new_state: :healthy,
+          reason: :heartbeat
+        )
+
+      refute_receive {:health_event, %{entity_id: ^entity_id}}, 200
+
+      {:ok, events} = HealthTracker.timeline(:core, entity_id, hours: 1)
+      assert Enum.map(events, & &1.id) == [heartbeat.id]
+    end
+
+    test "a real change after heartbeats is still broadcast", %{unique_id: unique_id} do
+      entity_id = "core-recovery-#{unique_id}"
+      Phoenix.PubSub.subscribe(ServiceRadar.PubSub, HealthPubSub.topic())
+
+      {:ok, _} =
+        HealthTracker.record_state_change(:core, entity_id,
+          old_state: :unhealthy,
+          new_state: :unhealthy,
+          reason: :partial_delivery
+        )
+
+      {:ok, recovery} =
+        HealthTracker.record_state_change(:core, entity_id,
+          old_state: :unhealthy,
+          new_state: :healthy,
+          reason: :heartbeat
+        )
+
+      assert_receive {:health_event, %{entity_id: ^entity_id} = received}, 1000
+      assert received.id == recovery.id
+      refute_receive {:health_event, %{entity_id: ^entity_id}}, 100
+    end
+
+    test "transition?/2 treats only a real change or a first record as a transition" do
+      refute HealthTracker.transition?(:healthy, :healthy)
+      refute HealthTracker.transition?(:unhealthy, :unhealthy)
+      assert HealthTracker.transition?(nil, :healthy)
+      assert HealthTracker.transition?(:unhealthy, :healthy)
+      assert HealthTracker.transition?(:healthy, :unhealthy)
+    end
+  end
+
   describe "current_status/2" do
     test "returns the most recent health event for an entity", %{
       unique_id: unique_id
