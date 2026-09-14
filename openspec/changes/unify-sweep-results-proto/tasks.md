@@ -1038,11 +1038,12 @@
   `ServiceRadarAgentGateway.EdgeContractRegistry` admits every decoded record
   before publication against an installation-static snapshot
   (`AGENT_GATEWAY_EDGE_RECORD_CONTRACT_REGISTRY`) keyed by the existing
-  `EdgeOutputContractRef` fields: it rejects an unknown or digest-mismatched
-  contract, a route or cost model the bundle does not pin, and provenance that
-  contradicts the authenticated session; withholds (no publish, sequence
-  unresolved) on no registry, an epoch or snapshot the gateway does not hold,
-  and any non-active bundle; holds security-revoked bundles; and takes the
+  `EdgeOutputContractRef` fields: it rejects a missing contract, a route or cost
+  model the bundle does not pin, and provenance that contradicts the
+  authenticated session; withholds (no publish, sequence unresolved) on no
+  registry, an epoch or snapshot the gateway does not hold, an unknown or
+  digest-mismatched contract, and any non-active bundle; holds security-revoked
+  bundles; and takes the
   published route profile, traffic class and partition rule from the registry
   entry. The edge-records:v1 capability is not ready without a loaded snapshot.
   STILL OPEN and blocked on tasks 1.10/1.11 defining the signed format: signed

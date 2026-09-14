@@ -43,13 +43,13 @@ defmodule ServiceRadarAgentGateway.EdgeContractRegistryTest do
                admit(with_contract(record(), registry_snapshot_sha256: :binary.copy(<<0xEE>>, 32)))
     end
 
-    test "rejects a contract the named snapshot does not contain" do
-      assert {:reject, :unknown_contract} = admit(with_contract(record(), contract_id: "serviceradar.test.other"))
-      assert {:reject, :unknown_contract} = admit(with_contract(record(), contract_version: 2))
+    test "withholds a contract the held snapshot does not contain, even under the same epoch and digest" do
+      assert {:withhold, :unknown_contract} = admit(with_contract(record(), contract_id: "serviceradar.test.other"))
+      assert {:withhold, :unknown_contract} = admit(with_contract(record(), contract_version: 2))
     end
 
-    test "rejects a bundle digest that differs from the registered one" do
-      assert {:reject, :contract_digest_mismatch} =
+    test "withholds a bundle digest that differs from the registered one, even under the same epoch and digest" do
+      assert {:withhold, :contract_digest_mismatch} =
                admit(with_contract(record(), contract_bundle_sha256: :binary.copy(<<0xEE>>, 32)))
     end
 

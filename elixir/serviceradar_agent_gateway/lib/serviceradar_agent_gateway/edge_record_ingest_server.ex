@@ -40,6 +40,12 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
   disposition sent for that frame at all) per `WireDecode`'s own contract, rather than folded into
   either resolving class.
 
+  The watermark is cumulative: the agent (`edgerecord.ValidateAck`) accepts only dispositions
+  that continue its contiguous resolved prefix, and it sends each sequence once per session. So
+  the first sequence a session leaves unresolved -- withheld, held, paused or retryable -- caps
+  the lane: no later sequence of that session is acked, even one that published durably, and the
+  agent's next session replays from it.
+
   ## Lane isolation (task 3.6)
 
     * The lane never enters `ServiceRadarAgentGateway.StatusBuffer`. An unresolved publication is
@@ -179,7 +185,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
       session_nonce: lane_open.session_nonce,
       route_profile: route_profile,
       traffic_class: traffic_class,
-      resolved_through_sequence: 0
+      first_unresolved_sequence: nil
     }
   rescue
     error in ArgumentError ->
@@ -213,7 +219,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
       {:error, :paused, reason} ->
         Logger.warning("edge record decode paused (not resolved, no disposition sent): #{inspect(reason)}")
 
-        state
+        unresolved(state, sequence)
     end
   end
 
@@ -263,13 +269,13 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
         # Not proof of poison: nothing is published and the sequence stays unresolved, exactly like
         # a retryable publish outcome.
         Logger.warning("edge record withheld by contract registry: #{inspect(reason)}")
-        state
+        unresolved(state, sequence)
 
       {:hold, reason} ->
         # A security-revoked bundle is never published and never resolved, and is reported apart
         # from an ordinary withhold.
         Logger.error("edge record held for a security-revoked contract: #{inspect(reason)}")
-        state
+        unresolved(state, sequence)
     end
   end
 
@@ -302,24 +308,26 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
         # RETRYABLE never resolves the sequence -- the watermark must not advance past a record
         # that may not be durable. No ack is sent for this frame; the agent's own deadline drives
         # its retry.
-        state
+        unresolved(state, sequence)
     end
   end
+
+  defp unresolved(%{first_unresolved_sequence: nil} = state, sequence),
+    do: %{state | first_unresolved_sequence: sequence}
+
+  defp unresolved(state, _sequence), do: state
 
   # `event_id` is the decoded record's id, which the agent binds to the event it sent for
   # `sequence` (`edgerecord.ValidateAck`). Only a rejection made before the record decoded may
   # leave it empty; the agent refuses an ack whose accepted disposition carries no id.
-  defp ack(stream, state, sequence, event_id, disposition) do
-    resolved_through =
-      if disposition in [@accepted, @permanent], do: sequence, else: state.resolved_through_sequence
-
+  defp ack(stream, %{first_unresolved_sequence: nil} = state, sequence, event_id, disposition) do
     :ok =
       send_reply(stream, %EdgeRecordServerMessage{
         payload:
           {:ack,
            %EdgeDeliveryAckV1{
              spool_id: state.spool_id,
-             resolved_through_sequence: resolved_through,
+             resolved_through_sequence: sequence,
              dispositions: [
                %EdgeRecordDisposition{sequence: sequence, event_id: event_id, kind: disposition}
              ],
@@ -327,7 +335,16 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
            }}
       })
 
-    %{state | resolved_through_sequence: resolved_through}
+    state
+  end
+
+  defp ack(_stream, state, sequence, _event_id, _disposition) do
+    Logger.warning(
+      "edge record sequence #{sequence} resolved behind unresolved sequence " <>
+        "#{state.first_unresolved_sequence}; not acked"
+    )
+
+    state
   end
 
   defp finish_stream(:awaiting_lane_open) do

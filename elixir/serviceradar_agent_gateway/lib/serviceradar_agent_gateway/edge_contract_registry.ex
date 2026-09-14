@@ -32,13 +32,16 @@ defmodule ServiceRadarAgentGateway.EdgeContractRegistry do
       (`route_profile`, `traffic_class`, `partition_rule`). Nothing on the frame selects them.
     * `{:reject, reason}` -- proven invalid for this session and snapshot; resolves as a
       permanent rejection. Only claims that cannot be explained by rollout lag land here: a record
-      naming the exact snapshot the gateway holds but a contract that snapshot does not contain
-      or with a different bundle digest, a route or cost model the bundle does not pin, or
-      provenance that disagrees with the authenticated session.
+      naming no output contract, a route or cost model the bundle does not pin, or provenance
+      that disagrees with the authenticated session.
     * `{:withhold, reason}` -- not publishable NOW, but not proof of poison: no registry loaded,
-      an epoch or snapshot the gateway does not hold, or a bundle that is not `active`
+      an epoch or snapshot the gateway does not hold, a contract the held snapshot does not
+      contain or registers under a different bundle digest, or a bundle that is not `active`
       (candidate, ready, draining, retired). The sequence stays unresolved. A rollout mismatch is
-      never converted into poison.
+      never converted into poison. Until 1.10/1.11 define a signed snapshot, the epoch and
+      snapshot digest are operator-supplied labels nothing verifies against the contract list, so
+      two documents can carry the same labels and differ in their contracts; a record naming the
+      held labels but a contract or bundle digest this snapshot lacks is therefore still lag.
     * `{:hold, reason}` -- a `security_revoked` bundle. Never published and never resolved, and
       reported separately from a withhold: compromise is not ordinary retirement.
 
@@ -153,17 +156,15 @@ defmodule ServiceRadarAgentGateway.EdgeContractRegistry do
         {:withhold, :registry_snapshot_mismatch}
 
       true ->
-        # Same epoch AND same snapshot digest: the record names exactly the snapshot held here, so
-        # a contract that snapshot does not contain, or contains with another digest, is not lag.
         case Map.fetch(snapshot.contracts, {contract.contract_id, contract.contract_version}) do
           :error ->
-            {:reject, :unknown_contract}
+            {:withhold, :unknown_contract}
 
           {:ok, %{contract_bundle_sha256: digest} = entry} when digest == contract.contract_bundle_sha256 ->
             {:ok, entry}
 
           {:ok, _entry} ->
-            {:reject, :contract_digest_mismatch}
+            {:withhold, :contract_digest_mismatch}
         end
     end
   end

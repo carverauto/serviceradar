@@ -221,13 +221,32 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
     assert publication.partition_rule == :registry_pinned_rule
   end
 
-  test "permanently rejects, before publishing, a contract the loaded snapshot does not contain" do
+  test "withholds a contract the loaded snapshot does not contain: nothing published, nothing resolved" do
     unknown = %{EdgeContractRegistryStub.contract_ref() | contract_id: "serviceradar.test.unknown"}
 
     assert :ok = run_one_frame(%{record() | output_contract: unknown})
 
     refute_received {:edge_record_published, _}
-    assert_permanent_ack(1)
+    refute_received {:edge_record_stream_reply, %EdgeRecordServerMessage{payload: {:ack, _}}}
+  end
+
+  test "never acks past a withheld sequence, even for a later record that published durably" do
+    stale = %{EdgeContractRegistryStub.contract_ref() | registry_epoch: 2}
+
+    assert :ok =
+             EdgeRecordIngestServer.stream(
+               [
+                 client({:lane_open, lane_open()}),
+                 client({:delivery_frame, frame(1, %{record() | output_contract: stale})}),
+                 client({:delivery_frame, frame(2, record())})
+               ],
+               stream()
+             )
+
+    assert_receive {:edge_record_stream_reply, %EdgeRecordServerMessage{payload: {:lane_open_ack, _}}}
+    assert_received {:edge_record_published, %{slot: %{sequence: 2}}}
+    refute_received {:edge_record_published, _}
+    refute_received {:edge_record_stream_reply, %EdgeRecordServerMessage{payload: {:ack, _}}}
   end
 
   test "permanently rejects a record whose principal is not the authenticated agent" do
