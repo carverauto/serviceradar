@@ -1034,6 +1034,21 @@
   provenance stamped by the trusted agent sink against the authenticated
   session and never trust guest-supplied subject, agent, scope, class, cost, or
   database destination claims.
+  PARTIALLY LANDED as a deliberately NARROWED slice, so this task stays unchecked.
+  `ServiceRadarAgentGateway.EdgeContractRegistry` admits every decoded record
+  before publication against an installation-static snapshot
+  (`AGENT_GATEWAY_EDGE_RECORD_CONTRACT_REGISTRY`) keyed by the existing
+  `EdgeOutputContractRef` fields: it rejects an unknown or digest-mismatched
+  contract, a route or cost model the bundle does not pin, and provenance that
+  contradicts the authenticated session; withholds (no publish, sequence
+  unresolved) on no registry, an epoch or snapshot the gateway does not hold,
+  and any non-active bundle; holds security-revoked bundles; and takes the
+  published route profile, traffic class and partition rule from the registry
+  entry. The edge-records:v1 capability is not ready without a loaded snapshot.
+  STILL OPEN and blocked on tasks 1.10/1.11 defining the signed format: signed
+  snapshot loading, signed readiness reporting, the atomic epoch switch and
+  stale-generation fencing, planned-retirement drain under the exact bundle and
+  watermark, and binding network scope to the session (task 3.2's grant).
 - [ ] 3.9 Stamp the `Sr-Edge-Transport-Provenance` header on every gateway publish,
   alongside `Nats-Msg-Id` and `Sr-Edge-Delivery-Id`, over the edge slot. Its slot
   kind, framed members, delivery-proof presence rule, `delivery_mode` constants, and

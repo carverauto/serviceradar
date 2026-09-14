@@ -7,14 +7,23 @@ defmodule ServiceRadarAgentGateway.EdgeRecordCapabilityTest do
   alias ServiceRadar.Edge.PublisherLane
   alias ServiceRadar.Edge.PublisherPool
   alias ServiceRadarAgentGateway.EdgeRecordCapability
+  alias ServiceRadarAgentGateway.TestSupport.EdgeContractRegistryStub
 
   setup do
     previous = Application.get_env(:serviceradar_agent_gateway, :edge_records_publisher)
+    previous_registry = Application.get_env(:serviceradar_agent_gateway, :edge_record_contract_registry_impl)
+
+    Application.put_env(:serviceradar_agent_gateway, :edge_record_contract_registry_impl, EdgeContractRegistryStub)
 
     on_exit(fn ->
       case previous do
         nil -> Application.delete_env(:serviceradar_agent_gateway, :edge_records_publisher)
         value -> Application.put_env(:serviceradar_agent_gateway, :edge_records_publisher, value)
+      end
+
+      case previous_registry do
+        nil -> Application.delete_env(:serviceradar_agent_gateway, :edge_record_contract_registry_impl)
+        value -> Application.put_env(:serviceradar_agent_gateway, :edge_record_contract_registry_impl, value)
       end
     end)
 
@@ -53,6 +62,14 @@ defmodule ServiceRadarAgentGateway.EdgeRecordCapabilityTest do
     start_every_lane!()
 
     assert EdgeRecordCapability.ready?()
+  end
+
+  test "not ready when every lane is alive but no contract registry is loaded" do
+    Application.put_env(:serviceradar_agent_gateway, :edge_records_publisher, enabled: true)
+    start_every_lane!()
+    Process.put(:edge_contract_registry_snapshot, {:error, :registry_not_configured})
+
+    refute EdgeRecordCapability.ready?()
   end
 
   defp start_every_lane! do

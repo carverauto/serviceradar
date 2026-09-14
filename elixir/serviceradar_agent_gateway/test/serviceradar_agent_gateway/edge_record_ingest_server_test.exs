@@ -3,6 +3,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
 
   alias Serviceradar.Edge.V1.EdgeDeliveryAckV1
   alias Serviceradar.Edge.V1.EdgeDeliveryFrameV1
+  alias Serviceradar.Edge.V1.EdgeProducerContext
   alias Serviceradar.Edge.V1.EdgeRecordClientMessage
   alias Serviceradar.Edge.V1.EdgeRecordDisposition
   alias Serviceradar.Edge.V1.EdgeRecordLaneOpen
@@ -12,6 +13,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
   alias ServiceRadarAgentGateway.EdgeRecordIngestServer
   alias ServiceRadarAgentGateway.TestSupport.CameraMediaAdapterStub
   alias ServiceRadarAgentGateway.TestSupport.CameraMediaIdentityResolverStub
+  alias ServiceRadarAgentGateway.TestSupport.EdgeContractRegistryStub
   alias ServiceRadarAgentGateway.TestSupport.EdgeRecordCapabilityStub
   alias ServiceRadarAgentGateway.TestSupport.EdgeRecordPublisherStub
 
@@ -25,8 +27,11 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
       publisher: Application.get_env(:serviceradar_agent_gateway, :edge_record_ingest_publisher),
       resolver: Application.get_env(:serviceradar_agent_gateway, :edge_record_ingest_identity_resolver),
       capability: Application.get_env(:serviceradar_agent_gateway, :edge_record_ingest_capability),
-      supervisor: Application.get_env(:serviceradar_agent_gateway, :edge_record_ingest_task_supervisor)
+      supervisor: Application.get_env(:serviceradar_agent_gateway, :edge_record_ingest_task_supervisor),
+      registry: Application.get_env(:serviceradar_agent_gateway, :edge_record_contract_registry_impl)
     }
+
+    Application.put_env(:serviceradar_agent_gateway, :edge_record_contract_registry_impl, EdgeContractRegistryStub)
 
     supervisor = start_supervised!({Task.Supervisor, name: __MODULE__.TaskSupervisor})
 
@@ -51,6 +56,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
       restore_env(:edge_record_ingest_identity_resolver, previous.resolver)
       restore_env(:edge_record_ingest_capability, previous.capability)
       restore_env(:edge_record_ingest_task_supervisor, previous.supervisor)
+      restore_env(:edge_record_contract_registry_impl, previous.registry)
     end)
 
     %{supervisor: supervisor}
@@ -201,6 +207,63 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
     refute_received {:edge_record_published, _}
   end
 
+  test "publishes with the route the registry entry pins, not a hardcoded rule" do
+    # StreamRoute evaluates only one rule today, so a sentinel the stub publisher records is what
+    # distinguishes "taken from the entry" from the old hardcoded :network_scope_v1.
+    Process.put(
+      :edge_contract_registry_snapshot,
+      {:ok, EdgeContractRegistryStub.snapshot_with(:active, %{partition_rule: :registry_pinned_rule})}
+    )
+
+    assert :ok = run_one_frame(record())
+
+    assert_received {:edge_record_published, publication}
+    assert publication.partition_rule == :registry_pinned_rule
+  end
+
+  test "permanently rejects, before publishing, a contract the loaded snapshot does not contain" do
+    unknown = %{EdgeContractRegistryStub.contract_ref() | contract_id: "serviceradar.test.unknown"}
+
+    assert :ok = run_one_frame(%{record() | output_contract: unknown})
+
+    refute_received {:edge_record_published, _}
+    assert_permanent_ack(1)
+  end
+
+  test "permanently rejects a record whose principal is not the authenticated agent" do
+    assert :ok = run_one_frame(%{record() | producer_context: %EdgeProducerContext{origin_principal_id: "agent-2"}})
+
+    refute_received {:edge_record_published, _}
+    assert_permanent_ack(1)
+  end
+
+  test "withholds a record on a candidate bundle: nothing published, nothing resolved" do
+    Process.put(:edge_contract_registry_snapshot, {:ok, EdgeContractRegistryStub.snapshot_with(:candidate)})
+
+    assert :ok = run_one_frame(record())
+
+    refute_received {:edge_record_published, _}
+    refute_received {:edge_record_stream_reply, %EdgeRecordServerMessage{payload: {:ack, _}}}
+  end
+
+  test "holds a record on a security-revoked bundle: nothing published, nothing resolved" do
+    Process.put(:edge_contract_registry_snapshot, {:ok, EdgeContractRegistryStub.snapshot_with(:security_revoked)})
+
+    assert :ok = run_one_frame(record())
+
+    refute_received {:edge_record_published, _}
+    refute_received {:edge_record_stream_reply, %EdgeRecordServerMessage{payload: {:ack, _}}}
+  end
+
+  test "withholds every record while no registry is loaded" do
+    Process.put(:edge_contract_registry_snapshot, {:error, :registry_not_configured})
+
+    assert :ok = run_one_frame(record())
+
+    refute_received {:edge_record_published, _}
+    refute_received {:edge_record_stream_reply, %EdgeRecordServerMessage{payload: {:ack, _}}}
+  end
+
   test "withholds a retryable publish outcome instead of acking it durable" do
     Process.put(:edge_record_publish_result, {:error, :capacity})
 
@@ -241,8 +304,40 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
       network_scope_id: @network_scope_id,
       route_profile: :EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
       traffic_class: :EDGE_RECORD_TRAFFIC_CLASS_BULK,
+      output_contract: EdgeContractRegistryStub.contract_ref(),
+      producer_context: %EdgeProducerContext{origin_principal_id: "agent-1"},
+      cost_model_version: 1,
       semantic_envelope_sha256: :binary.copy(<<0xAA>>, 32)
     }
+  end
+
+  defp run_one_frame(record) do
+    result =
+      EdgeRecordIngestServer.stream(
+        [client({:lane_open, lane_open()}), client({:delivery_frame, frame(1, record)})],
+        stream()
+      )
+
+    assert_receive {:edge_record_stream_reply, %EdgeRecordServerMessage{payload: {:lane_open_ack, _}}}
+    result
+  end
+
+  defp assert_permanent_ack(sequence) do
+    assert_receive {:edge_record_stream_reply,
+                    %EdgeRecordServerMessage{
+                      payload:
+                        {:ack,
+                         %EdgeDeliveryAckV1{
+                           resolved_through_sequence: ^sequence,
+                           dispositions: [
+                             %EdgeRecordDisposition{
+                               sequence: ^sequence,
+                               event_id: @event_id,
+                               kind: :EDGE_RECORD_DISPOSITION_KIND_REJECTED_PERMANENT
+                             }
+                           ]
+                         }}
+                    }}
   end
 
   defp frame(sequence, record) do

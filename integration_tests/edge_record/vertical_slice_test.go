@@ -382,6 +382,11 @@ func newHarness(t *testing.T) *harness {
 		CNPGSSLMode:   cnpg.SSLMode,
 		CloakKey:      cloakKey,
 	}
+	registryJSON, err := FixtureContractRegistryJSON()
+	if err != nil {
+		t.Fatalf("contract registry: %v", err)
+	}
+	h.gatewayEnv.ContractRegistryJSON = registryJSON
 
 	h.coreEnv = CoreEnvConfig{
 		MetricsPort:       coreMetricsPort,

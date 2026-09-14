@@ -19,6 +19,8 @@ package verticalslice
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"testing"
 
 	"google.golang.org/protobuf/proto"
@@ -140,5 +142,59 @@ func TestBuildConflictingSweepFixtureSharesScopeButDiffersInContent(t *testing.T
 	}
 	if !bytes.Equal(record.GetNetworkScopeId(), primary.NetworkScopeID) {
 		t.Fatalf("decoded conflicting record's network_scope_id must match the primary fixture's")
+	}
+}
+
+// TestFixtureContractRegistryAdmitsEveryFixture proves the registry snapshot the gateway boots with
+// names exactly the contract reference both fixture variants carry. The gateway rejects a record
+// whose bundle digest or snapshot differs from the registry entry, so a drift here would refuse
+// Group A's record or stop Group C's conflict frame before it reaches EventWriter.
+func TestFixtureContractRegistryAdmitsEveryFixture(t *testing.T) {
+	raw, err := FixtureContractRegistryJSON()
+	if err != nil {
+		t.Fatalf("FixtureContractRegistryJSON: %v", err)
+	}
+	var registry struct {
+		RegistryEpoch          uint64 `json:"registry_epoch"`
+		RegistrySnapshotSHA256 string `json:"registry_snapshot_sha256"`
+		Contracts              []struct {
+			ContractID           string `json:"contract_id"`
+			ContractVersion      uint32 `json:"contract_version"`
+			ContractBundleSHA256 string `json:"contract_bundle_sha256"`
+			State                string `json:"state"`
+			CostModelVersion     uint32 `json:"cost_model_version"`
+		} `json:"contracts"`
+	}
+	if err := json.Unmarshal([]byte(raw), &registry); err != nil {
+		t.Fatalf("registry JSON must decode: %v", err)
+	}
+	if len(registry.Contracts) != 1 || registry.Contracts[0].State != "active" {
+		t.Fatalf("registry must hold exactly one active contract, got %+v", registry.Contracts)
+	}
+	entry := registry.Contracts[0]
+
+	primary, err := BuildSweepFixture([]byte("vslice-agent-01"))
+	if err != nil {
+		t.Fatalf("BuildSweepFixture: %v", err)
+	}
+	conflict, err := BuildConflictingSweepFixture(primary.NetworkScopeID, []byte("vslice-agent-01"))
+	if err != nil {
+		t.Fatalf("BuildConflictingSweepFixture: %v", err)
+	}
+
+	for name, fx := range map[string]*FixtureRecord{"primary": primary, "conflict": conflict} {
+		var record edgev1.EdgeRecordV1
+		if err := proto.Unmarshal(fx.RecordBytes, &record); err != nil {
+			t.Fatalf("%s record must decode: %v", name, err)
+		}
+		c := record.GetOutputContract()
+		if c.GetContractId() != entry.ContractID ||
+			c.GetContractVersion() != entry.ContractVersion ||
+			hex.EncodeToString(c.GetContractBundleSha256()) != entry.ContractBundleSHA256 ||
+			c.GetRegistryEpoch() != registry.RegistryEpoch ||
+			hex.EncodeToString(c.GetRegistrySnapshotSha256()) != registry.RegistrySnapshotSHA256 ||
+			record.GetCostModelVersion() != entry.CostModelVersion {
+			t.Fatalf("%s fixture contract %+v does not match the registry entry %+v", name, c, entry)
+		}
 	}
 }

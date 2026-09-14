@@ -22,6 +22,8 @@ package verticalslice
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -227,12 +229,15 @@ func buildFixture(variant int, originPrincipalID []byte) (*FixtureRecord, error)
 	}
 	payloadSum := sha256.Sum256(payload)
 
+	// The contract reference is the SAME for every variant: the gateway admits records against one
+	// installation-static registry entry (FixtureContractRegistryJSON), and Group C's conflict frame
+	// must differ from the accepted fixture only in record content, not in the bundle it names.
 	contract := &edgev1.EdgeOutputContractRef{
-		ContractId:             "serviceradar.sweep.observation",
-		ContractVersion:        1,
-		ContractBundleSha256:   fixtureDigest(0x02 + byte(variant)),
-		RegistryEpoch:          1,
-		RegistrySnapshotSha256: fixtureDigest(0x03 + byte(variant)),
+		ContractId:             fixtureContractID,
+		ContractVersion:        fixtureContractVersion,
+		ContractBundleSha256:   fixtureDigest(fixtureBundleSeed),
+		RegistryEpoch:          fixtureRegistryEpoch,
+		RegistrySnapshotSha256: fixtureDigest(fixtureSnapshotSeed),
 		EffectiveGrantSha256:   fixtureDigest(0x04 + byte(variant)),
 	}
 
@@ -262,7 +267,7 @@ func buildFixture(variant int, originPrincipalID []byte) (*FixtureRecord, error)
 		NetworkScopeId:      networkScopeID,
 		ProjectedRowCount:   uint32(projection.SweepRows(batch)),
 		ProjectedWriteBytes: uint64(len(payload)) * 4,
-		CostModelVersion:    1,
+		CostModelVersion:    fixtureCostModel,
 		Payload:             payload,
 	}
 	record.ProductionCapability = fixtureCapability(record)
@@ -501,6 +506,58 @@ func sweepBatch(variant int, executionID, targetRangeID, sourceRunID []byte) *ed
 // fixtureDigest returns a deterministic 32-byte filler digest for fields
 // that must be exactly 32 bytes but whose real provenance (contract bundle
 // hashes, registry snapshot hashes) is out of this fixture's scope.
+// The single output contract every fixture record names, and the registry snapshot it belongs to.
+const (
+	fixtureContractID      = "serviceradar.sweep.observation"
+	fixtureContractVersion = 1
+	fixtureRegistryEpoch   = 1
+	fixtureBundleSeed      = 0x03
+	fixtureSnapshotSeed    = 0x04
+	fixtureCostModel       = 1
+)
+
+// FixtureContractRegistryJSON is the installation-static contract registry snapshot the gateway
+// release boots with (AGENT_GATEWAY_EDGE_RECORD_CONTRACT_REGISTRY, parsed by
+// ServiceRadarAgentGateway.EdgeContractRegistry.Static): exactly the one contract every fixture
+// record names, active on the durable bulk route. The gateway admits a record only when its
+// output contract matches this entry, so the two are built from the same constants.
+func FixtureContractRegistryJSON() (string, error) {
+	type contract struct {
+		ContractID           string `json:"contract_id"`
+		ContractVersion      uint32 `json:"contract_version"`
+		ContractBundleSHA256 string `json:"contract_bundle_sha256"`
+		State                string `json:"state"`
+		RouteProfile         string `json:"route_profile"`
+		TrafficClass         string `json:"traffic_class"`
+		PartitionRule        string `json:"partition_rule"`
+		CostModelVersion     uint32 `json:"cost_model_version"`
+	}
+	type snapshot struct {
+		RegistryEpoch          uint64     `json:"registry_epoch"`
+		RegistrySnapshotSHA256 string     `json:"registry_snapshot_sha256"`
+		Contracts              []contract `json:"contracts"`
+	}
+
+	out, err := json.Marshal(snapshot{
+		RegistryEpoch:          fixtureRegistryEpoch,
+		RegistrySnapshotSHA256: hex.EncodeToString(fixtureDigest(fixtureSnapshotSeed)),
+		Contracts: []contract{{
+			ContractID:           fixtureContractID,
+			ContractVersion:      fixtureContractVersion,
+			ContractBundleSHA256: hex.EncodeToString(fixtureDigest(fixtureBundleSeed)),
+			State:                "active",
+			RouteProfile:         edgev1.EdgeRecordRouteProfile_EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1.String(),
+			TrafficClass:         edgev1.EdgeRecordTrafficClass_EDGE_RECORD_TRAFFIC_CLASS_BULK.String(),
+			PartitionRule:        "network_scope_v1",
+			CostModelVersion:     fixtureCostModel,
+		}},
+	})
+	if err != nil {
+		return "", fmt.Errorf("fixture: marshal contract registry: %w", err)
+	}
+	return string(out), nil
+}
+
 func fixtureDigest(seed byte) []byte {
 	b := make([]byte, 32)
 	for i := range b {

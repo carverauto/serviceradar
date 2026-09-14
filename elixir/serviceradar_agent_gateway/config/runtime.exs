@@ -358,6 +358,13 @@ otlp_relay_publish_enabled =
 
 config :serviceradar_agent_gateway, :edge_records_publisher, enabled: edge_records_publish_enabled
 
+# The installation-static output-contract registry snapshot (JSON) edge records are admitted
+# against; see ServiceRadarAgentGateway.EdgeContractRegistry.Static. Unset means no registry, and
+# the edge-records:v1 capability stays not ready.
+config :serviceradar_agent_gateway,
+       :edge_record_contract_registry,
+       System.get_env("AGENT_GATEWAY_EDGE_RECORD_CONTRACT_REGISTRY")
+
 config :serviceradar_agent_gateway, :icmp_metrics_publisher,
   enabled: icmp_metrics_publish_enabled,
   subject_prefix: System.get_env("AGENT_GATEWAY_ICMP_METRICS_SUBJECT_PREFIX", "metrics.icmp"),
