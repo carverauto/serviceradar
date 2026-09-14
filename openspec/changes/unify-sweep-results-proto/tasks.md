@@ -7,7 +7,7 @@
 
 ## Active milestone coordination gate
 
-- [ ] 0.12 **FIRST GREEN VERTICAL SLICE -- ACTIVE MILESTONE AND SCOPE FREEZE.**
+- [x] 0.12 **FIRST GREEN VERTICAL SLICE -- ACTIVE MILESTONE AND SCOPE FREEZE.**
   Drive ONE committed BULK `SweepObservationBatchV1` fixture on ONE valid durable
   route through the REAL composed path:
 
@@ -125,6 +125,73 @@
   change only with explicit maintainer approval in a separate docs-only
   amendment. Implementation and review agents MAY propose an amendment; they
   SHALL NOT promote it into the milestone themselves.
+
+  CLOSED 2026-09-14 under the ACCEPTED DEFERRALS below, which are this block's
+  maintainer-approved docs-only scope amendment (`design.md`, "Scope
+  amendments"). https://github.com/carverauto/serviceradar/pull/443 made Groups
+  D2, E and F execute instead of skipping (its own run was BuildBuddy invocation
+  `7111e870-8bd0-41b7-a813-3c6d8dfa33cc`), and
+  https://github.com/carverauto/serviceradar/pull/450 made Groups C and D prove
+  what they claim. Evidence: the required `BazelCI` check on the head of
+  https://github.com/carverauto/serviceradar/pull/450, `5191de79d9`, ran the
+  integration wave as BuildBuddy invocation
+  `41ba8a08-3901-4591-9b7e-530f1a4b4152`, which reported
+  `//integration_tests/edge_record:vertical_slice_test PASSED`. The
+  `usp-01-proposal` tip after
+  https://github.com/carverauto/serviceradar/pull/458 is `b794adbb6e`, whose
+  tree is identical to that PR's head `0c1e0298c5`; its integration wave,
+  BuildBuddy invocation `bc085c92-12b8-4e86-9983-84b7a6edaa10`, also reported
+  `vertical_slice_test PASSED`. The target runs without `-test.v`, so its test
+  log carries no per-group lines. A pass still means every group ran. The
+  harness's only `t.Skip` guards are `-short` and a nil Group A fixture, which
+  Group A sets before its first check and which no later group can see, because
+  the target stops with `t.Fatal` when Group A fails. The subtests after the cut
+  probe that need JetStream -- D2, the core-kill redelivery probe, E and F --
+  call `requireJetStream`, which fails rather than skips when JetStream is off,
+  and the cut probe itself fails if its withheld entry does not land once
+  JetStream is re-enabled.
+
+  ACCEPTED DEFERRALS. Groups C and D carry none: their observations were closed
+  by https://github.com/carverauto/serviceradar/pull/450, not deferred. C
+  `Redelivery` makes the ingest probe raise after the first delivery commits
+  and before it is acknowledged, so the production pipeline NAKs, JetStream
+  redelivers the same stored message, and that second entry must report
+  `:replay` with an unchanged snapshot; C `Conflict` asserts that the
+  transaction ends with `{:delivery_slot_conflict, existing}`. D1 disables
+  JetStream and asserts that no agent sender run during the outage logs a
+  `remote_resolved_through` covering the withheld entry. D2
+  `RedeliveryAfterEventWriterRollback` raises inside the CNPG transaction and
+  shows no committed rows and the durable's ack floor below the message until
+  the redelivery commits. D3 validates the gateway's cumulative
+  `EdgeDeliveryAckV1` with `edgerecord.ValidateAck`, including its
+  spool-ID/session-nonce binding, and waits for the agent's remote resolved
+  prefix before asserting that neither moved the local reclaim watermark.
+
+  The three observations below remain weaker than the text of groups E, F and
+  A. Each is a known approximation documented in
+  `integration_tests/edge_record/vertical_slice_test.go`, reviewed and accepted
+  as a deliberate scope reduction that applies only to closing this milestone
+  gate. None is waived: each remains owed by the named owner task, which SHALL
+  NOT be checked until its own closure proves the full behavior, including the
+  composed-level observation. Unit-level and in-BEAM proofs do not substitute
+  for that observation, and the owner task's closure does not require
+  re-litigating whether this milestone should have demanded it.
+  - E RESTART OVERLAP -> 3.3(i). The probe kills the bulk lane transport under
+    concurrent requests and asserts exactly-once rows plus post-restart
+    admission, retrying `Unavailable` until the replacement is ready. It does
+    not assert that the replacement leaves capacity still occupied by the
+    in-flight request closed. Hardening is tracked in the open PR
+    https://github.com/carverauto/serviceradar/pull/456.
+  - F POST-HANDOFF FENCING -> 3.3(ii). The probe sends two concurrent identical
+    publications and asserts that they produce one row, then that a fresh
+    publication is admitted. It does not observe a retry refused until the
+    prior attempt is fenced and then admitted once. Hardening is tracked in the
+    open PR https://github.com/carverauto/serviceradar/pull/456.
+  - A MISMATCHED IDENTITY -> 3.2. The control presents a certificate with a
+    non-agent component type and is refused `PermissionDenied` at `lane_open`. It
+    is not an agent principal that differs from the record's
+    `authenticated_agent_id`, passes the trust gate, and fails as an identity
+    mismatch before NATS publication.
 
 ## 0. Baseline and approve capacity assumptions
 
@@ -470,6 +537,11 @@
   journal copy, segment/metadata overhead, rollover amplification, and scratch
   reservation under one atomic filesystem byte allocator with an unborrowable
   minimum-free-space floor for recovery/control and terminal evidence.
+  PARTIALLY LANDED: https://github.com/carverauto/serviceradar/pull/377 gave
+  `go/pkg/edge/spool` its first production caller, the agent's edge-record
+  sender, and added the `Resolved()` watermark read. The segmented recovery,
+  rollover, and allocator obligations above are not implemented, so this task
+  stays unchecked.
 - [ ] 2.5 Add a bounded bidirectional gRPC sender with independent finite
   platform-owned bulk/interactive and reserved recovery-control sequence/credit
   lanes, cumulative resolved
@@ -480,6 +552,11 @@
   independent RPC per lane plus separately pooled bulk, interactive, and recovery
   HTTP/2 connections with reserved connection-level windows; test a zero-window
   stalled bulk connection while interactive and recovery frames progress.
+  PARTIALLY LANDED: https://github.com/carverauto/serviceradar/pull/377 added
+  `go/pkg/edge/sender`, a minimum single-lane sender over the spool with
+  credit-based flow control, wired into `go/cmd/agent`. Per-lane RPCs and pools,
+  reconnect/replay, capability renewal, and quarantine are not implemented, so
+  this task stays unchecked.
 - [ ] 2.6 Connect scanner admission to spool and network pressure: pause/defer
   lower-priority or overlapping work at high-water, reserve worst-case bytes per
   target window, cap active result state by bytes, use high/low-water hysteresis,
@@ -842,7 +919,10 @@
   3.2 (full grant/contract verification), 3.4 (exact-byte/retained-memory
   binding), 3.5 (complete outcome-to-disposition mapping), 3.9 (transport-
   provenance stamping), or 3.10 (two-watermark reclaim state machine), all of
-  which remain unchecked below and are required before 0.12 can close.
+  which remain unchecked below. Those tasks are NOT prerequisites of 0.12: 0.12
+  requires no owning parent task's completion and closed without them. Where its
+  acceptance groups touch their behavior, 0.12 records the gap as an ACCEPTED
+  DEFERRAL naming the owning task.
 - [ ] 3.2 Derive installation trust, network scope, agent, gateway, and partition
   authority from the canonical deployment-CA/certificate-subject edge identity
   resolver without
@@ -856,6 +936,13 @@
   stale-epoch immutable replay only under an exact
   event-ID/`record_sha256`-bound delivery capability and stamp it for audit-only/fenced
   projection.
+  0.12 DEFERRAL (accepted 2026-09-14, see 0.12 item A): the composed target's
+  mismatched-identity control is a non-agent certificate refused at `lane_open`,
+  not an agent principal whose identity differs from the record's
+  `authenticated_agent_id`. Proving that record-level refusal before publication
+  belongs here. This task's closure still requires that record-level refusal to
+  be observed through the composed target; 0.12's deferral waives it only for
+  0.12's milestone gate, not for this task.
 - [ ] 3.3 PARTIALLY LANDED: **#4733** (`usp-19`) is MERGED into `usp-01-proposal`.
   Check what it actually delivered before starting -- duplicating it is how the
   earlier 22-PR chain accumulated, and its scope is NARROWER than this task.
@@ -896,8 +983,10 @@
   validation and prefix advancement). This task MAY NOT be checked until BOTH
   hold, each covered by a scenario under `ingestion-routing`'s "Backpressure and
   fairness are bounded at every hop":
-  (i) RESTART OVERLAP -- CLOSED, and now under CONCURRENCY as well. An earlier
-  version of this note said the invariant was proven only against the serial
+  (i) RESTART OVERLAP -- CLOSED inside the BEAM, and now under CONCURRENCY as
+  well. The composed-level observation is still owed (0.12 item E) before this
+  task may be checked. An earlier version of this note said the invariant was
+  proven only against the serial
   publisher, which was the honest state at the time: with one caller able to hold
   exactly one outstanding request, "old and replacement requests together cannot
   exceed the grant" was a claim about a single request. `PublishPipeline` now
@@ -922,7 +1011,9 @@
   additionally starts CLOSED -- `admit` returns `:no_transport` until a new
   generation registers, which cannot happen until the previous send capability is
   gone.
-  (ii) POST-HANDOFF FENCING -- CLOSED. Once a reservation is handed to a caller, a
+  (ii) POST-HANDOFF FENCING -- CLOSED inside the BEAM. The composed-level
+  observation is still owed (0.12 item F) before this task may be checked. Once
+  a reservation is handed to a caller, a
   retry MUST NOT be admitted until the previous attempt is fenced by its REQUEST
   (owner, start, termination). A passed deadline or an absent PubAck is NOT
   sufficient evidence: neither distinguishes "never sent" from "in flight",
@@ -951,6 +1042,16 @@
   published -- but it is a real retention gap and it remains OPEN. Bounding it needs
   evidence that the specific request terminated, which is the correlation work in
   3.5, not a supervision change here.
+  0.12 DEFERRALS (accepted 2026-09-14, see 0.12 items E and F): (i) and (ii) are
+  proven inside the BEAM, but the composed vertical slice observes neither
+  precisely. It shows exactly-once rows and post-restart admission, not
+  capacity held closed while a request is in flight. It also shows exactly one
+  row for concurrent identical sends, not refusal until fencing followed by one
+  admission. The open PR https://github.com/carverauto/serviceradar/pull/456
+  tracks hardening both groups to observe (i) and (ii) against the lane ledger.
+  This task's own closure still requires that composed observation of (i) and
+  (ii); 0.12's deferral waives it only for 0.12's milestone gate, not for this
+  task.
 - [ ] 3.4 Bounded-decode and verify the bounded binary record against the mTLS
   session, grant, registry, route, cost, size, and digest, but publish the exact
   `EdgeDeliveryFrameV1.record_bytes` unchanged to JetStream, never the delivery
@@ -1197,6 +1298,13 @@
   hash(service_slot)) to spread write load WITHIN a window. Add a
   chronological-DROP retirement job that retires whole expired ordered-time
   windows by range drop/detach.
+  PARTIALLY LANDED: https://github.com/carverauto/serviceradar/pull/379 added the
+  minimum slice ledger (migration `20260910120000_create_edge_record_ledger`:
+  `event_ledger`, `edge_delivery_slots`, `edge_sweep_batch_slots`,
+  `edge_sweep_projected_rows`) and the idempotent
+  `ServiceRadar.EventWriter.Processors.EdgeRecord` writer. None of those tables is
+  bucket- or range-partitioned, and there is no terminal slot, service-ingress
+  slot, or retirement job, so this task stays unchecked.
 - [ ] 5.3 Implement horizontally partitioned sweep consumers that preserve each
   micro-batch as an independent idempotency unit while adaptively grouping
   compatible messages in bounded aggregate transactions. Perform bounded bulk authoritative
