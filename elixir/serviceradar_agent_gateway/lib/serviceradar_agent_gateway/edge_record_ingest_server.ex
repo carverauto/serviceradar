@@ -13,7 +13,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
   Task 3.1 is the RPC server and its wiring into the already-tested publish pipeline; it does NOT
   implement the full grant/contract verification of task 3.2, the exact-byte/retained-memory
   binding of task 3.4, the six-outcome-to-five-wire-disposition mapping of task 3.5 (including
-  event ids and rejection codes on dispositions), the transport-provenance stamping of task 3.9,
+  rejection codes on dispositions), the transport-provenance stamping of task 3.9,
   or the two-watermark reclaim state machine of task 3.10. What this server DOES verify before
   publishing:
 
