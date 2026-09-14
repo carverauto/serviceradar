@@ -2,13 +2,29 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "spool",
-    srcs = ["spool.go"],
+    srcs = [
+        "lanes.go",
+        "spool.go",
+    ],
     importpath = "github.com/carverauto/serviceradar/go/pkg/edge/spool",
     visibility = ["//visibility:public"],
+    deps = [
+        "//go/pkg/edge/edgerecord",
+        "//go/pkg/edge/fairsched",
+        "//proto/edge/v1:edgev1",
+    ],
 )
 
 go_test(
     name = "spool_test",
-    srcs = ["spool_test.go"],
+    srcs = [
+        "lanes_test.go",
+        "spool_test.go",
+    ],
     embed = [":spool"],
+    deps = [
+        "//go/pkg/edge/edgerecord",
+        "//go/pkg/edge/fairsched",
+        "//proto/edge/v1:edgev1",
+    ],
 )
