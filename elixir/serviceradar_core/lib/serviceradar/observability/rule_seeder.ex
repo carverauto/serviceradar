@@ -502,7 +502,7 @@ defmodule ServiceRadar.Observability.RuleSeeder do
       %{
         name: "causal_prediction_health_finding",
         managed: true,
-        template_version: 2,
+        template_version: 3,
         description:
           "Raise one active health incident per canonical anomaly series from confirmed causal anomaly transitions.",
         priority: 44,
@@ -545,7 +545,7 @@ defmodule ServiceRadar.Observability.RuleSeeder do
         renotify_seconds: 21_600,
         event: %{
           "log_name" => "alert.health.causal_prediction",
-          "message" => "Causal prediction finding detected"
+          "message" => "Anomaly finding"
         },
         alert: %{
           "title" => "Anomaly Finding",
