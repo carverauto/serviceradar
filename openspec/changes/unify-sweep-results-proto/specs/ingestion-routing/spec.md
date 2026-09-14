@@ -309,27 +309,34 @@ after authoritative PubAck.
   continuous-source gap where applicable, and emit a critical incident
 
 ### Requirement: An agent spool carries exactly one network scope
-One agent spool SHALL NOT carry records from more than one `network_scope_id`,
-and the gateway SHALL end an ingest stream `permission_denied` when a verified
-record on it names a scope other than the one its lane is bound to.
+An agent MUST NOT produce a spool whose records carry more than one
+`network_scope_id`, and within one `EdgeRecordIngestService` stream the gateway
+SHALL end the stream `permission_denied` when a verified record names a scope
+other than the one the stream's lane was bound to.
 
-The gateway resolves a spool's sequences as ONE contiguous prefix keyed by
+The gateway resolves a stream's sequences as ONE contiguous prefix keyed by
 (`network_scope_id`, authenticated agent, spool ID). `EdgeRecordLaneOpen` does
-not carry the scope, so the gateway binds that key from the first record it
-verifies. A spool whose sequences spanned two scopes would split into two
+not carry the scope, so the gateway binds that key from the first record the
+stream verifies. A spool whose sequences spanned two scopes would split into two
 prefixes, neither of them contiguous, and no acknowledgement could advance past
-the first sequence belonging to the other scope. This is the ingest-side form of
-the identity a spool generation freezes under `edge-producer-data-plane`: the
-gateway SHALL NOT open a second lane for the second scope, and SHALL NOT resolve
-any sequence of that spool under it.
+the first sequence belonging to the other scope. On the stream that presents the
+second scope, the gateway SHALL NOT open a lane for it and SHALL NOT resolve any
+sequence under it.
+
+That enforcement is per stream. The gateway holds no durable spool-to-scope
+state, so a later stream that binds the same spool under a different scope is
+not refused at ingest. That state is ruled out at its source, by the identity a
+spool generation freezes under `edge-producer-data-plane` ("Spool generations
+are per lane and freeze one authenticated identity").
 
 #### Scenario: A verified record names a second scope
 - **GIVEN** an ingest stream whose lane was bound to scope A by its first
   verified record
-- **WHEN** a later record on the same spool verifies and names scope B
+- **WHEN** a later record on the same stream verifies and names scope B
 - **THEN** the gateway SHALL end the stream `permission_denied` without
   publishing that record
-- **AND** it SHALL NOT open a lane for scope B or resolve any sequence under it
+- **AND** that stream SHALL NOT open a lane for scope B or resolve any sequence
+  under it
 
 ### Requirement: Traffic-class routing is immutable and physically disjoint
 Every result SHALL carry exactly one control-plane-attested `traffic_class` of
