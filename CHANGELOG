@@ -1,3 +1,45 @@
+# ServiceRadar v1.4.66
+
+Add-on rollouts no longer wedge: a superseded rollout finishes
+its source, a candidate is no longer failed on the health report
+of the version it replaces, and the agent restarts an add-on
+whose RPC server died while its process stayed up. Existing
+anomaly settings pick up the per-class drift mode defaults.
+
+## Whats New
+
+**1.4.66**
+- Add-on rollouts: a rollout superseded because the fleet already
+  runs the candidate now finishes like a completed rollout. It
+  promotes the source when the source is behind the candidate,
+  clears per-assignment overrides and releases the target slots.
+  Before, the profile stayed on the old package, every retry
+  failed on `addon_rollout_targets_one_active_target_index`, and
+  the source could never roll out again. Reconcile repairs
+  rollouts already stuck this way (PR #449, issue #445).
+- Add-on rollouts: a candidate is failed only on a health report
+  for the candidate version. An unhealthy report from the version
+  being replaced no longer rolls the upgrade back; an agent that
+  never applies the candidate still fails as
+  `candidate_health_timeout` (PR #449, issue #430).
+- Agent: the add-on supervisor restarts an add-on whose process is
+  alive but whose RPC server is gone, instead of reporting it
+  unhealthy until someone restarts the agent (PR #449).
+- Anomaly: migration `20260914120000` fills the per-metric-class
+  `drift_mode` defaults into existing anomaly settings where a
+  class has none (cpu, memory and interface
+  `deseasonalized_only`; disk, icmp and other `off`). Values an
+  operator already set are left untouched (PR #452).
+
+## Upgrade Notes
+
+- New migration `20260914120000`. The chart default for
+  `core.migrations.expectedVersion` moves to `20260914120000`; a
+  deployment that pins that value in its own values file (manual
+  Helm installs) must bump it in the same upgrade.
+- The add-on supervisor fix ships in the agent binary, so hosts
+  pick it up through the normal agent release rollout.
+
 # ServiceRadar v1.4.65
 
 The anomaly add-on no longer treats a cold start's first samples
