@@ -476,6 +476,23 @@ func TestDeclaredButUnconfiguredStaysNotReady(t *testing.T) {
 	}
 }
 
+// Other lane owners ask the snapshot the same membership question Enqueue does.
+func TestTaxonomyContainsOnlyConfiguredLanes(t *testing.T) {
+	tax := mustTaxonomy(t)
+
+	for _, k := range tax.Lanes() {
+		if !tax.Contains(k) {
+			t.Fatalf("Contains(%s) = false for a configured lane", k)
+		}
+	}
+
+	for _, k := range []LaneKey{lane(profileContinuous, classBulk), lane(profileUnset, classBulk), {}} {
+		if tax.Contains(k) {
+			t.Fatalf("Contains(%s) = true for an unconfigured lane", k)
+		}
+	}
+}
+
 // Recovery is defined by ROUTE PROFILE, matching edgerecord.validateRecoveryLane.
 func TestRecoveryLaneMustUseRecoveryRoute(t *testing.T) {
 	notRecovery := lane(profileDurable, classBulk)

@@ -30,15 +30,18 @@ package spool
 // network_scope_id or agent identity is refused PERMANENTLY. It is not enforced
 // by serializing scopes.
 //
-// Refusals come in exactly two classes. ErrRotationRequired is RETRYABLE: the
-// append was valid, nothing was written, and the producer retries the SAME append
-// once the lane has rotated. ErrPermanent covers only a malformed lane (or
-// malformed input) and an unauthorized scope/agent identity.
+// Refusals come in exactly two classes, and neither writes anything. ErrRetryable
+// covers a valid append the lane cannot take yet, which the producer retries
+// unchanged: ErrRotationRequired until the lane has rotated, and ErrLaneNotReady
+// for a well-formed lane the deployment's taxonomy does not have active.
+// ErrPermanent covers only a malformed lane (or malformed input) and an
+// unauthorized scope/agent identity.
 //
 // Closed-but-unreclaimed generations stay on disk beside the lane's open one and
 // remain independently readable and resolvable under their own frozen identity,
-// including after a restart under a different session identity. Deleting a
-// reclaimed generation is NOT here: that needs the coverage proof (task 2.28).
+// including after a restart under a different session identity or taxonomy. They
+// hold no segment descriptor; their reads open their own. Deleting a reclaimed
+// generation is NOT here: that needs the coverage proof (task 2.28).
 //
 // On-disk layout, all directories 0700:
 //
@@ -106,6 +109,10 @@ var (
 	// ErrRotationRequired (ROTATION_REQUIRED) is returned when the lane's open
 	// generation must rotate before it can take the append.
 	ErrRotationRequired = fmt.Errorf("%w: ROTATION_REQUIRED", ErrRetryable)
+	// ErrLaneNotReady is returned for a well-formed lane the deployment's taxonomy
+	// does not have active. Nothing is opened for it; generations already on disk
+	// for the lane stay readable and resolvable.
+	ErrLaneNotReady = fmt.Errorf("%w: lane is not in the active taxonomy", ErrRetryable)
 	// ErrLaneInvalid is returned for a lane that is not a declared, non-zero
 	// member of the platform taxonomy.
 	ErrLaneInvalid = fmt.Errorf("%w: malformed lane", ErrPermanent)
@@ -213,6 +220,13 @@ func (g *Generation) ScanFrom(after uint64, visit func(Record) bool) error {
 // Unresolved returns the generation's unresolved records; see Spool.Unresolved.
 func (g *Generation) Unresolved() ([]Record, error) { return g.spool.Unresolved() }
 
+// markClosed marks the generation closed and releases its segment: a closed
+// generation never appends again, and its reads open their own handles.
+func (g *Generation) markClosed() error {
+	g.closed.Store(true)
+	return g.spool.Close()
+}
+
 // lane is one lane's generation bookkeeping. Its mutex is the only lock an append
 // holds while it writes, so lanes never wait on each other.
 type lane struct {
@@ -230,8 +244,9 @@ type lane struct {
 // LaneSet is the agent's spool: one open generation per lane under one
 // authenticated session identity. It is safe for concurrent use.
 type LaneSet struct {
-	root    string
-	session Identity
+	root     string
+	session  Identity
+	taxonomy *fairsched.LaneTaxonomy
 
 	mu     sync.Mutex // guards lanes and closed; never held across I/O on a lane
 	lanes  map[LaneKey]*lane
@@ -239,15 +254,26 @@ type LaneSet struct {
 }
 
 // OpenLanes opens (creating if needed) the lane set rooted at root for the given
-// authenticated session identity and recovers every generation on disk.
+// authenticated session identity and the deployment's lane taxonomy, and recovers
+// every generation on disk.
+//
+// Appends and rotations are admitted only on lanes the taxonomy contains.
+// Generations on disk for any other well-formed lane still recover and stay
+// readable and resolvable under their frozen identity.
 //
 // A recovered OPEN generation frozen under a different identity (the agent was
 // re-enrolled) keeps that identity and marks its lane rotation-required: it is
 // never appended to under the new identity, and it stays recoverable after it
 // closes.
-func OpenLanes(root string, session Identity) (*LaneSet, error) {
+//
+// Recovery fails the whole set closed when any generation on any lane cannot be
+// trusted, including a corrupt retained segment; per-lane quarantine is task 2.27.
+func OpenLanes(root string, session Identity, taxonomy *fairsched.LaneTaxonomy) (*LaneSet, error) {
 	if err := session.validate(); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrSessionIdentity, err)
+	}
+	if taxonomy == nil || taxonomy.Len() == 0 {
+		return nil, fmt.Errorf("%w: taxonomy is required", fairsched.ErrTaxonomyInvalid)
 	}
 	if err := os.MkdirAll(root, dirPerm); err != nil {
 		return nil, fmt.Errorf("spool: mkdir lane root: %w", err)
@@ -257,9 +283,10 @@ func OpenLanes(root string, session Identity) (*LaneSet, error) {
 	}
 
 	ls := &LaneSet{
-		root:    root,
-		session: session.clone(),
-		lanes:   make(map[LaneKey]*lane),
+		root:     root,
+		session:  session.clone(),
+		taxonomy: taxonomy,
+		lanes:    make(map[LaneKey]*lane),
 	}
 
 	entries, err := os.ReadDir(root)
@@ -287,8 +314,9 @@ func OpenLanes(root string, session Identity) (*LaneSet, error) {
 // if the lane has none. presented is the scope and agent identity the record
 // claims; it must equal the session identity.
 //
-// Refusals wrap ErrRetryable (ErrRotationRequired) or ErrPermanent and write
-// nothing. Storage failures are returned unclassified.
+// Refusals wrap ErrRetryable (ErrRotationRequired, ErrLaneNotReady) or
+// ErrPermanent and write nothing. A permanent refusal is never masked by a
+// retryable one. Storage failures are returned unclassified.
 func (ls *LaneSet) Append(key LaneKey, presented Identity, eventID, body []byte) (Receipt, error) {
 	if !key.Valid() {
 		return Receipt{}, fmt.Errorf("%w: %s", ErrLaneInvalid, key)
@@ -379,11 +407,14 @@ func (ls *LaneSet) Rotate(key LaneKey) (GenerationIdentity, error) {
 		if err := writeClosedMarker(l.open.dir); err != nil {
 			return GenerationIdentity{}, err
 		}
-		l.open.closed.Store(true)
-		l.retained = append(l.retained, l.open)
+		g := l.open
+		l.retained = append(l.retained, g)
 		l.open = nil
+		l.rotationPending = false
+		if err := g.markClosed(); err != nil {
+			return GenerationIdentity{}, err
+		}
 	}
-	l.rotationPending = false
 
 	if err := ls.openGeneration(l); err != nil {
 		return GenerationIdentity{}, err
@@ -435,7 +466,8 @@ func (ls *LaneSet) Lanes() []LaneKey {
 	return out
 }
 
-// Close closes every generation's segment. It waits for in-flight appends.
+// Close closes every open generation's segment; closed generations hold none. It
+// waits for in-flight appends.
 func (ls *LaneSet) Close() error {
 	ls.mu.Lock()
 	if ls.closed {
@@ -459,9 +491,6 @@ func (ls *LaneSet) closeAll() error {
 	for _, l := range lanes {
 		l.mu.Lock()
 		l.shut = true
-		for _, g := range l.retained {
-			errs = append(errs, g.spool.Close())
-		}
 		if l.open != nil {
 			errs = append(errs, l.open.spool.Close())
 		}
@@ -472,19 +501,22 @@ func (ls *LaneSet) closeAll() error {
 
 // authorize enforces the single-scope authenticated-agent invariant.
 func (ls *LaneSet) authorize(presented Identity) error {
-	if edgerecord.ValidateCanonicalUUID(presented.NetworkScopeID) != nil ||
-		!bytes.Equal(presented.NetworkScopeID, ls.session.NetworkScopeID) {
+	if !bytes.Equal(presented.NetworkScopeID, ls.session.NetworkScopeID) {
 		return ErrScopeUnauthorized
 	}
-	if edgerecord.ValidateAuthenticatedPrincipal(presented.AgentID) != nil ||
-		!bytes.Equal(presented.AgentID, ls.session.AgentID) {
+	if !bytes.Equal(presented.AgentID, ls.session.AgentID) {
 		return ErrAgentUnauthorized
 	}
 	return nil
 }
 
-// lane returns the lane's bookkeeping, creating it on first use.
+// lane returns the bookkeeping of a lane the taxonomy has active, creating it on
+// first use. The caller has already refused a malformed lane, so a lane the
+// taxonomy does not contain is not ready, and gets no bookkeeping.
 func (ls *LaneSet) lane(key LaneKey) (*lane, error) {
+	if !ls.taxonomy.Contains(key) {
+		return nil, fmt.Errorf("%w: %s", ErrLaneNotReady, key)
+	}
 	ls.mu.Lock()
 	defer ls.mu.Unlock()
 	if ls.closed {
@@ -544,14 +576,10 @@ func (ls *LaneSet) openGeneration(l *lane) error {
 	if err := os.Rename(tmp, final); err != nil {
 		return fmt.Errorf("spool: publish generation: %w", err)
 	}
-	// Published: the ordinal is spent whether or not the segment opens, so a
+	// Published: the ordinal is spent whether or not the generation opens, so a
 	// retry can never publish a second generation under the same ordinal.
 	l.nextOrdinal++
-	if err := fsyncDir(l.dir); err != nil {
-		return err
-	}
-
-	sp, err := Open(final)
+	sp, err := openPublished(l.dir, final)
 	if err != nil {
 		// It holds no record. Close it so a retry's successor is the lane's only
 		// open generation; if even that fails, recovery fails stop on two open
@@ -561,6 +589,15 @@ func (ls *LaneSet) openGeneration(l *lane) error {
 	}
 	l.open = &Generation{id: id, dir: final, spool: sp}
 	return nil
+}
+
+// openPublished makes a just-published generation's directory entry durable and
+// opens its segment.
+func openPublished(laneDir, dir string) (*Spool, error) {
+	if err := fsyncDir(laneDir); err != nil {
+		return nil, err
+	}
+	return Open(dir)
 }
 
 // recoverLane loads one lane's generations from disk.
@@ -663,7 +700,11 @@ func recoverGeneration(l *lane, e os.DirEntry) (*Generation, error) {
 		return nil, err
 	}
 	g := &Generation{id: id, dir: dir, spool: sp}
-	g.closed.Store(closed)
+	if closed {
+		if err := g.markClosed(); err != nil {
+			return nil, err
+		}
+	}
 	return g, nil
 }
 

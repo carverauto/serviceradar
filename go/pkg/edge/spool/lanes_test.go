@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
+	"github.com/carverauto/serviceradar/go/pkg/edge/fairsched"
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 )
 
@@ -60,16 +61,59 @@ var (
 		RouteProfile: edgev1.EdgeRecordRouteProfile_EDGE_RECORD_ROUTE_PROFILE_RECOVERY_CONTROL_V1,
 		TrafficClass: edgev1.EdgeRecordTrafficClass_EDGE_RECORD_TRAFFIC_CLASS_INTERACTIVE,
 	}
+	// inactiveLane is well formed but absent from the deployment taxonomy.
+	inactiveLane = LaneKey{
+		RouteProfile: edgev1.EdgeRecordRouteProfile_EDGE_RECORD_ROUTE_PROFILE_CONTINUOUS_V1,
+		TrafficClass: edgev1.EdgeRecordTrafficClass_EDGE_RECORD_TRAFFIC_CLASS_BULK,
+	}
 )
 
-func openLanes(t *testing.T, root string, session Identity) *LaneSet {
+func taxonomyOf(t *testing.T, lanes ...LaneKey) *fairsched.LaneTaxonomy {
 	t.Helper()
-	ls, err := OpenLanes(root, session)
+	policies := make([]fairsched.LanePolicy, 0, len(lanes))
+	for _, k := range lanes {
+		policies = append(policies, fairsched.LanePolicy{Key: k, WeightBytes: 1})
+	}
+	tax, err := fairsched.NewLaneTaxonomy(policies, recoveryLane)
+	if err != nil {
+		t.Fatalf("NewLaneTaxonomy: %v", err)
+	}
+	return tax
+}
+
+func deploymentTaxonomy(t *testing.T) *fairsched.LaneTaxonomy {
+	t.Helper()
+	return taxonomyOf(t, bulkLane, interactiveLane, recoveryLane)
+}
+
+func openLanesWith(t *testing.T, root string, session Identity, tax *fairsched.LaneTaxonomy) *LaneSet {
+	t.Helper()
+	ls, err := OpenLanes(root, session, tax)
 	if err != nil {
 		t.Fatalf("OpenLanes: %v", err)
 	}
 	t.Cleanup(func() { _ = ls.Close() })
 	return ls
+}
+
+func openLanes(t *testing.T, root string, session Identity) *LaneSet {
+	t.Helper()
+	return openLanesWith(t, root, session, deploymentTaxonomy(t))
+}
+
+// openFDs counts the process's open file descriptors.
+func openFDs(t *testing.T) int {
+	t.Helper()
+	d, err := os.Open("/dev/fd")
+	if err != nil {
+		t.Skipf("cannot count open descriptors: %v", err)
+	}
+	defer func() { _ = d.Close() }()
+	names, err := d.Readdirnames(-1)
+	if err != nil {
+		t.Skipf("cannot count open descriptors: %v", err)
+	}
+	return len(names)
 }
 
 func mustLaneAppend(t *testing.T, ls *LaneSet, key LaneKey, id Identity, ev byte, body string) Receipt {
@@ -348,7 +392,7 @@ func TestRotationAndMalformedLaneControlCalls(t *testing.T) {
 func TestGenerationsRecoverUnderTheirFrozenIdentity(t *testing.T) {
 	root := t.TempDir()
 
-	ls, err := OpenLanes(root, sessionA)
+	ls, err := OpenLanes(root, sessionA, deploymentTaxonomy(t))
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
@@ -416,7 +460,7 @@ func TestGenerationsRecoverUnderTheirFrozenIdentity(t *testing.T) {
 
 func TestRecoveryDiscardsUnpublishedGenerationPreparation(t *testing.T) {
 	root := t.TempDir()
-	ls, err := OpenLanes(root, sessionA)
+	ls, err := OpenLanes(root, sessionA, deploymentTaxonomy(t))
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
@@ -442,7 +486,7 @@ func TestRecoveryDiscardsUnpublishedGenerationPreparation(t *testing.T) {
 // with no open generation; the next append opens one with the next ordinal.
 func TestRecoveryAfterCloseBeforeSuccessor(t *testing.T) {
 	root := t.TempDir()
-	ls, err := OpenLanes(root, sessionA)
+	ls, err := OpenLanes(root, sessionA, deploymentTaxonomy(t))
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
@@ -467,7 +511,7 @@ func TestRecoveryFailsStopOnUntrustworthyGenerationState(t *testing.T) {
 	setup := func(t *testing.T) (string, *Generation, *Generation) {
 		t.Helper()
 		root := t.TempDir()
-		ls, err := OpenLanes(root, sessionA)
+		ls, err := OpenLanes(root, sessionA, deploymentTaxonomy(t))
 		if err != nil {
 			t.Fatalf("open: %v", err)
 		}
@@ -491,7 +535,7 @@ func TestRecoveryFailsStopOnUntrustworthyGenerationState(t *testing.T) {
 		if err := os.WriteFile(path, raw, 0o600); err != nil {
 			t.Fatalf("write: %v", err)
 		}
-		if _, err := OpenLanes(root, sessionA); !errors.Is(err, ErrCorruptGeneration) {
+		if _, err := OpenLanes(root, sessionA, deploymentTaxonomy(t)); !errors.Is(err, ErrCorruptGeneration) {
 			t.Fatalf("OpenLanes = %v, want ErrCorruptGeneration", err)
 		}
 	})
@@ -505,7 +549,7 @@ func TestRecoveryFailsStopOnUntrustworthyGenerationState(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(closed.dir, identityFile), raw, 0o600); err != nil {
 			t.Fatalf("write: %v", err)
 		}
-		if _, err := OpenLanes(root, sessionA); !errors.Is(err, ErrCorruptGeneration) {
+		if _, err := OpenLanes(root, sessionA, deploymentTaxonomy(t)); !errors.Is(err, ErrCorruptGeneration) {
 			t.Fatalf("OpenLanes = %v, want ErrCorruptGeneration", err)
 		}
 	})
@@ -515,7 +559,7 @@ func TestRecoveryFailsStopOnUntrustworthyGenerationState(t *testing.T) {
 		if err := os.Remove(filepath.Join(closed.dir, closedFile)); err != nil {
 			t.Fatalf("remove marker: %v", err)
 		}
-		if _, err := OpenLanes(root, sessionA); !errors.Is(err, ErrCorruptGeneration) {
+		if _, err := OpenLanes(root, sessionA, deploymentTaxonomy(t)); !errors.Is(err, ErrCorruptGeneration) {
 			t.Fatalf("OpenLanes = %v, want ErrCorruptGeneration", err)
 		}
 	})
@@ -525,7 +569,7 @@ func TestRecoveryFailsStopOnUntrustworthyGenerationState(t *testing.T) {
 		if err := os.Mkdir(filepath.Join(root, "0-1"), 0o700); err != nil {
 			t.Fatalf("mkdir: %v", err)
 		}
-		if _, err := OpenLanes(root, sessionA); !errors.Is(err, ErrCorruptGeneration) {
+		if _, err := OpenLanes(root, sessionA, deploymentTaxonomy(t)); !errors.Is(err, ErrCorruptGeneration) {
 			t.Fatalf("OpenLanes = %v, want ErrCorruptGeneration", err)
 		}
 	})
@@ -536,9 +580,187 @@ func TestOpenLanesRejectsMalformedSessionIdentity(t *testing.T) {
 		{NetworkScopeID: make([]byte, 16), AgentID: sessionA.AgentID},
 		{NetworkScopeID: sessionA.NetworkScopeID, AgentID: nil},
 	} {
-		if _, err := OpenLanes(t.TempDir(), id); !errors.Is(err, ErrSessionIdentity) {
+		if _, err := OpenLanes(t.TempDir(), id, deploymentTaxonomy(t)); !errors.Is(err, ErrSessionIdentity) {
 			t.Fatalf("OpenLanes(%+v) = %v, want ErrSessionIdentity", id, err)
 		}
+	}
+}
+
+func TestOpenLanesRequiresTaxonomy(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "lanes")
+	if _, err := OpenLanes(root, sessionA, nil); !errors.Is(err, fairsched.ErrTaxonomyInvalid) {
+		t.Fatalf("OpenLanes(nil taxonomy) = %v, want ErrTaxonomyInvalid", err)
+	}
+	if _, err := os.Stat(root); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("refused OpenLanes created its root: %v", err)
+	}
+}
+
+func TestLaneOutsideTaxonomyIsNotReady(t *testing.T) {
+	root := t.TempDir()
+	ls := openLanes(t, root, sessionA)
+
+	_, err := ls.Append(inactiveLane, sessionA, evid(1), []byte("x"))
+	requireRetryable(t, err, ErrLaneNotReady)
+	requireRetryable(t, ls.RequireRotation(inactiveLane), ErrLaneNotReady)
+	_, err = ls.Rotate(inactiveLane)
+	requireRetryable(t, err, ErrLaneNotReady)
+
+	// A permanent refusal is not masked by the lane being not ready.
+	_, err = ls.Append(inactiveLane, sessionB, evid(1), []byte("x"))
+	requirePermanent(t, err, ErrAgentUnauthorized)
+
+	if got := ls.Lanes(); len(got) != 0 {
+		t.Fatalf("refused lane has bookkeeping: %v", got)
+	}
+	if _, ok := ls.OpenGeneration(inactiveLane); ok {
+		t.Fatal("refused lane opened a generation")
+	}
+	if _, err := os.Stat(filepath.Join(root, laneDirName(inactiveLane))); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("refused lane created a directory: %v", err)
+	}
+}
+
+// A lane the new taxonomy dropped keeps every generation it spooled readable and
+// resolvable under its frozen identity; only new appends and rotations wait.
+func TestRecoveredLaneOutsideTaxonomyStaysReadable(t *testing.T) {
+	root := t.TempDir()
+	ls, err := OpenLanes(root, sessionA, deploymentTaxonomy(t))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	first := mustLaneAppend(t, ls, bulkLane, sessionA, 1, "bulk-1")
+	if _, err := ls.Rotate(bulkLane); err != nil {
+		t.Fatalf("rotate: %v", err)
+	}
+	second := mustLaneAppend(t, ls, bulkLane, sessionA, 2, "bulk-2")
+	if err := ls.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	ls = openLanesWith(t, root, sessionA, taxonomyOf(t, interactiveLane, recoveryLane))
+
+	_, err = ls.Append(bulkLane, sessionA, evid(3), []byte("bulk-3"))
+	requireRetryable(t, err, ErrLaneNotReady)
+	requireRetryable(t, ls.RequireRotation(bulkLane), ErrLaneNotReady)
+	_, err = ls.Rotate(bulkLane)
+	requireRetryable(t, err, ErrLaneNotReady)
+
+	gens := ls.Generations(bulkLane)
+	if len(gens) != 2 || !gens[0].Closed() || gens[1].Closed() {
+		t.Fatalf("recovered bulk generations = %d", len(gens))
+	}
+	for i, want := range []Receipt{first, second} {
+		id := gens[i].Identity()
+		if !bytes.Equal(id.SpoolID, want.Generation.SpoolID) || !id.Identity.equal(sessionA) || id.Lane != bulkLane {
+			t.Fatalf("generation %d recovered as %+v", i+1, id)
+		}
+		if got := bodies(t, gens[i]); len(got) != 1 || got[0] != fmt.Sprintf("bulk-%d", i+1) {
+			t.Fatalf("generation %d records = %v", i+1, got)
+		}
+		if err := gens[i].Resolve(want.Sequence); err != nil {
+			t.Fatalf("resolve generation %d: %v", i+1, err)
+		}
+		if gens[i].Resolved() != want.Sequence || gens[i].NextSequence() != want.Sequence+1 {
+			t.Fatalf("generation %d = resolved %d next %d", i+1, gens[i].Resolved(), gens[i].NextSequence())
+		}
+	}
+
+	if r := mustLaneAppend(t, ls, interactiveLane, sessionA, 4, "interactive-1"); r.Sequence != 1 {
+		t.Fatalf("active lane append = seq %d", r.Sequence)
+	}
+}
+
+// Closed generations never append again, so they must not pin a segment
+// descriptor for the life of the lane set, at run time or after recovery.
+func TestClosedGenerationsHoldNoSegmentDescriptor(t *testing.T) {
+	const rotations = 16
+	root := t.TempDir()
+	ls, err := OpenLanes(root, sessionA, deploymentTaxonomy(t))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	mustLaneAppend(t, ls, bulkLane, sessionA, 1, "bulk-1")
+
+	before := openFDs(t)
+	for range rotations {
+		if _, err := ls.Rotate(bulkLane); err != nil {
+			t.Fatalf("rotate: %v", err)
+		}
+	}
+	if grown := openFDs(t) - before; grown > 2 {
+		t.Fatalf("%d rotations left %d more descriptors open", rotations, grown)
+	}
+	gens := ls.Generations(bulkLane)
+	if len(gens) != rotations+1 {
+		t.Fatalf("bulk generations = %d, want %d", len(gens), rotations+1)
+	}
+	if got := bodies(t, gens[0]); len(got) != 1 || got[0] != "bulk-1" {
+		t.Fatalf("closed generation records = %v", got)
+	}
+	if err := gens[0].Resolve(1); err != nil {
+		t.Fatalf("resolve closed generation: %v", err)
+	}
+	if err := ls.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	before = openFDs(t)
+	ls = openLanes(t, root, sessionA)
+	if grown := openFDs(t) - before; grown > 2 {
+		t.Fatalf("recovering %d closed generations left %d descriptors open", rotations, grown)
+	}
+	gens = ls.Generations(bulkLane)
+	if len(gens) != rotations+1 || gens[0].Resolved() != 1 || gens[0].NextSequence() != 2 {
+		t.Fatalf("recovered %d generations; first resolved %d next %d",
+			len(gens), gens[0].Resolved(), gens[0].NextSequence())
+	}
+	if r := mustLaneAppend(t, ls, bulkLane, sessionA, 2, "bulk-2"); r.Generation.Ordinal != rotations+1 || r.Sequence != 1 {
+		t.Fatalf("append after recovery = ordinal %d seq %d", r.Generation.Ordinal, r.Sequence)
+	}
+}
+
+// A failure after a generation is published must leave it closed, so the retry's
+// successor is the lane's only open generation and recovery still succeeds.
+func TestFailureAfterPublishingGenerationClosesIt(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("directory permissions do not constrain root")
+	}
+	root := t.TempDir()
+	ls, err := OpenLanes(root, sessionA, deploymentTaxonomy(t))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	mustLaneAppend(t, ls, bulkLane, sessionA, 1, "bulk-1")
+
+	// Write and search without read: a generation can still be published into the
+	// lane directory, but the directory cannot be opened to fsync the publish.
+	laneDir := filepath.Join(root, laneDirName(bulkLane))
+	if err := os.Chmod(laneDir, 0o300); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(laneDir, 0o700) })
+	if _, err := ls.Rotate(bulkLane); err == nil {
+		t.Fatal("Rotate succeeded although the lane directory could not be fsynced")
+	}
+	if err := os.Chmod(laneDir, 0o700); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+
+	if r := mustLaneAppend(t, ls, bulkLane, sessionA, 2, "bulk-2"); r.Generation.Ordinal != 3 || r.Sequence != 1 {
+		t.Fatalf("retried append = ordinal %d seq %d, want 3/1", r.Generation.Ordinal, r.Sequence)
+	}
+	if err := ls.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	ls = openLanes(t, root, sessionA)
+	gens := ls.Generations(bulkLane)
+	if len(gens) != 3 || !gens[0].Closed() || !gens[1].Closed() || gens[2].Closed() {
+		t.Fatalf("recovered bulk generations = %d", len(gens))
+	}
+	if r := mustLaneAppend(t, ls, bulkLane, sessionA, 3, "bulk-3"); r.Generation.Ordinal != 3 || r.Sequence != 2 {
+		t.Fatalf("append after recovery = ordinal %d seq %d, want 3/2", r.Generation.Ordinal, r.Sequence)
 	}
 }
 

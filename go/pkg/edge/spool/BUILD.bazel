@@ -24,6 +24,7 @@ go_test(
     embed = [":spool"],
     deps = [
         "//go/pkg/edge/edgerecord",
+        "//go/pkg/edge/fairsched",
         "//proto/edge/v1:edgev1",
     ],
 )

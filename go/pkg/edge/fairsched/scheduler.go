@@ -212,6 +212,14 @@ func (t *LaneTaxonomy) Lanes() []LaneKey {
 	return out
 }
 
+// Contains reports whether the snapshot configures the lane. A well-formed lane
+// it does not contain is not ready, not malformed.
+func (t *LaneTaxonomy) Contains(k LaneKey) bool {
+	_, ok := t.lanes[k]
+
+	return ok
+}
+
 // RecoveryLane returns the designated reserved recovery lane.
 func (t *LaneTaxonomy) RecoveryLane() LaneKey { return t.recovery }
 
