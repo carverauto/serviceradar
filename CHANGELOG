@@ -1,3 +1,58 @@
+# ServiceRadar v1.4.68
+
+Events raised by stateful alert rules now carry the affected
+device, the triggering event's observables and message, and a
+link back to the triggering event, and no longer a blanket
+Failure status.
+
+## Whats New
+
+**1.4.68**
+- Alerts: the event a stateful alert rule records when it fires
+  now says what happened and where. It carries the device the
+  alert is about, unless that device is out of service, and the
+  triggering event's observables. A fixed rule message such as
+  "Falco security incident detected" now has the triggering
+  event's own message appended, and a rule with no message
+  (such as one built from an event page) uses that message
+  instead of the "Stateful rule ... triggered for ..." summary.
+  The alert copies its description from this message, so the
+  dashboard alert list now shows it for Falco, anomaly and
+  capacity forecast alerts in place of the generic rule title.
+  Fired events are no longer stamped with status Failure; the
+  triggering event's status is kept as the status detail. The
+  seeded anomaly rule's message becomes "Anomaly finding". The
+  event page shows the device and, for rules that match events,
+  a "View triggering event" link. Both work for events recorded
+  before the upgrade too, though there the device appears only
+  for rules that group by device (PR #467).
+
+## Upgrade Notes
+
+- Events recorded by stateful alert rules no longer set an OCSF
+  status: status and status_id are empty on new fired events
+  (previously Failure / status_id 2), and the triggering event's
+  own status is in status_detail. An event search, dashboard or
+  integration that picked out rule-fired events by status Failure
+  stops matching new ones. Select them by the rule's log_name
+  instead (alert.rule.threshold for a rule that sets none).
+  Events recorded before the upgrade keep Failure.
+- The message on new fired events changes whenever the triggering
+  event has a message of its own. A stateful rule with a fixed
+  event message now records "<rule message>: <triggering
+  message>". A rule with no event message, including any rule
+  created from an event page, now records the triggering message
+  instead of "Stateful rule <name> triggered for <group>
+  (<count>/<threshold> in <window>s)". The description of alerts
+  raised from these events changes too, unless the rule sets its
+  own alert description, and so does the alert title if the rule
+  sets no title. The seeded anomaly rule's message also changes
+  from "Causal prediction finding detected" to "Anomaly finding"
+  (template version 2 to 3). The seeder applies that change on
+  the next boot only to a managed rule an operator has not
+  modified, and skips a modified one. Update anything that
+  matches the old exact message or description text.
+
 # ServiceRadar v1.4.67
 
 A new CNPG cluster created by the chart now bootstraps its
