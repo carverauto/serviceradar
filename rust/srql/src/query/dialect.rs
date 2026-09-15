@@ -87,7 +87,11 @@ pub fn apply_sql(plan: &QueryPlan, sql: String) -> Result<String> {
     }
 
     let mut sql = remap_jsonb(sql);
-    sql = inject_partition_predicates(&sql, &partition_predicates(plan));
+    sql = inject_partition_predicates(
+        &sql,
+        &partition_predicates(plan),
+        cold_table_for_entity(&plan.entity),
+    );
     sql = pin_listing_order(plan, sql);
     Ok(sql)
 }
@@ -145,9 +149,12 @@ fn remap_jsonb_arrows(sql: &str) -> String {
         {
             let key = &after[1..1 + end];
             out.push_str(&before[..col_start]);
-            out.push_str("json_extract_string(");
+            // pg_duckdb parses with PostgreSQL first; json_extract_string is
+            // DuckDB-only and fails at parse_func.c. `::JSON ->>` is valid in
+            // both parsers. Parentheses keep coalesce(col->>'k', '') grouped.
+            out.push('(');
             out.push_str(col);
-            out.push_str(", '$.");
+            out.push_str("::JSON ->> '");
             out.push_str(key);
             out.push_str("')");
             rest = &after[1 + end + 1..];
@@ -166,7 +173,7 @@ fn is_ident(s: &str) -> bool {
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.')
 }
 
-fn inject_partition_predicates(sql: &str, predicates: &[String]) -> String {
+fn inject_partition_predicates(sql: &str, predicates: &[String], table: Option<&str>) -> String {
     if predicates.is_empty() {
         return sql.to_string();
     }
@@ -182,7 +189,7 @@ fn inject_partition_predicates(sql: &str, predicates: &[String]) -> String {
         let after = at + 5;
         let after_ok = after == sql.len()
             || (!sql.as_bytes()[after].is_ascii_alphanumeric() && sql.as_bytes()[after] != b'_');
-        if before_ok && after_ok {
+        if before_ok && after_ok && from_clause_is_base_table(sql, at, table) {
             out.push_str(&sql[last..after]);
             out.push(' ');
             out.push_str(&extra);
@@ -193,6 +200,26 @@ fn inject_partition_predicates(sql: &str, predicates: &[String]) -> String {
     }
     out.push_str(&sql[last..]);
     out
+}
+
+/// Hive predicates belong on the parquet scan, not on CTE filters that no
+/// longer project `_partition_date` (counter-rate downsample has three WHEREs).
+fn from_clause_is_base_table(sql: &str, where_at: usize, table: Option<&str>) -> bool {
+    let Some(table) = table else {
+        return true;
+    };
+    let head = sql[..where_at].to_ascii_lowercase();
+    let Some(from_rel) = head.rfind("from") else {
+        return false;
+    };
+    let from_at = from_rel;
+    let from_before_ok = from_at == 0
+        || !head.as_bytes()[from_at - 1].is_ascii_alphanumeric()
+            && head.as_bytes()[from_at - 1] != b'_';
+    if !from_before_ok {
+        return false;
+    }
+    head[from_at..].contains(table)
 }
 
 #[cfg(test)]
@@ -232,18 +259,32 @@ mod tests {
         let sql = inject_partition_predicates(
             "SELECT 1 FROM timeseries_metrics WHERE timestamp >= ?",
             &["_partition_date >= DATE '2026-09-14'".into()],
+            Some("timeseries_metrics"),
         );
         assert!(sql.contains("_partition_date >= DATE '2026-09-14' AND"));
         assert!(sql.contains("timestamp >= ?"));
     }
 
     #[test]
+    fn partition_predicates_skip_cte_filters() {
+        let sql = inject_partition_predicates(
+            "SELECT 1 FROM timeseries_metrics WHERE ts >= $1), rate_data AS (\n SELECT 1 FROM ordered_data WHERE prev IS NOT NULL\n) SELECT 1 FROM rate_data WHERE rate IS NOT NULL",
+            &["_partition_date >= DATE '2026-09-14'".into()],
+            Some("timeseries_metrics"),
+        );
+        assert_eq!(
+            sql.matches("_partition_date >= DATE '2026-09-14'").count(),
+            1
+        );
+        assert!(sql.contains("FROM timeseries_metrics WHERE _partition_date"));
+        assert!(sql.contains("FROM ordered_data WHERE prev IS NOT NULL"));
+        assert!(sql.contains("FROM rate_data WHERE rate IS NOT NULL"));
+    }
+
+    #[test]
     fn remaps_jsonb_arrow() {
         let sql = remap_jsonb("coalesce(tags->>'core_id', '') AS series".into());
-        assert_eq!(
-            sql,
-            "coalesce(json_extract_string(tags, '$.core_id'), '') AS series"
-        );
+        assert_eq!(sql, "coalesce((tags::JSON ->> 'core_id'), '') AS series");
     }
 
     #[test]

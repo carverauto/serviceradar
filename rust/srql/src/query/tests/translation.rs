@@ -2020,9 +2020,7 @@ fn duckdb_remaps_jsonb_arrow_on_timeseries_series() {
     let response =
         crate::query::translate_request_with_drivers(&config, request, &drivers).expect("duckdb");
     assert!(
-        response
-            .sql
-            .contains("json_extract_string(tags, '$.core_id')"),
+        response.sql.contains("(tags::JSON ->> 'core_id')"),
         "expected DuckDB JSON remap"
     );
     refute_cagg(&response.sql);
