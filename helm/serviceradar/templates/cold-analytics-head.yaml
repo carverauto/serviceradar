@@ -72,6 +72,7 @@ spec:
       localeCType: C
       postInitApplicationSQL:
         - CREATE EXTENSION IF NOT EXISTS pg_duckdb;
+        - GRANT USAGE ON FOREIGN DATA WRAPPER duckdb TO serviceradar;
         - CREATE SCHEMA IF NOT EXISTS platform AUTHORIZATION serviceradar;
         - ALTER ROLE serviceradar SET search_path TO platform, public;
   postgresql:
