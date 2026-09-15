@@ -125,7 +125,7 @@ openssl-sys = "=0.9.116"
 # implement that curve, so without this a Rust add-on cannot verify the agent's
 # client certificate. Pure Rust on purpose: aws-lc-rs supports P-521 but brings
 # 2.1M lines of vendored BoringSSL back into every crate (see bad32bfc5e).
-p521 = { version = "0.13", default-features = false, features = ["ecdsa"] }
+p521 = { version = "0.14", default-features = false, features = ["ecdsa"] }
 parking_lot = "0.12"
 pcap = "2.4.0"
 pem = "3"
