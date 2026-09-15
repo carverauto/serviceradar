@@ -100,12 +100,19 @@ defmodule ServiceRadar.AnalyticsStore.Config do
   end
 
   def validate(%__MODULE__{driver: :timescale, dual_write: dual} = cfg) do
-    if MapSet.size(dual) == 0 do
-      :ok
-    else
-      with :ok <- validate_storage(cfg) do
-        validate_head(cfg)
-      end
+    cond do
+      MapSet.size(dual) == 0 ->
+        :ok
+
+      # Dual-write is EventWriter-only. web-ng may see the dualWrite Helm env
+      # but does not COPY Parquet and does not get S3/head credentials.
+      not event_writer_enabled?() ->
+        :ok
+
+      true ->
+        with :ok <- validate_storage(cfg) do
+          validate_head(cfg)
+        end
     end
   end
 
@@ -258,6 +265,10 @@ defmodule ServiceRadar.AnalyticsStore.Config do
   defp blank_to_nil(nil), do: nil
   defp blank_to_nil(""), do: nil
   defp blank_to_nil(value), do: value
+
+  defp event_writer_enabled? do
+    Application.get_env(:serviceradar_core, :event_writer_enabled) == true
+  end
 
   defp present?(value) when is_binary(value), do: value != ""
   defp present?(_), do: false

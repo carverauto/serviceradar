@@ -15,6 +15,7 @@ defmodule ServiceRadar.AnalyticsStore.ConfigTest do
   test "pg_duckdb without storage is rejected" do
     cfg = Config.load(driver: :pg_duckdb)
     assert Config.validate(cfg) == {:error, :storage_required}
+
     assert_raise ArgumentError, ~r/analytics store config is invalid/, fn ->
       Config.validate!(cfg)
     end
@@ -94,9 +95,22 @@ defmodule ServiceRadar.AnalyticsStore.ConfigTest do
   end
 
   test "dual-write with timescale requires a complete pg_duckdb backend" do
+    previous = Application.get_env(:serviceradar_core, :event_writer_enabled)
+
+    on_exit(fn ->
+      case previous do
+        nil -> Application.delete_env(:serviceradar_core, :event_writer_enabled)
+        value -> Application.put_env(:serviceradar_core, :event_writer_enabled, value)
+      end
+    end)
+
+    Application.put_env(:serviceradar_core, :event_writer_enabled, true)
     cfg = Config.load(driver: :timescale, dual_write: "timeseries_metrics")
     assert Config.validate(cfg) == {:error, :storage_required}
     refute Config.dual_write?(Config.load([]), "timeseries_metrics")
+
+    Application.put_env(:serviceradar_core, :event_writer_enabled, false)
+    assert Config.validate(cfg) == :ok
   end
 
   test "dual-write flag is off by default" do

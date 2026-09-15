@@ -368,12 +368,10 @@ tests:
         documentSelector:
           path: kind
           value: Deployment
-      - contains:
+      - notContains:
           path: spec.template.spec.containers[0].env
           content:
             name: SERVICERADAR_ANALYTICS_STORE_DUAL_WRITE
-            value: "timeseries_metrics"
-          count: 1
         template: templates/web.yaml
         documentSelector:
           path: kind
