@@ -487,7 +487,7 @@ spec:
         {{- $analyticsS3 := default (dict) $analyticsPg.s3 -}}
         {{- $analyticsFs := default (dict) $analyticsPg.filesystem -}}
         {{- $analyticsDual := default (list) $analyticsStore.dualWrite -}}
-        {{- $needsAnalyticsBackend := or (eq $analyticsDriver "pg_duckdb") (gt (len $analyticsDual) 0) -}}
+        {{- $needsAnalyticsBackend := or (has $analyticsDriver (list "pg_duckdb" "hybrid")) (gt (len $analyticsDual) 0) -}}
         {{- $analyticsCluster := include "serviceradar.analyticsHeadClusterName" . }}
         - name: SERVICERADAR_ANALYTICS_STORE_DRIVER
           value: {{ $analyticsDriver | quote }}
@@ -496,6 +496,12 @@ spec:
         {{- if $needsAnalyticsBackend }}
         - name: SERVICERADAR_ANALYTICS_STORE_TABLES
           value: {{ join "," (default (list) $analyticsStore.tables) | quote }}
+        - name: SERVICERADAR_ANALYTICS_STORE_HOT_WINDOW_DAYS
+          value: {{ default 30 $analyticsStore.hotWindowDays | quote }}
+        - name: SERVICERADAR_ANALYTICS_STORE_PARQUET_RETENTION_DAYS
+          value: {{ default "" $analyticsStore.parquetRetentionDays | quote }}
+        - name: SERVICERADAR_ANALYTICS_STORE_ARCHIVE_BUFFER_MAX_BYTES
+          value: {{ default 268435456 $analyticsStore.archiveBufferMaxBytes | int64 | quote }}
         - name: SERVICERADAR_ANALYTICS_STORE_STORAGE
           value: {{ default "s3" $analyticsPg.storage | quote }}
         - name: SERVICERADAR_ANALYTICS_STORE_HEAD_HOST
@@ -519,12 +525,12 @@ spec:
         {{- if eq (default "s3" $analyticsPg.storage) "s3" }}
         {{- $analyticsSecret := default "" $analyticsS3.secretName }}
         {{- if eq $analyticsSecret "" }}
-          {{- fail "analyticsStore.pgDuckdb.s3.secretName is required when driver is pg_duckdb or dualWrite is set and storage is s3" }}
+          {{- fail "analyticsStore.pgDuckdb.s3.secretName is required when archive writes are enabled and storage is s3" }}
         {{- end }}
         - name: SERVICERADAR_ANALYTICS_STORE_S3_BUCKET_URL
-          value: {{ printf "s3://%s" (required "analyticsStore.pgDuckdb.s3.bucket is required when driver is pg_duckdb and storage is s3" $analyticsS3.bucket) | quote }}
+          value: {{ printf "s3://%s" (required "analyticsStore.pgDuckdb.s3.bucket is required when archive writes are enabled and storage is s3" $analyticsS3.bucket) | quote }}
         - name: SERVICERADAR_ANALYTICS_STORE_S3_ENDPOINT
-          value: {{ required "analyticsStore.pgDuckdb.s3.endpoint is required when driver is pg_duckdb and storage is s3" $analyticsS3.endpoint | quote }}
+          value: {{ required "analyticsStore.pgDuckdb.s3.endpoint is required when archive writes are enabled and storage is s3" $analyticsS3.endpoint | quote }}
         - name: SERVICERADAR_ANALYTICS_STORE_S3_REGION
           value: {{ default "us-ord" $analyticsS3.region | quote }}
         - name: SERVICERADAR_ANALYTICS_STORE_S3_URL_STYLE
@@ -546,7 +552,7 @@ spec:
           value: {{ default "/var/lib/serviceradar/analytics" $analyticsFs.path | quote }}
         {{- end }}
         {{- end }}
-        # analytics-store extra env is pg_duckdb-only; this comment is a YAML
+        # analytics-store backend env is opt-in; this comment is a YAML
         # line so later template chomps cannot glue the next env onto DRIVER.
 
         {{- /* Exact EventWriter flow consumer subjects: concrete flows.raw.* only. */ -}}

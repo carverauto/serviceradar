@@ -777,24 +777,53 @@ will see, including ready_state_path/rehome_state_path.
 {{- end -}}
 
 {{/*
-Analytics-store driver. Default timescale (CNPG hypertables). pg_duckdb
-renders the dedicated analytics head.
+Analytics-store mode. Default timescale has no archive dependency.
+Hybrid and pg_duckdb render the dedicated analytics head.
 */}}
 {{- define "serviceradar.analyticsStoreDriver" -}}
 {{- $store := default dict .Values.analyticsStore -}}
 {{- default "timescale" $store.driver -}}
 {{- end -}}
 
+{{/* Validate explicit analytics choices before defaults can mask invalid values. */}}
+{{- define "serviceradar.validateAnalyticsStore" -}}
+{{- $store := default dict .Values.analyticsStore -}}
+{{- $driver := default "timescale" $store.driver -}}
+{{- if not (has $driver (list "timescale" "hybrid" "pg_duckdb")) -}}
+{{- fail "analyticsStore.driver must be timescale, hybrid, or pg_duckdb" -}}
+{{- end -}}
+{{- if and (eq $driver "hybrid") (eq (len (default (list) $store.tables)) 0) -}}
+{{- fail "analyticsStore.tables must explicitly name tables when driver is hybrid" -}}
+{{- end -}}
+{{- if and (hasKey $store "archiveBufferMaxBytes") (or (le (float64 $store.archiveBufferMaxBytes) 0.0) (ne (float64 $store.archiveBufferMaxBytes) (float64 (int64 $store.archiveBufferMaxBytes)))) -}}
+{{- fail "analyticsStore.archiveBufferMaxBytes must be a positive integer" -}}
+{{- end -}}
+{{- $hot := "30" -}}
+{{- if hasKey $store "hotWindowDays" -}}
+{{- $hot = toString $store.hotWindowDays -}}
+{{- end -}}
+{{- if not (regexMatch "^[1-9][0-9]*$" $hot) -}}
+{{- fail "analyticsStore.hotWindowDays must be a positive integer" -}}
+{{- end -}}
+{{- if and (hasKey $store "parquetRetentionDays") (ne (toString $store.parquetRetentionDays) "") -}}
+{{- $archive := toString $store.parquetRetentionDays -}}
+{{- if or (not (regexMatch "^[1-9][0-9]*$" $archive)) (le (int64 $archive) (int64 $hot)) -}}
+{{- fail "analyticsStore.parquetRetentionDays must be blank or an integer greater than hotWindowDays" -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
 {{/*
 True when the pg_duckdb analytics head Cluster should render.
 */}}
 {{- define "serviceradar.analyticsHeadEnabled" -}}
+{{- include "serviceradar.validateAnalyticsStore" . -}}
 {{- $store := default dict .Values.analyticsStore -}}
 {{- $driver := default "timescale" $store.driver -}}
 {{- $cold := default dict .Values.coldTier -}}
 {{- $head := default dict $cold.analyticsHead -}}
 {{- $headEnabled := default false $store.headEnabled -}}
-{{- if or (eq $driver "pg_duckdb") $headEnabled (default false $head.enabled) -}}
+{{- if or (has $driver (list "pg_duckdb" "hybrid")) (gt (len (default (list) $store.dualWrite)) 0) $headEnabled (default false $head.enabled) -}}
 true
 {{- else -}}
 false
@@ -832,10 +861,9 @@ sha-tagged analytics image exists.
 {{- end -}}
 
 {{/*
-Env for web-ng / query-side AnalyticsRepo. Head credentials render only when
-the driver is pg_duckdb (a table flip). Dual-write keeps queries on Timescale.
-Storage env is required by Config.validate!/1 on the current release even
-though web-ng does not COPY Parquet.
+Env for web-ng / query-side AnalyticsRepo. Hybrid and pg_duckdb need the
+head and storage settings. Timescale-only dualWrite leaves reads on Timescale
+and does not expose writer-only configuration to web-ng.
 */}}
 {{- define "serviceradar.analyticsStoreQueryEnv" -}}
 {{- $store := default dict .Values.analyticsStore -}}
@@ -848,7 +876,11 @@ though web-ng does not COPY Parquet.
   value: {{ $driver | quote }}
 - name: SERVICERADAR_ANALYTICS_STORE_TABLES
   value: {{ join "," (default (list) $store.tables) | quote }}
-{{- if eq $driver "pg_duckdb" }}
+{{- if has $driver (list "pg_duckdb" "hybrid") }}
+- name: SERVICERADAR_ANALYTICS_STORE_HOT_WINDOW_DAYS
+  value: {{ default 30 $store.hotWindowDays | quote }}
+- name: SERVICERADAR_ANALYTICS_STORE_PARQUET_RETENTION_DAYS
+  value: {{ default "" $store.parquetRetentionDays | quote }}
 - name: SERVICERADAR_ANALYTICS_STORE_STORAGE
   value: {{ default "s3" $pg.storage | quote }}
 - name: SERVICERADAR_ANALYTICS_STORE_POOL_SIZE
@@ -871,9 +903,9 @@ though web-ng does not COPY Parquet.
       key: password
 {{- if and (eq (default "s3" $pg.storage) "s3") (ne (default "" $s3.secretName) "") }}
 - name: SERVICERADAR_ANALYTICS_STORE_S3_BUCKET_URL
-  value: {{ printf "s3://%s" (required "analyticsStore.pgDuckdb.s3.bucket is required when driver is pg_duckdb and storage is s3" $s3.bucket) | quote }}
+  value: {{ printf "s3://%s" (required "analyticsStore.pgDuckdb.s3.bucket is required when archive reads are enabled and storage is s3" $s3.bucket) | quote }}
 - name: SERVICERADAR_ANALYTICS_STORE_S3_ENDPOINT
-  value: {{ required "analyticsStore.pgDuckdb.s3.endpoint is required when driver is pg_duckdb and storage is s3" $s3.endpoint | quote }}
+  value: {{ required "analyticsStore.pgDuckdb.s3.endpoint is required when archive reads are enabled and storage is s3" $s3.endpoint | quote }}
 - name: SERVICERADAR_ANALYTICS_STORE_S3_REGION
   value: {{ default "us-ord" $s3.region | quote }}
 - name: SERVICERADAR_ANALYTICS_STORE_S3_URL_STYLE

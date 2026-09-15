@@ -622,7 +622,7 @@ core:
     #
     # Set to "" to fall back to the old existence-only check (for operators
     # running the chart against a deliberately pinned schema).
-    expectedVersion: "20260915000000"
+    expectedVersion: "20260915220000"
   # Stale device reaper settings - controls cleanup of IP-only "ghost" devices
   reaper:
     # How often to run the reaper job
@@ -1121,15 +1121,25 @@ coldTier:
 # Helm values. Demo uses a dedicated Linode bucket, not the control-plane
 # backup bucket.
 analyticsStore:
+  # OSS default: Timescale only, no object storage or analytics head required.
+  # hybrid: EventWriter writes both stores; recent reads use Timescale,
+  # older/cross-window reads use pg_duckdb. SaaS enables this in its overlay.
+  # pg_duckdb: Parquet-only writes and reads.
   driver: timescale
-  # Render the analytics-head Cluster without flipping any table (idle soak).
-  # driver pg_duckdb also renders the head. Default off.
   headEnabled: false
-  # Empty list + driver pg_duckdb flips every cold-schema registry table.
-  # Demo cutover should name tables explicitly, largest first.
+  # Explicitly name tables when enabling hybrid. Unlisted tables stay Timescale.
+  # Empty + pg_duckdb preserves the existing all-registry-table behavior.
   tables: []
-  # Named dual-write cutover. EventWriter writes Timescale and Parquet.
-  # Requires a complete pgDuckdb backend even when driver is timescale.
+  # Hybrid read cutoff; Timescale retention is kept at least this long.
+  hotWindowDays: 30
+  # Hybrid archive expiry, measured from event time. Blank means no expiry.
+  # If set, this must exceed hotWindowDays. Pure pg_duckdb keeps table retention.
+  parquetRetentionDays: ""
+  # Durable unpublished archive payload budget on the primary. At the limit,
+  # EventWriter retries through JetStream; pending payloads are never evicted.
+  archiveBufferMaxBytes: 268435456
+  # Optional archive writes while all reads remain on Timescale (migration).
+  # Hybrid automatically writes both stores for its selected tables.
   dualWrite: []
   pgDuckdb:
     storage: s3
@@ -1159,6 +1169,11 @@ analyticsStore:
       emptyDir: true
       sizeLimit: 50Gi
     poolSize: 4
+    # Connection slots cover every core/web-ng replica's pool, rolling-update
+    # surge, EventWriter sessions, and PostgreSQL/admin reserves. This does
+    # not raise pool concurrency or the per-backend DuckDB memory budget.
+    # Increase for deployments with more replicas or larger pools.
+    maxConnections: 60
     overheadMb: 1536
 
 # Shared storage for GeoLite2 MMDB files used by GeoIP/ASN enrichment.

@@ -161,13 +161,14 @@ cnpg:
 # different bucket than serviceradar-control-plane-db-backups. Do not reuse
 # that backup bucket or its key.
 #
-# 6.4: timeseries_metrics is on pg_duckdb. EventWriter COPYs Parquet only;
-# SRQL uses the duckdb dialect. dualWrite is empty (removed after parity).
-# Other registry tables stay on Timescale until 6.5+.
+# Hybrid keeps dashboard reads on the hot metrics copy. Other tables retain
+# their existing storage mode until separately enabled.
 analyticsStore:
-  driver: pg_duckdb
+  driver: hybrid
   tables:
     - timeseries_metrics
+  hotWindowDays: 30
+  parquetRetentionDays: ""
   dualWrite: []
   headEnabled: true
   affinity:
