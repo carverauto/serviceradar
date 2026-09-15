@@ -30,6 +30,8 @@ defmodule ServiceRadar.AnalyticsStore.FileManifest do
         :staging_key,
         :partition_date,
         :row_count,
+        :min_timestamp,
+        :max_timestamp,
         :content_checksum,
         :batch_id,
         :status
@@ -48,6 +50,8 @@ defmodule ServiceRadar.AnalyticsStore.FileManifest do
     attribute :staging_key, :string, allow_nil?: false
     attribute :partition_date, :date, allow_nil?: false
     attribute :row_count, :integer
+    attribute :min_timestamp, :utc_datetime_usec
+    attribute :max_timestamp, :utc_datetime_usec
     attribute :content_checksum, :string
     attribute :batch_id, :string, allow_nil?: false
 
@@ -100,10 +104,19 @@ defmodule ServiceRadar.AnalyticsStore.FileManifest do
     end
   end
 
-  @doc "Published files in a UTC partition window, read from the primary through Ash."
-  @spec published_keys(String.t(), Date.t() | nil, Date.t() | nil) ::
+  @doc "Published files overlapping a UTC time window, read from the primary through Ash."
+  @spec published_keys(String.t(), DateTime.t() | nil, DateTime.t() | nil) ::
           {:ok, [String.t()]} | {:error, term()}
-  def published_keys(table_name, start_date, end_date) do
+  def published_keys(table_name, start_time, end_time) do
+    case Ash.read(published_query(table_name, start_time, end_time)) do
+      {:ok, rows} -> {:ok, Enum.map(rows, & &1.object_key)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc "Manifest query with conservative overlap bounds; unknown file bounds remain visible."
+  @spec published_query(String.t(), DateTime.t() | nil, DateTime.t() | nil) :: Ash.Query.t()
+  def published_query(table_name, start_time, end_time) do
     require Ash.Query
 
     query =
@@ -113,12 +126,29 @@ defmodule ServiceRadar.AnalyticsStore.FileManifest do
       |> Ash.Query.select([:object_key])
       |> Ash.Query.sort(object_key: :asc)
 
-    query = if start_date, do: Ash.Query.filter(query, partition_date >= ^start_date), else: query
-    query = if end_date, do: Ash.Query.filter(query, partition_date <= ^end_date), else: query
+    query =
+      if start_time do
+        start_date = DateTime.to_date(start_time)
 
-    case Ash.read(query) do
-      {:ok, rows} -> {:ok, Enum.map(rows, & &1.object_key)}
-      {:error, reason} -> {:error, reason}
+        Ash.Query.filter(
+          query,
+          partition_date >= ^start_date and
+            (is_nil(max_timestamp) or max_timestamp >= ^start_time)
+        )
+      else
+        query
+      end
+
+    if end_time do
+      end_date = DateTime.to_date(end_time)
+
+      Ash.Query.filter(
+        query,
+        partition_date <= ^end_date and
+          (is_nil(min_timestamp) or min_timestamp <= ^end_time)
+      )
+    else
+      query
     end
   end
 

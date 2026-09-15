@@ -85,7 +85,9 @@ defmodule ServiceRadar.AnalyticsStore.SQL do
   @doc """
   Prepare direct SQL for a table without checking out a connection.
 
-  `:time_range` is an optional `{start, end}` of UTC partition dates or DateTimes.
+  `:time_range` is an optional `{start, end}` of DateTimes or inclusive UTC dates.
+  Timestamp precision is retained so the manifest can exclude files outside the
+  window within a single partition. A date bound includes that entire UTC day.
   Omit it unless the caller owns equivalent timestamp predicates. Arbitrary date
   parameters can be upper bounds, exclusions or values in OR expressions, so
   they never implicitly exclude files from the manifest.

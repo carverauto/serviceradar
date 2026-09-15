@@ -209,6 +209,10 @@ defmodule ServiceRadar.AnalyticsStore.Backfill do
       staging_key: keys.staging_key,
       partition_date: keys.partition_date,
       row_count: count,
+      # The copy callback verifies counts, not extrema. Keep the whole UTC day
+      # eligible until exact Parquet metadata is available.
+      min_timestamp: DateTime.new!(keys.partition_date, ~T[00:00:00.000000]),
+      max_timestamp: DateTime.new!(Date.add(keys.partition_date, 1), ~T[00:00:00.000000]),
       batch_id: keys.batch_id,
       status: :published
     }

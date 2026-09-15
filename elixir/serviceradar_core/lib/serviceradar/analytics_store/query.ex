@@ -14,14 +14,14 @@ defmodule ServiceRadar.AnalyticsStore.Query do
   alias ServiceRadar.AnalyticsStore.Views
   alias ServiceRadar.ColdTier.Registry
 
-  @spec prepare(String.t(), String.t(), {Date.t() | nil, Date.t() | nil}, keyword()) ::
+  @spec prepare(String.t(), String.t(), {DateTime.t() | nil, DateTime.t() | nil}, keyword()) ::
           {:ok, String.t()} | {:error, term()}
-  def prepare(table, sql, {start_date, end_date}, opts \\ []) do
+  def prepare(table, sql, {start_time, end_time}, opts \\ []) do
     cfg = Keyword.get_lazy(opts, :config, &Config.load/0)
     list = Keyword.get(opts, :manifest_list_fn, &FileManifest.published_keys/3)
 
     with {:ok, entry} <- Registry.fetch(table),
-         {:ok, keys} <- list.(table, start_date, end_date),
+         {:ok, keys} <- list.(table, start_time, end_time),
          {:ok, urls} <- urls(cfg, table, keys) do
       source = Views.manifest_select_sql(entry, urls)
       with_source(sql, table, source)
@@ -34,7 +34,7 @@ defmodule ServiceRadar.AnalyticsStore.Query do
   def translation_window(%{"start" => start_time, "end" => end_time}) do
     with {:ok, start_time, _} <- DateTime.from_iso8601(start_time),
          {:ok, end_time, _} <- DateTime.from_iso8601(end_time) do
-      {:ok, {DateTime.to_date(start_time), DateTime.to_date(end_time)}}
+      {:ok, {start_time, end_time}}
     end
   end
 
@@ -44,9 +44,9 @@ defmodule ServiceRadar.AnalyticsStore.Query do
   def query_window(opts) do
     case Keyword.get(opts, :time_range, {nil, nil}) do
       {start_time, end_time} ->
-        with {:ok, start_date} <- partition_date(start_time),
-             {:ok, end_date} <- partition_date(end_time) do
-          {:ok, {start_date, end_date}}
+        with {:ok, start_time} <- window_bound(start_time, :start),
+             {:ok, end_time} <- window_bound(end_time, :end) do
+          {:ok, {start_time, end_time}}
         end
 
       _ ->
@@ -54,14 +54,16 @@ defmodule ServiceRadar.AnalyticsStore.Query do
     end
   end
 
-  defp partition_date(nil), do: {:ok, nil}
-  defp partition_date(%Date{} = date), do: {:ok, date}
+  defp window_bound(nil, _side), do: {:ok, nil}
 
-  defp partition_date(%DateTime{} = time) do
-    {:ok, time |> DateTime.shift_zone!("Etc/UTC") |> DateTime.to_date()}
+  defp window_bound(%Date{} = date, side) do
+    date = if side == :end, do: Date.add(date, 1), else: date
+    {:ok, DateTime.new!(date, ~T[00:00:00], "Etc/UTC")}
   end
 
-  defp partition_date(_), do: {:error, :invalid_analytics_time_range}
+  defp window_bound(%DateTime{} = time, _side), do: {:ok, DateTime.shift_zone!(time, "Etc/UTC")}
+
+  defp window_bound(_, _side), do: {:error, :invalid_analytics_time_range}
 
   defp urls(cfg, table, keys) do
     key_pattern =

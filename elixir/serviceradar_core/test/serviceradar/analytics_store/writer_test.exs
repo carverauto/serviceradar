@@ -116,6 +116,90 @@ defmodule ServiceRadar.AnalyticsStore.WriterTest do
     refute_received :manifest
   end
 
+  test "default writes use globally unique UUID identities in both object keys" do
+    opts = [
+      config: cfg(),
+      session: fn _cfg, fun -> {:ok, fun.(:conn)} end,
+      query: fn _, _, _ -> :ok end,
+      verify: fn _, _, _ -> {:ok, 1} end,
+      record_manifest: fn attrs ->
+        send(self(), {:generated_batch, attrs})
+        :ok
+      end
+    ]
+
+    manifests =
+      for _ <- 1..2 do
+        assert {:ok, 1} = Writer.write("timeseries_metrics", [row()], opts)
+        assert_received {:generated_batch, %{batch_id: batch_id} = manifest}
+        assert {:ok, ^batch_id} = Ecto.UUID.cast(batch_id)
+        assert manifest.staging_key =~ "/#{batch_id}.parquet"
+        assert manifest.object_key =~ "/core-elx-#{batch_id}.parquet"
+        manifest
+      end
+
+    assert [first, second] = manifests
+    refute first.batch_id == second.batch_id
+    refute first.staging_key == second.staging_key
+    refute first.object_key == second.object_key
+  end
+
+  test "manifest bounds follow actual unordered row times, including late arrivals" do
+    rows = [
+      %{timestamp: ~U[2034-08-09 13:07:19.987654Z], value: 4.0},
+      %{"timestamp" => "2034-08-09T05:12:03.123456Z", "value" => 2.0},
+      %{timestamp: ~N[2034-08-09 09:00:00.000001], value: 3.0}
+    ]
+
+    assert {:ok, 3} =
+             Writer.write("timeseries_metrics", rows,
+               config: cfg(),
+               session: fn _cfg, fun -> {:ok, fun.(:conn)} end,
+               query: fn _, _, _ -> :ok end,
+               verify: fn _, _, _ -> {:ok, 3} end,
+               record_manifest: fn attrs ->
+                 send(self(), {:manifest_bounds, attrs})
+                 :ok
+               end
+             )
+
+    assert_received {:manifest_bounds,
+                     %{
+                       partition_date: ~D[2034-08-09],
+                       row_count: 3,
+                       min_timestamp: ~U[2034-08-09 05:12:03.123456Z],
+                       max_timestamp: ~U[2034-08-09 13:07:19.987654Z],
+                       status: :published
+                     }}
+  end
+
+  test "late rows in another UTC day have independent manifest bounds" do
+    times = [~U[2034-08-10 03:01:00.000000Z], ~U[2034-08-09 21:59:00.000000Z]]
+
+    assert {:ok, 2} =
+             Writer.write("timeseries_metrics", Enum.map(times, &%{timestamp: &1, value: 1.0}),
+               config: cfg(),
+               session: fn _cfg, fun -> {:ok, fun.(:conn)} end,
+               query: fn _, _, _ -> :ok end,
+               verify: fn _, _, _ -> {:ok, 1} end,
+               record_manifest: fn attrs ->
+                 send(self(), {:partition_bounds, attrs})
+                 :ok
+               end
+             )
+
+    for timestamp <- times do
+      date = DateTime.to_date(timestamp)
+
+      assert_received {:partition_bounds,
+                       %{
+                         partition_date: ^date,
+                         min_timestamp: ^timestamp,
+                         max_timestamp: ^timestamp
+                       }}
+    end
+  end
+
   test "rows without a timestamp are rejected" do
     assert {:error, {:rows_missing_timestamp, 1}} =
              AnalyticsStore.write("timeseries_metrics", [%{value: 1}],

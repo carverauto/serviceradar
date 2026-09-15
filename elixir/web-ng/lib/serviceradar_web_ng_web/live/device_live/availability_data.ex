@@ -2,11 +2,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityData do
   @moduledoc false
 
   alias ServiceRadar.Inventory.DeviceAgentAvailability
+  alias ServiceRadarWebNGWeb.DeviceLive.ICMPData
 
   # At-a-glance availability strip on the device details page.
   #
-  # The query is a bucketed COUNT over `timeseries_metrics` (metric_type:icmp +
-  # uid). It was the slowest supplemental task (~207ms) because `last_24h` scans
+  # The query counts latency samples from the preferred ICMP source per device.
+  # It was the slowest supplemental task (~207ms) because `last_24h` scans
   # 48 30-minute buckets per device. There is no continuous aggregate for
   # `timeseries_metrics` (verified across srql/core migrations) and building one
   # is out of scope, so we narrow the window to `last_6h` (12 buckets) — roughly
@@ -26,12 +27,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityData do
   def load_availability(srql_module, device_uid, scope) do
     escaped_id = escape_value(device_uid)
 
-    query =
-      "in:timeseries_metrics metric_type:icmp uid:\"#{escaped_id}\" " <>
-        "time:#{@availability_window} bucket:#{@availability_bucket} agg:count sort:timestamp:asc limit:100"
-
-    case srql_module.query(query, %{scope: scope}) do
-      {:ok, %{"results" => rows}} when is_list(rows) and rows != [] ->
+    case ICMPData.load(srql_module, [device_uid], scope,
+           time_range: @availability_window,
+           bucket: @availability_bucket,
+           aggregate: :count,
+           limit: 100
+         ) do
+      {:ok, rows} when rows != [] ->
         build_availability(rows)
 
       _ ->

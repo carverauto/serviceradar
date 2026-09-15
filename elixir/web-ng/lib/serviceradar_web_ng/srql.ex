@@ -14,7 +14,6 @@ defmodule ServiceRadarWebNG.SRQL do
 
   alias Ecto.Adapters.SQL
   alias ServiceRadar.AnalyticsStore
-  alias ServiceRadar.Repo
   alias ServiceRadarWebNG.SRQL.EntityAccess
   alias ServiceRadarWebNG.SRQL.Native
 

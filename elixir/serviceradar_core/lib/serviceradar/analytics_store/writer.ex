@@ -57,7 +57,9 @@ defmodule ServiceRadar.AnalyticsStore.Writer do
   defp write_partition(cfg, entry, %Date{} = date, rows, opts) do
     batch_id =
       opts
-      |> Keyword.get_lazy(:batch_id, fn -> :erlang.unique_integer([:positive]) end)
+      # Keys outlive a BEAM instance and are shared by every writer replica.
+      # VM-local unique integers can overwrite another replica's Parquet file.
+      |> Keyword.get_lazy(:batch_id, &Ecto.UUID.generate/0)
       |> batch_id()
 
     writer = Keyword.get(opts, :writer_id, @writer_id)
@@ -69,7 +71,7 @@ defmodule ServiceRadar.AnalyticsStore.Writer do
            run_head(cfg, opts, fn conn ->
              copy_and_verify(conn, entry, rows, staging_url, published_url, opts)
            end),
-         :ok <- record_manifest(cfg, entry, keys, written, opts) do
+         :ok <- record_manifest(rows, entry, keys, written, opts) do
       {:ok, written}
     end
   end
@@ -122,13 +124,20 @@ defmodule ServiceRadar.AnalyticsStore.Writer do
     exception -> {:error, exception}
   end
 
-  defp record_manifest(_cfg, entry, keys, count, opts) do
+  defp record_manifest(rows, entry, keys, count, opts) do
+    {min_timestamp, max_timestamp} =
+      rows
+      |> Enum.map(&row_timestamp(&1, entry.time_column))
+      |> Enum.min_max_by(&DateTime.to_unix(&1, :microsecond))
+
     attrs = %{
       table_name: entry.table,
       object_key: keys.published_key,
       staging_key: keys.staging_key,
       partition_date: keys.partition_date,
       row_count: count,
+      min_timestamp: min_timestamp,
+      max_timestamp: max_timestamp,
       batch_id: keys.batch_id,
       status: :published
     }
@@ -137,6 +146,12 @@ defmodule ServiceRadar.AnalyticsStore.Writer do
       fun when is_function(fun, 1) -> fun.(attrs)
       nil -> default_record(attrs)
     end
+  end
+
+  defp row_timestamp(row, column) do
+    value = Map.get(row, column) || Map.get(row, String.to_existing_atom(column))
+    {:ok, %DateTime{} = timestamp} = Ash.Type.cast_input(:utc_datetime_usec, value)
+    DateTime.shift_zone!(timestamp, "Etc/UTC")
   end
 
   defp default_record(attrs) do

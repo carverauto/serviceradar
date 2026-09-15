@@ -16,7 +16,9 @@ defmodule ServiceRadar.AnalyticsStore.QueryTest do
       "sql" => "SELECT value FROM timeseries_metrics WHERE timestamp >= $1 AND timestamp < $2"
     }
 
-    list = fn "timeseries_metrics", ~D[2025-01-02], ~D[2025-01-03] -> {:ok, [@key]} end
+    list = fn "timeseries_metrics", ~U[2025-01-02 23:30:00Z], ~U[2025-01-03 00:30:00Z] ->
+      {:ok, [@key]}
+    end
 
     assert {:ok, sql, []} =
              SQL.prepare_translation(
@@ -111,7 +113,7 @@ defmodule ServiceRadar.AnalyticsStore.QueryTest do
   end
 
   test "a direct caller can provide the UTC window it owns explicitly" do
-    list = fn "timeseries_metrics", ~D[2025-01-02], nil -> {:ok, [@key]} end
+    list = fn "timeseries_metrics", ~U[2025-01-02 12:00:00Z], nil -> {:ok, [@key]} end
     cutoff = ~U[2025-01-02 12:00:00Z]
 
     assert {:ok, sql, []} =
@@ -128,13 +130,49 @@ defmodule ServiceRadar.AnalyticsStore.QueryTest do
     assert sql =~ "WHERE timestamp >= TIMESTAMPTZ"
   end
 
-  test "direct query windows normalize datetime offsets to UTC partition dates" do
+  test "direct query windows normalize datetime offsets without losing within-day precision" do
     shifted = DateTime.from_naive!(~N[2025-01-03 01:00:00], "Etc/UTC")
     shifted = %{shifted | utc_offset: 7200, zone_abbr: "UTC+2", time_zone: "Etc/GMT-2"}
 
-    assert {:ok, {~D[2025-01-02], nil}} = Query.query_window(time_range: {shifted, nil})
+    assert {:ok, {~U[2025-01-02 23:00:00Z], nil}} = Query.query_window(time_range: {shifted, nil})
     assert {:ok, {nil, nil}} = Query.query_window([])
     assert {:error, :invalid_analytics_time_range} = Query.query_window(time_range: "last_1h")
+  end
+
+  test "SRQL preserves a narrow within-day window and scans only returned manifest files" do
+    translation = %{
+      "dialect" => "duckdb",
+      "analytics_table" => "timeseries_metrics",
+      "time_range" => %{
+        "start" => "2025-01-02T12:03:04.123456Z",
+        "end" => "2025-01-02T12:08:04.654321Z"
+      },
+      "params" => [],
+      "sql" => "SELECT value FROM timeseries_metrics"
+    }
+
+    key = "analytics/v1/timeseries_metrics/date=2025-01-02/writer-window.parquet"
+
+    list = fn "timeseries_metrics",
+              ~U[2025-01-02 12:03:04.123456Z],
+              ~U[2025-01-02 12:08:04.654321Z] ->
+      {:ok, [key]}
+    end
+
+    assert {:ok, sql, []} =
+             SQL.prepare_translation(translation, [], config: config(), manifest_list_fn: list)
+
+    assert sql =~ "read_parquet(ARRAY['s3://analytics.example/#{key}']::text[]"
+    refute sql =~ @key
+    refute sql =~ "date=*"
+  end
+
+  test "explicit date bounds retain their entire UTC days" do
+    assert {:ok, {~U[2025-01-02 00:00:00Z], ~U[2025-01-04 00:00:00Z]}} =
+             Query.query_window(time_range: {~D[2025-01-02], ~D[2025-01-03]})
+
+    assert {:ok, {nil, ~U[2025-01-03 00:00:00Z]}} =
+             Query.query_window(time_range: {nil, ~D[2025-01-02]})
   end
 
   test "postgres SQL is unchanged and never lists the manifest" do
@@ -152,7 +190,7 @@ defmodule ServiceRadar.AnalyticsStore.QueryTest do
   end
 
   defp prepare(sql, keys) do
-    Query.prepare("timeseries_metrics", sql, {~D[2025-01-02], ~D[2025-01-02]},
+    Query.prepare("timeseries_metrics", sql, {~U[2025-01-02 00:00:00Z], ~U[2025-01-03 00:00:00Z]},
       config: config(),
       manifest_list_fn: fn _, _, _ -> {:ok, keys} end
     )

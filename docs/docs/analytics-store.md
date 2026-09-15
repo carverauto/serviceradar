@@ -55,10 +55,13 @@ EventWriter does not insert those tables into hypertables.
 
 SRQL resolves its time window before selecting published files from
 `platform.analytics_file_manifest` on the primary. The analytics query receives
-concrete Parquet keys for those UTC dates; interactive queries do not plan a
-`date=*` object-store scan. An empty manifest selection returns no rows, and a
+concrete Parquet keys whose timestamp bounds overlap the requested UTC window;
+interactive queries do not plan a `date=*` object-store scan. Files without
+recorded bounds remain eligible. An empty manifest selection returns no rows, and a
 manifest lookup failure returns an error. Backfills must be verified and recorded
-in the manifest before readers can see them.
+in the manifest before readers can see them. EventWriter uses UUID batch keys
+and records actual timestamp extrema, so separate replicas cannot overwrite
+each other's objects and late-arriving samples remain visible.
 
 The pg_duckdb connection uses PostgreSQL-compatible types and safely encoded
 typed literals for analytics parameters. This avoids the extension's unbound

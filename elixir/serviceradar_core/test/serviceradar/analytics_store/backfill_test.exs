@@ -114,6 +114,8 @@ defmodule ServiceRadar.AnalyticsStore.BackfillTest do
                        staging_key: "analytics/v1/timeseries_metrics/_staging/2031-04-20.parquet",
                        partition_date: ~D[2031-04-20],
                        row_count: 7,
+                       min_timestamp: ~U[2031-04-20 00:00:00.000000Z],
+                       max_timestamp: ~U[2031-04-21 00:00:00.000000Z],
                        batch_id: "2031-04-20",
                        status: :published
                      }}
