@@ -71,8 +71,9 @@ Receipts remain independent of hot retention and published payload cleanup.
 JetStream acknowledgement follows that transaction's commit. An EventWriter-owned
 publisher queue then writes the durable batches. It is not a second JetStream
 consumer. Archive outage queues pending payloads while hot ingestion continues;
-a configurable byte budget applies backpressure before the primary's outbox can
-grow without bound. Pending payloads are never evicted by Oban job cleanup.
+a configurable byte budget rejects new ingest transactions before pending
+payloads grow without bound. Incoming messages retain the existing JetStream
+retry and terminal-delivery contract, including its finite limits. Pending payloads are never evicted by Oban job cleanup.
 
 Each per-day archive batch has fixed membership, a schema version and checksum.
 An uncertain upload retries with a new immutable candidate object. One primary
@@ -185,8 +186,8 @@ from Parquet-only requires hot coverage restoration before recent reads switch.
 - Continuous dual writes retain the cost of a bounded hot copy and add write
   amplification. Compression is independent work and remains valuable.
 - Archive outages accumulate durable pending batches. At the configured buffer
-  limit, new transactions backpressure through JetStream; retry and backlog
-  monitoring remain necessary.
+  limit, new transactions fail under existing finite JetStream retry and
+  terminal-delivery limits; retry and backlog monitoring remain necessary.
 - Source receipts and completed batch metadata remain on the primary after
   payload cleanup. Their growth is separate from the pending-payload budget;
   safe receipt compaction and unreferenced-object cleanup are not implemented.

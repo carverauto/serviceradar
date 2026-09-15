@@ -81,7 +81,7 @@ credential. Use a dedicated analytics bucket, separate from CNPG barman backups.
 | `tables` | `[]` | Hybrid requires named tables. Unlisted tables stay Timescale. In pg_duckdb mode only, an empty list retains the existing all-registry-table behavior. |
 | `hotWindowDays` | `30` | Hybrid read cutoff. Hot retention covers at least this window and preserves longer table settings. |
 | `parquetRetentionDays` | `""` | Hybrid archive expiry, measured from event time. Blank retains history. A finite value must exceed the hot window. |
-| `archiveBufferMaxBytes` | `268435456` | Maximum durable unpublished payload bytes. At the limit, ingest retries through JetStream; pending work is never evicted. |
+| `archiveBufferMaxBytes` | `268435456` | Maximum durable unpublished payload bytes. At the limit, new ingest fails under the configured JetStream retry limits; committed pending work is never evicted. |
 | `dualWrite` | `[]` | Optional named archive writes with Timescale reads during migration. Hybrid already writes both stores. |
 | `headEnabled` | `false` | Provision the head for preparation without changing storage mode. |
 | `pgDuckdb.storage` | `s3` | `s3` or `filesystem`. |
@@ -119,7 +119,9 @@ interface. Failed uploads may leave unreferenced objects; automatic orphan
 cleanup is not implemented.
 
 During an archive outage, pending payloads remain on the primary. The configured
-buffer limit applies backpressure through JetStream. Oban job cleanup cannot
+buffer limit rejects new ingest transactions. Those messages remain subject to
+JetStream retention, retry, and terminal-delivery limits; size both buffers for
+the tolerated outage. Oban job cleanup cannot
 remove unpublished payloads. Monitor archive lag and retries alongside stream
 lag. Historical queries wait briefly for overlapping pending batches and return
 an explicit error if the archive is not ready; they do not silently omit that
