@@ -70,7 +70,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "in:devices"
   end
 
-  test "device list and details render device tags", %{conn: conn} do
+  test "device list omits the Tags column while details retain device tags", %{conn: conn} do
     uid = "test-device-tags-#{System.unique_integer([:positive])}"
 
     Repo.insert_all("ocsf_devices", [
@@ -85,10 +85,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       }
     ])
 
-    {:ok, _lv, html} = live(conn, ~p"/devices?limit=10")
-    assert html =~ "Tags"
-    assert html =~ "env=prod"
-    assert html =~ "team=ops"
+    {:ok, list_view, html} = live(conn, ~p"/devices?limit=10")
+    refute has_element?(list_view, "thead th", "Tags")
+    refute html =~ "env=prod"
+    refute html =~ "team=ops"
 
     {:ok, view, _html} = live(conn, ~p"/devices/#{uid}")
     summary_html = render_until(view, "tagged-host", 5_000)

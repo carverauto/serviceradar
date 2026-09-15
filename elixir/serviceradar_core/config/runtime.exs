@@ -1505,7 +1505,10 @@ if config_env() == :prod do
     if analytics_archive_enabled do
       [
         {"* * * * *", ServiceRadar.EventWriter.ArchivePublisher,
-         args: %{"reconcile" => true}, queue: :analytics_archive}
+         args: %{"reconcile" => true}, queue: :analytics_archive},
+        {"*/5 * * * *", ServiceRadar.AnalyticsStore.CompactionWorker,
+         args: %{"table" => "timeseries_metrics"}, queue: :analytics_archive, priority: 3},
+        {"* * * * *", ServiceRadar.EventWriter.ArchiveCompactionCleanup, queue: :maintenance}
       ]
     else
       []

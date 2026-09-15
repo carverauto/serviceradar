@@ -4,16 +4,19 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   """
   use ServiceRadarWebNGWeb, :live_view
 
+  import ServiceRadarWebNGWeb.MetricWindowComponents, only: [metric_window_controls: 1]
   import ServiceRadarWebNGWeb.NorthboundActionComponents, only: [northbound_action_history: 1]
 
   alias ServiceRadar.Automation.Northbound.History, as: NorthboundHistory
   alias ServiceRadar.Inventory.InterfaceSettings
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries
+  alias ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Query
   alias ServiceRadarWebNGWeb.Helpers.InterfaceTypes
   alias ServiceRadarWebNGWeb.InterfaceLive.MetricsPanels
   alias ServiceRadarWebNGWeb.InterfaceLive.MetricsQuery
   alias ServiceRadarWebNGWeb.InterfaceLive.SnmpMetricNames
+  alias ServiceRadarWebNGWeb.MetricWindowComponents
 
   require Logger
 
@@ -53,6 +56,9 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
      |> assign(:can_view_northbound_history, false)
      |> assign(:loading, true)
      |> assign(:error, nil)
+     |> assign(:metrics_request_ref, nil)
+     |> assign(:metrics_loading, false)
+     |> assign(:metrics_time_range, "last_24h")
      |> assign(:metrics, %{panels: [], error: nil, message: nil})}
   end
 
@@ -70,8 +76,6 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     # Load interface settings (favorites, metrics enabled)
     settings = load_interface_settings(scope, device_uid, interface_uid)
 
-    # Load metrics for this interface
-    metrics = load_interface_metrics(srql_module, device_uid, interface, settings, scope)
     can_view_northbound_history = RBAC.can?(scope, "northbound.actions.view")
 
     {northbound_history, northbound_history_error} =
@@ -127,14 +131,40 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
      |> assign(:srql, srql)
      |> assign(:loading, false)
      |> assign(:error, error)
-     |> assign(:metrics, metrics)
      |> assign(:northbound_history, northbound_history)
      |> assign(:northbound_history_error, northbound_history_error)
      |> assign(:can_view_northbound_history, can_view_northbound_history)
-     |> assign(:page_title, page_title)}
+     |> assign(:page_title, page_title)
+     |> start_metrics_load()}
   end
 
   @impl true
+  def handle_event("interface_set_range", %{"range" => range}, socket) do
+    if range in MetricWindowComponents.ranges() do
+      {:noreply, socket |> assign(:metrics_time_range, range) |> start_metrics_load()}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("interface_custom_range", %{"window" => params}, socket) do
+    with {:ok, range} <- MetricWindowComponents.custom_range(params),
+         %{"if_index" => if_index} when not is_nil(if_index) <- socket.assigns.interface do
+      query =
+        MetricsQuery.build_snmp_counter_query(
+          socket.assigns.device_uid,
+          if_index,
+          metric_query_names(socket.assigns.settings)
+        )
+
+      query = MetricWindowComponents.query_for_range(query, range)
+      {:noreply, push_navigate(socket, to: ~p"/observability/metrics?#{%{q: query}}")}
+    else
+      {:error, message} -> {:noreply, put_flash(socket, :error, message)}
+      _ -> {:noreply, put_flash(socket, :error, "This interface has no SNMP interface index.")}
+    end
+  end
+
   def handle_event("srql_change", %{"q" => q}, socket) do
     {:noreply, assign(socket, :srql, Map.put(socket.assigns.srql, :draft, to_string(q)))}
   end
@@ -200,22 +230,10 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
 
       case upsert_interface_setting(scope, device_uid, interface_uid, attrs) do
         {:ok, updated_settings} ->
-          srql_module =
-            Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
-
-          metrics =
-            load_interface_metrics(
-              srql_module,
-              device_uid,
-              socket.assigns.interface,
-              updated_settings,
-              scope
-            )
-
           {:noreply,
            socket
            |> assign(:settings, updated_settings)
-           |> assign(:metrics, metrics)}
+           |> start_metrics_load()}
 
         {:error, _reason} ->
           {:noreply, put_flash(socket, :error, "Failed to update metric selection")}
@@ -307,22 +325,10 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
 
       case upsert_interface_setting(scope, device_uid, interface_uid, attrs) do
         {:ok, updated_settings} ->
-          srql_module =
-            Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
-
-          metrics =
-            load_interface_metrics(
-              srql_module,
-              device_uid,
-              socket.assigns.interface,
-              updated_settings,
-              scope
-            )
-
           {:noreply,
            socket
            |> assign(:settings, updated_settings)
-           |> assign(:metrics, metrics)
+           |> start_metrics_load()
            |> assign(:metric_modal_open, false)
            |> assign(:metric_modal_metric, nil)
            |> put_flash(:info, "Metric settings saved")}
@@ -402,6 +408,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
         {:noreply,
          socket
          |> assign(:settings, updated_settings)
+         |> start_metrics_load()
          |> put_flash(:info, "Chart group deleted")}
 
       {:error, _reason} ->
@@ -427,6 +434,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
         {:noreply,
          socket
          |> assign(:settings, updated_settings)
+         |> start_metrics_load()
          |> assign(:group_modal_open, false)
          |> assign(:group_modal_group, nil)
          |> put_flash(:info, "Chart group saved")}
@@ -484,6 +492,28 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
       {:error, reason} ->
         Logger.warning("Failed to load northbound interface action history: #{inspect(reason)}")
         {[], "Failed to load action history."}
+    end
+  end
+
+  @impl true
+  def handle_async({:interface_metrics, request_ref}, result, socket) do
+    if socket.assigns.metrics_request_ref == request_ref do
+      metrics =
+        case result do
+          {:ok, metrics} ->
+            metrics
+
+          {:exit, _reason} ->
+            %{panels: [], error: "Unable to load interface metrics. Try a shorter window or retry.", message: nil}
+        end
+
+      {:noreply,
+       socket
+       |> assign(:metrics, metrics)
+       |> assign(:metrics_request_ref, nil)
+       |> assign(:metrics_loading, false)}
+    else
+      {:noreply, socket}
     end
   end
 
@@ -560,13 +590,28 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
 
           <%!-- Metrics Graphs Section (positioned at top, below header) --%>
           <div
-            :if={@metrics.panels != [] || @metrics.error || @metrics.message}
+            :if={@metrics_loading || @metrics.panels != [] || @metrics.error || @metrics.message}
             class="sr-ui-card bg-sr-surface border border-sr-line"
           >
             <div class="sr-ui-card-body">
               <h2 class="sr-ui-card-title text-lg">
                 <.icon name="hero-chart-bar" class="size-5 text-sr-brand" /> Metrics History
               </h2>
+              <.metric_window_controls
+                id="interface-window"
+                range={@metrics_time_range}
+                event="interface_set_range"
+                custom_event="interface_custom_range"
+              />
+
+              <div
+                :if={@metrics_loading}
+                role="status"
+                class="flex items-center gap-2 py-4 text-sm text-sr-muted"
+              >
+                <.icon name="hero-arrow-path" class="size-4 animate-spin" />
+                Loading interface metrics…
+              </div>
 
               <%!-- Error state --%>
               <div :if={@metrics.error} class="py-4">
@@ -1516,11 +1561,29 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     end
   end
 
-  defp load_interface_metrics(_srql_module, _device_uid, nil, _settings, _scope) do
+  defp start_metrics_load(socket) do
+    previous_ref = socket.assigns.metrics_request_ref
+    socket = if previous_ref, do: cancel_async(socket, {:interface_metrics, previous_ref}), else: socket
+    request_ref = make_ref()
+    srql_module = Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
+
+    %{device_uid: device_uid, interface: interface, settings: settings, current_scope: scope, metrics_time_range: range} =
+      socket.assigns
+
+    socket
+    |> assign(:metrics_request_ref, request_ref)
+    |> assign(:metrics_loading, true)
+    |> assign(:metrics, %{panels: [], error: nil, message: nil})
+    |> start_async({:interface_metrics, request_ref}, fn ->
+      load_interface_metrics(srql_module, device_uid, interface, settings, scope, range)
+    end)
+  end
+
+  defp load_interface_metrics(_srql_module, _device_uid, nil, _settings, _scope, _range) do
     %{panels: [], error: nil, message: nil}
   end
 
-  defp load_interface_metrics(srql_module, device_uid, interface, settings, scope) do
+  defp load_interface_metrics(srql_module, device_uid, interface, settings, scope, range) do
     cond do
       not settings_value(settings, :metrics_enabled) or
           settings_list_value(settings, :metrics_selected) == [] ->
@@ -1550,16 +1613,22 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
         }
 
       true ->
-        fetch_interface_metrics(srql_module, device_uid, interface, settings, scope)
+        fetch_interface_metrics(srql_module, device_uid, interface, settings, scope, range)
     end
   end
 
-  defp fetch_interface_metrics(srql_module, device_uid, interface, settings, scope) do
+  defp fetch_interface_metrics(srql_module, device_uid, interface, settings, scope, range) do
     if_index = Map.get(interface, "if_index")
 
     # SRQL agg:rate returns per-second rates; Timeseries uses rate_mode :rate
     # below only for units/labels, never for a second client-side delta.
-    query = MetricsQuery.build_snmp_counter_query(device_uid, if_index, metric_query_names(settings))
+    query =
+      MetricsQuery.build_snmp_counter_query(
+        device_uid,
+        if_index,
+        metric_query_names(settings),
+        MetricsQuery.window_opts(range)
+      )
 
     # Get interface speed for proper graph scaling (bps -> bytes per second)
     if_speed_bps = Map.get(interface, "speed_bps") || Map.get(interface, "if_speed")
@@ -1574,6 +1643,10 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     case srql_module.query(query, %{scope: scope}) do
       {:ok, %{"results" => results} = response} when is_list(results) and results != [] ->
         panels = build_metrics_panels(response, if_speed_bytes_per_sec, metric_groups, reference_lines_by_metric)
+
+        panels =
+          Enum.map(panels, &%{&1 | assigns: Map.put(&1.assigns, :bucket_seconds, Query.query_bucket_seconds(query))})
+
         %{panels: panels, error: nil, message: nil}
 
       {:ok, %{"results" => []}} ->
@@ -1582,7 +1655,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
             interface_metrics_empty_panel(
               :no_data,
               "No metrics data available yet",
-              "SNMP metrics are enabled, but no samples matched this interface in the last 24 hours."
+              "SNMP metrics are enabled, but no samples matched this interface in the selected time window."
             )
           ],
           error: nil,

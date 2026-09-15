@@ -100,6 +100,33 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Points do
 
   def chart_points(points, _unit, _compact, _cap), do: points
 
+  # Find gaps before reducing display points, so decimation cannot invent
+  # outages or erase them. A known query bucket also handles sparse series;
+  # without one, the observed cadence can only identify unusually long gaps.
+  def time_gaps(points, bucket_seconds \\ nil) do
+    threshold =
+      if is_number(bucket_seconds) and bucket_seconds > 0 do
+        bucket_seconds * 1.5
+      else
+        case median_delta_seconds(points) do
+          {:ok, seconds} -> seconds * 3
+          {:error, :no_deltas} -> nil
+        end
+      end
+
+    if threshold do
+      points
+      |> Enum.chunk_every(2, 1, :discard)
+      |> Enum.flat_map(fn [{left, _}, {right, _}] ->
+        if DateTime.diff(right, left, :microsecond) > threshold * 1_000_000,
+          do: [{left, right}],
+          else: []
+      end)
+    else
+      []
+    end
+  end
+
   def points_cap(points) when is_list(points) do
     width_cap = @max_points
 

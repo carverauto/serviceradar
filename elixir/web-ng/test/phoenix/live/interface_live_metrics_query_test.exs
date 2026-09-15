@@ -6,6 +6,17 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.MetricsQueryTest do
   @moduletag :unit
   @moduletag :db_free
 
+  test "long history windows use bounded coarse buckets without changing the default" do
+    for {range, bucket} <- [{"last_24h", "1m"}, {"last_30d", "6h"}, {"last_90d", "12h"}] do
+      query =
+        MetricsQuery.build_snmp_counter_query("synthetic-device", 7, ["ifInOctets"], MetricsQuery.window_opts(range))
+
+      assert query =~ "time:#{range} bucket:#{bucket}"
+      assert query =~ "if_index:7"
+      assert query =~ "agg:rate series:metric_name"
+    end
+  end
+
   test "uses one-minute buckets for interface counter charts" do
     query =
       MetricsQuery.build_snmp_counter_query("device-1", 7, [

@@ -174,12 +174,57 @@ and disabled literal query logging for that execution path.
 5. Verify translated dialect/target, recent rows, dashboard latency, and an
    explicitly historical archive query. Running pods or a synced deployment
    alone do not establish correctness.
-6. Stop after the metrics query-path acceptance gate. Other table changes need
-   their own rollout decision.
+6. Pass the metrics query-path acceptance gate before enabling another dataset.
+   The requested follow-on scope includes network activity, logs, events, and
+   alert history; each needs its own identity, coverage, and query acceptance.
 
 Rollback from hybrid to Timescale-only preserves the existing hot copy and
 stops archive writes/reads. Previously published Parquet remains. Returning
 from Parquet-only requires hot coverage restoration before recent reads switch.
+
+### D7. Compact archive files before interactive reads
+
+Time bounds alone do not make hundreds of tiny remote files inexpensive. A
+background EventWriter maintenance job selects a bounded snapshot of published
+files within one UTC partition, materializes their canonical columns on the
+dedicated analytics head, and writes an immutable candidate sorted by device,
+metric, and timestamp. Use the normal Parquet row-group size: the measured
+selective-query workload did not benefit from smaller row groups.
+
+Verify count, timestamp bounds, and order-independent content checksums before
+publication. Compaction preserves every row, including its multiplicity; it
+does not add query-time deduplication. A short primary transaction locks the
+captured manifest rows, rejects changed or already-replaced sources, publishes
+the verified candidate, and marks all sources superseded atomically. Object IO
+never runs inside that transaction. Files published concurrently outside the
+snapshot remain visible.
+
+Keep superseded objects for at least a day so readers that already resolved
+their keys can finish. Retain their catalog membership for archive-batch
+provenance. The S3 cleanup worker deletes a bounded set, verifies HEAD returns
+404 for each physical key, and only then records cleanup completion. Failed
+deletions remain retryable. Expiry retires published manifest entries before
+using the same grace and cleanup path. Filesystem cleanup is deferred until
+the worker can verify the head’s storage. Failed or losing candidates remain
+invisible to readers. A scheduler processes bounded groups rather than running
+an unbounded full-history rewrite on an interactive request.
+
+### D8. Multi-year observability history
+
+The intended coverage includes metrics, network activity, logs, events, and
+alert history. Hot dashboards keep their bounded database window; explicit
+older queries use the corresponding archive. Retention must be configurable
+per dataset, including multi-year periods. The hosted default for flows, logs,
+events, and alert history is 365 days; the existing metrics archive expiry
+setting is unchanged. OSS remains Timescale-only unless explicitly enabled.
+Existing installations do not gain historical coverage merely by increasing the
+configured retention period.
+
+Append-only telemetry can reuse durable EventWriter publication after its
+canonical identity and conflict behavior are verified. Mutable alert records
+require a history contract that preserves transitions and keeps active alerts
+available; copying a mutable table as if it were immutable telemetry is not
+sufficient. Enable and validate each dataset separately after metrics pass.
 
 ## Risks / Trade-offs
 

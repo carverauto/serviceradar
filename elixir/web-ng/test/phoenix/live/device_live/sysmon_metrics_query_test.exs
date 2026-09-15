@@ -27,6 +27,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.QueryTest do
 
     test "coarsens gracefully for very large windows" do
       assert Query.bucket_for_time_range("last_30d") == "6h"
+      assert Query.bucket_for_time_range("last_90d") == "12h"
+    end
+  end
+
+  test "chart bucket metadata reflects the actual query, including a custom override" do
+    assert Query.query_bucket_seconds("in:timeseries_metrics bucket:12h agg:avg") == 43_200
+    assert Query.query_bucket_seconds("in:timeseries_metrics bucket:15s agg:avg") == 15
+    assert Query.query_bucket_seconds("in:timeseries_metrics") == nil
+  end
+
+  test "custom ranges reserve an inclusive boundary point and scale beyond one year" do
+    for duration <- [4_500, 30 * 86_400, 90 * 86_400, 400 * 86_400, 5 * 365 * 86_400] do
+      start_time = ~U[2025-01-01 09:23:17Z]
+      end_time = DateTime.add(start_time, duration)
+      range = "[#{DateTime.to_iso8601(start_time)},#{DateTime.to_iso8601(end_time)}]"
+      bucket = range |> Query.bucket_for_time_range() |> Query.bucket_seconds()
+      count = div(DateTime.to_unix(end_time), bucket) - div(DateTime.to_unix(start_time), bucket) + 1
+      assert count <= 300
     end
   end
 

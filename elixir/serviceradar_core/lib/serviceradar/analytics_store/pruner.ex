@@ -5,10 +5,10 @@ defmodule ServiceRadar.AnalyticsStore.Pruner do
   Pure pg_duckdb uses `Registry.hot_retention_days/1`, driven by
   `SERVICERADAR_*_RETENTION_DAYS`. Hybrid uses its separate
   `parquet_retention_days`; an unset archive window never deletes files.
-  Objects are deleted first;
-  manifest rows follow so a reader never sees a live key whose object is
-  gone. Staging keys are never globbed by readers, but expired staging
-  objects are deleted too.
+  Hybrid expiry hides files in a primary transaction, retaining their catalog
+  records and objects through the reader grace period. Verified physical
+  deletion runs separately. Pure pg_duckdb retains its legacy deletion path
+  for files without hybrid publication provenance.
 
   Dual-write and timescale-only deployments are a no-op: nothing has
   flipped, so Timescale retention still owns the data.
@@ -49,30 +49,15 @@ defmodule ServiceRadar.AnalyticsStore.Pruner do
   def prune_expired(opts \\ []) do
     cfg = Keyword.get_lazy(opts, :config, &Config.load/0)
     now = Keyword.get(opts, :now, DateTime.utc_now())
-    list = Keyword.get(opts, :list_expired, &default_list/2)
-    delete = Keyword.get(opts, :delete_objects, &default_delete(&1, cfg))
-    forget = Keyword.get(opts, :forget, &default_forget/1)
 
     result =
       Enum.reduce_while(
         Config.flipped_tables(cfg) ++ Config.hybrid_tables(cfg),
         {:ok, 0},
         fn entry, {:ok, acc} ->
-          case cutoff_date(entry, now, cfg) do
-            nil ->
-              {:cont, {:ok, acc}}
-
-            cutoff ->
-              keys = list.(entry.table, cutoff)
-
-              case delete.(keys) do
-                {:ok, deleted} ->
-                  Enum.each(keys, forget)
-                  {:cont, {:ok, acc + deleted}}
-
-                {:error, reason} ->
-                  {:halt, {:error, reason}}
-              end
+          case prune_table(entry, cfg, now, opts) do
+            {:ok, count} -> {:cont, {:ok, acc + count}}
+            {:error, _} = error -> {:halt, error}
           end
         end
       )
@@ -82,12 +67,40 @@ defmodule ServiceRadar.AnalyticsStore.Pruner do
         {:ok, 0}
 
       {:ok, n} ->
-        Logger.info("analytics store: pruned expired parquet objects", deleted: n)
+        Logger.info("analytics store: processed expired parquet entries", count: n)
         {:ok, n}
 
       {:error, reason} = error ->
         Logger.warning("analytics store: parquet prune failed", reason: inspect(reason))
         error
+    end
+  end
+
+  defp prune_table(entry, cfg, now, opts) do
+    case {Config.driver_for(cfg, entry.table), cutoff_date(entry, now, cfg)} do
+      {_, nil} ->
+        {:ok, 0}
+
+      {:hybrid, cutoff} ->
+        retire = Keyword.get(opts, :retire_expired, &FileManifest.retire_expired/3)
+        retire.(entry.table, cutoff, now: now)
+
+      {:pg_duckdb, cutoff} ->
+        prune_legacy(entry.table, cutoff, cfg, opts)
+    end
+  end
+
+  defp prune_legacy(table, cutoff, cfg, opts) do
+    list = Keyword.get(opts, :list_expired, &default_list/2)
+    delete = Keyword.get(opts, :delete_objects, &default_delete(&1, cfg))
+    forget = Keyword.get(opts, :forget, &default_forget/1)
+    guard = Keyword.get(opts, :legacy_prune_guard, &FileManifest.ensure_legacy_prune_allowed/1)
+
+    with :ok <- guard.(table),
+         keys = list.(table, cutoff),
+         {:ok, count} <- delete.(keys) do
+      Enum.each(keys, forget)
+      {:ok, count}
     end
   end
 

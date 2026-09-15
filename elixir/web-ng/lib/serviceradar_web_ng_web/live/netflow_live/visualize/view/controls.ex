@@ -163,7 +163,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.Controls do
                   name="state[time]"
                   class={ui_field_class(size: "sm", mono: true, class: "w-full text-xs")}
                 >
-                  <%= for value <- ["last_1h", "last_6h", "last_12h", "last_24h", "last_7d", "last_30d"] do %>
+                  <%= for value <- ["last_1h", "last_6h", "last_12h", "last_24h", "last_7d", "last_30d", "last_90d"] do %>
                     <option
                       value={value}
                       selected={Map.get(@netflow_viz_state, "time") == value}

@@ -65,7 +65,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths do
               :gap
           end)
 
-        segments = contiguous_segments(coords)
+        time_gaps = if is_map(opts), do: Map.get(opts, :time_gaps, []), else: Keyword.get(opts, :time_gaps, [])
+        segments = coords |> separate_time_gaps(points, time_gaps) |> contiguous_segments()
 
         Map.merge(
           %{
@@ -239,6 +240,25 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths do
       [] -> true
       _segment -> false
     end)
+  end
+
+  defp separate_time_gaps(coords, _points, []), do: coords
+
+  defp separate_time_gaps(coords, points, gaps) do
+    {segments, _previous} =
+      coords
+      |> Enum.zip(points)
+      |> Enum.map_reduce(nil, fn {coord, {dt, _}}, previous ->
+        gap? =
+          previous &&
+            Enum.any?(gaps, fn {left, right} ->
+              DateTime.compare(previous, left) != :gt and DateTime.compare(dt, right) != :lt
+            end)
+
+        {if(gap?, do: [:gap, coord], else: [coord]), dt}
+      end)
+
+    List.flatten(segments)
   end
 
   defp segments_path(segments, path_fun) do

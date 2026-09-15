@@ -196,12 +196,17 @@ defmodule ServiceRadar.EventWriter.AnalyticsRestore do
     JOIN unnest($1::timestamptz[], $2::text[], $3::text[]) AS expected(timestamp, gateway_id, series_key)
       ON t.timestamp = expected.timestamp AND t.gateway_id = expected.gateway_id
       AND t.series_key = expected.series_key
+    WHERE t.timestamp >= $4 AND t.timestamp <= $5
     """
 
     params = [
       Enum.map(rows, & &1.timestamp),
       Enum.map(rows, & &1.gateway_id),
-      Enum.map(rows, & &1.series_key)
+      Enum.map(rows, & &1.series_key),
+      rows
+      |> Enum.min_by(&DateTime.to_unix(&1.timestamp, :microsecond))
+      |> Map.fetch!(:timestamp),
+      rows |> Enum.max_by(&DateTime.to_unix(&1.timestamp, :microsecond)) |> Map.fetch!(:timestamp)
     ]
 
     case repo.query(sql, params, timeout: 60_000, log: false) do

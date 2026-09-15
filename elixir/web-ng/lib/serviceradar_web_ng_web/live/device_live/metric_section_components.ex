@@ -3,31 +3,41 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetricSectionComponents do
 
   use ServiceRadarWebNGWeb, :html
 
+  import ServiceRadarWebNGWeb.MetricWindowComponents, only: [metric_window_controls: 1]
   import ServiceRadarWebNGWeb.SRQLComponents, only: [srql_results_table: 1]
+
+  alias ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Query
 
   attr(:sections, :list, default: [])
   attr(:device_uid, :string, required: true)
   attr(:timezone, :string, required: true)
   attr(:chart_focus, :any, default: nil)
   attr(:time_range, :string, default: "last_24h")
+  attr(:available, :boolean, default: false)
+  attr(:loading, :boolean, default: false)
+  attr(:error, :string, default: nil)
 
   def metric_sections_content(assigns) do
     ~H"""
-    <div :if={@sections != []} class="flex items-center justify-end gap-2">
-      <span class="text-[11px] uppercase tracking-wide text-sr-muted">Window</span>
-      <div class="flex flex-wrap gap-1">
-        <.ui_button
-          :for={{label, value} <- sysmon_range_options()}
-          type="button"
-          phx-click="sysmon_set_range"
-          phx-value-range={value}
-          size="xs"
-          variant={if(@time_range == value, do: "primary", else: "ghost")}
-          active={@time_range == value}
-        >
-          {label}
-        </.ui_button>
-      </div>
+    <.metric_window_controls
+      :if={@available or @sections != [] or @loading or @error != nil}
+      id="sysmon-window"
+      range={@time_range}
+      event="sysmon_set_range"
+      custom_event="sysmon_custom_range"
+      custom_enabled={@sections != []}
+      custom_options={
+        for section <- @sections,
+            is_binary(Map.get(section, :query)),
+            do: {section.title, section.key}
+      }
+    />
+
+    <div :if={@loading} id="sysmon-metrics-loading" role="status" class="text-sm text-sr-muted">
+      Loading metrics for the selected window…
+    </div>
+    <div :if={@error} id="sysmon-metrics-error" role="alert" class="text-sm text-[var(--color-error)]">
+      {@error}
     </div>
 
     <%= for {section, section_index} <- Enum.with_index(@sections) do %>
@@ -99,7 +109,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetricSectionComponents do
                 module={panel.plugin}
                 id={"device-#{@device_uid}-#{section.key}-#{panel.id}-#{idx}"}
                 title={Map.get(panel, :title) || section.title}
-                panel_assigns={panel_assigns(panel, @chart_focus, @timezone)}
+                panel_assigns={
+                  panel_assigns(panel, @chart_focus, @timezone, Map.get(section, :query))
+                }
               />
             <% end %>
           <% end %>
@@ -107,10 +119,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetricSectionComponents do
       </div>
     <% end %>
     """
-  end
-
-  defp sysmon_range_options do
-    [{"1h", "last_1h"}, {"6h", "last_6h"}, {"24h", "last_24h"}, {"7d", "last_7d"}]
   end
 
   defp format_pct(value) when is_float(value), do: :erlang.float_to_binary(value, decimals: 1)
@@ -154,10 +162,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetricSectionComponents do
 
   defp percent_width(_), do: 0
 
-  defp panel_assigns(panel, chart_focus, timezone) do
+  defp panel_assigns(panel, chart_focus, timezone, query) do
     panel.assigns
     |> Map.put(:compact, true)
     |> Map.put(:timezone, timezone)
+    |> Map.put(:bucket_seconds, Query.query_bucket_seconds(query))
     |> maybe_put_chart_focus(chart_focus)
   end
 

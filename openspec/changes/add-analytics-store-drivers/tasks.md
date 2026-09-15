@@ -56,7 +56,8 @@
       reconcile retention and aggregate refresh, then verify ICMP and interface
       charts within their request budgets without Postgrex or pool errors.
       Prior Parquet-only ingest verification did not establish query acceptance.
-- [ ] 6.5 Do not begin the NetFlow flip until 6.4 passes and its rollout is requested.
+- [ ] 6.5 Enable hybrid NetFlow storage after 6.4 passes. The rollout is requested;
+      first verify its ingest identity, archive parity, query latency, and recovery.
 - [x] 6.6 Leave other deployments on Timescale and retain the filesystem recipe.
 
 ## 7. Documentation
@@ -76,7 +77,7 @@
 - [x] 8.4 Pin hybrid cursor windows and targets; reject expired hot continuations.
 - [x] 8.5 Keep hot retention at least the read window and restore missing CAGG
       policies. Keep archive expiry independent and disabled unless configured.
-- [ ] 8.6 Apply a metrics-only compression migration with a two-day background
+- [x] 8.6 Apply a metrics-only compression migration with a two-day background
       policy. Preserve schema-only migration ownership and verify actual results.
 - [x] 8.7 Provide bounded, repeatable EventWriter hot-copy recovery with explicit
       per-window verification failures.
@@ -88,3 +89,19 @@
       compacted, sorted Parquet. Verify row parity and predicate pruning, then
       implement the measured layout and atomic manifest replacement with safe
       reader overlap. Sorting alone does not remove per-file request overhead.
+
+## 9. Longer history across observability datasets
+
+- [ ] 9.1 Add shared 30-day, 90-day, and custom date windows to sysmon metrics,
+      interface history, and NetFlow. Preserve existing filters and use coarser
+      buckets for longer windows. Custom opens the prefilled SRQL editor.
+- [ ] 9.2 Inventory canonical writers, primary keys, updates, and SRQL readers
+      for network activity, logs, events, and alert history before enabling each
+      archive. Mutable alert state needs an explicit history contract.
+- [ ] 9.3 Extend optional hybrid publication and dataset-specific archive
+      retention to the supported datasets. Use a 365-day hosted default for flows,
+      logs, events, and alert history. Support multi-year history without
+      making object storage a dependency of the default OSS installation.
+- [ ] 9.4 Verify replay identity, full archive coverage, bounded queries, and
+      retention independently for each enabled dataset; keep active operational
+      state available and prohibit silent cross-store fallback.

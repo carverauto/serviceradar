@@ -4,17 +4,95 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityData do
   alias ServiceRadar.Inventory.DeviceAgentAvailability
   alias ServiceRadarWebNGWeb.DeviceLive.ICMPData
 
-  # At-a-glance availability strip on the device details page.
-  #
-  # The query counts latency samples from the preferred ICMP source per device.
-  # It was the slowest supplemental task (~207ms) because `last_24h` scans
-  # 48 30-minute buckets per device. There is no continuous aggregate for
-  # `timeseries_metrics` (verified across srql/core migrations) and building one
-  # is out of scope, so we narrow the window to `last_6h` (12 buckets) — roughly
-  # a 4x reduction in scanned rows. Six hours is sufficient for a quick health
-  # glance; the full uptime history lives elsewhere.
-  @availability_window "last_6h"
-  @availability_bucket "30m"
+  @bucket_seconds 30 * 60
+  @window_seconds 24 * 60 * 60
+
+  def load_availability(srql_module, device_uid, scope, opts \\ []) do
+    # Resolve the range once so all source queries and displayed gaps share it.
+    now = opts |> Keyword.get_lazy(:now, &DateTime.utc_now/0) |> DateTime.truncate(:second)
+    start_at = DateTime.add(now, -@window_seconds, :second)
+    range = "[#{DateTime.to_iso8601(start_at)},#{DateTime.to_iso8601(now)}]"
+
+    case ICMPData.load_availability(srql_module, [device_uid], scope,
+           time_range: range,
+           bucket: "30m",
+           limit: 100
+         ) do
+      {:ok, rows} -> build_availability(rows, start_at, now)
+      {:error, _reason} -> nil
+    end
+  end
+
+  defp build_availability(rows, start_at, end_at) do
+    first_second = DateTime.to_unix(start_at)
+    last_second = DateTime.to_unix(end_at)
+    first_bucket = bucket_start(first_second)
+    last_bucket = bucket_start(last_second - 1)
+
+    statuses =
+      Enum.reduce(rows, %{}, fn row, acc ->
+        with {:ok, timestamp} <- parse_timestamp(row["timestamp"]),
+             second = timestamp |> DateTime.to_unix() |> bucket_start(),
+             true <- second >= first_bucket and second <= last_bucket,
+             value when value in [0, 0.0, 1, 1.0] <- row["value"] do
+          # Duplicate samples in a bucket never hide an observed failure.
+          Map.update(acc, second, value, &min(&1, value))
+        else
+          _ -> acc
+        end
+      end)
+
+    segments =
+      Enum.map(first_bucket..last_bucket//@bucket_seconds, fn second ->
+        from = max(second, first_second)
+        until = min(second + @bucket_seconds, last_second)
+        state = status(Map.get(statuses, second))
+        timestamp = second |> DateTime.from_unix!() |> DateTime.to_iso8601()
+
+        %{
+          timestamp: timestamp,
+          status: state,
+          available: state == :online,
+          width: (until - from) / @window_seconds * 100.0,
+          title: status_label(state)
+        }
+      end)
+
+    online = Enum.count(segments, &(&1.status == :online))
+    offline = Enum.count(segments, &(&1.status == :offline))
+    observed = online + offline
+
+    %{
+      uptime_pct: if(observed > 0, do: Float.round(online / observed * 100.0, 1)),
+      total_checks: observed,
+      online_checks: online,
+      offline_checks: offline,
+      unknown_checks: length(segments) - observed,
+      bucket_count: length(segments),
+      window_start: start_at,
+      window_end: end_at,
+      segments: segments
+    }
+  end
+
+  defp bucket_start(second), do: Integer.floor_div(second, @bucket_seconds) * @bucket_seconds
+  defp status(value) when value in [1, 1.0], do: :online
+  defp status(value) when value in [0, 0.0], do: :offline
+  defp status(_), do: :unknown
+  defp status_label(:online), do: "Online"
+  defp status_label(:offline), do: "Offline (failure observed)"
+  defp status_label(:unknown), do: "Unknown (no observations)"
+
+  defp parse_timestamp(%DateTime{} = value), do: {:ok, value}
+
+  defp parse_timestamp(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, timestamp, _offset} -> {:ok, timestamp}
+      _ -> :error
+    end
+  end
+
+  defp parse_timestamp(_), do: :error
 
   defp escape_value(value) when is_binary(value) do
     value
@@ -23,109 +101,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityData do
   end
 
   defp escape_value(other), do: escape_value(to_string(other))
-
-  def load_availability(srql_module, device_uid, scope) do
-    escaped_id = escape_value(device_uid)
-
-    case ICMPData.load(srql_module, [device_uid], scope,
-           time_range: @availability_window,
-           bucket: @availability_bucket,
-           aggregate: :count,
-           limit: 100
-         ) do
-      {:ok, rows} when rows != [] ->
-        build_availability(rows)
-
-      _ ->
-        # Fallback: try healthcheck_results
-        fallback_query =
-          "in:healthcheck_results uid:\"#{escaped_id}\" time:#{@availability_window} limit:200"
-
-        case srql_module.query(fallback_query, %{scope: scope}) do
-          {:ok, %{"results" => rows}} when is_list(rows) ->
-            build_availability_from_healthchecks(rows)
-
-          _ ->
-            nil
-        end
-    end
-  end
-
-  defp build_availability(rows) do
-    # Each row represents a bucket. If we got ICMP data, the device was online.
-    # This is a simplified availability based on metric presence.
-    total = length(rows)
-
-    online =
-      Enum.count(rows, fn r ->
-        is_map(r) and is_number(Map.get(r, "value")) and Map.get(r, "value") > 0
-      end)
-
-    offline = total - online
-
-    uptime_pct = if total > 0, do: Float.round(online / total * 100.0, 1), else: 0.0
-
-    segments =
-      rows
-      |> Enum.filter(&is_map/1)
-      |> Enum.map(fn r ->
-        value = Map.get(r, "value")
-        ts = Map.get(r, "timestamp", "")
-        available = is_number(value) and value > 0
-
-        %{
-          available: available,
-          width: 100.0 / max(length(rows), 1),
-          title: "#{ts} - #{if available, do: "Online", else: "Offline"}"
-        }
-      end)
-
-    %{
-      uptime_pct: uptime_pct,
-      total_checks: total,
-      online_checks: online,
-      offline_checks: offline,
-      segments: segments
-    }
-  end
-
-  defp build_availability_from_healthchecks(rows) do
-    total = length(rows)
-
-    online =
-      Enum.count(rows, fn r ->
-        is_map(r) and (Map.get(r, "is_available") == true or Map.get(r, "available") == true)
-      end)
-
-    offline = total - online
-
-    uptime_pct = if total > 0, do: Float.round(online / total * 100.0, 1), else: 0.0
-
-    # Build segments (group by time buckets if we have timestamps)
-    segments =
-      rows
-      |> Enum.filter(&is_map/1)
-      # Limit segments for display
-      |> Enum.take(48)
-      |> Enum.map(fn r ->
-        available = Map.get(r, "is_available") == true or Map.get(r, "available") == true
-        ts = Map.get(r, "timestamp") || Map.get(r, "checked_at", "")
-
-        %{
-          available: available,
-          width: 100.0 / max(min(length(rows), 48), 1),
-          title: "#{ts} - #{if available, do: "Online", else: "Offline"}"
-        }
-      end)
-
-    %{
-      uptime_pct: uptime_pct,
-      total_checks: total,
-      online_checks: online,
-      offline_checks: offline,
-      segments: segments
-    }
-  end
 
   def load_agent_availability(_scope, nil), do: []
 

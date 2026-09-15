@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.TimeseriesCounterGapTest do
 
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Metrics
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths
+  alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Points
+  alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData
 
   @moduletag :unit
   @moduletag :db_free
@@ -95,5 +97,46 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.TimeseriesCounterGapTest do
 
     assert Paths.datetime_to_x(t1, points) == 141.6
     assert Paths.chart_paths(points, nil).line =~ "141.60"
+  end
+
+  test "known bucket duration breaks sparse charts across missing measurements" do
+    first = ~U[2034-01-01 00:00:00Z]
+    last = DateTime.add(first, 12, :hour)
+    points = [{first, 10.0}, {last, 40.0}]
+
+    [series] = SeriesData.build_series_data([{"cpu", points}], bucket_seconds: 60)
+
+    assert length(String.split(series.paths.line, "M ")) == 3
+    assert length(String.split(series.paths.area, "M ")) == 3
+    assert series.paths.avg == 25.0
+    assert series.paths.latest == 40.0
+    assert Enum.map(series.point_data, & &1.v) == [10.0, 40.0]
+    assert Points.time_gaps(points) == []
+  end
+
+  test "long missing intervals break individual and combined lines using observed cadence" do
+    start = ~U[2034-01-01 00:00:00Z]
+    points = for seconds <- [0, 60, 43_200, 43_260], do: {DateTime.add(start, seconds), 20.0}
+
+    series = SeriesData.build_series_data([{"cpu-a", points}, {"cpu-b", points}], [])
+    assert Enum.all?(series, &(length(String.split(&1.paths.line, "M ")) == 3))
+
+    assert {[combined], []} = SeriesData.resolve_chart_groups(series, true, :single, nil, false, "CPU")
+    assert Enum.all?(combined.series, &(length(String.split(&1.paths.line, "M ")) == 3))
+  end
+
+  test "display decimation retains real gaps without mistaking omitted display points for outages" do
+    start = ~U[2034-01-01 00:00:00Z]
+    regular = for minute <- 0..999, do: {DateTime.add(start, minute, :minute), rem(minute, 7) * 1.0}
+    later = for minute <- 2_000..2_999, do: {DateTime.add(start, minute, :minute), rem(minute, 7) * 1.0}
+
+    [continuous] = SeriesData.build_series_data([{"cpu", regular}], bucket_seconds: 60)
+    [interrupted] = SeriesData.build_series_data([{"cpu", regular ++ later}], bucket_seconds: 60)
+
+    assert length(continuous.raw_points) <= 800
+    assert length(interrupted.raw_points) <= 800
+    assert length(String.split(continuous.paths.line, "M ")) == 2
+    assert length(String.split(interrupted.paths.line, "M ")) == 3
+    assert length(String.split(interrupted.paths.area, "M ")) == 3
   end
 end

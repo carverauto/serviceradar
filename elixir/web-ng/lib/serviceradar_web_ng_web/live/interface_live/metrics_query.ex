@@ -1,12 +1,20 @@
 defmodule ServiceRadarWebNGWeb.InterfaceLive.MetricsQuery do
   @moduledoc false
 
+  alias ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Query
   alias ServiceRadarWebNGWeb.InterfaceLive.SnmpMetricNames
+  alias ServiceRadarWebNGWeb.MetricWindowComponents
 
   @counter_window "last_24h"
   @counter_bucket "1m"
   @buckets_per_window 24 * 60
   @minimum_limit 3_600
+
+  def window_opts(range) do
+    range = MetricWindowComponents.normalize_range(range)
+    bucket = if range == @counter_window, do: @counter_bucket, else: Query.bucket_for_time_range(range)
+    [time_range: range, bucket: bucket]
+  end
 
   def build_snmp_counter_query(device_uid, if_index, metric_names, opts \\ []) do
     names = normalize_metric_names(metric_names)

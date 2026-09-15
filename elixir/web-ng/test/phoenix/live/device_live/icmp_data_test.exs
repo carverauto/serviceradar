@@ -70,16 +70,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ICMPDataTest do
            ]
   end
 
-  test "availability uses the same source selection without scaling bucket counts" do
-    respond_with([rows([]), rows([point("sr:device-a", 3)])])
+  test "availability selects authoritative status gauges without scaling their values" do
+    respond_with([rows([]), rows([point("sr:device-a", 1)])])
 
     assert %{total_checks: 1, online_checks: 1, uptime_pct: 100.0} =
-             AvailabilityData.load_availability(__MODULE__, "sr:device-a", @scope)
+             AvailabilityData.load_availability(__MODULE__, "sr:device-a", @scope, now: ~U[2000-01-02 00:00:00Z])
 
     assert_receive {:icmp_query, dedicated, _}
     assert_receive {:icmp_query, sweep, _}
-    assert dedicated =~ "time:last_6h bucket:30m agg:count"
-    assert sweep =~ "time:last_6h bucket:30m agg:count"
+    assert dedicated =~ "metric_name:icmp_available"
+    assert dedicated =~ "time:[2000-01-01T00:00:00Z,2000-01-02T00:00:00Z] bucket:30m agg:min"
+    assert sweep =~ "metric_name:sweep.host.icmp_available"
+    assert sweep =~ "bucket:30m agg:min"
     assert sweep =~ "limit:100"
     refute_receive {:icmp_query, _, _}
   end

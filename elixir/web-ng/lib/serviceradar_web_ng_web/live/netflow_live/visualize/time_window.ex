@@ -1,6 +1,30 @@
 defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.TimeWindow do
   @moduledoc false
 
+  @chart_bucket_seconds [3_600, 7_200, 21_600, 43_200, 86_400]
+  @chart_intervals 119
+
+  # The chart queries retain 120 rows. Reserve one row for the partial bucket
+  # at each range boundary, rather than truncating the latest part of history.
+  def chart_bucket_seconds(%DateTime{} = start_time, %DateTime{} = end_time) do
+    span = DateTime.diff(end_time, start_time, :microsecond) / 1_000_000
+
+    cond do
+      span <= 3_600 ->
+        60
+
+      span <= 21_600 ->
+        300
+
+      span <= 86_400 ->
+        900
+
+      true ->
+        target = ceil(span / @chart_intervals)
+        Enum.find(@chart_bucket_seconds, &(&1 >= target)) || ceil(target / 86_400) * 86_400
+    end
+  end
+
   def display_window_from_query(query, fallback_time) when is_binary(query) and is_binary(fallback_time) do
     case time_token_from_query(query) do
       {:ok, token} -> display_time_token(token, fallback_time)

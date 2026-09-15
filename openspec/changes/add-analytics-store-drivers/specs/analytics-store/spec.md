@@ -31,7 +31,7 @@ Collectors and agents SHALL publish through JetStream and SHALL NOT write either
 - **WHEN** Timescale accepts a batch but archive publication fails
 - **THEN** the hot copy remains available
 - **AND** the durable batch remains pending for publication retry
-- **AND** the archive buffer limit applies backpressure without evicting pending work
+- **AND** the archive buffer limit rejects new ingest transactions under the configured JetStream retention, retry, and terminal-delivery limits without evicting committed pending work
 
 #### Scenario: Timescale-only default
 - **WHEN** hybrid and named dual writes are disabled

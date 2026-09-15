@@ -6,13 +6,26 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntimeTest do
   @moduletag :db_free
 
   def query(query, %{scope: %{test_pid: test_pid, loader: :availability}}) do
-    send(test_pid, {:availability_query, self(), query})
+    if String.contains?(query, "metric_name:sweep.host.icmp_available") do
+      {:ok, %{"results" => []}}
+    else
+      send(test_pid, {:availability_query, self(), query})
 
-    receive do
-      :finish ->
-        {:ok, %{"results" => [%{"series" => "sr:synthetic-device", "value" => 2, "timestamp" => "2026-02-01T00:00:00Z"}]}}
-    after
-      5_000 -> raise "synthetic availability query was not released"
+      receive do
+        :finish ->
+          {:ok,
+           %{
+             "results" => [
+               %{
+                 "series" => "sr:synthetic-device",
+                 "value" => 1,
+                 "timestamp" => DateTime.to_iso8601(DateTime.add(DateTime.utc_now(), -60, :second))
+               }
+             ]
+           }}
+      after
+        5_000 -> raise "synthetic availability query was not released"
+      end
     end
   end
 
@@ -51,8 +64,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntimeTest do
       socket = availability_socket()
       pending = DeviceTabRuntime.reload_for_active_tab(socket, "details", "sr:synthetic-device", nil, __MODULE__, [])
       assert_receive {:availability_query, task, query}
-      assert query =~ "time:last_6h bucket:30m agg:count"
-      assert query =~ "metric_name:icmp_response_time_ns"
+      assert query =~ "metric_name:icmp_available"
+      assert query =~ "bucket:30m agg:min"
+      refute query =~ "icmp_response_time_ns"
       request_ref = pending.assigns.availability_request_ref
       assert is_reference(request_ref)
       assert pending.assigns.availability == socket.assigns.availability

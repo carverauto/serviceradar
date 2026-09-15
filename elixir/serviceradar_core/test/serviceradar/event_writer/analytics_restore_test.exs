@@ -38,6 +38,47 @@ defmodule ServiceRadar.EventWriter.AnalyticsRestoreTest do
     )
   end
 
+  def query(sql, params, opts) do
+    send(self(), {:verification_query, sql, params, opts})
+    {:ok, %{rows: [[length(hd(params))]]}}
+  end
+
+  test "verification prunes chunks using actual timestamp bounds while checking every primary key" do
+    early = DateTime.add(@start, 7)
+    late = DateTime.add(@start, 43)
+
+    opts =
+      [
+        repo: __MODULE__,
+        read: fn _, _, _ ->
+          first = result(%{"timestamp" => late, "gateway_id" => "synthetic-gateway-b"})
+          second = result(%{"timestamp" => early, "series_key" => "synthetic-series-b"})
+          {:ok, %{first | rows: first.rows ++ second.rows}}
+        end,
+        write: fn rows, _ ->
+          assert length(rows) == 2
+          {:ok, 0}
+        end
+      ]
+      |> options()
+      |> Keyword.delete(:verify)
+
+    assert {:ok, %{scanned: 2, inserted: 0, verified: 2}} =
+             AnalyticsRestore.run(@start, DateTime.add(@start, 60), opts)
+
+    assert_received {:verification_query, sql, [timestamps, gateways, series, ^early, ^late],
+                     [timeout: 60_000, log: false]}
+
+    assert sql =~ "WHERE t.timestamp >= $4 AND t.timestamp <= $5"
+    assert sql =~ "t.timestamp = expected.timestamp AND t.gateway_id = expected.gateway_id"
+    assert sql =~ "t.series_key = expected.series_key"
+
+    assert Enum.zip([timestamps, gateways, series]) == [
+             {late, "synthetic-gateway-b", "synthetic-series"},
+             {early, "synthetic-gateway", "synthetic-series-b"}
+           ]
+  end
+
   test "uses half-open bounded windows and restores canonical JSON without archive writes" do
     owner = self()
     stop = DateTime.add(@start, 650, :second)

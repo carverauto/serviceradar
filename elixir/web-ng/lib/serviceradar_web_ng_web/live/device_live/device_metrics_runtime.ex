@@ -4,7 +4,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceMetricsRuntime do
   import Phoenix.Component, only: [assign: 3]
   import Phoenix.LiveView, only: [cancel_async: 2, start_async: 3]
 
-  def begin_refresh(socket, %{uid: uid} = request, load) do
+  def begin_refresh(socket, %{uid: uid} = request, load, opts \\ []) do
     if is_reference(socket.assigns[:device_metrics_request_ref]) and
          socket.assigns[:device_metrics_request] == request do
       socket
@@ -16,6 +16,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceMetricsRuntime do
       |> assign(:device_metrics_request, request)
       |> assign(:device_metrics_request_ref, request_ref)
       |> assign(:metrics_loading, true)
+      |> maybe_clear_sections(Keyword.get(opts, :clear_sections, false))
       |> start_async({:device_metrics, uid, request_ref}, load)
     end
   end
@@ -30,7 +31,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceMetricsRuntime do
     |> assign(:device_metrics_request, nil)
     |> assign(:device_metrics_request_ref, nil)
     |> assign(:metrics_loading, false)
+    |> assign(:metrics_error, nil)
   end
+
+  def fail_refresh(socket) do
+    socket
+    |> complete_refresh()
+    |> assign(:metrics_error, "Unable to load metrics for this window. Select a window to retry.")
+  end
+
+  defp maybe_clear_sections(socket, true), do: assign(socket, :metric_sections, [])
+  defp maybe_clear_sections(socket, false), do: socket
 
   def cancel_refresh(socket) do
     # The pending UID belongs to the task, even after navigation changes the

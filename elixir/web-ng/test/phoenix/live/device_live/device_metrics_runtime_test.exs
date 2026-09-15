@@ -47,14 +47,38 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceMetricsRuntimeTest do
 
     changed = Phoenix.Component.assign(pending, :sysmon_time_range, "last_1h")
     new_request = %{request() | time_range: "last_1h"}
-    restarted = DeviceMetricsRuntime.begin_refresh(changed, new_request, loader())
+    restarted = DeviceMetricsRuntime.begin_refresh(changed, new_request, loader(), clear_sections: true)
 
     assert_receive {:DOWN, ^monitor, :process, ^old_task, {:shutdown, :cancel}}
     assert_receive {:metrics_started, task}
+    assert restarted.assigns.metric_sections == []
+    assert restarted.assigns.metrics_loading
+    assert restarted.assigns.metrics_error == nil
     refute restarted.assigns.device_metrics_request_ref == old_ref
     refute DeviceMetricsRuntime.current_request?(restarted, "sr:synthetic-device", old_ref)
     assert restarted.assigns.sysmon_time_range == "last_1h"
     send(task, {:finish, %{}})
+  end
+
+  test "a failed explicit range request keeps old charts cleared and retry clears the error" do
+    changed = Phoenix.Component.assign(socket(), :sysmon_time_range, "last_7d")
+    new_request = %{request() | time_range: "last_7d"}
+    pending = DeviceMetricsRuntime.begin_refresh(changed, new_request, loader(), clear_sections: true)
+    assert_receive {:metrics_started, task}
+    send(task, {:finish, %{}})
+
+    failed = DeviceMetricsRuntime.fail_refresh(pending)
+    assert failed.assigns.sysmon_time_range == "last_7d"
+    assert failed.assigns.metric_sections == []
+    assert failed.assigns.metrics_error =~ "retry"
+    refute failed.assigns.metrics_loading
+    assert failed.assigns.device_metrics_request_ref == nil
+
+    retry = DeviceMetricsRuntime.begin_refresh(failed, new_request, loader(), clear_sections: true)
+    assert_receive {:metrics_started, retry_task}
+    assert retry.assigns.metrics_error == nil
+    assert retry.assigns.metrics_loading
+    send(retry_task, {:finish, %{}})
   end
 
   test "a changed resolved identity replaces the pending request at the same range" do

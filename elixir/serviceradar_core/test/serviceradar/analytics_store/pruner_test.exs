@@ -69,29 +69,32 @@ defmodule ServiceRadar.AnalyticsStore.PrunerTest do
              )
   end
 
-  test "hybrid archive expiry uses its own lifetime and only selected tables" do
+  test "hybrid archive expiry retires selected table entries without deleting objects or provenance" do
     cfg = hybrid_cfg(parquet_retention_days: 90)
-    parent = self()
-    keys = ["analytics/v1/timeseries_metrics/date=2001-01-02/example-batch.parquet"]
 
     assert {:ok, 1} =
              Pruner.prune_expired(
                config: cfg,
                now: ~U[2001-06-20 12:00:00Z],
-               list_expired: fn table, cutoff ->
+               retire_expired: fn table, cutoff, opts ->
                  assert table == "timeseries_metrics"
                  assert cutoff == Date.add(~D[2001-06-20], -90)
-                 keys
-               end,
-               delete_objects: fn ^keys ->
-                 send(parent, :objects_deleted)
+                 assert opts[:now] == ~U[2001-06-20 12:00:00Z]
                  {:ok, 1}
                end,
-               forget: fn key ->
-                 assert key in keys
-                 assert_received :objects_deleted
-                 :ok
-               end
+               list_expired: fn _, _ -> flunk("hybrid must retire a locked snapshot") end,
+               delete_objects: fn _ -> flunk("reader grace must precede deletion") end,
+               forget: fn _ -> flunk("publication provenance must survive expiry") end
+             )
+  end
+
+  test "failed hybrid retirement propagates without deleting any objects" do
+    assert {:error, :synthetic_retirement_failure} =
+             Pruner.prune_expired(
+               config: hybrid_cfg(parquet_retention_days: 90),
+               retire_expired: fn _, _, _ -> {:error, :synthetic_retirement_failure} end,
+               delete_objects: fn _ -> flunk("retirement failed") end,
+               forget: fn _ -> flunk("retirement failed") end
              )
   end
 
@@ -159,6 +162,7 @@ defmodule ServiceRadar.AnalyticsStore.PrunerTest do
              Pruner.prune_expired(
                config: cfg,
                now: ~U[2026-09-14 18:00:00Z],
+               legacy_prune_guard: fn "timeseries_metrics" -> :ok end,
                list_expired: fn table, cutoff ->
                  send(parent, {:list, table, cutoff})
                  keys
@@ -186,6 +190,7 @@ defmodule ServiceRadar.AnalyticsStore.PrunerTest do
              Pruner.prune_expired(
                config: cfg,
                now: ~U[2026-09-14 18:00:00Z],
+               legacy_prune_guard: fn "timeseries_metrics" -> :ok end,
                list_expired: fn _, _ -> ["k"] end,
                delete_objects: fn _ -> {:error, :boom} end,
                forget: fn _ -> flunk("must not forget after a failed delete") end
@@ -199,9 +204,23 @@ defmodule ServiceRadar.AnalyticsStore.PrunerTest do
              Pruner.prune_expired(
                config: cfg,
                now: ~U[2026-09-14 18:00:00Z],
+               legacy_prune_guard: fn "timeseries_metrics" -> :ok end,
                list_expired: fn _, _ -> [] end,
                delete_objects: fn [] -> {:ok, 0} end,
                forget: fn _ -> flunk("nothing to forget") end
+             )
+  end
+
+  test "switching to pure pg_duckdb cannot bypass durable hybrid retention" do
+    assert {:error, :hybrid_archive_retention_required} =
+             Pruner.prune_expired(
+               config: pg_duckdb_cfg("timeseries_metrics"),
+               legacy_prune_guard: fn "timeseries_metrics" ->
+                 {:error, :hybrid_archive_retention_required}
+               end,
+               list_expired: fn _, _ -> flunk("hybrid history requires retirement") end,
+               delete_objects: fn _ -> flunk("cannot bypass reader grace") end,
+               forget: fn _ -> flunk("cannot delete durable provenance") end
              )
   end
 

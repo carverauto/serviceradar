@@ -622,7 +622,7 @@ core:
     #
     # Set to "" to fall back to the old existence-only check (for operators
     # running the chart against a deliberately pinned schema).
-    expectedVersion: "20260915220000"
+    expectedVersion: "20260915230000"
   # Stale device reaper settings - controls cleanup of IP-only "ghost" devices
   reaper:
     # How often to run the reaper job
@@ -1136,7 +1136,7 @@ analyticsStore:
   # If set, this must exceed hotWindowDays. Pure pg_duckdb keeps table retention.
   parquetRetentionDays: ""
   # Durable unpublished archive payload budget on the primary. At the limit,
-  # EventWriter retries through JetStream; pending payloads are never evicted.
+  # New ingest fails under JetStream retry limits; committed payloads are never evicted.
   archiveBufferMaxBytes: 268435456
   # Optional archive writes while all reads remain on Timescale (migration).
   # Hybrid automatically writes both stores for its selected tables.

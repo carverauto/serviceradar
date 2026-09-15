@@ -1097,6 +1097,9 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                     <option value="last_30d" selected={@builder["time"] == "last_30d"}>
                       Last 30d
                     </option>
+                    <option value="last_90d" selected={@builder["time"] == "last_90d"}>
+                      Last 90d
+                    </option>
                   </.ui_inline_select>
                 </.query_builder_pill>
 

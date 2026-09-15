@@ -41,6 +41,24 @@ The newest chunks remain writable; older chunks compress in the background.
 Compression does not change the query API. Verify actual size and query latency
 on the deployment before treating the 30-day storage target as accepted.
 
+## Metric history windows
+
+Device sysmon and interface history offer 1h, 6h, 24h, 7d, 30d, and 90d
+windows. Longer windows use coarser buckets so chart point limits cover the
+entire period. Custom accepts UTC start and end dates and opens a prefilled
+SRQL query with the selected device, interface, and metric filters.
+
+The NetFlow page offers the same range controls. Its storage remains Timescale
+until that dataset is explicitly enabled; selecting a longer range does not
+create archive coverage or recover expired data. Native flow queries currently
+allow at most 395 days per request.
+
+To verify archive reads, choose a bounded range older than the configured hot
+window **that actually contains published archive data**. Recent dashboard
+queries test Timescale, and an empty historical result alone does not prove
+archive execution. Verify the translated backend, concrete manifest files,
+returned rows, and elapsed query time. Avoid unbounded maintenance-view scans.
+
 ## Helm configuration
 
 The chart default remains:
@@ -138,6 +156,18 @@ pg_duckdb parses SQL through PostgreSQL first. The archive query path retains
 compatible types and JSON expressions, typed literal encoding, and backend-local
 S3 secrets. Literal query logging is disabled on that path. Timescale uses normal
 bound parameters.
+
+Hybrid archive expiry first removes expired files from the published manifest in
+a short transaction. Their objects remain for at least 24 hours so readers that
+already captured the old keys can finish. S3 cleanup verifies absence after
+deletion and retains the manifest records and batch provenance. Filesystem
+cleanup requires access to the head's storage and is not performed by this job.
+Compaction uses the same retirement grace period.
+
+After a table has used durable hybrid publication, switching to `pg_duckdb` does
+not enable legacy delete-first pruning for that table. It returns
+`hybrid_archive_retention_required`; use hybrid mode with an explicit
+`parquetRetentionDays` to expire that archive while preserving its retry history.
 
 ## Enablement and recovery
 

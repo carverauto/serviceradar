@@ -12,6 +12,8 @@ defmodule ServiceRadar.AnalyticsStore.FileManifest do
     data_layer: AshPostgres.DataLayer
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.AnalyticsStore.ArchiveBatch
+  alias ServiceRadar.AnalyticsStore.ManifestCompaction
 
   postgres do
     table "analytics_file_manifest"
@@ -41,6 +43,34 @@ defmodule ServiceRadar.AnalyticsStore.FileManifest do
       upsert? true
       upsert_identity :object_key
     end
+
+    create :compact do
+      accept [
+        :table_name,
+        :object_key,
+        :staging_key,
+        :partition_date,
+        :row_count,
+        :min_timestamp,
+        :max_timestamp,
+        :content_checksum,
+        :batch_id
+      ]
+    end
+
+    update :supersede do
+      accept [:retired_at, :replacement_key]
+      change set_attribute(:status, :superseded)
+    end
+
+    update :expire do
+      accept [:retired_at]
+      change set_attribute(:status, :expired)
+    end
+
+    update :mark_objects_deleted do
+      accept [:objects_deleted_at]
+    end
   end
 
   attributes do
@@ -60,10 +90,22 @@ defmodule ServiceRadar.AnalyticsStore.FileManifest do
     attribute :status, :atom,
       allow_nil?: false,
       default: :published,
-      constraints: [one_of: [:pending, :verified, :published]]
+      constraints: [one_of: [:pending, :verified, :published, :superseded, :expired]]
+
+    attribute :retired_at, :utc_datetime_usec
+    attribute :replacement_key, :string
+    attribute :objects_deleted_at, :utc_datetime_usec
 
     create_timestamp :inserted_at
     update_timestamp :updated_at
+  end
+
+  relationships do
+    has_many :partition_files, __MODULE__ do
+      source_attribute :partition_date
+      destination_attribute :partition_date
+      filter expr(table_name == parent(table_name))
+    end
   end
 
   identities do
@@ -82,6 +124,35 @@ defmodule ServiceRadar.AnalyticsStore.FileManifest do
     end
   end
 
+  @doc "Publish a verified compacted object and retire its unchanged source snapshot atomically."
+  defdelegate replace_sources(sources, attrs, opts \\ []), to: ManifestCompaction
+
+  @doc "Bounded, same-day files eligible for compaction; excludes recently published objects."
+  defdelegate compaction_candidates(table, opts \\ []), to: ManifestCompaction
+
+  @doc "Retire a bounded expired partition snapshot while preserving archive provenance."
+  defdelegate retire_expired(table, cutoff, opts \\ []), to: ManifestCompaction
+
+  @doc "Superseded or expired objects whose reader grace period has elapsed."
+  defdelegate retired_files(table, before, limit \\ 256), to: ManifestCompaction
+
+  @doc "Retain source membership after the retired objects have been deleted and verified absent."
+  defdelegate mark_objects_deleted(id, opts \\ []), to: ManifestCompaction
+
+  @doc "Prevent legacy delete-first pruning after a table has used durable hybrid publication."
+  def ensure_legacy_prune_allowed(table) do
+    require Ash.Query
+
+    ArchiveBatch
+    |> Ash.Query.filter(table_name == ^table)
+    |> Ash.exists(actor: SystemActor.system(:analytics_store))
+    |> case do
+      {:ok, false} -> :ok
+      {:ok, true} -> {:error, :hybrid_archive_retention_required}
+      {:error, _} = error -> error
+    end
+  end
+
   @doc "Published object keys whose partition_date is strictly before `cutoff`."
   @spec expired_keys(String.t(), Date.t()) :: [String.t()]
   def expired_keys(table_name, %Date{} = cutoff) when is_binary(table_name) do
@@ -92,7 +163,8 @@ defmodule ServiceRadar.AnalyticsStore.FileManifest do
     query =
       __MODULE__
       |> Ash.Query.filter(
-        table_name == ^table_name and partition_date < ^cutoff and status == :published
+        table_name == ^table_name and partition_date < ^cutoff and status == :published and
+          is_nil(archive_batch_id) and not contains(object_key, "/_candidates/")
       )
       |> Ash.Query.select([:object_key, :staging_key])
 
@@ -162,7 +234,13 @@ defmodule ServiceRadar.AnalyticsStore.FileManifest do
 
     actor = SystemActor.system(:analytics_store)
 
-    query = Ash.Query.filter(__MODULE__, object_key == ^object_key or staging_key == ^object_key)
+    query =
+      Ash.Query.filter(
+        __MODULE__,
+        (object_key == ^object_key or staging_key == ^object_key) and
+          status == :published and is_nil(archive_batch_id) and
+          not contains(object_key, "/_candidates/")
+      )
 
     _ =
       Ash.bulk_destroy(query, :destroy, %{},

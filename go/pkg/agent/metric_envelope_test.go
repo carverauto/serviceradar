@@ -1,6 +1,9 @@
 package agent
 
 import (
+	"encoding/json"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -411,6 +414,90 @@ func TestMarshalSweepMetricEnvelope(t *testing.T) {
 	require.Equal(t, "By", metrics["sweep.banner_grab.match_batch_bytes_total"].Unit)
 	require.InDelta(t, 512.0, metrics["sweep.banner_grab.match_batch_bytes_total"].Points[0].Value, 1e-9)
 	require.InDelta(t, 2.0, metrics["sweep.banner_grab.inflight"].Points[0].Value, 1e-9)
+}
+
+func TestSweepSummaryUsesReportTimeAndPreservesCompletedSweepMetadata(t *testing.T) {
+	t.Parallel()
+
+	completedAt := time.Date(2034, time.February, 3, 12, 0, 0, 0, time.UTC)
+	payload, err := marshalSweepMetricEnvelopeFromMap(map[string]any{
+		"network":         "192.0.2.0/24",
+		"last_sweep":      completedAt.Unix(),
+		"total_hosts":     4,
+		"available_hosts": 3,
+		"sequence":        7,
+		"hosts": []any{map[string]any{
+			"host": "192.0.2.7", "available": true,
+			"icmp_status": map[string]any{"round_trip": 250_000},
+		}},
+	}, metricEnvelopeContext{AgentID: "example-agent", GatewayID: "example-gateway"})
+	require.NoError(t, err)
+	batch := decodeMetricBatch(t, payload)
+	metrics := metricsByName(batch)
+
+	for _, name := range []string{"sweep.total_hosts", "sweep.available_hosts", "sweep.sequence"} {
+		point := metrics[name].Points[0]
+		require.Equal(t, batch.EmittedAtUnixNano, point.ObservedAtUnixNano, name)
+		require.Equal(t, strconv.FormatInt(completedAt.Unix(), 10), entry(point.Metadata, "last_sweep"), name)
+		require.Empty(t, entry(point.Attributes, "last_sweep"), name)
+	}
+	require.Equal(t, uint64(completedAt.UnixNano()), metrics["sweep.host.icmp_response_time_ns"].Points[0].ObservedAtUnixNano)
+}
+
+func TestSweepSummaryChangesHaveDistinctReportTimesWithoutNewSeriesDimensions(t *testing.T) {
+	t.Parallel()
+
+	observedAt := time.Date(2034, time.February, 3, 12, 1, 0, 0, time.UTC)
+	attrs := map[string]string{"network": "192.0.2.0/24"}
+	metadata := map[string]string{"last_sweep": strconv.FormatInt(observedAt.Add(-time.Minute).Unix(), 10)}
+	var points []*metricpb.MetricPoint
+	for i, value := range []float64{3, 4} {
+		builder := newSweepMetricBuilder(metricEnvelopeContext{AgentID: "example-agent", GatewayID: "example-gateway"})
+		builder.batch.EmittedAtUnixNano = uint64(observedAt.Add(time.Duration(i) * time.Second).UnixNano())
+		builder.summaryGauge("sweep.available_hosts", "{host}", &value, attrs, metadata)
+		points = append(points, builder.batch.Metrics[0].Points[0])
+	}
+
+	require.NotEqual(t, points[0].ObservedAtUnixNano/1_000, points[1].ObservedAtUnixNano/1_000)
+	require.NotEqual(t, points[0].Value, points[1].Value)
+	require.Equal(t, points[0].Attributes, points[1].Attributes)
+	require.Equal(t, points[0].Metadata, points[1].Metadata)
+}
+
+func TestSweepChunkingEmitsOneSummaryPerReport(t *testing.T) {
+	t.Setenv("SWEEP_RESULTS_MAX_CHUNK_BYTES", "65536")
+	t.Setenv("SWEEP_RESULTS_MAX_HOSTS_PER_CHUNK", "100")
+
+	hosts := make([]any, 101)
+	for i := range hosts {
+		hosts[i] = map[string]any{
+			"host": "192.0.2." + strconv.Itoa(i+1), "available": true,
+			"padding": strings.Repeat("x", 1024),
+		}
+	}
+	data, err := json.Marshal(map[string]any{
+		"total_hosts": 101, "available_hosts": 101, "sequence": 4,
+		"last_sweep": int64(2_000_000_000), "hosts": hosts,
+	})
+	require.NoError(t, err)
+	chunks, err := buildSweepResultsChunks(&srproto.ResultsResponse{Data: data})
+	require.NoError(t, err)
+	require.Greater(t, len(chunks), 1)
+	metricCounts := make(map[string]int)
+	for _, chunk := range chunks {
+		var status map[string]any
+		require.NoError(t, json.Unmarshal(chunk.Data, &status))
+		require.Equal(t, float64(101), status["total_hosts"])
+		payload, err := marshalSweepMetricEnvelopeFromMap(chunk.MetricPayload, metricEnvelopeContext{})
+		require.NoError(t, err)
+		for _, metric := range decodeMetricBatch(t, payload).Metrics {
+			metricCounts[metric.Name] += len(metric.Points)
+		}
+	}
+	for _, name := range []string{"sweep.total_hosts", "sweep.available_hosts", "sweep.sequence"} {
+		require.Equal(t, 1, metricCounts[name], name)
+	}
+	require.Equal(t, 101, metricCounts["sweep.host.available"])
 }
 
 func TestDefaultStatusSourceMarksRperfMetricEnvelope(t *testing.T) {

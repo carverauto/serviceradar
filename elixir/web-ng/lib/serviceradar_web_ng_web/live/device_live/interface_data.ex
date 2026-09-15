@@ -453,7 +453,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
 
     case srql_module.query(query, %{scope: scope}) do
       {:ok, %{"results" => results} = response} when is_list(results) and results != [] ->
-        interface_panels = build_interface_panels(response, iface_name, if_index, reference_lines)
+        bucket_seconds = ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Query.query_bucket_seconds(query)
+        interface_panels = build_interface_panels(response, iface_name, if_index, reference_lines, bucket_seconds)
         {:ok, interface_panels}
 
       {:ok, %{"results" => []}} ->
@@ -531,13 +532,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
 
   defp parse_integer(_), do: nil
 
-  defp build_interface_panels(srql_response, iface_name, if_index, reference_lines) do
-    MetricsPanels.from_srql(srql_response,
+  defp build_interface_panels(srql_response, iface_name, if_index, reference_lines, bucket_seconds \\ 60) do
+    srql_response
+    |> MetricsPanels.from_srql(
       chart_mode: :combined,
       interface_label: "#{iface_name} (ifIndex: #{if_index})",
       max_speed_bytes_per_sec: nil,
       reference_lines: reference_lines
     )
+    |> Enum.map(&%{&1 | assigns: Map.put(&1.assigns, :bucket_seconds, bucket_seconds)})
   end
 
   def interface_reference_lines(interface, max_speed_bytes_per_sec) when is_map(interface) do

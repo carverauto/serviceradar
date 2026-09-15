@@ -11,6 +11,7 @@ defmodule ServiceRadar.ColdTier.ObjectStore do
   """
 
   alias ServiceRadar.ColdTier.Config
+  alias ServiceRadar.HTTP.EgressReqAdapter
 
   require Logger
 
@@ -38,6 +39,7 @@ defmodule ServiceRadar.ColdTier.ObjectStore do
   @spec delete_objects([String.t()], map()) :: {:ok, non_neg_integer()} | {:error, term()}
   def delete_objects(keys, ctx) when is_list(keys) and is_map(ctx) do
     keys
+    |> Enum.uniq()
     |> Enum.chunk_every(1000)
     |> Enum.reduce_while({:ok, 0}, fn batch, {:ok, acc} ->
       body =
@@ -51,18 +53,28 @@ defmodule ServiceRadar.ColdTier.ObjectStore do
       case request(ctx, :post, "?delete", body: body, headers: [{"content-md5", md5}]) do
         {:ok, %{status: 200, body: resp}} ->
           if resp =~ "<Error>" do
-            {:halt, {:error, {:partial_delete, resp}}}
+            {:halt, {:error, {:partial_delete, :object_store_rejected}}}
           else
             {:cont, {:ok, acc + length(batch)}}
           end
 
-        {:ok, %{status: status, body: resp}} ->
-          {:halt, {:error, {:http, status, resp}}}
+        {:ok, %{status: status}} ->
+          {:halt, {:error, {:http, status}}}
 
         {:error, reason} ->
           {:halt, {:error, reason}}
       end
     end)
+  end
+
+  @doc "Verify that an explicitly named object is absent after deletion."
+  def object_absent?(key, ctx) when is_binary(key) and is_map(ctx) do
+    case request(ctx, :head, "/" <> key) do
+      {:ok, %{status: 404}} -> {:ok, true}
+      {:ok, %{status: 200}} -> {:ok, false}
+      {:ok, %{status: status}} -> {:error, {:object_head_status, status}}
+      {:error, _} = error -> error
+    end
   end
 
   @doc """
@@ -88,11 +100,11 @@ defmodule ServiceRadar.ColdTier.ObjectStore do
           if body =~ "<CopyObjectResult" and not (body =~ "<Error>") do
             :ok
           else
-            {:error, {:copy_failed, body}}
+            {:error, {:copy_failed, :object_store_rejected}}
           end
 
-        {:ok, %{status: status, body: body}} ->
-          {:error, {:http, status, body}}
+        {:ok, %{status: status}} ->
+          {:error, {:http, status}}
 
         {:error, reason} ->
           {:error, reason}
@@ -118,7 +130,7 @@ defmodule ServiceRadar.ColdTier.ObjectStore do
 
       {:ok, uploads}
     else
-      {:ok, %{status: status, body: body}} -> {:error, {:http, status, body}}
+      {:ok, %{status: status}} -> {:error, {:http, status}}
       other -> other
     end
   end
@@ -131,7 +143,7 @@ defmodule ServiceRadar.ColdTier.ObjectStore do
            request(ctx, :delete, "/#{key}?uploadId=#{URI.encode_www_form(upload_id)}") do
       :ok
     else
-      {:ok, %{status: status, body: body}} -> {:error, {:http, status, body}}
+      {:ok, %{status: status}} -> {:error, {:http, status}}
       other -> other
     end
   end
@@ -165,8 +177,8 @@ defmodule ServiceRadar.ColdTier.ObjectStore do
           _ -> {:ok, acc}
         end
 
-      {:ok, %{status: status, body: body}} ->
-        {:error, {:http, status, body}}
+      {:ok, %{status: status}} ->
+        {:error, {:http, status}}
 
       {:error, reason} ->
         {:error, reason}
@@ -191,7 +203,9 @@ defmodule ServiceRadar.ColdTier.ObjectStore do
         retry: :transient,
         max_retries: 2,
         receive_timeout: 60_000,
-        decode_body: false
+        decode_body: false,
+        redirect: false,
+        adapter: EgressReqAdapter
       )
 
     case Req.request(req) do

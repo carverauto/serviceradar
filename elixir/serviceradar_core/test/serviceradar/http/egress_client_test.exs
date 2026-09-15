@@ -17,6 +17,7 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadar.HTTP.EgressClient
+  alias ServiceRadar.HTTP.EgressReqAdapter
   alias ServiceRadar.Inventory.AdvisoryFeeds.Acquisition
   alias ServiceRadar.Observability.GeoLiteMmdbDownloadWorker
   alias ServiceRadar.Observability.IpinfoMmdbDownloadWorker
@@ -117,6 +118,46 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
              EgressClient.get("https://localhost/redirect", opts(ctx, []))
 
     assert Req.Response.get_header(response, "location") == ["https://localhost/artifact.tar.gz"]
+  end
+
+  test "signed object-store deletion preserves headers and payload through CONNECT", ctx do
+    body = "<Delete><Object><Key>synthetic-object.parquet</Key></Object></Delete>"
+
+    request =
+      [
+        method: :post,
+        url: "https://localhost/signed-delete",
+        body: body,
+        headers: [{"content-type", "application/xml"}],
+        aws_sigv4: [
+          access_key_id: "SYNTHETICACCESSKEY",
+          secret_access_key: "synthetic-secret-for-transport-test",
+          region: "example-region",
+          service: "s3"
+        ],
+        adapter: EgressReqAdapter,
+        retry: false,
+        redirect: false,
+        decode_body: false
+      ]
+      |> Req.new()
+      |> Req.Request.put_private(:egress_options, opts(ctx, []))
+
+    assert {:ok, %Req.Response{status: 200, body: "<DeleteResult/>"}} = Req.request(request)
+  end
+
+  test "buffered HEAD distinguishes a missing object through CONNECT", ctx do
+    assert {:ok, %Req.Response{status: 404, body: ""}} =
+             EgressClient.request_buffered(
+               :head,
+               "https://localhost/absent-object",
+               opts(ctx, [])
+             )
+  end
+
+  test "buffered requests return redirects without forwarding signed headers", ctx do
+    assert {:ok, %Req.Response{status: 302}} =
+             EgressClient.request_buffered(:delete, "https://localhost/redirect", opts(ctx, []))
   end
 
   @tag :tmp_dir
@@ -423,6 +464,23 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
 
   defp origin_response(request) do
     cond do
+      String.starts_with?(request, "POST /signed-delete ") ->
+        valid? =
+          String.contains?(request, "AWS4-HMAC-SHA256") and
+            String.contains?(String.downcase(request), "content-type: application/xml") and
+            String.ends_with?(
+              request,
+              "<Delete><Object><Key>synthetic-object.parquet</Key></Object></Delete>"
+            )
+
+        status = if valid?, do: "200 OK", else: "400 Bad Request"
+        body = if valid?, do: "<DeleteResult/>", else: "invalid signed request"
+
+        "HTTP/1.1 #{status}\r\ncontent-length: #{byte_size(body)}\r\nconnection: close\r\n\r\n#{body}"
+
+      String.starts_with?(request, "HEAD /absent-object ") ->
+        "HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+
       # Before "/redirect", which it contains.
       String.contains?(request, "/insecure-redirect") ->
         redirect_response("http://localhost/artifact.tar.gz")

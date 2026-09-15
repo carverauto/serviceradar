@@ -147,6 +147,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
         spec: Map.get(assigns, :spec),
         rate_mode: Map.get(assigns, :rate_mode, :none),
         compact: compact,
+        bucket_seconds: Spec.fetch_panel_value(assigns, :bucket_seconds),
         max_speed: max_speed,
         annotations: annotations,
         reference_lines: reference_lines,

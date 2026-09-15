@@ -312,6 +312,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
 
               <.metric_sections_content
                 sections={@metric_sections_to_render}
+                available={@sysmon_presence}
+                loading={@metrics_loading}
+                error={@metrics_error}
                 device_uid={@device_uid}
                 time_range={@sysmon_time_range}
                 timezone={@current_scope.user.timezone}
