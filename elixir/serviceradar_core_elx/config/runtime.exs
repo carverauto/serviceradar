@@ -428,12 +428,6 @@ otx_raw_storage =
     _ -> :file
   end
 
-# Terminal agent_command pruning (platform.agent_commands has a documented
-# bloat history, so these are incident-response levers).
-config :serviceradar_core, ServiceRadar.Edge.AgentCommandCleanupWorker,
-  retention_days: "AGENT_COMMAND_RETENTION_DAYS" |> parse_int_env.(2) |> max(1),
-  reschedule_seconds: "AGENT_COMMAND_CLEANUP_INTERVAL_SECONDS" |> parse_int_env.(3_600) |> max(60)
-
 # ---------------------------------------------------------------------------
 # Config blocks owned by the serviceradar_core APPLICATION.
 #
@@ -501,6 +495,12 @@ config :serviceradar_core, ServiceRadar.AnalyticsStore,
       "SERVICERADAR_ANALYTICS_STORE_HEAD_PASSWORD_FILE"
     ),
   pool_size: parse_int_env.("SERVICERADAR_ANALYTICS_STORE_POOL_SIZE", 4)
+
+# Terminal agent_command pruning (platform.agent_commands has a documented
+# bloat history, so these are incident-response levers).
+config :serviceradar_core, ServiceRadar.Edge.AgentCommandCleanupWorker,
+  retention_days: "AGENT_COMMAND_RETENTION_DAYS" |> parse_int_env.(2) |> max(1),
+  reschedule_seconds: "AGENT_COMMAND_CLEANUP_INTERVAL_SECONDS" |> parse_int_env.(3_600) |> max(60)
 
 config :serviceradar_core, ServiceRadar.NetworkDiscovery.TopologyGraph,
   canonical_rebuild_heartbeat_ms: parse_int_env.("SERVICERADAR_TOPOLOGY_CANONICAL_REBUILD_HEARTBEAT_MS", 3_600_000),
