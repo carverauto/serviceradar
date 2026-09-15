@@ -29,6 +29,9 @@ defmodule ServiceRadar.Observability.DataRetentionWorkerTest do
 
     assert worker =~ "@default_ocsf_events_retention_days 14"
     assert worker =~ "@default_ocsf_events_chunk_interval_hours 6"
+    assert worker =~ "skip_timescale_retention?"
+    assert worker =~ "AnalyticsStore.CaggRefresh.reconcile"
+    assert worker =~ "AnalyticsStore.Pruner.prune_expired"
   end
 
   test "runtime config exposes ocsf event retention and chunk controls" do

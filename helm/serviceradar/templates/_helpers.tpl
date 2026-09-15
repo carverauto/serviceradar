@@ -775,3 +775,96 @@ will see, including ready_state_path/rehome_state_path.
 {{- $_ := set $cfg "rehome_state_path" $rehomePath -}}
 {{- toJson $cfg -}}
 {{- end -}}
+
+{{/*
+Analytics-store driver. Default timescale (CNPG hypertables). pg_duckdb
+renders the dedicated analytics head.
+*/}}
+{{- define "serviceradar.analyticsStoreDriver" -}}
+{{- $store := default dict .Values.analyticsStore -}}
+{{- default "timescale" $store.driver -}}
+{{- end -}}
+
+{{/*
+True when the pg_duckdb analytics head Cluster should render.
+*/}}
+{{- define "serviceradar.analyticsHeadEnabled" -}}
+{{- $store := default dict .Values.analyticsStore -}}
+{{- $driver := default "timescale" $store.driver -}}
+{{- $cold := default dict .Values.coldTier -}}
+{{- $head := default dict $cold.analyticsHead -}}
+{{- $headEnabled := default false $store.headEnabled -}}
+{{- if or (eq $driver "pg_duckdb") $headEnabled (default false $head.enabled) -}}
+true
+{{- else -}}
+false
+{{- end -}}
+{{- end -}}
+
+{{/*
+serviceradar-cnpg-analytics image. Do not inherit global.imageTag: that is a
+git sha, and this image is published under the pg_duckdb static tag until a
+sha-tagged analytics image exists.
+*/}}
+{{- define "serviceradar.analyticsImageDefaultTag" -}}
+18-pgduckdb-1.1.1-sr3
+{{- end -}}
+
+{{- define "serviceradar.analyticsImageName" -}}
+{{- $store := default dict .Values.analyticsStore -}}
+{{- $pg := default dict $store.pgDuckdb -}}
+{{- $cold := default dict .Values.coldTier -}}
+{{- $head := default dict $cold.analyticsHead -}}
+{{- $explicit := default $head.imageName $pg.imageName -}}
+{{- if $explicit -}}
+{{- $explicit -}}
+{{- else -}}
+{{- printf "%s:%s" (include "serviceradar.imageRepository" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-cnpg-analytics")) (include "serviceradar.analyticsImageDefaultTag" .) -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "serviceradar.analyticsHeadClusterName" -}}
+{{- $store := default dict .Values.analyticsStore -}}
+{{- $pg := default dict $store.pgDuckdb -}}
+{{- $cold := default dict .Values.coldTier -}}
+{{- $head := default dict $cold.analyticsHead -}}
+{{- default (default "cnpg-analytics" $head.clusterName) $pg.clusterName -}}
+{{- end -}}
+
+{{/*
+Env for web-ng / query-side AnalyticsRepo. Head credentials render only when
+the driver is pg_duckdb (a table flip). Dual-write keeps queries on Timescale.
+*/}}
+{{- define "serviceradar.analyticsStoreQueryEnv" -}}
+{{- $store := default dict .Values.analyticsStore -}}
+{{- $driver := default "timescale" $store.driver -}}
+{{- $pg := default dict $store.pgDuckdb -}}
+{{- $dual := default (list) $store.dualWrite -}}
+{{- $cluster := include "serviceradar.analyticsHeadClusterName" . -}}
+- name: SERVICERADAR_ANALYTICS_STORE_DRIVER
+  value: {{ $driver | quote }}
+- name: SERVICERADAR_ANALYTICS_STORE_TABLES
+  value: {{ join "," (default (list) $store.tables) | quote }}
+- name: SERVICERADAR_ANALYTICS_STORE_DUAL_WRITE
+  value: {{ join "," $dual | quote }}
+{{- if eq $driver "pg_duckdb" }}
+- name: SERVICERADAR_ANALYTICS_STORE_POOL_SIZE
+  value: {{ default 4 $pg.poolSize | quote }}
+- name: SERVICERADAR_ANALYTICS_STORE_HEAD_HOST
+  value: {{ printf "%s-rw.%s.svc.cluster.local" $cluster .Release.Namespace | quote }}
+- name: SERVICERADAR_ANALYTICS_STORE_HEAD_PORT
+  value: "5432"
+- name: SERVICERADAR_ANALYTICS_STORE_HEAD_DATABASE
+  value: "serviceradar"
+- name: SERVICERADAR_ANALYTICS_STORE_HEAD_USERNAME
+  valueFrom:
+    secretKeyRef:
+      name: {{ printf "%s-app" $cluster | quote }}
+      key: username
+- name: SERVICERADAR_ANALYTICS_STORE_HEAD_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ printf "%s-app" $cluster | quote }}
+      key: password
+{{- end }}
+{{- end -}}

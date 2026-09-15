@@ -18,6 +18,7 @@ defmodule ServiceRadar.Observability.ThreatIntelRetrohuntWorker do
 
   alias Ecto.Adapters.SQL
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.AnalyticsStore
   alias ServiceRadar.Observability.NetflowSettings
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
@@ -383,8 +384,8 @@ defmodule ServiceRadar.Observability.ThreatIntelRetrohuntWorker do
       EXISTS(SELECT 1 FROM indicator_candidates OFFSET $5 LIMIT 1) AS has_more
     """
 
-    case SQL.query(
-           Repo,
+    case AnalyticsStore.SQL.query(
+           "ocsf_network_activity",
            sql,
            [
              state.window_start,

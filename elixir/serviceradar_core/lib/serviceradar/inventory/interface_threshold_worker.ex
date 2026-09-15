@@ -32,6 +32,7 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
     unique: [period: :infinity, states: :incomplete]
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.AnalyticsStore
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Inventory.InterfaceSettings
   alias ServiceRadar.Jobs.SelfScheduling
@@ -404,22 +405,20 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
     if is_nil(if_index) do
       {:error, :missing_if_index}
     else
-      import Ecto.Query
+      cutoff = DateTime.add(DateTime.utc_now(), -5, :minute)
 
-      query =
-        from(m in "timeseries_metrics",
-          where: m.device_id == ^setting.device_id,
-          where: m.metric_name == ^metric_name,
-          where: m.if_index == ^if_index,
-          where: m.timestamp > ago(5, "minute"),
-          order_by: [desc: m.timestamp],
-          limit: 1,
-          select: m.value
+      {sql, params} =
+        AnalyticsStore.TimeseriesQueries.latest_interface_value_sql(
+          setting.device_id,
+          metric_name,
+          if_index,
+          cutoff
         )
 
-      case ServiceRadar.Repo.one(query) do
-        nil -> {:ok, nil}
-        value -> {:ok, value}
+      case AnalyticsStore.SQL.query("timeseries_metrics", sql, params) do
+        {:ok, %{rows: []}} -> {:ok, nil}
+        {:ok, %{rows: [[value] | _]}} -> {:ok, value}
+        {:error, reason} -> {:error, reason}
       end
     end
   rescue

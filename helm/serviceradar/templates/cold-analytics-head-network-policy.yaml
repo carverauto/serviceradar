@@ -1,30 +1,22 @@
-{{- /* Component gate (issue #3859). ABSENT MEANS ENABLED: hasKey is used rather than a
-     truthiness test so that a chart or values file which never mentions `enabled`
-     renders exactly as before, and only an explicit `coldTier.enabled: false` removes
-     this component. `default true` cannot be used here -- Helm treats false as empty,
-     so it would resurrect anything explicitly disabled. */ -}}
-{{- $gate16 := default (dict) .Values.coldTier -}}
-{{- if or (not (hasKey $gate16 "enabled")) $gate16.enabled }}
 {{- /*
-Least-privilege network posture for the cold-tier analytics head
-(OpenSpec add-tiered-telemetry-offload, kubernetes-network-policy delta):
-ingress only from workloads in this namespace on 5432 (core/web-ng
-ColdRepo + exporter), egress only to the primary CNPG cluster on 5432
-(postgres_fdw hot branch + exports), DNS, and the configured object-store
-endpoints. Renders nothing unless the analytics head is enabled.
+Least-privilege network posture for the analytics head
+(OpenSpec add-analytics-store-drivers). Renders with the head Cluster.
+S3 egress CIDRs are optional: NetworkPolicy cannot match FQDNs.
 */ -}}
+{{- if eq (include "serviceradar.analyticsHeadEnabled" .) "true" }}
 {{- $cold := default (dict) .Values.coldTier -}}
-{{- $head := default (dict) $cold.analyticsHead -}}
-{{- if default false $head.enabled }}
-{{- $clusterName := default "cnpg-analytics" $head.clusterName -}}
-{{- $primaryCluster := include "serviceradar.cnpgClusterName" . -}}
+{{- $store := default (dict) .Values.analyticsStore -}}
+{{- $pg := default (dict) $store.pgDuckdb -}}
+{{- $s3 := default (dict) $pg.s3 -}}
+{{- $clusterName := include "serviceradar.analyticsHeadClusterName" . -}}
 {{- $networkPolicy := default (dict) .Values.networkPolicy -}}
 {{- $ingress := default (dict) $networkPolicy.ingress -}}
 {{- $cnpgOperator := default (dict) $ingress.cnpgOperator -}}
 {{- $cnpgOperatorNamespace := default "cnpg-system" $cnpgOperator.namespace -}}
 {{- $cnpgOperatorPort := default 8000 $cnpgOperator.port -}}
 {{- $objectStore := default (dict) $cold.objectStore -}}
-{{- $egressCidrs := default (list) $objectStore.egressCidrs -}}
+{{- $egressCidrs := default (default (list) $objectStore.egressCidrs) $s3.egressCidrs -}}
+{{- $storageMode := default "s3" $pg.storage -}}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -54,14 +46,6 @@ spec:
         - protocol: TCP
           port: {{ $cnpgOperatorPort }}
   egress:
-    # postgres_fdw / export reads against the primary
-    - to:
-        - podSelector:
-            matchLabels:
-              cnpg.io/cluster: {{ $primaryCluster | quote }}
-      ports:
-        - protocol: TCP
-          port: 5432
     # DNS
     - to:
         - namespaceSelector: {}
@@ -70,17 +54,68 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
-    {{- if $egressCidrs }}
-    # Object store (deployment-supplied CIDRs; blocks the silent
-    # fall-back-to-public-AWS failure mode observed in spike 0.5)
+    {{- if and (eq $storageMode "s3") $egressCidrs }}
+    # One rule per CIDR so IPv4 and IPv6 are not mixed in a single `to`
+    # list (some CNIs drop the whole rule when families are combined).
+    {{- range $cidr := $egressCidrs }}
     - to:
-        {{- range $cidr := $egressCidrs }}
         - ipBlock:
             cidr: {{ $cidr | quote }}
-        {{- end }}
       ports:
         - protocol: TCP
-          port: {{ default 443 $objectStore.port }}
+          port: {{ default (default 443 $objectStore.port) $s3.port }}
+    {{- end }}
+    {{- end }}
+{{- $calico := default (dict) $networkPolicy.calicoLogDenied -}}
+{{- if and (eq $storageMode "s3") $egressCidrs (default false $calico.enabled) }}
+---
+# Calico ordered final-Deny (order 1000, selector all()) is stronger than
+# Kubernetes additive allow. Insert this Allow immediately before that deny.
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: {{ printf "%s-cold-analytics-head-s3-calico" (include "serviceradar.fullname" .) }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: cold-analytics-head
+spec:
+  order: {{ subf (default 1000 $calico.order) 1 }}
+  selector: {{ printf "cnpg.io/cluster == '%s'" $clusterName | quote }}
+  types:
+    - Egress
+  egress:
+    {{- $cidrsV4 := list -}}
+    {{- $cidrsV6 := list -}}
+    {{- range $cidr := $egressCidrs -}}
+      {{- if contains ":" $cidr -}}
+        {{- $cidrsV6 = append $cidrsV6 $cidr -}}
+      {{- else -}}
+        {{- $cidrsV4 = append $cidrsV4 $cidr -}}
+      {{- end -}}
+    {{- end }}
+    {{- $s3Port := int (default (default 443 $objectStore.port) $s3.port) }}
+    {{- if gt (len $cidrsV4) 0 }}
+    - action: Allow
+      protocol: TCP
+      destination:
+        nets:
+          {{- range $cidr := $cidrsV4 }}
+          - {{ $cidr | quote }}
+          {{- end }}
+        ports:
+          - {{ $s3Port }}
+    {{- end }}
+    {{- if gt (len $cidrsV6) 0 }}
+    - action: Allow
+      protocol: TCP
+      destination:
+        nets:
+          {{- range $cidr := $cidrsV6 }}
+          - {{ $cidr | quote }}
+          {{- end }}
+        ports:
+          - {{ $s3Port }}
     {{- end }}
 {{- end }}
 {{- end }}

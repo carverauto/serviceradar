@@ -3,9 +3,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Telemetry.Metrics do
 
   import Ecto.Query
 
+  alias ServiceRadar.AnalyticsStore
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Telemetry.Identity
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Utils
   alias ServiceRadar.Repo
+
+  require Logger
 
   @telemetry_window_minutes 30
 
@@ -88,45 +91,68 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Telemetry.Metrics do
     if accepted_metric_ids == [] or if_indexes == [] do
       %{}
     else
-      from(m in "timeseries_metrics",
-        where:
-          fragment(
-            "(? = ANY(?)) OR (? = ANY(?))",
-            m.device_id,
-            type(^accepted_metric_ids, {:array, :string}),
-            m.target_device_ip,
-            type(^accepted_metric_ips, {:array, :string})
-          ),
-        where: fragment("? = ANY(?)", m.if_index, type(^if_indexes, {:array, :integer})),
-        where:
-          fragment(
-            "split_part(?, '::', 1) = ANY(?)",
-            m.metric_name,
-            type(^metric_names, {:array, :string})
-          ),
-        where: m.timestamp > ago(@telemetry_window_minutes, "minute"),
-        distinct: [m.device_id, m.target_device_ip, m.if_index, m.metric_name],
-        order_by: [
-          asc: m.device_id,
-          asc: m.target_device_ip,
-          asc: m.if_index,
-          asc: m.metric_name,
-          desc: m.timestamp
-        ],
-        select: {m.device_id, m.target_device_ip, m.if_index, m.metric_name, m.value}
-      )
-      |> Repo.all()
-      |> Enum.reduce(%{}, fn row, acc ->
-        reduce_directional_metric_row(
-          row,
-          acc,
-          device_identity,
-          direction_fun,
-          value_fun,
-          transform_fun
+      cutoff = DateTime.add(DateTime.utc_now(), -@telemetry_window_minutes * 60, :second)
+
+      {sql, params} =
+        latest_metric_query(
+          accepted_metric_ids,
+          accepted_metric_ips,
+          if_indexes,
+          metric_names,
+          cutoff
         )
-      end)
+
+      case AnalyticsStore.SQL.query("timeseries_metrics", sql, params) do
+        {:ok, %{rows: rows}} ->
+          Enum.reduce(rows, %{}, fn row, acc ->
+            reduce_directional_metric_row(
+              List.to_tuple(row),
+              acc,
+              device_identity,
+              direction_fun,
+              value_fun,
+              transform_fun
+            )
+          end)
+
+        {:error, reason} ->
+          Logger.warning("topology telemetry timeseries_metrics query failed: #{inspect(reason)}")
+
+          %{}
+      end
     end
+  end
+
+  @doc false
+  def latest_metric_query(device_ids, device_ips, if_indexes, metric_names, cutoff, opts \\ []) do
+    {partition_sql, params} =
+      case AnalyticsStore.dialect("timeseries_metrics", opts) do
+        :duckdb ->
+          {"\n        AND m._partition_date >= $6::date",
+           [device_ids, device_ips, if_indexes, metric_names, cutoff, DateTime.to_date(cutoff)]}
+
+        :postgres ->
+          {"", [device_ids, device_ips, if_indexes, metric_names, cutoff]}
+      end
+
+    sql = """
+    SELECT device_id, target_device_ip, if_index, metric_name, value
+    FROM (
+      SELECT m.device_id, m.target_device_ip, m.if_index, m.metric_name, m.value,
+             ROW_NUMBER() OVER (
+               PARTITION BY m.device_id, m.target_device_ip, m.if_index, m.metric_name
+               ORDER BY m.timestamp DESC
+             ) AS rn
+      FROM platform.timeseries_metrics AS m
+      WHERE (m.device_id = ANY($1) OR m.target_device_ip = ANY($2))
+        AND m.if_index = ANY($3)
+        AND split_part(m.metric_name, '::', 1) = ANY($4)
+        AND m.timestamp > $5::timestamptz#{partition_sql}
+    ) ranked
+    WHERE rn = 1
+    """
+
+    {sql, params}
   end
 
   defp telemetry_metric_scope(keys) do

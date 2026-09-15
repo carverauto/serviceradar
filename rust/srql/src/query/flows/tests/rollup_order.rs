@@ -26,6 +26,7 @@ fn translate_grouped_stats_supports_sorting_by_secondary_aggregation_alias() {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let (sql, _params) = to_sql_and_params_stats(&plan).unwrap();
@@ -61,6 +62,7 @@ fn translate_grouped_stats_other_rollup_ranks_full_result_and_sums_tail() {
         rollup_stats: None,
         other: true,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let (sql, _params) = to_sql_and_params_stats(&plan).unwrap();

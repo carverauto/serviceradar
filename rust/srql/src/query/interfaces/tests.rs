@@ -43,6 +43,7 @@ fn interfaces_query_includes_error_metric_joins() {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let (sql, _) = to_sql_and_params(&plan).expect("interfaces SQL should be generated");
@@ -134,6 +135,7 @@ fn latest_interfaces_query_defers_error_metric_joins_until_after_dedupe() {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let (sql, _) = to_sql_and_params(&plan).expect("interfaces SQL should be generated");
@@ -231,6 +233,7 @@ fn stats_plan(stats: &str) -> QueryPlan {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     }
 }
 
@@ -247,5 +250,6 @@ fn base_plan_with_filter(filter: Filter) -> QueryPlan {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     }
 }

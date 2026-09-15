@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNG.SRQL do
     exports: :all
 
   alias Ecto.Adapters.SQL
+  alias ServiceRadar.AnalyticsStore
   alias ServiceRadar.Repo
   alias ServiceRadarWebNG.SRQL.EntityAccess
   alias ServiceRadarWebNG.SRQL.Native
@@ -139,7 +140,9 @@ defmodule ServiceRadarWebNG.SRQL do
   end
 
   defp translate(query, limit, cursor, direction, mode) do
-    case Native.translate(query, limit, cursor, direction, mode) do
+    drivers = AnalyticsStore.SQL.drivers_json()
+
+    case Native.translate(query, limit, cursor, direction, mode, drivers) do
       {:ok, json} when is_binary(json) ->
         case Jason.decode(json) do
           {:ok, decoded} when is_map(decoded) -> {:ok, decoded}
@@ -160,7 +163,7 @@ defmodule ServiceRadarWebNG.SRQL do
     |> decode_params()
     |> case do
       {:ok, params} ->
-        with {:ok, result} <- run_sql(sql, params) do
+        with {:ok, result} <- run_sql(translation, sql, params) do
           {:ok, build_response(translation, result)}
         end
 
@@ -178,7 +181,7 @@ defmodule ServiceRadarWebNG.SRQL do
     |> Map.get("params", [])
     |> decode_params()
     |> case do
-      {:ok, params} -> run_sql(sql, params)
+      {:ok, params} -> run_sql(translation, sql, params)
       {:error, reason} -> {:error, reason}
     end
   end
@@ -188,26 +191,46 @@ defmodule ServiceRadarWebNG.SRQL do
   end
 
   @sobelow_skip ["SQL.Query"]
-  defp run_sql(sql, params) do
+  defp run_sql(translation, sql, params) do
     with :ok <- ensure_read_only_sql(sql) do
-      timeout_ms = srql_query_timeout_ms()
+      timeout_ms = srql_query_timeout_ms(translation)
+      repo = srql_repo(translation)
 
-      run_transaction(
-        fn ->
-          statement_timeout = "#{timeout_ms}ms"
-          db_timeout_ms = timeout_ms + @db_timeout_margin_ms
+      case repo do
+        {:error, reason} ->
+          {:error, reason}
 
-          with {:ok, _} <- SQL.query(Repo, session_setup_sql(), [statement_timeout], timeout: db_timeout_ms),
-               {:ok, result} <- SQL.query(Repo, sql, params, timeout: db_timeout_ms) do
-            result
-          else
-            {:error, reason} -> Repo.rollback(reason)
-          end
-        end,
-        timeout_ms + @db_timeout_margin_ms
-      )
+        repo ->
+          run_transaction(
+            repo,
+            fn ->
+              statement_timeout = "#{timeout_ms}ms"
+              db_timeout_ms = timeout_ms + @db_timeout_margin_ms
+
+              with {:ok, _} <-
+                     SQL.query(repo, session_setup_sql(), [statement_timeout], timeout: db_timeout_ms),
+                   {:ok, result} <- SQL.query(repo, sql, params, timeout: db_timeout_ms) do
+                result
+              else
+                {:error, reason} -> repo.rollback(reason)
+              end
+            end,
+            timeout_ms + @db_timeout_margin_ms
+          )
+      end
     end
   end
+
+  @doc false
+  def srql_repo(translation) when is_map(translation) do
+    AnalyticsStore.SQL.repo_for_translation(translation)
+  end
+
+  defp srql_query_timeout_ms(%{"dialect" => "duckdb"}) do
+    AnalyticsStore.SQL.duckdb_timeout_ms()
+  end
+
+  defp srql_query_timeout_ms(_translation), do: srql_query_timeout_ms()
 
   # A dropped pool checkout does not arrive as `{:error, _}`. `DBConnection`
   # raises it — `rollback_or_raise(other) -> raise(other)` — from inside
@@ -218,8 +241,8 @@ defmodule ServiceRadarWebNG.SRQL do
   #
   # Still logged: with the raise contained, pool exhaustion would otherwise be
   # completely silent, and it is the symptom worth alerting on.
-  defp run_transaction(fun, timeout) do
-    case Repo.transaction(fun, timeout: timeout) do
+  defp run_transaction(repo, fun, timeout) do
+    case repo.transaction(fun, timeout: timeout) do
       {:ok, result} -> {:ok, result}
       {:error, reason} -> {:error, reason}
     end

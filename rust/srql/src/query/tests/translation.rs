@@ -1837,3 +1837,207 @@ fn translate_rejects_unknown_agg_and_names_rate_sum() {
         "the error should advertise the new agg: {err}"
     );
 }
+
+#[test]
+fn empty_driver_map_keeps_postgres_cagg_sql() {
+    let config = test_config();
+    let query = "in:timeseries_metrics metric_type:\"sysmon.cpu\" metric_name:\"cpu.usage_percent\" time:last_180d bucket:1h agg:avg series:uid limit:50000";
+    let request = QueryRequest {
+        query: query.to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+    let postgres = translate_request(&config, request.clone()).expect("postgres translate");
+    let empty = crate::query::translate_request_with_drivers(
+        &config,
+        request,
+        &std::collections::HashMap::new(),
+    )
+    .expect("empty map");
+
+    assert_eq!(postgres.sql, empty.sql);
+    assert!(postgres.dialect.is_postgres());
+    assert!(
+        empty
+            .sql
+            .to_lowercase()
+            .contains("from timeseries_metrics_hourly")
+    );
+}
+
+#[test]
+fn duckdb_driver_skips_cagg_and_prunes_hive_partitions() {
+    let config = test_config();
+    let request = QueryRequest {
+        query: "in:timeseries_metrics metric_type:\"sysmon.cpu\" metric_name:\"cpu.usage_percent\" time:last_180d bucket:1h agg:avg series:uid limit:50000"
+            .to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+    let drivers = std::collections::HashMap::from([(
+        "timeseries_metrics".to_string(),
+        "pg_duckdb".to_string(),
+    )]);
+    let response =
+        crate::query::translate_request_with_drivers(&config, request, &drivers).expect("duckdb");
+
+    assert!(response.dialect.is_duckdb());
+    let sql = response.sql.to_lowercase();
+    assert!(
+        !sql.contains("timeseries_metrics_hourly"),
+        "duckdb dialect must not read Timescale CAGGs: {}",
+        response.sql
+    );
+    assert!(
+        sql.contains("from timeseries_metrics"),
+        "expected raw table: {}",
+        response.sql
+    );
+    assert!(
+        sql.contains("to_timestamp(floor("),
+        "expected on-read buckets: {}",
+        response.sql
+    );
+    assert!(
+        sql.contains("_partition_date"),
+        "expected hive partition prune: {}",
+        response.sql
+    );
+}
+
+#[test]
+fn duckdb_driver_does_not_flip_device_queries() {
+    let config = test_config();
+    let request = QueryRequest {
+        query: "in:devices is_available:true sort:last_seen:desc".to_string(),
+        limit: Some(10),
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+    let drivers = std::collections::HashMap::from([(
+        "timeseries_metrics".to_string(),
+        "pg_duckdb".to_string(),
+    )]);
+    let response =
+        crate::query::translate_request_with_drivers(&config, request, &drivers).expect("devices");
+    assert!(response.dialect.is_postgres());
+    assert!(!response.sql.to_lowercase().contains("_partition_date"));
+}
+
+#[test]
+fn postgres_listing_cursor_stays_offset_only() {
+    let config = test_config();
+    let request = QueryRequest {
+        query: "in:timeseries_metrics time:last_24h sort:timestamp:desc limit:10".to_string(),
+        limit: Some(10),
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+    let response = translate_request(&config, request).expect("postgres listing");
+    let next = response.pagination.next_cursor.expect("next cursor");
+    let state =
+        crate::pagination::decode_cursor_state(&next, &config.cursor_secret, i64::MAX).unwrap();
+    assert_eq!(state.offset, 10);
+    assert!(state.time_range.is_none());
+}
+
+#[test]
+fn duckdb_listing_cursor_pins_the_resolved_window() {
+    let config = test_config();
+    let drivers = std::collections::HashMap::from([(
+        "timeseries_metrics".to_string(),
+        "pg_duckdb".to_string(),
+    )]);
+    let request = QueryRequest {
+        query: "in:timeseries_metrics time:last_24h sort:timestamp:desc limit:10".to_string(),
+        limit: Some(10),
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+    let first = crate::query::translate_request_with_drivers(&config, request, &drivers)
+        .expect("duckdb page 1");
+    assert!(first.dialect.is_duckdb());
+    assert!(
+        first.sql.to_ascii_uppercase().contains("NULLS LAST"),
+        "expected explicit NULLS on duckdb listing: {}",
+        first.sql
+    );
+    assert!(
+        first.sql.to_ascii_lowercase().contains("gateway_id"),
+        "expected unique tiebreaker: {}",
+        first.sql
+    );
+    let next = first.pagination.next_cursor.expect("next cursor");
+    let state =
+        crate::pagination::decode_cursor_state(&next, &config.cursor_secret, i64::MAX).unwrap();
+    assert_eq!(state.offset, 10);
+    let range = state.time_range.expect("pinned window");
+
+    let second_request = QueryRequest {
+        query: "in:timeseries_metrics time:last_24h sort:timestamp:desc limit:10".to_string(),
+        limit: Some(10),
+        cursor: Some(next),
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+    let second = crate::query::translate_request_with_drivers(&config, second_request, &drivers)
+        .expect("duckdb page 2");
+    let first_times: Vec<_> = first
+        .params
+        .iter()
+        .filter_map(|param| match param {
+            crate::query::BindParam::Timestamptz(value) => Some(value.clone()),
+            _ => None,
+        })
+        .collect();
+    let second_times: Vec<_> = second
+        .params
+        .iter()
+        .filter_map(|param| match param {
+            crate::query::BindParam::Timestamptz(value) => Some(value.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(first_times, second_times);
+    assert_eq!(first_times[0], range.start.to_rfc3339());
+}
+
+#[test]
+fn duckdb_remaps_jsonb_arrow_on_timeseries_series() {
+    let config = test_config();
+    let request = QueryRequest {
+        query: "in:timeseries_metrics metric_type:\"sysmon.cpu\" metric_name:\"cpu.usage_percent\" time:last_6h bucket:5m agg:max series:core_id limit:25".to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+    let drivers = std::collections::HashMap::from([(
+        "timeseries_metrics".to_string(),
+        "pg_duckdb".to_string(),
+    )]);
+    let response =
+        crate::query::translate_request_with_drivers(&config, request, &drivers).expect("duckdb");
+    assert!(
+        response
+            .sql
+            .contains("json_extract_string(tags, '$.core_id')"),
+        "expected DuckDB JSON remap, got: {}",
+        response.sql
+    );
+    refute_cagg(&response.sql);
+}
+
+fn refute_cagg(sql: &str) {
+    assert!(
+        !sql.to_lowercase().contains("_hourly"),
+        "did not expect a CAGG table: {sql}"
+    );
+}

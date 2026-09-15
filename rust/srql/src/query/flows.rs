@@ -18,7 +18,7 @@ pub(super) use self::expressions::*;
 pub(crate) use self::literals::normalize_cidr_literal;
 use self::{
     filters::apply_filter,
-    literals::{near_exists_sql, normalize_device_uid_literal, normalize_near_literal, NearSide},
+    literals::{NearSide, near_exists_sql, normalize_device_uid_literal, normalize_near_literal},
     order::apply_ordering,
     params::collect_filter_params,
     query::build_query,
@@ -31,22 +31,22 @@ use super::{BindParam, QueryPlan};
 
 // The query object `execute_stats` loads, so the placeholder guard can render the
 // real execution path with `debug_query`; see `query/tests/placeholders.rs`.
-#[cfg(test)]
-pub(super) use stats::execution_query;
 use crate::{
     error::{Result, ServiceError},
     parser::{Entity, Filter, FilterOp, FilterValue, OrderClause, OrderDirection},
     schema::ocsf_network_activity::dsl::*,
     time::TimeRange,
 };
+use diesel::PgTextExpressionMethods;
 use diesel::dsl::{not, sql};
 use diesel::pg::Pg;
 use diesel::prelude::*;
 use diesel::query_builder::{AsQuery, BoxedSelectStatement, FromClause};
 use diesel::sql_types::{Bool, Text};
-use diesel::PgTextExpressionMethods;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde_json::Value;
+#[cfg(test)]
+pub(super) use stats::execution_query;
 
 type FlowsTable = crate::schema::ocsf_network_activity::table;
 type FlowsFromClause = FromClause<FlowsTable>;
@@ -172,7 +172,7 @@ fn ensure_entity(plan: &QueryPlan) -> Result<()> {
 
 #[cfg(test)]
 mod fallback_classifier_tests {
-    use super::{is_missing_prefix_tag_column_diesel, FullLoadError};
+    use super::{FullLoadError, is_missing_prefix_tag_column_diesel};
     use diesel::result::{DatabaseErrorKind, Error as DieselError};
 
     struct FakeDbInfo {

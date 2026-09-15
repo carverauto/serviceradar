@@ -17,6 +17,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   import Ecto.Query
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.AnalyticsStore
   alias ServiceRadar.Camera.Source, as: CameraSource
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Observability.BmpSettingsRuntime
@@ -4823,7 +4824,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp edge_identity_key(edge), do: :erlang.term_to_binary(edge)
 
   defp attach_interface_sparklines(edges) when is_list(edges) do
-    if relation_exists?("platform.timeseries_metrics") do
+    if timeseries_store_reachable?() do
       pairs =
         edges
         |> Enum.flat_map(&edge_interface_pairs/1)
@@ -4874,32 +4875,29 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp interface_pair_key(_device_id, _if_index), do: nil
 
+  defp timeseries_store_reachable? do
+    case AnalyticsStore.SQL.repo_for_table("timeseries_metrics") do
+      {:error, _} -> false
+      _repo -> true
+    end
+  end
+
   defp interface_sparkline_map([]), do: %{}
 
   defp interface_sparkline_map(pairs) do
     {device_ids, if_indexes} = Enum.unzip(pairs)
     cutoff = DateTime.add(DateTime.utc_now(), -24, :hour)
 
-    case Repo.query(
-           """
-           WITH wanted(device_id, if_index) AS (
-             SELECT * FROM unnest($2::text[], $3::int[])
-           )
-           SELECT
-             m.device_id,
-             m.if_index,
-             m.metric_name,
-             time_bucket('15 minutes'::interval, m.timestamp) AS bucket,
-             MAX(m.value)::float8 AS value
-           FROM platform.timeseries_metrics m
-           INNER JOIN wanted w ON w.device_id = m.device_id AND w.if_index = m.if_index
-           WHERE m.timestamp >= $1
-             AND m.metric_name = ANY($4::text[])
-           GROUP BY m.device_id, m.if_index, m.metric_name, bucket
-           ORDER BY m.device_id, m.if_index, m.metric_name, bucket
-           """,
-           [cutoff, device_ids, if_indexes, @edge_sparkline_metrics]
-         ) do
+    {sql, params} =
+      AnalyticsStore.TimeseriesQueries.interface_sparkline_sql(
+        cutoff,
+        device_ids,
+        if_indexes,
+        @edge_sparkline_metrics,
+        900
+      )
+
+    case AnalyticsStore.SQL.query("timeseries_metrics", sql, params) do
       {:ok, %{rows: rows}} ->
         rows
         |> Enum.group_by(fn [device_id, if_index, _metric, _bucket, _value] -> {device_id, if_index} end)
@@ -4985,15 +4983,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp maybe_put_edge_metadata(metadata, _key, nil) when is_map(metadata), do: metadata
   defp maybe_put_edge_metadata(metadata, key, value) when is_map(metadata), do: Map.put(metadata, key, value)
-
-  defp relation_exists?(relation_name) do
-    case Repo.query("SELECT to_regclass($1) IS NOT NULL", [relation_name]) do
-      {:ok, %{rows: [[true]]}} -> true
-      _ -> false
-    end
-  rescue
-    _ -> false
-  end
 
   defp unix_ms(%DateTime{} = value), do: DateTime.to_unix(value, :millisecond)
   defp unix_ms(%NaiveDateTime{} = value), do: value |> DateTime.from_naive!("Etc/UTC") |> unix_ms()

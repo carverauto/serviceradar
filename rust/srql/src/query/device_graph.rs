@@ -182,6 +182,7 @@ mod tests {
             rollup_stats: None,
             other: false,
             include_deleted: false,
+            dialect: Default::default(),
         };
 
         let err = extract_params(&plan).expect_err("device_id with '$' should be rejected");
@@ -209,6 +210,7 @@ mod tests {
             rollup_stats: None,
             other: false,
             include_deleted: false,
+            dialect: Default::default(),
         };
 
         let params = extract_params(&plan).expect("standard device_id should be accepted");

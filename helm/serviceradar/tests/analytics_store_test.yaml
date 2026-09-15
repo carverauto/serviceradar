@@ -1,0 +1,388 @@
+suite: analytics store helm wiring
+templates:
+  - templates/cold-analytics-head.yaml
+  - templates/cold-analytics-head-network-policy.yaml
+  - templates/core.yaml
+  - templates/web.yaml
+release:
+  namespace: demo
+tests:
+  - it: does not render an analytics head on the timescale default
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: templates/cold-analytics-head.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/cold-analytics-head-network-policy.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_ANALYTICS_STORE_DRIVER
+            value: "timescale"
+          count: 1
+        template: templates/core.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_ANALYTICS_STORE_DUAL_WRITE
+            value: ""
+          count: 1
+        template: templates/core.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_ANALYTICS_STORE_S3_BUCKET_URL
+        template: templates/core.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_ANALYTICS_STORE_DRIVER
+            value: "timescale"
+          count: 1
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_ANALYTICS_STORE_HEAD_HOST
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: injects the parquet backend for dualWrite without flipping the driver
+    set:
+      global.storage.allowInsecureStorage: true
+      analyticsStore.dualWrite:
+        - timeseries_metrics
+      analyticsStore.pgDuckdb.s3.secretName: serviceradar-analytics-object-store
+      analyticsStore.pgDuckdb.s3.bucket: serviceradar-demo-analytics
+      analyticsStore.pgDuckdb.s3.endpoint: us-ord-10.linodeobjects.com
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_ANALYTICS_STORE_DRIVER
+            value: "timescale"
+          count: 1
+        template: templates/core.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_ANALYTICS_STORE_DUAL_WRITE
+            value: "timeseries_metrics"
+          count: 1
+        template: templates/core.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_ANALYTICS_STORE_S3_BUCKET_URL
+            value: "s3://serviceradar-demo-analytics"
+          count: 1
+        template: templates/core.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: renders an idle head when headEnabled is set without flipping the driver
+    set:
+      global.storage.allowInsecureStorage: true
+      analyticsStore.headEnabled: true
+      analyticsStore.pgDuckdb.storageClass: local-path-cnpg
+    asserts:
+      - equal:
+          path: metadata.name
+          value: cnpg-analytics
+        template: templates/cold-analytics-head.yaml
+      - equal:
+          path: spec.storage.storageClass
+          value: local-path-cnpg
+        template: templates/cold-analytics-head.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_ANALYTICS_STORE_DRIVER
+            value: "timescale"
+          count: 1
+        template: templates/core.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_ANALYTICS_STORE_S3_BUCKET_URL
+        template: templates/core.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: renders the analytics head when driver is pg_duckdb
+    set:
+      global.storage.allowInsecureStorage: true
+      analyticsStore.driver: pg_duckdb
+      analyticsStore.pgDuckdb.s3.secretName: serviceradar-analytics-object-store
+      analyticsStore.pgDuckdb.s3.bucket: serviceradar-demo-analytics
+      analyticsStore.pgDuckdb.s3.endpoint: us-ord-10.linodeobjects.com
+      analyticsStore.pgDuckdb.s3.region: us-ord
+    asserts:
+      - equal:
+          path: metadata.name
+          value: cnpg-analytics
+        template: templates/cold-analytics-head.yaml
+      - matchRegex:
+          path: spec.imageName
+          pattern: "serviceradar-cnpg-analytics:18-pgduckdb-1.1.1-sr3$"
+        template: templates/cold-analytics-head.yaml
+      - equal:
+          path: spec.postgresql.parameters["duckdb.disabled_filesystems"]
+          value: "LocalFileSystem"
+        template: templates/cold-analytics-head.yaml
+      - equal:
+          path: spec.postgresql.parameters["duckdb.temporary_directory"]
+          value: "/run/pg_duckdb"
+        template: templates/cold-analytics-head.yaml
+      - equal:
+          path: spec.ephemeralVolumesSizeLimit.temporaryData
+          value: "50Gi"
+        template: templates/cold-analytics-head.yaml
+      - notContains:
+          path: spec.bootstrap.initdb.postInitApplicationSQL
+          content: CREATE EXTENSION IF NOT EXISTS postgres_fdw;
+        template: templates/cold-analytics-head.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_ANALYTICS_STORE_S3_ENDPOINT
+            value: "us-ord-10.linodeobjects.com"
+          count: 1
+        template: templates/core.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_ANALYTICS_STORE_S3_BUCKET_URL
+            value: "s3://serviceradar-demo-analytics"
+          count: 1
+        template: templates/core.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_ANALYTICS_STORE_S3_ACCESS_KEY_ID
+            valueFrom:
+              secretKeyRef:
+                name: serviceradar-analytics-object-store
+                key: access_key_id
+          count: 1
+        template: templates/core.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_ANALYTICS_STORE_POOL_SIZE
+            value: "4"
+          count: 1
+        template: templates/core.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_ANALYTICS_STORE_HEAD_HOST
+            value: "cnpg-analytics-rw.demo.svc.cluster.local"
+          count: 1
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_ANALYTICS_STORE_POOL_SIZE
+            value: "4"
+          count: 1
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: omits LocalFileSystem lock when storage is filesystem
+    set:
+      global.storage.allowInsecureStorage: true
+      analyticsStore.driver: pg_duckdb
+      analyticsStore.pgDuckdb.storage: filesystem
+    asserts:
+      - notExists:
+          path: spec.postgresql.parameters["duckdb.disabled_filesystems"]
+        template: templates/cold-analytics-head.yaml
+
+  - it: fails closed when pg_duckdb s3 is missing a secret
+    set:
+      global.storage.allowInsecureStorage: true
+      analyticsStore.driver: pg_duckdb
+      analyticsStore.pgDuckdb.s3.bucket: serviceradar-demo-analytics
+      analyticsStore.pgDuckdb.s3.endpoint: us-ord-10.linodeobjects.com
+    asserts:
+      - failedTemplate:
+          errorMessage: analyticsStore.pgDuckdb.s3.secretName is required when driver is pg_duckdb or dualWrite is set and storage is s3
+        template: templates/core.yaml
+
+  - it: opens object-store egress only in s3 mode
+    set:
+      global.storage.allowInsecureStorage: true
+      analyticsStore.driver: pg_duckdb
+      analyticsStore.pgDuckdb.s3.secretName: serviceradar-analytics-object-store
+      analyticsStore.pgDuckdb.s3.bucket: serviceradar-demo-analytics
+      analyticsStore.pgDuckdb.s3.endpoint: us-ord-10.linodeobjects.com
+      analyticsStore.pgDuckdb.s3.egressCidrs:
+        - 192.0.2.0/24
+    asserts:
+      - contains:
+          path: spec.egress
+          content:
+            to:
+              - ipBlock:
+                  cidr: 192.0.2.0/24
+            ports:
+              - protocol: TCP
+                port: 443
+        template: templates/cold-analytics-head-network-policy.yaml
+
+  - it: emits a Calico pre-deny S3 allow when calicoLogDenied is on
+    set:
+      global.storage.allowInsecureStorage: true
+      analyticsStore.driver: pg_duckdb
+      analyticsStore.pgDuckdb.s3.secretName: serviceradar-analytics-object-store
+      analyticsStore.pgDuckdb.s3.bucket: serviceradar-demo-analytics
+      analyticsStore.pgDuckdb.s3.endpoint: us-ord-10.linodeobjects.com
+      analyticsStore.pgDuckdb.s3.egressCidrs:
+        - 192.0.2.0/24
+      networkPolicy.calicoLogDenied.enabled: true
+      networkPolicy.calicoLogDenied.order: 1000
+    asserts:
+      - equal:
+          path: spec.order
+          value: 999
+        template: templates/cold-analytics-head-network-policy.yaml
+        documentSelector:
+          path: apiVersion
+          value: projectcalico.org/v3
+      - contains:
+          path: spec.egress
+          content:
+            action: Allow
+            protocol: TCP
+            destination:
+              nets:
+                - "192.0.2.0/24"
+              ports:
+                - 443
+        template: templates/cold-analytics-head-network-policy.yaml
+        documentSelector:
+          path: apiVersion
+          value: projectcalico.org/v3
+
+  - it: filesystem mode does not open object-store egress
+    set:
+      global.storage.allowInsecureStorage: true
+      analyticsStore.driver: pg_duckdb
+      analyticsStore.pgDuckdb.storage: filesystem
+      analyticsStore.pgDuckdb.s3.egressCidrs:
+        - 192.0.2.0/24
+    asserts:
+      - notContains:
+          path: spec.egress
+          content:
+            to:
+              - ipBlock:
+                  cidr: 192.0.2.0/24
+        template: templates/cold-analytics-head-network-policy.yaml
+
+  - it: demo overlay dual-writes timeseries_metrics without flipping the driver
+    values:
+      - ../values-demo.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_ANALYTICS_STORE_DRIVER
+            value: "timescale"
+          count: 1
+        template: templates/core.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_ANALYTICS_STORE_DUAL_WRITE
+            value: "timeseries_metrics"
+          count: 1
+        template: templates/core.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_ANALYTICS_STORE_S3_BUCKET_URL
+            value: "s3://serviceradar-demo-analytics"
+          count: 1
+        template: templates/core.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_ANALYTICS_STORE_HEAD_HOST
+            value: "cnpg-analytics-rw.demo.svc.cluster.local"
+          count: 1
+        template: templates/core.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_ANALYTICS_STORE_DUAL_WRITE
+            value: "timeseries_metrics"
+          count: 1
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_ANALYTICS_STORE_HEAD_HOST
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment

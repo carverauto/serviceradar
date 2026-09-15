@@ -97,6 +97,20 @@ docker compose run --rm \
   db-credentials
 ```
 
+## Analytics store (opt-in)
+
+Default Compose writes hypertables (`SERVICERADAR_ANALYTICS_STORE_DRIVER=timescale`).
+An analytics head and MinIO are not started unless you opt in:
+
+```bash
+docker compose --profile analytics up -d      # MinIO + head
+docker compose --profile analytics-fs up -d   # local directory, no MinIO
+```
+
+Point `core-elx` and `web-ng` at the head with
+`docker/compose/analytics.env.example`. Values, cutover, and rollback:
+[Analytics Store](./analytics-store.md).
+
 ## Certificates and TLS
 
 The stack auto-generates mTLS certificates on first boot. Certificates live in the `cert-data` volume and are mounted into each service as needed.

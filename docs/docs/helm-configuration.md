@@ -117,6 +117,14 @@ knobs). Rather than duplicate that reference here, see:
 Inspect the current defaults for your chart version with
 `helm show values oci://registry.carverauto.dev/serviceradar/charts/serviceradar --version <chart-version>`.
 
+Key values: `analyticsStore`
+
+High-volume telemetry defaults to Timescale hypertables. `pg_duckdb` (Parquet
+on object storage or a local filesystem, queried by a dedicated analytics
+head) is opt-in. Incomplete `pg_duckdb` config fails closed. Values,
+cutover, rollback, and the farm01 filesystem recipe:
+[Analytics Store](./analytics-store.md).
+
 ## Public web and edge-agent endpoints
 
 ServiceRadar publishes two independent paths during agent onboarding:

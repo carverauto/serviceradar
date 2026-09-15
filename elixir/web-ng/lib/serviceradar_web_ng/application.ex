@@ -70,6 +70,7 @@ defmodule ServiceRadarWebNG.Application do
 
     # Ensure ServiceRadar.Repo is started (may already be started by serviceradar_core)
     ensure_repo_started()
+    ensure_analytics_repo_started()
 
     # Bootstrap the default admin user if credentials are available.
     ServiceRadarWebNG.Bootstrap.AdminUser.ensure_admin_user()
@@ -427,6 +428,28 @@ defmodule ServiceRadarWebNG.Application do
           {:error, reason} ->
             Logger.error("Failed to start ServiceRadar.Repo: #{inspect(reason)}")
             :error
+        end
+    end
+  end
+
+  defp ensure_analytics_repo_started do
+    case ServiceRadar.AnalyticsStore.SQL.child_spec_or_nil() do
+      nil ->
+        :ok
+
+      {repo, opts} ->
+        case Process.whereis(repo) do
+          pid when is_pid(pid) ->
+            :ok
+
+          nil ->
+            case repo.start_link(opts) do
+              {:ok, _} -> :ok
+              {:error, {:already_started, _}} -> :ok
+              {:error, reason} ->
+                Logger.error("Failed to start #{inspect(repo)}: #{inspect(reason)}")
+                :error
+            end
         end
     end
   end

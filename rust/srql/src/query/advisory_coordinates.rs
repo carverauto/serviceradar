@@ -1,9 +1,9 @@
 //! SRQL `in:advisory_coordinates` / `in:advisory_cpes` / `in:cpe_coordinates`.
 
 use super::advisory::{
-    bool_condition, execute_json, has_filter, is_selective_coordinate_query, numeric_condition,
-    order_sql, parse_count_stats, reject_downsample_and_rollup, stats_order_sql, stats_select,
-    text_condition, time_clause, to_sql_and_params as finish_sql, uuid_condition, BuiltSql,
+    BuiltSql, bool_condition, execute_json, has_filter, is_selective_coordinate_query,
+    numeric_condition, order_sql, parse_count_stats, reject_downsample_and_rollup, stats_order_sql,
+    stats_select, text_condition, time_clause, to_sql_and_params as finish_sql, uuid_condition,
 };
 use super::{BindParam, QueryPlan};
 use crate::{
@@ -183,9 +183,11 @@ mod tests {
         assert!(sql.contains("a.cve_id = $"));
         assert!(sql.contains("c.coordinate_type = $"));
         assert!(sql.contains("version_start") || sql.contains("to_jsonb(c)"));
-        assert!(binds
-            .iter()
-            .any(|bind| matches!(bind, BindParam::Text(value) if value == "CVE-2024-1234")));
+        assert!(
+            binds
+                .iter()
+                .any(|bind| matches!(bind, BindParam::Text(value) if value == "CVE-2024-1234"))
+        );
     }
 
     #[test]

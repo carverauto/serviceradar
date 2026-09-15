@@ -14,7 +14,7 @@
 //! the caller reads it -- a connector builder that silently returns "no TLS" is how a verifying
 //! posture becomes a plaintext connection.
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use rustls::pki_types::PrivateKeyDer;
 use rustls::{ClientConfig, RootCertStore};
 use rustls_pemfile::certs;
@@ -37,7 +37,10 @@ pub struct PgRustlsConnect {
 
 impl PgRustlsConnect {
     pub fn new(config: ClientConfig, server_name: Option<String>) -> Self {
-        Self { inner: MakeRustlsConnect::new(config), server_name }
+        Self {
+            inner: MakeRustlsConnect::new(config),
+            server_name,
+        }
     }
 }
 
@@ -122,5 +125,8 @@ pub fn postgres_connector(
         _ => anyhow::bail!("a client certificate and key must be supplied together, or neither"),
     };
 
-    Ok(PgRustlsConnect::new(config, server_name.map(str::to_string)))
+    Ok(PgRustlsConnect::new(
+        config,
+        server_name.map(str::to_string),
+    ))
 }

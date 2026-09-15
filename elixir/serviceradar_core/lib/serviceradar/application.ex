@@ -57,6 +57,7 @@ defmodule ServiceRadar.Application do
     ensure_started(:telemetry)
     ensure_started(:ash_state_machine)
     ensure_started(:ssl)
+    ServiceRadar.AnalyticsStore.Config.validate!()
 
     children =
       [
@@ -66,6 +67,7 @@ defmodule ServiceRadar.Application do
         # Database (can be disabled for standalone tests)
         repo_child(),
         control_repo_child(),
+        analytics_repo_child(),
 
         # Supervise asynchronous config dependency notifications so shutdown and
         # database ownership boundaries can drain them deterministically.
@@ -212,6 +214,12 @@ defmodule ServiceRadar.Application do
   defp control_repo_child do
     if control_repo_enabled?() do
       ServiceRadar.ControlRepo
+    end
+  end
+
+  defp analytics_repo_child do
+    if repo_enabled?() do
+      ServiceRadar.AnalyticsStore.SQL.child_spec_or_nil()
     end
   end
 

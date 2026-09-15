@@ -30,33 +30,39 @@ defmodule ServiceRadar.ColdTier.ObjectStore do
 
   def delete_objects(keys) when is_list(keys) do
     with {:ok, ctx} <- context() do
-      keys
-      |> Enum.chunk_every(1000)
-      |> Enum.reduce_while({:ok, 0}, fn batch, {:ok, acc} ->
-        body =
-          "<Delete><Quiet>true</Quiet>" <>
-            Enum.map_join(batch, "", fn key ->
-              "<Object><Key>#{xml_escape(key)}</Key></Object>"
-            end) <> "</Delete>"
-
-        md5 = :md5 |> :crypto.hash(body) |> Base.encode64()
-
-        case request(ctx, :post, "?delete", body: body, headers: [{"content-md5", md5}]) do
-          {:ok, %{status: 200, body: resp}} ->
-            if resp =~ "<Error>" do
-              {:halt, {:error, {:partial_delete, resp}}}
-            else
-              {:cont, {:ok, acc + length(batch)}}
-            end
-
-          {:ok, %{status: status, body: resp}} ->
-            {:halt, {:error, {:http, status, resp}}}
-
-          {:error, reason} ->
-            {:halt, {:error, reason}}
-        end
-      end)
+      delete_objects(keys, ctx)
     end
+  end
+
+  @doc "Delete using an explicit S3 context (analytics-store prune)."
+  @spec delete_objects([String.t()], map()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def delete_objects(keys, ctx) when is_list(keys) and is_map(ctx) do
+    keys
+    |> Enum.chunk_every(1000)
+    |> Enum.reduce_while({:ok, 0}, fn batch, {:ok, acc} ->
+      body =
+        "<Delete><Quiet>true</Quiet>" <>
+          Enum.map_join(batch, "", fn key ->
+            "<Object><Key>#{xml_escape(key)}</Key></Object>"
+          end) <> "</Delete>"
+
+      md5 = :md5 |> :crypto.hash(body) |> Base.encode64()
+
+      case request(ctx, :post, "?delete", body: body, headers: [{"content-md5", md5}]) do
+        {:ok, %{status: 200, body: resp}} ->
+          if resp =~ "<Error>" do
+            {:halt, {:error, {:partial_delete, resp}}}
+          else
+            {:cont, {:ok, acc + length(batch)}}
+          end
+
+        {:ok, %{status: status, body: resp}} ->
+          {:halt, {:error, {:http, status, resp}}}
+
+        {:error, reason} ->
+          {:halt, {:error, reason}}
+      end
+    end)
   end
 
   @doc """

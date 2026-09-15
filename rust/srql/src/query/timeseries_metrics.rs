@@ -2677,6 +2677,7 @@ mod tests {
             rollup_stats: None,
             other: false,
             include_deleted: false,
+            dialect: Default::default(),
         };
         (plan, spec)
     }
@@ -2820,6 +2821,7 @@ mod tests {
             rollup_stats: None,
             other: false,
             include_deleted: false,
+            dialect: Default::default(),
         };
         let spec = TimeseriesStatsSpec {
             aggregations: vec![TimeseriesAggregationSpec {
@@ -2868,6 +2870,7 @@ mod tests {
             rollup_stats: None,
             other: false,
             include_deleted: false,
+            dialect: Default::default(),
         };
 
         let result = build_query(&plan, MetricScope::Any);
@@ -2908,6 +2911,7 @@ mod tests {
             rollup_stats: None,
             other: false,
             include_deleted: false,
+            dialect: Default::default(),
         };
 
         let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))
@@ -2949,6 +2953,7 @@ mod tests {
             rollup_stats: None,
             other: false,
             include_deleted: false,
+            dialect: Default::default(),
         };
 
         let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))
@@ -2991,6 +2996,7 @@ mod tests {
             rollup_stats: None,
             other: true,
             include_deleted: false,
+            dialect: Default::default(),
         };
 
         let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))
@@ -3058,6 +3064,7 @@ mod tests {
             rollup_stats: None,
             other: true,
             include_deleted: false,
+            dialect: Default::default(),
         };
 
         let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))
@@ -3115,6 +3122,7 @@ mod tests {
             rollup_stats: None,
             other: false,
             include_deleted: false,
+            dialect: Default::default(),
         };
 
         let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))
@@ -3194,6 +3202,7 @@ mod tests {
             rollup_stats: None,
             other: false,
             include_deleted: false,
+            dialect: Default::default(),
         };
 
         let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))
@@ -3262,6 +3271,7 @@ mod tests {
             rollup_stats: None,
             other: false,
             include_deleted: false,
+            dialect: Default::default(),
         };
 
         let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))
@@ -3303,6 +3313,7 @@ mod tests {
             rollup_stats: None,
             other: false,
             include_deleted: false,
+            dialect: Default::default(),
         };
 
         let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))
@@ -3364,6 +3375,7 @@ mod tests {
             rollup_stats: None,
             other: false,
             include_deleted: false,
+            dialect: Default::default(),
         };
 
         let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))
@@ -3432,6 +3444,7 @@ mod tests {
             rollup_stats: None,
             other: false,
             include_deleted: false,
+            dialect: Default::default(),
         };
 
         let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))
@@ -3484,6 +3497,7 @@ mod tests {
             rollup_stats: None,
             other: false,
             include_deleted: false,
+            dialect: Default::default(),
         };
 
         let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))
@@ -3535,6 +3549,7 @@ mod tests {
             rollup_stats: None,
             other: false,
             include_deleted: false,
+            dialect: Default::default(),
         };
 
         let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))
@@ -3571,6 +3586,7 @@ mod tests {
             rollup_stats: None,
             other: false,
             include_deleted: false,
+            dialect: Default::default(),
         };
 
         let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))

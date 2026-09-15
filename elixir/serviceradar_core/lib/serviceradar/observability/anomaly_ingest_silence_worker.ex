@@ -28,6 +28,7 @@ defmodule ServiceRadar.Observability.AnomalyIngestSilenceWorker do
 
   use Oban.Worker, queue: :maintenance, max_attempts: 3
 
+  alias ServiceRadar.AnalyticsStore
   alias ServiceRadar.Observability.TripwireHealth
   alias ServiceRadar.Repo
 
@@ -99,7 +100,7 @@ defmodule ServiceRadar.Observability.AnomalyIngestSilenceWorker do
     anomaly_cutoff = DateTime.add(now, -hours * 3600, :second)
     heartbeat_cutoff = DateTime.add(now, -@addon_heartbeat_freshness_minutes * 60, :second)
 
-    case exists?(repo, @metrics_alive_sql, metrics_cutoff) do
+    case metrics_alive?(opts, metrics_cutoff) do
       {:ok, false} ->
         # Metric ingest is dead too — a different alarm's job; no verdict.
         :ok
@@ -113,6 +114,47 @@ defmodule ServiceRadar.Observability.AnomalyIngestSilenceWorker do
       {:error, reason} ->
         skip_run(reason)
     end
+  end
+
+  defp metrics_alive?(opts, cutoff) do
+    if Keyword.has_key?(opts, :repo) do
+      exists?(Keyword.fetch!(opts, :repo), @metrics_alive_sql, cutoff)
+    else
+      exists_timeseries?(opts, cutoff)
+    end
+  end
+
+  defp exists_timeseries?(opts, cutoff) do
+    sql = metrics_alive_sql(opts)
+
+    case AnalyticsStore.SQL.query(
+           "timeseries_metrics",
+           sql,
+           [cutoff],
+           Keyword.take(opts, [:config, :timeout])
+         ) do
+      {:ok, %{rows: [[value]]}} when is_boolean(value) -> {:ok, value}
+      {:ok, other} -> {:error, {:unexpected_result, other}}
+      {:error, reason} -> {:error, reason}
+    end
+  rescue
+    error -> {:error, error}
+  end
+
+  defp metrics_alive_sql(opts) do
+    prune =
+      case AnalyticsStore.dialect("timeseries_metrics", Keyword.take(opts, [:config])) do
+        :duckdb -> "\n      AND _partition_date >= CURRENT_DATE - 1"
+        :postgres -> ""
+      end
+
+    """
+    SELECT EXISTS (
+      SELECT 1
+      FROM platform.timeseries_metrics
+      WHERE "timestamp" >= $1::timestamptz#{prune}
+    )
+    """
   end
 
   # Any one sign of life clears the tripwire: a 2004 anomaly-detection row, a

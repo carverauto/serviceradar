@@ -26,6 +26,7 @@ fn raw_flow_stats_scale_volume_fields_by_sampling_rate() {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let (sql, _params) = to_sql_and_params_stats(&plan).unwrap();
@@ -63,6 +64,7 @@ fn raw_flow_stats_coalesce_nullable_directional_volume_fields() {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let (sql, _params) = to_sql_and_params_stats(&plan).unwrap();
@@ -100,6 +102,7 @@ fn flow_cagg_stats_read_pre_scaled_volume_columns() {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let (sql, _params) = to_sql_and_params_stats(&plan).unwrap();
@@ -138,6 +141,7 @@ fn raw_flow_stats_scale_all_six_directional_volume_fields() {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let (sql, _params) = to_sql_and_params_stats(&plan).unwrap();
@@ -180,6 +184,7 @@ fn flow_stats_scale_per_window_group_by_sampler() {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let (sql, _params) = to_sql_and_params_stats(&plan).unwrap();
@@ -219,6 +224,7 @@ fn flow_time_min_max_emits_unscaled_raw_path() {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let (sql, _params) = to_sql_and_params_stats(&plan).unwrap();

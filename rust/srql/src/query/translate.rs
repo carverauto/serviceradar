@@ -1,25 +1,33 @@
 use super::{
     PaginationMeta, QueryRequest, TranslateResponse, addon_fleet, addon_statuses,
-    advisory_coordinates, agents, alerts, bmp_events, build_query_plan, capacity_forecasts,
-    composite_results, cpu_metrics, dashboard_service_views, dashboards, device_graph,
-    device_sweep_overlap, devices, disk_metrics, downsample, endpoint_inventory_scans,
-    endpoint_package_catalog, endpoint_packages, endpoint_vulnerability_matches, events,
-    field_survey, flows, gateways, graph_cypher, identity, interfaces, is_exhaustive_profile_query,
-    logs, memory_metrics, mtr_traces, otel_metric_points, otel_metrics, process_metrics,
-    public_endpoints, services, source_fact_disagreements, sweep_coverage, sweep_executions,
-    sweep_groups, sweep_profiles, sweep_results, threat_intel_matches, timeseries_metrics,
-    trace_summaries, traces, virtualization, viz, vulnerability_advisories, wifi_map,
+    advisory_coordinates, agents, alerts, bmp_events, capacity_forecasts, composite_results,
+    cpu_metrics, dashboard_service_views, dashboards, device_graph, device_sweep_overlap, devices,
+    disk_metrics, downsample, endpoint_inventory_scans, endpoint_package_catalog,
+    endpoint_packages, endpoint_vulnerability_matches, events, field_survey, flows, gateways,
+    graph_cypher, identity, interfaces, is_exhaustive_profile_query, logs, memory_metrics,
+    mtr_traces, otel_metric_points, otel_metrics, process_metrics, public_endpoints, services,
+    source_fact_disagreements, sweep_coverage, sweep_executions, sweep_groups, sweep_profiles,
+    sweep_results, threat_intel_matches, timeseries_metrics, trace_summaries, traces,
+    virtualization, viz, vulnerability_advisories, wifi_map,
 };
 use crate::{
     config::AppConfig,
     error::Result,
-    pagination::encode_cursor,
+    pagination::encode_cursor_maybe_window,
     parser::{self, Entity},
 };
 
 pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<TranslateResponse> {
+    translate_request_with_drivers(config, request, &std::collections::HashMap::new())
+}
+
+pub fn translate_request_with_drivers(
+    config: &AppConfig,
+    request: QueryRequest,
+    drivers: &std::collections::HashMap<String, String>,
+) -> Result<TranslateResponse> {
     let ast = parser::parse(&request.query)?;
-    let plan = build_query_plan(config, &request, ast)?;
+    let plan = super::plan::build_query_plan_with_drivers(config, &request, ast, drivers)?;
     let viz = viz::meta_for_plan(&plan);
 
     // A `profile_hour_of_week[_peak]` stats query is a profile aggregation, never a
@@ -129,20 +137,28 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
     };
 
     let next_offset = plan.offset.saturating_add(plan.limit);
+    let window = super::dialect::pinned_cursor_window(&plan);
     let next_cursor =
         if next_offset <= config.max_cursor_offset || is_exhaustive_profile_query(&plan) {
-            Some(encode_cursor(next_offset, &config.cursor_secret)?)
+            Some(encode_cursor_maybe_window(
+                next_offset,
+                &config.cursor_secret,
+                window,
+            )?)
         } else {
             None
         };
     let prev_cursor = if plan.offset > 0 {
-        Some(encode_cursor(
+        Some(encode_cursor_maybe_window(
             plan.offset.saturating_sub(plan.limit),
             &config.cursor_secret,
+            window,
         )?)
     } else {
         None
     };
+
+    let sql = super::dialect::apply_sql(&plan, sql)?;
 
     Ok(TranslateResponse {
         sql,
@@ -153,5 +169,6 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             limit: Some(plan.limit),
         },
         viz,
+        dialect: plan.dialect,
     })
 }

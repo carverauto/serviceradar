@@ -15,7 +15,6 @@ use crate::{
     config::AppConfig,
     db::PgPool,
     error::{Result, ServiceError},
-    pagination::encode_cursor,
     parser::{self, Entity},
 };
 use std::sync::Arc;
@@ -203,14 +202,22 @@ impl QueryEngine {
                 )));
             }
 
-            Some(encode_cursor(next_offset, &self.config.cursor_secret)?)
+            Some(crate::pagination::encode_cursor_maybe_window(
+                next_offset,
+                &self.config.cursor_secret,
+                super::dialect::pinned_cursor_window(plan),
+            )?)
         } else {
             None
         };
 
         let prev_cursor = if plan.offset > 0 {
             let prev = plan.offset.saturating_sub(plan.limit);
-            Some(encode_cursor(prev, &self.config.cursor_secret)?)
+            Some(crate::pagination::encode_cursor_maybe_window(
+                prev,
+                &self.config.cursor_secret,
+                super::dialect::pinned_cursor_window(plan),
+            )?)
         } else {
             None
         };
@@ -244,6 +251,7 @@ mod tests {
             rollup_stats: None,
             other: false,
             include_deleted: false,
+            dialect: Default::default(),
         }
     }
 

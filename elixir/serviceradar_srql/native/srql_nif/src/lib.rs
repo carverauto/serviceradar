@@ -22,6 +22,16 @@ mod update_capnp {
     include!(concat!(env!("OUT_DIR"), "/update_capnp.rs"));
 }
 
+fn parse_drivers(
+    drivers_json: Option<&str>,
+) -> Result<std::collections::HashMap<String, String>, String> {
+    match drivers_json {
+        None | Some("") => Ok(std::collections::HashMap::new()),
+        Some(json) => serde_json::from_str(json)
+            .map_err(|err| format!("invalid analytics-store driver map: {err}")),
+    }
+}
+
 /// Parse an SRQL query and return the AST as JSON.
 /// This allows Elixir to consume the structured query without re-parsing.
 #[rustler::nif(schedule = "DirtyCpu")]
@@ -43,6 +53,7 @@ fn translate(
     cursor: Option<String>,
     direction: Option<String>,
     mode: Option<String>,
+    drivers_json: Option<String>,
 ) -> Term {
     let direction = match direction.as_deref() {
         Some("prev") => srql::QueryDirection::Prev,
@@ -57,9 +68,14 @@ fn translate(
         mode,
     };
 
+    let drivers = match parse_drivers(drivers_json.as_deref()) {
+        Ok(drivers) => drivers,
+        Err(err) => return (atoms::error(), err).encode(env),
+    };
+
     let config = srql::config::AppConfig::embedded("postgres://unused/db".to_string());
 
-    let response = match srql::query::translate_request(&config, request) {
+    let response = match srql::query::translate_request_with_drivers(&config, request, &drivers) {
         Ok(response) => response,
         Err(err) => return (atoms::error(), err.to_string()).encode(env),
     };

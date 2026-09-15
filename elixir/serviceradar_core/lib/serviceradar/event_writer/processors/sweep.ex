@@ -45,8 +45,8 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
 
   import Ecto.Query
 
+  alias ServiceRadar.AnalyticsStore
   alias ServiceRadar.Ash.Page
-  alias ServiceRadar.EventWriter.BulkInsert
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Inventory.Device
@@ -83,19 +83,18 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
   end
 
   defp insert_sweep_rows(rows, messages) do
-    # DB connection's search_path determines the schema
-    {count, _} =
-      BulkInsert.insert_all(
-        Repo,
-        table_name(),
-        rows,
-        on_conflict: :nothing,
-        returning: false
-      )
+    case AnalyticsStore.write(table_name(), rows,
+           on_conflict: :nothing,
+           returning: false,
+           repo: Repo
+         ) do
+      {:ok, count} ->
+        process_inventory_updates(messages)
+        {:ok, count}
 
-    # Also update device inventory via SweepResultsIngestor
-    process_inventory_updates(messages)
-    {:ok, count}
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 
   # Process inventory updates for sweep results

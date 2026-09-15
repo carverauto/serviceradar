@@ -1,5 +1,5 @@
-use super::metadata::{apply_metadata_identity_filter, LOG_DEVICE_IDENTITY_KEYS};
-use super::{enforce_list_limit, LogsQuery, RECOGNIZED_SEVERITY_TEXTS};
+use super::metadata::{LOG_DEVICE_IDENTITY_KEYS, apply_metadata_identity_filter};
+use super::{LogsQuery, RECOGNIZED_SEVERITY_TEXTS, enforce_list_limit};
 use crate::{
     error::{Result, ServiceError},
     parser::{Filter, FilterOp},
@@ -15,9 +15,9 @@ use crate::{
         trace_id as col_trace_id,
     },
 };
+use diesel::PgTextExpressionMethods;
 use diesel::prelude::*;
 use diesel::sql_types::{Nullable, Text};
-use diesel::PgTextExpressionMethods;
 use uuid::Uuid;
 
 diesel::define_sql_function! {
@@ -735,6 +735,7 @@ mod tests {
             rollup_stats: None,
             other: false,
             include_deleted: false,
+            dialect: Default::default(),
         };
 
         let result = build_query(&plan);
@@ -770,6 +771,7 @@ mod tests {
             rollup_stats: None,
             other: false,
             include_deleted: false,
+            dialect: Default::default(),
         };
 
         let result = build_query(&plan);

@@ -7,8 +7,7 @@
 //! execution path.
 
 use super::{
-    addon_fleet, field_survey, flows, plan_for, public_endpoints, threat_intel_matches,
-    wifi_map,
+    addon_fleet, field_survey, flows, plan_for, public_endpoints, threat_intel_matches, wifi_map,
 };
 use diesel::{debug_query, pg::Pg};
 

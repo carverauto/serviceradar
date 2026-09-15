@@ -156,6 +156,47 @@ cnpg:
       reserve_pool_size: "10"
       reserve_pool_timeout: "5"
 
+# Dedicated Linode Object Storage bucket for DuckDB/Parquet analytics.
+# Same region as control-plane CNPG backups (us-ord / us-ord-10), but a
+# different bucket than serviceradar-control-plane-db-backups. Do not reuse
+# that backup bucket or its key. Driver stays timescale (no table flip);
+# headEnabled stands the analytics Cluster idle for soak.
+analyticsStore:
+  driver: timescale
+  # EventWriter writes Timescale then Parquet for this table. Queries stay
+  # on Timescale until 6.4 flips `tables`. Requires a core-elx image that
+  # ships AnalyticsStore dual-write; older images ignore the extra env.
+  dualWrite:
+    - timeseries_metrics
+  headEnabled: true
+  affinity:
+    podAntiAffinityType: preferred
+    nodeSelector:
+      cnpg.io/dedicated: "true"
+    tolerations:
+      - key: cnpg.io/dedicated
+        operator: Equal
+        value: "true"
+        effect: NoSchedule
+  pgDuckdb:
+    storage: s3
+    storageClass: local-path-cnpg
+    s3:
+      secretName: serviceradar-analytics-object-store
+      bucket: serviceradar-demo-analytics
+      endpoint: us-ord-10.linodeobjects.com
+      region: us-ord
+      urlStyle: path
+      useSSL: true
+      # TCP/443 from the analytics-head pods only. DuckDB's S3 client
+      # talks to us-ord-10.linodeobjects.com and also to AWS STS/S3
+      # control-plane hostnames; a Linode-only prefix is not enough.
+      # Calico's order-1000 default-deny is what actually enforces this
+      # (see the companion projectcalico.org NetworkPolicy).
+      egressCidrs:
+        - "0.0.0.0/0"
+        - "::/0"
+
 logCollector:
   replicaCount: 3
   # Shared events stream (logs/OTEL/falco) — not used for raw NetFlow.

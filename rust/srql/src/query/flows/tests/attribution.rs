@@ -39,6 +39,7 @@ fn attributed_flows_translation_adds_event_type_and_attribution_filters() {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let (sql, params) = to_sql_and_params(&plan).unwrap();
@@ -83,6 +84,7 @@ fn attributed_flows_can_filter_by_public_endpoint_owner() {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let (sql, params) = to_sql_and_params(&plan).unwrap();
@@ -115,6 +117,7 @@ fn attributed_flow_stats_stay_on_raw_table() {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let (sql, params) = to_sql_and_params(&plan).unwrap();
@@ -147,6 +150,7 @@ fn attributed_flow_stats_can_group_by_attribution_status() {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let (sql, params) = to_sql_and_params_stats(&plan).unwrap();

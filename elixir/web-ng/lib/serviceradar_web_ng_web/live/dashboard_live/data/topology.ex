@@ -13,7 +13,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Topology do
             |> Enum.reject(&is_nil/1)
             |> Enum.filter(&dashboard_backbone_link?/1)
             |> Enum.take(160)
-            |> attach_interface_sparklines(cutoff_for_time_window(time_window), sparkline_bucket_for(time_window))
+            |> attach_interface_sparklines(
+              cutoff_for_time_window(time_window),
+              bucket_seconds_for(time_window)
+            )
 
           _ ->
             []
@@ -103,15 +106,15 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Topology do
 
       defp attach_interface_sparklines(links, _cutoff, _bucket) when links == [], do: links
 
-      defp attach_interface_sparklines(links, cutoff, bucket) do
-        if relation_exists?("platform.timeseries_metrics") do
+      defp attach_interface_sparklines(links, cutoff, bucket_seconds) do
+        if timeseries_store_reachable?() do
           pairs =
             links
             |> Enum.flat_map(&topology_interface_pairs/1)
             |> Enum.uniq()
             |> Enum.take(80)
 
-          sparkline_by_pair = interface_sparkline_map(pairs, cutoff, bucket)
+          sparkline_by_pair = interface_sparkline_map(pairs, cutoff, bucket_seconds)
 
           Enum.map(links, fn link ->
             local_key = interface_pair_key(link.source_label, link.local_if_index)
@@ -157,37 +160,29 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Topology do
         end
       end
 
-      defp interface_sparkline_map([], _cutoff, _bucket), do: %{}
+      defp timeseries_store_reachable? do
+        case ServiceRadar.AnalyticsStore.SQL.repo_for_table("timeseries_metrics") do
+          {:error, _} -> false
+          _repo -> true
+        end
+      end
+
+      defp interface_sparkline_map([], _cutoff, _bucket_seconds), do: %{}
 
       @sobelow_skip ["SQL.Query"]
-      defp interface_sparkline_map(pairs, cutoff, bucket) do
+      defp interface_sparkline_map(pairs, cutoff, bucket_seconds) do
         {device_ids, if_indexes} = Enum.unzip(pairs)
-        bucket_interval = bucket_interval_literal(bucket)
 
-        sql = """
-        WITH wanted(device_id, if_index) AS (
-          SELECT * FROM unnest($2::text[], $3::int[])
-        )
-        SELECT
-          m.device_id,
-          m.if_index,
-          m.metric_name,
-          time_bucket(#{bucket_interval}, m.timestamp) AS bucket,
-          MAX(m.value)::float8 AS value
-        FROM platform.timeseries_metrics m
-        INNER JOIN wanted w ON w.device_id = m.device_id AND w.if_index = m.if_index
-        WHERE m.timestamp >= $1
-          AND m.metric_name = ANY($4::text[])
-        GROUP BY m.device_id, m.if_index, m.metric_name, bucket
-        ORDER BY m.device_id, m.if_index, m.metric_name, bucket
-        """
+        {sql, params} =
+          ServiceRadar.AnalyticsStore.TimeseriesQueries.interface_sparkline_sql(
+            cutoff,
+            device_ids,
+            if_indexes,
+            ~w(ifHCInOctets ifHCOutOctets ifInOctets ifOutOctets),
+            bucket_seconds
+          )
 
-        case ServiceRadarWebNG.Repo.query(sql, [
-               cutoff,
-               device_ids,
-               if_indexes,
-               ~w(ifHCInOctets ifHCOutOctets ifInOctets ifOutOctets)
-             ]) do
+        case ServiceRadar.AnalyticsStore.SQL.query("timeseries_metrics", sql, params) do
           {:ok, %{rows: rows}} ->
             rows
             |> Enum.group_by(fn [device_id, if_index, _metric, _bucket, _value] -> {device_id, if_index} end)

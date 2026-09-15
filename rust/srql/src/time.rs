@@ -4,7 +4,7 @@ use crate::error::{Result, ServiceError};
 use chrono::{DateTime, Duration, NaiveDateTime, Utc};
 use serde::Serialize;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct TimeRange {
     pub start: DateTime<Utc>,
     pub end: DateTime<Utc>,

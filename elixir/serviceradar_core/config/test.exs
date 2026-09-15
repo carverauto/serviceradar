@@ -324,6 +324,7 @@ config :serviceradar_core,
 config :serviceradar_core,
   ash_domains: [
     ServiceRadar.AgentConfig,
+    ServiceRadar.AnalyticsStore.Catalog,
     ServiceRadar.Camera,
     ServiceRadar.CompositeChecks,
     ServiceRadar.Credentials,

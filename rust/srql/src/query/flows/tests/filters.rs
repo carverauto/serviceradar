@@ -23,6 +23,7 @@ fn threat_matched_exists_against_live_cache() {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     };
     let (sql, _) = to_sql_and_params(&plan).expect("threat_matched sql");
     assert!(
@@ -55,6 +56,7 @@ fn threat_indicator_excludes_expired_indicators() {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     };
     let (sql, _) = to_sql_and_params(&plan).expect("threat_indicator sql");
     assert!(
@@ -87,6 +89,7 @@ fn unknown_filter_field_returns_error() {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let result = build_query(&plan);
@@ -120,6 +123,7 @@ fn builds_query_with_tag_filter() {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let (sql, _params) = to_sql_and_params(&plan).expect("tag filter should translate");
@@ -155,6 +159,7 @@ fn negative_tag_filter_coalesces_null_columns() {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let (sql, _params) = to_sql_and_params(&plan).expect("negative tag filter should translate");
@@ -193,6 +198,7 @@ fn builds_query_with_directional_tag_and_cidr() {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let (sql, _params) = to_sql_and_params(&plan).expect("composed filters should translate");
@@ -224,6 +230,7 @@ fn builds_query_with_near_filter() {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let (sql, _params) = to_sql_and_params(&plan).expect("near filter should translate");
@@ -262,6 +269,7 @@ fn near_composes_with_tag_filter() {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let (sql, _params) = to_sql_and_params(&plan).expect("composed filters should translate");
@@ -290,6 +298,7 @@ fn rejects_invalid_near_literal() {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let err = to_sql_and_params(&plan).expect_err("invalid near should fail");
@@ -314,6 +323,7 @@ fn rejects_invalid_tag_literal() {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let err = to_sql_and_params(&plan).expect_err("invalid tag should fail");
@@ -341,6 +351,7 @@ fn builds_query_with_ip_filter() {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let result = build_query(&plan);
@@ -365,6 +376,7 @@ fn builds_query_with_port_filter() {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let result = build_query(&plan);
@@ -389,6 +401,7 @@ fn builds_query_with_bidirectional_port_filter() {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let (sql, _params) = to_sql_and_params(&plan).expect("bidirectional port filter should build");
@@ -416,6 +429,7 @@ fn builds_query_with_wildcard_port_filter() {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let result = build_query(&plan);
@@ -443,6 +457,7 @@ fn rejects_non_integer_port_with_eq() {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let result = build_query(&plan);
@@ -474,6 +489,7 @@ fn wildcard_port_filter_binds_text_param() {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let (_, params) = to_sql_and_params(&plan).expect("should build SQL for wildcard port");
@@ -510,6 +526,7 @@ fn device_addr_matches_either_endpoint_or_the_sampler() {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let (sql, params) = to_sql_and_params(&plan).expect("device_addr should build SQL");
@@ -552,6 +569,7 @@ fn device_addr_rejects_an_empty_address_list() {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let err = to_sql_and_params(&plan).expect_err("empty device_addr must be rejected");

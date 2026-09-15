@@ -1,6 +1,7 @@
 defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
   @moduledoc false
 
+  alias ServiceRadar.AnalyticsStore
   alias ServiceRadar.Inventory.InterfaceMetrics
   alias ServiceRadar.Inventory.InterfaceSettings
   alias ServiceRadar.Repo
@@ -687,18 +688,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
   end
 
   defp cheap_snmp_present?(device_uid) when is_binary(device_uid) and device_uid != "" do
+    cutoff = DateTime.add(DateTime.utc_now(), -24, :hour)
+    {sql, params} = AnalyticsStore.TimeseriesQueries.snmp_present_sql(device_uid, cutoff)
+
     interpret_exists(fn ->
-      Repo.query(
-        """
-        SELECT 1
-        FROM platform.timeseries_metrics
-        WHERE device_id = $1
-          AND metric_type = 'snmp'
-          AND timestamp > now() - interval '24 hours'
-        LIMIT 1
-        """,
-        [device_uid]
-      )
+      AnalyticsStore.SQL.query("timeseries_metrics", sql, params)
     end)
   end
 

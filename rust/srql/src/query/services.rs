@@ -575,6 +575,7 @@ mod tests {
             rollup_stats: None,
             other: false,
             include_deleted: false,
+            dialect: Default::default(),
         };
 
         let result = build_query(&plan);

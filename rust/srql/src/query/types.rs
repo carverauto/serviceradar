@@ -47,6 +47,28 @@ pub struct QueryPlan {
     pub rollup_stats: Option<String>,
     pub other: bool,
     pub include_deleted: bool,
+    /// SQL dialect for this plan. Default postgres keeps existing builders
+    /// byte-identical. DuckDB is set from the caller's per-entity driver map.
+    pub dialect: SqlDialect,
+}
+
+/// SQL dialect selected from the analytics-store driver map.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SqlDialect {
+    #[default]
+    Postgres,
+    Duckdb,
+}
+
+impl SqlDialect {
+    pub(crate) fn is_postgres(&self) -> bool {
+        matches!(self, Self::Postgres)
+    }
+
+    pub(crate) fn is_duckdb(&self) -> bool {
+        matches!(self, Self::Duckdb)
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -118,4 +140,7 @@ pub struct TranslateResponse {
     pub pagination: PaginationMeta,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub viz: Option<super::viz::VizMeta>,
+    /// Omitted when postgres so existing JSON stays byte-identical.
+    #[serde(skip_serializing_if = "SqlDialect::is_postgres")]
+    pub dialect: SqlDialect,
 }

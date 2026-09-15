@@ -8,6 +8,8 @@ defmodule ServiceRadar.Observability.SRQLRunner do
   This module intentionally keeps the surface area small for background jobs.
   """
 
+  alias Ecto.Adapters.SQL
+  alias ServiceRadar.AnalyticsStore
   alias ServiceRadar.Repo
 
   @type page :: %{
@@ -33,15 +35,27 @@ defmodule ServiceRadar.Observability.SRQLRunner do
          {:ok, sql} <- fetch_sql(translation),
          {:ok, params} <- decode_params(Map.get(translation, "params", []), opts),
          {:ok, %Postgrex.Result{columns: columns, rows: rows} = result} <-
-           run_sql(sql, params, opts) do
+           run_sql(sql, params, translation, opts) do
       {:ok, %{rows: rows_to_maps(columns, rows), next_cursor: next_cursor(translation, result)}}
     end
   end
 
   defp translate(query, limit, cursor, direction, mode, opts) do
-    translate_fn = Keyword.get(opts, :translate_fn, &ServiceRadarSRQL.Native.translate/5)
+    drivers = AnalyticsStore.SQL.drivers_json(Keyword.take(opts, [:config]))
 
-    case translate_fn.(query, limit, cursor, direction, mode) do
+    result =
+      case Keyword.get(opts, :translate_fn) do
+        nil ->
+          ServiceRadarSRQL.Native.translate(query, limit, cursor, direction, mode, drivers)
+
+        fun when is_function(fun, 6) ->
+          fun.(query, limit, cursor, direction, mode, drivers)
+
+        fun when is_function(fun, 5) ->
+          fun.(query, limit, cursor, direction, mode)
+      end
+
+    case result do
       {:ok, json} when is_binary(json) ->
         case Jason.decode(json) do
           {:ok, decoded} when is_map(decoded) -> {:ok, decoded}
@@ -144,16 +158,30 @@ defmodule ServiceRadar.Observability.SRQLRunner do
   # DBConnection's 15s default causes spurious disconnects under load.
   @default_query_timeout_ms 60_000
 
-  defp run_sql(sql, params, opts) do
-    timeout = Keyword.get(opts, :timeout, @default_query_timeout_ms)
+  defp run_sql(sql, params, translation, opts) do
+    timeout =
+      Keyword.get(opts, :timeout, timeout_for(translation))
 
     query_fn =
-      Keyword.get(opts, :query_fn, fn s, p ->
-        Ecto.Adapters.SQL.query(Repo, s, p, timeout: timeout)
-      end)
+      case AnalyticsStore.SQL.repo_for_translation(translation, opts) do
+        {:error, reason} ->
+          fn _s, _p -> {:error, reason} end
+
+        repo ->
+          default = fn s, p -> SQL.query(repo, s, p, timeout: timeout) end
+
+          if repo != Repo and Keyword.has_key?(opts, :analytics_query_fn) do
+            Keyword.fetch!(opts, :analytics_query_fn)
+          else
+            Keyword.get(opts, :query_fn, default)
+          end
+      end
 
     query_fn.(sql, params)
   end
+
+  defp timeout_for(%{"dialect" => "duckdb"}), do: AnalyticsStore.SQL.duckdb_timeout_ms()
+  defp timeout_for(_), do: @default_query_timeout_ms
 
   defp next_cursor(translation, %Postgrex.Result{rows: rows}) do
     limit = get_in(translation, ["pagination", "limit"])
