@@ -10,8 +10,8 @@ helm:
     value: "20260915000000"
     forcestring: true
   - name: image.digests.core
-    value: sha256:effd83fa791938bee66aca4318a937f26a266d830178c46970540c86a7af560c
+    value: sha256:caa21eedb9b30deceea0c6fe0d9e655c83651bb8ba7ffa430fb95013520e22c1
     forcestring: true
   - name: image.digests.webNg
-    value: sha256:4fd33f8797b96987d25f814eeec551802a1f46a3ee3077ca5b968dd844495497
+    value: sha256:5d120bffcbca4ac65a82c264547e484b7f41963d3c30e22ed3a3df0a59ad8e5a
     forcestring: true
