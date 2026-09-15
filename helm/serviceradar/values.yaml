@@ -19,14 +19,16 @@ podDisruptionBudgets:
 global:
   # Override all ServiceRadar image tags at once. Leave empty to track the
   # chart appVersion, which is almost always what you want -- the chart and the
-  # application it deploys are released together. Set a sha-* tag or use
-  # image.digests.* for production rollouts needing immutable references.
+  # application it deploys are released together, so `--version` alone selects
+  # matching images. If you set it, use v<chart-version>: any other tag drifts
+  # from the core.migrations.expectedVersion and templates this chart ships.
+  # For immutable references, pin image.digests.* instead.
   imageTag: ""
   # The ServiceRadar RELEASE this deployment corresponds to, as a `v<semver>`
   # tag. Distinct from imageTag on purpose: web-ng resolves plugin and native
   # add-on assets from the GitHub release with this name, and shows it in the
-  # product status UI. Immutable rollouts set imageTag to a `sha-<gitsha>`, and
-  # no release is ever named that, so the two cannot share one value.
+  # product status UI. Development rollouts may set imageTag to a `sha-<gitsha>`
+  # build tag, and no release is ever named that, so the two cannot share one value.
   # Empty means "use the chart appVersion", which is what you want unless you are
   # deliberately pulling add-ons from a different release than the chart.
   releaseVersion: ""
@@ -48,9 +50,12 @@ global:
     allowInsecureStorage: false
 
 image:
-  # Base registry/repository prefix for first-party ServiceRadar images.
-  # Override with ghcr.io/carverauto to pull published GHCR images.
+  # Base registry/repository prefix for first-party ServiceRadar images. They
+  # are published only here and pull anonymously; ghcr.io/carverauto does not
+  # carry current releases. Override only to pull from your own mirror.
   registry: registry.carverauto.dev/serviceradar
+  # Published images pull anonymously, so this secret is only needed for an
+  # authenticated mirror. Set it to "" to drop the reference.
   registryPullSecret: registry-carverauto-dev-cred
   tags:
     # Default tag for first-party ServiceRadar images. Empty means "use the
@@ -617,7 +622,7 @@ core:
     #
     # Set to "" to fall back to the old existence-only check (for operators
     # running the chart against a deliberately pinned schema).
-    expectedVersion: "20260914120000"
+    expectedVersion: "20260915000000"
   # Stale device reaper settings - controls cleanup of IP-only "ghost" devices
   reaper:
     # How often to run the reaper job
@@ -1084,12 +1089,11 @@ coldTier:
     # TimescaleDB/AGE/PostGIS (pg_duckdb is structurally incompatible with a
     # TimescaleDB-loaded instance — never point this at the primary image).
     imageName: ""
-    # The analytics image is based on the official pgduckdb image, whose
-    # postgres user is UID/GID 999 — not CloudNativePG's default 26. These
-    # MUST match the image or the instance dies during initdb. Override only
-    # if you build the image on a base with a different postgres UID.
-    postgresUID: 999
-    postgresGID: 999
+    # The analytics image is the CNPG PostgreSQL 18 base (UID/GID 26) plus a
+    # pg_duckdb extension layer. These MUST match the image; override only if
+    # you build on a base with a different postgres UID.
+    postgresUID: 26
+    postgresGID: 26
     # Defaults to image.registryPullSecret; set only to use a dedicated secret.
     registryPullSecret: ""
     clusterName: cnpg-analytics
@@ -1110,6 +1114,52 @@ coldTier:
     # Extra postgresql.parameters merged into the Cluster spec.
     postgresqlParameters: {}
     resources: {}
+
+# Analytics store: Timescale hypertables (default) or pg_duckdb over Parquet.
+# pg_duckdb renders the dedicated analytics-head Cluster. Object-store
+# credentials are a Kubernetes Secret (ServiceRadar talking to itself), never
+# Helm values. Demo uses a dedicated Linode bucket, not the control-plane
+# backup bucket.
+analyticsStore:
+  driver: timescale
+  # Render the analytics-head Cluster without flipping any table (idle soak).
+  # driver pg_duckdb also renders the head. Default off.
+  headEnabled: false
+  # Empty list + driver pg_duckdb flips every cold-schema registry table.
+  # Demo cutover should name tables explicitly, largest first.
+  tables: []
+  # Named dual-write cutover. EventWriter writes Timescale and Parquet.
+  # Requires a complete pgDuckdb backend even when driver is timescale.
+  dualWrite: []
+  pgDuckdb:
+    storage: s3
+    imageName: ""
+    clusterName: cnpg-analytics
+    s3:
+      secretName: ""
+      bucket: ""
+      endpoint: ""
+      region: ""
+      urlStyle: path
+      useSSL: true
+      port: 443
+      # NetworkPolicy cannot match FQDNs. Supply Linode object-store CIDRs
+      # when egress is locked down; empty means no object-store egress rule.
+      egressCidrs: []
+    filesystem:
+      # DuckDB COPY path when storage is filesystem. Pin the head to a local
+      # NVMe / hostPath-backed StorageClass (not Longhorn). farm01 stays
+      # driver: timescale until that volume exists.
+      path: /var/lib/serviceradar/analytics
+    memoryLimitMb: 1536
+    threads: 2
+    # CNPG scratch-data emptyDir (mounted at /run). Size cap is
+    # spec.ephemeralVolumesSizeLimit.temporaryData. Do not put Parquet here.
+    spill:
+      emptyDir: true
+      sizeLimit: 50Gi
+    poolSize: 4
+    overheadMb: 1536
 
 # Shared storage for GeoLite2 MMDB files used by GeoIP/ASN enrichment.
 # This must be mounted wherever enrichment jobs run (core) and anywhere that

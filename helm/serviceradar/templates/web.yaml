@@ -345,6 +345,7 @@ spec:
           value: "-kernel inet_dist_listen_min 9100 -kernel inet_dist_listen_max 9155"
         - name: PHX_SERVER
           value: "true"
+        {{- include "serviceradar.analyticsStoreQueryEnv" . | nindent 8 }}
         # The ServiceRadar RELEASE this deployment corresponds to -- not the
         # container image tag. web-ng uses it to fetch plugin and native add-on
         # assets from the matching GitHub release, and to show a version in the
