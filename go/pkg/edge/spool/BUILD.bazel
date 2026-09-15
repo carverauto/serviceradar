@@ -9,6 +9,7 @@ go_library(
         "recover.go",
         "reserve.go",
         "resolve.go",
+        "segments.go",
         "spool.go",
     ],
     importpath = "github.com/carverauto/serviceradar/go/pkg/edge/spool",
@@ -26,6 +27,7 @@ go_test(
         "lanes_test.go",
         "reserve_test.go",
         "restart_test.go",
+        "segments_test.go",
         "spool_test.go",
     ],
     embed = [":spool"],
@@ -33,5 +35,6 @@ go_test(
         "//go/pkg/edge/edgerecord",
         "//go/pkg/edge/fairsched",
         "//proto/edge/v1:edgev1",
+        "@org_golang_google_protobuf//proto",
     ],
 )

@@ -251,6 +251,12 @@ type LaneSet struct {
 	mu     sync.Mutex // guards lanes and closed; never held across I/O on a lane
 	lanes  map[LaneKey]*lane
 	closed bool
+
+	// testSegBounds replaces the production segment rotation limits on every
+	// spool this set opens, so tests prove each bound binds without thousands
+	// of fsynced commits. It carries limits only: bounds STATE is always
+	// rebuilt from the commit evidence on open. Nil in production.
+	testSegBounds *segmentLimits
 }
 
 // OpenLanes opens (creating if needed) the lane set rooted at root for the given
@@ -318,6 +324,18 @@ func OpenLanes(root string, session Identity, taxonomy *fairsched.LaneTaxonomy) 
 // ErrPermanent and write nothing. A permanent refusal is never masked by a
 // retryable one. Storage failures are returned unclassified.
 func (ls *LaneSet) Append(key LaneKey, presented Identity, eventID, body []byte) (Receipt, error) {
+	return ls.AppendWithBindings(key, presented, eventID, body, Bindings{})
+}
+
+// AppendWithBindings durably appends one record like Append, additionally
+// carrying the commit's receipt/attribution bindings. The attribution binding
+// digest feeds the segment rotation bounds (task 2.24): alternating
+// attributions trip the run bound, distinct attributions trip the key bound,
+// and heavily attributed segments trip the projected-manifest byte bound,
+// each answering ErrRotationRequired so the producer rotates and retries.
+// An empty Bindings declares no binding; such appends each open their own
+// rotation run.
+func (ls *LaneSet) AppendWithBindings(key LaneKey, presented Identity, eventID, body []byte, b Bindings) (Receipt, error) {
 	if !key.Valid() {
 		return Receipt{}, fmt.Errorf("%w: %s", ErrLaneInvalid, key)
 	}
@@ -352,11 +370,11 @@ func (ls *LaneSet) Append(key LaneKey, presented Identity, eventID, body []byte)
 		return Receipt{}, fmt.Errorf("%w: lane %s open generation is frozen under another identity", ErrRotationRequired, key)
 	}
 
-	seq, err := l.open.spool.Append(eventID, body)
+	r, err := l.open.spool.Commit(eventID, body, b)
 	if err != nil {
 		return Receipt{}, err
 	}
-	return Receipt{Generation: l.open.id.clone(), Sequence: seq}, nil
+	return Receipt{Generation: l.open.id.clone(), Sequence: r.Sequence}, nil
 }
 
 // RequireRotation marks the lane's open generation as needing rotation: until
@@ -578,7 +596,7 @@ func (ls *LaneSet) openGeneration(l *lane) error {
 	// Published: the ordinal is spent whether or not the generation opens, so a
 	// retry can never publish a second generation under the same ordinal.
 	l.nextOrdinal++
-	sp, err := openPublished(l.dir, final)
+	sp, err := ls.openPublished(l.dir, final)
 	if err != nil {
 		// It holds no record. Close it so a retry's successor is the lane's only
 		// open generation; if even that fails, recovery fails stop on two open
@@ -592,11 +610,25 @@ func (ls *LaneSet) openGeneration(l *lane) error {
 
 // openPublished makes a just-published generation's directory entry durable and
 // opens its segment.
-func openPublished(laneDir, dir string) (*Spool, error) {
+func (ls *LaneSet) openPublished(laneDir, dir string) (*Spool, error) {
 	if err := fsyncDir(laneDir); err != nil {
 		return nil, err
 	}
-	return Open(dir)
+	return ls.openSpool(dir)
+}
+
+// openSpool opens the spool at dir, applying the test rotation limits when a
+// test set them. Limits only: the bounds state always comes from the commit
+// evidence the open rebuilds.
+func (ls *LaneSet) openSpool(dir string) (*Spool, error) {
+	sp, err := Open(dir)
+	if err != nil {
+		return nil, err
+	}
+	if ls.testSegBounds != nil {
+		sp.segBounds.limits = *ls.testSegBounds
+	}
+	return sp, nil
 }
 
 // recoverLane loads one lane's generations from disk.
@@ -628,7 +660,7 @@ func (ls *LaneSet) recoverLane(key LaneKey) (*lane, error) {
 			removedTmp = true
 			continue
 		}
-		g, err := recoverGeneration(l, e)
+		g, err := ls.recoverGeneration(l, e)
 		if err != nil {
 			closeGens()
 			return nil, err
@@ -667,7 +699,7 @@ func (ls *LaneSet) recoverLane(key LaneKey) (*lane, error) {
 	return l, nil
 }
 
-func recoverGeneration(l *lane, e os.DirEntry) (*Generation, error) {
+func (ls *LaneSet) recoverGeneration(l *lane, e os.DirEntry) (*Generation, error) {
 	name := e.Name()
 	ordinal, spoolID, ok := parseGenerationDir(name)
 	if !ok || !e.IsDir() {
@@ -691,7 +723,7 @@ func recoverGeneration(l *lane, e os.DirEntry) (*Generation, error) {
 	if err != nil {
 		return nil, err
 	}
-	sp, err := Open(dir)
+	sp, err := ls.openSpool(dir)
 	if err != nil {
 		return nil, err
 	}

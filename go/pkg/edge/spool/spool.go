@@ -30,7 +30,10 @@
 //
 // This slice implements a single segment. Multi-segment rotation/physical reclaim,
 // corrupt-segment quarantine, and the loss-manifest/recovery-generation rollover
-// are follow-on slices within task 2.4.
+// are follow-on slices within task 2.4. Per-segment rotation bounds on distinct
+// attribution keys, same-key runs, and projected manifest size live in
+// segments.go (task 2.24): they refuse with ROTATION_REQUIRED on whichever
+// binds first, and the rotation they demand is task 2.4's.
 //
 // Capacity (task 2.26) lives in reserve.go: an Allocator shared by every lane
 // keeps the aggregate recovery reserve and a minimum-free floor out of producer
@@ -182,9 +185,14 @@ type Spool struct {
 	bindings BindingInspector
 	alloc    *Allocator
 
-	mu              sync.Mutex
-	seg             segmentHandle
-	segSize         int64
+	mu      sync.Mutex
+	seg     segmentHandle
+	segSize int64
+	// segBounds is the segment's rotation accounting (task 2.24): distinct
+	// attribution keys, same-key runs, and projected worst-case manifest
+	// size. It is rebuilt from the commit evidence on every open, so a
+	// restart never resets it.
+	segBounds       segmentBounds
 	evidence        [evidenceCopies]*os.File
 	evidenceDurable [evidenceCopies]bool
 	nextSeq         uint64
@@ -240,7 +248,7 @@ func Open(dir string, opts ...Option) (*Spool, error) {
 	if err := os.MkdirAll(dir, dirPerm); err != nil {
 		return nil, fmt.Errorf("spool: mkdir: %w", err)
 	}
-	s := &Spool{dir: dir, copyOrder: [evidenceCopies]int{copyA, copyB}}
+	s := &Spool{dir: dir, copyOrder: [evidenceCopies]int{copyA, copyB}, segBounds: segmentBounds{limits: defaultSegmentLimits()}}
 	for _, opt := range opts {
 		opt(s)
 	}
@@ -369,6 +377,12 @@ func (s *Spool) Commit(eventID, body []byte, b Bindings) (CommitReceipt, error) 
 	if s.failErr != nil {
 		return CommitReceipt{}, s.failErr
 	}
+	// Segment rotation bounds (task 2.24) refuse before anything is written
+	// or charged: a refused append allocates no sequence, so the producer can
+	// rotate the lane's generation and retry it unchanged.
+	if bound := s.segBounds.refusalFor(b.AttributionSHA256); bound != "" {
+		return CommitReceipt{}, rotationRefusal(bound, s.segBounds.stats())
+	}
 	var charged uint64
 	if s.alloc != nil {
 		n, err := s.commitBytes(len(body))
@@ -476,6 +490,7 @@ func (s *Spool) commitLocked(eventID, body []byte, b Bindings) (CommitReceipt, e
 	}
 
 	s.slots[seq-1].committed = true
+	s.segBounds.observe(b.AttributionSHA256)
 	return CommitReceipt{
 		Sequence:           seq,
 		EventID:            append([]byte(nil), eventID...),

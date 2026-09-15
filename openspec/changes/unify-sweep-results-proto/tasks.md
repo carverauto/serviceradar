@@ -851,11 +851,36 @@
   (`Open` doc); (3) a genuine record found by resync past damage whose sequence
   lies beyond the open cap is excluded from the high-water, so its sequence can be
   reused (the KNOWN ACCEPTED RISK on `scanChain`).
-- [ ] 2.24 **Bound segments on keys, runs, AND manifest size.** Rotate on
+- [x] 2.24 **Bound segments on keys, runs, AND manifest size.** Rotate on
   whichever binds first. Include an ALTERNATING-attribution test (keys A,B,A,B,…)
   proving the run bound triggers rotation where a distinct-key bound alone would
   not, and that the manifest for any single corrupt segment stays within the
   recovery grammar's page and byte ceilings.
+  DONE in `go/pkg/edge/spool` (`segments.go`, `spool.go`, `recover.go`,
+  `lanes.go`); their doc comments own the rotation-bounds contract. The
+  segment key is the commit's declared attribution binding digest: equal
+  digests name the same bound attribution and may merge into one manifest
+  span, so a run of equal keys projects to one span, while a nil digest never
+  continues a run (its future corruption reason is unknowable at append time).
+  `Commit` refuses before writing or allocating a sequence with a
+  RETRYABLE-only `ErrRotationRequired` naming the binding leg, so the producer
+  rotates (`LaneSet.Rotate`) and retries unchanged; `AppendWithBindings`
+  carries bindings through the lane path. Bounds state rebuilds from the
+  commit evidence on every open and resync, so a restart never resets it, and
+  slots whose copies disagree fold as unknown-key, attributed-cost runs. The
+  tests are in `segments_test.go`: alternating A,B trips the run leg at 2
+  distinct keys, distinct digests trip the keys leg, attributed spans trip the
+  manifest leg first, nil appends never share runs, bounds survive reopen, and
+  a lane rotates and retries into a fresh generation. Accepted limits: (1) 256
+  keys, 4096 runs, and a 256 KiB projection (`MaxSegmentKeys`,
+  `MaxSegmentRuns`, the grammar's own `MaxManifestBytes`); 817 maximum-size
+  attributed runs admit to 4 pages and 261,952 projected bytes; (2) the
+  projection counts one worst-case span per run, so per-reason fragmentation
+  inside a run stays closed by the coordinator's split-across-manifests rule,
+  not by these bounds; (3) segment byte/record count is NOT bounded here -- a
+  single-key single-run segment admits indefinitely while its worst-case
+  manifest stays one span, and capping segment size is task 2.4's rotation
+  work (`Spool`/`segments.go` docs).
 - [ ] 2.25 **Preserve attribution across relocation.** Carry the bound relation
   through rollover, compaction, and scratch copies; re-verify the binding and
   re-checksum at the destination BEFORE the source becomes eligible for release;

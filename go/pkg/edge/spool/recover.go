@@ -124,6 +124,11 @@ func (s *Spool) recover() error {
 			pending = append(pending, obs)
 		}
 		s.slots = append(s.slots, loc)
+		// Rebuild the rotation bounds (task 2.24) from the same views: a
+		// restart never resets them. Slots past the high-water are all-absent
+		// evidence sizing slack and fold as unknown runs; that errs toward
+		// earlier rotation, which is the safe direction.
+		s.segBounds.absorbEvidence(views)
 	}
 
 	// Every sequence up to the highest one any evidence or record names is allocated:
@@ -223,6 +228,7 @@ func (s *Spool) refreshLocked() error {
 		}
 		loc.committed = committed
 		s.slots = append(s.slots, loc)
+		s.segBounds.absorbEvidence(views)
 		s.nextSeq = seq + 1
 		s.nextGen = max(s.nextGen, gen+1)
 	}
