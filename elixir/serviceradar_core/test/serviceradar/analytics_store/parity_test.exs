@@ -20,7 +20,10 @@ defmodule ServiceRadar.AnalyticsStore.ParityTest do
   test "duckdb stats SQL reads published hive parquet only" do
     {:ok, entry} = Registry.fetch("timeseries_metrics")
     glob = "s3://serviceradar-demo-analytics/analytics/v1/timeseries_metrics/date=*/*.parquet"
-    sql = Parity.stats_sql(:duckdb, entry, ~U[2026-09-14 12:00:00Z], ~U[2026-09-14 18:00:00Z], glob)
+
+    sql =
+      Parity.stats_sql(:duckdb, entry, ~U[2026-09-14 12:00:00Z], ~U[2026-09-14 18:00:00Z], glob)
+
     assert sql =~ "read_parquet"
     assert sql =~ "hive_partitioning := true"
     assert sql =~ glob
@@ -51,6 +54,8 @@ defmodule ServiceRadar.AnalyticsStore.ParityTest do
       )
 
     assert {:ok, glob} = Parity.parquet_glob(cfg, "timeseries_metrics")
-    assert glob == "s3://serviceradar-demo-analytics/analytics/v1/timeseries_metrics/date=*/*.parquet"
+
+    assert glob ==
+             "s3://serviceradar-demo-analytics/analytics/v1/timeseries_metrics/date=*/*.parquet"
   end
 end

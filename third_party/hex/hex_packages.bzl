@@ -220,7 +220,7 @@ HEX_PACKAGES = [
     ("permit", "permit", "0.4.1", "f5d80a3dabbc5f65873079c376a5334578ca1abcc82d8e91e397c68962aa9a54"),
     ("permit_ecto", "permit_ecto", "0.3.1", "fae416cc86a0a4a46d6080eb41a3399f4d3668878c5bc4a48ab1b33141ed078b"),
     ("permit_phoenix", "permit_phoenix", "0.5.1", "f210563db0b592a91fd8f6f6f109f0f313eabb3c560f1a33138f7785c518d4a9"),
-    ("phoenix", "phoenix", "1.8.13", "ad14e24d10e5a52d5f80429053bbe3a5d124311a2868fceb0a01a2e859c44539"),
+    ("phoenix", "phoenix", "1.8.14", "2782ff375824b2b5e41561fbae4764ee7b875af6898483bca49f24a9d1e37816"),
     ("phoenix_ecto", "phoenix_ecto", "4.7.0", "1d75011e4254cb4ddf823e81823a9629559a1be93b4321a6a5f11a5306fbf4cc"),
     ("phoenix_html", "phoenix_html", "4.3.0", "3eaa290a78bab0f075f791a46a981bbe769d94bc776869f4f3063a14f30497ad"),
     ("phoenix_live_dashboard", "phoenix_live_dashboard", "0.8.7", "3a8625cab39ec261d48a13b7468dc619c0ede099601b084e343968309bd4d7d7"),

@@ -444,8 +444,12 @@ defmodule ServiceRadarWebNG.Application do
 
           nil ->
             case repo.start_link(opts) do
-              {:ok, _} -> :ok
-              {:error, {:already_started, _}} -> :ok
+              {:ok, _} ->
+                :ok
+
+              {:error, {:already_started, _}} ->
+                :ok
+
               {:error, reason} ->
                 Logger.error("Failed to start #{inspect(repo)}: #{inspect(reason)}")
                 :error

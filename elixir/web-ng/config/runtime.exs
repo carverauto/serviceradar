@@ -1628,8 +1628,6 @@ if config_env() == :prod do
       _ -> repo_config
     end
 
-  config :serviceradar_core, ServiceRadar.Repo, repo_config
-
   # Query-side AnalyticsRepo. The core-elx release has the matching EventWriter
   # block; a release evaluates only its own runtime.exs.
   config :serviceradar_core, ServiceRadar.AnalyticsStore,
@@ -1663,6 +1661,8 @@ if config_env() == :prod do
         "SERVICERADAR_ANALYTICS_STORE_HEAD_PASSWORD_FILE"
       ),
     pool_size: parse_int_env.("SERVICERADAR_ANALYTICS_STORE_POOL_SIZE", 4)
+
+  config :serviceradar_core, ServiceRadar.Repo, repo_config
 
   config :serviceradar_core,
     northbound_callback_base_url:

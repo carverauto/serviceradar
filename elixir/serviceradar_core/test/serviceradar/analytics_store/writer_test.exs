@@ -73,6 +73,7 @@ defmodule ServiceRadar.AnalyticsStore.WriterTest do
 
     assert_received {:verify, url}
     assert url =~ "_staging"
+
     assert_received {:manifest,
                      %{
                        table_name: "timeseries_metrics",

@@ -37,9 +37,7 @@ defmodule ServiceRadar.AnalyticsStore.Writer do
         match?({:ok, _}, Layout.partition_date(row, entry.time_column))
       end)
 
-    if bad != [] do
-      {:error, {:rows_missing_timestamp, length(bad)}}
-    else
+    if bad == [] do
       ok_rows
       |> Enum.group_by(fn row ->
         {:ok, date} = Layout.partition_date(row, entry.time_column)
@@ -51,6 +49,8 @@ defmodule ServiceRadar.AnalyticsStore.Writer do
           {:error, reason} -> {:halt, {:error, reason}}
         end
       end)
+    else
+      {:error, {:rows_missing_timestamp, length(bad)}}
     end
   end
 
@@ -59,14 +59,16 @@ defmodule ServiceRadar.AnalyticsStore.Writer do
       opts
       |> Keyword.get_lazy(:batch_id, fn -> :erlang.unique_integer([:positive]) end)
       |> batch_id()
+
     writer = Keyword.get(opts, :writer_id, @writer_id)
     keys = Layout.keys(entry.table, date, writer, batch_id)
 
     with {:ok, staging_url} <- Storage.copy_target(cfg, keys.staging_key),
          {:ok, published_url} <- Storage.copy_target(cfg, keys.published_key),
-         {:ok, written} <- run_head(cfg, opts, fn conn ->
-           copy_and_verify(conn, entry, rows, staging_url, published_url, opts)
-         end),
+         {:ok, written} <-
+           run_head(cfg, opts, fn conn ->
+             copy_and_verify(conn, entry, rows, staging_url, published_url, opts)
+           end),
          :ok <- record_manifest(cfg, entry, keys, written, opts) do
       {:ok, written}
     end

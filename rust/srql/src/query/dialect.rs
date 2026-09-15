@@ -139,18 +139,19 @@ fn remap_jsonb_arrows(sql: &str) -> String {
             .unwrap_or(0);
         let col = &before[col_start..];
         let after = rest[idx + 3..].trim_start();
-        if is_ident(col) && after.starts_with('\'') {
-            if let Some(end) = after[1..].find('\'') {
-                let key = &after[1..1 + end];
-                out.push_str(&before[..col_start]);
-                out.push_str("json_extract_string(");
-                out.push_str(col);
-                out.push_str(", '$.");
-                out.push_str(key);
-                out.push_str("')");
-                rest = &after[1 + end + 1..];
-                continue;
-            }
+        if is_ident(col)
+            && after.starts_with('\'')
+            && let Some(end) = after[1..].find('\'')
+        {
+            let key = &after[1..1 + end];
+            out.push_str(&before[..col_start]);
+            out.push_str("json_extract_string(");
+            out.push_str(col);
+            out.push_str(", '$.");
+            out.push_str(key);
+            out.push_str("')");
+            rest = &after[1 + end + 1..];
+            continue;
         }
         out.push_str(&rest[..=idx + 2]);
         rest = &rest[idx + 3..];

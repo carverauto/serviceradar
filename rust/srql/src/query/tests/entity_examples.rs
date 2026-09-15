@@ -965,11 +965,11 @@ fn device_sweep_overlap_example_declared_not_observed() {
     let lower = sql.to_lowercase();
     assert!(
         lower.contains("from platform.device_sweep_overlap as overlap"),
-        "expected query against the view, got: {sql}"
+        "expected query against the view"
     );
     assert!(
         lower.contains("overlap.relationship = $1"),
-        "expected relationship filter as the first bind, got: {sql}"
+        "expected relationship filter as the first bind"
     );
     // The alert rows carry no last_seen_at, so the default sort surfaces them
     // ahead of recency rather than behind every ordinary row.
@@ -978,12 +978,9 @@ fn device_sweep_overlap_example_declared_not_observed() {
             "order by (overlap.relationship = 'declared_not_observed') desc, \
              overlap.last_seen_at desc nulls last"
         ),
-        "expected alert-first default ordering, got: {sql}"
+        "expected alert-first default ordering"
     );
-    assert!(
-        !sql.contains('?'),
-        "no literal '?' should survive rewrite: {sql}"
-    );
+    assert!(!sql.contains('?'), "no literal '?' should survive rewrite");
     // relationship filter, then LIMIT, then OFFSET.
     assert_eq!(binds.len(), 3);
 }

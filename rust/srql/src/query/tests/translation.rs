@@ -1889,23 +1889,19 @@ fn duckdb_driver_skips_cagg_and_prunes_hive_partitions() {
     let sql = response.sql.to_lowercase();
     assert!(
         !sql.contains("timeseries_metrics_hourly"),
-        "duckdb dialect must not read Timescale CAGGs: {}",
-        response.sql
+        "duckdb dialect must not read Timescale CAGGs"
     );
     assert!(
         sql.contains("from timeseries_metrics"),
-        "expected raw table: {}",
-        response.sql
+        "expected raw table"
     );
     assert!(
         sql.contains("to_timestamp(floor("),
-        "expected on-read buckets: {}",
-        response.sql
+        "expected on-read buckets"
     );
     assert!(
         sql.contains("_partition_date"),
-        "expected hive partition prune: {}",
-        response.sql
+        "expected hive partition prune"
     );
 }
 
@@ -1966,13 +1962,11 @@ fn duckdb_listing_cursor_pins_the_resolved_window() {
     assert!(first.dialect.is_duckdb());
     assert!(
         first.sql.to_ascii_uppercase().contains("NULLS LAST"),
-        "expected explicit NULLS on duckdb listing: {}",
-        first.sql
+        "expected explicit NULLS on duckdb listing"
     );
     assert!(
         first.sql.to_ascii_lowercase().contains("gateway_id"),
-        "expected unique tiebreaker: {}",
-        first.sql
+        "expected unique tiebreaker"
     );
     let next = first.pagination.next_cursor.expect("next cursor");
     let state =
@@ -2029,8 +2023,7 @@ fn duckdb_remaps_jsonb_arrow_on_timeseries_series() {
         response
             .sql
             .contains("json_extract_string(tags, '$.core_id')"),
-        "expected DuckDB JSON remap, got: {}",
-        response.sql
+        "expected DuckDB JSON remap"
     );
     refute_cagg(&response.sql);
 }
@@ -2038,6 +2031,6 @@ fn duckdb_remaps_jsonb_arrow_on_timeseries_series() {
 fn refute_cagg(sql: &str) {
     assert!(
         !sql.to_lowercase().contains("_hourly"),
-        "did not expect a CAGG table: {sql}"
+        "did not expect a CAGG table"
     );
 }

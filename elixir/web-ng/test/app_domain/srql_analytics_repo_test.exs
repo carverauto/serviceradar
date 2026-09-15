@@ -17,16 +17,12 @@ defmodule ServiceRadarWebNG.SRQLAnalyticsRepoTest do
 
   test "direct timeseries_metrics readers go through the analytics-store picker" do
     topology =
-      File.read!(
-        Path.join(@web_root, "serviceradar_web_ng_web/live/dashboard_live/data/topology.ex")
-      )
+      File.read!(Path.join(@web_root, "serviceradar_web_ng_web/live/dashboard_live/data/topology.ex"))
 
     god_view = File.read!(Path.join(@web_root, "serviceradar_web_ng/topology/god_view_stream.ex"))
 
     interfaces =
-      File.read!(
-        Path.join(@web_root, "serviceradar_web_ng_web/live/device_live/interface_data.ex")
-      )
+      File.read!(Path.join(@web_root, "serviceradar_web_ng_web/live/device_live/interface_data.ex"))
 
     assert topology =~ "AnalyticsStore.SQL.query"
     assert topology =~ "TimeseriesQueries.interface_sparkline_sql"
