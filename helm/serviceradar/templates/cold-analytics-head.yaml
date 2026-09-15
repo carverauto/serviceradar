@@ -79,7 +79,7 @@ spec:
     shared_preload_libraries:
       - pg_duckdb
     parameters:
-      max_connections: "30"
+      max_connections: {{ int (default 60 $pg.maxConnections) | quote }}
       shared_buffers: 256MB
       work_mem: 16MB
       duckdb.max_memory: {{ printf "%dMB" $maxMemoryMb | quote }}

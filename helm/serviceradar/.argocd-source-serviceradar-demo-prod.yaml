@@ -1,5 +1,11 @@
 helm:
   parameters:
+  - name: analyticsStore.pgDuckdb.maxConnections
+    value: "60"
+    forcestring: true
+  - name: coldTier.analyticsHead.duckdb.threads
+    value: "16"
+    forcestring: true
   - name: global.imageTag
     value: v1.4.68
     forcestring: true
