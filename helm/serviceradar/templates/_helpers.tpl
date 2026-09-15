@@ -839,14 +839,11 @@ the driver is pg_duckdb (a table flip). Dual-write keeps queries on Timescale.
 {{- $store := default dict .Values.analyticsStore -}}
 {{- $driver := default "timescale" $store.driver -}}
 {{- $pg := default dict $store.pgDuckdb -}}
-{{- $dual := default (list) $store.dualWrite -}}
 {{- $cluster := include "serviceradar.analyticsHeadClusterName" . -}}
 - name: SERVICERADAR_ANALYTICS_STORE_DRIVER
   value: {{ $driver | quote }}
 - name: SERVICERADAR_ANALYTICS_STORE_TABLES
   value: {{ join "," (default (list) $store.tables) | quote }}
-- name: SERVICERADAR_ANALYTICS_STORE_DUAL_WRITE
-  value: {{ join "," $dual | quote }}
 {{- if eq $driver "pg_duckdb" }}
 - name: SERVICERADAR_ANALYTICS_STORE_POOL_SIZE
   value: {{ default 4 $pg.poolSize | quote }}
