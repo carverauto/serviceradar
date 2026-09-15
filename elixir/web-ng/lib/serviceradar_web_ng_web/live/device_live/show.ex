@@ -340,15 +340,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   def handle_async({:interface_metrics, device_uid, request_ref}, {:ok, metrics}, socket) do
-    if device_uid == socket.assigns.device_uid and request_ref == socket.assigns.interface_metrics_request_ref do
-      {:noreply,
-       socket
-       |> assign(:interface_metrics, metrics)
-       |> assign(:interface_metrics_loading, false)
-       |> assign(:interface_metrics_request_ref, nil)}
-    else
-      {:noreply, socket}
-    end
+    {:noreply, DeviceTabRuntime.finish_interface_metrics_refresh(socket, device_uid, request_ref, metrics)}
   end
 
   def handle_async({:interface_metrics, device_uid, request_ref}, {:exit, reason}, socket) do

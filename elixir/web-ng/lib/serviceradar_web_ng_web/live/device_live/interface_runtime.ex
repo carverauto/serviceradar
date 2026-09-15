@@ -205,6 +205,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceRuntime do
       :network_interfaces,
       InterfaceData.apply_interface_settings(socket.assigns.network_interfaces, settings.by_uid)
     )
-    |> DeviceTabRuntime.begin_interface_metrics_refresh(socket.assigns.device_uid, srql_module)
+    |> DeviceTabRuntime.begin_interface_metrics_refresh(socket.assigns.device_uid, srql_module, force: true)
   end
 end
