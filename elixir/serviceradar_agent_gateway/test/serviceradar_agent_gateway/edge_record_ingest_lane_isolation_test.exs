@@ -19,24 +19,23 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
   alias ServiceRadar.Edge.PublisherPool
   alias ServiceRadar.Edge.PublishPipeline
   alias Serviceradar.Edge.V1.EdgeDeliveryAckV1
-  alias Serviceradar.Edge.V1.EdgeDeliveryFrameV1
-  alias Serviceradar.Edge.V1.EdgeProducerContext
   alias Serviceradar.Edge.V1.EdgeRecordClientMessage
   alias Serviceradar.Edge.V1.EdgeRecordDisposition
   alias Serviceradar.Edge.V1.EdgeRecordLaneOpen
   alias Serviceradar.Edge.V1.EdgeRecordLaneOpenAck
   alias Serviceradar.Edge.V1.EdgeRecordServerMessage
-  alias Serviceradar.Edge.V1.EdgeRecordV1
   alias ServiceRadar.NATS.Connection
   alias ServiceRadarAgentGateway.Config
   alias ServiceRadarAgentGateway.EdgeRecordIngestServer
+  alias ServiceRadarAgentGateway.EdgeRecordTrust
   alias ServiceRadarAgentGateway.JetStreamPublisher
   alias ServiceRadarAgentGateway.StatusBuffer
   alias ServiceRadarAgentGateway.StatusProcessor
   alias ServiceRadarAgentGateway.TestSupport.CameraMediaAdapterStub
-  alias ServiceRadarAgentGateway.TestSupport.CameraMediaIdentityResolverStub
   alias ServiceRadarAgentGateway.TestSupport.EdgeContractRegistryStub
   alias ServiceRadarAgentGateway.TestSupport.EdgeRecordCapabilityStub
+  alias ServiceRadarAgentGateway.TestSupport.EdgeRecordFactory
+  alias ServiceRadarAgentGateway.TestSupport.EdgeRecordIdentityResolverStub
 
   @accepted :EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE
   @buffer_events [
@@ -102,12 +101,24 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
 
     supervisor = start_supervised!({Task.Supervisor, name: __MODULE__.TaskSupervisor})
 
-    put_env(:edge_record_ingest_identity_resolver, CameraMediaIdentityResolverStub)
+    put_env(:edge_record_ingest_identity_resolver, EdgeRecordIdentityResolverStub)
     put_env(:edge_record_ingest_capability, EdgeRecordCapabilityStub)
     put_env(:edge_record_ingest_task_supervisor, __MODULE__.TaskSupervisor)
     put_env(:edge_record_contract_registry_impl, EdgeContractRegistryStub)
 
+    # Every frame is authorized locally before it is offered, so the lane needs a trust snapshot
+    # that verifies the records `delivery/1` signs, fences their producer and binds their agent to
+    # their network scope.
+    signing_keys = EdgeRecordFactory.keypair()
+    scope = uuidv7(0x40)
+    fence = {scope, EdgeRecordFactory.producer_assignment_id(), 0, 1}
+    document = EdgeRecordFactory.trust_document(signing_keys.public, fences: [fence], scopes: [{"agent-1", [scope]}])
+    :ok = EdgeRecordTrust.install(document)
+    Process.put(:isolation_signing_key, signing_keys.private)
+
     on_exit(fn ->
+      EdgeRecordTrust.clear()
+
       Enum.each(previous, fn
         {key, nil} -> Application.delete_env(:serviceradar_agent_gateway, key)
         {key, value} -> Application.put_env(:serviceradar_agent_gateway, key, value)
@@ -533,28 +544,27 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest do
     }
   end
 
+  # A signed record is built once per sequence and reused, so a replay of the spool sends the same
+  # bytes the first session did, the way an agent spool replays.
   defp delivery(sequence) do
-    bytes =
-      EdgeRecordV1.encode(%EdgeRecordV1{
-        network_scope_id: uuidv7(0x40),
-        route_profile: :EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
-        traffic_class: :EDGE_RECORD_TRAFFIC_CLASS_BULK,
-        output_contract: EdgeContractRegistryStub.contract_ref(),
-        producer_context: %EdgeProducerContext{origin_principal_id: "agent-1"},
-        cost_model_version: 1,
-        semantic_envelope_sha256: :crypto.hash(:sha256, "semantic-#{sequence}")
-      })
+    frame =
+      case Process.get({:isolation_frame, sequence}) do
+        nil ->
+          record =
+            EdgeRecordFactory.record(Process.get(:isolation_signing_key),
+              network_scope_id: uuidv7(0x40),
+              payload: "synthetic telemetry batch #{sequence}"
+            )
 
-    %EdgeRecordClientMessage{
-      payload:
-        {:delivery_frame,
-         %EdgeDeliveryFrameV1{
-           spool_id: uuidv7(0x01),
-           sequence: sequence,
-           record_sha256: :crypto.hash(:sha256, bytes),
-           record_bytes: bytes
-         }}
-    }
+          frame = EdgeRecordFactory.frame(record, spool_id: uuidv7(0x01), sequence: sequence)
+          Process.put({:isolation_frame, sequence}, frame)
+          frame
+
+        frame ->
+          frame
+      end
+
+    %EdgeRecordClientMessage{payload: {:delivery_frame, frame}}
   end
 
   defp nonce(n), do: :binary.copy(<<n>>, 8)

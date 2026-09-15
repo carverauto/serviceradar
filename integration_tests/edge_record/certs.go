@@ -215,15 +215,17 @@ func (c *CertSet) issueServerLeaf(certPath, keyPath, cn, bindHost string) error 
 	return writeECKeyPEMFile(keyPath, key)
 }
 
-// issueClientLeaf issues a client certificate carrying the CN and SPIFFE URI
-// SAN ComponentIdentityResolver.resolve_from_cert/1 expects
-// (elixir/serviceradar_agent_gateway/lib/serviceradar_agent_gateway/component_identity_resolver.ex):
+// issueClientLeaf issues a client certificate, signed directly by the harness
+// CA, carrying the CN and SPIFFE URI SAN the gateway's edge identity resolver
+// checks (ComponentIdentityResolver.resolve_edge_identity/3 in
+// elixir/serviceradar_agent_gateway/lib/serviceradar_agent_gateway/component_identity_resolver.ex):
 //   - CN:  "<componentID>.<c.PartitionID>.serviceradar"
 //   - SAN: URI "spiffe://serviceradar.local/<componentType>/<c.PartitionID>/<componentID>"
 //
-// componentType "agent" resolves to :agent (valid identity); any other value
-// (e.g. "desktop") resolves component_type to nil, which fails
-// require_agent_identity!/1 with a permission_denied gRPC error -- the
+// The CN is the identity; the SPIFFE SAN is optional there but must agree
+// with the :agent role. componentType "agent" therefore resolves to a valid
+// agent identity, and any other value (e.g. "desktop") is an identity
+// conflict refused with a permission_denied gRPC error -- the
 // mismatched-identity control task 0.12 Group A requires.
 func (c *CertSet) issueClientLeaf(certPath, keyPath, componentType, componentID string) error {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)

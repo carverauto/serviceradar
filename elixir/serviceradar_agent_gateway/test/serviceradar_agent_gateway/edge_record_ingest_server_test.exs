@@ -3,29 +3,29 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
 
   alias ServiceRadar.Edge.PublishPipeline
   alias Serviceradar.Edge.V1.EdgeDeliveryAckV1
-  alias Serviceradar.Edge.V1.EdgeDeliveryFrameV1
-  alias Serviceradar.Edge.V1.EdgeProducerContext
   alias Serviceradar.Edge.V1.EdgeRecordClientMessage
   alias Serviceradar.Edge.V1.EdgeRecordDisposition
   alias Serviceradar.Edge.V1.EdgeRecordLaneOpen
   alias Serviceradar.Edge.V1.EdgeRecordLaneOpenAck
   alias Serviceradar.Edge.V1.EdgeRecordServerMessage
-  alias Serviceradar.Edge.V1.EdgeRecordV1
   alias ServiceRadarAgentGateway.EdgeRecordIngestServer
+  alias ServiceRadarAgentGateway.EdgeRecordTrust
   alias ServiceRadarAgentGateway.TestSupport.CameraMediaAdapterStub
-  alias ServiceRadarAgentGateway.TestSupport.CameraMediaIdentityResolverStub
   alias ServiceRadarAgentGateway.TestSupport.EdgeContractRegistryStub
   alias ServiceRadarAgentGateway.TestSupport.EdgeRecordCapabilityStub
+  alias ServiceRadarAgentGateway.TestSupport.EdgeRecordFactory, as: Factory
+  alias ServiceRadarAgentGateway.TestSupport.EdgeRecordIdentityResolverStub
   alias ServiceRadarAgentGateway.TestSupport.EdgeRecordPublisherStub
 
-  @spool_id :binary.copy(<<0xAB>>, 16)
+  # Synthetic UUIDv7 spool ids: a delivery capability is bound to the spool it was issued for.
+  @spool_id <<0x0190_0000_0003::48, 7::4, 0x0AB::12, 2::2, 0xAB::62>>
+  @other_spool_id <<0x0190_0000_0003::48, 7::4, 0x0AC::12, 2::2, 0xAC::62>>
   @session_nonce :binary.copy(<<0xCD>>, 8)
-  @network_scope_id :binary.copy(<<0x40>>, 16)
-  @other_network_scope_id :binary.copy(<<0x41>>, 16)
-  @event_id :binary.copy(<<0x0E>>, 16)
   @accepted :EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE
   @permanent :EDGE_RECORD_DISPOSITION_KIND_REJECTED_PERMANENT
   @second_contract_id "serviceradar.test.second"
+  # The keypair the installed trust snapshot verifies, which the record helpers sign with.
+  @signing_keys {__MODULE__, :signing_keys}
 
   setup do
     previous = %{
@@ -41,11 +41,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
 
     _supervisor = start_supervised!({Task.Supervisor, name: __MODULE__.TaskSupervisor})
 
-    Application.put_env(
-      :serviceradar_agent_gateway,
-      :edge_record_ingest_identity_resolver,
-      CameraMediaIdentityResolverStub
-    )
+    put_resolver(EdgeRecordIdentityResolverStub)
 
     Application.put_env(:serviceradar_agent_gateway, :edge_record_ingest_capability, EdgeRecordCapabilityStub)
 
@@ -55,7 +51,14 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
       __MODULE__.TaskSupervisor
     )
 
+    # Every frame is authorized locally before it is offered, so the stream needs a trust snapshot
+    # that verifies the records the helpers below sign, fences their producer and binds "agent-1"
+    # to their network scope.
+    Process.put(@signing_keys, Factory.keypair())
+    install_trust()
+
     on_exit(fn ->
+      EdgeRecordTrust.clear()
       restore_env(:edge_record_ingest_pipelines, previous.pipelines)
       restore_env(:edge_record_ingest_identity_resolver, previous.resolver)
       restore_env(:edge_record_ingest_capability, previous.capability)
@@ -67,9 +70,12 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
     %{pipeline: EdgeRecordPublisherStub.start_pipeline!(EdgeRecordPublisherStub.publisher(self()))}
   end
 
-  test "opens a lane, publishes a verified frame through the pipeline, and acks it durable", %{pipeline: pipeline} do
+  test "opens a lane, publishes a locally authorized frame through the pipeline, and acks it durable", %{
+    pipeline: pipeline
+  } do
     record = record()
     frame = frame(1, record)
+    event_id = record.event_id
 
     messages = [client({:lane_open, lane_open()}), client({:delivery_frame, frame})]
 
@@ -89,7 +95,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
 
     assert_receive {:edge_record_published, publication}
     assert publication.slot.authenticated_agent_id == "agent-1"
-    assert publication.slot.network_scope_id == @network_scope_id
+    assert publication.slot.network_scope_id == record.network_scope_id
     assert publication.slot.spool_id == @spool_id
     assert publication.slot.sequence == 1
     assert publication.route_profile == :EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1
@@ -98,6 +104,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
     assert publication.record_bytes == frame.record_bytes
     assert publication.record_sha256 == frame.record_sha256
     assert publication.semantic_envelope_sha256 == record.semantic_envelope_sha256
+    refute Map.has_key?(publication, :delivery_mode)
 
     assert_receive {:edge_record_stream_reply,
                     %EdgeRecordServerMessage{
@@ -108,7 +115,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
                            resolved_through_sequence: 1,
                            session_nonce: @session_nonce,
                            dispositions: [
-                             %EdgeRecordDisposition{sequence: 1, event_id: @event_id, kind: @accepted}
+                             %EdgeRecordDisposition{sequence: 1, event_id: ^event_id, kind: @accepted}
                            ]
                          }}
                     }}
@@ -134,11 +141,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
   end
 
   test "refuses a lane_open when the client identity is not an agent" do
-    Application.put_env(
-      :serviceradar_agent_gateway,
-      :edge_record_ingest_identity_resolver,
-      __MODULE__.AddonIdentityResolverStub
-    )
+    put_resolver(__MODULE__.AddonIdentityResolverStub)
 
     error =
       assert_raise GRPC.RPCError, fn ->
@@ -146,6 +149,30 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
       end
 
     assert error.status == GRPC.Status.permission_denied()
+  end
+
+  test "refuses a lane_open whose certificate names a conflicting role" do
+    put_resolver(__MODULE__.ConflictingIdentityResolverStub)
+
+    error =
+      assert_raise GRPC.RPCError, fn ->
+        EdgeRecordIngestServer.stream([client({:lane_open, lane_open()})], stream())
+      end
+
+    assert error.status == GRPC.Status.permission_denied()
+    refute_received {:edge_record_stream_reply, _}
+  end
+
+  test "refuses a lane_open whose certificate does not authenticate" do
+    put_resolver(__MODULE__.UntrustedIdentityResolverStub)
+
+    error =
+      assert_raise GRPC.RPCError, fn ->
+        EdgeRecordIngestServer.stream([client({:lane_open, lane_open()})], stream())
+      end
+
+    assert error.status == GRPC.Status.unauthenticated()
+    refute_received {:edge_record_stream_reply, _}
   end
 
   test "refuses a lane_open while the edge-records:v1 capability is not ready" do
@@ -221,7 +248,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
                         {:ack,
                          %EdgeDeliveryAckV1{
                            resolved_through_sequence: 1,
-                           dispositions: [%EdgeRecordDisposition{sequence: 1, kind: @permanent}]
+                           dispositions: [%EdgeRecordDisposition{sequence: 1, event_id: "", kind: @permanent}]
                          }}
                     }}
 
@@ -249,19 +276,20 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
   test "never acks past a withheld sequence, even for a later record that published durably" do
     stale = %{EdgeContractRegistryStub.contract_ref() | registry_epoch: 2}
 
-    assert_caps_later_sequences(%{record() | output_contract: stale})
+    assert_caps_later_sequences(record(output_contract: stale))
   end
 
   test "permanently rejects a record whose principal is not the authenticated agent, filling its place" do
-    impostor = %{record() | producer_context: %EdgeProducerContext{origin_principal_id: "agent-2"}}
+    impostor = record(principal: "agent-2")
+    valid = record()
 
-    assert :ok = EdgeRecordIngestServer.stream(open_and_records([impostor, record()]), stream())
+    assert :ok = EdgeRecordIngestServer.stream(open_and_records([impostor, valid]), stream())
 
     assert_receive {:edge_record_stream_reply, %EdgeRecordServerMessage{payload: {:lane_open_ack, _}}}
-    # The rejection resolves sequence 1 in the prefix, under the decoded record's event id, so the
-    # durable sequence behind it is acked rather than capped.
+    # Local authorization refuses sequence 1 before any lane is bound, under the decoded record's
+    # event id, so the durable sequence behind it is acked rather than capped.
     assert Enum.map(acks_through(2), &{&1.sequence, &1.event_id, &1.kind}) ==
-             [{1, @event_id, @permanent}, {2, @event_id, @accepted}]
+             [{1, impostor.event_id, @permanent}, {2, valid.event_id, @accepted}]
 
     refute_received {:edge_record_published, %{slot: %{sequence: 1}}}
   end
@@ -297,6 +325,118 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
     # a frame that never went out.
     assert_receive {:edge_record_published, %{slot: %{sequence: 1}}}
     refute_received {:edge_record_stream_reply, %EdgeRecordServerMessage{payload: {:ack, _}}}
+  end
+
+  describe "every frame is authorized locally before it is offered" do
+    test "a production grant that does not verify is rejected permanently and never offered" do
+      forger = Factory.keypair()
+      forged = record(production_signer: forger.private)
+
+      assert :ok = run_one_frame(forged)
+
+      assert Enum.map(acks_through(1), &{&1.sequence, &1.event_id, &1.kind}) == [{1, forged.event_id, @permanent}]
+      refute_received {:edge_record_published, _}
+    end
+
+    test "a grant signed under a key id the trust snapshot does not hold is withheld" do
+      install_trust(issuer_key_id: "test-edge-key-unknown")
+
+      assert :ok = run_one_frame(record())
+
+      refute_received {:edge_record_published, _}
+      refute_received {:edge_record_stream_reply, %EdgeRecordServerMessage{payload: {:ack, _}}}
+    end
+
+    test "every frame is withheld while no trust snapshot is installed" do
+      EdgeRecordTrust.clear()
+
+      assert :ok = run_one_frame(record())
+
+      refute_received {:edge_record_published, _}
+      refute_received {:edge_record_stream_reply, %EdgeRecordServerMessage{payload: {:ack, _}}}
+    end
+
+    test "every frame is withheld while the agent has no network scope binding" do
+      install_trust(scopes: [])
+
+      assert :ok = run_one_frame(record())
+
+      refute_received {:edge_record_published, _}
+      refute_received {:edge_record_stream_reply, %EdgeRecordServerMessage{payload: {:ack, _}}}
+    end
+
+    test "a grant for a network scope outside the agent's binding is withheld, capping later sequences" do
+      foreign = Factory.uuidv7()
+      install_trust(fences: [default_fence(), {foreign, Factory.producer_assignment_id(), 0, 1}])
+
+      assert_caps_later_sequences(record(network_scope_id: foreign))
+    end
+
+    test "expired production authority without a delivery capability is withheld, capping later sequences" do
+      assert_caps_later_sequences(expired_record())
+    end
+
+    test "a producer the trust snapshot has no fence for is withheld, capping later sequences" do
+      assert_caps_later_sequences(record(producer_assignment_id: Factory.uuidv7()))
+    end
+
+    test "a stale-fence replay without a delivery capability is rejected permanently, filling its place" do
+      assignment = Factory.uuidv7()
+      install_trust(fences: [default_fence(), {Factory.network_scope_id(), assignment, 0, 2}])
+      stale = record(producer_assignment_id: assignment)
+      valid = record()
+
+      assert :ok = EdgeRecordIngestServer.stream(open_and_records([stale, valid]), stream())
+
+      assert_receive {:edge_record_stream_reply, %EdgeRecordServerMessage{payload: {:lane_open_ack, _}}}
+
+      assert Enum.map(acks_through(2), &{&1.sequence, &1.event_id, &1.kind}) ==
+               [{1, stale.event_id, @permanent}, {2, valid.event_id, @accepted}]
+
+      refute_received {:edge_record_published, %{slot: %{sequence: 1}}}
+    end
+
+    test "a stale-fence audit replay under its delivery capability is withheld, not offered to the primary stream" do
+      assignment = Factory.uuidv7()
+      install_trust(fences: [default_fence(), {Factory.network_scope_id(), assignment, 0, 2}])
+      replay = record(producer_assignment_id: assignment)
+      dc = Factory.delivery_capability(replay, signing_keys().private, spool_id: @spool_id)
+
+      assert_caps_later_frame(frame(1, replay, delivery_capability: dc))
+    end
+
+    test "a late drain under a renewal is published with its delivery mode and proof" do
+      late = expired_record()
+      dc = Factory.delivery_capability(late, signing_keys().private, spool_id: @spool_id)
+
+      assert :ok = run_one_frame(late, delivery_capability: dc)
+
+      assert_receive {:edge_record_published, publication}
+      assert publication.delivery_mode == 2
+      assert byte_size(publication.delivery_proof) == 32
+
+      assert Enum.map(acks_through(1), &{&1.sequence, &1.event_id, &1.kind}) == [{1, late.event_id, @accepted}]
+    end
+
+    test "a renewal re-sent for a withheld sequence closes its gap, and the ack covers the sequence behind it" do
+      expired = expired_record()
+      valid = record()
+      renewal = Factory.delivery_capability(expired, signing_keys().private, spool_id: @spool_id, sequence: 1)
+
+      messages = [
+        client({:lane_open, lane_open()}),
+        client({:delivery_frame, frame(1, expired)}),
+        client({:delivery_frame, frame(2, valid)}),
+        client({:delivery_frame, frame(1, expired, delivery_capability: renewal)})
+      ]
+
+      assert :ok = EdgeRecordIngestServer.stream(messages, stream())
+
+      assert_receive {:edge_record_stream_reply, %EdgeRecordServerMessage{payload: {:lane_open_ack, _}}}
+
+      assert Enum.map(acks_through(2), &{&1.sequence, &1.event_id, &1.kind}) ==
+               [{1, expired.event_id, @accepted}, {2, valid.event_id, @accepted}]
+    end
   end
 
   describe "frames are offered to the pipeline, and acks follow its resolution" do
@@ -344,11 +484,14 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
     end
 
     test "a permanent rejection after the lane is bound fills its place, so later sequences resolve" do
+      first = record()
+      third = record()
+
       messages = [
         client({:lane_open, lane_open()}),
-        client({:delivery_frame, frame(1, record())}),
+        client({:delivery_frame, frame(1, first)}),
         client({:delivery_frame, tampered(2)}),
-        client({:delivery_frame, frame(3, record())})
+        client({:delivery_frame, frame(3, third)})
       ]
 
       assert :ok = EdgeRecordIngestServer.stream(messages, stream())
@@ -357,7 +500,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
       # Each disposition carries its own record's event id; the digest mismatch is rejected before
       # the record is trusted, so it names none, the one case the agent accepts without an id.
       assert Enum.map(acks_through(3), &{&1.sequence, &1.event_id, &1.kind}) ==
-               [{1, @event_id, @accepted}, {2, "", @permanent}, {3, @event_id, @accepted}]
+               [{1, first.event_id, @accepted}, {2, "", @permanent}, {3, third.event_id, @accepted}]
 
       refute_received {:edge_record_published, %{slot: %{sequence: 2}}}
     end
@@ -390,8 +533,17 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
       assert Enum.map(acks_through(2), &{&1.sequence, &1.kind}) == [{1, @accepted}, {2, @permanent}]
     end
 
-    test "a verified record for a different network scope ends the stream" do
-      other_scope = frame(2, %{record() | network_scope_id: @other_network_scope_id})
+    test "an authorized record for a different network scope ends the stream" do
+      # Both scopes are bound to the agent and fenced, so the second record is authorized: what ends
+      # the stream is one spool carrying two scopes.
+      other_scope = Factory.uuidv7()
+
+      install_trust(
+        fences: [default_fence(), {other_scope, Factory.producer_assignment_id(), 0, 1}],
+        scopes: [{"agent-1", [Factory.network_scope_id(), other_scope]}]
+      )
+
+      other = frame(2, record(network_scope_id: other_scope))
 
       error =
         assert_raise GRPC.RPCError, fn ->
@@ -399,7 +551,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
             [
               client({:lane_open, lane_open()}),
               client({:delivery_frame, frame(1, record())}),
-              client({:delivery_frame, other_scope})
+              client({:delivery_frame, other})
             ],
             stream()
           )
@@ -442,14 +594,12 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
       worker = started(1)
       assert_offered(pipeline, 2)
 
-      other_spool = :binary.copy(<<0xAC>>, 16)
-
       error =
         assert_raise GRPC.RPCError, fn ->
           EdgeRecordIngestServer.stream(
             [
-              client({:lane_open, %{lane_open() | spool_id: other_spool}}),
-              client({:delivery_frame, %{frame(1, record()) | spool_id: other_spool}})
+              client({:lane_open, %{lane_open() | spool_id: @other_spool_id}}),
+              client({:delivery_frame, %{frame(1, record()) | spool_id: @other_spool_id}})
             ],
             stream()
           )
@@ -544,6 +694,9 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
          %{pipeline: pipeline} do
       test = self()
 
+      # Signed here, because the reader that walks the stream below is not the test process.
+      frames = Map.new(1..40, &{&1, frame(&1, record())})
+
       # Each frame is released only once the previous one is acked, so the stream stays inside its
       # 4-frame window however long it runs.
       paced =
@@ -551,7 +704,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
           send(test, {:ready, self(), sequence})
 
           receive do
-            :next -> [client({:delivery_frame, frame(sequence, record())})]
+            :next -> [client({:delivery_frame, Map.fetch!(frames, sequence)})]
           end
         end)
 
@@ -579,10 +732,36 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
   defmodule AddonIdentityResolverStub do
     @moduledoc false
 
-    def resolve_from_cert(_cert_der) do
+    def resolve_edge_identity(_cert_der, _expected_type) do
       {:ok, %{component_id: "addon-1", component_type: :addon, partition_id: "default"}}
     end
   end
+
+  defmodule ConflictingIdentityResolverStub do
+    @moduledoc false
+
+    def resolve_edge_identity(_cert_der, _expected_type), do: {:error, {:identity_conflict, :spiffe}}
+  end
+
+  defmodule UntrustedIdentityResolverStub do
+    @moduledoc false
+
+    def resolve_edge_identity(_cert_der, _expected_type), do: {:error, :untrusted_installation}
+  end
+
+  defp put_resolver(module) do
+    Application.put_env(:serviceradar_agent_gateway, :edge_record_ingest_identity_resolver, module)
+  end
+
+  defp signing_keys, do: Process.get(@signing_keys)
+
+  # The factory's default trust document -- the default producer fenced, "agent-1" bound to the
+  # default network scope -- over the test's signing key, with `opts` overriding either.
+  defp install_trust(opts \\ []) do
+    :ok = EdgeRecordTrust.install(Factory.trust_document(signing_keys().public, opts))
+  end
+
+  defp default_fence, do: {Factory.network_scope_id(), Factory.producer_assignment_id(), 0, 1}
 
   defp lane_open do
     %EdgeRecordLaneOpen{
@@ -597,23 +776,20 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
     }
   end
 
-  defp record do
-    %EdgeRecordV1{
-      event_id: @event_id,
-      network_scope_id: @network_scope_id,
-      route_profile: :EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
-      traffic_class: :EDGE_RECORD_TRAFFIC_CLASS_BULK,
-      output_contract: EdgeContractRegistryStub.contract_ref(),
-      producer_context: %EdgeProducerContext{origin_principal_id: "agent-1"},
-      cost_model_version: 1,
-      semantic_envelope_sha256: :binary.copy(<<0xAA>>, 32)
-    }
+  # A signed, locally authorizable record for "agent-1" on the default network scope, naming the
+  # contract the registry stub holds active unless `opts` say otherwise.
+  defp record(opts \\ []), do: Factory.record(signing_keys().private, opts)
+
+  defp expired_record do
+    hour = Factory.hour_nanos()
+    now = System.os_time(:nanosecond)
+    record(not_before: now - 3 * hour, expires: now - 2 * hour)
   end
 
-  defp run_one_frame(record) do
+  defp run_one_frame(record, frame_opts \\ []) do
     result =
       EdgeRecordIngestServer.stream(
-        [client({:lane_open, lane_open()}), client({:delivery_frame, frame(1, record)})],
+        [client({:lane_open, lane_open()}), client({:delivery_frame, frame(1, record, frame_opts)})],
         stream()
       )
 
@@ -621,10 +797,19 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
     result
   end
 
-  # Sequence 1 is `unresolved`, sequence 2 a record the registry admits. The stream drains 2's
-  # outcome before it returns, so any ack it was ever going to send has been sent by the refutations.
-  defp assert_caps_later_sequences(unresolved) do
-    assert :ok = EdgeRecordIngestServer.stream(open_and_records([unresolved, record()]), stream())
+  # Sequence 1 is `unresolved`, sequence 2 a record authorization and the registry both admit. The
+  # stream drains 2's outcome before it returns, so any ack it was ever going to send has been sent
+  # by the refutations.
+  defp assert_caps_later_sequences(unresolved), do: assert_caps_later_frame(frame(1, unresolved))
+
+  defp assert_caps_later_frame(unresolved) do
+    messages = [
+      client({:lane_open, lane_open()}),
+      client({:delivery_frame, unresolved}),
+      client({:delivery_frame, frame(2, record())})
+    ]
+
+    assert :ok = EdgeRecordIngestServer.stream(messages, stream())
 
     assert_receive {:edge_record_stream_reply, %EdgeRecordServerMessage{payload: {:lane_open_ack, _}}}
     # NOT VACUOUS: 2 published durably, so the missing ack is 1's gap capping the watermark.
@@ -634,7 +819,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
   end
 
   defp record_for_contract(contract_id) do
-    %{record() | output_contract: %{EdgeContractRegistryStub.contract_ref() | contract_id: contract_id}}
+    record(output_contract: %{EdgeContractRegistryStub.contract_ref() | contract_id: contract_id})
   end
 
   # The stub's active contract plus a second one in `state`, so one stream carries both a record the
@@ -646,15 +831,8 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
     {:ok, %{active | contracts: Map.merge(active.contracts, second.contracts)}}
   end
 
-  defp frame(sequence, record) do
-    bytes = EdgeRecordV1.encode(record)
-
-    %EdgeDeliveryFrameV1{
-      spool_id: @spool_id,
-      sequence: sequence,
-      record_sha256: :crypto.hash(:sha256, bytes),
-      record_bytes: bytes
-    }
+  defp frame(sequence, record, opts \\ []) do
+    Factory.frame(record, Keyword.merge([spool_id: @spool_id, sequence: sequence], opts))
   end
 
   defp tampered(sequence), do: sequence |> frame(record()) |> Map.put(:record_sha256, :binary.copy(<<0>>, 32))

@@ -11,10 +11,12 @@ defmodule ServiceRadarAgentGateway.EdgeRecordCapability do
 
   ## What "ready" means here
 
-  Three things, all required:
+  Four things, all required:
 
     * the `edge_records_publisher` flag is enabled (the same on/off switch every other gateway
       publisher uses, see `ServiceRadarAgentGateway.Application.gateway_publisher_enabled?/0`);
+    * a local trust snapshot is installed (`ServiceRadarAgentGateway.EdgeRecordTrust`), because no
+      frame can be authorized without one and the gateway never asks core per frame;
     * every deployment-active publisher lane (`ServiceRadar.Edge.PublisherLane.lanes/0`) has its
       accountant (`PublisherPool`), its transport (the named NATS connection) and its
       `PublishPipeline` ALIVE -- the pipeline being what the ingest server offers every frame to;
@@ -32,6 +34,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordCapability do
   alias ServiceRadar.Edge.PublisherPool
   alias ServiceRadar.Edge.PublishPipeline
   alias ServiceRadarAgentGateway.EdgeContractRegistry
+  alias ServiceRadarAgentGateway.EdgeRecordTrust
 
   @capability_id "edge-records:v1"
 
@@ -42,13 +45,14 @@ defmodule ServiceRadarAgentGateway.EdgeRecordCapability do
   @doc """
   Whether the `edge-records:v1` capability is currently ready to advertise/admit.
 
-  False whenever the publisher is disabled, any deployment-active lane's accountant, transport or
-  pipeline is not alive, or no contract registry is loaded -- fail closed rather than admit a lane
-  that cannot durably publish.
+  False whenever the publisher is disabled, no trust snapshot is installed, any deployment-active
+  lane's accountant, transport or pipeline is not alive, or no contract registry is loaded -- fail
+  closed rather than admit a lane that cannot authorize or durably publish.
   """
   @spec ready?() :: boolean()
   def ready? do
-    enabled?() and Enum.all?(PublisherLane.lanes(), &lane_ready?/1) and EdgeContractRegistry.available?()
+    enabled?() and EdgeRecordTrust.available?() and Enum.all?(PublisherLane.lanes(), &lane_ready?/1) and
+      EdgeContractRegistry.available?()
   end
 
   @doc "Whether the `edge_records_publisher` flag itself is enabled, independent of readiness."
