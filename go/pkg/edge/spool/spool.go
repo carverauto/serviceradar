@@ -434,66 +434,6 @@ func (s *Spool) commitLocked(eventID, body []byte, b Bindings) (CommitReceipt, e
 		return CommitReceipt{}, err
 	}
 
-	if s.failErr != nil {
-		return 0, s.failErr
-	}
-	if s.seg == nil {
-		return CommitReceipt{}, fmt.Errorf("spool: commit: %w", os.ErrClosed)
-	}
-	if s.failErr != nil {
-		return CommitReceipt{}, s.failErr
-	}
-	var charged uint64
-	if s.alloc != nil {
-		n, err := s.commitBytes(len(body))
-		if err != nil {
-			return CommitReceipt{}, err
-		}
-		if err := s.alloc.admit(s.dir, n); err != nil {
-			return CommitReceipt{}, err
-		}
-		charged = n
-	}
-	r, err := s.commitLocked(eventID, body, b)
-	if s.alloc != nil {
-		// Admitted bytes stay charged even if the commit fails: a failed write may
-		// still have put some of them on disk.
-		s.alloc.settle(charged, err)
-	}
-	if err != nil {
-		s.failErr = asFailStop(err)
-		return CommitReceipt{}, s.failErr
-	}
-	return r, nil
-}
-
-// commitBytes is what committing the next sequence with a body of bodyLen adds on
-// disk: its record, plus however far each evidence copy must grow to hold the
-// slot's fixed-position entries.
-func (s *Spool) commitBytes(bodyLen int) (uint64, error) {
-	n := uint64(minRecordLen + bodyLen)
-	end := evidencePosition(s.nextSeq, stateCommitted) + evidenceEntryLen
-	for c := range evidenceCopies {
-		var size int64
-		info, err := os.Stat(s.evidencePath(c))
-		switch {
-		case err == nil:
-			size = info.Size()
-		case !errors.Is(err, os.ErrNotExist):
-			return 0, fmt.Errorf("spool: measure evidence copy %c: %w", copyTag(c), err)
-		}
-		if size < end {
-			n += uint64(end - size)
-		}
-	}
-	return n, nil
-}
-
-func (s *Spool) commitLocked(eventID, body []byte, b Bindings) (CommitReceipt, error) {
-	if err := s.ensureEvidence(); err != nil {
-		return CommitReceipt{}, err
-	}
-
 	seq := s.nextSeq
 	rec := encodeRecord(seq, eventID, body)
 	offset := s.segSize
