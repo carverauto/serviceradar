@@ -988,6 +988,91 @@ fn translate_rate_downsample_orders_by_bucket_and_series() {
 }
 
 #[test]
+fn interface_metric_series_keeps_interfaces_and_metrics_separate_for_both_drivers() {
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+
+    for entity in ["snmp", "timeseries_metrics"] {
+        for driver in ["timescale", "pg_duckdb"] {
+            let request = QueryRequest {
+                query: format!(
+                    "in:{entity} if_index:(7,19) metric_name:(ifInOctets,ifOutOctets) time:last_24h bucket:1m agg:rate series:interface_metric limit:20000"
+                ),
+                limit: None,
+                cursor: None,
+                direction: QueryDirection::Next,
+                mode: None,
+            };
+            let drivers = std::collections::HashMap::from([(
+                "timeseries_metrics".to_string(),
+                driver.to_string(),
+            )]);
+            let response = crate::query::translate_request_with_drivers(&config, request, &drivers)
+                .expect("interface metric batch translation should succeed");
+            let sql = response.sql.to_lowercase();
+
+            assert!(
+                sql.contains("coalesce(if_index::text || ':' || metric_name, '') as series"),
+                "same metric on two interfaces must have distinct display series: {sql}"
+            );
+            assert_eq!(
+                sql.matches("partition by gateway_id, coalesce(agent_id, ''), metric_type, metric_name, series_key, if_index")
+                    .count(),
+                2,
+                "both LAG windows must retain the full underlying counter identity: {sql}"
+            );
+            assert!(sql.contains("group by 1, 2"), "{sql}");
+            assert!(sql.contains("avg(rate_value) as value"), "{sql}");
+            let interface_bind = response
+                .params
+                .iter()
+                .position(|param| matches!(param, crate::query::BindParam::IntArray(values) if values == &[7, 19]))
+                .expect("interface scope must be a typed integer array");
+            assert!(
+                sql.contains(&format!("if_index = any(${})", interface_bind + 1)),
+                "the interface predicate must use its own integer-array bind: {sql}"
+            );
+            assert_eq!(response.dialect.is_duckdb(), driver == "pg_duckdb");
+            assert!(
+                response
+                    .params
+                    .iter()
+                    .any(|param| matches!(param, crate::query::BindParam::Int(20000))),
+                "embedded translation must not clamp the batched chart limit: {:?}",
+                response.params
+            );
+            if driver == "pg_duckdb" {
+                assert!(sql.contains("::float8"), "{sql}");
+                assert!(!sql.contains("::double"), "{sql}");
+                assert!(!sql.contains("json_extract_string"), "{sql}");
+            }
+        }
+    }
+}
+
+#[test]
+fn interface_metric_series_is_limited_to_interface_metric_entities() {
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+    for entity in ["rperf", "cpu_metrics", "memory_metrics", "flows"] {
+        let request = QueryRequest {
+            query: format!(
+                "in:{entity} time:last_1h bucket:5m agg:avg series:interface_metric limit:25"
+            ),
+            limit: None,
+            cursor: None,
+            direction: QueryDirection::Next,
+            mode: None,
+        };
+        let error = translate_request(&config, request).expect_err("unsupported series must fail");
+        assert!(
+            error
+                .to_string()
+                .contains("unsupported series field 'interface_metric'"),
+            "unexpected error for {entity}: {error}"
+        );
+    }
+}
+
+#[test]
 fn translate_rate_downsample_is_counter_wrap_aware() {
     // A busy 1 Gbps link stores 32-bit Counter32 octets that wrap inside the poll
     // interval. The rate CTE must recover the real delta by adding the counter modulus

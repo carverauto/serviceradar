@@ -39,4 +39,22 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.MetricsQueryTest do
     assert query =~ "limit:3600"
     refute query =~ "metric_name:"
   end
+
+  test "batches distinct interfaces with enough rows for the full metric union" do
+    query =
+      MetricsQuery.build_snmp_counter_batch_query("device-1", [
+        %{if_index: 8, metrics_selected: ["ifOutOctets", "metric:packets"]},
+        %{if_index: 7, metrics_selected: ["ifInOctets"]},
+        %{if_index: 7, metrics_selected: ["ifInOctets"]}
+      ])
+
+    assert query =~ "if_index:(7,8)"
+    assert query =~ ~s(metric_name:["ifHCInOctets","ifHCOutOctets","ifInOctets","ifOutOctets","metric:packets"])
+    assert query =~ "time:last_24h bucket:1m agg:rate series:interface_metric limit:14410"
+  end
+
+  test "single-interface query retains its existing series and limit contract" do
+    assert MetricsQuery.build_snmp_counter_query("device-1", 7, ["ifInOctets"]) ==
+             ~s(in:snmp_metrics device_id:"device-1" if_index:7 metric_name:["ifHCInOctets","ifInOctets"] time:last_24h bucket:1m agg:rate series:metric_name limit:3600)
+  end
 end

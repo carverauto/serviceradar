@@ -7,12 +7,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntime do
   import ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents,
     only: [active_fingerprint_tab_visible?: 2]
 
+  alias ServiceRadarWebNGWeb.DeviceLive.AvailabilityData
   alias ServiceRadarWebNGWeb.DeviceLive.FlowData
   alias ServiceRadarWebNGWeb.DeviceLive.InterfaceData
   alias ServiceRadarWebNGWeb.DeviceLive.MtrRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.NorthboundInterfaceRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.QueryData
   alias ServiceRadarWebNGWeb.DeviceLive.SysmonProfileData
+
+  require Logger
 
   @valid_tabs ~w(
     details
@@ -99,10 +102,45 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntime do
 
   def reload_for_active_tab(socket, active_tab, uid, cursor, srql_module, opts) do
     socket
+    |> maybe_reload_availability_for_active_tab(active_tab, uid, srql_module)
     |> maybe_reload_flows_for_active_tab(active_tab, uid, cursor, srql_module, opts)
     |> maybe_reload_logs_for_active_tab(active_tab, uid, cursor, srql_module, opts)
     |> maybe_reload_interfaces_for_active_tab(active_tab, uid, srql_module)
     |> maybe_reload_profiles_for_active_tab(active_tab, uid)
+  end
+
+  def maybe_reload_availability_for_active_tab(socket, "details", uid, srql_module) do
+    if connected?(socket) and is_nil(socket.assigns[:availability_request_ref]) do
+      scope = socket.assigns.current_scope
+      request_ref = make_ref()
+
+      socket
+      |> assign(:availability_request_ref, request_ref)
+      |> start_async({:device_availability, uid, request_ref}, fn ->
+        AvailabilityData.load_availability(srql_module, uid, scope)
+      end)
+    else
+      socket
+    end
+  end
+
+  def maybe_reload_availability_for_active_tab(socket, _tab, _uid, _srql_module), do: socket
+
+  def finish_availability_refresh(socket, uid, request_ref, result) do
+    if uid == socket.assigns.device_uid and request_ref == socket.assigns[:availability_request_ref] do
+      socket = assign(socket, :availability_request_ref, nil)
+
+      case result do
+        {:ok, availability} ->
+          assign(socket, :availability, availability)
+
+        {:exit, _reason} ->
+          Logger.warning("Device availability task failed")
+          socket
+      end
+    else
+      socket
+    end
   end
 
   def maybe_reload_logs_for_active_tab(socket, "logs", uid, cursor, srql_module, opts) do

@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
   alias ServiceRadar.Repo
   alias ServiceRadarWebNGWeb.InterfaceLive.MetricsPanels
   alias ServiceRadarWebNGWeb.InterfaceLive.MetricsQuery
+  alias ServiceRadarWebNGWeb.InterfaceLive.SnmpMetricNames
 
   @interfaces_limit 200
   @snmp_presence_window "last_24h"
@@ -339,9 +340,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
       }
     else
       {all_panels, errors} =
-        Enum.reduce(favorited_interfaces, {[], []}, fn fav_iface, {panels_acc, errs} ->
-          query_interface_metrics(srql_module, device_uid, fav_iface, scope, panels_acc, errs)
-        end)
+        query_favorited_interface_metrics(srql_module, device_uid, favorited_interfaces, scope)
 
       cond do
         all_panels != [] ->
@@ -385,12 +384,59 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
     end
   end
 
-  defp query_interface_metrics(srql_module, device_uid, fav_iface, scope, panels_acc, errs) do
+  defp query_favorited_interface_metrics(srql_module, device_uid, [fav_iface], scope) do
     case query_interface_metric_panels(srql_module, device_uid, fav_iface, scope, []) do
-      {:ok, panels} -> {panels_acc ++ panels, errs}
-      {:empty, _query} -> {panels_acc, errs}
-      {:error, error} -> {panels_acc, [error | errs]}
+      {:ok, panels} -> {panels, []}
+      {:empty, _query} -> {[], []}
+      {:error, error} -> {[], [error]}
     end
+  end
+
+  defp query_favorited_interface_metrics(srql_module, device_uid, interfaces, scope) do
+    query = MetricsQuery.build_snmp_counter_batch_query(device_uid, interfaces)
+
+    case srql_module.query(query, %{scope: scope}) do
+      {:ok, %{"results" => rows} = response} when is_list(rows) ->
+        rows_by_interface = interface_metric_rows(rows)
+
+        panels =
+          Enum.flat_map(interfaces, fn interface ->
+            rows =
+              rows_by_interface
+              |> Map.get(interface.if_index, [])
+              |> Enum.filter(&SnmpMetricNames.selected?(&1["metric_name"], interface.metrics_selected))
+
+            response
+            |> Map.put("results", rows)
+            |> build_interface_panels(interface.name, interface.if_index, interface.reference_lines)
+          end)
+
+        {panels, []}
+
+      {:error, error} ->
+        {[], [format_error(error)]}
+
+      _ ->
+        {[], []}
+    end
+  end
+
+  defp interface_metric_rows(rows) do
+    Enum.reduce(rows, %{}, fn row, acc ->
+      with %{"series" => series} when is_binary(series) <- row,
+           [index, metric] when metric != "" <- String.split(series, ":", parts: 2),
+           {if_index, ""} <- Integer.parse(index) do
+        row =
+          row
+          |> Map.put("series", metric)
+          |> Map.put("metric_name", metric)
+          |> Map.delete("interface_metric")
+
+        Map.update(acc, if_index, [row], &[row | &1])
+      else
+        _ -> acc
+      end
+    end)
   end
 
   defp query_interface_metric_panels(srql_module, device_uid, fav_iface, scope, opts) do

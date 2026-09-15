@@ -5,6 +5,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntimeTest do
 
   @moduletag :db_free
 
+  def query(query, %{scope: %{test_pid: test_pid, loader: :availability}}) do
+    send(test_pid, {:availability_query, self(), query})
+
+    receive do
+      :finish ->
+        {:ok, %{"results" => [%{"series" => "sr:synthetic-device", "value" => 2, "timestamp" => "2026-02-01T00:00:00Z"}]}}
+    after
+      5_000 -> raise "synthetic availability query was not released"
+    end
+  end
+
   def query(query, %{scope: %{test_pid: test_pid}}) do
     send(test_pid, {:interface_query, self(), query})
 
@@ -13,6 +24,114 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntimeTest do
     after
       5_000 -> raise "synthetic interface query was not released"
     end
+  end
+
+  describe "lazy availability refresh" do
+    test "other tabs and disconnected renders do not query availability" do
+      socket = availability_socket()
+
+      for tab <- ["interfaces", "sysmon", "logs"] do
+        assert DeviceTabRuntime.maybe_reload_availability_for_active_tab(socket, tab, "sr:synthetic-device", __MODULE__) ==
+                 socket
+      end
+
+      disconnected = %{socket | transport_pid: nil}
+
+      assert DeviceTabRuntime.maybe_reload_availability_for_active_tab(
+               disconnected,
+               "details",
+               "sr:synthetic-device",
+               __MODULE__
+             ) == disconnected
+
+      refute_receive {:availability_query, _task, _query}
+    end
+
+    test "opening Details starts one pending query and publishes its completed availability" do
+      socket = availability_socket()
+      pending = DeviceTabRuntime.reload_for_active_tab(socket, "details", "sr:synthetic-device", nil, __MODULE__, [])
+      assert_receive {:availability_query, task, query}
+      assert query =~ "time:last_6h bucket:30m agg:count"
+      assert query =~ "metric_name:icmp_response_time_ns"
+      request_ref = pending.assigns.availability_request_ref
+      assert is_reference(request_ref)
+      assert pending.assigns.availability == socket.assigns.availability
+
+      assert DeviceTabRuntime.maybe_reload_availability_for_active_tab(
+               pending,
+               "details",
+               "sr:synthetic-device",
+               __MODULE__
+             ) == pending
+
+      refute_receive {:availability_query, _task, _query}
+      send(task, :finish)
+
+      assert_receive {:phoenix, :async_result,
+                      {:start,
+                       {_monitor, nil, {:device_availability, "sr:synthetic-device", ^request_ref}, {:ok, availability}}}}
+
+      assert availability.uptime_pct == 100.0
+      assert availability.total_checks == 1
+
+      completed =
+        DeviceTabRuntime.finish_availability_refresh(pending, "sr:synthetic-device", request_ref, {:ok, availability})
+
+      assert completed.assigns.availability == availability
+      assert is_nil(completed.assigns.availability_request_ref)
+
+      restarted =
+        DeviceTabRuntime.maybe_reload_availability_for_active_tab(completed, "details", "sr:synthetic-device", __MODULE__)
+
+      assert_receive {:availability_query, next_task, _query}
+      refute restarted.assigns.availability_request_ref == request_ref
+      send(next_task, :finish)
+    end
+
+    test "stale completion cannot replace the new device and failures allow a later retry" do
+      request_ref = make_ref()
+      pending = Phoenix.Component.assign(availability_socket(), :availability_request_ref, request_ref)
+
+      assert DeviceTabRuntime.finish_availability_refresh(
+               pending,
+               "sr:other-synthetic-device",
+               request_ref,
+               {:ok, %{uptime_pct: 0}}
+             ) == pending
+
+      assert DeviceTabRuntime.finish_availability_refresh(
+               pending,
+               "sr:synthetic-device",
+               make_ref(),
+               {:ok, %{uptime_pct: 0}}
+             ) == pending
+
+      assert DeviceTabRuntime.finish_availability_refresh(
+               pending,
+               "sr:synthetic-device",
+               make_ref(),
+               {:exit, :synthetic_failure}
+             ) == pending
+
+      failed =
+        DeviceTabRuntime.finish_availability_refresh(
+          pending,
+          "sr:synthetic-device",
+          request_ref,
+          {:exit, :synthetic_failure}
+        )
+
+      assert failed.assigns.availability == pending.assigns.availability
+      assert is_nil(failed.assigns.availability_request_ref)
+    end
+  end
+
+  defp availability_socket do
+    Phoenix.Component.assign(metrics_socket(),
+      current_scope: %{test_pid: self(), loader: :availability},
+      availability: %{uptime_pct: 75.0},
+      availability_request_ref: nil
+    )
   end
 
   describe "interface metrics refresh lifecycle" do

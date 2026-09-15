@@ -241,6 +241,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
+  def handle_async({:device_availability, device_uid, request_ref}, result, socket) do
+    {:noreply, DeviceTabRuntime.finish_availability_refresh(socket, device_uid, request_ref, result)}
+  end
+
   def handle_async({:device_endpoint_inventory, device_uid, request_ref}, {:ok, inventory}, socket) do
     current_ref = Map.get(socket.assigns, :endpoint_inventory_request_ref)
 
@@ -646,6 +650,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     socket
     |> assign(:active_tab, active_tab)
     |> assign(:srql, srql)
+    |> DeviceTabRuntime.maybe_reload_availability_for_active_tab(active_tab, socket.assigns.device_uid, srql_module)
     |> maybe_begin_interface_metrics_refresh(active_tab, socket.assigns.device_uid, srql_module)
     |> DeviceTabRuntime.maybe_load_mtr_for_active_tab(active_tab)
     |> DeviceTabRuntime.maybe_reload_logs_for_active_tab(
@@ -1050,6 +1055,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       scope
     )
     |> begin_device_details_refresh(uid, request_ref, supplemental_context)
+    |> DeviceTabRuntime.maybe_reload_availability_for_active_tab(requested_tab, uid, srql_module)
     |> begin_endpoint_inventory_refresh(uid, scope)
     |> then(&{:noreply, &1})
   end
@@ -1100,6 +1106,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> assign(:ip_aliases, [])
     |> assign(:ip_alias_error, nil)
     |> assign(:availability, nil)
+    |> assign(:availability_request_ref, nil)
     |> assign(:agent_availability, [])
     |> assign(:composite_verdicts, [])
     |> assign(:healthcheck_summary, nil)
@@ -1138,7 +1145,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> assign(:has_bumblebee_exposure, false)
   end
 
-  # Loads the full supplemental batch (virtualization, cameras, availability,
+  # Loads the full supplemental batch (virtualization, cameras,
   # interfaces, flows, logs, MTR detection, …). In the test env we run it
   # synchronously so LiveViewTest's initial render is fully populated (mirrors
   # begin_device_metrics_refresh); in prod it runs off-process via start_async

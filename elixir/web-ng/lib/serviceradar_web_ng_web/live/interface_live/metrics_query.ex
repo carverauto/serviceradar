@@ -10,19 +10,35 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.MetricsQuery do
 
   def build_snmp_counter_query(device_uid, if_index, metric_names, opts \\ []) do
     names = normalize_metric_names(metric_names)
+    build_counter_query(device_uid, "if_index:#{if_index}", names, "metric_name", row_limit(names), opts)
+  end
+
+  def build_snmp_counter_batch_query(device_uid, interfaces) when is_list(interfaces) and interfaces != [] do
+    indexes = interfaces |> Enum.map(& &1.if_index) |> Enum.uniq() |> Enum.sort()
+    names = interfaces |> Enum.flat_map(& &1.metrics_selected) |> normalize_metric_names()
+
+    # The name union can return metrics selected on another interface. Reserve
+    # their rows too, including both partial buckets at the window boundaries,
+    # before the caller filters each interface's selected metrics.
+    limit = length(indexes) * max(@minimum_limit, length(names) * (@buckets_per_window + 1))
+    index_filter = "if_index:(#{Enum.join(indexes, ",")})"
+    build_counter_query(device_uid, index_filter, names, "interface_metric", limit, [])
+  end
+
+  defp build_counter_query(device_uid, index_filter, names, series, default_limit, opts) do
     time_range = Keyword.get(opts, :time_range, @counter_window)
     bucket = Keyword.get(opts, :bucket, @counter_bucket)
-    limit = Keyword.get(opts, :limit, row_limit(names))
+    limit = Keyword.get(opts, :limit, default_limit)
 
     [
       "in:snmp_metrics",
       ~s(device_id:"#{escape_value(device_uid)}"),
-      "if_index:#{if_index}",
+      index_filter,
       metric_filter(names),
       "time:#{time_range}",
       "bucket:#{bucket}",
       "agg:rate",
-      "series:metric_name",
+      "series:#{series}",
       "limit:#{limit}"
     ]
     |> Enum.reject(&blank?/1)

@@ -254,6 +254,11 @@ in:timeseries_metrics time:last_7d bucket:5m agg:avg series:metric_name
 in:flows time:last_1h bucket:5m agg:sum value_field:bytes_total
 ```
 
+For `timeseries_metrics` and `snmp_metrics`, `series:interface_metric` groups by
+both interface index and metric name. Each series is encoded as
+`<if_index>:<metric_name>`, so a query for several interfaces keeps their counter
+rates separate. Scope the query to one device when comparing its interfaces.
+
 Buckets are always **returned** oldest-first, because that is what a chart renders.
 `sort:` instead chooses which end of the window `limit:` keeps when the range holds
 more buckets than the limit allows:
