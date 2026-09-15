@@ -269,6 +269,7 @@ func TestScaLibrConfigHashCoversCollectionInputsOnly(t *testing.T) {
 		"inode limit":      func(cfg *Config) { cfg.MaxInodes++ },
 		"scan root":        func(cfg *Config) { cfg.ScanRoots = []string{"/other"} },
 		"plugin":           func(cfg *Config) { cfg.ScaLibrPlugins = []string{"os/dpkg"} },
+		"dirs to skip":     func(cfg *Config) { cfg.DirsToSkip = []string{"/mnt/build-cache"} },
 	}
 	for name, mutate := range collectionMutations {
 		t.Run(name, func(t *testing.T) {
