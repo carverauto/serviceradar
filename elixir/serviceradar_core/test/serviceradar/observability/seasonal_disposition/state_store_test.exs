@@ -34,7 +34,20 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.StateStoreTest do
 
     def query("SELECT " <> _ = sql, params) do
       send(Process.get(:test_pid), {:query, sql, params})
-      {:ok, %{rows: [["svc/cpu/a", 0, 3, 2]]}}
+
+      {:ok,
+       %{
+         rows: [
+           [
+             "svc/cpu/a",
+             2,
+             "seasonal_breach",
+             ~N[2026-06-19 03:00:00.000000],
+             ~N[2026-06-19 04:00:00.000000],
+             true
+           ]
+         ]
+       }}
     end
 
     def query("DELETE " <> _ = sql, params) do
@@ -53,7 +66,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.StateStoreTest do
     :ok
   end
 
-  test "loads existing counters in one batched query" do
+  test "loads chronological state by series and normalizes database timestamps" do
     assert {:ok, states} =
              StateStore.load_many(
                @source,
@@ -61,11 +74,22 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.StateStoreTest do
                repo: FakeRepo
              )
 
-    assert states == %{{"svc/cpu/a", 0, 3} => 2}
+    assert states == %{
+             "svc/cpu/a" => %{
+               consecutive_anomalous: 2,
+               disposition: "seasonal_breach",
+               bucket_started_at: ~U[2026-06-19 03:00:00.000000Z],
+               bucket_ended_at: ~U[2026-06-19 04:00:00.000000Z],
+               previously_confirmed: true
+             }
+           }
 
-    assert_received {:query, sql, ["cpu_seasonal", ["svc/cpu/a", "svc/cpu/b"], [0, 1], [3, 4]]}
-    assert sql =~ "FROM platform.seasonal_disposition_states"
-    assert sql =~ "unnest($2::text[], $3::int[], $4::int[])"
+    assert_received {:query, sql, ["cpu_seasonal", ["svc/cpu/a", "svc/cpu/b"]]}
+    assert sql =~ "FROM platform.seasonal_disposition_chronological_states"
+    assert sql =~ "SELECT DISTINCT ON (series_key)"
+    assert sql =~ "series_key = ANY($2::text[])"
+    assert sql =~ "ORDER BY series_key, last_bucket_started_at DESC"
+    assert sql =~ "last_status IN ('breach', 'cleared', 'normal')"
     assert sql =~ "expires_at > now()"
   end
 
@@ -120,7 +144,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.StateStoreTest do
                seasonal_state_ttl_days: 7
              )
 
-    assert_received {:insert_all, "seasonal_disposition_states", [row], opts}
+    assert_received {:insert_all, "seasonal_disposition_chronological_states", [row], opts}
     assert row.source == "cpu_seasonal"
     assert row.series_key == "svc/cpu/a"
     assert row.dow == 0

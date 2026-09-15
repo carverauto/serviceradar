@@ -460,6 +460,98 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
            ]
   end
 
+  test "seasonal detail shows the scored hour and hourly mean separately from evaluation time" do
+    anomaly = %{
+      "finding_uid" => "finding-seasonal-example",
+      "finding_title" => "Seasonal CPU anomaly",
+      "metric_class" => "cpu",
+      "metric_name" => "usage_percent",
+      "source_device_uid" => "host01.example.com",
+      "severity" => "Low",
+      "state" => "confirmed",
+      "score" => 4.5,
+      "time" => "2026-01-08T10:20:00Z",
+      "metric_context_time" => "2026-01-08T09:30:00Z",
+      "seasonal_disposition" => %{
+        "sample_value" => 8.25,
+        "bucket_started_at" => "2026-01-08T09:00:00Z",
+        "bucket_ended_at" => "2026-01-08T10:00:00Z"
+      }
+    }
+
+    overview = %{
+      status: :ok,
+      anomaly_rows: [anomaly],
+      capacity_rows: [],
+      anomaly_query: nil,
+      capacity_query: nil,
+      anomaly_filter: nil,
+      capacity_filter: nil,
+      anomaly_error: nil,
+      capacity_error: nil,
+      metric_statuses: []
+    }
+
+    points = for minute <- 0..360//30, do: {DateTime.add(~U[2026-01-08 07:00:00Z], minute * 60), 8.0}
+
+    sections = [
+      %{
+        key: "cpu",
+        title: "CPU",
+        subtitle: "selected finding window",
+        panels: [
+          %{
+            plugin: Timeseries,
+            id: "seasonal-cpu",
+            assigns: %{chart_mode: :single, rate_mode: :none, series_points: [{"Overall utilization", points}]}
+          },
+          %{
+            plugin: Timeseries,
+            id: "seasonal-cores",
+            assigns: %{chart_mode: :single, rate_mode: :none, series_points: [{"0", points}]}
+          }
+        ]
+      }
+    ]
+
+    html =
+      render_component(&AnomalyCapacityComponents.anomaly_capacity_section/1,
+        overview: overview,
+        detail: %{kind: "anomaly", row: anomaly},
+        metric_sections: sections,
+        timezone: "Etc/UTC"
+      )
+
+    document = LazyHTML.from_fragment(html)
+    modal = LazyHTML.query(document, "#anomaly-capacity-detail-modal")
+    assert LazyHTML.text(modal) =~ "hourly mean 8.25%"
+    assert LazyHTML.text(modal) =~ "host01.example.com"
+    assert LazyHTML.text(modal) =~ "Evaluated"
+    assert LazyHTML.text(modal) =~ "above or below"
+
+    for {id, timestamp} <- [
+          {"observed-time", "2026-01-08T10:20:00Z"},
+          {"bucket-start", "2026-01-08T09:00:00Z"},
+          {"bucket-end", "2026-01-08T10:00:00Z"}
+        ] do
+      time = LazyHTML.query(modal, "#anomaly-capacity-detail-#{id}")
+      assert LazyHTML.attribute(time, "datetime") == [timestamp]
+    end
+
+    panel = LazyHTML.query(modal, "#panel-anomaly-capacity-detail-cpu-seasonal-cpu-0")
+    assert modal |> LazyHTML.query("#panel-anomaly-capacity-detail-cpu-seasonal-cores-1") |> Enum.empty?()
+    band = LazyHTML.query(panel, "[data-testid=timeseries-anomaly-window]")
+    assert LazyHTML.attribute(band, "data-overlay-label") == ["Scored hourly bucket"]
+    marker = LazyHTML.query(panel, "[data-testid=timeseries-overlay-value]")
+    assert LazyHTML.attribute(marker, "data-time-title-iso") == ["2026-01-08T09:30:00Z"]
+
+    assert LazyHTML.attribute(LazyHTML.query(panel, "[data-time-axis-iso]"), "data-time-axis-iso") == [
+             "2026-01-08T07:30:00Z",
+             "2026-01-08T09:30:00Z",
+             "2026-01-08T11:30:00Z"
+           ]
+  end
+
   test "draws the drift episode window and the baseline it departed from for a drift finding" do
     episode_started_at = ~U[2026-06-22 13:30:00Z]
 

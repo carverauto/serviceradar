@@ -46,6 +46,7 @@ defmodule ServiceRadar.Observability do
     resource ServiceRadar.Observability.StatefulAlertRule
     resource ServiceRadar.Observability.StatefulAlertRuleTemplate
     resource ServiceRadar.Observability.StatefulAlertRuleState
+    resource ServiceRadar.Observability.SeasonalDisposition.ChronologicalState
     resource ServiceRadar.Observability.StatefulAlertRuleHistory
     resource ServiceRadar.Observability.IpGeoEnrichmentCache
     resource ServiceRadar.Observability.IpRdnsCache

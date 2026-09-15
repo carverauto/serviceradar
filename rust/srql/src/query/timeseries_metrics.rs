@@ -1356,6 +1356,7 @@ robust_profile AS (
     b.dow,
     b.hod,
     b.center,
+    COUNT(v.sample_value)::bigint AS robust_bucket_count,
     percentile_cont(0.5) WITHIN GROUP (ORDER BY abs(v.sample_value - b.center))::float8 AS mad,
     b.p05,
     b.p95
@@ -1380,6 +1381,7 @@ SELECT jsonb_build_object(
   'sample_value', l.sample_value,
   'bucket', l.bucket,
   'bucket_count', p.bucket_count,
+  'robust_bucket_count', COALESCE(r.robust_bucket_count, 0),
   'bucket_sum', p.bucket_sum,
   'bucket_sum_sq', p.bucket_sum_sq,
   'center', r.center,
@@ -1813,6 +1815,7 @@ robust_profile AS (
     b.dow,
     b.hod,
     b.center,
+    COUNT(v.sample_value)::bigint AS robust_bucket_count,
     percentile_cont(0.5) WITHIN GROUP (ORDER BY abs(v.sample_value - b.center))::float8 AS mad,
     b.p05,
     b.p95
@@ -1830,6 +1833,7 @@ SELECT jsonb_build_object(
   'sample_value', l.sample_value,
   'bucket', l.bucket,
   'bucket_count', p.bucket_count,
+  'robust_bucket_count', COALESCE(r.robust_bucket_count, 0),
   'bucket_sum', p.bucket_sum,
   'bucket_sum_sq', p.bucket_sum_sq,
   'center', r.center,
@@ -3131,6 +3135,14 @@ mod tests {
         );
         assert_eq!(sql.binds.len(), 8);
         assert!(
+            sql.sql
+                .contains("COUNT(v.sample_value)::bigint AS robust_bucket_count")
+        );
+        assert!(
+            sql.sql
+                .contains("'robust_bucket_count', COALESCE(r.robust_bucket_count, 0)")
+        );
+        assert!(
             !should_route_stats_to_cagg(&plan, &spec),
             "profile stats must use the dedicated hourly profile route"
         );
@@ -3209,6 +3221,14 @@ mod tests {
             sql.sql
         );
         assert_eq!(sql.binds.len(), 7);
+        assert!(
+            sql.sql
+                .contains("COUNT(v.sample_value)::bigint AS robust_bucket_count")
+        );
+        assert!(
+            sql.sql
+                .contains("'robust_bucket_count', COALESCE(r.robust_bucket_count, 0)")
+        );
     }
 
     #[test]
@@ -3254,6 +3274,10 @@ mod tests {
         assert!(sql.sql.contains("profile_rows AS"));
         assert!(sql.sql.contains("FROM profile_rows l"));
         assert!(sql.sql.contains("WHERE l.bucket IS NULL"));
+        assert!(
+            sql.sql
+                .contains("'robust_bucket_count', COALESCE(r.robust_bucket_count, 0)")
+        );
         assert!(!sql.sql.contains("FROM latest l\nJOIN mean_profile"));
     }
 
@@ -3291,6 +3315,10 @@ mod tests {
         assert!(sql.sql.contains("profile_rows AS"));
         assert!(sql.sql.contains("FROM profile_rows l"));
         assert!(sql.sql.contains("WHERE l.bucket IS NULL"));
+        assert!(
+            sql.sql
+                .contains("'robust_bucket_count', COALESCE(r.robust_bucket_count, 0)")
+        );
     }
 
     #[test]

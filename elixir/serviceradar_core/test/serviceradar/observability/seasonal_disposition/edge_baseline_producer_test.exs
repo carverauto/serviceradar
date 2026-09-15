@@ -38,6 +38,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducerTes
         "sample_value" => center,
         "bucket" => "2026-06-22T#{pad(hod)}:00:00Z",
         "bucket_count" => 8,
+        "robust_bucket_count" => if(dow == 1 and hod == 9, do: 7, else: 8),
         "center" => center,
         "mad" => 2.0
       }
@@ -71,7 +72,8 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducerTes
     assert peak["center"] == 70.0
     # MAD 2.0 * 1.4826 MAD->sigma consistency constant.
     assert_in_delta peak["scale"], 2.9652, 1.0e-6
-    assert peak["sample_count"] == 8
+    assert peak["sample_count"] == 7
+    assert Enum.find(cpu_buckets, &(&1["dow"] == 0 and &1["hod"] == 0))["sample_count"] == 8
 
     assert %{"buckets" => mem_buckets} = baselines[mem_key]
     assert Enum.find(mem_buckets, &(&1["dow"] == 1 and &1["hod"] == 9))["center"] == 88.0

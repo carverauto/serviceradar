@@ -358,18 +358,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     {:noreply, toggle_tab_live(socket, "alerts", :alerts_live?)}
   end
 
-  # Shared live-toggle behavior: flip the flag, and when turning live on,
-  # reload the head of the current result set so the tail starts fresh.
-  defp toggle_tab_live(socket, tab, flag) do
-    socket = assign(socket, flag, !Map.get(socket.assigns, flag, false))
-
-    if socket.assigns.active_tab == tab and Map.get(socket.assigns, flag, false) do
-      refresh_tab(socket, tab)
-    else
-      socket
-    end
-  end
-
   def handle_event("srql_paginate", params, socket) do
     tab = socket.assigns.active_tab
     {_entity, list_key} = tab_entity(tab)
@@ -853,6 +841,18 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     case AlertActions.snooze_seconds(%{"duration" => duration}) do
       {:ok, seconds} -> run_alert_bulk(socket, :snooze, seconds: seconds)
       :error -> {:noreply, put_flash(socket, :error, AlertActions.describe_error(:invalid_duration))}
+    end
+  end
+
+  # Shared live-toggle behavior: flip the flag, and when turning live on,
+  # reload the head of the current result set so the tail starts fresh.
+  defp toggle_tab_live(socket, tab, flag) do
+    socket = assign(socket, flag, !Map.get(socket.assigns, flag, false))
+
+    if socket.assigns.active_tab == tab and Map.get(socket.assigns, flag, false) do
+      refresh_tab(socket, tab)
+    else
+      socket
     end
   end
 

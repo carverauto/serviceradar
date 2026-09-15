@@ -928,6 +928,14 @@
     "reason": null
   },
   {
+    "path": "lib/serviceradar_web_ng_web/live/device_live/anomaly_capacity_data.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 3,
+    "fingerprint": "b4cf6599dc218233ea0847939110d7163eee6524d10f364de19541cd0b49d1f8",
+    "classification": "canonical_machine",
+    "reason": "Canonical seasonal bucket midpoint passed to metric query windows and chart overlays."
+  },
+  {
     "path": "lib/serviceradar_web_ng_web/live/device_live/endpoint_inventory_components.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 1,
