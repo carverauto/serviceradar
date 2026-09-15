@@ -608,6 +608,89 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
     assert other.count == 0
   end
 
+  test "seasonal findings retain their scored hour and sample without changing evaluation time" do
+    seasonal = %{
+      "resource_id" => "host01.example.com",
+      "sample_value" => 8.25,
+      "bucket_started_at" => "2026-01-08T09:00:00Z",
+      "bucket_ended_at" => "2026-01-08T10:00:00Z",
+      "evaluated_at" => "2026-01-08T10:20:00Z",
+      "metadata" => %{"unused" => "not needed by the detail view"}
+    }
+
+    for payload <- [
+          %{"seasonal_disposition" => seasonal},
+          %{"unmapped" => %{"seasonal_disposition" => seasonal}}
+        ] do
+      row = Map.merge(payload, %{"metric_class" => "cpu", "status" => "active", "time" => seasonal["evaluated_at"]})
+      source = fn _, _, _, _ -> {:ok, %{rows: [row]}} end
+
+      data = AnomalyCapacityData.load(FakeSRQL, %{device_uid: "host01.example.com"}, nil, anomaly_source: source)
+
+      assert [projected] = data.anomaly_rows
+      assert projected["time"] == seasonal["evaluated_at"]
+      assert projected["metric_context_time"] == "2026-01-08T09:30:00Z"
+      assert projected["metric_value"] == 8.25
+      assert projected["sample_value"] == 8.25
+      assert projected["source_device_uid"] == "host01.example.com"
+      assert projected["seasonal_disposition"] == Map.drop(seasonal, ["resource_id", "metadata"])
+      refute Map.has_key?(projected, "window_started_at")
+      refute Map.has_key?(projected, "window_ended_at")
+    end
+  end
+
+  test "invalid seasonal bucket boundaries do not invent a chart timestamp" do
+    row = %{
+      "metric_class" => "cpu",
+      "status" => "active",
+      "time" => "2026-01-08T10:20:00Z",
+      "seasonal_disposition" => %{
+        "bucket_started_at" => "2026-01-08T10:00:00Z",
+        "bucket_ended_at" => "2026-01-08T09:00:00Z"
+      }
+    }
+
+    source = fn _, _, _, _ -> {:ok, %{rows: [row]}} end
+    data = AnomalyCapacityData.load(FakeSRQL, %{device_uid: "host01.example.com"}, nil, anomaly_source: source)
+
+    assert [projected] = data.anomaly_rows
+    refute Map.has_key?(projected, "metric_context_time")
+    assert projected["time"] == row["time"]
+  end
+
+  test "seasonal context survives episode and repeated display projection" do
+    episode = %{
+      "episode_uid" => "episode-seasonal-example",
+      "device_uid" => "host01.example.com",
+      "metric_class" => "cpu",
+      "metric_name" => "usage_percent",
+      "status" => "open",
+      "opened_at" => ~U[2026-01-08 10:20:00Z],
+      "last_seen_at" => ~U[2026-01-08 10:20:00Z],
+      "last_payload" => %{
+        "seasonal_disposition" => %{
+          "resource_id" => "host01.example.com",
+          "sample_value" => 8.25,
+          "bucket_started_at" => "2026-01-08T09:00:00Z",
+          "bucket_ended_at" => "2026-01-08T10:00:00Z"
+        }
+      }
+    }
+
+    source = fn _, _, _, _ -> {:ok, %{rows: [episode]}} end
+    identity = %{device_uid: "host01.example.com"}
+    assert %{anomaly_rows: [projected]} = AnomalyCapacityData.load(FakeSRQL, identity, nil, anomaly_source: source)
+    assert projected["metric_context_time"] == "2026-01-08T09:30:00Z"
+    assert projected["time"] == "2026-01-08T10:20:00Z"
+    assert projected["source_device_uid"] == "host01.example.com"
+    assert projected["metric_value"] == 8.25
+
+    projected_source = fn _, _, _, _ -> {:ok, %{rows: [projected]}} end
+
+    assert %{anomaly_rows: [^projected]} =
+             AnomalyCapacityData.load(FakeSRQL, identity, nil, anomaly_source: projected_source)
+  end
+
   test "does not fall back to agent scoped anomaly findings when canonical and host aliases have no rows" do
     data =
       AnomalyCapacityData.load(
@@ -735,6 +818,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
              "score" => 4.2,
              "series_key" => "partition:agent:cpu0",
              "device_label" => "router-1",
+             "source_device_uid" => "router-1",
              "severity" => "High",
              "status" => "suppressed",
              "anomaly_disposition" => %{

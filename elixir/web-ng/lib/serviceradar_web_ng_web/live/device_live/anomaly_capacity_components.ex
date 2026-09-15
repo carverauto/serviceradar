@@ -438,6 +438,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
       |> assign(:detail_chart_sections, detail_chart_sections(assigns.detail, assigns.metric_sections))
       |> assign(:detail_chart_focus, detail_chart_focus(assigns.detail))
       |> assign(:lifecycle_notice, detail_lifecycle_notice(assigns.detail))
+      |> assign(:seasonal_context, value(assigns.detail.row, "seasonal_disposition"))
 
     ~H"""
     <dialog
@@ -495,6 +496,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
             timezone={@timezone}
           />
           <.detail_item label="Confidence" value={detail_confidence(@detail)} />
+          <.detail_time_item
+            :if={@seasonal_context}
+            id="anomaly-capacity-detail-bucket-start"
+            label="Scored hour start"
+            value={value(@seasonal_context, "bucket_started_at")}
+            timezone={@timezone}
+          />
+          <.detail_time_item
+            :if={@seasonal_context}
+            id="anomaly-capacity-detail-bucket-end"
+            label="Scored hour end"
+            value={value(@seasonal_context, "bucket_ended_at")}
+            timezone={@timezone}
+          />
         </div>
 
         <div
@@ -650,13 +665,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
 
   defp detail_chart_sections(%{row: row}, sections) when is_list(sections) do
     key = detail_metric_section_key(row)
+    # Central seasonal CPU findings score the host mean, not any individual core.
+    panel_limit = if key == "cpu" and is_map(value(row, "seasonal_disposition")), do: 1, else: 2
 
     sections
     |> Enum.filter(fn section ->
       is_map(section) and Map.get(section, :key) == key and is_list(Map.get(section, :panels))
     end)
     |> Enum.map(fn section ->
-      %{section | panels: Enum.take(Map.get(section, :panels, []), 2)}
+      section = %{section | panels: Enum.take(Map.get(section, :panels, []), panel_limit)}
+      if panel_limit == 1, do: %{section | subtitle: "hourly mean context · overall utilization"}, else: section
     end)
   end
 
@@ -723,8 +741,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
   defp detail_chart_focus(%{kind: kind, row: row}) when is_map(row) do
     timestamp =
       case kind do
-        "capacity" -> first_present(row, [["forecasted_at"], ["time"], ["timestamp"], ["window_ended_at"]])
-        _ -> first_present(row, [["time"], ["timestamp"], ["window_ended_at"], ["forecasted_at"]])
+        "capacity" ->
+          first_present(row, [["forecasted_at"], ["time"], ["timestamp"], ["window_ended_at"]])
+
+        _ ->
+          first_present(row, [["metric_context_time"], ["time"], ["timestamp"], ["window_ended_at"], ["forecasted_at"]])
       end
 
     case timestamp do
@@ -732,25 +753,45 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
         nil
 
       timestamp ->
-        put_drift_focus(
-          %{
-            timestamp: timestamp,
-            label: detail_marker_label(%{kind: kind, row: row}),
-            severity: value(row, "effective_severity") || value(row, "severity") || value(row, "status"),
-            series: first_present(row, [["series"], ["series_key"], ["metric_name"], ["resource_key"]]),
-            series_key: value(row, "series_key"),
-            metric_name: value(row, "metric_name"),
-            resource_key: value(row, "resource_key"),
-            before_seconds: @detail_chart_focus_side_seconds,
-            after_seconds: @detail_chart_focus_side_seconds
-          },
-          kind,
-          row
-        )
+        focus =
+          put_drift_focus(
+            %{
+              timestamp: timestamp,
+              label: detail_marker_label(%{kind: kind, row: row}),
+              severity: value(row, "effective_severity") || value(row, "severity") || value(row, "status"),
+              series: first_present(row, [["series"], ["series_key"], ["metric_name"], ["resource_key"]]),
+              series_key: value(row, "series_key"),
+              metric_name: value(row, "metric_name"),
+              resource_key: value(row, "resource_key"),
+              before_seconds: @detail_chart_focus_side_seconds,
+              after_seconds: @detail_chart_focus_side_seconds
+            },
+            kind,
+            row
+          )
+
+        put_seasonal_focus(focus, row)
     end
   end
 
   defp detail_chart_focus(_detail), do: nil
+
+  defp put_seasonal_focus(focus, %{"metric_context_time" => center, "seasonal_disposition" => seasonal}) do
+    Map.put(focus, :chart_overlays, [
+      %{
+        kind: "anomaly",
+        time: center,
+        window_started_at: Map.get(seasonal, "bucket_started_at"),
+        window_ended_at: Map.get(seasonal, "bucket_ended_at"),
+        value: Map.get(seasonal, "sample_value"),
+        label: "Scored hourly bucket",
+        severity: Map.get(focus, :severity),
+        reason: "Hourly mean compared with the baseline for the same hour of the week"
+      }
+    ])
+  end
+
+  defp put_seasonal_focus(focus, _row), do: focus
 
   # A drift finding claims a level shift, so its chart has to show the level the
   # accumulator measured against and the level it estimated, over the whole
@@ -1608,7 +1649,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
 
   defp detail_value_score(%{row: row}) do
     [
-      anomaly_value_label(row),
+      detail_anomaly_value_label(row),
       anomaly_score_label(row)
     ]
     |> Enum.reject(&blank?/1)
@@ -1616,6 +1657,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
   end
 
   defp detail_value_score(_), do: nil
+
+  defp detail_anomaly_value_label(%{"seasonal_disposition" => %{"sample_value" => sample}} = row) do
+    "hourly mean #{format_metric_value(sample, row)}"
+  end
+
+  defp detail_anomaly_value_label(row), do: anomaly_value_label(row)
 
   defp detail_resource(detail, device_uid, device_display_name)
 
@@ -1654,6 +1701,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
 
   defp detail_time_label(%{kind: "capacity"}), do: "Forecasted"
   defp detail_time_label(%{kind: "capacity_notice"}), do: "Event time"
+  defp detail_time_label(%{kind: "anomaly", row: %{"seasonal_disposition" => %{}}}), do: "Evaluated"
 
   defp detail_time_label(%{kind: "anomaly", row: row}) do
     if resolved_anomaly?(row), do: "Resolved", else: "Observed"
@@ -1671,6 +1719,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
     row
     |> first_present([["time"], ["forecasted_at"], ["window_ended_at"]])
     |> parse_timestamp()
+  end
+
+  defp detail_time(%{kind: "anomaly", row: %{"seasonal_disposition" => %{}} = row}) do
+    parse_timestamp(value(row, "time"))
   end
 
   defp detail_time(%{kind: "anomaly", row: row}) do
@@ -1727,6 +1779,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
   end
 
   defp detail_marker_label(%{kind: "capacity"}), do: "Capacity forecast"
+  defp detail_marker_label(%{kind: "anomaly", row: %{"metric_context_time" => _}}), do: "Scored hour midpoint"
   defp detail_marker_label(_detail), do: "Selected anomaly finding"
 
   defp detail_marker_description(%{kind: "capacity_notice", row: row}) do
@@ -1739,6 +1792,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
 
   defp detail_marker_description(%{kind: "capacity"}) do
     "The vertical marker is the forecast event time. The projected crossing or exhaustion time is shown in the details above."
+  end
+
+  defp detail_marker_description(%{kind: "anomaly", row: %{"metric_context_time" => _}}) do
+    "The shaded band is the scored hour. Its marker shows the hourly mean at the middle of that hour; evaluation occurred later."
   end
 
   defp detail_marker_description(%{kind: "anomaly", row: row}) when is_map(row) do
@@ -1765,6 +1822,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
   end
 
   defp detail_reason(%{kind: "capacity_notice", row: row}), do: finding_reason(row)
+
+  defp detail_reason(%{kind: "anomaly", row: %{"seasonal_disposition" => %{"sample_value" => sample}} = row}) do
+    if resolved_anomaly?(row) do
+      resolution_reason_copy(row)
+    else
+      "The hourly mean #{format_metric_value(sample, row)} differs from its baseline for the same hour of the week " <>
+        "(absolute residual z #{format_number(anomaly_score(row))}). " <>
+        "A breach can be above or below the baseline."
+    end
+  end
 
   defp detail_reason(%{kind: "anomaly", row: row}) do
     if resolved_anomaly?(row) do
@@ -2044,6 +2111,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
 
   defp known_atom_key("anomaly_score"), do: :anomaly_score
   defp known_atom_key("anomaly_value"), do: :anomaly_value
+  defp known_atom_key("bucket_started_at"), do: :bucket_started_at
+  defp known_atom_key("bucket_ended_at"), do: :bucket_ended_at
+  defp known_atom_key("metric_context_time"), do: :metric_context_time
+  defp known_atom_key("seasonal_disposition"), do: :seasonal_disposition
   defp known_atom_key("confidence"), do: :confidence
   defp known_atom_key("capacity_forecast"), do: :capacity_forecast
   defp known_atom_key("clears_finding_uid"), do: :clears_finding_uid

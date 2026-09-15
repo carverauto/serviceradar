@@ -44,14 +44,37 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.WorkerTest do
     @moduledoc false
 
     def load_many(_source, keys, _opts) do
-      state = Process.get(:seasonal_state_store, %{})
-      {:ok, Map.take(state, keys)}
+      series_keys = Enum.map(keys, &elem(&1, 0))
+
+      states =
+        :seasonal_state_store
+        |> Process.get(%{})
+        |> Map.values()
+        |> Enum.group_by(&elem(&1.key, 0))
+        |> Map.take(series_keys)
+        |> Map.new(fn {series, actions} ->
+          ordered = Enum.sort_by(actions, &DateTime.to_unix(&1.bucket_started_at), :desc)
+          [latest | _] = ordered
+          terminal = Enum.find(ordered, &(&1.status in ["normal", "cleared", "breach"]))
+
+          {series,
+           %{
+             consecutive_anomalous: latest.consecutive_anomalous,
+             disposition: latest.disposition,
+             bucket_started_at: latest.bucket_started_at,
+             # Postgrex timestamps have microsecond precision even at an exact second.
+             bucket_ended_at: %{latest.bucket_ended_at | microsecond: {0, 6}},
+             previously_confirmed: match?(%{status: "breach"}, terminal)
+           }}
+        end)
+
+      {:ok, states}
     end
 
     def persist_many(_source, actions, _opts) do
       state =
         Enum.reduce(actions, Process.get(:seasonal_state_store, %{}), fn action, acc ->
-          Map.put(acc, action.key, action.consecutive_anomalous)
+          Map.put(acc, action.key, action)
         end)
 
       Process.put(:seasonal_state_store, state)
@@ -481,44 +504,72 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.WorkerTest do
     assert attrs.consecutive_anomalous == 1
   end
 
-  test "worker persists seasonal confirmation across independent runs" do
-    test_pid = self()
-
+  test "worker confirms adjacent hourly buckets across midnight and clears the next clean hour" do
     AnomalyConfigRuntime.put_cache_for_test(%{
       seasonal_disposition_opts: [confirm_slots: 3]
     })
 
-    idle = for i <- 0..19, do: 5.0 + rem(i, 3) * 0.5
-    rows = [profile_row("svc/cpu/restart", 0, 3, idle, 800.0)]
-    page_runner = make_runner(rows)
-
-    for _ <- 1..2 do
-      assert :ok =
-               Worker.run(job(),
-                 sources: [source()],
-                 runner: page_runner,
-                 verdict_emitter: TestEmitter,
-                 test_pid: test_pid
-               )
-
+    for hour <- 0..1 do
+      assert :ok = run_window(chronological_row("svc/cpu/restart", hour, 45.0))
       refute_received {:seasonal_verdict, _}
     end
 
-    assert Process.get(:seasonal_state_store)[{"svc/cpu/restart", 0, 3}] == 2
+    assert :ok = run_window(chronological_row("svc/cpu/restart", 2, 45.0))
+    assert_received {:seasonal_verdict, %{status: "breach", consecutive_anomalous: 3}}
 
-    assert :ok =
-             Worker.run(job(),
-               sources: [source()],
-               runner: page_runner,
-               verdict_emitter: TestEmitter,
-               test_pid: test_pid
-             )
+    assert :ok = run_window(chronological_row("svc/cpu/restart", 3, 12.5))
+    assert_received {:seasonal_verdict, %{status: "cleared", consecutive_anomalous: 0}}
+  end
 
-    assert_received {:seasonal_verdict, attrs}
-    assert attrs.series_key == "svc/cpu/restart"
-    assert attrs.disposition == "seasonal_breach"
-    assert attrs.consecutive_anomalous == 3
-    assert Process.get(:seasonal_state_store)[{"svc/cpu/restart", 0, 3}] == 3
+  test "same and older buckets neither confirm nor change committed state" do
+    AnomalyConfigRuntime.put_cache_for_test(%{seasonal_disposition_opts: [confirm_slots: 2]})
+    first = chronological_row("svc/cpu/retry", 0, 45.0)
+    second = chronological_row("svc/cpu/retry", 1, 45.0)
+
+    assert :ok = run_window(first)
+    pending = Process.get(:seasonal_state_store)
+    assert :ok = run_window(first)
+    assert Process.get(:seasonal_state_store) == pending
+    refute_received {:seasonal_verdict, _}
+
+    assert :ok = run_window(second)
+    assert_received {:seasonal_verdict, %{status: "breach", consecutive_anomalous: 2}}
+    confirmed = Process.get(:seasonal_state_store)
+
+    assert :ok = run_window(second)
+    assert :ok = run_window(first)
+    assert Process.get(:seasonal_state_store) == confirmed
+    refute_received {:seasonal_verdict, _}
+  end
+
+  test "a gap or the same hour next week cannot complete confirmation" do
+    AnomalyConfigRuntime.put_cache_for_test(%{seasonal_disposition_opts: [confirm_slots: 2]})
+
+    for hour <- [0, 2, 170] do
+      assert :ok = run_window(chronological_row("svc/cpu/gap", hour, 45.0))
+      refute_received {:seasonal_verdict, _}
+    end
+
+    assert Enum.all?(Process.get(:seasonal_state_store), fn {_key, state} ->
+             state.consecutive_anomalous == 1
+           end)
+  end
+
+  test "insufficient history breaks confirmation without clearing an open breach" do
+    AnomalyConfigRuntime.put_cache_for_test(%{seasonal_disposition_opts: [confirm_slots: 2]})
+
+    assert :ok = run_window(chronological_row("svc/cpu/thin", 0, 45.0))
+    assert :ok = run_window(chronological_row("svc/cpu/thin", 1, 45.0, [10.0]))
+    assert :ok = run_window(chronological_row("svc/cpu/thin", 2, 45.0))
+    refute_received {:seasonal_verdict, _}
+
+    assert :ok = run_window(chronological_row("svc/cpu/thin", 3, 45.0))
+    assert_received {:seasonal_verdict, %{status: "breach", consecutive_anomalous: 2}}
+
+    assert :ok = run_window(chronological_row("svc/cpu/thin", 4, 45.0, [10.0]))
+    refute_received {:seasonal_verdict, _}
+    assert :ok = run_window(chronological_row("svc/cpu/thin", 5, 12.5))
+    assert_received {:seasonal_verdict, %{status: "cleared", consecutive_anomalous: 0}}
   end
 
   test "worker resets pending confirmation on clean slot without emitting clear" do
@@ -643,6 +694,72 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.WorkerTest do
     assert attrs.metadata["robust_statistic"] == "median_mad"
   end
 
+  test "robust baseline sufficiency counts historical samples without the evaluated sample" do
+    for statistic <- [:median_mad, :p05p95] do
+      robust_source = %{source() | robust_statistic: statistic}
+      mature_series = "svc/cpu/#{statistic}/mature"
+
+      rows =
+        for {series, history_count} <- [
+              {"svc/cpu/#{statistic}/sparse", 3},
+              {mature_series, 4}
+            ] do
+          %{
+            "series" => series,
+            "dow" => 0,
+            "hod" => 3,
+            "sample_value" => 60.0,
+            "bucket_count" => history_count + 1,
+            "robust_bucket_count" => history_count,
+            "center" => 10.0,
+            "mad" => 1.0,
+            "p05" => 8.0,
+            "p95" => 12.0,
+            "bucket" => ~U[2026-06-07 03:00:00Z]
+          }
+        end
+
+      assert :ok =
+               Worker.run(job(),
+                 sources: [robust_source],
+                 runner: make_runner(rows),
+                 verdict_emitter: TestEmitter,
+                 test_pid: self()
+               )
+
+      assert_received {:seasonal_verdict,
+                       %{series_key: ^mature_series, disposition: "seasonal_breach"}}
+
+      refute_received {:seasonal_verdict, _}
+    end
+  end
+
+  test "robust hydration retains zero history and full-profile counts per hour-of-week cell" do
+    robust_source = %{source() | robust_statistic: :median_mad}
+
+    rows =
+      for {hod, inclusive, historical} <- [{1, 1, 0}, {2, 5, 4}, {3, 5, 5}] do
+        %{
+          "series" => "svc/cpu/profile-counts",
+          "dow" => 0,
+          "hod" => hod,
+          "sample_value" => 20.0,
+          "bucket_count" => inclusive,
+          "robust_bucket_count" => historical,
+          "center" => if(historical == 0, do: nil, else: 10.0),
+          "mad" => if(historical == 0, do: nil, else: 1.0),
+          "bucket" => DateTime.add(~U[2026-06-07 00:00:00Z], hod * 3_600, :second)
+        }
+      end
+
+    assert {:ok,
+            [
+              %{hod: 1, bucket_count: 0},
+              %{hod: 2, bucket_count: 4},
+              %{hod: 3, bucket_count: 5}
+            ]} = Worker.edge_baseline_rows(robust_source, runner: make_runner(rows))
+  end
+
   test "worker emits a clear when a previously confirmed seasonal breach suppresses" do
     busy = for i <- 0..19, do: 800.0 + rem(i, 5) * 2.0
     rows = [profile_row("svc/cpu/clear", 2, 9, busy, 805.0)]
@@ -701,13 +818,13 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.WorkerTest do
     assert_received {:seasonal_verdict, %{series_key: "svc/cpu/p2"}}
   end
 
-  test "worker keeps disposing when verdict emission fails" do
+  test "failed publication leaves the bucket uncommitted so retry delivers its verdict" do
     idle = for i <- 0..19, do: 5.0 + rem(i, 3) * 0.5
     rows = [profile_row("svc/cpu/x", 0, 3, idle, 800.0)]
 
     log =
       capture_log(fn ->
-        assert :ok =
+        assert {:error, {:seasonal_verdict_emit_failed, {:error, _}}} =
                  Worker.run(job(),
                    sources: [source()],
                    runner: make_runner(rows),
@@ -718,6 +835,12 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.WorkerTest do
 
     assert_received {:seasonal_verdict_attempt, %{series_key: "svc/cpu/x"}}
     assert log =~ "Seasonal disposition verdict emit failed"
+    assert Process.get(:seasonal_state_store, %{}) == %{}
+
+    assert :ok = run_window(hd(rows))
+    assert_received {:seasonal_verdict, %{series_key: "svc/cpu/x", status: "breach"}}
+    assert :ok = run_window(hd(rows))
+    refute_received {:seasonal_verdict, _}
   end
 
   test "worker returns an error when the profile query fails" do
@@ -819,5 +942,23 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.WorkerTest do
       inserted_at: @evaluated_at,
       scheduled_at: @evaluated_at
     }
+  end
+
+  defp chronological_row(series, hour, value, baseline \\ [10.0, 11.0, 12.0, 13.0, 14.0, 15.0]) do
+    bucket = DateTime.add(~U[2026-01-04 23:00:00Z], hour * 3_600, :second)
+    dow = rem(Date.day_of_week(DateTime.to_date(bucket)), 7)
+
+    series
+    |> profile_row(dow, bucket.hour, baseline, value)
+    |> Map.put("bucket", bucket)
+  end
+
+  defp run_window(row) do
+    Worker.run(job(),
+      sources: [source()],
+      runner: make_runner([row]),
+      verdict_emitter: TestEmitter,
+      test_pid: self()
+    )
   end
 end

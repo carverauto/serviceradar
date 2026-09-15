@@ -85,8 +85,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
     |> Kernel.==("escalate")
   end
 
+  defp finding_marker_time(%{"metric_context_time" => time}) when is_binary(time), do: parse_datetime(time)
+
   defp finding_marker_time(row) do
     episode_peak_time(row) || finding_time(row)
+  end
+
+  defp finding_episode_start_time(%{"seasonal_disposition" => %{"bucket_started_at" => time}}) when is_binary(time) do
+    parse_datetime(time)
   end
 
   defp finding_episode_start_time(row) do
@@ -102,6 +108,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
       ["anomaly", "episode_started_at_unix_nano"]
     ])
     |> unix_nano_datetime()
+  end
+
+  defp finding_episode_end_time(%{"seasonal_disposition" => %{"bucket_ended_at" => time}}) when is_binary(time) do
+    parse_datetime(time)
   end
 
   defp finding_episode_end_time(row) do

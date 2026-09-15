@@ -13,14 +13,14 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
        `SRQLRunner` (the `GROUP BY series, extract(dow), extract(hour)` aggregation
        STAYS in SQL — data gravity, design D6).
     2. Hydrate each profile row into the typed `{:seasonal, %{config, row}}` request
-       ABI, carrying in `consecutive_anomalous` from the state store for confirm-slot
-       hysteresis.
+       ABI, carrying `consecutive_anomalous` only from the immediately preceding
+       hourly window. Already committed and older windows are skipped.
     3. Call `DispositionKernels.dispose_batch(:seasonal, rows)` once per source — the NIF
        moves only residual-z, breach, baseline-sufficiency, and robust-statistic
        selection; every gate is a typed `Disposition` value, never an unwind.
-    4. Persist the returned `next_consecutive_anomalous` per `(series_key, dow, hod)`
-       and emit `verdict_source: central-seasonal` verdicts for confirmed breaches
-       and confirmed-breach clears via the existing `VerdictEmitter` onto the signal path.
+    4. Emit `verdict_source: central-seasonal` verdicts for confirmed breaches and
+       confirmed-breach clears, then persist the window disposition and next counter.
+       A failed publication leaves the window eligible for retry.
 
   Mirrors `ServiceRadar.Observability.CapacityForecasting.Worker`. Tests can inject
   `:runner`, `:sources`, `:reasoner`, `:state_loader`, `:state_persister`, and
@@ -299,27 +299,38 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
     pairs = Enum.zip(rows, results)
     {:ok, actions, counts} = build_result_actions(pairs, config)
 
-    case persist_states(source, actions, opts) do
-      :ok ->
-        Enum.each(actions, fn action ->
-          maybe_emit_verdict(
-            source,
-            action.row,
-            action.verdict,
-            action.score,
-            action.consecutive_anomalous,
-            config,
-            opts
-          )
-        end)
+    # Do not commit a bucket until its verdict is published. A failed publish must
+    # remain retryable; committed buckets are skipped by chronological hydration.
+    with :ok <- emit_verdicts(source, actions, config, opts),
+         :ok <- persist_states(source, actions, opts) do
+      emit_source_telemetry(source, counts, length(rows), :ok, nif_us)
+      :ok
+    else
+      {:error, {:seasonal_verdict_emit_failed, _} = reason} = error ->
+        emit_source_error_telemetry(source, :emit, reason)
+        error
 
-        emit_source_telemetry(source, counts, length(rows), :ok, nif_us)
-        :ok
-
-      {:error, reason} ->
+      {:error, reason} = error ->
         emit_source_error_telemetry(source, :persist, reason)
-        {:error, reason}
+        error
     end
+  end
+
+  defp emit_verdicts(source, actions, config, opts) do
+    Enum.reduce_while(actions, :ok, fn action, :ok ->
+      case maybe_emit_verdict(
+             source,
+             action.row,
+             action.verdict,
+             action.score,
+             action.consecutive_anomalous,
+             config,
+             opts
+           ) do
+        :ok -> {:cont, :ok}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
   end
 
   defp build_result_actions(pairs, config) do
@@ -375,7 +386,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
             reason: inspect(other)
           )
 
-          :ok
+          {:error, {:seasonal_verdict_emit_failed, other}}
       end
     else
       :ok
@@ -469,18 +480,52 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
     )
   end
 
-  # --- carried state (consecutive_anomalous per (series_key, dow, hod)) ---
+  # --- chronological confirmation; window keys remain available for edge joins ---
 
   defp state_key(row), do: {row.series_key, row.dow, row.hod}
 
   defp hydrate_state(source, rows, opts) do
     with {:ok, states} <- load_state_map(source, rows, opts) do
       {:ok,
-       Enum.map(rows, fn row ->
-         %{row | consecutive_anomalous: Map.get(states, state_key(row), 0)}
+       Enum.flat_map(rows, fn row ->
+         previous = Map.get(states, row.series_key, Map.get(states, state_key(row), 0))
+         hydrate_previous_window(row, previous)
        end)}
     end
   end
+
+  # Explicit carried_state/state_loader overrides are used by isolated kernel tests.
+  defp hydrate_previous_window(row, consecutive) when is_integer(consecutive) do
+    [%{row | consecutive_anomalous: consecutive}]
+  end
+
+  defp hydrate_previous_window(
+         %{bucket_started_at: %DateTime{} = started_at} = row,
+         %{bucket_started_at: %DateTime{} = previous_started_at} = previous
+       ) do
+    if DateTime.after?(started_at, previous_started_at) do
+      consecutive =
+        if match?(%DateTime{}, previous.bucket_ended_at) and
+             DateTime.compare(previous.bucket_ended_at, started_at) == :eq and
+             previous.disposition in ["seasonal_breach", "seasonal_drift"] do
+          previous.consecutive_anomalous
+        else
+          0
+        end
+
+      [
+        %{
+          row
+          | consecutive_anomalous: consecutive,
+            previously_confirmed: previous.previously_confirmed
+        }
+      ]
+    else
+      []
+    end
+  end
+
+  defp hydrate_previous_window(_row, _previous), do: []
 
   defp load_state_map(source, rows, opts) do
     loader = Keyword.get(opts, :state_loader)
@@ -566,6 +611,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
         bucket_started_at: bucket_started_at,
         bucket_ended_at: bucket_ended_at(bucket_started_at),
         consecutive_anomalous: 0,
+        previously_confirmed: nil,
         baseline_excludes_latest: Source.robust?(source)
       }
     else
@@ -584,7 +630,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
   end
 
   defp profile_stats(raw, %Source{robust_statistic: :median_mad} = source) do
-    case integer_value(raw, source.count_field) do
+    case robust_profile_count(raw, source) do
       count when is_integer(count) ->
         center = number_value(raw, source.center_field)
         mad = number_value(raw, source.mad_field)
@@ -606,7 +652,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
   end
 
   defp profile_stats(raw, %Source{robust_statistic: :p05p95} = source) do
-    case integer_value(raw, source.count_field) do
+    case robust_profile_count(raw, source) do
       count when is_integer(count) ->
         center = number_value(raw, source.center_field)
         p05 = number_value(raw, source.p05_field)
@@ -632,6 +678,18 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
     Enum.all?(fields, fn field ->
       present_field?(raw, field) and is_nil(value(raw, field))
     end)
+  end
+
+  # Canonical SRQL reports the count of the same excluded-latest rows used for
+  # the order statistics. Full profiles exclude the latest sample only from its
+  # own hour-of-week cell, so subtracting one from every bucket is incorrect.
+  # Custom/legacy rows may use count_field for an already-excluded robust count.
+  defp robust_profile_count(raw, source) do
+    if present_field?(raw, "robust_bucket_count") do
+      integer_value(raw, "robust_bucket_count")
+    else
+      integer_value(raw, source.count_field)
+    end
   end
 
   defp present_field?(raw, field) when is_map(raw) do
@@ -708,6 +766,9 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
   end
 
   defp status(_row, _verdict, _config), do: "suppressed"
+
+  defp previously_confirmed?(%{previously_confirmed: confirmed}, _config)
+       when is_boolean(confirmed), do: confirmed
 
   defp previously_confirmed?(row, %{confirm_slots: confirm_slots}) do
     row.consecutive_anomalous >= max(confirm_slots, 1)

@@ -1956,6 +1956,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp put_detail_section_subtitle_time(sections, _row), do: sections
 
+  defp detail_window_bounds(%{"metric_context_time" => _}, center) do
+    expand_detail_window_to_minimum(center, center, center)
+  end
+
   defp detail_window_bounds(row, center) do
     start_dt = parse_detail_datetime(Map.get(row, "triggered_at") || Map.get(row, "window_started_at"))
     end_dt = parse_detail_datetime(Map.get(row, "cleared_at") || Map.get(row, "window_ended_at"))
@@ -1985,7 +1989,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp detail_center_time(row) do
     row
-    |> first_present_detail_time(["time", "timestamp", "window_ended_at", "projected_exhaustion_at", "forecasted_at"])
+    |> first_present_detail_time([
+      "metric_context_time",
+      "time",
+      "timestamp",
+      "window_ended_at",
+      "projected_exhaustion_at",
+      "forecasted_at"
+    ])
     |> parse_detail_datetime()
   end
 

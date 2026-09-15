@@ -2,9 +2,15 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.StateStore do
   @moduledoc """
   Postgres-backed confirmation state for central seasonal disposition.
 
-  State is keyed by the source and hour-of-week bucket so `confirm_slots > 1`
-  survives Oban run boundaries, node restarts, and deploys. The worker loads and
-  persists state in batches to avoid one query per profile row.
+  Window dispositions remain keyed by source and hour-of-week for edge lookups.
+  Confirmation reads the latest chronological window for each series, so adjacent
+  hours share confirmation and a previous week's same hour cannot confirm a breach.
+  The worker loads and persists state in batches.
+
+  Chronological state lives in a separate table from legacy per-hour-of-week counters.
+  The upgrade migration copies prior dispositions and windows with zero counters.
+  Its insert-only copy cannot reset new confirmation progress when rerun, and workers
+  from older releases cannot overwrite chronological state during a rolling upgrade.
   """
 
   alias ServiceRadar.Observability.SeasonalDisposition.Source
@@ -12,7 +18,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.StateStore do
 
   require Logger
 
-  @table "seasonal_disposition_states"
+  @table "seasonal_disposition_chronological_states"
   @prefix "platform"
   @default_ttl_days 190
 
@@ -36,20 +42,41 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.StateStore do
       {:ok, %{}}
     else
       repo = Keyword.get(opts, :repo, Repo)
-      {series_keys, dows, hods} = split_keys(keys)
+      series_keys = keys |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
 
       sql = """
-      SELECT series_key, dow, hod, consecutive_anomalous
-      FROM #{@prefix}.#{@table}
-      WHERE source = $1
-        AND expires_at > now()
-        AND (series_key, dow, hod) IN (
-          SELECT *
-          FROM unnest($2::text[], $3::int[], $4::int[])
-        )
+      SELECT state.series_key,
+             state.consecutive_anomalous,
+             state.last_disposition,
+             state.last_bucket_started_at,
+             state.last_bucket_ended_at,
+             COALESCE(terminal.last_status = 'breach', false)
+      FROM (
+        SELECT DISTINCT ON (series_key)
+               source, series_key, consecutive_anomalous, last_disposition,
+               last_bucket_started_at, last_bucket_ended_at
+        FROM #{@prefix}.#{@table}
+        WHERE source = $1
+          AND series_key = ANY($2::text[])
+          AND expires_at > now()
+          AND last_bucket_started_at IS NOT NULL
+        ORDER BY series_key, last_bucket_started_at DESC,
+                 last_evaluated_at DESC NULLS LAST
+      ) state
+      LEFT JOIN LATERAL (
+        SELECT last_status
+        FROM #{@prefix}.#{@table}
+        WHERE source = state.source
+          AND series_key = state.series_key
+          AND expires_at > now()
+          AND last_bucket_started_at IS NOT NULL
+          AND last_status IN ('breach', 'cleared', 'normal')
+        ORDER BY last_bucket_started_at DESC, last_evaluated_at DESC NULLS LAST
+        LIMIT 1
+      ) terminal ON true
       """
 
-      case repo.query(sql, [source_name, series_keys, dows, hods]) do
+      case repo.query(sql, [source_name, series_keys]) do
         {:ok, %{rows: rows}} ->
           {:ok, Map.new(rows, &row_to_state/1)}
 
@@ -189,18 +216,15 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.StateStore do
 
   def lookup_window_disposition(_source_name, _series_key, _event_time, _opts), do: {:ok, nil}
 
-  defp split_keys(keys) do
-    keys
-    |> Enum.reduce({[], [], []}, fn {series_key, dow, hod}, {series_keys, dows, hods} ->
-      {[series_key | series_keys], [dow | dows], [hod | hods]}
-    end)
-    |> then(fn {series_keys, dows, hods} ->
-      {Enum.reverse(series_keys), Enum.reverse(dows), Enum.reverse(hods)}
-    end)
-  end
-
-  defp row_to_state([series_key, dow, hod, consecutive_anomalous]) do
-    {{series_key, dow, hod}, non_negative_integer(consecutive_anomalous)}
+  defp row_to_state([series_key, consecutive, disposition, started_at, ended_at, confirmed]) do
+    {series_key,
+     %{
+       consecutive_anomalous: non_negative_integer(consecutive),
+       disposition: disposition,
+       bucket_started_at: datetime(started_at),
+       bucket_ended_at: datetime(ended_at),
+       previously_confirmed: confirmed
+     }}
   end
 
   defp disposition_row([
@@ -244,6 +268,9 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.StateStore do
   end
 
   defp now, do: DateTime.truncate(DateTime.utc_now(), :microsecond)
+
+  defp datetime(%NaiveDateTime{} = value), do: DateTime.from_naive!(value, "Etc/UTC")
+  defp datetime(value), do: value
 
   defp positive_integer(value, _default) when is_integer(value) and value > 0, do: value
   defp positive_integer(_value, default), do: default
