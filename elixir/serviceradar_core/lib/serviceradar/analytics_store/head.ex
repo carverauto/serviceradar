@@ -11,6 +11,8 @@ defmodule ServiceRadar.AnalyticsStore.Head do
   alias ServiceRadar.ColdTier.Registry.Table
   alias ServiceRadar.ColdTier.Verification
 
+  require Logger
+
   @temp_table "analytics_batch"
   @s3_secret_prefix "simple_s3_secret"
 
@@ -155,30 +157,24 @@ defmodule ServiceRadar.AnalyticsStore.Head do
   defp escape(url), do: String.replace(url, "'", "''")
 
   @doc """
-  Postgrex `after_connect` for AnalyticsRepo.
+  Postgrex/Ecto `after_connect` for AnalyticsRepo.
 
-  pg_duckdb keeps S3 creds in the backend's DuckDB instance. A catalog
-  FOREIGN SERVER is not enough: each pooled connection must run
-  `create_simple_secret` in-process. EventWriter used to DROP the server
-  on every COPY, which raced query backends into `region ''` / HTTP 404
-  on `date=/`.
+  DBConnection invokes this with a `%DBConnection{}` checkout, not a pid.
+  A `when is_pid(conn)` guard crashes every pool connect and leaves the
+  backend with no in-process S3 secret (`region ''` / HTTP 404 on `date=/`).
+
+  pg_duckdb keeps S3 creds in the backend's DuckDB instance. Recycle the
+  in-process DuckDB so the catalog FOREIGN SERVER rematerializes; create
+  only when this backend still has no S3 secret.
   """
-  @spec after_connect(pid()) :: :ok
-  def after_connect(conn) when is_pid(conn) do
+  @spec after_connect(term()) :: :ok
+  def after_connect(conn) do
     case Config.s3_secret(Config.load()) do
       :disabled ->
         :ok
 
       {:ok, s3} ->
-        # Each backend has its own DuckDB instance. Re-running create is what
-        # attaches S3 creds in-process; a catalog FOREIGN SERVER is not enough.
-        # Duplicate-name errors mean the catalog already had one.
-        try do
-          query!(conn, create_s3_secret_sql(s3))
-          :ok
-        rescue
-          _ -> :ok
-        end
+        rematerialize_s3_secret(conn, s3)
     end
   end
 
@@ -190,6 +186,53 @@ defmodule ServiceRadar.AnalyticsStore.Head do
     else
       :create
     end
+  end
+
+  defp rematerialize_s3_secret(conn, s3) do
+    _ = query_quiet(conn, "CALL duckdb.recycle_ddb()")
+
+    attached? =
+      try do
+        in_process_s3_secret?(conn)
+      rescue
+        _ -> false
+      end
+
+    if attached? do
+      :ok
+    else
+      query!(conn, create_s3_secret_sql(s3))
+      :ok
+    end
+  rescue
+    exception ->
+      Logger.warning(
+        "analytics head after_connect failed to attach S3 secret: #{Exception.message(exception)}"
+      )
+
+      :ok
+  end
+
+  defp in_process_s3_secret?(conn) do
+    %Postgrex.Result{rows: rows} =
+      query!(conn, """
+      SELECT CAST(t AS varchar)
+        FROM duckdb.query($$ SELECT name FROM duckdb_secrets() $$) AS t
+      """)
+
+    Enum.any?(rows, fn
+      [text] when is_binary(text) ->
+        String.contains?(text, "pgduckdb_secret_#{@s3_secret_prefix}")
+
+      _ ->
+        false
+    end)
+  end
+
+  defp query_quiet(conn, sql) do
+    query!(conn, sql)
+  rescue
+    _ -> :ok
   end
 
   defp maybe_ensure_s3_secret(conn, cfg) do

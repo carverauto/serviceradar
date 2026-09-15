@@ -64,4 +64,10 @@ defmodule ServiceRadar.AnalyticsStore.HeadTest do
     assert Head.s3_secret_action(["simple_s3_secret_1"]) == :keep
     assert Head.s3_secret_action(["analytics_primary"]) == :create
   end
+
+  test "after_connect accepts a DBConnection checkout struct, not only a pid" do
+    conn = %DBConnection{pool_ref: nil, conn_ref: make_ref(), conn_mode: nil}
+    assert :ok = Head.after_connect(conn)
+    assert :ok = Head.after_connect(self())
+  end
 end
