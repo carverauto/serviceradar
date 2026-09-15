@@ -231,6 +231,96 @@ tests:
         documentSelector:
           path: kind
           value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_ANALYTICS_STORE_S3_BUCKET_URL
+            value: "s3://serviceradar-demo-analytics"
+          count: 1
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: flips only listed tables onto pg_duckdb and clears dualWrite
+    set:
+      global.storage.allowInsecureStorage: true
+      analyticsStore.driver: pg_duckdb
+      analyticsStore.tables:
+        - timeseries_metrics
+      analyticsStore.dualWrite: []
+      analyticsStore.pgDuckdb.s3.secretName: serviceradar-analytics-object-store
+      analyticsStore.pgDuckdb.s3.bucket: serviceradar-demo-analytics
+      analyticsStore.pgDuckdb.s3.endpoint: us-ord-10.linodeobjects.com
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_ANALYTICS_STORE_DRIVER
+            value: "pg_duckdb"
+          count: 1
+        template: templates/core.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_ANALYTICS_STORE_TABLES
+            value: "timeseries_metrics"
+          count: 1
+        template: templates/core.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_ANALYTICS_STORE_DUAL_WRITE
+            value: ""
+          count: 1
+        template: templates/core.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_ANALYTICS_STORE_TABLES
+            value: "timeseries_metrics"
+          count: 1
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_ANALYTICS_STORE_HEAD_HOST
+            value: "cnpg-analytics-rw.demo.svc.cluster.local"
+          count: 1
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_ANALYTICS_STORE_S3_BUCKET_URL
+            value: "s3://serviceradar-demo-analytics"
+          count: 1
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_ANALYTICS_STORE_DUAL_WRITE
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
 
   - it: omits LocalFileSystem lock when storage is filesystem
     set:
@@ -324,7 +414,7 @@ tests:
                   cidr: 192.0.2.0/24
         template: templates/cold-analytics-head-network-policy.yaml
 
-  - it: demo overlay dual-writes timeseries_metrics without flipping the driver
+  - it: demo overlay flips timeseries_metrics onto pg_duckdb
     values:
       - ../values-demo.yaml
     asserts:
@@ -332,7 +422,17 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: SERVICERADAR_ANALYTICS_STORE_DRIVER
-            value: "timescale"
+            value: "pg_duckdb"
+          count: 1
+        template: templates/core.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_ANALYTICS_STORE_TABLES
+            value: "timeseries_metrics"
           count: 1
         template: templates/core.yaml
         documentSelector:
@@ -342,7 +442,7 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: SERVICERADAR_ANALYTICS_STORE_DUAL_WRITE
-            value: "timeseries_metrics"
+            value: ""
           count: 1
         template: templates/core.yaml
         documentSelector:
@@ -368,10 +468,32 @@ tests:
         documentSelector:
           path: kind
           value: Deployment
-      - notContains:
+      - contains:
           path: spec.template.spec.containers[0].env
           content:
-            name: SERVICERADAR_ANALYTICS_STORE_DUAL_WRITE
+            name: SERVICERADAR_ANALYTICS_STORE_TABLES
+            value: "timeseries_metrics"
+          count: 1
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_ANALYTICS_STORE_HEAD_HOST
+            value: "cnpg-analytics-rw.demo.svc.cluster.local"
+          count: 1
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_ANALYTICS_STORE_S3_BUCKET_URL
+            value: "s3://serviceradar-demo-analytics"
+          count: 1
         template: templates/web.yaml
         documentSelector:
           path: kind
@@ -379,7 +501,7 @@ tests:
       - notContains:
           path: spec.template.spec.containers[0].env
           content:
-            name: SERVICERADAR_ANALYTICS_STORE_HEAD_HOST
+            name: SERVICERADAR_ANALYTICS_STORE_DUAL_WRITE
         template: templates/web.yaml
         documentSelector:
           path: kind
