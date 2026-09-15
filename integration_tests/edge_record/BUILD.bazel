@@ -62,7 +62,7 @@ go_test(
     tags = ["integration_test"],
     target_compatible_with = requires_shared_fixture(),
     # `size = "large"` (default timeout 900s per rules_go/bazel size conventions) because this
-    # target extracts two Mix release tarballs, boots two real BEAM VMs, and runs six sequential
+    # target extracts two Mix release tarballs, boots two real BEAM VMs, and runs seven sequential
     # acceptance groups against them -- materially slower than an in-process unit test.
     x_defs = {
         "github.com/carverauto/serviceradar/integration_tests/edge_record.gatewayReleaseTarRlocation": "$(rlocationpath //elixir/serviceradar_agent_gateway:release_tar)",

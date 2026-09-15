@@ -60,6 +60,9 @@ defmodule ServiceRadarAgentGateway.MediaIdentity do
     end
   end
 
+  @doc "The client certificate DER presented on `stream`, or `{:error, reason}`."
+  def peer_cert(stream), do: get_peer_cert(stream)
+
   defp get_peer_cert(stream) do
     adapter = stream.adapter
     payload = stream.payload
