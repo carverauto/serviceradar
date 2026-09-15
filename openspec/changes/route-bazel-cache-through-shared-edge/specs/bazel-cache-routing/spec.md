@@ -6,10 +6,19 @@ The repository SHALL route remote-cache traffic inherited through `build:remote_
 `remote_bytestream_uri_prefix=carverauto.buildbuddy.io`. Remote execution, BES, and results URLs
 MUST continue targeting upstream BuildBuddy.
 
-#### Scenario: CI uses the proxy for cache and upstream BuildBuddy for execution
-- **GIVEN** the shared public cache-proxy route is healthy
+#### Scenario: CI uses the in-cluster cache proxy
+- **GIVEN** the BazelCI workflow runner is a pod in the `buildbuddy` namespace
 - **AND** the Bazel client has a valid BuildBuddy credential outside source control
 - **WHEN** the client builds with `--config=ci`
+- **THEN** remote-cache RPCs SHALL use
+  `grpc://bb-cache-proxy-buildbuddy-enterprise-cache-proxy.buildbuddy.svc.cluster.local:1985`
+- **AND** remote execution, BES, results links, and bytestream artifact URIs SHALL continue naming
+  `carverauto.buildbuddy.io`
+
+#### Scenario: Workstation remote profiles use the public TLS cache proxy
+- **GIVEN** the shared public cache-proxy route is healthy
+- **AND** the Bazel client has a valid BuildBuddy credential outside source control
+- **WHEN** the client builds with `--config=remote` or `--config=cache_only`
 - **THEN** remote-cache RPCs SHALL use `grpcs://cache-proxy.carverauto.dev:443`
 - **AND** remote execution, BES, results links, and bytestream artifact URIs SHALL continue naming
   `carverauto.buildbuddy.io`

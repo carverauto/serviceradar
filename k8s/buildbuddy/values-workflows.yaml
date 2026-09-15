@@ -209,18 +209,12 @@ config:
     # everything around it goes through the proxy.
     #
     # Note this is the EXECUTOR's cache target, which is a different hop from the Bazel
-    # CLIENT running inside the runner. That client reaches the same proxy through the public
-    # TLS edge -- it inherits `build:cache_only --remote_cache` through remote_base with no
-    # opt-in. The two paths are independent and either works without the other, which is why
-    # they may name different addresses for one proxy.
-    #
-    # Leave the client on the public edge: it is the one address that works from this pod and
-    # from a workstation alike, and a CI path that depends on the runner's network topology is a
-    # CI path that breaks the next time the topology changes. It broke exactly that way once --
-    # //buildbuddy.yaml pointed SRQL_FIXTURE_CA_URL at
-    # srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local, which the action namespace could
-    # not resolve until `oci.dns` below. (An earlier note here called that a ClusterIP; it was a
-    # cluster DNS name, which is why the two failures looked unrelated.)
+    # CLIENT running inside the runner. The client used to hairpin through the public
+    # TLS edge (`build:cache_only --remote_cache` via remote_base). That path RST_STREAMs
+    # FindMissingBlobs on the shared Envoy+Coraza listener, so `build:ci` now overrides
+    # --remote_cache to this same in-cluster h2c Service. Workstations keep the public
+    # grpcs URL. Action-namespace DNS is a separate problem (`oci.dns` below); the
+    # runner pod itself can resolve cluster DNS.
     cache_target: grpc://bb-cache-proxy-buildbuddy-enterprise-cache-proxy.buildbuddy.svc.cluster.local:1985
 
     # IN-CLUSTER ACCESS FROM ACTIONS. Same key and values as ./values.yaml -- see the long note
