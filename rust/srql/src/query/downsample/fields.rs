@@ -160,6 +160,11 @@ pub(super) fn series_expr(plan: &QueryPlan, table: &str) -> Result<String> {
                 "partition" => "partition".to_string(),
                 "target_device_ip" => "target_device_ip".to_string(),
                 "if_index" => "if_index::text".to_string(),
+                "interface_metric"
+                    if matches!(plan.entity, Entity::TimeseriesMetrics | Entity::SnmpMetrics) =>
+                {
+                    "if_index::text || ':' || metric_name".to_string()
+                }
                 // Split by an arbitrary tag. This expression is interpolated
                 // into the SELECT and GROUP BY lists, so the key is validated
                 // before it can reach the string — same rule as tag filtering

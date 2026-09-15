@@ -78,6 +78,13 @@ config :serviceradar_core, Oban,
   ],
   peer: Oban.Peers.Database
 
+config :serviceradar_core, ServiceRadar.AnalyticsRepo, []
+
+# Default analytics-store driver is Timescale (CNPG hypertables). pg_duckdb
+# is selected at runtime via SERVICERADAR_ANALYTICS_STORE_* and fails closed
+# if storage is incomplete — see ServiceRadar.AnalyticsStore.Config.
+config :serviceradar_core, ServiceRadar.AnalyticsStore, driver: :timescale
+
 # Advisory-feed staging reaper. Oban :kill skips FeedWorker after-cleanup.
 config :serviceradar_core, ServiceRadar.Inventory.AdvisoryFeeds.StagingCleanupWorker,
   reschedule_seconds: 60
@@ -215,6 +222,7 @@ config :serviceradar_core,
     ServiceRadar.Integrations,
     ServiceRadar.Jobs,
     ServiceRadar.AgentConfig,
+    ServiceRadar.AnalyticsStore.Catalog,
     ServiceRadar.Dashboards,
     ServiceRadar.SweepJobs,
     ServiceRadar.SysmonProfiles,

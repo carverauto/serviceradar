@@ -194,6 +194,7 @@ defmodule ServiceRadar.EventWriter.ProducerFlowControlTest do
       {[message], _state} = push_msg(state, "live")
 
       assert message.metadata.jetstream_ack == %{
+               source_scope: "",
                stream: "events",
                consumer: "consumer",
                delivery_count: 1,

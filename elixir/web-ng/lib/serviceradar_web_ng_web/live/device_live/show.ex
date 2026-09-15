@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadarWebNGWeb.DeviceLive.CameraData
   alias ServiceRadarWebNGWeb.DeviceLive.CameraRelayRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceActionRuntime
+  alias ServiceRadarWebNGWeb.DeviceLive.DeviceMetricsRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceMountAssigns
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceStateData
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData
@@ -100,6 +101,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         )
 
       connected?(socket) ->
+        socket =
+          if uid == socket.assigns.device_uid do
+            socket
+          else
+            DeviceMetricsRuntime.cancel_refresh(socket)
+          end
+
         load_device_data(socket, uid, limit, requested_tab, params, uri)
 
       true ->
@@ -194,9 +202,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   def handle_info({:device_metrics_loaded, device_uid, request_ref, assigns}, socket) do
-    current_ref = Map.get(socket.assigns, :device_metrics_request_ref)
-
-    if device_uid == socket.assigns.device_uid and request_ref == current_ref do
+    if DeviceMetricsRuntime.current_request?(socket, device_uid, request_ref) do
       {:noreply, apply_device_metrics_assigns(socket, assigns)}
     else
       {:noreply, socket}
@@ -241,6 +247,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
+  def handle_async({:device_availability, device_uid, request_ref}, result, socket) do
+    {:noreply, DeviceTabRuntime.finish_availability_refresh(socket, device_uid, request_ref, result)}
+  end
+
   def handle_async({:device_endpoint_inventory, device_uid, request_ref}, {:ok, inventory}, socket) do
     current_ref = Map.get(socket.assigns, :endpoint_inventory_request_ref)
 
@@ -267,9 +277,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   def handle_async({:device_metrics, device_uid, request_ref}, {:ok, assigns}, socket) do
-    current_ref = Map.get(socket.assigns, :device_metrics_request_ref)
-
-    if device_uid == socket.assigns.device_uid and request_ref == current_ref do
+    if DeviceMetricsRuntime.current_request?(socket, device_uid, request_ref) do
       {:noreply, apply_device_metrics_assigns(socket, assigns)}
     else
       {:noreply, socket}
@@ -277,11 +285,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   def handle_async({:device_metrics, device_uid, request_ref}, {:exit, reason}, socket) do
-    Logger.warning("Device metrics task failed for #{device_uid}: #{inspect(reason)}")
-
-    if device_uid == socket.assigns.device_uid and
-         request_ref == socket.assigns.device_metrics_request_ref do
-      {:noreply, socket |> assign(:metrics_loading, false) |> assign(:device_metrics_request_ref, nil)}
+    if DeviceMetricsRuntime.current_request?(socket, device_uid, request_ref) do
+      Logger.warning("Device metrics task failed for #{device_uid}: #{inspect(reason)}")
+      {:noreply, DeviceMetricsRuntime.fail_refresh(socket)}
     else
       {:noreply, socket}
     end
@@ -340,15 +346,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   def handle_async({:interface_metrics, device_uid, request_ref}, {:ok, metrics}, socket) do
-    if device_uid == socket.assigns.device_uid and request_ref == socket.assigns.interface_metrics_request_ref do
-      {:noreply,
-       socket
-       |> assign(:interface_metrics, metrics)
-       |> assign(:interface_metrics_loading, false)
-       |> assign(:interface_metrics_request_ref, nil)}
-    else
-      {:noreply, socket}
-    end
+    {:noreply, DeviceTabRuntime.finish_interface_metrics_refresh(socket, device_uid, request_ref, metrics)}
   end
 
   def handle_async({:interface_metrics, device_uid, request_ref}, {:exit, reason}, socket) do
@@ -654,6 +652,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     socket
     |> assign(:active_tab, active_tab)
     |> assign(:srql, srql)
+    |> DeviceTabRuntime.maybe_reload_availability_for_active_tab(active_tab, socket.assigns.device_uid, srql_module)
     |> maybe_begin_interface_metrics_refresh(active_tab, socket.assigns.device_uid, srql_module)
     |> DeviceTabRuntime.maybe_load_mtr_for_active_tab(active_tab)
     |> DeviceTabRuntime.maybe_reload_logs_for_active_tab(
@@ -691,12 +690,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp maybe_leave_unavailable_tab(socket, _tab, _availability), do: socket
 
   defp apply_device_metrics_assigns(socket, assigns) do
-    assigns = annotate_metric_section_assigns(assigns, Map.get(socket.assigns, :anomaly_capacity_detail))
+    assigns =
+      assigns
+      |> Map.put_new(:anomaly_capacity, Map.get(socket.assigns, :anomaly_capacity))
+      |> annotate_metric_section_assigns(Map.get(socket.assigns, :anomaly_capacity_detail))
 
     socket
     |> assign(assigns)
-    |> assign(:metrics_loading, false)
-    |> assign(:device_metrics_request_ref, nil)
+    |> DeviceMetricsRuntime.complete_refresh()
   end
 
   defp annotate_metric_section_assigns(assigns, selected_detail) when is_map(assigns) do
@@ -858,8 +859,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     Application.get_env(:serviceradar_web_ng, :device_refresh_cooldown_ms, @device_refresh_cooldown_ms)
   end
 
-  defp begin_device_metrics_refresh(socket, uid, srql_module, sysmon_identity, scope) do
-    request_ref = make_ref()
+  defp begin_device_metrics_refresh(socket, uid, srql_module, sysmon_identity, scope, opts \\ []) do
+    range_only? = Keyword.get(opts, :range_only, false)
     can_view_anomaly_capacity? = RBAC.can?(scope, "observability.alerts.view")
     anomaly_filters = Map.get(socket.assigns, :anomaly_capacity_filters, %{})
     time_range = sysmon_time_range(socket)
@@ -872,41 +873,30 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> assign(:sysmon_identity, sysmon_identity)
       |> assign(:sysmon_time_range, time_range)
 
-    if Application.get_env(:serviceradar_web_ng, :env) == :test do
+    request = %{
+      uid: uid,
+      identity: sysmon_identity,
+      time_range: time_range,
+      anomaly_filters: anomaly_filters,
+      can_view_anomaly_capacity: can_view_anomaly_capacity?,
+      scope: scope,
+      srql_module: srql_module
+    }
+
+    load = fn ->
       sysmon_filters =
         SysmonMetrics.resolve_sysmon_filter_tokens(srql_module, sysmon_identity, scope)
 
-      assigns = %{
+      metric_assigns = %{
         metric_sections: SysmonMetrics.load_metric_sections(srql_module, sysmon_filters, scope, metric_opts),
-        process_metrics: SysmonMetrics.load_process_metrics(srql_module, sysmon_filters, scope),
-        sysmon_presence: sysmon_filters != [],
-        can_view_anomaly_capacity: can_view_anomaly_capacity?,
-        anomaly_capacity:
-          maybe_load_anomaly_capacity(
-            can_view_anomaly_capacity?,
-            srql_module,
-            sysmon_identity,
-            scope,
-            anomaly_filters
-          )
+        sysmon_presence: sysmon_filters != []
       }
 
-      socket
-      |> assign(:device_metrics_request_ref, request_ref)
-      |> assign(:metrics_loading, false)
-      |> apply_device_metrics_assigns(assigns)
-    else
-      socket
-      |> assign(:device_metrics_request_ref, request_ref)
-      |> assign(:metrics_loading, true)
-      |> start_async({:device_metrics, uid, request_ref}, fn ->
-        sysmon_filters =
-          SysmonMetrics.resolve_sysmon_filter_tokens(srql_module, sysmon_identity, scope)
-
-        %{
-          metric_sections: SysmonMetrics.load_metric_sections(srql_module, sysmon_filters, scope, metric_opts),
+      if range_only? do
+        metric_assigns
+      else
+        Map.merge(metric_assigns, %{
           process_metrics: SysmonMetrics.load_process_metrics(srql_module, sysmon_filters, scope),
-          sysmon_presence: sysmon_filters != [],
           can_view_anomaly_capacity: can_view_anomaly_capacity?,
           anomaly_capacity:
             maybe_load_anomaly_capacity(
@@ -916,12 +906,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               scope,
               anomaly_filters
             )
-        }
-      end)
+        })
+      end
+    end
+
+    if Application.get_env(:serviceradar_web_ng, :env) == :test do
+      socket
+      |> DeviceMetricsRuntime.cancel_refresh()
+      |> apply_device_metrics_assigns(load.())
+    else
+      DeviceMetricsRuntime.begin_refresh(socket, request, load, clear_sections: range_only?)
     end
   end
 
-  @sysmon_time_ranges ~w(last_1h last_6h last_24h last_7d)
+  @sysmon_time_ranges ServiceRadarWebNGWeb.MetricWindowComponents.ranges()
 
   defp sysmon_time_range(socket) do
     case Map.get(socket.assigns, :sysmon_time_range) do
@@ -933,7 +931,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   # Switch the sysmon charts to a new window and re-run the metric load using the
   # already-resolved device identity, so the bucket resizes to the range.
   defp apply_sysmon_time_range(socket, range) when range in @sysmon_time_ranges do
-    if range == sysmon_time_range(socket) do
+    if range == sysmon_time_range(socket) and is_nil(socket.assigns[:metrics_error]) do
       socket
     else
       socket = assign(socket, :sysmon_time_range, range)
@@ -945,7 +943,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             socket.assigns.device_uid,
             srql_module(),
             identity,
-            socket.assigns.current_scope
+            socket.assigns.current_scope,
+            range_only: true
           )
 
         _ ->
@@ -1058,6 +1057,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       scope
     )
     |> begin_device_details_refresh(uid, request_ref, supplemental_context)
+    |> DeviceTabRuntime.maybe_reload_availability_for_active_tab(requested_tab, uid, srql_module)
     |> begin_endpoint_inventory_refresh(uid, scope)
     |> then(&{:noreply, &1})
   end
@@ -1108,6 +1108,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> assign(:ip_aliases, [])
     |> assign(:ip_alias_error, nil)
     |> assign(:availability, nil)
+    |> assign(:availability_request_ref, nil)
     |> assign(:agent_availability, [])
     |> assign(:composite_verdicts, [])
     |> assign(:healthcheck_summary, nil)
@@ -1146,7 +1147,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> assign(:has_bumblebee_exposure, false)
   end
 
-  # Loads the full supplemental batch (virtualization, cameras, availability,
+  # Loads the full supplemental batch (virtualization, cameras,
   # interfaces, flows, logs, MTR detection, …). In the test env we run it
   # synchronously so LiveViewTest's initial render is fully populated (mirrors
   # begin_device_metrics_refresh); in prod it runs off-process via start_async
@@ -1454,6 +1455,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   def handle_event("sysmon_set_range", %{"range" => range}, socket) do
     {:noreply, apply_sysmon_time_range(socket, range)}
+  end
+
+  def handle_event("sysmon_custom_range", %{"window" => params}, socket) do
+    section = Enum.find(socket.assigns.metric_sections, &(&1.key == params["metric"]))
+
+    with %{query: query} when is_binary(query) <- section,
+         {:ok, range} <- ServiceRadarWebNGWeb.MetricWindowComponents.custom_range(params) do
+      query = ServiceRadarWebNGWeb.MetricWindowComponents.query_for_range(query, range)
+      {:noreply, push_navigate(socket, to: ~p"/observability/metrics?#{%{q: query}}")}
+    else
+      {:error, message} -> {:noreply, put_flash(socket, :error, message)}
+      _ -> {:noreply, put_flash(socket, :error, "Choose a metric to explore.")}
+    end
   end
 
   def handle_event("switch_tab", %{"tab" => tab}, socket) do

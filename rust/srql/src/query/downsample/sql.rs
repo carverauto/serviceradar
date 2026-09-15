@@ -309,7 +309,18 @@ fn rate_partition_expr(plan: &QueryPlan, display_series_expr: &str) -> String {
         plan.entity,
         Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::RperfMetrics
     ) {
-        "gateway_id, COALESCE(agent_id, ''), metric_type, metric_name, series_key".to_string()
+        let identity = "gateway_id, COALESCE(agent_id, ''), metric_type, metric_name, series_key";
+        if plan
+            .downsample
+            .as_ref()
+            .and_then(|spec| spec.series.as_deref())
+            .is_some_and(|series| series.trim().eq_ignore_ascii_case("interface_metric"))
+        {
+            // Legacy samples can share an empty series_key across interfaces.
+            format!("{identity}, if_index")
+        } else {
+            identity.to_string()
+        }
     } else {
         display_series_expr.to_string()
     }

@@ -27,6 +27,7 @@ mix_app(
     extra_config = HEX_COMPILE_ENV_CONFIG,
     deps = [
         "@hex_bundlex//:erlang_app",
+        "@hex_req//:erlang_app",
         "@rules_elixir//elixir",
     ],
 )

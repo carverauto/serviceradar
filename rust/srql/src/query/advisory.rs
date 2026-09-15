@@ -1,6 +1,6 @@
 //! Shared SQL helpers for advisory catalog, CPE coordinate, and match entities.
 
-use super::{bind_sql_param, BindParam, QueryPlan};
+use super::{BindParam, QueryPlan, bind_sql_param};
 use crate::{
     error::{Result, ServiceError},
     jsonb::DbJson,

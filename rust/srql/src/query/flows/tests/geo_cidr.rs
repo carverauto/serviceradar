@@ -27,6 +27,7 @@ fn country_iso2_filter_does_not_shift_limit_offset_binds() {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let (sql, params) = to_sql_and_params(&plan).expect("should translate country filter");
@@ -59,6 +60,7 @@ fn country_iso2_filter_ignores_expired_geo_cache_rows() {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let (sql, _params) = to_sql_and_params(&plan).expect("should translate country filter");
@@ -87,6 +89,7 @@ fn country_iso2_stats_joins_ignore_expired_geo_cache_rows() {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let (sql, _params) = to_sql_and_params_stats(&plan).expect("should translate country stats");
@@ -124,6 +127,7 @@ fn cidr_filter_does_not_shift_limit_offset_binds() {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let (sql, params) = to_sql_and_params(&plan).expect("should translate cidr filter");
@@ -159,6 +163,7 @@ fn translate_grouped_stats_conversation_group_by_uses_canonical_endpoints() {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let (sql, _params) = to_sql_and_params_stats(&plan).unwrap();

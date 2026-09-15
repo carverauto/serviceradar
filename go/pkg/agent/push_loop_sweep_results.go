@@ -298,6 +298,14 @@ func buildSweepResultsChunks(response *proto.ResultsResponse) ([]*sweepResultsCh
 			return nil, fmt.Errorf("marshal sweep chunk %d: %w", chunkIndex, err)
 		}
 
+		// Chunking is transport-only. Emit each report-level summary once,
+		// while preserving its fields in the status JSON for every chunk.
+		if chunkIndex > 0 {
+			for _, field := range []string{"total_hosts", "available_hosts", "sequence"} {
+				delete(chunkData, field)
+			}
+		}
+
 		chunks = append(chunks, &sweepResultsChunk{
 			ResultsChunk: &proto.ResultsChunk{
 				Data:            chunkBytes,

@@ -622,7 +622,7 @@ core:
     #
     # Set to "" to fall back to the old existence-only check (for operators
     # running the chart against a deliberately pinned schema).
-    expectedVersion: "20260915000000"
+    expectedVersion: "20260915230000"
   # Stale device reaper settings - controls cleanup of IP-only "ghost" devices
   reaper:
     # How often to run the reaper job
@@ -1094,12 +1094,11 @@ coldTier:
     # TimescaleDB/AGE/PostGIS (pg_duckdb is structurally incompatible with a
     # TimescaleDB-loaded instance — never point this at the primary image).
     imageName: ""
-    # The analytics image is based on the official pgduckdb image, whose
-    # postgres user is UID/GID 999 — not CloudNativePG's default 26. These
-    # MUST match the image or the instance dies during initdb. Override only
-    # if you build the image on a base with a different postgres UID.
-    postgresUID: 999
-    postgresGID: 999
+    # The analytics image is the CNPG PostgreSQL 18 base (UID/GID 26) plus a
+    # pg_duckdb extension layer. These MUST match the image; override only if
+    # you build on a base with a different postgres UID.
+    postgresUID: 26
+    postgresGID: 26
     # Defaults to image.registryPullSecret; set only to use a dedicated secret.
     registryPullSecret: ""
     clusterName: cnpg-analytics
@@ -1120,6 +1119,67 @@ coldTier:
     # Extra postgresql.parameters merged into the Cluster spec.
     postgresqlParameters: {}
     resources: {}
+
+# Analytics store: Timescale hypertables (default) or pg_duckdb over Parquet.
+# pg_duckdb renders the dedicated analytics-head Cluster. Object-store
+# credentials are a Kubernetes Secret (ServiceRadar talking to itself), never
+# Helm values. Demo uses a dedicated Linode bucket, not the control-plane
+# backup bucket.
+analyticsStore:
+  # OSS default: Timescale only, no object storage or analytics head required.
+  # hybrid: EventWriter writes both stores; recent reads use Timescale,
+  # older/cross-window reads use pg_duckdb. SaaS enables this in its overlay.
+  # pg_duckdb: Parquet-only writes and reads.
+  driver: timescale
+  headEnabled: false
+  # Explicitly name tables when enabling hybrid. Unlisted tables stay Timescale.
+  # Empty + pg_duckdb preserves the existing all-registry-table behavior.
+  tables: []
+  # Hybrid read cutoff; Timescale retention is kept at least this long.
+  hotWindowDays: 30
+  # Hybrid archive expiry, measured from event time. Blank means no expiry.
+  # If set, this must exceed hotWindowDays. Pure pg_duckdb keeps table retention.
+  parquetRetentionDays: ""
+  # Durable unpublished archive payload budget on the primary. At the limit,
+  # New ingest fails under JetStream retry limits; committed payloads are never evicted.
+  archiveBufferMaxBytes: 268435456
+  # Optional archive writes while all reads remain on Timescale (migration).
+  # Hybrid automatically writes both stores for its selected tables.
+  dualWrite: []
+  pgDuckdb:
+    storage: s3
+    imageName: ""
+    clusterName: cnpg-analytics
+    s3:
+      secretName: ""
+      bucket: ""
+      endpoint: ""
+      region: ""
+      urlStyle: path
+      useSSL: true
+      port: 443
+      # NetworkPolicy cannot match FQDNs. Supply Linode object-store CIDRs
+      # when egress is locked down; empty means no object-store egress rule.
+      egressCidrs: []
+    filesystem:
+      # DuckDB COPY path when storage is filesystem. Pin the head to a local
+      # NVMe / hostPath-backed StorageClass (not Longhorn). farm01 stays
+      # driver: timescale until that volume exists.
+      path: /var/lib/serviceradar/analytics
+    memoryLimitMb: 1536
+    threads: 2
+    # CNPG scratch-data emptyDir (mounted at /run). Size cap is
+    # spec.ephemeralVolumesSizeLimit.temporaryData. Do not put Parquet here.
+    spill:
+      emptyDir: true
+      sizeLimit: 50Gi
+    poolSize: 4
+    # Connection slots cover every core/web-ng replica's pool, rolling-update
+    # surge, EventWriter sessions, and PostgreSQL/admin reserves. This does
+    # not raise pool concurrency or the per-backend DuckDB memory budget.
+    # Increase for deployments with more replicas or larger pools.
+    maxConnections: 60
+    overheadMb: 1536
 
 # Shared storage for GeoLite2 MMDB files used by GeoIP/ASN enrichment.
 # This must be mounted wherever enrichment jobs run (core) and anywhere that

@@ -1,11 +1,13 @@
 defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
   @moduledoc false
 
+  alias ServiceRadar.AnalyticsStore
   alias ServiceRadar.Inventory.InterfaceMetrics
   alias ServiceRadar.Inventory.InterfaceSettings
   alias ServiceRadar.Repo
   alias ServiceRadarWebNGWeb.InterfaceLive.MetricsPanels
   alias ServiceRadarWebNGWeb.InterfaceLive.MetricsQuery
+  alias ServiceRadarWebNGWeb.InterfaceLive.SnmpMetricNames
 
   @interfaces_limit 200
   @snmp_presence_window "last_24h"
@@ -338,9 +340,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
       }
     else
       {all_panels, errors} =
-        Enum.reduce(favorited_interfaces, {[], []}, fn fav_iface, {panels_acc, errs} ->
-          query_interface_metrics(srql_module, device_uid, fav_iface, scope, panels_acc, errs)
-        end)
+        query_favorited_interface_metrics(srql_module, device_uid, favorited_interfaces, scope)
 
       cond do
         all_panels != [] ->
@@ -384,12 +384,59 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
     end
   end
 
-  defp query_interface_metrics(srql_module, device_uid, fav_iface, scope, panels_acc, errs) do
+  defp query_favorited_interface_metrics(srql_module, device_uid, [fav_iface], scope) do
     case query_interface_metric_panels(srql_module, device_uid, fav_iface, scope, []) do
-      {:ok, panels} -> {panels_acc ++ panels, errs}
-      {:empty, _query} -> {panels_acc, errs}
-      {:error, error} -> {panels_acc, [error | errs]}
+      {:ok, panels} -> {panels, []}
+      {:empty, _query} -> {[], []}
+      {:error, error} -> {[], [error]}
     end
+  end
+
+  defp query_favorited_interface_metrics(srql_module, device_uid, interfaces, scope) do
+    query = MetricsQuery.build_snmp_counter_batch_query(device_uid, interfaces)
+
+    case srql_module.query(query, %{scope: scope}) do
+      {:ok, %{"results" => rows} = response} when is_list(rows) ->
+        rows_by_interface = interface_metric_rows(rows)
+
+        panels =
+          Enum.flat_map(interfaces, fn interface ->
+            rows =
+              rows_by_interface
+              |> Map.get(interface.if_index, [])
+              |> Enum.filter(&SnmpMetricNames.selected?(&1["metric_name"], interface.metrics_selected))
+
+            response
+            |> Map.put("results", rows)
+            |> build_interface_panels(interface.name, interface.if_index, interface.reference_lines)
+          end)
+
+        {panels, []}
+
+      {:error, error} ->
+        {[], [format_error(error)]}
+
+      _ ->
+        {[], []}
+    end
+  end
+
+  defp interface_metric_rows(rows) do
+    Enum.reduce(rows, %{}, fn row, acc ->
+      with %{"series" => series} when is_binary(series) <- row,
+           [index, metric] when metric != "" <- String.split(series, ":", parts: 2),
+           {if_index, ""} <- Integer.parse(index) do
+        row =
+          row
+          |> Map.put("series", metric)
+          |> Map.put("metric_name", metric)
+          |> Map.delete("interface_metric")
+
+        Map.update(acc, if_index, [row], &[row | &1])
+      else
+        _ -> acc
+      end
+    end)
   end
 
   defp query_interface_metric_panels(srql_module, device_uid, fav_iface, scope, opts) do
@@ -406,7 +453,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
 
     case srql_module.query(query, %{scope: scope}) do
       {:ok, %{"results" => results} = response} when is_list(results) and results != [] ->
-        interface_panels = build_interface_panels(response, iface_name, if_index, reference_lines)
+        bucket_seconds = ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Query.query_bucket_seconds(query)
+        interface_panels = build_interface_panels(response, iface_name, if_index, reference_lines, bucket_seconds)
         {:ok, interface_panels}
 
       {:ok, %{"results" => []}} ->
@@ -484,13 +532,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
 
   defp parse_integer(_), do: nil
 
-  defp build_interface_panels(srql_response, iface_name, if_index, reference_lines) do
-    MetricsPanels.from_srql(srql_response,
+  defp build_interface_panels(srql_response, iface_name, if_index, reference_lines, bucket_seconds \\ 60) do
+    srql_response
+    |> MetricsPanels.from_srql(
       chart_mode: :combined,
       interface_label: "#{iface_name} (ifIndex: #{if_index})",
       max_speed_bytes_per_sec: nil,
       reference_lines: reference_lines
     )
+    |> Enum.map(&%{&1 | assigns: Map.put(&1.assigns, :bucket_seconds, bucket_seconds)})
   end
 
   def interface_reference_lines(interface, max_speed_bytes_per_sec) when is_map(interface) do
@@ -687,18 +737,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
   end
 
   defp cheap_snmp_present?(device_uid) when is_binary(device_uid) and device_uid != "" do
+    cutoff = DateTime.add(DateTime.utc_now(), -24, :hour)
+    {sql, params} = AnalyticsStore.TimeseriesQueries.snmp_present_sql(device_uid, cutoff)
+
     interpret_exists(fn ->
-      Repo.query(
-        """
-        SELECT 1
-        FROM platform.timeseries_metrics
-        WHERE device_id = $1
-          AND metric_type = 'snmp'
-          AND timestamp > now() - interval '24 hours'
-        LIMIT 1
-        """,
-        [device_uid]
-      )
+      AnalyticsStore.SQL.query("timeseries_metrics", sql, params, time_range: {cutoff, nil})
     end)
   end
 

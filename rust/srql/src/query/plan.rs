@@ -1,18 +1,50 @@
-use super::{QueryPlan, QueryRequest, max_time_range_days_for_ast};
+use super::{AnalyticsDriver, QueryPlan, QueryRequest, max_time_range_days_for_ast};
 use crate::{
     config::AppConfig,
     error::{Result, ServiceError},
-    pagination::decode_cursor,
+    pagination::{HybridCursor, decode_cursor_state},
     parser::{Entity, Filter, QueryAst},
     time::TimeRange,
 };
-use chrono::{Duration as ChronoDuration, Utc};
+use chrono::{DateTime, Duration as ChronoDuration, Utc};
 
 pub(crate) fn build_query_plan(
     config: &AppConfig,
     request: &QueryRequest,
     ast: QueryAst,
 ) -> Result<QueryPlan> {
+    build_query_plan_with_drivers(config, request, ast, &std::collections::HashMap::new())
+}
+
+pub(crate) fn build_query_plan_with_drivers(
+    config: &AppConfig,
+    request: &QueryRequest,
+    ast: QueryAst,
+    drivers: &std::collections::HashMap<String, String>,
+) -> Result<QueryPlan> {
+    let typed_drivers = drivers
+        .iter()
+        .map(|(table, driver)| (table.clone(), AnalyticsDriver::Named(driver.clone())))
+        .collect();
+    build_query_plan_with_store_configs(config, request, ast, &typed_drivers).map(|(plan, _)| plan)
+}
+
+pub(crate) fn build_query_plan_with_store_configs(
+    config: &AppConfig,
+    request: &QueryRequest,
+    ast: QueryAst,
+    drivers: &std::collections::HashMap<String, AnalyticsDriver>,
+) -> Result<(QueryPlan, Option<HybridCursor>)> {
+    build_query_plan_with_store_configs_at(config, request, ast, drivers, Utc::now())
+}
+
+pub(crate) fn build_query_plan_with_store_configs_at(
+    config: &AppConfig,
+    request: &QueryRequest,
+    ast: QueryAst,
+    drivers: &std::collections::HashMap<String, AnalyticsDriver>,
+    now: DateTime<Utc>,
+) -> Result<(QueryPlan, Option<HybridCursor>)> {
     let exhaustive_profile_query = is_exhaustive_profile_stats(ast.stats.as_ref());
     let requested_limit = request.limit.or(ast.limit);
     if ast.other {
@@ -24,11 +56,11 @@ pub(crate) fn build_query_plan(
     } else {
         determine_limit(config, requested_limit)
     };
-    let offset = request
+    let cursor_state = request
         .cursor
         .as_deref()
         .map(|cursor| {
-            decode_cursor(
+            decode_cursor_state(
                 cursor,
                 &config.cursor_secret,
                 if exhaustive_profile_query {
@@ -38,35 +70,55 @@ pub(crate) fn build_query_plan(
                 },
             )
         })
-        .transpose()?
+        .transpose()?;
+    let offset = cursor_state
+        .as_ref()
+        .map(|state| state.offset)
         .unwrap_or(0)
         .max(0);
     let max_time_range_days = max_time_range_days_for_ast(&ast);
-    let now = Utc::now();
-    let time_range = ast
-        .time_filter
-        .map(|spec| spec.resolve_with_max_days(now, max_time_range_days))
-        .transpose()?;
-    let time_range = default_time_range_for_entity(&ast.entity, time_range, now, &ast.filters);
+    let time_range = if let Some(state) = cursor_state
+        .as_ref()
+        .filter(|state| state.hybrid.is_some() || state.time_range.is_some())
+    {
+        state.time_range.clone()
+    } else {
+        let time_range = ast
+            .time_filter
+            .map(|spec| spec.resolve_with_max_days(now, max_time_range_days))
+            .transpose()?;
+        default_time_range_for_entity(&ast.entity, time_range, now, &ast.filters)
+    };
 
     let (filters, order, downsample) =
         normalize_device_aliases(&ast.entity, ast.filters, ast.order, ast.downsample);
     let (filters, include_deleted) = extract_include_deleted(filters)?;
     let filters = normalize_telemetry_id_filters(&ast.entity, filters)?;
+    let (dialect, hybrid) = super::store::resolve(
+        &ast.entity,
+        drivers,
+        time_range.as_ref(),
+        cursor_state.as_ref(),
+        now,
+    )?;
 
-    Ok(QueryPlan {
-        entity: ast.entity,
-        filters,
-        order,
-        limit,
-        offset,
-        time_range,
-        stats: ast.stats,
-        downsample,
-        rollup_stats: ast.rollup_stats,
-        other: ast.other,
-        include_deleted,
-    })
+    Ok((
+        QueryPlan {
+            entity: ast.entity,
+            filters,
+            order,
+            limit,
+            offset,
+            time_range,
+            stats: ast.stats,
+            downsample,
+            rollup_stats: ast.rollup_stats,
+            other: ast.other,
+            include_deleted,
+            dialect,
+        },
+        hybrid,
+    ))
 }
 
 /// Shared by cursor decoding, execution, and translation to avoid truncating

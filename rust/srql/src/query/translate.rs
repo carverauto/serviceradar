@@ -1,25 +1,46 @@
 use super::{
     PaginationMeta, QueryRequest, TranslateResponse, addon_fleet, addon_statuses,
-    advisory_coordinates, agents, alerts, bmp_events, build_query_plan, capacity_forecasts,
-    composite_results, cpu_metrics, dashboard_service_views, dashboards, device_graph,
-    device_sweep_overlap, devices, disk_metrics, downsample, endpoint_inventory_scans,
-    endpoint_package_catalog, endpoint_packages, endpoint_vulnerability_matches, events,
-    field_survey, flows, gateways, graph_cypher, identity, interfaces, is_exhaustive_profile_query,
-    logs, memory_metrics, mtr_traces, otel_metric_points, otel_metrics, process_metrics,
-    public_endpoints, services, source_fact_disagreements, sweep_coverage, sweep_executions,
-    sweep_groups, sweep_profiles, sweep_results, threat_intel_matches, timeseries_metrics,
-    trace_summaries, traces, virtualization, viz, vulnerability_advisories, wifi_map,
+    advisory_coordinates, agents, alerts, bmp_events, capacity_forecasts, composite_results,
+    cpu_metrics, dashboard_service_views, dashboards, device_graph, device_sweep_overlap, devices,
+    disk_metrics, downsample, endpoint_inventory_scans, endpoint_package_catalog,
+    endpoint_packages, endpoint_vulnerability_matches, events, field_survey, flows, gateways,
+    graph_cypher, identity, interfaces, is_exhaustive_profile_query, logs, memory_metrics,
+    mtr_traces, otel_metric_points, otel_metrics, process_metrics, public_endpoints, services,
+    source_fact_disagreements, sweep_coverage, sweep_executions, sweep_groups, sweep_profiles,
+    sweep_results, threat_intel_matches, timeseries_metrics, trace_summaries, traces,
+    virtualization, viz, vulnerability_advisories, wifi_map,
 };
 use crate::{
     config::AppConfig,
     error::Result,
-    pagination::encode_cursor,
+    pagination::{encode_cursor_maybe_window, encode_hybrid_cursor},
     parser::{self, Entity},
 };
 
 pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<TranslateResponse> {
+    translate_request_with_drivers(config, request, &std::collections::HashMap::new())
+}
+
+pub fn translate_request_with_drivers(
+    config: &AppConfig,
+    request: QueryRequest,
+    drivers: &std::collections::HashMap<String, String>,
+) -> Result<TranslateResponse> {
+    let typed_drivers = drivers
+        .iter()
+        .map(|(table, driver)| (table.clone(), super::AnalyticsDriver::Named(driver.clone())))
+        .collect();
+    translate_request_with_store_configs(config, request, &typed_drivers)
+}
+
+pub fn translate_request_with_store_configs(
+    config: &AppConfig,
+    request: QueryRequest,
+    drivers: &std::collections::HashMap<String, super::AnalyticsDriver>,
+) -> Result<TranslateResponse> {
     let ast = parser::parse(&request.query)?;
-    let plan = build_query_plan(config, &request, ast)?;
+    let (plan, hybrid) =
+        super::plan::build_query_plan_with_store_configs(config, &request, ast, drivers)?;
     let viz = viz::meta_for_plan(&plan);
 
     // A `profile_hour_of_week[_peak]` stats query is a profile aggregation, never a
@@ -129,20 +150,35 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
     };
 
     let next_offset = plan.offset.saturating_add(plan.limit);
+    let encode_page = |offset| {
+        if let Some(route) = &hybrid {
+            encode_hybrid_cursor(
+                offset,
+                &config.cursor_secret,
+                plan.time_range.as_ref(),
+                route,
+            )
+        } else {
+            encode_cursor_maybe_window(
+                offset,
+                &config.cursor_secret,
+                super::dialect::pinned_cursor_window(&plan),
+            )
+        }
+    };
     let next_cursor =
         if next_offset <= config.max_cursor_offset || is_exhaustive_profile_query(&plan) {
-            Some(encode_cursor(next_offset, &config.cursor_secret)?)
+            Some(encode_page(next_offset)?)
         } else {
             None
         };
     let prev_cursor = if plan.offset > 0 {
-        Some(encode_cursor(
-            plan.offset.saturating_sub(plan.limit),
-            &config.cursor_secret,
-        )?)
+        Some(encode_page(plan.offset.saturating_sub(plan.limit))?)
     } else {
         None
     };
+
+    let sql = super::dialect::apply_sql(&plan, sql)?;
 
     Ok(TranslateResponse {
         sql,
@@ -153,5 +189,17 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             limit: Some(plan.limit),
         },
         viz,
+        dialect: plan.dialect,
+        read_store: hybrid.as_ref().map(|route| route.store),
+        analytics_table: if plan.dialect.is_duckdb() || hybrid.is_some() {
+            super::cold::cold_table_for_entity(&plan.entity).map(str::to_owned)
+        } else {
+            None
+        },
+        time_range: if plan.dialect.is_duckdb() || hybrid.is_some() {
+            plan.time_range
+        } else {
+            None
+        },
     })
 }

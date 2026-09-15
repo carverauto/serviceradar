@@ -23,6 +23,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   use Broadway
 
   alias Broadway.Message
+  alias ServiceRadar.AnalyticsStore.DeliveryReceipt
   alias ServiceRadar.EventWriter.Config
   alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
   alias ServiceRadar.EventWriter.Processors.Events
@@ -258,7 +259,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
     processor = get_processor(batcher)
     start_time = System.monotonic_time()
 
-    result = processor.process_batch(messages)
+    result = DeliveryReceipt.process_batch(processor, messages)
 
     duration = System.monotonic_time() - start_time
     duration_ms = System.convert_time_unit(duration, :native, :millisecond)

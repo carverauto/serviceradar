@@ -23,6 +23,7 @@ fn translate_grouped_stats_exporter_name_includes_cache_table() {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let (sql, _params) = to_sql_and_params_stats(&plan).unwrap();
@@ -51,6 +52,7 @@ fn translate_grouped_stats_in_if_name_includes_cache_table() {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let (sql, _params) = to_sql_and_params_stats(&plan).unwrap();
@@ -86,6 +88,7 @@ fn translate_grouped_stats_can_scope_by_snmp_interface_indices() {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let (sql, params) = to_sql_and_params(&plan).unwrap();
@@ -123,6 +126,7 @@ fn translate_device_id_filter_includes_exporter_and_alias_scope() {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let (sql, _params) = to_sql_and_params(&plan).expect("device filter should translate");
@@ -163,6 +167,7 @@ fn translate_stats_device_id_filter_includes_exporter_and_alias_scope() {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let (sql, _params) =

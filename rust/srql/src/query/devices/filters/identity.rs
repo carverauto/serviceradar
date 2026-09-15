@@ -2,7 +2,7 @@ use super::super::DeviceQuery;
 use crate::{
     error::{Result, ServiceError},
     parser::{Filter, FilterOp},
-    query::{normalize_mac_value, BindParam},
+    query::{BindParam, normalize_mac_value},
 };
 use diesel::{
     dsl::sql,

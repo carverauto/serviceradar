@@ -481,6 +481,79 @@ spec:
         # so anomaly findings/alerts surface without per-deployment extraEnv.
         - name: EVENT_WRITER_ENABLED
           value: {{ default true $eventWriter.enabled | quote }}
+        {{ $analyticsStore := default (dict) .Values.analyticsStore -}}
+        {{- $analyticsDriver := default "timescale" $analyticsStore.driver -}}
+        {{- $analyticsPg := default (dict) $analyticsStore.pgDuckdb -}}
+        {{- $analyticsS3 := default (dict) $analyticsPg.s3 -}}
+        {{- $analyticsFs := default (dict) $analyticsPg.filesystem -}}
+        {{- $analyticsDual := default (list) $analyticsStore.dualWrite -}}
+        {{- $needsAnalyticsBackend := or (has $analyticsDriver (list "pg_duckdb" "hybrid")) (gt (len $analyticsDual) 0) -}}
+        {{- $analyticsCluster := include "serviceradar.analyticsHeadClusterName" . }}
+        - name: SERVICERADAR_ANALYTICS_STORE_DRIVER
+          value: {{ $analyticsDriver | quote }}
+        - name: SERVICERADAR_ANALYTICS_STORE_DUAL_WRITE
+          value: {{ join "," $analyticsDual | quote }}
+        {{- if $needsAnalyticsBackend }}
+        - name: SERVICERADAR_ANALYTICS_STORE_TABLES
+          value: {{ join "," (default (list) $analyticsStore.tables) | quote }}
+        - name: SERVICERADAR_ANALYTICS_STORE_HOT_WINDOW_DAYS
+          value: {{ default 30 $analyticsStore.hotWindowDays | quote }}
+        - name: SERVICERADAR_ANALYTICS_STORE_PARQUET_RETENTION_DAYS
+          value: {{ default "" $analyticsStore.parquetRetentionDays | quote }}
+        - name: SERVICERADAR_ANALYTICS_STORE_ARCHIVE_BUFFER_MAX_BYTES
+          value: {{ default 268435456 $analyticsStore.archiveBufferMaxBytes | int64 | quote }}
+        - name: SERVICERADAR_ANALYTICS_STORE_STORAGE
+          value: {{ default "s3" $analyticsPg.storage | quote }}
+        - name: SERVICERADAR_ANALYTICS_STORE_HEAD_HOST
+          value: {{ printf "%s-rw.%s.svc.cluster.local" $analyticsCluster .Release.Namespace | quote }}
+        - name: SERVICERADAR_ANALYTICS_STORE_HEAD_PORT
+          value: "5432"
+        - name: SERVICERADAR_ANALYTICS_STORE_POOL_SIZE
+          value: {{ default 4 $analyticsPg.poolSize | quote }}
+        - name: SERVICERADAR_ANALYTICS_STORE_HEAD_DATABASE
+          value: "serviceradar"
+        - name: SERVICERADAR_ANALYTICS_STORE_HEAD_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: {{ printf "%s-app" $analyticsCluster | quote }}
+              key: username
+        - name: SERVICERADAR_ANALYTICS_STORE_HEAD_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ printf "%s-app" $analyticsCluster | quote }}
+              key: password
+        {{- if eq (default "s3" $analyticsPg.storage) "s3" }}
+        {{- $analyticsSecret := default "" $analyticsS3.secretName }}
+        {{- if eq $analyticsSecret "" }}
+          {{- fail "analyticsStore.pgDuckdb.s3.secretName is required when archive writes are enabled and storage is s3" }}
+        {{- end }}
+        - name: SERVICERADAR_ANALYTICS_STORE_S3_BUCKET_URL
+          value: {{ printf "s3://%s" (required "analyticsStore.pgDuckdb.s3.bucket is required when archive writes are enabled and storage is s3" $analyticsS3.bucket) | quote }}
+        - name: SERVICERADAR_ANALYTICS_STORE_S3_ENDPOINT
+          value: {{ required "analyticsStore.pgDuckdb.s3.endpoint is required when archive writes are enabled and storage is s3" $analyticsS3.endpoint | quote }}
+        - name: SERVICERADAR_ANALYTICS_STORE_S3_REGION
+          value: {{ default "us-ord" $analyticsS3.region | quote }}
+        - name: SERVICERADAR_ANALYTICS_STORE_S3_URL_STYLE
+          value: {{ default "path" $analyticsS3.urlStyle | quote }}
+        - name: SERVICERADAR_ANALYTICS_STORE_S3_USE_SSL
+          value: {{ default true $analyticsS3.useSSL | quote }}
+        - name: SERVICERADAR_ANALYTICS_STORE_S3_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: {{ $analyticsSecret | quote }}
+              key: access_key_id
+        - name: SERVICERADAR_ANALYTICS_STORE_S3_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ $analyticsSecret | quote }}
+              key: secret_access_key
+        {{- else if eq (default "s3" $analyticsPg.storage) "filesystem" }}
+        - name: SERVICERADAR_ANALYTICS_STORE_FILESYSTEM_PATH
+          value: {{ default "/var/lib/serviceradar/analytics" $analyticsFs.path | quote }}
+        {{- end }}
+        {{- end }}
+        # analytics-store backend env is opt-in; this comment is a YAML
+        # line so later template chomps cannot glue the next env onto DRIVER.
 
         {{- /* Exact EventWriter flow consumer subjects: concrete flows.raw.* only. */ -}}
         {{- /* flow.host-slice.* is attribution intermediate (joiner), not ocsf consumers. */ -}}

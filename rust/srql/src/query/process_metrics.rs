@@ -722,6 +722,7 @@ mod tests {
             rollup_stats: None,
             other: false,
             include_deleted: false,
+            dialect: Default::default(),
         };
 
         let err = build_query(&plan).err().expect("expected error");
@@ -753,6 +754,7 @@ mod tests {
             rollup_stats: None,
             other: false,
             include_deleted: false,
+            dialect: Default::default(),
         };
 
         let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))
@@ -793,6 +795,7 @@ mod tests {
             rollup_stats: None,
             other: false,
             include_deleted: false,
+            dialect: Default::default(),
         };
 
         let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))

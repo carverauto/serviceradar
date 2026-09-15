@@ -1,5 +1,11 @@
 # Change: Tiered telemetry offload — export aging telemetry to object storage before retention drops it, with a transparent cold query path
 
+> **Superseded by `add-analytics-store-drivers` (GH #477).**
+> Do not continue the hot∪cold stitching / completeness-frontier work.
+> Reusable pieces (analytics image, Helm head, schema registry, COPY-to-Parquet
+> spikes, GUC posture) are called out in that change's design. Do not
+> archive-apply this change's spec deltas.
+
 ## Why
 
 Raw telemetry is deleted aggressively today: `otel_traces` after 3 days,

@@ -424,9 +424,13 @@ func marshalSweepMetricEnvelopeFromMap(decoded map[string]any, ctx metricEnvelop
 	baseAttrs := sweepBaseAttrs(decoded)
 	builder := newSweepMetricBuilder(ctx)
 
-	builder.gauge("sweep.total_hosts", "{host}", numberFromAny(decoded["total_hosts"]), observedAt, baseAttrs)
-	builder.gauge("sweep.available_hosts", "{host}", numberFromAny(decoded["available_hosts"]), observedAt, baseAttrs)
-	builder.gauge("sweep.sequence", "1", numberFromAny(decoded["sequence"]), observedAt, baseAttrs)
+	summaryMetadata := make(map[string]string)
+	if lastSweep, ok := intLikeFromAny(decoded["last_sweep"]); ok && lastSweep > 0 {
+		summaryMetadata["last_sweep"] = strconv.FormatInt(lastSweep, 10)
+	}
+	builder.summaryGauge("sweep.total_hosts", "{host}", numberFromAny(decoded["total_hosts"]), baseAttrs, summaryMetadata)
+	builder.summaryGauge("sweep.available_hosts", "{host}", numberFromAny(decoded["available_hosts"]), baseAttrs, summaryMetadata)
+	builder.summaryGauge("sweep.sequence", "1", numberFromAny(decoded["sequence"]), baseAttrs, summaryMetadata)
 
 	for _, portValue := range listFromAny(decoded["ports"]) {
 		port, ok := mapFromAny(portValue)
@@ -538,6 +542,18 @@ func (b *sweepMetricBuilder) gauge(name, unit string, value *float64, observedAt
 	}
 	metric := b.metric(name, unit, metricpb.MetricKind_METRIC_KIND_GAUGE, metricpb.MetricTemporality_METRIC_TEMPORALITY_UNSPECIFIED, false)
 	pushGaugePoint(metric, *value, observedAt, attrs)
+}
+
+// Summary values describe the current report, while last_sweep can still name
+// an earlier completed sweep. Reusing that timestamp would collide with a
+// later report whose count or sequence changed under the same series key.
+func (b *sweepMetricBuilder) summaryGauge(name, unit string, value *float64, attrs, metadata map[string]string) {
+	if value == nil {
+		return
+	}
+	metric := b.metric(name, unit, metricpb.MetricKind_METRIC_KIND_GAUGE, metricpb.MetricTemporality_METRIC_TEMPORALITY_UNSPECIFIED, false)
+	pushGaugePoint(metric, *value, b.batch.EmittedAtUnixNano, attrs)
+	metric.Points[len(metric.Points)-1].Metadata = entries(metadata)
 }
 
 func (b *sweepMetricBuilder) boolGauge(name string, value *bool, observedAt uint64, attrs map[string]string) {

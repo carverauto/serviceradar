@@ -142,31 +142,59 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
 
   def parse(_), do: {:error, :invalid_query}
 
+  @doc "Replace only the time window and an existing downsample bucket, preserving query filters."
+  def with_time_range(query, time_range, opts \\ []) when is_binary(query) and is_binary(time_range) do
+    tokens = tokenize(query)
+    bucket = Keyword.get(opts, :bucket)
+    replace_bucket? = is_binary(bucket) and Enum.any?(tokens, &(token_key(&1) == "bucket"))
+
+    tokens =
+      Enum.reject(tokens, fn token ->
+        token_key(token) in ["time", "timeframe"] or
+          (replace_bucket? and token_key(token) == "bucket")
+      end)
+
+    tokens = tokens ++ ["time:#{time_range}"]
+    tokens = if replace_bucket?, do: tokens ++ ["bucket:#{bucket}"], else: tokens
+    Enum.join(tokens, " ")
+  end
+
+  defp token_key(token), do: token |> String.trim_leading("!") |> String.split(":", parts: 2) |> hd() |> String.downcase()
+
   defp tokenize(""), do: []
 
   defp tokenize(query) when is_binary(query) do
-    {tokens_rev, current, _in_quotes, _escaped} =
+    {tokens_rev, current, _in_quotes, _escaped, _depth} =
       query
       |> String.graphemes()
-      |> Enum.reduce({[], "", false, false}, fn ch, {tokens_rev, current, in_quotes, escaped} ->
+      |> Enum.reduce({[], "", nil, false, 0}, fn ch, {tokens_rev, current, in_quotes, escaped, depth} ->
         cond do
           escaped ->
-            {tokens_rev, current <> ch, in_quotes, false}
+            {tokens_rev, current <> ch, in_quotes, false, depth}
 
           ch == "\\" ->
-            {tokens_rev, current <> ch, in_quotes, true}
+            {tokens_rev, current <> ch, in_quotes, true, depth}
 
-          ch == "\"" ->
-            {tokens_rev, current <> ch, not in_quotes, false}
+          ch == in_quotes ->
+            {tokens_rev, current <> ch, nil, false, depth}
 
-          String.match?(ch, ~r/\s/) and not in_quotes ->
+          ch in ["\"", "'"] and is_nil(in_quotes) ->
+            {tokens_rev, current <> ch, ch, false, depth}
+
+          is_nil(in_quotes) and ch in ["[", "("] ->
+            {tokens_rev, current <> ch, in_quotes, false, depth + 1}
+
+          is_nil(in_quotes) and ch in ["]", ")"] ->
+            {tokens_rev, current <> ch, in_quotes, false, max(depth - 1, 0)}
+
+          String.match?(ch, ~r/\s/) and is_nil(in_quotes) and depth == 0 ->
             {updated_tokens, updated_current, updated_quotes} =
               push_token(tokens_rev, current, in_quotes)
 
-            {updated_tokens, updated_current, updated_quotes, false}
+            {updated_tokens, updated_current, updated_quotes, false, depth}
 
           true ->
-            {tokens_rev, current <> ch, in_quotes, false}
+            {tokens_rev, current <> ch, in_quotes, false, depth}
         end
       end)
 
@@ -287,7 +315,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
 
   defp normalize_time(nil), do: ""
 
-  defp normalize_time(time) when time in ["", "last_1h", "last_6h", "last_12h", "last_24h", "last_7d", "last_30d"] do
+  defp normalize_time(time)
+       when time in ["", "last_1h", "last_6h", "last_12h", "last_24h", "last_7d", "last_30d", "last_90d"] do
     time
   end
 

@@ -6,7 +6,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Query do
   # Aim for roughly this many points across the selected window, then snap to a
   # "nice" bucket size. 300 keeps a 24h view at the familiar 5m bucket while a
   # 1h view drops to ~15s and a 7d view coarsens to ~1h.
-  @bucket_target_points 300
+  @bucket_target_points 299
 
   # Candidate bucket sizes (seconds => SRQL bucket token), ascending.
   @nice_buckets [
@@ -60,8 +60,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Query do
     end
   end
 
+  def bucket_seconds(bucket) when is_binary(bucket), do: relative_window_seconds(bucket)
+  def bucket_seconds(_bucket), do: nil
+
+  def query_bucket_seconds(query) when is_binary(query) do
+    case Regex.run(~r/(?:^|\s)bucket:(\S+)/, query) do
+      [_, bucket] -> bucket_seconds(bucket)
+      _ -> nil
+    end
+  end
+
+  def query_bucket_seconds(_query), do: nil
+
   defp pick_bucket(target_seconds) do
-    Enum.find_value(@nice_buckets, elem(List.last(@nice_buckets), 1), fn {seconds, token} ->
+    Enum.find_value(@nice_buckets, "#{ceil(target_seconds / 86_400)}d", fn {seconds, token} ->
       if seconds >= target_seconds, do: token
     end)
   end
@@ -102,8 +114,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Query do
     with [start_raw, end_raw] <- String.split(inner, ",", parts: 2),
          {:ok, start_dt, _} <- DateTime.from_iso8601(String.trim(start_raw)),
          {:ok, end_dt, _} <- DateTime.from_iso8601(String.trim(end_raw)) do
-      case DateTime.diff(end_dt, start_dt, :second) do
-        seconds when seconds > 0 -> seconds
+      case DateTime.diff(end_dt, start_dt, :microsecond) do
+        microseconds when microseconds > 0 -> ceil(microseconds / 1_000_000)
         _ -> nil
       end
     else

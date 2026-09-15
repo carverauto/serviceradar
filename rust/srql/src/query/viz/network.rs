@@ -1,7 +1,7 @@
 //! Viz metadata builders for network entities: interfaces, flows, and BMP
 //! routing events.
 
-use super::{col, ColumnSemantic, ColumnType, VizKind, VizMeta, VizSuggestion};
+use super::{ColumnSemantic, ColumnType, VizKind, VizMeta, VizSuggestion, col};
 
 pub(super) fn interfaces() -> VizMeta {
     VizMeta {

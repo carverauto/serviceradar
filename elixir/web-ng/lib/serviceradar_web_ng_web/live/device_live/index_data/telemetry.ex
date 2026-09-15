@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.DeviceLive.IndexData.Telemetry do
   @moduledoc false
 
+  alias ServiceRadarWebNGWeb.DeviceLive.ICMPData
+
   @sparkline_device_cap 200
   @sparkline_points_per_device 20
   @sparkline_bucket "5m"
@@ -32,27 +34,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexData.Telemetry do
     if device_uids == [] do
       {%{}, nil}
     else
-      query =
-        Enum.join(
-          [
-            "in:timeseries_metrics",
-            "metric_type:icmp",
-            "uid:(#{Enum.map_join(device_uids, ",", &escape_list_value/1)})",
-            "time:#{@sparkline_window}",
-            "bucket:#{@sparkline_bucket}",
-            "agg:avg",
-            "series:uid",
-            "limit:#{min(length(device_uids) * @sparkline_points_per_device, 4000)}"
-          ],
-          " "
-        )
-
-      case srql_module.query(query, %{scope: scope}) do
-        {:ok, %{"results" => rows}} when is_list(rows) ->
+      case ICMPData.load(srql_module, device_uids, scope,
+             time_range: @sparkline_window,
+             bucket: @sparkline_bucket,
+             aggregate: :avg,
+             limit: min(length(device_uids) * @sparkline_points_per_device, 4000)
+           ) do
+        {:ok, rows} ->
           {build_icmp_sparklines(rows), nil}
-
-        {:ok, other} ->
-          {%{}, "unexpected SRQL response: #{inspect(other)}"}
 
         {:error, reason} ->
           {%{}, format_error(reason)}
@@ -159,7 +148,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexData.Telemetry do
   defp accumulate_icmp_point(row, acc) do
     device_uid = Map.get(row, "series") || Map.get(row, "uid") || Map.get(row, "device_id")
     timestamp = Map.get(row, "timestamp")
-    value_ms = latency_ms(Map.get(row, "value"))
+    value_ms = Map.get(row, "value")
 
     if is_binary(device_uid) and value_ms > 0 do
       Map.update(
@@ -201,20 +190,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexData.Telemetry do
       _ -> "ICMP #{format_ms(latest_ms)}"
     end
   end
-
-  defp latency_ms(value) when is_float(value) or is_integer(value) do
-    raw = if is_integer(value), do: value * 1.0, else: value
-    if raw > 1_000_000.0, do: raw / 1_000_000.0, else: raw
-  end
-
-  defp latency_ms(value) when is_binary(value) do
-    case Float.parse(String.trim(value)) do
-      {parsed, ""} -> latency_ms(parsed)
-      _ -> 0.0
-    end
-  end
-
-  defp latency_ms(_), do: 0.0
 
   defp format_error(%Jason.DecodeError{} = err), do: Exception.message(err)
   defp format_error(%ArgumentError{} = err), do: Exception.message(err)

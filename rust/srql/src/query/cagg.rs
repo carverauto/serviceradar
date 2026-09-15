@@ -138,6 +138,9 @@ pub(crate) fn should_route_to_hourly_cagg(
 }
 
 pub(crate) fn should_route_plan_to_hourly_cagg(plan: &QueryPlan) -> bool {
+    if plan.dialect.is_duckdb() {
+        return false;
+    }
     should_route_to_hourly_cagg(
         &plan.entity,
         plan.time_range.as_ref(),

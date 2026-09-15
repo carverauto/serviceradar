@@ -56,4 +56,9 @@ components manipulating JetStream buckets directly.
 
 CNPG is the system of record for inventory, telemetry, and analytics (Timescale hypertables and AGE graph features are enabled in the cluster).
 
+A deployment may move named high-volume tables off hypertables onto
+hive-partitioned Parquet (pg_duckdb analytics head). That path is opt-in;
+the default store is still Timescale. Collectors still publish to JetStream;
+EventWriter is the only writer. See [Analytics Store](./analytics-store.md).
+
 Querying happens through the web UI and SRQL, which is embedded in `web-ng`.

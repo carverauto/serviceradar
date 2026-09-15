@@ -133,4 +133,49 @@ defmodule ServiceRadar.Observability.SRQLRunnerTest do
     assert {:ok, [%{"ip" => "10.0.0.1"}]} =
              SRQLRunner.query("in:devices", translate_fn: translate_fn, query_fn: query_fn)
   end
+
+  test "duckdb-tagged translations execute on the analytics query fn" do
+    translate_fn = fn "in:timeseries_metrics time:last_24h", nil, nil, nil, nil ->
+      {:ok,
+       Jason.encode!(%{
+         "sql" => "select count(*) from timeseries_metrics",
+         "params" => [],
+         "dialect" => "duckdb",
+         "analytics_table" => "timeseries_metrics"
+       })}
+    end
+
+    query_fn = fn _sql, _params ->
+      flunk("primary Repo must not run duckdb SQL")
+    end
+
+    analytics_query_fn = fn sql, [] ->
+      assert sql =~ ~s(WITH "timeseries_metrics" AS NOT MATERIALIZED)
+      assert sql =~ "select count(*) from timeseries_metrics"
+      refute sql =~ "date=*"
+      {:ok, %Postgrex.Result{columns: ["count"], rows: [[3]]}}
+    end
+
+    assert {:ok, [%{"count" => 3}]} =
+             SRQLRunner.query("in:timeseries_metrics time:last_24h",
+               translate_fn: translate_fn,
+               query_fn: query_fn,
+               analytics_query_fn: analytics_query_fn,
+               manifest_list_fn: fn _, _, _ -> {:ok, []} end
+             )
+  end
+
+  test "duckdb-tagged translations fail closed without a head" do
+    translate_fn = fn "in:timeseries_metrics time:last_24h", nil, nil, nil, nil ->
+      {:ok,
+       Jason.encode!(%{
+         "sql" => "select 1",
+         "params" => [],
+         "dialect" => "duckdb"
+       })}
+    end
+
+    assert {:error, :analytics_head_unavailable} =
+             SRQLRunner.query("in:timeseries_metrics time:last_24h", translate_fn: translate_fn)
+  end
 end

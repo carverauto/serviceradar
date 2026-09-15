@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   use ServiceRadarWebNGWeb, :live_view
 
   import Ecto.Query
+  import ServiceRadarWebNGWeb.MetricWindowComponents, only: [metric_window_controls: 1]
   import ServiceRadarWebNGWeb.UIComponents
 
   alias Phoenix.LiveView.JS
@@ -27,6 +28,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNGWeb.Components.PrefixTagChips
   alias ServiceRadarWebNGWeb.MetricSeries
+  alias ServiceRadarWebNGWeb.MetricWindowComponents
   alias ServiceRadarWebNGWeb.NetFlow.EnrichmentExpiry
   alias ServiceRadarWebNGWeb.Netflow.PrefixTagQuery
   alias ServiceRadarWebNGWeb.Netflow.RangeSelection
@@ -493,6 +495,25 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
+  def handle_event("netflow_set_range", %{"range" => range}, socket) do
+    if range in MetricWindowComponents.ranges() do
+      patch_netflow_window(socket, range, current_netflow_patch_opts(socket.assigns))
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("netflow_custom_range", %{"window" => params}, socket) do
+    case MetricWindowComponents.custom_range(params) do
+      {:ok, range} ->
+        opts = socket.assigns |> current_netflow_patch_opts() |> Map.put(:view, "explorer")
+        patch_netflow_window(socket, range, opts)
+
+      {:error, message} ->
+        {:noreply, put_flash(socket, :error, message)}
+    end
+  end
+
   def handle_event("netflow_range_selected", params, socket) do
     patch_opts =
       socket.assigns
@@ -854,6 +875,20 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     else
       socket
     end
+  end
+
+  defp patch_netflow_window(socket, range, patch_opts) do
+    href =
+      netflow_filter_patch(
+        socket.assigns.srql[:page_path],
+        socket.assigns.srql[:query] || "",
+        socket.assigns.limit,
+        "time",
+        range,
+        patch_opts
+      )
+
+    {:noreply, push_patch(socket, to: href)}
   end
 
   defp maybe_patch_netflow_range(socket, params, selector_points, patch_opts) do
@@ -1518,6 +1553,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             latency={@trace_latency}
           />
           <.metrics_summary :if={@active_tab == "metrics"} stats={@metrics_stats} />
+          <.metric_window_controls
+            :if={@active_tab == "netflows"}
+            id="netflow-window"
+            range={extract_time_from_query(@srql[:query] || "") || "last_1h"}
+            event="netflow_set_range"
+            custom_event="netflow_custom_range"
+          />
           <.netflow_summary
             :if={@active_tab == "netflows"}
             timezone={@current_scope.user.timezone}
@@ -7058,63 +7100,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp replace_netflow_time(query, value) when is_binary(query) and is_binary(value) do
-    query
-    |> split_srql_tokens()
-    |> Enum.reject(&(srql_token_key(&1) in ["time", "timeframe"]))
-    |> Kernel.++(["time:#{String.trim(value)}"])
-    |> Enum.join(" ")
-  end
-
-  defp split_srql_tokens(query) do
-    {tokens, current, _quote, _escaped?} =
-      query
-      |> String.graphemes()
-      |> Enum.reduce({[], "", nil, false}, &split_srql_token/2)
-
-    tokens = if current == "", do: tokens, else: [current | tokens]
-    Enum.reverse(tokens)
-  end
-
-  defp split_srql_token(char, {tokens, current, quote, true}) do
-    {tokens, current <> char, quote, false}
-  end
-
-  defp split_srql_token("\\", {tokens, current, quote, false}) when not is_nil(quote) do
-    {tokens, current <> "\\", quote, true}
-  end
-
-  defp split_srql_token(char, {tokens, current, quote, false}) when char == quote and not is_nil(quote) do
-    {tokens, current <> char, nil, false}
-  end
-
-  defp split_srql_token(char, {tokens, current, quote, false}) when not is_nil(quote) do
-    {tokens, current <> char, quote, false}
-  end
-
-  defp split_srql_token(char, {tokens, current, nil, false}) when char in ["\"", "'"] do
-    {tokens, current <> char, char, false}
-  end
-
-  defp split_srql_token(char, {tokens, current, nil, false}) when char in [" ", "\n", "\r", "\t"] do
-    if current == "" do
-      {tokens, "", nil, false}
-    else
-      {[current | tokens], "", nil, false}
-    end
-  end
-
-  defp split_srql_token(char, {tokens, current, quote, escaped?}) do
-    {tokens, current <> char, quote, escaped?}
-  end
-
-  defp srql_token_key(token) when is_binary(token) do
-    token
-    |> String.trim_leading("!")
-    |> String.split(":", parts: 2)
-    |> case do
-      [key, _value] -> String.downcase(key)
-      _token -> nil
-    end
+    ServiceRadarWebNGWeb.SRQL.Builder.with_time_range(query, String.trim(value))
   end
 
   defp netflow_service_label(nil), do: nil
@@ -9978,15 +9964,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp choose_netflow_bucket_seconds(start_dt, end_dt) do
-    span = DateTime.diff(end_dt, start_dt, :second)
-
-    cond do
-      span <= 60 * 60 -> 60
-      span <= 6 * 60 * 60 -> 300
-      span <= 24 * 60 * 60 -> 900
-      span <= 7 * 24 * 60 * 60 -> 3600
-      true -> 6 * 3600
-    end
+    ServiceRadarWebNGWeb.NetflowLive.Visualize.TimeWindow.chart_bucket_seconds(start_dt, end_dt)
   end
 
   defp bucket_seconds_to_srql(60), do: "1m"

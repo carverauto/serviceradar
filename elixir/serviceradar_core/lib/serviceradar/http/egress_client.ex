@@ -53,6 +53,7 @@ defmodule ServiceRadar.HTTP.EgressClient do
 
   @type option ::
           {:headers, [{binary(), binary()}]}
+          | {:body, binary()}
           | {:receive_timeout, pos_integer()}
           | {:connect_timeout, pos_integer()}
           | {:into, (term(), term() -> {:cont, term()} | {:halt, term()})}
@@ -98,6 +99,73 @@ defmodule ServiceRadar.HTTP.EgressClient do
     with {:ok, profile} <- ensure_profile(profile),
          :ok <- configure_proxy(profile, opts) do
       request(url, opts, profile)
+    end
+  end
+
+  @doc """
+  Send a small control-plane request through the configured CONNECT proxy.
+
+  This buffered interface supports object-store metadata and deletion calls.
+  Artifact downloads should continue using the streaming interface. Redirects
+  are returned to the caller; signed requests are never forwarded to a new host.
+  The receive timeout bounds the complete response. `:max_bytes` checks the
+  buffered response after receipt, so callers must use bounded service APIs.
+  """
+  @spec request_buffered(atom(), String.t(), [option()]) ::
+          {:ok, Req.Response.t()} | {:error, term()}
+  def request_buffered(method, url, opts \\ [])
+      when method in [:get, :head, :post, :put, :delete] and is_binary(url) do
+    profile = Keyword.get(opts, :profile, @default_profile)
+    timeout = Keyword.get(opts, :receive_timeout, @default_timeout)
+
+    with {:ok, profile} <- ensure_profile(profile),
+         :ok <- configure_proxy(profile, opts) do
+      http_options = [
+        ssl: tls_options(opts),
+        timeout: timeout,
+        connect_timeout: Keyword.get(opts, :connect_timeout, timeout),
+        autoredirect: false
+      ]
+
+      case :httpc.request(
+             method,
+             buffered_request(method, url, opts),
+             http_options,
+             [body_format: :binary],
+             profile
+           ) do
+        {:ok, {{_version, status, _reason}, headers, body}} ->
+          if over_limit?(byte_size(body), opts),
+            do: {:error, :response_too_large},
+            else: {:ok, response(status, headers, body)}
+
+        {:error, reason} ->
+          {:error, transport_error(reason)}
+      end
+    end
+  end
+
+  defp buffered_request(method, url, opts) do
+    headers =
+      Enum.map(Keyword.get(opts, :headers, []), fn {name, value} ->
+        {String.to_charlist(to_string(name)), String.to_charlist(to_string(value))}
+      end)
+
+    if method in [:post, :put] do
+      {content_type, other_headers} =
+        Enum.split_with(headers, fn {name, _} ->
+          String.downcase(to_string(name)) == "content-type"
+        end)
+
+      type =
+        case content_type do
+          [{_, value} | _] -> value
+          [] -> ~c"application/octet-stream"
+        end
+
+      {String.to_charlist(url), other_headers, type, Keyword.get(opts, :body, "")}
+    else
+      {String.to_charlist(url), headers}
     end
   end
 

@@ -2,6 +2,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries, as: TimeseriesPlugin
+  alias ServiceRadarWebNGWeb.DeviceLive.Show
   alias ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics
 
   @moduletag :db_free
@@ -143,6 +144,60 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
              severity: :warning,
              series: nil
            } in core_panel.assigns.reference_lines
+  end
+
+  test "seven-day selection loads only history and keeps cached process and anomaly state" do
+    previous =
+      Map.new([:env, :srql_module, :sysmon_metrics_test_responder], fn key ->
+        {key, Application.get_env(:serviceradar_web_ng, key)}
+      end)
+
+    on_exit(fn -> Enum.each(previous, fn {key, value} -> restore_env(key, value) end) end)
+    Application.put_env(:serviceradar_web_ng, :env, :test)
+    Application.put_env(:serviceradar_web_ng, :srql_module, RecordingSRQLStub)
+
+    Application.put_env(:serviceradar_web_ng, :sysmon_metrics_test_responder, fn query, _opts ->
+      assert query =~ "in:timeseries_metrics"
+      assert query =~ ~s(uid:"synthetic-range-device")
+      refute query =~ "sysmon.process"
+
+      if query =~ "bucket:" do
+        assert query =~ "time:last_7d"
+        assert query =~ "bucket:1h"
+        send(self(), {:history_query, query})
+        {:ok, %{"results" => []}}
+      else
+        {:ok, %{"results" => [%{"value" => 1}]}}
+      end
+    end)
+
+    process_metrics = [%{name: "synthetic-process"}]
+    anomaly_capacity = %{anomaly_rows: [], cached: true}
+
+    socket = %Phoenix.LiveView.Socket{
+      assigns: %{
+        __changed__: %{},
+        device_uid: "synthetic-range-device",
+        current_scope: nil,
+        sysmon_time_range: "last_24h",
+        sysmon_identity: %{device_uid: "synthetic-range-device"},
+        process_metrics: process_metrics,
+        anomaly_capacity: anomaly_capacity,
+        can_view_anomaly_capacity: true,
+        metric_sections: [%{subtitle: "last 24h · 5m buckets"}]
+      }
+    }
+
+    assert {:noreply, updated} = Show.handle_event("sysmon_set_range", %{"range" => "last_7d"}, socket)
+    assert updated.assigns.sysmon_time_range == "last_7d"
+    assert updated.assigns.process_metrics == process_metrics
+    assert updated.assigns.anomaly_capacity == anomaly_capacity
+    assert updated.assigns.can_view_anomaly_capacity
+    assert updated.assigns.metrics_error == nil
+    assert length(updated.assigns.metric_sections) == 3
+    assert Enum.all?(updated.assigns.metric_sections, &String.starts_with?(&1.subtitle, "last 7d · 1h buckets"))
+    for _ <- 1..4, do: assert_receive({:history_query, _})
+    refute_receive {:history_query, _}
   end
 
   test "metric sections honor a caller-provided absolute time range" do

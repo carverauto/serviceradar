@@ -278,6 +278,7 @@ mod test_support {
             rollup_stats: None,
             other: false,
             include_deleted: false,
+            dialect: Default::default(),
         }
     }
 

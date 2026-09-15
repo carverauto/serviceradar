@@ -988,6 +988,91 @@ fn translate_rate_downsample_orders_by_bucket_and_series() {
 }
 
 #[test]
+fn interface_metric_series_keeps_interfaces_and_metrics_separate_for_both_drivers() {
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+
+    for entity in ["snmp", "timeseries_metrics"] {
+        for driver in ["timescale", "pg_duckdb"] {
+            let request = QueryRequest {
+                query: format!(
+                    "in:{entity} if_index:(7,19) metric_name:(ifInOctets,ifOutOctets) time:last_24h bucket:1m agg:rate series:interface_metric limit:20000"
+                ),
+                limit: None,
+                cursor: None,
+                direction: QueryDirection::Next,
+                mode: None,
+            };
+            let drivers = std::collections::HashMap::from([(
+                "timeseries_metrics".to_string(),
+                driver.to_string(),
+            )]);
+            let response = crate::query::translate_request_with_drivers(&config, request, &drivers)
+                .expect("interface metric batch translation should succeed");
+            let sql = response.sql.to_lowercase();
+
+            assert!(
+                sql.contains("coalesce(if_index::text || ':' || metric_name, '') as series"),
+                "same metric on two interfaces must have distinct display series: {sql}"
+            );
+            assert_eq!(
+                sql.matches("partition by gateway_id, coalesce(agent_id, ''), metric_type, metric_name, series_key, if_index")
+                    .count(),
+                2,
+                "both LAG windows must retain the full underlying counter identity: {sql}"
+            );
+            assert!(sql.contains("group by 1, 2"), "{sql}");
+            assert!(sql.contains("avg(rate_value) as value"), "{sql}");
+            let interface_bind = response
+                .params
+                .iter()
+                .position(|param| matches!(param, crate::query::BindParam::IntArray(values) if values == &[7, 19]))
+                .expect("interface scope must be a typed integer array");
+            assert!(
+                sql.contains(&format!("if_index = any(${})", interface_bind + 1)),
+                "the interface predicate must use its own integer-array bind: {sql}"
+            );
+            assert_eq!(response.dialect.is_duckdb(), driver == "pg_duckdb");
+            assert!(
+                response
+                    .params
+                    .iter()
+                    .any(|param| matches!(param, crate::query::BindParam::Int(20000))),
+                "embedded translation must not clamp the batched chart limit: {:?}",
+                response.params
+            );
+            if driver == "pg_duckdb" {
+                assert!(sql.contains("::float8"), "{sql}");
+                assert!(!sql.contains("::double"), "{sql}");
+                assert!(!sql.contains("json_extract_string"), "{sql}");
+            }
+        }
+    }
+}
+
+#[test]
+fn interface_metric_series_is_limited_to_interface_metric_entities() {
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+    for entity in ["rperf", "cpu_metrics", "memory_metrics", "flows"] {
+        let request = QueryRequest {
+            query: format!(
+                "in:{entity} time:last_1h bucket:5m agg:avg series:interface_metric limit:25"
+            ),
+            limit: None,
+            cursor: None,
+            direction: QueryDirection::Next,
+            mode: None,
+        };
+        let error = translate_request(&config, request).expect_err("unsupported series must fail");
+        assert!(
+            error
+                .to_string()
+                .contains("unsupported series field 'interface_metric'"),
+            "unexpected error for {entity}: {error}"
+        );
+    }
+}
+
+#[test]
 fn translate_rate_downsample_is_counter_wrap_aware() {
     // A busy 1 Gbps link stores 32-bit Counter32 octets that wrap inside the poll
     // interval. The rate CTE must recover the real delta by adding the counter modulus
@@ -1835,5 +1920,244 @@ fn translate_rejects_unknown_agg_and_names_rate_sum() {
     assert!(
         err.to_string().contains("rate_sum"),
         "the error should advertise the new agg: {err}"
+    );
+}
+
+#[test]
+fn empty_driver_map_keeps_postgres_cagg_sql() {
+    let config = test_config();
+    let query = "in:timeseries_metrics metric_type:\"sysmon.cpu\" metric_name:\"cpu.usage_percent\" time:last_180d bucket:1h agg:avg series:uid limit:50000";
+    let request = QueryRequest {
+        query: query.to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+    let postgres = translate_request(&config, request.clone()).expect("postgres translate");
+    let empty = crate::query::translate_request_with_drivers(
+        &config,
+        request,
+        &std::collections::HashMap::new(),
+    )
+    .expect("empty map");
+
+    assert_eq!(postgres.sql, empty.sql);
+    assert!(postgres.dialect.is_postgres());
+    assert!(
+        empty
+            .sql
+            .to_lowercase()
+            .contains("from timeseries_metrics_hourly")
+    );
+}
+
+#[test]
+fn duckdb_driver_skips_cagg_and_prunes_hive_partitions() {
+    let config = test_config();
+    let request = QueryRequest {
+        query: "in:timeseries_metrics metric_type:\"sysmon.cpu\" metric_name:\"cpu.usage_percent\" time:last_180d bucket:1h agg:avg series:uid limit:50000"
+            .to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+    let drivers = std::collections::HashMap::from([(
+        "timeseries_metrics".to_string(),
+        "pg_duckdb".to_string(),
+    )]);
+    let response =
+        crate::query::translate_request_with_drivers(&config, request, &drivers).expect("duckdb");
+
+    assert!(response.dialect.is_duckdb());
+    let sql = response.sql.to_lowercase();
+    assert!(
+        !sql.contains("timeseries_metrics_hourly"),
+        "duckdb dialect must not read Timescale CAGGs"
+    );
+    assert!(
+        sql.contains("from timeseries_metrics"),
+        "expected raw table"
+    );
+    assert!(
+        sql.contains("to_timestamp(floor("),
+        "expected on-read buckets"
+    );
+    assert!(
+        sql.contains("_partition_date"),
+        "expected hive partition prune"
+    );
+}
+
+#[test]
+fn duckdb_driver_does_not_flip_device_queries() {
+    let config = test_config();
+    let request = QueryRequest {
+        query: "in:devices is_available:true sort:last_seen:desc".to_string(),
+        limit: Some(10),
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+    let drivers = std::collections::HashMap::from([(
+        "timeseries_metrics".to_string(),
+        "pg_duckdb".to_string(),
+    )]);
+    let response =
+        crate::query::translate_request_with_drivers(&config, request, &drivers).expect("devices");
+    assert!(response.dialect.is_postgres());
+    assert!(!response.sql.to_lowercase().contains("_partition_date"));
+}
+
+#[test]
+fn postgres_listing_cursor_stays_offset_only() {
+    let config = test_config();
+    let request = QueryRequest {
+        query: "in:timeseries_metrics time:last_24h sort:timestamp:desc limit:10".to_string(),
+        limit: Some(10),
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+    let response = translate_request(&config, request).expect("postgres listing");
+    let json = serde_json::to_value(&response).expect("translation JSON");
+    assert!(json.get("analytics_table").is_none());
+    assert!(json.get("time_range").is_none());
+    let next = response.pagination.next_cursor.expect("next cursor");
+    let state =
+        crate::pagination::decode_cursor_state(&next, &config.cursor_secret, i64::MAX).unwrap();
+    assert_eq!(state.offset, 10);
+    assert!(state.time_range.is_none());
+}
+
+#[test]
+fn duckdb_listing_cursor_pins_the_resolved_window() {
+    let config = test_config();
+    let drivers = std::collections::HashMap::from([(
+        "timeseries_metrics".to_string(),
+        "pg_duckdb".to_string(),
+    )]);
+    let request = QueryRequest {
+        query: "in:timeseries_metrics time:last_24h sort:timestamp:desc limit:10".to_string(),
+        limit: Some(10),
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+    let first = crate::query::translate_request_with_drivers(&config, request, &drivers)
+        .expect("duckdb page 1");
+    assert!(first.dialect.is_duckdb());
+    assert!(
+        first.sql.to_ascii_uppercase().contains("NULLS LAST"),
+        "expected explicit NULLS on duckdb listing"
+    );
+    assert!(
+        first.sql.to_ascii_lowercase().contains("gateway_id"),
+        "expected unique tiebreaker"
+    );
+    let next = first.pagination.next_cursor.expect("next cursor");
+    let state =
+        crate::pagination::decode_cursor_state(&next, &config.cursor_secret, i64::MAX).unwrap();
+    assert_eq!(state.offset, 10);
+    let range = state.time_range.expect("pinned window");
+    assert_eq!(first.analytics_table.as_deref(), Some("timeseries_metrics"));
+    assert_eq!(first.time_range.as_ref(), Some(&range));
+
+    let second_request = QueryRequest {
+        query: "in:timeseries_metrics time:last_24h sort:timestamp:desc limit:10".to_string(),
+        limit: Some(10),
+        cursor: Some(next),
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+    let second = crate::query::translate_request_with_drivers(&config, second_request, &drivers)
+        .expect("duckdb page 2");
+    assert_eq!(second.analytics_table, first.analytics_table);
+    assert_eq!(second.time_range, first.time_range);
+    let first_times: Vec<_> = first
+        .params
+        .iter()
+        .filter_map(|param| match param {
+            crate::query::BindParam::Timestamptz(value) => Some(value.clone()),
+            _ => None,
+        })
+        .collect();
+    let second_times: Vec<_> = second
+        .params
+        .iter()
+        .filter_map(|param| match param {
+            crate::query::BindParam::Timestamptz(value) => Some(value.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(first_times, second_times);
+    assert_eq!(first_times[0], range.start.to_rfc3339());
+}
+
+#[test]
+fn duckdb_counter_rate_casts_to_float8_not_double_shell() {
+    let config = test_config();
+    let request = QueryRequest {
+        query: "in:snmp metric_name:\"ifOutOctets\" time:last_1h bucket:5m agg:rate series:if_index limit:25"
+            .to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+    let drivers = std::collections::HashMap::from([(
+        "timeseries_metrics".to_string(),
+        "pg_duckdb".to_string(),
+    )]);
+    let response =
+        crate::query::translate_request_with_drivers(&config, request, &drivers).expect("duckdb");
+    assert!(response.dialect.is_duckdb());
+    assert!(
+        response.sql.contains("::float8"),
+        "expected float8 (PG+DuckDB) not DOUBLE shell, got: {}",
+        response.sql
+    );
+    assert!(
+        !response.sql.contains("::DOUBLE"),
+        "DOUBLE is a PostgreSQL shell type and fails parse_type.c, got: {}",
+        response.sql
+    );
+    assert!(
+        response
+            .sql
+            .contains("(metadata::JSON ->> 'max_counter_rate_per_second')"),
+        "expected JSON remap on the rate ceiling, got: {}",
+        response.sql
+    );
+}
+
+#[test]
+fn duckdb_remaps_jsonb_arrow_on_timeseries_series() {
+    let config = test_config();
+    let request = QueryRequest {
+        query: "in:timeseries_metrics metric_type:\"sysmon.cpu\" metric_name:\"cpu.usage_percent\" time:last_6h bucket:5m agg:max series:core_id limit:25".to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+    let drivers = std::collections::HashMap::from([(
+        "timeseries_metrics".to_string(),
+        "pg_duckdb".to_string(),
+    )]);
+    let response =
+        crate::query::translate_request_with_drivers(&config, request, &drivers).expect("duckdb");
+    assert!(
+        response.sql.contains("(tags::JSON ->> 'core_id')"),
+        "expected DuckDB JSON remap"
+    );
+    refute_cagg(&response.sql);
+}
+
+fn refute_cagg(sql: &str) {
+    assert!(
+        !sql.to_lowercase().contains("_hourly"),
+        "did not expect a CAGG table"
     );
 }

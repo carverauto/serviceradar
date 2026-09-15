@@ -3,9 +3,11 @@ mod filters_common;
 
 mod cagg;
 mod cold;
+mod dialect;
 mod engine;
 mod plan;
 mod sql;
+mod store;
 mod translate;
 mod types;
 
@@ -81,9 +83,12 @@ pub(crate) use sql::{
     bind_sql_param, diesel_sql, max_dollar_placeholder, reconcile_limit_offset_binds,
     shift_dollar_placeholders,
 };
-pub use translate::translate_request;
+pub use store::{AnalyticsDriver, AnalyticsPolicy};
+pub use translate::{
+    translate_request, translate_request_with_drivers, translate_request_with_store_configs,
+};
 pub use types::{
-    BindParam, PaginationMeta, QueryDirection, QueryPlan, QueryRequest, QueryResponse,
+    BindParam, PaginationMeta, QueryDirection, QueryPlan, QueryRequest, QueryResponse, SqlDialect,
     TranslateRequest, TranslateResponse,
 };
 

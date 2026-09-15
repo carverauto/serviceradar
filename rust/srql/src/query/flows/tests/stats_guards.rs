@@ -20,6 +20,7 @@ fn multi_group_by_requires_time_window() {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let err = to_sql_and_params_stats(&plan).unwrap_err();
@@ -62,6 +63,7 @@ fn translate_grouped_stats_uses_agg_value_for_order_and_includes_filters() {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let (sql, params) = to_sql_and_params_stats(&plan).unwrap();
@@ -106,6 +108,7 @@ fn other_rollup_rejects_non_additive_flow_aggregates() {
         rollup_stats: None,
         other: true,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let err = to_sql_and_params_stats(&plan).unwrap_err();
@@ -137,6 +140,7 @@ fn other_rollup_rejects_ungrouped_flow_stats_after_parsing() {
         rollup_stats: None,
         other: true,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let err = to_sql_and_params_stats(&plan).unwrap_err();
@@ -175,6 +179,7 @@ fn stats_device_addr_rejects_an_empty_address_list() {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let err = to_sql_and_params_stats(&plan).expect_err("empty device_addr must be rejected");
@@ -207,6 +212,7 @@ fn stats_device_addr_matches_either_endpoint_or_the_sampler() {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let (sql, _params) = to_sql_and_params_stats(&plan).expect("device_addr stats must translate");

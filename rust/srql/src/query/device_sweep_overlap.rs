@@ -288,9 +288,11 @@ fn order_sql(order: &[OrderClause]) -> Result<String> {
         // so the alerts are not merely buried, they are unpageable. Surface them
         // first; recency still orders within each block. An explicit `sort:` from
         // the caller replaces this entirely.
-        Ok(" ORDER BY (overlap.relationship = 'declared_not_observed') DESC, \
+        Ok(
+            " ORDER BY (overlap.relationship = 'declared_not_observed') DESC, \
 overlap.last_seen_at DESC NULLS LAST"
-            .into())
+                .into(),
+        )
     } else {
         Ok(format!(" ORDER BY {}", clauses.join(", ")))
     }
@@ -345,6 +347,7 @@ mod tests {
             rollup_stats: None,
             other: false,
             include_deleted: false,
+            dialect: Default::default(),
         }
     }
 

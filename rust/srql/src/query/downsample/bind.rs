@@ -9,6 +9,7 @@ pub(super) enum SqlBindValue {
     Float(f64),
     Timestamp(DateTime<Utc>),
     BigInt(i64),
+    BigIntArray(Vec<i64>),
 }
 
 impl SqlBindValue {
@@ -23,6 +24,7 @@ impl SqlBindValue {
             SqlBindValue::Float(value) => query.bind::<Float8, _>(*value),
             SqlBindValue::Timestamp(value) => query.bind::<Timestamptz, _>(*value),
             SqlBindValue::BigInt(value) => query.bind::<Int8, _>(*value),
+            SqlBindValue::BigIntArray(values) => query.bind::<Array<Int8>, _>(values.clone()),
         }
     }
 
@@ -33,6 +35,7 @@ impl SqlBindValue {
             SqlBindValue::Float(value) => BindParam::Float(value),
             SqlBindValue::Timestamp(value) => BindParam::timestamptz(value),
             SqlBindValue::BigInt(value) => BindParam::Int(value),
+            SqlBindValue::BigIntArray(values) => BindParam::IntArray(values),
         }
     }
 }

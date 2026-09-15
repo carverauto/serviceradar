@@ -152,6 +152,7 @@ mod tests {
             rollup_stats: Some("severity".to_string()),
             other: false,
             include_deleted: false,
+            dialect: Default::default(),
         };
 
         let result = build_rollup_stats_query(&plan).expect("should build rollup_stats query");
@@ -196,6 +197,7 @@ mod tests {
             rollup_stats: Some("severity".to_string()),
             other: false,
             include_deleted: false,
+            dialect: Default::default(),
         };
 
         let result = build_rollup_stats_query(&plan).expect("should build rollup_stats query");
@@ -226,6 +228,7 @@ mod tests {
             rollup_stats: Some("unknown".to_string()),
             other: false,
             include_deleted: false,
+            dialect: Default::default(),
         };
 
         let result = build_rollup_stats_query(&plan);

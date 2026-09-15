@@ -170,7 +170,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
     bumblebee = Map.get(batch_results, :bumblebee, %{})
 
     base_assigns = %{
-      availability: Map.get(batch_results, :availability, %{}),
       agent_availability: Map.get(batch_results, :agent_availability, []),
       composite_verdicts: Map.get(batch_results, :composite_verdicts, []),
       healthcheck_summary: Map.get(batch_results, :healthcheck, %{}),
@@ -241,9 +240,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
          logs_limit: logs_limit
        }) do
     base_specs = [
-      DeviceTaskData.spec(slow_device_task_ms, :availability, fn ->
-        AvailabilityData.load_availability(srql_module, uid, scope)
-      end),
       DeviceTaskData.spec(slow_device_task_ms, :agent_availability, fn ->
         AvailabilityData.load_agent_availability(scope, uid)
       end),

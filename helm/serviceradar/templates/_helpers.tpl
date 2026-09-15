@@ -775,3 +775,156 @@ will see, including ready_state_path/rehome_state_path.
 {{- $_ := set $cfg "rehome_state_path" $rehomePath -}}
 {{- toJson $cfg -}}
 {{- end -}}
+
+{{/*
+Analytics-store mode. Default timescale has no archive dependency.
+Hybrid and pg_duckdb render the dedicated analytics head.
+*/}}
+{{- define "serviceradar.analyticsStoreDriver" -}}
+{{- $store := default dict .Values.analyticsStore -}}
+{{- default "timescale" $store.driver -}}
+{{- end -}}
+
+{{/* Validate explicit analytics choices before defaults can mask invalid values. */}}
+{{- define "serviceradar.validateAnalyticsStore" -}}
+{{- $store := default dict .Values.analyticsStore -}}
+{{- $driver := default "timescale" $store.driver -}}
+{{- if not (has $driver (list "timescale" "hybrid" "pg_duckdb")) -}}
+{{- fail "analyticsStore.driver must be timescale, hybrid, or pg_duckdb" -}}
+{{- end -}}
+{{- if and (eq $driver "hybrid") (eq (len (default (list) $store.tables)) 0) -}}
+{{- fail "analyticsStore.tables must explicitly name tables when driver is hybrid" -}}
+{{- end -}}
+{{- if and (hasKey $store "archiveBufferMaxBytes") (or (le (float64 $store.archiveBufferMaxBytes) 0.0) (ne (float64 $store.archiveBufferMaxBytes) (float64 (int64 $store.archiveBufferMaxBytes)))) -}}
+{{- fail "analyticsStore.archiveBufferMaxBytes must be a positive integer" -}}
+{{- end -}}
+{{- $hot := "30" -}}
+{{- if hasKey $store "hotWindowDays" -}}
+{{- $hot = toString $store.hotWindowDays -}}
+{{- end -}}
+{{- if not (regexMatch "^[1-9][0-9]*$" $hot) -}}
+{{- fail "analyticsStore.hotWindowDays must be a positive integer" -}}
+{{- end -}}
+{{- if and (hasKey $store "parquetRetentionDays") (ne (toString $store.parquetRetentionDays) "") -}}
+{{- $archive := toString $store.parquetRetentionDays -}}
+{{- if or (not (regexMatch "^[1-9][0-9]*$" $archive)) (le (int64 $archive) (int64 $hot)) -}}
+{{- fail "analyticsStore.parquetRetentionDays must be blank or an integer greater than hotWindowDays" -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+True when the pg_duckdb analytics head Cluster should render.
+*/}}
+{{- define "serviceradar.analyticsHeadEnabled" -}}
+{{- include "serviceradar.validateAnalyticsStore" . -}}
+{{- $store := default dict .Values.analyticsStore -}}
+{{- $driver := default "timescale" $store.driver -}}
+{{- $cold := default dict .Values.coldTier -}}
+{{- $head := default dict $cold.analyticsHead -}}
+{{- $headEnabled := default false $store.headEnabled -}}
+{{- if or (has $driver (list "pg_duckdb" "hybrid")) (gt (len (default (list) $store.dualWrite)) 0) $headEnabled (default false $head.enabled) -}}
+true
+{{- else -}}
+false
+{{- end -}}
+{{- end -}}
+
+{{/*
+serviceradar-cnpg-analytics image. Do not inherit global.imageTag: that is a
+git sha, and this image is published under the pg_duckdb static tag until a
+sha-tagged analytics image exists.
+*/}}
+{{- define "serviceradar.analyticsImageDefaultTag" -}}
+18-pgduckdb-1.1.1-sr3
+{{- end -}}
+
+{{- define "serviceradar.analyticsImageName" -}}
+{{- $store := default dict .Values.analyticsStore -}}
+{{- $pg := default dict $store.pgDuckdb -}}
+{{- $cold := default dict .Values.coldTier -}}
+{{- $head := default dict $cold.analyticsHead -}}
+{{- $explicit := default $head.imageName $pg.imageName -}}
+{{- if $explicit -}}
+{{- $explicit -}}
+{{- else -}}
+{{- printf "%s:%s" (include "serviceradar.imageRepository" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-cnpg-analytics")) (include "serviceradar.analyticsImageDefaultTag" .) -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "serviceradar.analyticsHeadClusterName" -}}
+{{- $store := default dict .Values.analyticsStore -}}
+{{- $pg := default dict $store.pgDuckdb -}}
+{{- $cold := default dict .Values.coldTier -}}
+{{- $head := default dict $cold.analyticsHead -}}
+{{- default (default "cnpg-analytics" $head.clusterName) $pg.clusterName -}}
+{{- end -}}
+
+{{/*
+Env for web-ng / query-side AnalyticsRepo. Hybrid and pg_duckdb need the
+head and storage settings. Timescale-only dualWrite leaves reads on Timescale
+and does not expose writer-only configuration to web-ng.
+*/}}
+{{- define "serviceradar.analyticsStoreQueryEnv" -}}
+{{- $store := default dict .Values.analyticsStore -}}
+{{- $driver := default "timescale" $store.driver -}}
+{{- $pg := default dict $store.pgDuckdb -}}
+{{- $s3 := default dict $pg.s3 -}}
+{{- $fs := default dict $pg.filesystem -}}
+{{- $cluster := include "serviceradar.analyticsHeadClusterName" . -}}
+- name: SERVICERADAR_ANALYTICS_STORE_DRIVER
+  value: {{ $driver | quote }}
+- name: SERVICERADAR_ANALYTICS_STORE_TABLES
+  value: {{ join "," (default (list) $store.tables) | quote }}
+{{- if has $driver (list "pg_duckdb" "hybrid") }}
+- name: SERVICERADAR_ANALYTICS_STORE_HOT_WINDOW_DAYS
+  value: {{ default 30 $store.hotWindowDays | quote }}
+- name: SERVICERADAR_ANALYTICS_STORE_PARQUET_RETENTION_DAYS
+  value: {{ default "" $store.parquetRetentionDays | quote }}
+- name: SERVICERADAR_ANALYTICS_STORE_STORAGE
+  value: {{ default "s3" $pg.storage | quote }}
+- name: SERVICERADAR_ANALYTICS_STORE_POOL_SIZE
+  value: {{ default 4 $pg.poolSize | quote }}
+- name: SERVICERADAR_ANALYTICS_STORE_HEAD_HOST
+  value: {{ printf "%s-rw.%s.svc.cluster.local" $cluster .Release.Namespace | quote }}
+- name: SERVICERADAR_ANALYTICS_STORE_HEAD_PORT
+  value: "5432"
+- name: SERVICERADAR_ANALYTICS_STORE_HEAD_DATABASE
+  value: "serviceradar"
+- name: SERVICERADAR_ANALYTICS_STORE_HEAD_USERNAME
+  valueFrom:
+    secretKeyRef:
+      name: {{ printf "%s-app" $cluster | quote }}
+      key: username
+- name: SERVICERADAR_ANALYTICS_STORE_HEAD_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ printf "%s-app" $cluster | quote }}
+      key: password
+{{- if and (eq (default "s3" $pg.storage) "s3") (ne (default "" $s3.secretName) "") }}
+- name: SERVICERADAR_ANALYTICS_STORE_S3_BUCKET_URL
+  value: {{ printf "s3://%s" (required "analyticsStore.pgDuckdb.s3.bucket is required when archive reads are enabled and storage is s3" $s3.bucket) | quote }}
+- name: SERVICERADAR_ANALYTICS_STORE_S3_ENDPOINT
+  value: {{ required "analyticsStore.pgDuckdb.s3.endpoint is required when archive reads are enabled and storage is s3" $s3.endpoint | quote }}
+- name: SERVICERADAR_ANALYTICS_STORE_S3_REGION
+  value: {{ default "us-ord" $s3.region | quote }}
+- name: SERVICERADAR_ANALYTICS_STORE_S3_URL_STYLE
+  value: {{ default "path" $s3.urlStyle | quote }}
+- name: SERVICERADAR_ANALYTICS_STORE_S3_USE_SSL
+  value: {{ default true $s3.useSSL | quote }}
+- name: SERVICERADAR_ANALYTICS_STORE_S3_ACCESS_KEY_ID
+  valueFrom:
+    secretKeyRef:
+      name: {{ $s3.secretName | quote }}
+      key: access_key_id
+- name: SERVICERADAR_ANALYTICS_STORE_S3_SECRET_ACCESS_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ $s3.secretName | quote }}
+      key: secret_access_key
+{{- else if eq (default "s3" $pg.storage) "filesystem" }}
+- name: SERVICERADAR_ANALYTICS_STORE_FILESYSTEM_PATH
+  value: {{ default "/var/lib/serviceradar/analytics" $fs.path | quote }}
+{{- end }}
+{{- end }}
+{{- end -}}

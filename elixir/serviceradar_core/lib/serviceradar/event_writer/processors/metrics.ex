@@ -22,18 +22,21 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
   def table_name, do: "metrics"
 
   @impl true
-  def process_batch(messages) do
+  def process_batch(messages), do: process_batch(messages, [])
+
+  @doc "Optionally defer auxiliary SNMP facts until the durable metric transaction commits."
+  def process_batch(messages, opts) do
     SignalTelemetry.emit(:metrics, :received, length(messages))
 
     {rows, rejected} = decode_batch(messages)
     rows = backfill_device_ids(rows)
     SignalTelemetry.emit(:metrics, :rejected, rejected)
 
-    # Runs AFTER device_id backfill, because a fact is keyed by the canonical
-    # device uid and an unresolved reading cannot be written at all. Deliberately
-    # before the timeseries insert and deliberately unable to fail it: losing a
-    # metric point is worse than losing a snapshot row the next poll rewrites.
-    DeviceSNMPFactWriter.write_rows(rows)
+    # Facts use canonical device IDs. In hybrid mode their Ash actions must run
+    # after commit: a failed best-effort fact action can roll back its parent
+    # transaction even when the fact writer handles the error.
+    defer_facts? = Keyword.get(opts, :defer_facts, false)
+    if !defer_facts?, do: DeviceSNMPFactWriter.write_rows(rows)
 
     if rejected > 0 do
       Logger.warning("Metrics processor rejected non-protobuf metric messages", count: rejected)
@@ -47,7 +50,12 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
 
     with {:ok, count} <- Telemetry.insert_rows(numeric_rows) do
       SignalTelemetry.emit(:metrics, :written, count)
-      {:ok, count}
+
+      if defer_facts? do
+        {:ok, count, fn -> DeviceSNMPFactWriter.write_rows(rows) end}
+      else
+        {:ok, count}
+      end
     end
   rescue
     e ->

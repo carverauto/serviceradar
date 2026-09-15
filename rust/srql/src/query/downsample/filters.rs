@@ -291,6 +291,31 @@ fn int_clause(
     filter: &Filter,
     allow_ranges: bool,
 ) -> Result<(String, Vec<SqlBindValue>)> {
+    if matches!(filter.op, FilterOp::In | FilterOp::NotIn) {
+        let values = filter
+            .value
+            .as_list()?
+            .iter()
+            .map(|value| {
+                value.parse::<i64>().map_err(|_| {
+                    ServiceError::InvalidRequest("invalid integer value in list".into())
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        let included = matches!(filter.op, FilterOp::In);
+        if values.is_empty() {
+            return Ok((if included { "1=0" } else { "1=1" }.to_string(), Vec::new()));
+        }
+
+        let clause = if included {
+            format!("{column} = ANY(?)")
+        } else {
+            format!("{column} <> ALL(?)")
+        };
+        return Ok((clause, vec![SqlBindValue::BigIntArray(values)]));
+    }
+
     let mut binds = Vec::new();
     let value = filter
         .value
@@ -414,6 +439,60 @@ fn process_filter_clause(filter: &Filter) -> Result<(String, Vec<SqlBindValue>)>
         other => Err(ServiceError::InvalidRequest(format!(
             "unsupported filter field for downsample process_metrics: '{other}'"
         ))),
+    }
+}
+
+#[cfg(test)]
+mod integer_filter_tests {
+    use super::*;
+    use crate::parser::FilterValue;
+
+    #[test]
+    fn interface_lists_bind_typed_arrays_for_membership_and_exclusion() {
+        for (op, expected) in [
+            (FilterOp::In, "if_index = ANY(?)"),
+            (FilterOp::NotIn, "if_index <> ALL(?)"),
+        ] {
+            let filter = Filter {
+                field: "if_index".into(),
+                op,
+                value: FilterValue::List(vec!["7".into(), "19".into()]),
+            };
+            let (clause, binds) = timeseries_filter_clause(&filter).unwrap();
+            assert_eq!(clause, expected);
+            assert!(
+                matches!(binds.as_slice(), [SqlBindValue::BigIntArray(values)] if values == &[7, 19])
+            );
+        }
+    }
+
+    #[test]
+    fn interface_lists_reject_every_invalid_integer_without_partial_membership() {
+        for invalid in ["abc", "7.5", "9223372036854775808", "19) OR TRUE"] {
+            for op in [FilterOp::In, FilterOp::NotIn] {
+                let filter = Filter {
+                    field: "if_index".into(),
+                    op,
+                    value: FilterValue::List(vec!["7".into(), invalid.into()]),
+                };
+                let error = timeseries_filter_clause(&filter).unwrap_err();
+                assert!(error.to_string().contains("invalid integer value in list"));
+            }
+        }
+    }
+
+    #[test]
+    fn empty_integer_lists_preserve_membership_semantics() {
+        for (op, expected) in [(FilterOp::In, "1=0"), (FilterOp::NotIn, "1=1")] {
+            let filter = Filter {
+                field: "if_index".into(),
+                op,
+                value: FilterValue::List(vec![]),
+            };
+            let (clause, binds) = timeseries_filter_clause(&filter).unwrap();
+            assert_eq!(clause, expected);
+            assert!(binds.is_empty());
+        }
     }
 }
 

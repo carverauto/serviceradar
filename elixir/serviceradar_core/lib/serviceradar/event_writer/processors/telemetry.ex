@@ -2,8 +2,8 @@ defmodule ServiceRadar.EventWriter.Processors.Telemetry do
   @moduledoc """
   Processor for telemetry metrics messages.
 
-  Parses telemetry metrics from NATS JetStream and inserts them into
-  the `timeseries_metrics` hypertable.
+  Parses telemetry metrics from NATS JetStream and persists them through
+  `ServiceRadar.AnalyticsStore` (Timescale hypertables by default).
 
   ## Message Format
 
@@ -40,7 +40,7 @@ defmodule ServiceRadar.EventWriter.Processors.Telemetry do
 
   @behaviour ServiceRadar.EventWriter.Processor
 
-  alias ServiceRadar.EventWriter.BulkInsert
+  alias ServiceRadar.AnalyticsStore
   alias ServiceRadar.Observability.MetricEnvelope
 
   require Logger
@@ -98,15 +98,6 @@ defmodule ServiceRadar.EventWriter.Processors.Telemetry do
   end
 
   defp insert_telemetry_rows(rows) do
-    # DB connection's search_path determines the schema
-    {count, _} =
-      BulkInsert.insert_all(
-        table_name(),
-        rows,
-        on_conflict: :nothing,
-        returning: false
-      )
-
-    {:ok, count}
+    AnalyticsStore.write(table_name(), rows, on_conflict: :nothing, returning: false)
   end
 end

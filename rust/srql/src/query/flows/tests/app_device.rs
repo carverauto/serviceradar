@@ -23,6 +23,7 @@ fn translate_grouped_stats_app_group_by_includes_rule_table() {
         rollup_stats: None,
         other: false,
         include_deleted: false,
+        dialect: Default::default(),
     };
 
     let (sql, _params) = to_sql_and_params_stats(&plan).unwrap();

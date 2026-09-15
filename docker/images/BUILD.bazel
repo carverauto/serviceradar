@@ -1,6 +1,7 @@
 """Bazel-native OCI images."""
 
 load("@io_bazel_rules_go//go:def.bzl", "go_test")
+load("@rules_python//python:py_binary.bzl", "py_binary")
 load("@rules_python//python:py_test.bzl", "py_test")
 load("//docker/images:analytics_image.bzl", "declare_cnpg_analytics_image_amd64")
 load("//docker/images:apk.bzl", "apk_rootfs_amd64", "declare_alpine_netutils_rootfs", "declare_apk_rootfs_targets")
@@ -27,7 +28,9 @@ load(
 
 exports_files([
     "check_extension_abi.py",
+    "cnpg_analytics_boot_smoke.py",
     "export_rootfs_from_layout.py",
+    "extract_pg_duckdb_layer.py",
     "extract_rootfs.py",
     "image_inventory.bzl",
     "overlay_deb_packages.py",
@@ -808,6 +811,33 @@ declare_multiarch_image_index(
 declare_cnpg_image_amd64()
 
 declare_cnpg_analytics_image_amd64()
+
+py_test(
+    name = "extract_pg_duckdb_layer_test",
+    size = "small",
+    srcs = [
+        "extract_pg_duckdb_layer.py",
+        "extract_pg_duckdb_layer_test.py",
+    ],
+    main = "extract_pg_duckdb_layer_test.py",
+)
+
+py_test(
+    name = "analytics_image_contract_test",
+    size = "small",
+    srcs = ["analytics_image_contract_test.py"],
+    data = [
+        "analytics_image.bzl",
+        "cnpg_image.bzl",
+        "cnpg_analytics_boot_smoke.py",
+    ],
+)
+
+py_binary(
+    name = "cnpg_analytics_boot_smoke",
+    srcs = ["cnpg_analytics_boot_smoke.py"],
+    main = "cnpg_analytics_boot_smoke.py",
+)
 
 filegroup(
     name = "images",

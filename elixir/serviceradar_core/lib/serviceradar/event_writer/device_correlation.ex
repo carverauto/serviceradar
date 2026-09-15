@@ -11,6 +11,7 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
   import Ash.Expr
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.AnalyticsStore
   alias ServiceRadar.EventWriter.DeviceCorrelationCache
   alias ServiceRadar.Identity.DeviceLookup
   alias ServiceRadar.Infrastructure.Agent
@@ -146,7 +147,11 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
           query_snmp_metric_hourly_by_device(candidate, canonical_hint)
 
       is_binary(candidate.target_device_ip) ->
-        query_snmp_metric_hourly_by_target(candidate)
+        if timeseries_cagg_available?() do
+          query_snmp_metric_hourly_by_target(candidate)
+        else
+          query_snmp_metric_by_target(candidate)
+        end
 
       true ->
         nil
@@ -171,7 +176,10 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
   defp snmp_metric_canonical_hint(_candidate), do: nil
 
   defp query_snmp_metric_by_device(candidate, device_uid) do
+    cutoff = DateTime.add(DateTime.utc_now(), -48, :hour)
+
     query_snmp_metric_device_uid(
+      "timeseries_metrics",
       """
       SELECT device_id
       FROM platform.timeseries_metrics
@@ -179,51 +187,103 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
         AND metric_name = $2
         AND if_index = $3
         AND ($4::text IS NULL OR partition = $4)
-        AND timestamp >= now() - INTERVAL '48 hours'
+        AND timestamp >= $5::timestamptz
         AND NULLIF(btrim(device_id), '') IS NOT NULL
       ORDER BY timestamp DESC
       LIMIT 1
       """,
-      [device_uid, candidate.metric_name, candidate.if_index, candidate.partition]
+      [device_uid, candidate.metric_name, candidate.if_index, candidate.partition, cutoff],
+      time_range: {cutoff, nil}
     )
   end
 
-  defp query_snmp_metric_hourly_by_device(candidate, device_uid) do
-    query_snmp_metric_device_uid(
-      """
-      SELECT device_id
-      FROM platform.timeseries_metrics_interface_hourly
-      WHERE device_id = $1
-        AND metric_name = $2
-        AND if_index = $3
-        AND ($4::text IS NULL OR partition = $4)
-        AND NULLIF(btrim(device_id), '') IS NOT NULL
-      ORDER BY bucket DESC
-      LIMIT 1
-      """,
-      [device_uid, candidate.metric_name, candidate.if_index, candidate.partition]
-    )
-  end
+  defp query_snmp_metric_by_target(candidate) do
+    cutoff = DateTime.add(DateTime.utc_now(), -48, :hour)
 
-  defp query_snmp_metric_hourly_by_target(candidate) do
     query_snmp_metric_device_uid(
+      "timeseries_metrics",
       """
       SELECT device_id
-      FROM platform.timeseries_metrics_interface_hourly
+      FROM platform.timeseries_metrics
       WHERE target_device_ip = $1
         AND metric_name = $2
         AND if_index = $3
         AND ($4::text IS NULL OR partition = $4)
+        AND timestamp >= $5::timestamptz
         AND NULLIF(btrim(device_id), '') IS NOT NULL
-      ORDER BY bucket DESC
+      ORDER BY timestamp DESC
       LIMIT 1
       """,
-      [candidate.target_device_ip, candidate.metric_name, candidate.if_index, candidate.partition]
+      [
+        candidate.target_device_ip,
+        candidate.metric_name,
+        candidate.if_index,
+        candidate.partition,
+        cutoff
+      ],
+      time_range: {cutoff, nil}
     )
   end
 
-  defp query_snmp_metric_device_uid(sql, params) do
-    case bounded_lookup(fn -> Repo.query(sql, params) end) do
+  defp query_snmp_metric_hourly_by_device(candidate, device_uid) do
+    if timeseries_cagg_available?() do
+      query_snmp_metric_device_uid(
+        "timeseries_metrics_interface_hourly",
+        """
+        SELECT device_id
+        FROM platform.timeseries_metrics_interface_hourly
+        WHERE device_id = $1
+          AND metric_name = $2
+          AND if_index = $3
+          AND ($4::text IS NULL OR partition = $4)
+          AND NULLIF(btrim(device_id), '') IS NOT NULL
+        ORDER BY bucket DESC
+        LIMIT 1
+        """,
+        [device_uid, candidate.metric_name, candidate.if_index, candidate.partition]
+      )
+    end
+  end
+
+  defp query_snmp_metric_hourly_by_target(candidate) do
+    if timeseries_cagg_available?() do
+      query_snmp_metric_device_uid(
+        "timeseries_metrics_interface_hourly",
+        """
+        SELECT device_id
+        FROM platform.timeseries_metrics_interface_hourly
+        WHERE target_device_ip = $1
+          AND metric_name = $2
+          AND if_index = $3
+          AND ($4::text IS NULL OR partition = $4)
+          AND NULLIF(btrim(device_id), '') IS NOT NULL
+        ORDER BY bucket DESC
+        LIMIT 1
+        """,
+        [
+          candidate.target_device_ip,
+          candidate.metric_name,
+          candidate.if_index,
+          candidate.partition
+        ]
+      )
+    end
+  end
+
+  defp timeseries_cagg_available? do
+    AnalyticsStore.Config.driver_for(AnalyticsStore.Config.load(), "timeseries_metrics") !=
+      :pg_duckdb
+  end
+
+  defp query_snmp_metric_device_uid(table, sql, params, opts \\ []) do
+    lookup = fn ->
+      case table do
+        "timeseries_metrics" -> AnalyticsStore.SQL.query(table, sql, params, opts)
+        _ -> Repo.query(sql, params)
+      end
+    end
+
+    case bounded_lookup(lookup) do
       {:ok, %{rows: [[device_uid] | _]}} -> normalize(device_uid)
       _ -> nil
     end

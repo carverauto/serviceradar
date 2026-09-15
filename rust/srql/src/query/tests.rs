@@ -7,6 +7,7 @@ use std::time::Duration as StdDuration;
 
 mod device_queries;
 mod entity_examples;
+mod hybrid;
 mod metric_caggs;
 mod placeholders;
 mod telemetry_ids;

@@ -28,6 +28,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
     opts = %{
       annotations: Keyword.get(opts, :annotations, []),
       chart_overlays: Keyword.get(opts, :chart_overlays, []),
+      bucket_seconds: Keyword.get(opts, :bucket_seconds),
       compact: Keyword.get(opts, :compact, false),
       max_speed: Keyword.get(opts, :max_speed),
       rate_mode: Keyword.get(opts, :rate_mode, :none),
@@ -87,6 +88,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
     display_name = Metrics.humanize_series_name(series || "series")
     unit = Metrics.unit_for_series(series, spec, rate_mode)
     points = Enum.sort_by(points, fn {dt, _} -> DateTime.to_unix(dt, :millisecond) end)
+    time_gaps = Points.time_gaps(points, Map.get(opts, :bucket_seconds))
     raw_stats = Paths.stats(points)
     cap = Points.points_cap(points)
     points = Points.limit_points(points, cap)
@@ -95,7 +97,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
     y_domain = Points.y_domain(chart_points ++ reference_points(reference_values), unit, y_scale)
     y_ticks = Points.y_ticks(y_domain, compact, unit)
     chart_left_pad = Paths.chart_left_pad(y_ticks)
-    geometry = %{chart_left_pad: chart_left_pad}
+    geometry = %{chart_left_pad: chart_left_pad, time_gaps: time_gaps}
     paths = chart_points |> Paths.chart_paths(y_domain, geometry) |> Map.merge(raw_stats)
     utilization = Metrics.compute_utilization(paths.avg, effective_max)
 
@@ -108,6 +110,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
       point_data: point_data(chart_points, geometry),
       unit: unit,
       raw_points: points,
+      time_gaps: time_gaps,
       y_domain: y_domain,
       x_ticks: Points.x_ticks(points, compact, geometry),
       y_ticks: y_ticks,
@@ -236,6 +239,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
 
   defp apply_shared_domain(series_data, y_domain, unit, compact, geometry) do
     Enum.map(series_data, fn series ->
+      geometry = Map.put(geometry, :time_gaps, Map.get(series, :time_gaps, []))
       points = Map.get(series, :raw_points, [])
       chart_points = Points.chart_points(points, unit, compact, length(points))
       raw_stats = Paths.stats(points)
