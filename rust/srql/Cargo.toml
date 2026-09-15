@@ -33,7 +33,7 @@ serde_json = { workspace = true }
 # hmac 0.12 is implemented against digest 0.10 while sha2 0.11 moved to digest 0.11 -- the
 # trait bounds do not meet across that boundary. Unblocking needs hmac on digest 0.11
 # (unreleased) or moving the cursor MAC off hmac. Until then sha2 builds twice.
-sha2 = "0.10.9"
+sha2 = "0.11.0"
 thiserror = { workspace = true }
 tokio = { workspace = true}
 tokio-postgres = { workspace = true }
