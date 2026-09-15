@@ -447,11 +447,7 @@ func (r *Runner) scanActivity(
 		ConfigHash:    configHash,
 		Diagnostics:   scannerDiagnostics(diagnostics),
 		Artifacts:     artifacts,
-		Metadata: map[string]any{
-			"enabled_plugins":  append([]string(nil), r.cfg.ScaLibrPlugins...),
-			"paths_to_extract": append([]string(nil), r.cfg.PathsToExtract...),
-			"dirs_to_skip":     append([]string(nil), r.cfg.DirsToSkip...),
-		},
+		Metadata:      scanSkipMetadata(r.cfg),
 	}
 }
 
@@ -545,7 +541,7 @@ func runScaLibrFilesystemScan(
 		ReadSymlinks:   cfg.ReadSymlinks,
 		Extractors:     extractors,
 		PathsToExtract: cloneStrings(cfg.PathsToExtract),
-		DirsToSkip:     cloneStrings(cfg.DirsToSkip),
+		DirsToSkip:     cloneStrings(resolveSkipDirectories(cfg.ScanRoots, cfg.DirsToSkip).Dirs),
 		ScanRoots:      scanRoots,
 		MaxInodes:      cfg.MaxInodes,
 		MaxFileSize:    cfg.MaxFileSize,
@@ -1126,6 +1122,19 @@ func cloneStrings(values []string) []string {
 		return nil
 	}
 	return append([]string(nil), values...)
+}
+
+func scanSkipMetadata(cfg Config) map[string]any {
+	resolved := resolveSkipDirectories(cfg.ScanRoots, cfg.DirsToSkip)
+	meta := map[string]any{
+		"enabled_plugins":  append([]string(nil), cfg.ScaLibrPlugins...),
+		"paths_to_extract": append([]string(nil), cfg.PathsToExtract...),
+		"dirs_to_skip":     append([]string(nil), resolved.Dirs...),
+	}
+	if len(resolved.Ignored) > 0 {
+		meta["dirs_to_skip_ignored"] = append([]string(nil), resolved.Ignored...)
+	}
+	return meta
 }
 
 func IsScanFailed(payload *endpointinventory.ScanPayload) bool {
