@@ -209,9 +209,7 @@ defmodule ServiceRadarWebNG.SRQL do
               query_opts = AnalyticsStore.SQL.query_options(translation["dialect"], db_timeout_ms)
 
               with {:ok, _} <-
-                     SQL.query(repo, session_setup_sql(), [statement_timeout],
-                       timeout: db_timeout_ms
-                     ),
+                     SQL.query(repo, session_setup_sql(), [statement_timeout], timeout: db_timeout_ms),
                    {:ok, result} <- SQL.query(repo, sql, params, query_opts) do
                 result
               else
@@ -251,9 +249,7 @@ defmodule ServiceRadarWebNG.SRQL do
     end
   rescue
     error in DBConnection.ConnectionError ->
-      Logger.warning(
-        "SRQL query could not obtain a database connection: #{Exception.message(error)}"
-      )
+      Logger.warning("SRQL query could not obtain a database connection: #{Exception.message(error)}")
 
       {:error, error}
   catch
@@ -433,8 +429,7 @@ defmodule ServiceRadarWebNG.SRQL do
     end
   end
 
-  defp enrich_downsample_aliases(results, translation)
-       when is_list(results) and is_map(translation) do
+  defp enrich_downsample_aliases(results, translation) when is_list(results) and is_map(translation) do
     query = Map.get(translation, "_query")
     series_field = extract_query_token(query, "series")
 
@@ -573,8 +568,7 @@ defmodule ServiceRadarWebNG.SRQL do
     end
   end
 
-  def decode_param(%{"t" => type, "v" => value})
-      when type in ["inet", "cidr"] and is_binary(value) do
+  def decode_param(%{"t" => type, "v" => value}) when type in ["inet", "cidr"] and is_binary(value) do
     case ServiceRadar.Types.Cidr.dump_to_native(value, []) do
       {:ok, inet} -> {:ok, inet}
       _ -> {:error, :invalid_inet_param}

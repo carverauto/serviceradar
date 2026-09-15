@@ -201,8 +201,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntime do
     end
   end
 
-  defp cancel_interface_metrics_refresh(socket, uid, request_ref)
-       when is_reference(request_ref) do
+  defp cancel_interface_metrics_refresh(socket, uid, request_ref) when is_reference(request_ref) do
     cancel_async(socket, {:interface_metrics, uid, request_ref})
   end
 

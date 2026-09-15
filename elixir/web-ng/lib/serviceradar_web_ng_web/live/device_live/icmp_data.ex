@@ -10,8 +10,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ICMPData do
   @sources [
     {"metric_type:icmp metric_name:icmp_response_time_ns", :nanoseconds},
     {"metric_type:sweep metric_name:sweep.host.icmp_response_time_ns", :nanoseconds},
-    {"metric_type:icmp !metric_name:[\"icmp_response_time_ns\",\"icmp_packet_loss\",\"icmp_available\"]",
-     :legacy}
+    {~s(metric_type:icmp !metric_name:["icmp_response_time_ns","icmp_packet_loss","icmp_available"]), :legacy}
   ]
 
   def load(srql_module, device_uids, scope, opts) when is_list(device_uids) do
