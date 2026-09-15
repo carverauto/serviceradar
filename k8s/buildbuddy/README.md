@@ -433,10 +433,9 @@ kubectl logs -n buildbuddy -l app.kubernetes.io/name=buildbuddy-executor --tail=
 `build:cache_only` in `//.bazelrc` moves only `--remote_cache` to
 `grpcs://cache-proxy.carverauto.dev:443`. That hostname terminates TLS on the shared Envoy
 gateway and forwards HTTP/2 gRPC to the proxy's ClusterIP Service on port 1985. This is what
-provides one authenticated route for developer laptops, Forgejo, cloud action namespaces, and
-self-hosted workflows. The active self-hosted runner can reach the fixture ClusterIP, but it uses
-the public cache endpoint for profile consistency; other clients cannot rely on service-CIDR
-routing (see **Where the runner runs decides what it can reach**).
+workstations and `--config=remote` use. BazelCI (`--config=ci`) overrides `--remote_cache` to
+the same in-cluster h2c Service the executors use, because hairpinning the runner through the
+shared Envoy+Coraza listener RST_STREAMs `FindMissingBlobs`.
 
 **There is nothing to opt into.** `--config=ci` inherits `remote_base`, so CI and
 `make test` take the proxy path. A host-native integration run selects `build:cache_only`
@@ -476,7 +475,8 @@ The routes are intentionally different:
 | hop | endpoint | purpose |
 |---|---|---|
 | executor `cache_target` | `grpc://bb-cache-proxy-buildbuddy-enterprise-cache-proxy.buildbuddy.svc.cluster.local:1985` | bulk CAS/ActionCache traffic stays inside the cluster |
-| Bazel `build:cache_only` `--remote_cache` | `grpcs://cache-proxy.carverauto.dev:443` | authenticated clients use public DNS and TLS |
+| Bazel `build:ci` `--remote_cache` | same in-cluster h2c Service | BazelCI client in the workflow runner does not hairpin through Envoy |
+| Bazel `build:cache_only` / `build:remote` `--remote_cache` | `grpcs://cache-proxy.carverauto.dev:443` | workstations use public DNS and TLS |
 | Bazel executor and BES | `grpcs://carverauto.buildbuddy.io` | scheduling and build-event services remain upstream |
 
 The executors keep the in-cluster FQDN rather than the public edge, and that asymmetry is
