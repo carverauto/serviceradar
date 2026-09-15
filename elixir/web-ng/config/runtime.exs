@@ -1630,6 +1630,40 @@ if config_env() == :prod do
 
   config :serviceradar_core, ServiceRadar.Repo, repo_config
 
+  # Query-side AnalyticsRepo. The core-elx release has the matching EventWriter
+  # block; a release evaluates only its own runtime.exs.
+  config :serviceradar_core, ServiceRadar.AnalyticsStore,
+    driver: System.get_env("SERVICERADAR_ANALYTICS_STORE_DRIVER") || "timescale",
+    tables: System.get_env("SERVICERADAR_ANALYTICS_STORE_TABLES") || "",
+    dual_write: System.get_env("SERVICERADAR_ANALYTICS_STORE_DUAL_WRITE") || "",
+    storage: System.get_env("SERVICERADAR_ANALYTICS_STORE_STORAGE"),
+    s3_bucket_url: System.get_env("SERVICERADAR_ANALYTICS_STORE_S3_BUCKET_URL"),
+    s3_endpoint: System.get_env("SERVICERADAR_ANALYTICS_STORE_S3_ENDPOINT"),
+    s3_region: System.get_env("SERVICERADAR_ANALYTICS_STORE_S3_REGION"),
+    s3_url_style: System.get_env("SERVICERADAR_ANALYTICS_STORE_S3_URL_STYLE") || "path",
+    s3_use_ssl: System.get_env("SERVICERADAR_ANALYTICS_STORE_S3_USE_SSL", "true") in ["true", "1"],
+    s3_access_key_id:
+      read_secret_env.(
+        "SERVICERADAR_ANALYTICS_STORE_S3_ACCESS_KEY_ID",
+        "SERVICERADAR_ANALYTICS_STORE_S3_ACCESS_KEY_ID_FILE"
+      ),
+    s3_secret_access_key:
+      read_secret_env.(
+        "SERVICERADAR_ANALYTICS_STORE_S3_SECRET_ACCESS_KEY",
+        "SERVICERADAR_ANALYTICS_STORE_S3_SECRET_ACCESS_KEY_FILE"
+      ),
+    filesystem_path: System.get_env("SERVICERADAR_ANALYTICS_STORE_FILESYSTEM_PATH"),
+    head_host: System.get_env("SERVICERADAR_ANALYTICS_STORE_HEAD_HOST"),
+    head_port: parse_int_env.("SERVICERADAR_ANALYTICS_STORE_HEAD_PORT", 5432),
+    head_database: System.get_env("SERVICERADAR_ANALYTICS_STORE_HEAD_DATABASE"),
+    head_username: System.get_env("SERVICERADAR_ANALYTICS_STORE_HEAD_USERNAME"),
+    head_password:
+      read_secret_env.(
+        "SERVICERADAR_ANALYTICS_STORE_HEAD_PASSWORD",
+        "SERVICERADAR_ANALYTICS_STORE_HEAD_PASSWORD_FILE"
+      ),
+    pool_size: parse_int_env.("SERVICERADAR_ANALYTICS_STORE_POOL_SIZE", 4)
+
   config :serviceradar_core,
     northbound_callback_base_url:
       System.get_env("SERVICERADAR_NORTHBOUND_CALLBACK_BASE_URL") ||

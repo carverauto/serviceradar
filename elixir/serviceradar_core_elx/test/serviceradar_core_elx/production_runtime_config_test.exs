@@ -305,6 +305,7 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
   @mirrored_core_config_blocks [
     AgentCommandCleanupWorker,
     TopologyGraph,
+    ServiceRadar.AnalyticsStore,
     ServiceRadar.Observability.ThreatIntelRawPayloadStore,
     ServiceRadar.WorkloadIdentity
   ]
@@ -353,6 +354,20 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
 
     assert read_prod_config()[:serviceradar_core][@topology_graph][:canonical_prune_max_fraction] ==
              0.8
+  end
+
+  test "analytics store dual-write is reachable from the environment" do
+    with_env("SERVICERADAR_ANALYTICS_STORE_DUAL_WRITE", "timeseries_metrics")
+    with_env("SERVICERADAR_ANALYTICS_STORE_HEAD_HOST", "cnpg-analytics-rw")
+    with_env("SERVICERADAR_ANALYTICS_STORE_S3_BUCKET_URL", "s3://serviceradar-demo-analytics")
+    with_env("SERVICERADAR_ANALYTICS_STORE_STORAGE", "s3")
+
+    block = read_prod_config()[:serviceradar_core][ServiceRadar.AnalyticsStore]
+    assert block[:dual_write] == "timeseries_metrics"
+    assert block[:head_host] == "cnpg-analytics-rw"
+    assert block[:s3_bucket_url] == "s3://serviceradar-demo-analytics"
+    assert block[:storage] == "s3"
+    assert block[:driver] == "timescale"
   end
 
   test "agent command retention is reachable from the environment" do
