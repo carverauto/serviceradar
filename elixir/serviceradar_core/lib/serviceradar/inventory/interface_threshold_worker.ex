@@ -415,7 +415,7 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
           cutoff
         )
 
-      case AnalyticsStore.SQL.query("timeseries_metrics", sql, params) do
+      case AnalyticsStore.SQL.query("timeseries_metrics", sql, params, time_range: {cutoff, nil}) do
         {:ok, %{rows: []}} -> {:ok, nil}
         {:ok, %{rows: [[value] | _]}} -> {:ok, value}
         {:error, reason} -> {:error, reason}

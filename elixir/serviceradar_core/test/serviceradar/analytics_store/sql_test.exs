@@ -45,6 +45,12 @@ defmodule ServiceRadar.AnalyticsStore.SQLTest do
     assert SQL.drivers_json(config: AnalyticsStore.Config.load([])) == "{}"
   end
 
+  test "only analytics SQL disables logging of rendered parameter values" do
+    assert SQL.query_options("duckdb", 12_000) == [timeout: 12_000, log: false]
+    assert SQL.query_options(:duckdb, 12_000) == [timeout: 12_000, log: false]
+    assert SQL.query_options("postgres", 12_000) == [timeout: 12_000]
+  end
+
   test "analytics repo child spec uses unnamed prepares and S3 after_connect" do
     cfg =
       AnalyticsStore.Config.load(

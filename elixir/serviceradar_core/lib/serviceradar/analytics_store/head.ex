@@ -174,7 +174,8 @@ defmodule ServiceRadar.AnalyticsStore.Head do
         :ok
 
       {:ok, s3} ->
-        rematerialize_s3_secret(conn, s3)
+        :ok = rematerialize_s3_secret(conn, s3)
+        configure_s3_http_client(conn)
     end
   end
 
@@ -237,9 +238,21 @@ defmodule ServiceRadar.AnalyticsStore.Head do
 
   defp maybe_ensure_s3_secret(conn, cfg) do
     case Config.s3_secret(cfg) do
-      :disabled -> :ok
-      {:ok, s3} -> ensure_s3_secret(conn, s3)
+      :disabled ->
+        :ok
+
+      {:ok, s3} ->
+        :ok = ensure_s3_secret(conn, s3)
+        configure_s3_http_client(conn)
     end
+  end
+
+  defp configure_s3_http_client(conn) do
+    # curl avoids long connection stalls when an endpoint has unreachable IPv6
+    # addresses. DuckDB settings must be applied after initialization/recycling
+    # in every reader and writer backend, including those reusing an S3 secret.
+    query!(conn, "SELECT duckdb.raw_query($$ SET httpfs_client_implementation = 'curl' $$)")
+    :ok
   end
 
   defp ensure_s3_secret(conn, s3) do

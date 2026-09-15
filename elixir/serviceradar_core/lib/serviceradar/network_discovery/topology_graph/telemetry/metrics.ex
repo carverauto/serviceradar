@@ -102,7 +102,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Telemetry.Metrics do
           cutoff
         )
 
-      case AnalyticsStore.SQL.query("timeseries_metrics", sql, params) do
+      case AnalyticsStore.SQL.query("timeseries_metrics", sql, params, time_range: {cutoff, nil}) do
         {:ok, %{rows: rows}} ->
           Enum.reduce(rows, %{}, fn row, acc ->
             reduce_directional_metric_row(

@@ -19,6 +19,9 @@ defmodule ServiceRadar.AnalyticsStore.TimeseriesQueriesTest do
     refute sql =~ "time_bucket"
     refute sql =~ "_partition_date"
     assert sql =~ "extract(epoch FROM m.timestamp)"
+    # Both engines zip SELECT-list unnests, including NULL padding. DuckDB
+    # rejects the PostgreSQL-only multi-argument FROM unnest(text[], int[]).
+    assert sql =~ "SELECT unnest($2::text[]) AS device_id, unnest($3::int[]) AS if_index"
     assert params == [@cutoff, ["sr:device-1"], [1], ["ifHCInOctets"], 900]
   end
 

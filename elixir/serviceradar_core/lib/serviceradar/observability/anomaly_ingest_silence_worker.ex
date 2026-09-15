@@ -131,7 +131,7 @@ defmodule ServiceRadar.Observability.AnomalyIngestSilenceWorker do
            "timeseries_metrics",
            sql,
            [cutoff],
-           Keyword.take(opts, [:config, :timeout])
+           Keyword.put(Keyword.take(opts, [:config, :timeout]), :time_range, {cutoff, nil})
          ) do
       {:ok, %{rows: [[value]]}} when is_boolean(value) -> {:ok, value}
       {:ok, other} -> {:error, {:unexpected_result, other}}

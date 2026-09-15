@@ -38,24 +38,26 @@ defmodule ServiceRadar.AnalyticsStore.HeadTest do
     assert sql =~ "/tmp/staging.parquet"
   end
 
-  test "S3 secret SQL is path-style and bucket-scoped" do
+  test "S3 secret SQL escapes a synthetic scoped credential" do
     sql =
       Head.create_s3_secret_sql(%{
-        access_key_id: "id",
-        secret_access_key: "secret",
-        region: "us-ord",
-        endpoint: "us-ord-10.linodeobjects.com",
+        access_key_id: "unit-access-key",
+        secret_access_key: "synthetic'credential",
+        region: "test-region-8",
+        endpoint: "objects.example.com:9443",
         url_style: "path",
-        use_ssl: true,
-        bucket_url: "s3://serviceradar-demo-analytics"
+        use_ssl: false,
+        bucket_url: "s3://unit-archive/telemetry"
       })
 
     assert sql =~ "type := 'S3'"
-    assert sql =~ "endpoint := 'us-ord-10.linodeobjects.com'"
+    assert sql =~ "key_id := 'unit-access-key'"
+    assert sql =~ "secret := 'synthetic''credential'"
+    assert sql =~ "region := 'test-region-8'"
+    assert sql =~ "endpoint := 'objects.example.com:9443'"
     assert sql =~ "url_style := 'path'"
-    assert sql =~ "use_ssl := 'true'"
-    assert sql =~ "scope := 's3://serviceradar-demo-analytics'"
-    refute sql =~ "serviceradar-control-plane-db-backups"
+    assert sql =~ "use_ssl := 'false'"
+    assert sql =~ "scope := 's3://unit-archive/telemetry'"
   end
 
   test "S3 secret action keeps an existing server instead of dropping it" do

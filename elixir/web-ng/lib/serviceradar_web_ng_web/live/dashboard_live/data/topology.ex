@@ -182,7 +182,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Topology do
             bucket_seconds
           )
 
-        case ServiceRadar.AnalyticsStore.SQL.query("timeseries_metrics", sql, params) do
+        case ServiceRadar.AnalyticsStore.SQL.query("timeseries_metrics", sql, params, time_range: {cutoff, nil}) do
           {:ok, %{rows: rows}} ->
             rows
             |> Enum.group_by(fn [device_id, if_index, _metric, _bucket, _value] -> {device_id, if_index} end)

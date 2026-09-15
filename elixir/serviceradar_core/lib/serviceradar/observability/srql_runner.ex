@@ -158,26 +158,30 @@ defmodule ServiceRadar.Observability.SRQLRunner do
   # DBConnection's 15s default causes spurious disconnects under load.
   @default_query_timeout_ms 60_000
 
-  defp run_sql(sql, params, translation, opts) do
+  defp run_sql(_sql, params, translation, opts) do
     timeout =
       Keyword.get(opts, :timeout, timeout_for(translation))
 
-    query_fn =
-      case AnalyticsStore.SQL.repo_for_translation(translation, opts) do
-        {:error, reason} ->
-          fn _s, _p -> {:error, reason} end
+    case AnalyticsStore.SQL.repo_for_translation(translation, opts) do
+      {:error, reason} ->
+        {:error, reason}
 
-        repo ->
-          default = fn s, p -> SQL.query(repo, s, p, timeout: timeout) end
+      repo ->
+        query_opts = AnalyticsStore.SQL.query_options(translation["dialect"], timeout)
+        default = fn s, p -> SQL.query(repo, s, p, query_opts) end
 
+        query_fn =
           if repo != Repo and Keyword.has_key?(opts, :analytics_query_fn) do
             Keyword.fetch!(opts, :analytics_query_fn)
           else
             Keyword.get(opts, :query_fn, default)
           end
-      end
 
-    query_fn.(sql, params)
+        with {:ok, prepared, params} <-
+               AnalyticsStore.SQL.prepare_translation(translation, params, opts) do
+          query_fn.(prepared, params)
+        end
+    end
   end
 
   defp timeout_for(%{"dialect" => "duckdb"}), do: AnalyticsStore.SQL.duckdb_timeout_ms()

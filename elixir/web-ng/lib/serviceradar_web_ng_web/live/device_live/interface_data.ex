@@ -692,7 +692,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
     {sql, params} = AnalyticsStore.TimeseriesQueries.snmp_present_sql(device_uid, cutoff)
 
     interpret_exists(fn ->
-      AnalyticsStore.SQL.query("timeseries_metrics", sql, params)
+      AnalyticsStore.SQL.query("timeseries_metrics", sql, params, time_range: {cutoff, nil})
     end)
   end
 

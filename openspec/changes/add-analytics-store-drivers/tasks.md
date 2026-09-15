@@ -156,7 +156,7 @@ repeat those. Record in design.md (done) what is kept vs dropped.
       still match the hypertable (6,666,889 and 7,041,876); 2026-09-15
       has no parquet yet (2,038,542 hot rows). Range COPY covers that
       prefix after dual-write starts.
-- [x] 6.4 Flip the table to pg_duckdb; confirm EventWriter no longer inserts
+- [ ] 6.4 Flip the table to pg_duckdb; confirm EventWriter no longer inserts
       into the hypertable (query `pg_stat_user_tables.n_tup_ins` after the
       flip — must stop climbing); JetStream consumer lag does not grow.
       Demo 2026-09-15: incomplete UTC prefix
@@ -170,6 +170,10 @@ repeat those. Record in design.md (done) what is kept vs dropped.
       `timeseries_metrics_disk_hourly`. SRQL dialect=duckdb with
       `_partition_date` prune, no `*_hourly` CAGGs. cpu/mem/disk/process
       CAGGs stay. farm01 untouched.
+      Ingest cutover is complete; query acceptance remains open until ICMP and
+      interface charts load within their request budgets without Postgrex or pool
+      errors. Verify concrete manifest files, HTTP client initialization and
+      replica connection headroom after rollout before closing this task.
 - [ ] 6.5 Repeat 6.2–6.4 for `ocsf_network_activity` only after 6.4 is green.
 - [x] 6.6 farm01 values stay `driver: timescale`. Document the filesystem
       hostPath recipe; do not flip farm01 in this change.

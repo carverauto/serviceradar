@@ -140,7 +140,8 @@ defmodule ServiceRadar.Observability.SRQLRunnerTest do
        Jason.encode!(%{
          "sql" => "select count(*) from timeseries_metrics",
          "params" => [],
-         "dialect" => "duckdb"
+         "dialect" => "duckdb",
+         "analytics_table" => "timeseries_metrics"
        })}
     end
 
@@ -148,7 +149,10 @@ defmodule ServiceRadar.Observability.SRQLRunnerTest do
       flunk("primary Repo must not run duckdb SQL")
     end
 
-    analytics_query_fn = fn "select count(*) from timeseries_metrics", [] ->
+    analytics_query_fn = fn sql, [] ->
+      assert sql =~ ~s(WITH "timeseries_metrics" AS NOT MATERIALIZED)
+      assert sql =~ "select count(*) from timeseries_metrics"
+      refute sql =~ "date=*"
       {:ok, %Postgrex.Result{columns: ["count"], rows: [[3]]}}
     end
 
@@ -156,7 +160,8 @@ defmodule ServiceRadar.Observability.SRQLRunnerTest do
              SRQLRunner.query("in:timeseries_metrics time:last_24h",
                translate_fn: translate_fn,
                query_fn: query_fn,
-               analytics_query_fn: analytics_query_fn
+               analytics_query_fn: analytics_query_fn,
+               manifest_list_fn: fn _, _, _ -> {:ok, []} end
              )
   end
 

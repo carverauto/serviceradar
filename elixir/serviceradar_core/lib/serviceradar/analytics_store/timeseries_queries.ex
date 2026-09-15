@@ -66,7 +66,7 @@ defmodule ServiceRadar.AnalyticsStore.TimeseriesQueries do
       when is_integer(bucket_seconds) and bucket_seconds > 0 do
     sql = """
     WITH wanted(device_id, if_index) AS (
-      SELECT * FROM unnest($2::text[], $3::int[])
+      SELECT unnest($2::text[]) AS device_id, unnest($3::int[]) AS if_index
     )
     SELECT
       m.device_id,

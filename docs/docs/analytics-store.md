@@ -41,6 +41,7 @@ Defaults are in `helm/serviceradar/values.yaml`. Chart default is
 | `pgDuckdb.memoryLimitMb` / `threads` | `1536` / `2` | DuckDB `max_memory` and thread count. |
 | `pgDuckdb.spill.emptyDir` / `sizeLimit` | `true` / `50Gi` | Scratch-data emptyDir at `/run/pg_duckdb`. Do not put Parquet here. |
 | `pgDuckdb.poolSize` / `overheadMb` | `4` / `1536` | Query pool. Pod memory request is `poolSize * memoryLimitMb + overheadMb`. |
+| `pgDuckdb.maxConnections` | `60` | PostgreSQL connection slots on the head. Budget for every core and web replica, rolling-update overlap, writers, and reserved/admin connections. |
 | `affinity` | unset | Optional nodeSelector / tolerations for the head (dedicated CNPG nodes). |
 
 S3 mode sets `duckdb.disabled_filesystems=LocalFileSystem`. Filesystem mode
@@ -49,6 +50,25 @@ omits that so COPY can write the data dir.
 Fail-closed boot: `driver: pg_duckdb` without a bucket+credentials (S3) or
 path (filesystem), or without a head, is an error. Core does not start and
 EventWriter does not insert those tables into hypertables.
+
+## Query execution
+
+SRQL resolves its time window before selecting published files from
+`platform.analytics_file_manifest` on the primary. The analytics query receives
+concrete Parquet keys for those UTC dates; interactive queries do not plan a
+`date=*` object-store scan. An empty manifest selection returns no rows, and a
+manifest lookup failure returns an error. Backfills must be verified and recorded
+in the manifest before readers can see them.
+
+The pg_duckdb connection uses PostgreSQL-compatible types and safely encoded
+typed literals for analytics parameters. This avoids the extension's unbound
+parameter planning errors. Analytics query logging is disabled because those
+literals include filter values; the Timescale path retains parameter binding.
+
+S3 reader and writer sessions select the bundled curl HTTP client after DuckDB
+initialization. This avoids long connection attempts when an endpoint advertises
+IPv6 addresses that the head cannot reach. S3 secrets remain scoped to each
+backend and are retained across other sessions' writes.
 
 ## Docker Compose
 
@@ -91,6 +111,8 @@ Order for an existing deployment (demo used this):
    duckdb dialect (no `*_hourly` CAGGs). Timescale retention ages the
    abandoned hot copy; Parquet prune uses the same
    `SERVICERADAR_*_RETENTION_DAYS` window.
+   Verify ICMP and interface charts on the device pages within their request
+   budgets, with no Postgrex errors or pool timeouts, before moving another table.
 6. Repeat per table: `timeseries_metrics` first, then
    `ocsf_network_activity`, then the rest of the registry.
 

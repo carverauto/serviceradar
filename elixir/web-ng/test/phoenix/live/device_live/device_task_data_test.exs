@@ -86,6 +86,23 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTaskDataTest do
   end
 
   describe "run/3 batch deadline" do
+    test "retains completed interface presence when an earlier telemetry load times out" do
+      specs = [
+        DeviceTaskData.spec(10_000, :availability, fn ->
+          receive do
+            :release -> :unused
+          end
+        end),
+        DeviceTaskData.spec(10_000, :has_ifaces, fn -> true end),
+        DeviceTaskData.spec(10_000, :interfaces, fn -> [%{"if_index" => 1}] end)
+      ]
+
+      assert DeviceTaskData.run(specs, 500, max_concurrency: 2) == %{
+               has_ifaces: true,
+               interfaces: [%{"if_index" => 1}]
+             }
+    end
+
     test "stops collecting once the batch budget is spent instead of per-task" do
       # Six 300ms tasks, one at a time, on a 500ms batch budget. The old
       # Task.yield_many/2 call enforced a whole-batch deadline; async_stream's

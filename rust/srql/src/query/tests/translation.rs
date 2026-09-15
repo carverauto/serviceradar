@@ -1936,6 +1936,9 @@ fn postgres_listing_cursor_stays_offset_only() {
         mode: None,
     };
     let response = translate_request(&config, request).expect("postgres listing");
+    let json = serde_json::to_value(&response).expect("translation JSON");
+    assert!(json.get("analytics_table").is_none());
+    assert!(json.get("time_range").is_none());
     let next = response.pagination.next_cursor.expect("next cursor");
     let state =
         crate::pagination::decode_cursor_state(&next, &config.cursor_secret, i64::MAX).unwrap();
@@ -1973,6 +1976,8 @@ fn duckdb_listing_cursor_pins_the_resolved_window() {
         crate::pagination::decode_cursor_state(&next, &config.cursor_secret, i64::MAX).unwrap();
     assert_eq!(state.offset, 10);
     let range = state.time_range.expect("pinned window");
+    assert_eq!(first.analytics_table.as_deref(), Some("timeseries_metrics"));
+    assert_eq!(first.time_range.as_ref(), Some(&range));
 
     let second_request = QueryRequest {
         query: "in:timeseries_metrics time:last_24h sort:timestamp:desc limit:10".to_string(),
@@ -1983,6 +1988,8 @@ fn duckdb_listing_cursor_pins_the_resolved_window() {
     };
     let second = crate::query::translate_request_with_drivers(&config, second_request, &drivers)
         .expect("duckdb page 2");
+    assert_eq!(second.analytics_table, first.analytics_table);
+    assert_eq!(second.time_range, first.time_range);
     let first_times: Vec<_> = first
         .params
         .iter()

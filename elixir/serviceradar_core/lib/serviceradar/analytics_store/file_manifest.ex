@@ -100,6 +100,28 @@ defmodule ServiceRadar.AnalyticsStore.FileManifest do
     end
   end
 
+  @doc "Published files in a UTC partition window, read from the primary through Ash."
+  @spec published_keys(String.t(), Date.t() | nil, Date.t() | nil) ::
+          {:ok, [String.t()]} | {:error, term()}
+  def published_keys(table_name, start_date, end_date) do
+    require Ash.Query
+
+    query =
+      __MODULE__
+      |> Ash.Query.for_read(:read, %{}, actor: SystemActor.system(:analytics_store))
+      |> Ash.Query.filter(table_name == ^table_name and status == :published)
+      |> Ash.Query.select([:object_key])
+      |> Ash.Query.sort(object_key: :asc)
+
+    query = if start_date, do: Ash.Query.filter(query, partition_date >= ^start_date), else: query
+    query = if end_date, do: Ash.Query.filter(query, partition_date <= ^end_date), else: query
+
+    case Ash.read(query) do
+      {:ok, rows} -> {:ok, Enum.map(rows, & &1.object_key)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   @doc "Drop a manifest row after its object has been deleted."
   @spec forget(String.t()) :: :ok
   def forget(object_key) when is_binary(object_key) do

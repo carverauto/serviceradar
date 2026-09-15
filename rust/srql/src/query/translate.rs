@@ -170,5 +170,15 @@ pub fn translate_request_with_drivers(
         },
         viz,
         dialect: plan.dialect,
+        analytics_table: if plan.dialect.is_duckdb() {
+            super::cold::cold_table_for_entity(&plan.entity).map(str::to_owned)
+        } else {
+            None
+        },
+        time_range: if plan.dialect.is_duckdb() {
+            plan.time_range
+        } else {
+            None
+        },
     })
 }

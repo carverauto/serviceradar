@@ -143,4 +143,10 @@ pub struct TranslateResponse {
     /// Omitted when postgres so existing JSON stays byte-identical.
     #[serde(skip_serializing_if = "SqlDialect::is_postgres")]
     pub dialect: SqlDialect,
+    /// Physical source and resolved window for manifest-backed Parquet reads.
+    /// The caller must choose files before the analytics head plans the SQL.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub analytics_table: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub time_range: Option<TimeRange>,
 }

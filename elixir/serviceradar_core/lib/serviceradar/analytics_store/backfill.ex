@@ -9,6 +9,7 @@ defmodule ServiceRadar.AnalyticsStore.Backfill do
   """
 
   alias ServiceRadar.AnalyticsStore.Config
+  alias ServiceRadar.AnalyticsStore.FileManifest
   alias ServiceRadar.AnalyticsStore.Layout
   alias ServiceRadar.AnalyticsStore.Storage
   alias ServiceRadar.ColdTier.Registry
@@ -158,7 +159,9 @@ defmodule ServiceRadar.AnalyticsStore.Backfill do
 
   Inject `:partitions` (`[%{date: Date.t(), count: non_neg_integer()}]`) and
   `:copy` (`(entry, date, expected, staging, published, opts -> {:ok, count} | {:error, term()})`)
-  in tests. A count mismatch is `{:error, {:count_mismatch, date, expected, got}}`.
+  in tests. Verified copies are recorded in the file manifest before proceeding
+  to the next partition; tests can inject `:record_manifest` (`attrs -> :ok | {:error, term()}`).
+  A count mismatch is `{:error, {:count_mismatch, date, expected, got}}`.
   """
   @spec run(String.t(), keyword()) :: {:ok, non_neg_integer()} | {:error, term()}
   def run(table, opts \\ []) when is_binary(table) do
@@ -184,11 +187,34 @@ defmodule ServiceRadar.AnalyticsStore.Backfill do
         end
 
       case result do
-        {:ok, ^expected} -> {:cont, {:ok, acc + expected}}
-        {:ok, got} -> {:halt, {:error, {:count_mismatch, date, expected, got}}}
-        {:error, reason} -> {:halt, {:error, reason}}
+        {:ok, ^expected} ->
+          case record_manifest(entry, keys, expected, opts) do
+            :ok -> {:cont, {:ok, acc + expected}}
+            {:error, reason} -> {:halt, {:error, reason}}
+          end
+
+        {:ok, got} ->
+          {:halt, {:error, {:count_mismatch, date, expected, got}}}
+
+        {:error, reason} ->
+          {:halt, {:error, reason}}
       end
     end)
+  end
+
+  defp record_manifest(entry, keys, count, opts) do
+    attrs = %{
+      table_name: entry.table,
+      object_key: keys.published_key,
+      staging_key: keys.staging_key,
+      partition_date: keys.partition_date,
+      row_count: count,
+      batch_id: keys.batch_id,
+      status: :published
+    }
+
+    record = Keyword.get(opts, :record_manifest, &FileManifest.record/1)
+    record.(attrs)
   end
 
   defp missing_copy(_entry, _date, _expected, _staging, _published, _opts) do

@@ -157,7 +157,7 @@ HEX_PACKAGES = [
     ("membrane_ogg_plugin", "membrane_ogg_plugin", "0.5.2", "3a80a08c280f9f66ff01dd079a8783200d46aa9713cf4a698a6ef36e374ef187"),
     ("membrane_opus_format", "membrane_opus_format", "0.3.2", "5e12deaeca6502b82a6d0b56ae54fa128d27e11b5b573d08d39a55724c62a9bf"),
     ("membrane_opus_plugin", "membrane_opus_plugin", "0.20.8", "ed16aee3890793bac2ee2059bd87cf5fb823a005f5fe1e9549bc00e535b7726a"),
-    ("membrane_precompiled_dependency_provider", "membrane_precompiled_dependency_provider", "0.2.3", "9210a4676a56e9db2a6f7323fa24be69ca58bc2ae3e13da04cf9d32f1e3f6554"),
+    ("membrane_precompiled_dependency_provider", "membrane_precompiled_dependency_provider", "0.2.4", "81c12cbe2c8bc5f547c6a8a11a71e2f55995a312c202bbc9b3ddc60c39818b91"),
     ("membrane_raw_audio_format", "membrane_raw_audio_format", "0.12.3", "8e50520ce2ab0405a3a0b2d78a001223bb2d76014aaa4c59398cc21d4187fe26"),
     ("membrane_raw_video_format", "membrane_raw_video_format", "0.4.5", "c4f62b148ecc1643ac2e77e1fda8ee5bd9b595b4047941b02c514a5f310971f2"),
     ("membrane_realtimer_plugin", "membrane_realtimer_plugin", "0.9.0", "b2e96d62135ee57ef9a5fdea94b3a9ab1198e5ea8ee248391b89c671125d1b51"),

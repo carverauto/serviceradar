@@ -4897,7 +4897,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         900
       )
 
-    case AnalyticsStore.SQL.query("timeseries_metrics", sql, params) do
+    case AnalyticsStore.SQL.query("timeseries_metrics", sql, params, time_range: {cutoff, nil}) do
       {:ok, %{rows: rows}} ->
         rows
         |> Enum.group_by(fn [device_id, if_index, _metric, _bucket, _value] -> {device_id, if_index} end)

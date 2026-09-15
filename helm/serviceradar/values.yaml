@@ -1159,6 +1159,11 @@ analyticsStore:
       emptyDir: true
       sizeLimit: 50Gi
     poolSize: 4
+    # Connection slots cover every core/web-ng replica's pool, rolling-update
+    # surge, EventWriter sessions, and PostgreSQL/admin reserves. This does
+    # not raise pool concurrency or the per-backend DuckDB memory budget.
+    # Increase for deployments with more replicas or larger pools.
+    maxConnections: 60
     overheadMb: 1536
 
 # Shared storage for GeoLite2 MMDB files used by GeoIP/ASN enrichment.

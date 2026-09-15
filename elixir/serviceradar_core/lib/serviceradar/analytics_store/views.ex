@@ -57,16 +57,37 @@ defmodule ServiceRadar.AnalyticsStore.Views do
   def view_sql(%Config{} = cfg, %Table{} = entry) do
     glob = parquet_glob(cfg, entry.table)
 
+    "CREATE VIEW platform.#{quoted(entry.table)} AS\n" <>
+      select_sql(entry, "'#{escape(glob)}'")
+  end
+
+  @doc "Typed scan over concrete manifest URLs; an empty manifest is a typed empty relation."
+  @spec manifest_select_sql(Table.t(), [String.t()]) :: String.t()
+  def manifest_select_sql(%Table{} = entry, []) do
+    cols =
+      Enum.map_join(entry.columns, ", ", fn {name, type, _} ->
+        type = if type == "jsonb", do: "VARCHAR", else: duckdb_type(type)
+        "CAST(NULL AS #{type}) AS #{quoted(name)}"
+      end)
+
+    "SELECT #{cols}, CAST(NULL AS DATE) AS #{quoted(@partition_column)} WHERE false"
+  end
+
+  def manifest_select_sql(%Table{} = entry, urls) do
+    paths = Enum.map_join(urls, ",", &"'#{escape(&1)}'")
+    select_sql(entry, "ARRAY[#{paths}]::text[]")
+  end
+
+  defp select_sql(entry, source) do
     cols =
       Enum.map_join(entry.columns, ",\n         ", fn column ->
         "#{parquet_expression(column)} AS #{quoted(elem(column, 0))}"
       end)
 
     """
-    CREATE VIEW platform.#{quoted(entry.table)} AS
       SELECT #{cols},
              CAST(r['date'] AS DATE) AS #{quoted(@partition_column)}
-        FROM read_parquet('#{escape(glob)}', hive_partitioning := true) r
+        FROM read_parquet(#{source}, hive_partitioning := true) r
     """
   end
 

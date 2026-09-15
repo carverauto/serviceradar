@@ -116,6 +116,10 @@ tests:
           path: spec.storage.storageClass
           value: local-path-cnpg
         template: templates/cold-analytics-head.yaml
+      - equal:
+          path: spec.postgresql.parameters.max_connections
+          value: "60"
+        template: templates/cold-analytics-head.yaml
       - contains:
           path: spec.template.spec.containers[0].env
           content:
@@ -134,6 +138,24 @@ tests:
         documentSelector:
           path: kind
           value: Deployment
+
+  - it: allows connection headroom without increasing DuckDB memory
+    set:
+      analyticsStore.headEnabled: true
+      analyticsStore.pgDuckdb.maxConnections: 96
+    asserts:
+      - equal:
+          path: spec.postgresql.parameters.max_connections
+          value: "96"
+        template: templates/cold-analytics-head.yaml
+      - equal:
+          path: spec.postgresql.parameters["duckdb.max_memory"]
+          value: "1536MB"
+        template: templates/cold-analytics-head.yaml
+      - equal:
+          path: spec.resources.limits.memory
+          value: "7680Mi"
+        template: templates/cold-analytics-head.yaml
 
   - it: renders the analytics head when driver is pg_duckdb
     set:

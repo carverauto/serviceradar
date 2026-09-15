@@ -27,8 +27,7 @@ defmodule ServiceRadarSRQL.Native do
   `"pg_duckdb"` / `"timescale"`. Absent or empty keeps postgres SQL
   byte-identical to current plans.
   """
-  def translate(query, limit, cursor, direction, mode),
-    do: translate(query, limit, cursor, direction, mode, nil)
+  def translate(query, limit, cursor, direction, mode), do: translate(query, limit, cursor, direction, mode, nil)
 
   def translate(_query, _limit, _cursor, _direction, _mode, _drivers), do: :erlang.nif_error(:nif_not_loaded)
 

@@ -152,11 +152,13 @@ v1 layout (reused from the registry):
 
 `{backend}/analytics/v1/<table>/date=YYYY-MM-DD/<writer>-<batch>.parquet`
 
-zstd, rows sorted by (time, tiebreakers). Readers glob `date=*`. A
-small `platform.analytics_file_manifest` on the **primary** (not the
-head — the head is disposable) records verified files so a truncated
-COPY cannot become query-visible. Staging → verify → publish, which
-spike 0.3 of the superseded change already proved is required.
+zstd, rows sorted by (time, tiebreakers). Interactive readers select concrete
+published keys from `platform.analytics_file_manifest` on the **primary** using
+the resolved UTC time window. A scoped CTE supplies the canonical typed Parquet
+projection without planning the maintenance view's `date=*` glob. Manifest
+lookup errors fail closed; an empty selection is a typed empty relation.
+Backfills register their verified files in the same manifest. Staging → verify →
+publish keeps incomplete files out of the query path.
 
 The head is rebuilt from the manifest + storage backend on startup.
 That is what "stateless compute" means here.
@@ -185,6 +187,18 @@ metric entities (capacity forecasting, seasonal disposition) must pass
 through the same picker — they cannot assume the primary has the rows.
 
 Device / inventory / config entities always stay `postgres` / primary.
+
+pg_duckdb parses SQL through PostgreSQL before DuckDB. Generated types and JSON
+operations must work in both parsers. Its parameter deparser also cannot plan
+some expressions and array predicates with unbound parameters. The analytics
+executor therefore encodes the supported parameter types as escaped SQL literals
+with a lexer that preserves strings, quoted identifiers and comments. It disables
+query logging for that execution path. Timescale keeps normal bound parameters.
+
+S3 sessions select the bundled curl HTTP implementation after DuckDB recycling
+and secret setup, for both readers and EventWriter. The head's configurable
+connection limit includes replica pools, rollout overlap, writers and reserved
+administrative slots; increasing it does not increase the per-replica pool.
 
 ### D5. JetStream doctrine does not change
 
