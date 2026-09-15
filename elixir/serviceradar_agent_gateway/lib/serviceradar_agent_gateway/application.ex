@@ -96,6 +96,10 @@ defmodule ServiceRadarAgentGateway.Application do
       capabilities: capabilities
     )
 
+    # The edge-record lane verifies every frame against this local snapshot; without it
+    # `edge-records:v1` never becomes ready (see EdgeRecordTrust).
+    _ = ServiceRadarAgentGateway.EdgeRecordTrust.load_configured()
+
     # Attach OTEL auto-instrumentation handlers (SDK configured in runtime.exs)
     OtelSetup.attach_instrumentations(instrumentations: [])
 
@@ -253,9 +257,7 @@ defmodule ServiceRadarAgentGateway.Application do
 
   @doc false
   def edge_server_ssl_opts! do
-    cert_dir =
-      Application.get_env(:serviceradar_agent_gateway, :gateway_cert_dir) ||
-        System.get_env("GATEWAY_CERT_DIR", "/etc/serviceradar/certs")
+    cert_dir = edge_cert_dir()
 
     cert_file = Path.join(cert_dir, "gateway.pem")
     key_file = Path.join(cert_dir, "gateway-key.pem")
@@ -275,6 +277,14 @@ defmodule ServiceRadarAgentGateway.Application do
     else
       raise "No mTLS certs available for agent gateway edge listeners"
     end
+  end
+
+  @doc false
+  # The directory holding the edge listener's gateway.pem / gateway-key.pem / root.pem. Its
+  # root.pem is also the deployment CA the edge identity resolver derives installation trust from.
+  def edge_cert_dir do
+    Application.get_env(:serviceradar_agent_gateway, :gateway_cert_dir) ||
+      System.get_env("GATEWAY_CERT_DIR", "/etc/serviceradar/certs")
   end
 
   defp generate_gateway_id do

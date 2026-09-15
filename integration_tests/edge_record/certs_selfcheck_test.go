@@ -25,7 +25,7 @@ import (
 
 // TestGenerateCertSetSPIFFEShape proves the generated leaf certificates
 // round-trip through Go's own x509 parser with exactly the CN and SPIFFE URI
-// SAN shape ComponentIdentityResolver.resolve_from_cert/1 requires:
+// SAN shape ComponentIdentityResolver.resolve_edge_identity/3 checks:
 //   - CN:  "<componentID>.<partitionID>.serviceradar"
 //   - SAN: URI "spiffe://serviceradar.local/<componentType>/<partitionID>/<componentID>"
 func TestGenerateCertSetSPIFFEShape(t *testing.T) {

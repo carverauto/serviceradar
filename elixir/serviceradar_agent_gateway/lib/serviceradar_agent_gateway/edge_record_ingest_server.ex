@@ -8,32 +8,52 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
   `delivery_frame`s -- mirroring `ServiceRadarAgentGateway.RemoteCaptureServer`'s receive-loop
   shape.
 
-  ## Deliberately narrow scope
+  ## What is verified
 
-  Task 3.1 is the RPC server and its wiring into the already-tested publish pipeline; it does NOT
-  implement the full grant/contract verification of task 3.2, the exact-byte/retained-memory
-  binding of task 3.4, the six-outcome-to-five-wire-disposition mapping of task 3.5 (including
-  rejection codes on dispositions), the transport-provenance stamping of task 3.9,
-  or the two-watermark reclaim state machine of task 3.10. What this server DOES verify before
-  publishing:
+  Before a lane opens:
 
-    * the client certificate resolves to an authenticated `:agent` identity
-      (`ServiceRadarAgentGateway.ComponentIdentityResolver.resolve_from_cert/1`);
-    * the `edge-records:v1` capability is ready (`ServiceRadarAgentGateway.EdgeRecordCapability`);
+    * the client certificate resolves, through the canonical deployment-CA/certificate-subject
+      edge identity resolver, to an `:agent` principal of this installation
+      (`ServiceRadarAgentGateway.ComponentIdentityResolver.resolve_edge_identity/3`, task 3.2).
+      SPIFFE is not required; a certificate naming another role is `:permission_denied`, one that
+      does not authenticate at all is `:unauthenticated`;
+    * the `edge-records:v1` capability is ready (`ServiceRadarAgentGateway.EdgeRecordCapability`),
+      which includes an installed local trust snapshot and a loaded output-contract registry
+      snapshot;
     * `lane_open` names a routable `{route_profile, traffic_class}` pair
-      (`ServiceRadar.Edge.PublisherLane.for_lane/2`) whose `PublishPipeline` is running;
-    * each `delivery_frame` names a sequence inside the frame credits granted at `lane_open`, counted
-      from the watermark this session has acked; one beyond it ends the stream `:resource_exhausted`
-      before anything about it is kept;
-    * each frame decodes as a well-formed `EdgeRecordV1`
-      (`ServiceRadar.Edge.WireDecode.decode_record/1`) whose `record_sha256` matches its bytes;
-    * each decoded record is admitted by `ServiceRadarAgentGateway.EdgeContractRegistry.admit/3`
+      (`ServiceRadar.Edge.PublisherLane.for_lane/2`) whose `PublishPipeline` is running.
+
+  Then, for each `delivery_frame`:
+
+    * it names a sequence inside the frame credits granted at `lane_open`, counted from the
+      watermark this session has acked; one beyond it ends the stream `:resource_exhausted` before
+      anything about it is kept;
+    * it is authorized locally by `ServiceRadarAgentGateway.EdgeRecordAuthorization` (task 3.2):
+      exact record digest, structural record admission, the signed production grant and any source
+      authorization and delivery capability, identity, network scope, route/class, range, expiry
+      and fence -- with no core or database lookup per frame. The lane's identity carries the
+      network scopes the trust snapshot binds to its certificate principal, read from the same
+      snapshot as the rest of that frame's decision;
+    * the authorized record is admitted by `ServiceRadarAgentGateway.EdgeContractRegistry.admit/3`
       BEFORE it is offered to the pipeline (task 3.8, narrowed): its provenance must match the
       authenticated session, its output contract must be an `active` bundle of the loaded
       snapshot, and the published route profile, traffic class and partition rule come from that
       registry entry. A rejection resolves REJECTED_PERMANENT; a withhold (rollout lag, a bundle
       that is not active) and a hold (security-revoked bundle) are never offered and record
       nothing, so the sequence stays unresolved.
+
+  ## Deliberately narrow scope
+
+  This server does NOT implement the exact-byte/retained-memory binding of task 3.4, the
+  six-outcome-to-five-wire-disposition mapping of task 3.5 (including rejection codes on
+  dispositions), the transport-provenance stamping of task 3.9, or the two-watermark reclaim state
+  machine of task 3.10.
+
+  Two authorization decisions therefore have nowhere to go yet: an AUDIT publication (a
+  stale-fence replay under its exact delivery capability, decided with its `LATE_FENCED_DELIVERY`
+  stamp) and a SECURITY-QUARANTINE publication (a compromise-revoked key). Their streams are task
+  3.5's, and publishing either to the primary stream would make fenced or compromised data
+  authoritative, so both are withheld: never offered, never resolved.
 
   ## Frames are OFFERED, and acks follow the pipeline
 
@@ -62,35 +82,42 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
   what the agent has durably done.
 
   The watermark is cumulative, and the agent sends each sequence once per session. So the first
-  sequence a session leaves unresolved -- withheld or held by the contract registry, paused, or
-  retryable -- caps the lane: no later sequence of that session is acked, even one that published
-  durably, and the agent's next session replays from it. Nothing here tracks that sequence: it is
-  a gap in the pipeline's prefix, and the gap is what stops the watermark.
+  sequence a session leaves unresolved -- withheld by local authorization, withheld or held by the
+  contract registry, paused, or retryable -- caps the lane: no later sequence of that session is
+  acked, even one that published durably, and the agent's next session replays from it. Nothing
+  here tracks that sequence: it is a gap in the pipeline's prefix, and the gap is what stops the
+  watermark.
 
   The dispositions are the subset `JetStreamPublisher.publish_record/2` can produce today, matching
-  the pipeline's own classification: a durable PubAck resolves ACCEPTED_AUTHORITATIVE; a decode or
-  integrity failure that can never succeed on retry, or a record the contract registry rejects,
-  resolves REJECTED_PERMANENT, recorded through `PublishPipeline.reject_permanent/3` so it fills
-  its place in the prefix instead of leaving a gap nothing could close; everything else is
-  REJECTED_RETRYABLE, which caps the watermark and sends nothing, so the agent's own deadline
-  drives its retry. `:not_ready`/`:systemic` decode faults are PAUSED (no disposition for that
-  frame at all) per `WireDecode`'s own contract.
+  the pipeline's own classification: a durable PubAck resolves ACCEPTED_AUTHORITATIVE; a decode,
+  integrity or authorization failure that can never succeed on retry, or a record the contract
+  registry rejects, resolves REJECTED_PERMANENT, recorded through `PublishPipeline.reject_permanent/3`
+  so it fills its place in the prefix instead of leaving a gap nothing could close; everything else
+  is REJECTED_RETRYABLE, which caps the watermark and sends nothing, so the agent's own deadline
+  drives its retry. That includes every authorization refusal that can clear -- a renewal, a
+  learned fence or key, a clock that catches up, an installed trust snapshot.
+  `:not_ready`/`:systemic` decode faults are PAUSED (no disposition for that frame at all) per
+  `WireDecode`'s own contract.
 
-  ## The pipeline lane is bound on the first VERIFIED record
+  A renewal or rollover delivery is offered with its gateway-attested delivery mode and the proof
+  over the delivery capability that authorized it; a fresh publish carries neither.
+
+  ## The pipeline lane is bound on the first AUTHORIZED record
 
   A pipeline lane is `{network_scope_id, agent, spool}`, and the network scope arrives on the
-  record rather than on `lane_open`. The lane is therefore opened when the first frame decodes and
-  matches its digest, and a later verified record naming a different scope ends the stream
+  record rather than on `lane_open`. The lane is therefore opened when the first frame is
+  authorized locally, and a later authorized record naming a different scope ends the stream
   `:permission_denied`. One agent spool never carries records from more than one
   `network_scope_id` (ingestion-routing, "An agent spool carries exactly one network scope"), so a
   second scope breaks that invariant rather than naming a second lane: one spool's sequences cannot
   be split across two prefixes without wedging both.
 
-  A frame rejected permanently before that point has no lane to be recorded on. Its outcome is
-  kept here and acked by the same contiguous rule. The lane then opens at the first sequence this
-  session has not already acked, and a rejection still waiting behind a gap is replayed into it.
+  A frame rejected permanently before that point -- by its digest or by local authorization -- has
+  no lane to be recorded on. Its outcome is kept here and acked by the same contiguous rule. The
+  lane then opens at the first sequence this session has not already acked, and a rejection still
+  waiting behind a gap is replayed into it.
 
-  The lane is bound before the record is admitted, so a verified record the contract registry
+  The lane is bound before the record is admitted, so an authorized record the contract registry
   rejects, withholds or holds still binds it and still has its scope checked: which scope a spool
   carries does not depend on whether this gateway admits the record's contract.
 
@@ -123,6 +150,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
 
   use GRPC.Server, service: Serviceradar.Edge.V1.EdgeRecordIngestService.Service
 
+  alias ServiceRadar.Edge.PublicationIdentity
   alias ServiceRadar.Edge.PublisherLane
   alias ServiceRadar.Edge.PublishPipeline
   alias ServiceRadar.Edge.ResolvedPrefix
@@ -131,10 +159,11 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
   alias Serviceradar.Edge.V1.EdgeRecordDisposition
   alias Serviceradar.Edge.V1.EdgeRecordLaneOpenAck
   alias Serviceradar.Edge.V1.EdgeRecordServerMessage
-  alias ServiceRadar.Edge.WireDecode
   alias ServiceRadarAgentGateway.ComponentIdentityResolver
   alias ServiceRadarAgentGateway.EdgeContractRegistry
+  alias ServiceRadarAgentGateway.EdgeRecordAuthorization
   alias ServiceRadarAgentGateway.EdgeRecordCapability
+  alias ServiceRadarAgentGateway.EdgeRecordTrust
   alias ServiceRadarAgentGateway.MediaIdentity
 
   require Logger
@@ -270,7 +299,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
       traffic_class: traffic_class,
       pipeline: pipeline,
       pipeline_monitor: pipeline_monitor,
-      # {network_scope_id, agent, spool} once the first verified record binds it.
+      # {network_scope_id, agent, spool} once the first authorized record binds it.
       lane: nil,
       # The watermark this session has acked. The agent validates every ack against it.
       acked_through: first_unresolved - 1,
@@ -305,17 +334,26 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
     sequence = required_positive_sequence(frame.sequence)
     require_within_credit_window!(state, sequence)
 
-    case decode_and_verify(frame) do
-      {:ok, record} ->
+    case authorize(frame, state) do
+      {:ok, decision} ->
         state
-        |> bind_lane!(record.network_scope_id)
-        |> admit_frame(stream, sequence, frame, record)
+        |> bind_lane!(decision.record.network_scope_id)
+        |> admit_frame(stream, sequence, frame, decision)
 
-      {:error, :permanent, reason} ->
+      {:error, :permanent, reason, event_id} ->
+        # `event_id` is empty only for a refusal made before the record decoded, the one case the
+        # agent accepts a disposition without an id.
         Logger.warning("edge record permanently rejected: #{inspect(reason)}")
-        reject_frame(stream, state, sequence)
+        reject_frame(stream, remember_event_id(state, sequence, event_id), sequence)
 
-      {:error, :paused, reason} ->
+      {:error, :retryable, reason, _event_id} ->
+        # The condition can clear -- a renewal, a learned fence or key, a clock that catches up, an
+        # installed trust snapshot -- so nothing is offered or recorded, and the sequence stays a gap
+        # that caps the watermark.
+        Logger.warning("edge record withheld (not resolved, no disposition sent): #{inspect(reason)}")
+        state
+
+      {:error, :paused, reason, _event_id} ->
         Logger.warning("edge record decode paused (not resolved, no disposition sent): #{inspect(reason)}")
 
         state
@@ -326,24 +364,17 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
     raise GRPC.RPCError, status: :invalid_argument, message: "unsupported edge record stream message"
   end
 
-  defp decode_and_verify(frame) do
-    case WireDecode.decode_record(frame.record_bytes) do
-      {:ok, record} ->
-        verify_record(frame, record)
-
-      {:error, reason} when reason in [:too_large, :poison] ->
-        {:error, :permanent, reason}
+  # The snapshot is read once per frame from local memory, and the lane's identity takes its
+  # network scopes from that same snapshot. An absent snapshot withholds rather than rejects,
+  # because installing trust makes the same frame authorizable.
+  defp authorize(frame, state) do
+    case EdgeRecordTrust.snapshot() do
+      {:ok, snapshot} ->
+        identity = EdgeRecordTrust.with_network_scopes(snapshot, state.identity)
+        EdgeRecordAuthorization.authorize_frame(frame, state, identity, snapshot, System.os_time(:nanosecond))
 
       {:error, reason} ->
-        {:error, :paused, reason}
-    end
-  end
-
-  defp verify_record(frame, record) do
-    if :crypto.hash(:sha256, frame.record_bytes) == frame.record_sha256 do
-      {:ok, record}
-    else
-      {:error, :permanent, :record_sha256_mismatch}
+        {:error, :retryable, reason, ""}
     end
   end
 
@@ -381,9 +412,11 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
     raise GRPC.RPCError, status: :permission_denied, message: "delivery_frame network_scope_id does not match the lane"
   end
 
-  # The session is the authority the registry compares the record against; nothing on the frame
-  # is trusted to describe it. Only an admitted record is offered to the pipeline.
-  defp admit_frame(state, stream, sequence, frame, record) do
+  # The session is the authority the registry compares the authorized record against; nothing on
+  # the frame is trusted to describe it. Admission runs only after local authorization, so the
+  # record it classifies is one this gateway has already verified, and only an admitted record is
+  # offered to the pipeline.
+  defp admit_frame(state, stream, sequence, frame, %{record: record} = decision) do
     session = %{
       authenticated_agent_id: state.identity.component_id,
       route_profile: state.route_profile,
@@ -392,9 +425,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
 
     case EdgeContractRegistry.admit(record, session, EdgeContractRegistry.impl().snapshot()) do
       {:ok, route} ->
-        state
-        |> remember_event_id(sequence, record.event_id)
-        |> offer_frame(stream, sequence, frame, record, route)
+        offer_frame(state, stream, sequence, frame, decision, route)
 
       {:reject, reason} ->
         # Proven invalid for this session and snapshot: it resolves in the prefix exactly like an
@@ -416,24 +447,55 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
     end
   end
 
-  defp offer_frame(state, stream, sequence, frame, record, route) do
-    publication = %{
-      slot: %{
-        network_scope_id: record.network_scope_id,
-        authenticated_agent_id: state.identity.component_id,
-        spool_id: state.spool_id,
-        sequence: sequence
-      },
-      # All three are pinned by the admitted contract's registry entry.
-      route_profile: route.route_profile,
-      traffic_class: route.traffic_class,
-      partition_rule: route.partition_rule,
-      record_bytes: frame.record_bytes,
-      record_sha256: frame.record_sha256,
-      semantic_envelope_sha256: record.semantic_envelope_sha256
-    }
+  # The only route this publisher resolves today is the contract's PRIMARY stream, and EventWriter
+  # does not yet act on the LATE_FENCED_DELIVERY stamp. Offering an audit or security-quarantine
+  # decision there would make fenced or compromised data authoritative, so both are withheld --
+  # never offered, never resolved -- until task 3.5 supplies their streams.
+  defp offer_frame(state, _stream, _sequence, _frame, %{publication: publication, record: record}, _route)
+       when publication in [:audit, :security_quarantine] do
+    Logger.warning(
+      "edge record #{publication} publication withheld: no #{publication} route yet " <>
+        "(event_id=#{Base.encode16(record.event_id, case: :lower)})"
+    )
 
-    offer(state, stream, sequence, publication)
+    state
+  end
+
+  defp offer_frame(state, stream, sequence, frame, %{record: record} = decision, route) do
+    publication =
+      maybe_put_delivery(
+        %{
+          slot: %{
+            network_scope_id: record.network_scope_id,
+            authenticated_agent_id: state.identity.component_id,
+            spool_id: state.spool_id,
+            sequence: sequence
+          },
+          # All three are pinned by the admitted contract's registry entry.
+          route_profile: route.route_profile,
+          traffic_class: route.traffic_class,
+          partition_rule: route.partition_rule,
+          record_bytes: frame.record_bytes,
+          record_sha256: frame.record_sha256,
+          semantic_envelope_sha256: record.semantic_envelope_sha256
+        },
+        decision
+      )
+
+    state
+    |> remember_event_id(sequence, record.event_id)
+    |> offer(stream, sequence, publication)
+  end
+
+  # A fresh publish carries no delivery stamp. Anything else is stamped with the gateway-attested
+  # mode and the proof over the delivery capability that authorized it, so a late drain reaches the
+  # consumer marked as the renewal or rollover it is rather than as an ordinary publish.
+  defp maybe_put_delivery(publication, %{delivery_mode: mode, delivery_proof: proof}) do
+    if mode == PublicationIdentity.mode_fresh() do
+      publication
+    else
+      Map.merge(publication, %{delivery_mode: mode, delivery_proof: proof})
+    end
   end
 
   defp offer(state, stream, sequence, publication) do
@@ -773,8 +835,21 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
     )
   end
 
+  # A certificate that is valid but names another role (a conflicting SPIFFE id) is an
+  # authenticated principal refused for this lane; anything else did not authenticate.
   defp extract_identity_from_stream(stream) do
-    MediaIdentity.extract_identity_from_stream(stream, identity_resolver(), "Edge record ingest")
+    with {:ok, cert_der} <- MediaIdentity.peer_cert(stream),
+         {:ok, identity} <- identity_resolver().resolve_edge_identity(cert_der, :agent) do
+      identity
+    else
+      {:error, {:identity_conflict, reason}} ->
+        Logger.warning("Edge record ingest identity conflict: #{inspect(reason)}")
+        raise GRPC.RPCError, status: :permission_denied, message: "component identity conflict"
+
+      {:error, reason} ->
+        Logger.warning("Edge record ingest certificate validation failed: #{inspect(reason)}")
+        raise GRPC.RPCError, status: :unauthenticated, message: "invalid client certificate"
+    end
   end
 
   defp send_reply(%{test_pid: test_pid}, response) when is_pid(test_pid) do
