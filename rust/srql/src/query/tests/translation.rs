@@ -2004,6 +2004,43 @@ fn duckdb_listing_cursor_pins_the_resolved_window() {
 }
 
 #[test]
+fn duckdb_counter_rate_casts_to_float8_not_double_shell() {
+    let config = test_config();
+    let request = QueryRequest {
+        query: "in:snmp metric_name:\"ifOutOctets\" time:last_1h bucket:5m agg:rate series:if_index limit:25"
+            .to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+    let drivers = std::collections::HashMap::from([(
+        "timeseries_metrics".to_string(),
+        "pg_duckdb".to_string(),
+    )]);
+    let response =
+        crate::query::translate_request_with_drivers(&config, request, &drivers).expect("duckdb");
+    assert!(response.dialect.is_duckdb());
+    assert!(
+        response.sql.contains("::float8"),
+        "expected float8 (PG+DuckDB) not DOUBLE shell, got: {}",
+        response.sql
+    );
+    assert!(
+        !response.sql.contains("::DOUBLE"),
+        "DOUBLE is a PostgreSQL shell type and fails parse_type.c, got: {}",
+        response.sql
+    );
+    assert!(
+        response
+            .sql
+            .contains("(metadata::JSON ->> 'max_counter_rate_per_second')"),
+        "expected JSON remap on the rate ceiling, got: {}",
+        response.sql
+    );
+}
+
+#[test]
 fn duckdb_remaps_jsonb_arrow_on_timeseries_series() {
     let config = test_config();
     let request = QueryRequest {

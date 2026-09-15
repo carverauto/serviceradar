@@ -127,7 +127,10 @@ fn find_limit(sql: &str) -> Option<usize> {
 
 fn remap_jsonb(sql: String) -> String {
     let sql = sql.replace("jsonb_build_object", "json_object");
-    let sql = sql.replace("::double precision", "::DOUBLE");
+    // pg_duckdb parses with PostgreSQL first. `DOUBLE` is only a shell type
+    // there (`parse_type.c` / `42704`); `float8` is valid in both engines.
+    let sql = sql.replace("::double precision", "::float8");
+    let sql = sql.replace("::DOUBLE", "::float8");
     let sql = sql.replace("::jsonb", "::JSON");
     remap_jsonb_arrows(&sql)
 }
@@ -285,6 +288,16 @@ mod tests {
     fn remaps_jsonb_arrow() {
         let sql = remap_jsonb("coalesce(tags->>'core_id', '') AS series".into());
         assert_eq!(sql, "coalesce((tags::JSON ->> 'core_id'), '') AS series");
+    }
+
+    #[test]
+    fn remaps_double_precision_to_float8() {
+        let sql = remap_jsonb(
+            "THEN ((metadata::JSON ->> 'max_counter_rate_per_second'))::double precision".into(),
+        );
+        assert!(sql.contains("::float8"), "{sql}");
+        assert!(!sql.contains("::DOUBLE"), "{sql}");
+        assert!(!sql.contains("::double precision"), "{sql}");
     }
 
     #[test]
