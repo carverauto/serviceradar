@@ -1,0 +1,41 @@
+suite: CNPG instance resources come from values
+templates:
+  - templates/cnpg-cluster.yaml
+release:
+  namespace: serviceradar-test
+tests:
+  - it: omits spec.resources when none are set
+    documentSelector:
+      path: kind
+      value: Cluster
+    asserts:
+      - notExists:
+          path: spec.resources
+
+  - it: projects cnpg.resources onto the Cluster
+    set:
+      cnpg.resources:
+        requests:
+          memory: 16Gi
+          cpu: "1"
+        limits:
+          memory: 22Gi
+          cpu: "2"
+    documentSelector:
+      path: kind
+      value: Cluster
+    asserts:
+      - equal:
+          path: spec.resources.requests.memory
+          value: 16Gi
+      - equal:
+          path: spec.resources.limits.memory
+          value: 22Gi
+
+  - it: fails when resources are required but missing
+    set:
+      cnpg.requireResources: true
+      cnpg.resources: {}
+    asserts:
+      - failedTemplate:
+          errorMessage: cnpg.resources is required when cnpg.requireResources=true

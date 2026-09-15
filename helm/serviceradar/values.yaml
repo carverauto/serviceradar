@@ -856,6 +856,11 @@ cnpg:
   instances: 3
   storageClass: ""
   storageSize: 100Gi
+  # Hosted control plane always sets this. Leave empty for OSS installs that
+  # still want CNPG to inherit node RAM; set requireResources=true to fail
+  # closed instead of scheduling with no requests.
+  requireResources: false
+  resources: {}
   # Optional CNPG instance placement controls. Use these for dedicated database
   # nodes with labels/taints such as cnpg.io/dedicated=true.
   affinity:
