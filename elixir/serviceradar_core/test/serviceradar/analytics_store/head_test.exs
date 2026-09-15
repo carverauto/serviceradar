@@ -8,6 +8,8 @@ defmodule ServiceRadar.AnalyticsStore.HeadTest do
     {:ok, entry} = Registry.fetch("timeseries_metrics")
     sql = Head.create_temp_sql(entry)
     assert sql =~ "CREATE TEMP TABLE analytics_batch"
+    # Postgrex commits each query; ON COMMIT DROP would drop the table before INSERT.
+    refute sql =~ "ON COMMIT DROP"
     assert sql =~ ~s("timestamp" timestamptz)
     assert sql =~ ~s("tags" text)
 

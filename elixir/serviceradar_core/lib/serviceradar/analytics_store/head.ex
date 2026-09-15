@@ -63,7 +63,7 @@ defmodule ServiceRadar.AnalyticsStore.Head do
         "#{quote_ident(name)} #{pg_type(type, cast)}"
       end)
 
-    "CREATE TEMP TABLE #{@temp_table} (#{defs}) ON COMMIT DROP"
+    "CREATE TEMP TABLE #{@temp_table} (#{defs})"
   end
 
   @doc "Column names in registry order."
