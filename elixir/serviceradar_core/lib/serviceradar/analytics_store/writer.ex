@@ -63,7 +63,13 @@ defmodule ServiceRadar.AnalyticsStore.Writer do
       |> batch_id()
 
     writer = Keyword.get(opts, :writer_id, @writer_id)
-    keys = Layout.keys(entry.table, date, writer, batch_id)
+
+    keys =
+      if Keyword.get(opts, :candidate, false) do
+        Layout.candidate_keys(entry.table, date, writer, batch_id)
+      else
+        Layout.keys(entry.table, date, writer, batch_id)
+      end
 
     with {:ok, staging_url} <- Storage.copy_target(cfg, keys.staging_key),
          {:ok, published_url} <- Storage.copy_target(cfg, keys.published_key),

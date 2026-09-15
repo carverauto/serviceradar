@@ -415,6 +415,10 @@ end
 config :serviceradar_core, ServiceRadar.AnalyticsStore,
   driver: System.get_env("SERVICERADAR_ANALYTICS_STORE_DRIVER") || "timescale",
   tables: System.get_env("SERVICERADAR_ANALYTICS_STORE_TABLES") || "",
+  hot_window_days: System.get_env("SERVICERADAR_ANALYTICS_STORE_HOT_WINDOW_DAYS") || "30",
+  parquet_retention_days: System.get_env("SERVICERADAR_ANALYTICS_STORE_PARQUET_RETENTION_DAYS"),
+  archive_buffer_max_bytes:
+    System.get_env("SERVICERADAR_ANALYTICS_STORE_ARCHIVE_BUFFER_MAX_BYTES") || "268435456",
   dual_write: System.get_env("SERVICERADAR_ANALYTICS_STORE_DUAL_WRITE") || "",
   storage: System.get_env("SERVICERADAR_ANALYTICS_STORE_STORAGE"),
   s3_bucket_url: System.get_env("SERVICERADAR_ANALYTICS_STORE_S3_BUCKET_URL"),
@@ -1487,6 +1491,26 @@ if config_env() == :prod do
     |> System.get_env(Integer.to_string(to_timeout(minute: 240)))
     |> String.to_integer()
 
+  analytics_archive_enabled = System.get_env("SERVICERADAR_ANALYTICS_STORE_DRIVER") == "hybrid"
+
+  analytics_archive_queues =
+    if analytics_archive_enabled,
+      do: [
+        analytics_archive:
+          String.to_integer(System.get_env("OBAN_QUEUE_ANALYTICS_ARCHIVE") || "1")
+      ],
+      else: []
+
+  analytics_archive_crontab =
+    if analytics_archive_enabled do
+      [
+        {"* * * * *", ServiceRadar.EventWriter.ArchivePublisher,
+         args: %{"reconcile" => true}, queue: :analytics_archive}
+      ]
+    else
+      []
+    end
+
   config :serviceradar_core, CapacityForecastingWorker,
     enabled: capacity_forecasting_enabled,
     horizon_seconds: capacity_forecasting_horizon_seconds,
@@ -1538,28 +1562,31 @@ if config_env() == :prod do
     repo: ServiceRadar.Repo,
     prefix: System.get_env("OBAN_SCHEMA", "platform"),
     notifier: oban_notifier,
-    queues: [
-      default: String.to_integer(System.get_env("OBAN_QUEUE_DEFAULT") || "10"),
-      maintenance: String.to_integer(System.get_env("OBAN_QUEUE_MAINTENANCE") || "2"),
-      monitoring: String.to_integer(System.get_env("OBAN_QUEUE_MONITORING") || "5"),
-      alerts: String.to_integer(System.get_env("OBAN_QUEUE_ALERTS") || "5"),
-      service_checks: String.to_integer(System.get_env("OBAN_QUEUE_SERVICE_CHECKS") || "10"),
-      notifications: String.to_integer(System.get_env("OBAN_QUEUE_NOTIFICATIONS") || "5"),
-      onboarding: String.to_integer(System.get_env("OBAN_QUEUE_ONBOARDING") || "3"),
-      events: String.to_integer(System.get_env("OBAN_QUEUE_EVENTS") || "10"),
-      sweeps: String.to_integer(System.get_env("OBAN_QUEUE_SWEEPS") || "20"),
-      edge: String.to_integer(System.get_env("OBAN_QUEUE_EDGE") || "10"),
-      integrations: String.to_integer(System.get_env("OBAN_QUEUE_INTEGRATIONS") || "5"),
-      nats_accounts: String.to_integer(System.get_env("OBAN_QUEUE_NATS_ACCOUNTS") || "3"),
-      # Ansible automation queues: catalog sync (AWX job templates + git
-      # playbook repositories), run pulse/health/watchdog, and retention. The
-      # workers declared these queues but they were never configured here, so
-      # every ansible job (including git repository syncs) sat `available`
-      # forever and catalog/pulse/retention never executed.
-      ansible_catalog: String.to_integer(System.get_env("OBAN_QUEUE_ANSIBLE_CATALOG") || "4"),
-      ansible_pulse: String.to_integer(System.get_env("OBAN_QUEUE_ANSIBLE_PULSE") || "4"),
-      ansible_retention: String.to_integer(System.get_env("OBAN_QUEUE_ANSIBLE_RETENTION") || "1")
-    ],
+    queues:
+      analytics_archive_queues ++
+        [
+          default: String.to_integer(System.get_env("OBAN_QUEUE_DEFAULT") || "10"),
+          maintenance: String.to_integer(System.get_env("OBAN_QUEUE_MAINTENANCE") || "2"),
+          monitoring: String.to_integer(System.get_env("OBAN_QUEUE_MONITORING") || "5"),
+          alerts: String.to_integer(System.get_env("OBAN_QUEUE_ALERTS") || "5"),
+          service_checks: String.to_integer(System.get_env("OBAN_QUEUE_SERVICE_CHECKS") || "10"),
+          notifications: String.to_integer(System.get_env("OBAN_QUEUE_NOTIFICATIONS") || "5"),
+          onboarding: String.to_integer(System.get_env("OBAN_QUEUE_ONBOARDING") || "3"),
+          events: String.to_integer(System.get_env("OBAN_QUEUE_EVENTS") || "10"),
+          sweeps: String.to_integer(System.get_env("OBAN_QUEUE_SWEEPS") || "20"),
+          edge: String.to_integer(System.get_env("OBAN_QUEUE_EDGE") || "10"),
+          integrations: String.to_integer(System.get_env("OBAN_QUEUE_INTEGRATIONS") || "5"),
+          nats_accounts: String.to_integer(System.get_env("OBAN_QUEUE_NATS_ACCOUNTS") || "3"),
+          # Ansible automation queues: catalog sync (AWX job templates + git
+          # playbook repositories), run pulse/health/watchdog, and retention. The
+          # workers declared these queues but they were never configured here, so
+          # every ansible job (including git repository syncs) sat `available`
+          # forever and catalog/pulse/retention never executed.
+          ansible_catalog: String.to_integer(System.get_env("OBAN_QUEUE_ANSIBLE_CATALOG") || "4"),
+          ansible_pulse: String.to_integer(System.get_env("OBAN_QUEUE_ANSIBLE_PULSE") || "4"),
+          ansible_retention:
+            String.to_integer(System.get_env("OBAN_QUEUE_ANSIBLE_RETENTION") || "1")
+        ],
     plugins: [
       Oban.Plugins.Pruner,
       {Oban.Plugins.Lifeline, rescue_after: oban_lifeline_rescue_after_ms},
@@ -1589,6 +1616,7 @@ if config_env() == :prod do
            {System.get_env("SERVICERADAR_CREDENTIAL_BROKER_RETENTION_CRON") || "43 3 * * *",
             ServiceRadar.Credentials.BrokerRetentionWorker, queue: :maintenance}
          ] ++
+           analytics_archive_crontab ++
            object_store_retention_crontab ++
            capacity_forecasting_crontab ++
            ProductionSchedule.cron_entries() ++

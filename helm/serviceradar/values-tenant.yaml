@@ -94,6 +94,24 @@ networkPolicy:
     bmpCollectorExternal:
       allowedCIDRs: []
 
+# Hosted default. The control plane replaces these synthetic backend names
+# with a dedicated analytics bucket and Secret before provisioning.
+# The base OSS values remain Timescale-only and need no object storage.
+analyticsStore:
+  driver: hybrid
+  tables:
+    - timeseries_metrics
+  hotWindowDays: 30
+  parquetRetentionDays: ""
+  archiveBufferMaxBytes: 268435456
+  pgDuckdb:
+    storage: s3
+    s3:
+      bucket: example-analytics-archive
+      endpoint: object-storage.example.invalid
+      region: example-region
+      secretName: example-archive-credentials
+
 cnpg:
   instances: 3
   storageSize: 100Gi

@@ -3,8 +3,9 @@ defmodule ServiceRadar.AnalyticsStore.Config do
   Deployment-selected analytics-store driver and storage backend.
 
   Default is `:timescale` (today's CNPG hypertables). `:pg_duckdb` requires a
-  complete S3 or filesystem backend and refuses to start otherwise — it must
-  not silently write hypertables.
+  complete S3 or filesystem backend and refuses to start otherwise. `:hybrid`
+  writes both stores and reads wholly recent windows from Timescale; older or
+  unbounded queries use Parquet. The hot window defaults to 30 days.
 
   Pass a loaded config into `ServiceRadar.AnalyticsStore` functions in tests;
   do not mutate application env.
@@ -12,7 +13,7 @@ defmodule ServiceRadar.AnalyticsStore.Config do
 
   alias ServiceRadar.ColdTier.Registry
 
-  @type driver :: :timescale | :pg_duckdb
+  @type driver :: :timescale | :pg_duckdb | :hybrid
   @type storage :: :s3 | :filesystem | nil
 
   @type t :: %__MODULE__{
@@ -20,6 +21,9 @@ defmodule ServiceRadar.AnalyticsStore.Config do
           tables: MapSet.t(String.t()),
           dual_write: MapSet.t(String.t()),
           storage: storage(),
+          hot_window_days: pos_integer(),
+          archive_buffer_max_bytes: pos_integer(),
+          parquet_retention_days: pos_integer() | nil,
           s3_bucket_url: String.t() | nil,
           filesystem_path: String.t() | nil,
           head_host: String.t() | nil,
@@ -40,6 +44,9 @@ defmodule ServiceRadar.AnalyticsStore.Config do
             tables: MapSet.new(),
             dual_write: MapSet.new(),
             storage: nil,
+            hot_window_days: 30,
+            archive_buffer_max_bytes: 268_435_456,
+            parquet_retention_days: nil,
             s3_bucket_url: nil,
             filesystem_path: nil,
             head_host: nil,
@@ -65,6 +72,9 @@ defmodule ServiceRadar.AnalyticsStore.Config do
       tables: parse_tables(raw[:tables]),
       dual_write: parse_tables(raw[:dual_write] || raw[:dualWrite]),
       storage: parse_storage(raw[:storage]),
+      hot_window_days: retention_days(raw[:hot_window_days], 30),
+      archive_buffer_max_bytes: retention_days(raw[:archive_buffer_max_bytes], 268_435_456),
+      parquet_retention_days: retention_days(raw[:parquet_retention_days], nil),
       s3_bucket_url: blank_to_nil(raw[:s3_bucket_url]),
       filesystem_path: blank_to_nil(raw[:filesystem_path]),
       head_host: blank_to_nil(raw[:head_host]),
@@ -82,6 +92,17 @@ defmodule ServiceRadar.AnalyticsStore.Config do
     }
   end
 
+  defp retention_days(value, default) when value in [nil, ""], do: default
+
+  defp retention_days(value, _default) when is_binary(value) do
+    case Integer.parse(value) do
+      {days, ""} -> days
+      _ -> :invalid
+    end
+  end
+
+  defp retention_days(value, _default), do: value
+
   defp positive_int(n, _default) when is_integer(n) and n > 0, do: n
 
   defp positive_int(n, default) when is_binary(n) do
@@ -95,8 +116,39 @@ defmodule ServiceRadar.AnalyticsStore.Config do
 
   @doc "Return `:ok` or `{:error, reason}` for a loaded config."
   @spec validate(t()) :: :ok | {:error, term()}
-  def validate(%__MODULE__{driver: driver}) when driver not in [:timescale, :pg_duckdb] do
+  def validate(%__MODULE__{driver: driver})
+      when driver not in [:timescale, :pg_duckdb, :hybrid] do
     {:error, {:unknown_driver, driver}}
+  end
+
+  def validate(%__MODULE__{hot_window_days: days}) when not is_integer(days) or days <= 0,
+    do: {:error, :invalid_hot_window_days}
+
+  def validate(%__MODULE__{parquet_retention_days: days, hot_window_days: hot})
+      when not is_nil(days) and (not is_integer(days) or days <= hot),
+      do: {:error, :invalid_parquet_retention_days}
+
+  def validate(%__MODULE__{archive_buffer_max_bytes: bytes})
+      when not is_integer(bytes) or bytes <= 0,
+      do: {:error, :invalid_archive_buffer_max_bytes}
+
+  def validate(%__MODULE__{driver: :hybrid, tables: tables} = cfg) do
+    unknown = MapSet.difference(tables, registry_table_set())
+    unsupported = MapSet.difference(tables, MapSet.new(["timeseries_metrics"]))
+
+    cond do
+      MapSet.size(tables) == 0 ->
+        {:error, :hybrid_tables_required}
+
+      MapSet.size(unknown) > 0 ->
+        {:error, {:unknown_hybrid_tables, Enum.sort(unknown)}}
+
+      MapSet.size(unsupported) > 0 ->
+        {:error, {:unsupported_hybrid_tables, Enum.sort(unsupported)}}
+
+      true ->
+        validate_backend(cfg)
+    end
   end
 
   def validate(%__MODULE__{driver: :timescale, dual_write: dual} = cfg) do
@@ -116,7 +168,9 @@ defmodule ServiceRadar.AnalyticsStore.Config do
     end
   end
 
-  def validate(%__MODULE__{driver: :pg_duckdb} = cfg) do
+  def validate(%__MODULE__{driver: :pg_duckdb} = cfg), do: validate_backend(cfg)
+
+  defp validate_backend(cfg) do
     with :ok <- validate_storage(cfg) do
       validate_head(cfg)
     end
@@ -190,38 +244,58 @@ defmodule ServiceRadar.AnalyticsStore.Config do
     end
   end
 
-  @doc "Registry entries flipped onto pg_duckdb under this config."
+  @doc "Registry entries whose Timescale writes are disabled."
   @spec flipped_tables(t()) :: [Registry.Table.t()]
-  def flipped_tables(%__MODULE__{driver: :timescale}), do: []
+  def flipped_tables(%__MODULE__{} = cfg) do
+    Enum.filter(Registry.tables(), &(driver_for(cfg, &1.table) == :pg_duckdb))
+  end
 
-  def flipped_tables(%__MODULE__{driver: :pg_duckdb} = cfg) do
-    Enum.filter(Registry.tables(), fn entry -> driver_for(cfg, entry.table) == :pg_duckdb end)
+  @doc "Registry entries continuously written to Timescale and Parquet."
+  @spec hybrid_tables(t()) :: [Registry.Table.t()]
+  def hybrid_tables(%__MODULE__{} = cfg) do
+    Enum.filter(Registry.tables(), &(driver_for(cfg, &1.table) == :hybrid))
+  end
+
+  @doc "Registry entries using Parquet for reads or dual writes."
+  @spec analytics_tables(t()) :: [Registry.Table.t()]
+  def analytics_tables(%__MODULE__{} = cfg) do
+    Enum.filter(Registry.tables(), fn entry ->
+      driver_for(cfg, entry.table) in [:pg_duckdb, :hybrid] or dual_write?(cfg, entry.table)
+    end)
   end
 
   @doc "True when EventWriter must persist `table` to both drivers."
   @spec dual_write?(t(), String.t()) :: boolean()
-  def dual_write?(%__MODULE__{dual_write: tables}, table) when is_binary(table) do
-    MapSet.member?(tables, table)
+  def dual_write?(%__MODULE__{dual_write: tables} = cfg, table) when is_binary(table) do
+    driver_for(cfg, table) == :hybrid or MapSet.member?(tables, table)
   end
 
-  @doc "Which driver owns `table` under this config."
+  @doc "Which driver owns writes to `table` under this config."
   @spec driver_for(t(), String.t()) :: driver()
   def driver_for(%__MODULE__{driver: :timescale}, _table), do: :timescale
 
-  def driver_for(%__MODULE__{driver: :pg_duckdb, tables: tables}, table) do
-    flipped =
-      if MapSet.size(tables) == 0 do
-        registry_table_set()
-      else
-        tables
-      end
+  def driver_for(%__MODULE__{driver: driver, tables: tables}, table)
+      when driver in [:pg_duckdb, :hybrid] do
+    selected = if MapSet.size(tables) == 0, do: registry_table_set(), else: tables
+    if MapSet.member?(selected, table), do: driver, else: :timescale
+  end
 
-    if MapSet.member?(flipped, table) do
-      :pg_duckdb
-    else
-      :timescale
+  @doc "Choose one read backend for the whole window; an unknown lower bound uses Parquet."
+  @spec read_driver_for(t(), String.t(), {DateTime.t() | nil, DateTime.t() | nil}, DateTime.t()) ::
+          :timescale | :pg_duckdb
+  def read_driver_for(cfg, table, window, now \\ DateTime.utc_now()) do
+    case driver_for(cfg, table) do
+      :hybrid -> hybrid_read_driver(window, now, cfg.hot_window_days)
+      driver -> driver
     end
   end
+
+  defp hybrid_read_driver({%DateTime{} = start, _end}, now, days) do
+    cutoff = DateTime.add(now, -days, :day)
+    if DateTime.compare(start, cutoff) in [:eq, :gt], do: :timescale, else: :pg_duckdb
+  end
+
+  defp hybrid_read_driver(_window, _now, _days), do: :pg_duckdb
 
   defp registry_table_set do
     MapSet.new(Registry.tables(), & &1.table)
@@ -231,8 +305,10 @@ defmodule ServiceRadar.AnalyticsStore.Config do
   defp parse_driver(""), do: :timescale
   defp parse_driver(:timescale), do: :timescale
   defp parse_driver(:pg_duckdb), do: :pg_duckdb
+  defp parse_driver(:hybrid), do: :hybrid
   defp parse_driver("timescale"), do: :timescale
   defp parse_driver("pg_duckdb"), do: :pg_duckdb
+  defp parse_driver("hybrid"), do: :hybrid
   defp parse_driver(other), do: other
 
   defp parse_storage(nil), do: nil

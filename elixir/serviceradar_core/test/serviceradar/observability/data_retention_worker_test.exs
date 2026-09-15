@@ -6,6 +6,7 @@ defmodule ServiceRadar.Observability.DataRetentionWorkerTest do
   @worker_path "lib/serviceradar/observability/data_retention_worker.ex"
   @runtime_config_path "config/runtime.exs"
   @ocsf_events_migration_path "priv/repo/migrations/20260203120000_create_ocsf_events.exs"
+  @metrics_compression_migration_path "priv/repo/migrations/20260915210000_enable_timeseries_metrics_compression.exs"
 
   test "worker reconciles retention and chunk intervals for high-volume hypertables" do
     worker = File.read!(@worker_path)
@@ -52,5 +53,25 @@ defmodule ServiceRadar.Observability.DataRetentionWorkerTest do
     assert migration =~ "PRIMARY KEY (time, id)"
     assert migration =~ "add_retention_policy(@table, @retention_interval)"
     assert migration =~ "remove_retention_policy(@table)"
+  end
+
+  test "metrics compression is schema-managed and background-only with a bounded rollback" do
+    migration = File.read!(@metrics_compression_migration_path)
+    assert migration =~ "serviceradar:allow-startup-maintenance"
+    assert migration =~ "IF ts_schema IS NULL"
+    assert migration =~ "IF NOT FOUND THEN"
+    assert migration =~ "IF NOT compression_enabled THEN"
+    assert migration =~ "ALTER TABLE platform.timeseries_metrics"
+    assert migration =~ "timescaledb.compress_segmentby = 'metric_type, metric_name, device_id'"
+    assert migration =~ "timescaledb.compress_orderby = 'timestamp DESC'"
+
+    assert migration =~
+             "add_compression_policy(%L::regclass, INTERVAL ''2 days'', if_not_exists => true)"
+
+    assert migration =~ "remove_compression_policy(%L::regclass, if_exists => true)"
+    refute migration =~ "compress_chunk("
+    refute migration =~ "decompress_chunk("
+    refute migration =~ "ocsf_network_activity"
+    refute migration =~ "WHEN others"
   end
 end

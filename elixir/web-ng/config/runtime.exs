@@ -56,7 +56,8 @@ if is_map(callback_deployment) do
   config :serviceradar_core,
     automation_callback_grants: [verifier_config: verifier_config],
     automation_launch_envelope_key: envelope_key,
-    automation_launch_envelope_key_id: System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_ENVELOPE_KEY_ID", "current"),
+    automation_launch_envelope_key_id:
+      System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_ENVELOPE_KEY_ID", "current"),
     automation_callback_origin: callback_origin
 end
 
@@ -455,7 +456,8 @@ nats_tls_config =
       cacertfile: Path.join(cert_dir, "root.pem"),
       certfile: Path.join(cert_dir, "#{cert_name}.pem"),
       keyfile: Path.join(cert_dir, "#{cert_name}-key.pem"),
-      server_name_indication: "NATS_SERVER_NAME" |> System.get_env("serviceradar-nats") |> String.to_charlist()
+      server_name_indication:
+        "NATS_SERVER_NAME" |> System.get_env("serviceradar-nats") |> String.to_charlist()
     ]
   else
     false
@@ -652,7 +654,9 @@ camera_relay_browser_stream_timeout_ms =
   end
 
 remote_access_browser_key_remember_enabled =
-  case to_bool.(System.get_env("SERVICERADAR_REMOTE_ACCESS_BROWSER_KEY_REMEMBER_ENABLED", "false")) do
+  case to_bool.(
+         System.get_env("SERVICERADAR_REMOTE_ACCESS_BROWSER_KEY_REMEMBER_ENABLED", "false")
+       ) do
     nil -> false
     value -> value
   end
@@ -671,9 +675,12 @@ remote_access_desktop_rdp_enabled =
 
 remote_access_desktop_webrtc =
   RemoteDesktopWebRTCConfig.load!(
-    ice_servers_json: System.get_env("SERVICERADAR_REMOTE_ACCESS_DESKTOP_WEBRTC_ICE_SERVERS_JSON"),
-    turn_shared_secret_file: System.get_env("SERVICERADAR_REMOTE_ACCESS_DESKTOP_WEBRTC_TURN_SHARED_SECRET_FILE"),
-    credential_ttl_seconds: System.get_env("SERVICERADAR_REMOTE_ACCESS_DESKTOP_WEBRTC_TURN_CREDENTIAL_TTL_SECONDS")
+    ice_servers_json:
+      System.get_env("SERVICERADAR_REMOTE_ACCESS_DESKTOP_WEBRTC_ICE_SERVERS_JSON"),
+    turn_shared_secret_file:
+      System.get_env("SERVICERADAR_REMOTE_ACCESS_DESKTOP_WEBRTC_TURN_SHARED_SECRET_FILE"),
+    credential_ttl_seconds:
+      System.get_env("SERVICERADAR_REMOTE_ACCESS_DESKTOP_WEBRTC_TURN_CREDENTIAL_TTL_SECONDS")
   )
 
 remote_access_app_enabled =
@@ -689,19 +696,25 @@ remote_access_tcp_enabled =
   end
 
 remote_access_ssh_host_key_skip_verify_enabled =
-  case to_bool.(System.get_env("SERVICERADAR_REMOTE_ACCESS_SSH_HOST_KEY_SKIP_VERIFY_ENABLED", "false")) do
+  case to_bool.(
+         System.get_env("SERVICERADAR_REMOTE_ACCESS_SSH_HOST_KEY_SKIP_VERIFY_ENABLED", "false")
+       ) do
     nil -> false
     value -> value
   end
 
 remote_access_target_host_override_enabled =
-  case to_bool.(System.get_env("SERVICERADAR_REMOTE_ACCESS_TARGET_HOST_OVERRIDE_ENABLED", "false")) do
+  case to_bool.(
+         System.get_env("SERVICERADAR_REMOTE_ACCESS_TARGET_HOST_OVERRIDE_ENABLED", "false")
+       ) do
     nil -> false
     value -> value
   end
 
 remote_access_target_port_override_enabled =
-  case to_bool.(System.get_env("SERVICERADAR_REMOTE_ACCESS_TARGET_PORT_OVERRIDE_ENABLED", "false")) do
+  case to_bool.(
+         System.get_env("SERVICERADAR_REMOTE_ACCESS_TARGET_PORT_OVERRIDE_ENABLED", "false")
+       ) do
     nil -> false
     value -> value
   end
@@ -777,7 +790,10 @@ config :serviceradar_web_ng, :god_view_enabled, god_view_enabled
 
 config :serviceradar_web_ng,
        :managed_device_limit,
-       to_int.(System.get_env("SERVICERADAR_MANAGED_DEVICE_LIMIT") || System.get_env("SERVICERADAR_MAX_DEVICES"))
+       to_int.(
+         System.get_env("SERVICERADAR_MANAGED_DEVICE_LIMIT") ||
+           System.get_env("SERVICERADAR_MAX_DEVICES")
+       )
 
 config :serviceradar_web_ng, :mcp_client_credentials_enabled, mcp_client_credentials_enabled
 config :serviceradar_web_ng, :mcp_enabled, mcp_enabled
@@ -791,7 +807,8 @@ config :serviceradar_web_ng, :mcp_refresh_ttl_seconds, mcp_refresh_ttl_seconds
 config :serviceradar_web_ng, :otlp_onboarding,
   grpc_endpoint: System.get_env("SERVICERADAR_OTLP_GRPC_ENDPOINT", ""),
   http_endpoint: System.get_env("SERVICERADAR_OTLP_HTTP_ENDPOINT", ""),
-  grpc_requires_private_ca: to_bool.(System.get_env("SERVICERADAR_OTLP_GRPC_REQUIRES_PRIVATE_CA", "true")) != false
+  grpc_requires_private_ca:
+    to_bool.(System.get_env("SERVICERADAR_OTLP_GRPC_REQUIRES_PRIVATE_CA", "true")) != false
 
 config :serviceradar_web_ng, :runtime_capabilities, runtime_capabilities
 
@@ -818,8 +835,10 @@ config :serviceradar_web_ng,
 config :serviceradar_web_ng,
   remote_access_desktop_rdp_enabled: remote_access_desktop_rdp_enabled,
   remote_access_desktop_webrtc_ice_servers: remote_access_desktop_webrtc.ice_servers,
-  remote_access_desktop_webrtc_turn_shared_secret: remote_access_desktop_webrtc.turn_shared_secret,
-  remote_access_desktop_webrtc_turn_credential_ttl_seconds: remote_access_desktop_webrtc.credential_ttl_seconds
+  remote_access_desktop_webrtc_turn_shared_secret:
+    remote_access_desktop_webrtc.turn_shared_secret,
+  remote_access_desktop_webrtc_turn_credential_ttl_seconds:
+    remote_access_desktop_webrtc.credential_ttl_seconds
 
 config :serviceradar_web_ng,
   remote_access_ssh_enabled: remote_access_ssh_enabled
@@ -856,12 +875,15 @@ if remote_access_ssh_ca_signer_enabled do
     args: remote_access_ssh_ca_signer_args,
     ca_key_id: signer_ca_key_id
 
-  config :serviceradar_core, ServiceRadar.Edge.RemoteAccessSSHCertificates, signer: RemoteAccessSSHCACommandSigner
+  config :serviceradar_core, ServiceRadar.Edge.RemoteAccessSSHCertificates,
+    signer: RemoteAccessSSHCACommandSigner
 end
 
 if plugin_storage_overrides != [] do
   web_plugin_storage_config = Keyword.merge(plugin_storage_defaults, plugin_storage_overrides)
-  core_plugin_storage_config = Keyword.merge(plugin_storage_defaults, core_plugin_storage_overrides)
+
+  core_plugin_storage_config =
+    Keyword.merge(plugin_storage_defaults, core_plugin_storage_overrides)
 
   config :serviceradar_core, :plugin_storage, core_plugin_storage_config
 
@@ -1285,8 +1307,8 @@ if config_env() != :test do
     if object_store_retention_enabled do
       web_crontab ++
         [
-          {object_store_retention_cron, ServiceRadarWebNG.Plugins.BlobRetentionWorker, args: %{"enabled" => true},
-           queue: :web_maintenance}
+          {object_store_retention_cron, ServiceRadarWebNG.Plugins.BlobRetentionWorker,
+           args: %{"enabled" => true}, queue: :web_maintenance}
         ]
     else
       web_crontab
@@ -1297,7 +1319,8 @@ if config_env() != :test do
       web_crontab ++
         [
           {dashboard_report_scanner_cron, ServiceRadarWebNG.Dashboards.ReportScannerWorker,
-           args: %{"enabled" => true, "limit" => dashboard_report_scanner_limit}, queue: :web_maintenance}
+           args: %{"enabled" => true, "limit" => dashboard_report_scanner_limit},
+           queue: :web_maintenance}
         ]
     else
       web_crontab
@@ -1633,13 +1656,18 @@ if config_env() == :prod do
   config :serviceradar_core, ServiceRadar.AnalyticsStore,
     driver: System.get_env("SERVICERADAR_ANALYTICS_STORE_DRIVER") || "timescale",
     tables: System.get_env("SERVICERADAR_ANALYTICS_STORE_TABLES") || "",
+    hot_window_days: System.get_env("SERVICERADAR_ANALYTICS_STORE_HOT_WINDOW_DAYS") || "30",
+    parquet_retention_days: System.get_env("SERVICERADAR_ANALYTICS_STORE_PARQUET_RETENTION_DAYS"),
+    archive_buffer_max_bytes:
+      System.get_env("SERVICERADAR_ANALYTICS_STORE_ARCHIVE_BUFFER_MAX_BYTES") || "268435456",
     dual_write: System.get_env("SERVICERADAR_ANALYTICS_STORE_DUAL_WRITE") || "",
     storage: System.get_env("SERVICERADAR_ANALYTICS_STORE_STORAGE"),
     s3_bucket_url: System.get_env("SERVICERADAR_ANALYTICS_STORE_S3_BUCKET_URL"),
     s3_endpoint: System.get_env("SERVICERADAR_ANALYTICS_STORE_S3_ENDPOINT"),
     s3_region: System.get_env("SERVICERADAR_ANALYTICS_STORE_S3_REGION"),
     s3_url_style: System.get_env("SERVICERADAR_ANALYTICS_STORE_S3_URL_STYLE") || "path",
-    s3_use_ssl: System.get_env("SERVICERADAR_ANALYTICS_STORE_S3_USE_SSL", "true") in ["true", "1"],
+    s3_use_ssl:
+      System.get_env("SERVICERADAR_ANALYTICS_STORE_S3_USE_SSL", "true") in ["true", "1"],
     s3_access_key_id:
       read_secret_env.(
         "SERVICERADAR_ANALYTICS_STORE_S3_ACCESS_KEY_ID",
@@ -1768,7 +1796,8 @@ if config_env() == :prod do
     mode: spiffe_mode,
     trust_domain: System.get_env("SPIFFE_TRUST_DOMAIN", "serviceradar.local"),
     cert_dir: System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs"),
-    workload_api_socket: System.get_env("SPIFFE_WORKLOAD_API_SOCKET", "unix:///run/spire/sockets/agent.sock"),
+    workload_api_socket:
+      System.get_env("SPIFFE_WORKLOAD_API_SOCKET", "unix:///run/spire/sockets/agent.sock"),
     trust_bundle_path: spiffe_bundle_path
 
   if datasvc_address do

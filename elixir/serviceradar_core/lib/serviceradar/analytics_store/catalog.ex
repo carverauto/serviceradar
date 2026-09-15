@@ -7,5 +7,7 @@ defmodule ServiceRadar.AnalyticsStore.Catalog do
 
   resources do
     resource ServiceRadar.AnalyticsStore.FileManifest
+    resource ServiceRadar.AnalyticsStore.DeliveryReceipt
+    resource ServiceRadar.AnalyticsStore.ArchiveBatch
   end
 end

@@ -19,14 +19,33 @@ struct CursorPayload {
     start: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     end: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    store: Option<CursorStore>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    table: Option<String>,
     sig: String,
 }
 
-/// Offset plus optional pinned time window (duckdb dialect, cursor v3).
+/// Concrete store pinned by a hybrid cursor. A continuation never changes lanes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CursorStore {
+    Timescale,
+    PgDuckdb,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HybridCursor {
+    pub store: CursorStore,
+    pub table: String,
+}
+
+/// Offset plus an optional pinned window and hybrid store (cursor v3/v4).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CursorState {
     pub offset: i64,
     pub time_range: Option<TimeRange>,
+    pub hybrid: Option<HybridCursor>,
 }
 
 pub fn decode_cursor(cursor: &str, secret: &str, max_offset: i64) -> Result<i64> {
@@ -55,6 +74,7 @@ pub fn decode_cursor_state(cursor: &str, secret: &str, max_offset: i64) -> Resul
             Ok(CursorState {
                 offset: payload.offset,
                 time_range: None,
+                hybrid: None,
             })
         }
         3 => {
@@ -64,6 +84,37 @@ pub fn decode_cursor_state(cursor: &str, secret: &str, max_offset: i64) -> Resul
             Ok(CursorState {
                 offset: payload.offset,
                 time_range: Some(TimeRange { start, end }),
+                hybrid: None,
+            })
+        }
+        4 => {
+            verify_signature(&payload, secret)?;
+            let store = payload.store.ok_or_else(|| {
+                ServiceError::InvalidRequest("hybrid cursor missing store".into())
+            })?;
+            let table = payload
+                .table
+                .filter(|table| !table.is_empty())
+                .ok_or_else(|| {
+                    ServiceError::InvalidRequest("hybrid cursor missing table".into())
+                })?;
+            let time_range = match (payload.start.as_deref(), payload.end.as_deref()) {
+                (None, None) if store == CursorStore::PgDuckdb => None,
+                (start, end) => {
+                    let start = parse_window_instant(start, "start")?;
+                    let end = parse_window_instant(end, "end")?;
+                    if start > end {
+                        return Err(ServiceError::InvalidRequest(
+                            "invalid cursor window ordering".into(),
+                        ));
+                    }
+                    Some(TimeRange { start, end })
+                }
+            };
+            Ok(CursorState {
+                offset: payload.offset,
+                time_range,
+                hybrid: Some(HybridCursor { store, table }),
             })
         }
         _ => Err(ServiceError::InvalidRequest(
@@ -95,6 +146,29 @@ pub fn encode_cursor_maybe_window(
         offset,
         start,
         end,
+        store: None,
+        table: None,
+        sig: String::new(),
+    };
+    payload.sig = sign_payload(&payload, secret)?;
+    let bytes = serde_json::to_vec(&payload)
+        .map_err(|_| ServiceError::InvalidRequest("failed to encode cursor".into()))?;
+    Ok(URL_SAFE_NO_PAD.encode(bytes))
+}
+
+pub fn encode_hybrid_cursor(
+    offset: i64,
+    secret: &str,
+    window: Option<&TimeRange>,
+    route: &HybridCursor,
+) -> Result<String> {
+    let mut payload = CursorPayload {
+        v: 4,
+        offset: offset.max(0),
+        start: window.map(|range| range.start.to_rfc3339()),
+        end: window.map(|range| range.end.to_rfc3339()),
+        store: Some(route.store),
+        table: Some(route.table.clone()),
         sig: String::new(),
     };
     payload.sig = sign_payload(&payload, secret)?;
@@ -146,6 +220,18 @@ fn cursor_mac(payload: &CursorPayload, secret: &str) -> Result<HmacSha256> {
             mac.update(b":");
             mac.update(payload.end.as_deref().unwrap_or_default().as_bytes());
         }
+        4 => {
+            mac.update(b"srql-cursor-v4:");
+            let fields = serde_json::to_vec(&(
+                payload.offset,
+                &payload.start,
+                &payload.end,
+                payload.store,
+                &payload.table,
+            ))
+            .map_err(|_| ServiceError::InvalidRequest("failed to encode cursor".into()))?;
+            mac.update(&fields);
+        }
         _ => {
             return Err(ServiceError::InvalidRequest(
                 "unsupported cursor version".into(),
@@ -193,6 +279,8 @@ mod tests {
             offset: 250,
             start: None,
             end: None,
+            store: None,
+            table: None,
             sig: "$$$".to_string(),
         };
         let encoded = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&payload).unwrap());
@@ -241,5 +329,65 @@ mod tests {
         let tampered = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&payload).unwrap());
         let err = decode_cursor_state(&tampered, "secret", 1_000).unwrap_err();
         assert!(matches!(err, ServiceError::InvalidRequest(_)));
+    }
+
+    #[test]
+    fn hybrid_cursor_signs_store_table_and_window() {
+        let window = TimeRange {
+            start: DateTime::parse_from_rfc3339("2026-05-01T00:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+            end: DateTime::parse_from_rfc3339("2026-05-02T00:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+        };
+        let route = HybridCursor {
+            store: CursorStore::Timescale,
+            table: "timeseries_metrics".into(),
+        };
+        let encoded = encode_hybrid_cursor(25, "synthetic-secret", Some(&window), &route).unwrap();
+        let state = decode_cursor_state(&encoded, "synthetic-secret", 100).unwrap();
+        assert_eq!(state.offset, 25);
+        assert_eq!(state.time_range, Some(window));
+        assert_eq!(state.hybrid, Some(route));
+
+        let original: serde_json::Value =
+            serde_json::from_slice(&URL_SAFE_NO_PAD.decode(&encoded).unwrap()).unwrap();
+        assert_eq!(original["v"], 4);
+        for (key, value) in [
+            ("store", serde_json::json!("pg_duckdb")),
+            ("table", serde_json::json!("logs")),
+            ("start", serde_json::json!("2026-04-01T00:00:00+00:00")),
+            ("end", serde_json::json!("2026-05-03T00:00:00+00:00")),
+            ("offset", serde_json::json!(50)),
+        ] {
+            let mut changed = original.clone();
+            changed[key] = value;
+            let tampered = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&changed).unwrap());
+            assert!(
+                decode_cursor_state(&tampered, "synthetic-secret", 100).is_err(),
+                "{key}"
+            );
+        }
+    }
+
+    #[test]
+    fn single_store_cursor_encodings_remain_byte_identical() {
+        let window = TimeRange {
+            start: DateTime::parse_from_rfc3339("2026-05-01T00:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+            end: DateTime::parse_from_rfc3339("2026-05-02T00:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+        };
+        assert_eq!(
+            encode_cursor(25, "synthetic-secret").unwrap(),
+            "eyJ2IjoyLCJvZmZzZXQiOjI1LCJzaWciOiJieDZ2LWFvd1E3SlpZWjZxZzl0TVg3X0VLSHlvVWtFZFN4aTFjT29CTXhRIn0"
+        );
+        assert_eq!(
+            encode_cursor_maybe_window(25, "synthetic-secret", Some(&window)).unwrap(),
+            "eyJ2IjozLCJvZmZzZXQiOjI1LCJzdGFydCI6IjIwMjYtMDUtMDFUMDA6MDA6MDArMDA6MDAiLCJlbmQiOiIyMDI2LTA1LTAyVDAwOjAwOjAwKzAwOjAwIiwic2lnIjoicDB6OXJWTzVzczJUUkRENlFKSFNQQ3N2OTNxc1BpNmhzc2ZFMDh3MnRtRSJ9"
+        );
     }
 }

@@ -24,7 +24,7 @@ mod update_capnp {
 
 fn parse_drivers(
     drivers_json: Option<&str>,
-) -> Result<std::collections::HashMap<String, String>, String> {
+) -> Result<std::collections::HashMap<String, srql::query::AnalyticsDriver>, String> {
     match drivers_json {
         None | Some("") => Ok(std::collections::HashMap::new()),
         Some(json) => serde_json::from_str(json)
@@ -75,10 +75,11 @@ fn translate(
 
     let config = srql::config::AppConfig::embedded("postgres://unused/db".to_string());
 
-    let response = match srql::query::translate_request_with_drivers(&config, request, &drivers) {
-        Ok(response) => response,
-        Err(err) => return (atoms::error(), err.to_string()).encode(env),
-    };
+    let response =
+        match srql::query::translate_request_with_store_configs(&config, request, &drivers) {
+            Ok(response) => response,
+            Err(err) => return (atoms::error(), err.to_string()).encode(env),
+        };
 
     match serde_json::to_string(&response) {
         Ok(json) => (atoms::ok(), json).encode(env),

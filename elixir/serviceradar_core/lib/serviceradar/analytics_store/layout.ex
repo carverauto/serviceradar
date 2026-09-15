@@ -42,6 +42,18 @@ defmodule ServiceRadar.AnalyticsStore.Layout do
     }
   end
 
+  @doc "Immutable outbox candidates are outside the legacy published hive glob."
+  @spec candidate_keys(String.t(), Date.t(), String.t(), String.t()) :: keys()
+  def candidate_keys(table, %Date{} = date, writer, batch_id) do
+    keys = keys(table, date, writer, batch_id)
+    prefix = "analytics/#{@layout_version}/#{sanitize(table)}/"
+
+    %{
+      keys
+      | published_key: String.replace_prefix(keys.published_key, prefix, prefix <> "_candidates/")
+    }
+  end
+
   @doc "Hive glob over published `date=*` objects for `table` (never `_staging/`)."
   @spec published_glob(String.t()) :: String.t()
   def published_glob(table) when is_binary(table) do

@@ -112,6 +112,56 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
     ServiceRadar.AnalyticsStore.Config.driver_for(store_cfg, table_name) == :pg_duckdb
   end
 
+  @doc "Keep the complete configured hot query window for selected hybrid tables."
+  @spec effective_retention_days(
+          String.t(),
+          pos_integer(),
+          ServiceRadar.AnalyticsStore.Config.t()
+        ) ::
+          pos_integer()
+  def effective_retention_days(table_name, retention_days, store_cfg) do
+    if ServiceRadar.AnalyticsStore.Config.driver_for(store_cfg, table_name) == :hybrid do
+      max(retention_days, store_cfg.hot_window_days)
+    else
+      retention_days
+    end
+  end
+
+  @doc "Reinstall the hybrid metrics compression policy; schema settings belong to the migration."
+  @spec hybrid_compression_policy_sql(String.t(), ServiceRadar.AnalyticsStore.Config.t()) ::
+          String.t() | nil
+  def hybrid_compression_policy_sql(table_name, store_cfg) do
+    if table_name == "timeseries_metrics" and
+         ServiceRadar.AnalyticsStore.Config.driver_for(store_cfg, table_name) == :hybrid do
+      """
+      DO $$
+      DECLARE
+        ts_schema text;
+      BEGIN
+        SELECT n.nspname INTO ts_schema
+          FROM pg_extension e
+          JOIN pg_namespace n ON n.oid = e.extnamespace
+         WHERE e.extname = 'timescaledb';
+        IF ts_schema IS NULL THEN
+          RETURN;
+        END IF;
+        IF EXISTS (
+          SELECT 1 FROM timescaledb_information.hypertables
+           WHERE hypertable_schema = 'platform' AND hypertable_name = 'timeseries_metrics'
+             AND compression_enabled
+        ) THEN
+          EXECUTE format(
+            'SELECT %I.add_compression_policy(%L::regclass, INTERVAL ''2 days'', if_not_exists => true)',
+            ts_schema,
+            'platform.timeseries_metrics'
+          );
+        END IF;
+      END;
+      $$;
+      """
+    end
+  end
+
   defp reconcile_timescale_tables(config) do
     store_cfg = ServiceRadar.AnalyticsStore.Config.load()
 
@@ -154,6 +204,7 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
           config
           |> Keyword.get(retention_key, retention_default)
           |> positive_integer(retention_default)
+          |> then(&effective_retention_days(table_name, &1, store_cfg))
 
         chunk_hours =
           config |> Keyword.get(chunk_key, chunk_default) |> positive_integer(chunk_default)
@@ -172,10 +223,26 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
           # ever discard data.
           RetentionFence.reconcile_policy(table_name, retention_days)
           set_chunk_interval(table_name, chunk_hours)
+          reconcile_hybrid_compression(table_name, store_cfg)
           drop_expired_chunks(table_name, retention_days)
         end
       end
     )
+  end
+
+  defp reconcile_hybrid_compression(table_name, store_cfg) do
+    if sql = hybrid_compression_policy_sql(table_name, store_cfg) do
+      case SQL.query(Repo, sql, [], timeout: @query_timeout_ms) do
+        {:ok, _} ->
+          :ok
+
+        {:error, error} ->
+          Logger.warning("Failed to reconcile hybrid metrics compression policy",
+            table: table_name,
+            reason: Exception.message(error)
+          )
+      end
+    end
   end
 
   defp alert_on_undrained_cold_tier do

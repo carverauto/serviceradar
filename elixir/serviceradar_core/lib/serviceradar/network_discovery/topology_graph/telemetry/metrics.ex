@@ -126,7 +126,10 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Telemetry.Metrics do
   @doc false
   def latest_metric_query(device_ids, device_ips, if_indexes, metric_names, cutoff, opts \\ []) do
     {partition_sql, params} =
-      case AnalyticsStore.dialect("timeseries_metrics", opts) do
+      case AnalyticsStore.dialect(
+             "timeseries_metrics",
+             Keyword.put(opts, :time_range, {cutoff, nil})
+           ) do
         :duckdb ->
           {"\n        AND m._partition_date >= $6::date",
            [device_ids, device_ips, if_indexes, metric_names, cutoff, DateTime.to_date(cutoff)]}

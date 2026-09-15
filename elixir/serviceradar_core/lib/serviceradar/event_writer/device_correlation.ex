@@ -176,6 +176,8 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
   defp snmp_metric_canonical_hint(_candidate), do: nil
 
   defp query_snmp_metric_by_device(candidate, device_uid) do
+    cutoff = DateTime.add(DateTime.utc_now(), -48, :hour)
+
     query_snmp_metric_device_uid(
       "timeseries_metrics",
       """
@@ -185,16 +187,19 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
         AND metric_name = $2
         AND if_index = $3
         AND ($4::text IS NULL OR partition = $4)
-        AND timestamp >= now() - INTERVAL '48 hours'
-        AND NULLIF(btrim(device_id), '') IS NOT NULL#{timeseries_partition_sql()}
+        AND timestamp >= $5::timestamptz
+        AND NULLIF(btrim(device_id), '') IS NOT NULL
       ORDER BY timestamp DESC
       LIMIT 1
       """,
-      [device_uid, candidate.metric_name, candidate.if_index, candidate.partition]
+      [device_uid, candidate.metric_name, candidate.if_index, candidate.partition, cutoff],
+      time_range: {cutoff, nil}
     )
   end
 
   defp query_snmp_metric_by_target(candidate) do
+    cutoff = DateTime.add(DateTime.utc_now(), -48, :hour)
+
     query_snmp_metric_device_uid(
       "timeseries_metrics",
       """
@@ -204,12 +209,19 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
         AND metric_name = $2
         AND if_index = $3
         AND ($4::text IS NULL OR partition = $4)
-        AND timestamp >= now() - INTERVAL '48 hours'
-        AND NULLIF(btrim(device_id), '') IS NOT NULL#{timeseries_partition_sql()}
+        AND timestamp >= $5::timestamptz
+        AND NULLIF(btrim(device_id), '') IS NOT NULL
       ORDER BY timestamp DESC
       LIMIT 1
       """,
-      [candidate.target_device_ip, candidate.metric_name, candidate.if_index, candidate.partition]
+      [
+        candidate.target_device_ip,
+        candidate.metric_name,
+        candidate.if_index,
+        candidate.partition,
+        cutoff
+      ],
+      time_range: {cutoff, nil}
     )
   end
 
@@ -259,20 +271,14 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
   end
 
   defp timeseries_cagg_available? do
-    AnalyticsStore.dialect("timeseries_metrics") == :postgres
+    AnalyticsStore.Config.driver_for(AnalyticsStore.Config.load(), "timeseries_metrics") !=
+      :pg_duckdb
   end
 
-  defp timeseries_partition_sql do
-    case AnalyticsStore.dialect("timeseries_metrics") do
-      :duckdb -> "\n        AND _partition_date >= CURRENT_DATE - 2"
-      :postgres -> ""
-    end
-  end
-
-  defp query_snmp_metric_device_uid(table, sql, params) do
+  defp query_snmp_metric_device_uid(table, sql, params, opts \\ []) do
     lookup = fn ->
       case table do
-        "timeseries_metrics" -> AnalyticsStore.SQL.query(table, sql, params)
+        "timeseries_metrics" -> AnalyticsStore.SQL.query(table, sql, params, opts)
         _ -> Repo.query(sql, params)
       end
     end

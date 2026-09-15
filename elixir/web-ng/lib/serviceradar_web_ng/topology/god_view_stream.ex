@@ -4876,7 +4876,9 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp interface_pair_key(_device_id, _if_index), do: nil
 
   defp timeseries_store_reachable? do
-    case AnalyticsStore.SQL.repo_for_table("timeseries_metrics") do
+    cutoff = DateTime.add(DateTime.utc_now(), -24, :hour)
+
+    case AnalyticsStore.SQL.repo_for_table("timeseries_metrics", time_range: {cutoff, nil}) do
       {:error, _} -> false
       _repo -> true
     end

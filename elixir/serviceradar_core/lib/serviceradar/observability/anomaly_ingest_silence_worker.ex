@@ -125,7 +125,7 @@ defmodule ServiceRadar.Observability.AnomalyIngestSilenceWorker do
   end
 
   defp exists_timeseries?(opts, cutoff) do
-    sql = metrics_alive_sql(opts)
+    sql = metrics_alive_sql(Keyword.put(opts, :time_range, {cutoff, nil}))
 
     case AnalyticsStore.SQL.query(
            "timeseries_metrics",
@@ -143,7 +143,10 @@ defmodule ServiceRadar.Observability.AnomalyIngestSilenceWorker do
 
   defp metrics_alive_sql(opts) do
     prune =
-      case AnalyticsStore.dialect("timeseries_metrics", Keyword.take(opts, [:config])) do
+      case AnalyticsStore.dialect(
+             "timeseries_metrics",
+             Keyword.take(opts, [:config, :time_range])
+           ) do
         :duckdb -> "\n      AND _partition_date >= CURRENT_DATE - 1"
         :postgres -> ""
       end

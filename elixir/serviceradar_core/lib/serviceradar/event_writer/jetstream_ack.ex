@@ -13,6 +13,7 @@ defmodule ServiceRadar.EventWriter.JetStreamAck do
 
   @type t :: %{
           stream: String.t(),
+          source_scope: String.t(),
           consumer: String.t(),
           delivery_count: pos_integer(),
           stream_sequence: non_neg_integer(),
@@ -33,10 +34,11 @@ defmodule ServiceRadar.EventWriter.JetStreamAck do
          {:ok, consumer_sequence} <- parse_non_negative(consumer_seq),
          {:ok, timestamp} <- parse_non_negative(timestamp),
          {:ok, pending} <- parse_non_negative(pending) do
-      [consumer, stream | _domain_or_account] = Enum.reverse(prefix)
+      [consumer, stream | reversed_scope] = Enum.reverse(prefix)
 
       %{
         stream: stream,
+        source_scope: reversed_scope |> Enum.reverse() |> Enum.join("."),
         consumer: consumer,
         delivery_count: delivery_count,
         stream_sequence: stream_sequence,

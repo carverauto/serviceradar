@@ -13,7 +13,7 @@ use super::{
 use crate::{
     config::AppConfig,
     error::Result,
-    pagination::encode_cursor_maybe_window,
+    pagination::{encode_cursor_maybe_window, encode_hybrid_cursor},
     parser::{self, Entity},
 };
 
@@ -26,8 +26,21 @@ pub fn translate_request_with_drivers(
     request: QueryRequest,
     drivers: &std::collections::HashMap<String, String>,
 ) -> Result<TranslateResponse> {
+    let typed_drivers = drivers
+        .iter()
+        .map(|(table, driver)| (table.clone(), super::AnalyticsDriver::Named(driver.clone())))
+        .collect();
+    translate_request_with_store_configs(config, request, &typed_drivers)
+}
+
+pub fn translate_request_with_store_configs(
+    config: &AppConfig,
+    request: QueryRequest,
+    drivers: &std::collections::HashMap<String, super::AnalyticsDriver>,
+) -> Result<TranslateResponse> {
     let ast = parser::parse(&request.query)?;
-    let plan = super::plan::build_query_plan_with_drivers(config, &request, ast, drivers)?;
+    let (plan, hybrid) =
+        super::plan::build_query_plan_with_store_configs(config, &request, ast, drivers)?;
     let viz = viz::meta_for_plan(&plan);
 
     // A `profile_hour_of_week[_peak]` stats query is a profile aggregation, never a
@@ -137,23 +150,30 @@ pub fn translate_request_with_drivers(
     };
 
     let next_offset = plan.offset.saturating_add(plan.limit);
-    let window = super::dialect::pinned_cursor_window(&plan);
+    let encode_page = |offset| {
+        if let Some(route) = &hybrid {
+            encode_hybrid_cursor(
+                offset,
+                &config.cursor_secret,
+                plan.time_range.as_ref(),
+                route,
+            )
+        } else {
+            encode_cursor_maybe_window(
+                offset,
+                &config.cursor_secret,
+                super::dialect::pinned_cursor_window(&plan),
+            )
+        }
+    };
     let next_cursor =
         if next_offset <= config.max_cursor_offset || is_exhaustive_profile_query(&plan) {
-            Some(encode_cursor_maybe_window(
-                next_offset,
-                &config.cursor_secret,
-                window,
-            )?)
+            Some(encode_page(next_offset)?)
         } else {
             None
         };
     let prev_cursor = if plan.offset > 0 {
-        Some(encode_cursor_maybe_window(
-            plan.offset.saturating_sub(plan.limit),
-            &config.cursor_secret,
-            window,
-        )?)
+        Some(encode_page(plan.offset.saturating_sub(plan.limit))?)
     } else {
         None
     };
@@ -170,12 +190,13 @@ pub fn translate_request_with_drivers(
         },
         viz,
         dialect: plan.dialect,
-        analytics_table: if plan.dialect.is_duckdb() {
+        read_store: hybrid.as_ref().map(|route| route.store),
+        analytics_table: if plan.dialect.is_duckdb() || hybrid.is_some() {
             super::cold::cold_table_for_entity(&plan.entity).map(str::to_owned)
         } else {
             None
         },
-        time_range: if plan.dialect.is_duckdb() {
+        time_range: if plan.dialect.is_duckdb() || hybrid.is_some() {
             plan.time_range
         } else {
             None

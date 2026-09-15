@@ -7,6 +7,7 @@ defmodule ServiceRadar.AnalyticsStore.Query do
   The original predicates and bind parameters still filter rows within each file.
   """
 
+  alias ServiceRadar.AnalyticsStore.ArchiveReadiness
   alias ServiceRadar.AnalyticsStore.Bindings
   alias ServiceRadar.AnalyticsStore.Config
   alias ServiceRadar.AnalyticsStore.FileManifest
@@ -20,7 +21,8 @@ defmodule ServiceRadar.AnalyticsStore.Query do
     cfg = Keyword.get_lazy(opts, :config, &Config.load/0)
     list = Keyword.get(opts, :manifest_list_fn, &FileManifest.published_keys/3)
 
-    with {:ok, entry} <- Registry.fetch(table),
+    with :ok <- ArchiveReadiness.await(table, {start_time, end_time}, opts),
+         {:ok, entry} <- Registry.fetch(table),
          {:ok, keys} <- list.(table, start_time, end_time),
          {:ok, urls} <- urls(cfg, table, keys) do
       source = Views.manifest_select_sql(entry, urls)
@@ -68,7 +70,7 @@ defmodule ServiceRadar.AnalyticsStore.Query do
   defp urls(cfg, table, keys) do
     key_pattern =
       Regex.compile!(
-        "\\Aanalytics/v1/#{Regex.escape(table)}/date=\\d{4}-\\d{2}-\\d{2}/[A-Za-z0-9_-]+\\.parquet\\z"
+        "\\Aanalytics/v1/#{Regex.escape(table)}/(?:_candidates/)?date=\\d{4}-\\d{2}-\\d{2}/[A-Za-z0-9_-]+\\.parquet\\z"
       )
 
     keys

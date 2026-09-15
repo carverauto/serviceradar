@@ -100,6 +100,51 @@ defmodule ServiceRadar.AnalyticsStore.CaggRefreshTest do
     refute Enum.any?(sqls, &(&1 =~ "cpu_metrics_hourly"))
   end
 
+  test "hybrid restores missing timeseries policies without removing any refresh policy" do
+    cfg =
+      Config.validate!(
+        Config.load(
+          driver: :hybrid,
+          tables: ["timeseries_metrics"],
+          storage: :filesystem,
+          filesystem_path: "/tmp/example-hybrid-archive",
+          head_host: "archive.example.com"
+        )
+      )
+
+    parent = self()
+    assert :ok = CaggRefresh.reconcile(config: cfg, exec: &send(parent, {:exec, &1}))
+    sqls = for {:exec, sql} <- receive_all(), do: sql
+
+    assert length(sqls) == 3
+    assert Enum.all?(sqls, &(&1 =~ "add_continuous_aggregate_policy"))
+    assert Enum.all?(sqls, &(&1 =~ "if_not_exists => true"))
+    refute Enum.any?(sqls, &(&1 =~ "remove_continuous_aggregate_policy"))
+    refute Enum.any?(sqls, &(&1 =~ "ocsf_network_activity"))
+
+    for view <- CaggRefresh.views_for("timeseries_metrics") do
+      assert Enum.any?(sqls, &(&1 =~ "view_name = '#{view}'"))
+    end
+  end
+
+  test "hybrid restore respects a short hot window and skips absent extensions or CAGGs" do
+    sql = CaggRefresh.restore_policy_sql("timeseries_metrics_hourly", 1)
+    assert sql =~ "start_offset => INTERVAL ''1 hours''"
+    assert sql =~ "end_offset => INTERVAL ''10 minutes''"
+    assert sql =~ "IF ts_schema IS NULL THEN"
+    assert sql =~ "IF NOT EXISTS"
+    assert sql =~ "view_schema = 'platform'"
+
+    for hot_days <- [7, 30, 90] do
+      sql = CaggRefresh.restore_policy_sql("timeseries_metrics_hourly", hot_days)
+      assert sql =~ "start_offset => INTERVAL ''120 hours''"
+    end
+
+    assert_raise ArgumentError, fn ->
+      CaggRefresh.restore_policy_sql("ocsf_network_activity_5m_traffic", 7)
+    end
+  end
+
   defp receive_all(acc \\ []) do
     receive do
       msg -> receive_all([msg | acc])

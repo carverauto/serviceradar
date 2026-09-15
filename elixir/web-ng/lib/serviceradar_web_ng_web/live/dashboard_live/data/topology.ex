@@ -107,7 +107,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Topology do
       defp attach_interface_sparklines(links, _cutoff, _bucket) when links == [], do: links
 
       defp attach_interface_sparklines(links, cutoff, bucket_seconds) do
-        if timeseries_store_reachable?() do
+        if timeseries_store_reachable?(cutoff) do
           pairs =
             links
             |> Enum.flat_map(&topology_interface_pairs/1)
@@ -160,8 +160,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Topology do
         end
       end
 
-      defp timeseries_store_reachable? do
-        case ServiceRadar.AnalyticsStore.SQL.repo_for_table("timeseries_metrics") do
+      defp timeseries_store_reachable?(cutoff) do
+        case ServiceRadar.AnalyticsStore.SQL.repo_for_table("timeseries_metrics", time_range: {cutoff, nil}) do
           {:error, _} -> false
           _repo -> true
         end

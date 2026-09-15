@@ -86,7 +86,10 @@ defmodule ServiceRadar.AnalyticsStore.TimeseriesQueries do
   end
 
   defp hive_prune(opts, qualifier, %DateTime{} = cutoff) do
-    case AnalyticsStore.dialect("timeseries_metrics", opts) do
+    case AnalyticsStore.dialect(
+           "timeseries_metrics",
+           Keyword.put(opts, :time_range, {cutoff, nil})
+         ) do
       :duckdb ->
         date = cutoff |> DateTime.to_date() |> Date.to_iso8601()
         column = if qualifier, do: "#{qualifier}._partition_date", else: "_partition_date"

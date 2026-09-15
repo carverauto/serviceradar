@@ -58,4 +58,22 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.TelemetryMetricsTest do
              ~D[2026-09-15]
            ]
   end
+
+  test "hybrid recent telemetry SQL has no archive-only column" do
+    cfg = AnalyticsStore.Config.load(driver: :hybrid, tables: "timeseries_metrics")
+
+    {sql, params} =
+      Metrics.latest_metric_query(
+        ["sr:synthetic-device"],
+        ["192.0.2.23"],
+        [2],
+        ["ifHCInOctets"],
+        @cutoff,
+        config: cfg,
+        now: ~U[2026-09-16 12:00:00Z]
+      )
+
+    refute sql =~ "_partition_date"
+    assert length(params) == 5
+  end
 end

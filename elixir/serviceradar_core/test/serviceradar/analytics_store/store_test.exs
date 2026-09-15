@@ -6,9 +6,22 @@ defmodule ServiceRadar.AnalyticsStore.StoreTest do
   alias ServiceRadar.AnalyticsStore.TimescaleDriver
 
   defmodule FakeRepo do
+    def query(sql, params, opts) do
+      send(self(), {:query, sql, params, opts})
+      {:ok, %{rows: [[1]]}}
+    end
+
+    def transaction(fun) do
+      {:ok, fun.()}
+    catch
+      {:rollback, reason} -> {:error, reason}
+    end
+
+    def rollback(reason), do: throw({:rollback, reason})
+
     def insert_all(table, rows, opts) do
       send(self(), {:insert_all, table, rows, opts})
-      {length(rows), nil}
+      {length(rows), if(is_list(opts[:returning]), do: rows)}
     end
   end
 
@@ -137,5 +150,49 @@ defmodule ServiceRadar.AnalyticsStore.StoreTest do
     assert_received {:insert_all, "ocsf_network_activity", ^rows, opts}
     assert opts[:on_conflict] == :nothing
     assert AnalyticsStore.dialect("ocsf_network_activity", config: cfg) == :postgres
+  end
+
+  test "hybrid writes Timescale and durable archive work in one transaction" do
+    cfg =
+      Config.load(
+        driver: :hybrid,
+        tables: "timeseries_metrics",
+        storage: :filesystem,
+        filesystem_path: "/tmp/synthetic-archive",
+        head_host: "analytics.example.com"
+      )
+
+    rows = [%{timestamp: ~U[2025-01-02 12:00:00Z], metric_name: "synthetic_metric", value: 1.0}]
+
+    assert {:error, :archive_unavailable} =
+             AnalyticsStore.write("timeseries_metrics", rows,
+               config: cfg,
+               repo: FakeRepo,
+               transaction: &FakeRepo.transaction/1,
+               enqueue_rows: fn "timeseries_metrics", ^rows, _opts ->
+                 assert_received {:insert_all, "timeseries_metrics", ^rows, _}
+                 {:error, :archive_unavailable}
+               end
+             )
+
+    assert {:ok, 0} = AnalyticsStore.write("timeseries_metrics", [], config: cfg, repo: FakeRepo)
+  end
+
+  test "recent hybrid facade preserves the primary query API and default timeout" do
+    cfg = Config.load(driver: :hybrid, tables: "timeseries_metrics")
+    now = ~U[2025-02-01 12:00:00Z]
+    cutoff = DateTime.add(now, -1, :day)
+    sql = "SELECT value FROM timeseries_metrics WHERE timestamp >= $1"
+
+    assert {:ok, %{rows: [[1]]}} =
+             AnalyticsStore.query(sql, [cutoff],
+               table: "timeseries_metrics",
+               config: cfg,
+               repo: FakeRepo,
+               now: now,
+               time_range: {cutoff, nil}
+             )
+
+    assert_received {:query, ^sql, [^cutoff], [timeout: 15_000]}
   end
 end

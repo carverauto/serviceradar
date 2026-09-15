@@ -39,21 +39,25 @@ defmodule ServiceRadar.AnalyticsStore.SQL do
   @spec query(String.t(), String.t(), [term()], keyword()) :: {:ok, term()} | {:error, term()}
   def query(table, sql, params, opts \\ [])
       when is_binary(table) and is_binary(sql) and is_list(params) do
-    case repo_for_table(table, opts) do
-      {:error, reason} ->
-        {:error, reason}
+    with {:ok, window} <- Query.query_window(opts) do
+      cfg = Keyword.get_lazy(opts, :config, &Config.load/0)
+      now = Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
+      driver = Config.read_driver_for(cfg, table, window, now)
 
-      repo ->
-        with {:ok, sql, params} <- prepare_query(table, sql, params, opts) do
-          timeout = Keyword.get(opts, :timeout, timeout_for(repo))
+      repo =
+        if driver == :pg_duckdb, do: analytics_repo(opts), else: Keyword.get(opts, :repo, Repo)
 
-          EctoSQL.query(
-            repo,
-            sql,
-            params,
-            query_options(AnalyticsStore.dialect(table, opts), timeout)
-          )
-        end
+      case repo do
+        {:error, reason} ->
+          {:error, reason}
+
+        repo ->
+          with {:ok, sql, params} <- prepare_for_driver(driver, table, sql, params, window, opts) do
+            timeout = Keyword.get(opts, :timeout, timeout_for(repo))
+            dialect = if driver == :pg_duckdb, do: :duckdb, else: :postgres
+            EctoSQL.query(repo, sql, params, query_options(dialect, timeout))
+          end
+      end
     end
   end
 
@@ -95,16 +99,20 @@ defmodule ServiceRadar.AnalyticsStore.SQL do
   @spec prepare_query(String.t(), String.t(), [term()], keyword()) ::
           {:ok, String.t(), [term()]} | {:error, term()}
   def prepare_query(table, sql, params, opts \\ []) do
-    case AnalyticsStore.dialect(table, opts) do
-      :postgres ->
-        {:ok, sql, params}
+    with {:ok, window} <- Query.query_window(opts) do
+      cfg = Keyword.get_lazy(opts, :config, &Config.load/0)
+      now = Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
+      driver = Config.read_driver_for(cfg, table, window, now)
+      prepare_for_driver(driver, table, sql, params, window, opts)
+    end
+  end
 
-      :duckdb ->
-        with {:ok, window} <- Query.query_window(opts),
-             {:ok, sql} <- Query.prepare(table, sql, window, opts),
-             {:ok, sql} <- Bindings.bind(sql, params) do
-          {:ok, sql, []}
-        end
+  defp prepare_for_driver(:timescale, _table, sql, params, _window, _opts), do: {:ok, sql, params}
+
+  defp prepare_for_driver(:pg_duckdb, table, sql, params, window, opts) do
+    with {:ok, sql} <- Query.prepare(table, sql, window, opts),
+         {:ok, sql} <- Bindings.bind(sql, params) do
+      {:ok, sql, []}
     end
   end
 

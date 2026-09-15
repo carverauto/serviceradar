@@ -78,3 +78,21 @@ therefore create the per-tenant bucket and write the object-storage access keys
 into that Kubernetes secret before running `helm upgrade --install`; otherwise
 WAL archiving and the immediate base backup cannot complete, and the control
 plane's backup readiness gate will keep the environment out of service.
+
+## Analytics Storage
+
+The hosted baseline enables `analyticsStore.driver: hybrid` for
+`timeseries_metrics`, with a 30-day hot read window. EventWriter persists a hot
+Timescale copy and durable archive publication work. Historical queries use the
+dedicated pg_duckdb head. The base OSS chart remains Timescale-only.
+
+Before provisioning, the hosted control plane must replace the synthetic
+`analyticsStore.pgDuckdb.s3` bucket, endpoint, region and Secret reference with
+the tenant's analytics backend, and create that credential Secret. The analytics
+bucket is separate from the CNPG backup bucket. The current table selection does
+not enable NetFlow archival.
+
+Changing this baseline does not update an already deployed control-plane values
+renderer. Its output must carry these fields before hosted enablement is complete.
+See [Analytics Store](../../docs/docs/analytics-store.md) for configuration,
+retention, publication recovery, and query-routing behavior.

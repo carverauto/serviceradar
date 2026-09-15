@@ -29,6 +29,16 @@ defmodule ServiceRadar.AnalyticsStore.LayoutTest do
     assert keys.batch_id == "b-1"
   end
 
+  test "outbox candidates stay outside the legacy hive date prefix" do
+    keys = Layout.candidate_keys("timeseries_metrics", ~D[2025-03-02], "synthetic", "attempt-one")
+
+    assert keys.published_key ==
+             "analytics/v1/timeseries_metrics/_candidates/date=2025-03-02/synthetic-attempt-one.parquet"
+
+    refute String.starts_with?(keys.published_key, "analytics/v1/timeseries_metrics/date=")
+    assert keys.staging_key == "analytics/v1/timeseries_metrics/_staging/attempt-one.parquet"
+  end
+
   test "partition_date reads atom or string timestamp keys" do
     dt = ~U[2026-09-14 15:04:05Z]
     assert {:ok, ~D[2026-09-14]} = Layout.partition_date(%{timestamp: dt}, "timestamp")

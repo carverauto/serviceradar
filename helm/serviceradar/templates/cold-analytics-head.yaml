@@ -1,6 +1,6 @@
 {{- /*
 Analytics query head (OpenSpec add-analytics-store-drivers).
-Renders when analyticsStore.driver is pg_duckdb, or when the legacy
+Renders for hybrid, pg_duckdb, named dual writes, or when the legacy
 coldTier.analyticsHead.enabled flag is set. Timescale-only installs
 get no Cluster.
 */ -}}

@@ -4,171 +4,184 @@ title: Analytics Store
 
 # Analytics Store
 
-High-volume telemetry (`timeseries_metrics`, `ocsf_network_activity`, logs,
-traces, and the rest of the cold-schema registry) can live in one of two
-stores:
+ServiceRadar defaults to **Timescale only**. OSS installations do not need
+object storage, archive credentials, MinIO, or an analytics head.
 
-- **timescale** (default) -- CNPG hypertables and Timescale continuous
-  aggregates. This is OSS, Compose, and farm01 today.
-- **pg_duckdb** -- hive-partitioned Parquet on object storage or a local
-  filesystem, queried by a dedicated analytics-head Postgres that loads
-  `pg_duckdb`. Never installed next to Timescale on the primary (that pairing
-  SIGSEGVs).
+Operators can enable **hybrid** storage for `timeseries_metrics`. EventWriter
+then continuously writes to both Timescale and Parquet. Recent dashboards use
+Timescale; historical queries use a dedicated pg_duckdb head. Hosted deployments
+use the hybrid tenant template without changing the OSS defaults.
 
-The driver is per deployment, and per table inside a deployment. A site that
-never sets a bucket or a head keeps today's EventWriter and SRQL path.
-
-Metrics still go through NATS JetStream first. EventWriter is the only writer
-into either store.
-
-## Helm values (`analyticsStore`)
-
-Defaults are in `helm/serviceradar/values.yaml`. Chart default is
-`driver: timescale` and `headEnabled: false` -- no analytics-head Cluster.
-
-| Key | Default | Meaning |
+| Mode | Writes | Query path |
 | --- | --- | --- |
-| `driver` | `timescale` | `timescale` or `pg_duckdb`. Incomplete `pg_duckdb` refuses to start core (no silent hypertable fallback). |
-| `headEnabled` | `false` | Render the head Cluster without flipping any table (idle soak). |
-| `tables` | `[]` | Tables on `pg_duckdb`. Empty + `driver: pg_duckdb` flips every registry table. Name tables explicitly on a live cutover. |
-| `dualWrite` | `[]` | EventWriter writes Timescale then Parquet. Requires a complete head+storage backend. Parquet failure nacks JetStream. |
-| `pgDuckdb.storage` | `s3` | `s3` or `filesystem`. |
-| `pgDuckdb.s3.secretName` | `""` | Kubernetes Secret with `access_key_id` / `secret_access_key`. ServiceRadar talking to itself, not a device credential. |
-| `pgDuckdb.s3.bucket` | `""` | Dedicated analytics bucket. Do not reuse the CNPG barman backup bucket. |
-| `pgDuckdb.s3.endpoint` / `region` / `urlStyle` / `useSSL` | path-style, TLS on | S3-compatible endpoint. |
-| `pgDuckdb.s3.egressCidrs` | `[]` | NetworkPolicy cannot match FQDNs. Empty means no object-store egress rule. |
-| `pgDuckdb.filesystem.path` | `/var/lib/serviceradar/analytics` | Directory DuckDB COPY uses when `storage: filesystem`. |
-| `pgDuckdb.memoryLimitMb` / `threads` | `1536` / `2` | DuckDB `max_memory` and thread count. |
-| `pgDuckdb.spill.emptyDir` / `sizeLimit` | `true` / `50Gi` | Scratch-data emptyDir at `/run/pg_duckdb`. Do not put Parquet here. |
-| `pgDuckdb.poolSize` / `overheadMb` | `4` / `1536` | Query pool. Pod memory request is `poolSize * memoryLimitMb + overheadMb`. |
-| `pgDuckdb.maxConnections` | `60` | PostgreSQL connection slots on the head. Budget for every core and web replica, rolling-update overlap, writers, and reserved/admin connections. |
-| `affinity` | unset | Optional nodeSelector / tolerations for the head (dedicated CNPG nodes). |
+| `timescale` (default) | Timescale | Timescale |
+| `hybrid` (opt-in) | Timescale and Parquet | Entirely within the hot window: Timescale; otherwise: pg_duckdb |
+| `pg_duckdb` (opt-in) | Parquet | pg_duckdb |
 
-S3 mode sets `duckdb.disabled_filesystems=LocalFileSystem`. Filesystem mode
-omits that so COPY can write the data dir.
+All telemetry still passes through NATS JetStream first. EventWriter remains
+the single persistence owner. Collectors do not connect to either store.
 
-Fail-closed boot: `driver: pg_duckdb` without a bucket+credentials (S3) or
-path (filesystem), or without a head, is an error. Core does not start and
-EventWriter does not insert those tables into hypertables.
+## Fast recent reads
 
-## Query execution
+Hybrid's hot window defaults to **30 days** and is configurable. For example:
 
-SRQL resolves its time window before selecting published files from
-`platform.analytics_file_manifest` on the primary. The analytics query receives
-concrete Parquet keys whose timestamp bounds overlap the requested UTC window;
-interactive queries do not plan a `date=*` object-store scan. Files without
-recorded bounds remain eligible. An empty manifest selection returns no rows, and a
-manifest lookup failure returns an error. Backfills must be verified and recorded
-in the manifest before readers can see them. EventWriter uses UUID batch keys
-and records actual timestamp extrema, so separate replicas cannot overwrite
-each other's objects and late-arriving samples remain visible.
+- Last-hour ICMP and interface charts use Timescale, with no archive scan.
+- A query entirely within the last 30 days uses Timescale and eligible
+  continuous aggregates.
+- A query for the last 90 days runs entirely on pg_duckdb. The Parquet copy
+  includes recent data, so the query needs no cross-store aggregation or merge.
 
-The pg_duckdb connection uses PostgreSQL-compatible types and safely encoded
-typed literals for analytics parameters. This avoids the extension's unbound
-parameter planning errors. Analytics query logging is disabled because those
-literals include filter values; the Timescale path retains parameter binding.
+Relative times resolve before routing. Existing entity defaults still apply.
+A genuinely unbounded query uses the archive. Query failures return errors;
+they do not silently retry against another store. Hybrid pagination pins both
+the absolute window and store; an expired hot cursor must be restarted.
 
-S3 reader and writer sessions select the bundled curl HTTP client after DuckDB
-initialization. This avoids long connection attempts when an endpoint advertises
-IPv6 addresses that the head cannot reach. S3 secrets remain scoped to each
-backend and are retained across other sessions' writes.
+The metrics hypertable uses a schema-managed compression policy after two days.
+The newest chunks remain writable; older chunks compress in the background.
+Compression does not change the query API. Verify actual size and query latency
+on the deployment before treating the 30-day storage target as accepted.
 
-## Docker Compose
+## Helm configuration
 
-`docker compose up -d` does not start an analytics head or MinIO.
-
-```bash
-# S3-compatible MinIO + head
-docker compose --profile analytics up -d
-
-# Local directory (no MinIO)
-docker compose --profile analytics-fs up -d
-```
-
-Copy `docker/compose/analytics.env.example` to `analytics.env` and point
-`core-elx` / `web-ng` at it from a compose override when you want
-`driver: pg_duckdb`. Leave the env file off to soak the head without flipping
-writes.
-
-## Cutover and rollback
-
-Order for an existing deployment (demo used this):
-
-1. Timescale compression on the primary, if you have it. Shrinks the
-   hypertable while you work.
-2. Stand up the analytics head (`headEnabled: true` or `driver: pg_duckdb`)
-   with a complete S3 or filesystem backend. Dedicated bucket, dedicated
-   Secret. Confirm spill emptyDir and `duckdb.max_memory`.
-3. One-shot backfill of closed UTC days into
-   `analytics/v1/<table>/date=YYYY-MM-DD/`. Row counts must match the
-   hypertable per day. Leave the incomplete current day for dual-write.
-4. Dual-write the candidate table (`analyticsStore.dualWrite` on demo is
-   `timeseries_metrics`). SRQL parity on a closed window (listing + a stats
-   query of 6h or more). Dual-write still feeds Timescale CAGGs. The
-   incomplete current UTC day is a half-open range copy `[00:00, dual-write
-   start)` plus EventWriter files after that; do not re-COPY the whole day
-   once dual-write has published into `date=YYYY-MM-DD/`.
-5. Flip `analyticsStore.tables` (and `driver: pg_duckdb`). EventWriter stops
-   inserting the hypertable. `pg_stat_user_tables.n_tup_ins` for that table
-   must stop climbing; JetStream consumer lag must not grow. SRQL uses the
-   duckdb dialect (no `*_hourly` CAGGs). Timescale retention ages the
-   abandoned hot copy; Parquet prune uses the same
-   `SERVICERADAR_*_RETENTION_DAYS` window.
-   Verify ICMP and interface charts on the device pages within their request
-   budgets, with no Postgrex errors or pool timeouts, before moving another table.
-6. Repeat per table: `timeseries_metrics` first, then
-   `ocsf_network_activity`, then the rest of the registry.
-
-Rollback for a flipped table:
-
-1. Set `driver: timescale` (or remove the table from `tables`) and roll core
-   and web-ng.
-2. If the hypertable still has rows (retention has not dropped them), writes
-   resume there. Parquet already published stays; it is not deleted.
-3. If `drop_chunks` already removed the hot copy, replay JetStream from the
-   flip timestamp. EventWriter is the single writer after the stream;
-   collectors must not insert the store themselves.
-4. CAGG refresh policies are removed on flip and not re-armed automatically.
-   Re-install them from the original migration if you need the Timescale
-   stats path again.
-
-cpu / memory / disk / process hourly CAGGs stay on Timescale until those
-hypertables are in the registry and flipped.
-
-## farm01 and other Timescale-only sites
-
-farm01 stays `analyticsStore.driver: timescale` in this change. Do not flip
-it until it has either a dedicated object-store bucket or local NVMe.
-
-Filesystem recipe when you are ready (not Longhorn):
+The chart default remains:
 
 ```yaml
 analyticsStore:
-  driver: timescale          # keep until the head is healthy
-  headEnabled: true
-  pgDuckdb:
-    storage: filesystem
-    filesystem:
-      path: /var/lib/postgresql/data/analytics
-    storageClass: local-path   # hostPath-backed or local NVMe class
-    spill:
-      emptyDir: true
-      sizeLimit: 50Gi
-  affinity:
-    nodeSelector:
-      # pin the head to the node that holds that PV
+  driver: timescale
+  headEnabled: false
+  tables: []
+  dualWrite: []
 ```
 
-CNPG does not expose an extra hostPath volume on the analytics Cluster in
-this chart. Use a local StorageClass (OpenEBS local PV, k3s local-path, or
-equivalent) sized for Parquet, and pin the pod. Sequential writes on
-Longhorn are a poor fit; that is why farm01 waits.
+To enable hybrid, provide a complete backend and name its tables:
 
-Compose analogue: `--profile analytics-fs`.
+```yaml
+analyticsStore:
+  driver: hybrid
+  tables: [timeseries_metrics]
+  hotWindowDays: 30
+  parquetRetentionDays: ""  # no archive expiry unless explicitly configured
+  pgDuckdb:
+    storage: s3
+    s3:
+      bucket: example-telemetry-archive
+      endpoint: objects.example.com
+      region: example-region
+      secretName: example-archive-credentials
+```
 
-## Object-store pricing
+These example names are synthetic. Supply the endpoint, bucket, and credentials
+for your deployment. The Secret contains `access_key_id` and
+`secret_access_key`; it is an internal storage credential, not a monitored-device
+credential. Use a dedicated analytics bucket, separate from CNPG barman backups.
 
-Request and egress pricing for analytics Parquet is still unconfirmed.
-Do not put a retention-day figure on a pricing page from this feature.
-Retention windows in Helm (`SERVICERADAR_*_RETENTION_DAYS`) are operational
-delete policies, not a commercial entitlement.
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `driver` | `timescale` | Explicit storage mode. Hybrid and pg_duckdb fail validation without a complete backend. |
+| `tables` | `[]` | Hybrid requires named tables. Unlisted tables stay Timescale. In pg_duckdb mode only, an empty list retains the existing all-registry-table behavior. |
+| `hotWindowDays` | `30` | Hybrid read cutoff. Hot retention covers at least this window and preserves longer table settings. |
+| `parquetRetentionDays` | `""` | Hybrid archive expiry, measured from event time. Blank retains history. A finite value must exceed the hot window. |
+| `archiveBufferMaxBytes` | `268435456` | Maximum durable unpublished payload bytes. At the limit, ingest retries through JetStream; pending work is never evicted. |
+| `dualWrite` | `[]` | Optional named archive writes with Timescale reads during migration. Hybrid already writes both stores. |
+| `headEnabled` | `false` | Provision the head for preparation without changing storage mode. |
+| `pgDuckdb.storage` | `s3` | `s3` or `filesystem`. |
+| `pgDuckdb.filesystem.path` | `/var/lib/serviceradar/analytics` | Persistent Parquet directory for filesystem mode. |
+| `pgDuckdb.poolSize` | `4` | Analytics connections per application replica. |
+| `pgDuckdb.maxConnections` | `60` | Head connection budget, including all replicas, writers, rollout overlap, and administrative reserves. |
+| `pgDuckdb.memoryLimitMb` / `threads` | `1536` / `2` | Per-backend DuckDB limits. |
+| `pgDuckdb.spill.emptyDir` / `sizeLimit` | `true` / `50Gi` | Ephemeral scratch space, separate from persistent Parquet. |
+| `pgDuckdb.s3.egressCidrs` | `[]` | Object-store egress for environments using NetworkPolicies. |
+
+The head remains separate from the Timescale primary. Its extension, connection
+limits and scratch storage do not change the primary's extension set. No
+pg_duckdb extension is installed on the primary.
+
+Filesystem mode uses a persistent data volume, such as local NVMe with a local
+StorageClass and appropriate node placement. Parquet must not live in the spill
+`emptyDir`. Default Timescale installations can remain Timescale indefinitely.
+
+## Archive queries and retries
+
+Readers select concrete published file keys from
+`platform.analytics_file_manifest` on the primary using the query's timestamp
+bounds. Interactive reads do not plan a `date=*` scan. A manifest lookup failure
+returns an error; an empty manifest selection returns no rows. Only verified,
+published objects are visible.
+
+EventWriter commits hot rows, durable source receipts, and fixed archive batches
+in one primary transaction, then acknowledges JetStream. Its archive publisher
+processes those batches asynchronously. A retry reuses the recorded membership;
+regrouped messages cannot create another query-visible copy. Publication selects
+one immutable object per batch atomically with its manifest entry. Hybrid objects
+live under `analytics/v1/<table>/_candidates/date=YYYY-MM-DD/` and become visible
+only through that manifest. Legacy hive maintenance views are not a hybrid read
+interface. Failed uploads may leave unreferenced objects; automatic orphan
+cleanup is not implemented.
+
+During an archive outage, pending payloads remain on the primary. The configured
+buffer limit applies backpressure through JetStream. Oban job cleanup cannot
+remove unpublished payloads. Monitor archive lag and retries alongside stream
+lag. Historical queries wait briefly for overlapping pending batches and return
+an explicit error if the archive is not ready; they do not silently omit that
+work. Recent Timescale reads do not wait. The buffer limit covers pending
+payloads, not total database disk usage. Source receipts and completed batch
+metadata currently remain on the primary to preserve retry identity after hot
+retention; include their growth in capacity monitoring.
+
+Transport redelivery retains its original source identity. Historical recovery
+uses the restore path; republishing expired samples under new source identities
+is not an idempotent replay operation.
+
+pg_duckdb parses SQL through PostgreSQL first. The archive query path retains
+compatible types and JSON expressions, typed literal encoding, and backend-local
+S3 secrets. Literal query logging is disabled on that path. Timescale uses normal
+bound parameters.
+
+## Enablement and recovery
+
+1. Provision the dedicated head and persistent archive backend. Keep default
+   reads on Timescale while preparing the archive.
+2. Enable named `dualWrite` and verify fresh batches in both stores. Backfill
+   historical data through the verified manifest path, with a precise boundary
+   that avoids overlapping an existing export.
+3. Confirm hot coverage before enabling time routing. A previous Parquet-only
+   interval must be restored. JetStream replay works only while those messages
+   are still retained; older recovery must use verified archive files.
+4. Use `ServiceRadar.EventWriter.AnalyticsRestore.run/3` for a bounded
+   `timeseries_metrics` hot-copy recovery. It reads small half-open windows,
+   inserts with primary-key conflict handling, verifies the restored keys, and
+   reports the last completed window. It does not publish another archive copy.
+   A failed or interrupted interval can be retried.
+5. Apply the compression migration and reconcile retention and CAGG policies.
+   Refresh the recovered interval in the affected aggregates. Confirm compression
+   progress through Timescale job and chunk statistics.
+6. Set `driver: hybrid`, keep the selected table list explicit, and verify
+   actual recent rows, translated query targets, ICMP sparklines, interface
+   charts, and a historical query. Use the application's request budget as the
+   latency gate, not pod readiness alone.
+
+Increasing retention cannot recover data already deleted from both stores.
+Restore any available archive coverage and let the longer hot window accumulate.
+Do not claim historical completeness that has not been verified.
+
+To return from hybrid to Timescale-only, drain pending archive batches, then
+select `timescale` and clear named `dualWrite`. The hot copy remains; published Parquet is not deleted by that
+configuration change. Rolling back a compression policy does not automatically
+decompress existing chunks; schedule that separately if needed.
+
+## Docker Compose
+
+Default `docker compose up -d` requires no analytics profile. Optional profiles
+provide the backend:
+
+```bash
+docker compose --profile analytics up -d     # MinIO and pg_duckdb
+docker compose --profile analytics-fs up -d  # persistent filesystem and pg_duckdb
+```
+
+Use `docker/compose/analytics.env.example` and its documented override to pass
+backend configuration to core-elx and web-ng and explicitly select hybrid.
+Starting a backend profile alone does not change EventWriter or query routing.
+
+Archive retention settings are operational deletion policies. Storage request
+and egress costs depend on the chosen provider and workload.

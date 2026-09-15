@@ -3,6 +3,7 @@ defmodule ServiceRadar.AnalyticsStore.CaggRefresh do
   Stop Timescale CAGG refresh on tables that have flipped to pg_duckdb.
 
   Dual-write keeps the hypertable as the store, so CAGGs keep refreshing.
+  Hybrid restores missing timeseries refresh policies after a pg_duckdb flip.
   After a table flips, EventWriter no longer inserts there: refresh would
   scan an abandoned hypertable and serve stale buckets. Views stay in place
   for rollback. SRQL's duckdb dialect aggregates over Parquet (task 4.3).
@@ -80,7 +81,50 @@ defmodule ServiceRadar.AnalyticsStore.CaggRefresh do
     """
   end
 
-  @doc "Remove refresh policies for every table flipped onto pg_duckdb."
+  @doc "Restore a missing timeseries refresh policy without replacing an operator's policy."
+  @spec restore_policy_sql(String.t(), pos_integer()) :: String.t()
+  def restore_policy_sql(view, hot_window_days)
+      when is_binary(view) and is_integer(hot_window_days) and hot_window_days > 0 do
+    if view not in views_for("timeseries_metrics") do
+      raise ArgumentError, "unsupported timeseries CAGG view: #{inspect(view)}"
+    end
+
+    # Preserve the shipped five-day refresh window where possible, with a
+    # margin before raw retention so refresh never erases dropped history.
+    start_hours = min(120, max(1, (hot_window_days - 1) * 24))
+
+    """
+    DO $$
+    DECLARE
+      ts_schema text;
+    BEGIN
+      SELECT n.nspname INTO ts_schema
+        FROM pg_extension e
+        JOIN pg_namespace n ON n.oid = e.extnamespace
+       WHERE e.extname = 'timescaledb';
+      IF ts_schema IS NULL THEN
+        RETURN;
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM timescaledb_information.continuous_aggregates
+         WHERE view_schema = 'platform' AND view_name = '#{view}'
+      ) THEN
+        RETURN;
+      END IF;
+      EXECUTE format(
+        'SELECT %I.add_continuous_aggregate_policy(%L::regclass, '
+        'start_offset => INTERVAL ''#{start_hours} hours'', '
+        'end_offset => INTERVAL ''10 minutes'', '
+        'schedule_interval => INTERVAL ''10 minutes'', if_not_exists => true)',
+        ts_schema,
+        format('%I.%I', 'platform', '#{view}')
+      );
+    END;
+    $$;
+    """
+  end
+
+  @doc "Stop pure pg_duckdb refresh and restore missing hybrid timeseries refresh policies."
   @spec reconcile(keyword()) :: :ok
   def reconcile(opts \\ []) do
     cfg = Keyword.get_lazy(opts, :config, &Config.load/0)
@@ -99,6 +143,12 @@ defmodule ServiceRadar.AnalyticsStore.CaggRefresh do
       end)
     end)
 
+    if Config.driver_for(cfg, "timeseries_metrics") == :hybrid do
+      Enum.each(views_for("timeseries_metrics"), fn view ->
+        exec.(restore_policy_sql(view, cfg.hot_window_days))
+      end)
+    end
+
     :ok
   end
 
@@ -110,7 +160,7 @@ defmodule ServiceRadar.AnalyticsStore.CaggRefresh do
         :ok
 
       {:error, error} ->
-        Logger.warning("CAGG policy removal failed", reason: Exception.message(error))
+        Logger.warning("CAGG policy reconciliation failed", reason: Exception.message(error))
     end
   end
 end

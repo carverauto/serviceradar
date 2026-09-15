@@ -5,57 +5,73 @@ defmodule ServiceRadar.AnalyticsStore.ParityTest do
   alias ServiceRadar.AnalyticsStore.Parity
   alias ServiceRadar.ColdTier.Registry
 
-  test "postgres stats SQL is a closed window against the hypertable" do
-    {:ok, entry} = Registry.fetch("timeseries_metrics")
-    start_at = ~U[2026-09-14 12:00:00Z]
-    stop_at = ~U[2026-09-14 18:00:00Z]
-    sql = Parity.stats_sql(:postgres, entry, start_at, stop_at, nil)
-    assert sql =~ ~s[FROM platform."timeseries_metrics"]
-    assert sql =~ "count(*)::bigint"
-    assert sql =~ ~s[count(DISTINCT "series_key")]
-    refute sql =~ "device_id"
-    refute sql =~ "UNION ALL"
-  end
+  @start ~U[2025-01-03 00:00:00Z]
+  @stop ~U[2025-01-03 08:00:00Z]
 
-  test "duckdb stats SQL reads published hive parquet only" do
-    {:ok, entry} = Registry.fetch("timeseries_metrics")
-    glob = "s3://serviceradar-demo-analytics/analytics/v1/timeseries_metrics/date=*/*.parquet"
+  test "primary statistics use the same half-open interval as archive statistics" do
+    entry = Registry.fetch!("timeseries_metrics")
+    primary = Parity.stats_sql(:postgres, entry, @start, @stop, nil)
 
-    sql =
-      Parity.stats_sql(:duckdb, entry, ~U[2026-09-14 12:00:00Z], ~U[2026-09-14 18:00:00Z], glob)
-
-    assert sql =~ "read_parquet"
-    assert sql =~ "hive_partitioning := true"
-    assert sql =~ glob
-    refute sql =~ "_staging"
-    refute sql =~ "fdw_primary"
-  end
-
-  test "compare requires equal counts and close averages" do
-    a = %{row_count: 10, avg_value: 1.5, series_count: 3}
-    assert :ok = Parity.compare(a, a)
-    huge = %{row_count: 1, avg_value: 62_655_601_232.7612, series_count: 1}
-    assert :ok = Parity.compare(huge, %{huge | avg_value: 62_655_601_232.67974})
-    assert {:error, {:parity_mismatch, _}} = Parity.compare(a, %{a | row_count: 9})
-    assert {:error, {:parity_mismatch, _}} = Parity.compare(a, %{a | avg_value: 2.0})
-  end
-
-  test "parquet glob is the published hive prefix" do
-    cfg =
-      Config.validate!(
-        Config.load(
-          driver: :pg_duckdb,
-          storage: :s3,
-          s3_bucket_url: "s3://serviceradar-demo-analytics",
-          s3_access_key_id: "id",
-          s3_secret_access_key: "secret",
-          head_host: "analytics-head"
-        )
+    archive =
+      Parity.stats_sql(
+        :duckdb,
+        entry,
+        @start,
+        @stop,
+        "s3://example-history/date=2025-01-03/fixture.parquet"
       )
 
-    assert {:ok, glob} = Parity.parquet_glob(cfg, "timeseries_metrics")
+    for sql <- [primary, archive] do
+      assert sql =~ ~s["timestamp" >= TIMESTAMPTZ '2025-01-03T00:00:00Z']
+      assert sql =~ ~s["timestamp" <  TIMESTAMPTZ '2025-01-03T08:00:00Z']
+      assert sql =~ ~s[count(DISTINCT "series_key")]
+      assert sql =~ "avg(value)::float8"
+    end
 
-    assert glob ==
-             "s3://serviceradar-demo-analytics/analytics/v1/timeseries_metrics/date=*/*.parquet"
+    assert primary =~ ~s[FROM platform."timeseries_metrics"]
+    assert archive =~ "read_parquet('s3://example-history/date=2025-01-03/fixture.parquet'"
+  end
+
+  test "archive URL quotes remain SQL literals" do
+    sql =
+      Parity.stats_sql(
+        :duckdb,
+        Registry.fetch!("timeseries_metrics"),
+        @start,
+        @stop,
+        "s3://example-history/a'b.parquet"
+      )
+
+    assert sql =~ "a''b.parquet"
+  end
+
+  test "counts and series must match while averages allow only rounding noise" do
+    expected = %{row_count: 12, avg_value: 8.0, series_count: 4}
+    assert :ok = Parity.compare(expected, expected)
+    assert :ok = Parity.compare(expected, %{expected | avg_value: 8.0000001})
+    assert {:error, {:parity_mismatch, _}} = Parity.compare(expected, %{expected | row_count: 11})
+
+    assert {:error, {:parity_mismatch, _}} =
+             Parity.compare(expected, %{expected | series_count: 3})
+
+    assert {:error, {:parity_mismatch, _}} =
+             Parity.compare(expected, %{expected | avg_value: 8.1})
+
+    large = %{expected | avg_value: 1_000_000_000.0}
+    assert :ok = Parity.compare(large, %{large | avg_value: 1_000_000_000.5})
+
+    assert {:error, {:parity_mismatch, _}} =
+             Parity.compare(large, %{large | avg_value: 1_000_000_002.0})
+
+    empty = %{row_count: 0, avg_value: nil, series_count: 0}
+    assert :ok = Parity.compare(empty, empty)
+    assert {:error, {:parity_mismatch, _}} = Parity.compare(empty, %{empty | avg_value: 0.0})
+  end
+
+  test "legacy parity glob uses the configured synthetic archive root" do
+    config = Config.load(storage: :s3, s3_bucket_url: "s3://example-history")
+
+    assert {:ok, "s3://example-history/analytics/v1/timeseries_metrics/date=*/*.parquet"} =
+             Parity.parquet_glob(config, "timeseries_metrics")
   end
 end

@@ -2,8 +2,10 @@ defmodule ServiceRadar.AnalyticsStore.Pruner do
   @moduledoc """
   Drop published Parquet objects older than a table's configured window.
 
-  Same window as Timescale `drop_chunks`: `Registry.hot_retention_days/1`,
-  driven by `SERVICERADAR_*_RETENTION_DAYS`. Objects are deleted first;
+  Pure pg_duckdb uses `Registry.hot_retention_days/1`, driven by
+  `SERVICERADAR_*_RETENTION_DAYS`. Hybrid uses its separate
+  `parquet_retention_days`; an unset archive window never deletes files.
+  Objects are deleted first;
   manifest rows follow so a reader never sees a live key whose object is
   gone. Staging keys are never globbed by readers, but expired staging
   objects are deleted too.
@@ -27,6 +29,16 @@ defmodule ServiceRadar.AnalyticsStore.Pruner do
     now |> DateTime.to_date() |> Date.add(-days)
   end
 
+  @doc "Archive cutoff for a table, or nil when hybrid archive expiry is not configured."
+  @spec cutoff_date(Registry.Table.t(), DateTime.t(), Config.t()) :: Date.t() | nil
+  def cutoff_date(%Registry.Table{} = entry, %DateTime{} = now, %Config{} = cfg) do
+    case {Config.driver_for(cfg, entry.table), cfg.parquet_retention_days} do
+      {:hybrid, nil} -> nil
+      {:hybrid, days} -> now |> DateTime.to_date() |> Date.add(-days)
+      _ -> cutoff_date(entry, now)
+    end
+  end
+
   @doc """
   Delete expired published objects for every flipped table.
 
@@ -42,21 +54,28 @@ defmodule ServiceRadar.AnalyticsStore.Pruner do
     forget = Keyword.get(opts, :forget, &default_forget/1)
 
     result =
-      cfg
-      |> Config.flipped_tables()
-      |> Enum.reduce_while({:ok, 0}, fn entry, {:ok, acc} ->
-        cutoff = cutoff_date(entry, now)
-        keys = list.(entry.table, cutoff)
+      Enum.reduce_while(
+        Config.flipped_tables(cfg) ++ Config.hybrid_tables(cfg),
+        {:ok, 0},
+        fn entry, {:ok, acc} ->
+          case cutoff_date(entry, now, cfg) do
+            nil ->
+              {:cont, {:ok, acc}}
 
-        case delete.(keys) do
-          {:ok, deleted} ->
-            Enum.each(keys, forget)
-            {:cont, {:ok, acc + deleted}}
+            cutoff ->
+              keys = list.(entry.table, cutoff)
 
-          {:error, reason} ->
-            {:halt, {:error, reason}}
+              case delete.(keys) do
+                {:ok, deleted} ->
+                  Enum.each(keys, forget)
+                  {:cont, {:ok, acc + deleted}}
+
+                {:error, reason} ->
+                  {:halt, {:error, reason}}
+              end
+          end
         end
-      end)
+      )
 
     case result do
       {:ok, 0} ->

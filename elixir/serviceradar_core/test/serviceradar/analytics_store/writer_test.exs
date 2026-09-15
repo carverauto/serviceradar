@@ -144,6 +144,25 @@ defmodule ServiceRadar.AnalyticsStore.WriterTest do
     refute first.object_key == second.object_key
   end
 
+  test "archive attempts publish outside the legacy hive prefix" do
+    assert {:ok, 1} =
+             Writer.write(
+               "timeseries_metrics",
+               [%{timestamp: ~U[2025-03-02 01:00:00Z], value: 3.5}],
+               config: cfg(),
+               candidate: true,
+               batch_id: "synthetic-attempt",
+               session: fn _cfg, fun -> {:ok, fun.(:conn)} end,
+               query: fn _, _, _ -> :ok end,
+               verify: fn _, _, _ -> {:ok, 1} end,
+               record_manifest: fn attrs ->
+                 assert attrs.object_key =~ "/_candidates/date=2025-03-02/"
+                 refute attrs.object_key =~ "/timeseries_metrics/date="
+                 :ok
+               end
+             )
+  end
+
   test "manifest bounds follow actual unordered row times, including late arrivals" do
     rows = [
       %{timestamp: ~U[2034-08-09 13:07:19.987654Z], value: 4.0},

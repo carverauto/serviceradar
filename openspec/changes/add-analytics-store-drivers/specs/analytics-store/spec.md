@@ -1,95 +1,112 @@
 ## ADDED Requirements
 
-### Requirement: Analytics-store driver is selected by deployment configuration
-The system SHALL persist and query analytics-store tables through a single store interface whose concrete driver is selected by deployment configuration (`timescale` or `pg_duckdb`). When the driver is `timescale` or the configuration is absent, write and query behavior for those tables SHALL match current CNPG hypertable behavior. When the driver is `pg_duckdb`, the system SHALL require a complete storage backend configuration and SHALL refuse to start rather than silently write hypertables.
+### Requirement: Analytics-store mode is an explicit deployment choice
+The system SHALL support `timescale`, `hybrid`, and `pg_duckdb` modes. Default OSS Helm and Compose installations SHALL use Timescale alone and SHALL NOT require object storage, archive credentials, or an analytics head. Hosted deployment configuration SHALL enable hybrid explicitly without changing OSS defaults. Hybrid SHALL require a named table list; unlisted tables SHALL stay on Timescale.
 
-#### Scenario: Default OSS / farm01
-- **WHEN** Helm or Compose is installed with default values
-- **THEN** the analytics-store driver is `timescale`
-- **AND** no analytics-head workload is rendered
-- **AND** EventWriter and SRQL continue to use the primary hypertables
+#### Scenario: Default OSS installation
+- **WHEN** an operator installs with default values and no object-store configuration
+- **THEN** EventWriter and all analytics reads use Timescale
+- **AND** no analytics-head or MinIO workload is required
 
-#### Scenario: Incomplete pg_duckdb configuration fails closed
-- **WHEN** `driver` is `pg_duckdb` and the storage backend (S3 credentials/bucket or filesystem data dir) is missing
-- **THEN** core does not start
-- **AND** EventWriter does not fall back to hypertable inserts for configured tables
+#### Scenario: Optional hybrid enablement
+- **WHEN** an operator enables hybrid for `timeseries_metrics` with a complete archive backend
+- **THEN** that table uses continuous dual writes and time-based reads
+- **AND** unlisted tables retain their existing Timescale behavior
 
-#### Scenario: Per-table flip
-- **WHEN** deployment configuration lists a subset of registry tables on `pg_duckdb`
-- **THEN** only those tables use the pg_duckdb driver
-- **AND** unlisted registry tables remain on Timescale
+#### Scenario: Incomplete archive configuration
+- **WHEN** hybrid or pg_duckdb is selected without the required head and storage configuration
+- **THEN** configuration validation fails
+- **AND** there is no silent fallback to another storage mode
 
-### Requirement: pg_duckdb driver stores telemetry as hive-partitioned Parquet
-When a table uses the pg_duckdb driver, EventWriter SHALL write that table's rows as hive-partitioned Parquet (`analytics/v1/<table>/date=YYYY-MM-DD/`) through the analytics head, and SHALL NOT insert those rows into the corresponding CNPG hypertable. Published objects SHALL be verified before they are query-visible. The analytics head SHALL be rebuildable from the published objects plus a manifest stored on the primary.
+### Requirement: EventWriter owns continuous dual writes
+Collectors and agents SHALL publish through JetStream and SHALL NOT write either datastore directly. In hybrid mode, the existing EventWriter SHALL write each canonical batch to Timescale and verified Parquet, and SHALL durably commit the hot rows, source receipts, and archive publication work in one primary transaction before acknowledging consumed messages. An EventWriter-owned publisher SHALL publish fixed batches asynchronously; publication failures SHALL retain durable payloads for retry. Continuous dual writing SHALL be optional and SHALL NOT create a second telemetry consumer. Partial failure SHALL retain retryability and logical row identity.
 
-#### Scenario: Write path does not touch the hypertable
-- **WHEN** `timeseries_metrics` is configured on the pg_duckdb driver
-- **AND** EventWriter consumes a metrics batch from JetStream
-- **THEN** a verified Parquet object appears under that table's prefix
-- **AND** `platform.timeseries_metrics` on the primary does not gain those rows
+#### Scenario: Successful hybrid batch
+- **WHEN** EventWriter consumes a batch for a hybrid table
+- **THEN** the hot hypertable and durable archive outbox receive that batch atomically
+- **AND** the messages are acknowledged after commit
+- **AND** the publisher makes one verified archive object visible for each fixed batch
 
-#### Scenario: Truncated export is not query-visible
-- **WHEN** a COPY to Parquet is interrupted
-- **THEN** the incomplete object remains in staging
-- **AND** readers globbing published keys do not see it
+#### Scenario: Archive write fails after hot commit
+- **WHEN** Timescale accepts a batch but archive publication fails
+- **THEN** the hot copy remains available
+- **AND** the durable batch remains pending for publication retry
+- **AND** the archive buffer limit applies backpressure without evicting pending work
 
-#### Scenario: Head restart
-- **WHEN** the analytics-head pod is deleted and recreated
-- **THEN** it rebuilds `platform.<table>` views from the manifest and storage backend
-- **AND** a subsequent SRQL query on that table returns the previously published rows
+#### Scenario: Timescale-only default
+- **WHEN** hybrid and named dual writes are disabled
+- **THEN** EventWriter writes Timescale only
+- **AND** no object-store request or archive connection is required
 
-### Requirement: Parquet storage backend is S3 or filesystem
-The pg_duckdb driver SHALL support two storage backends selected by deployment configuration: S3-compatible object storage, and a local filesystem data directory (hostPath or a dedicated PVC). Spill files SHALL use an `emptyDir` with an explicit memory limit and SHALL NOT share the Parquet data volume. The filesystem backend SHALL NOT be an `emptyDir`.
+### Requirement: Recent reads use the hot copy and historical reads use the full archive
+Hybrid SHALL select Timescale for a resolved query whose lower time bound is at or after `now - hotWindowDays`, with 30 days as the default. An older or unbounded lower bound SHALL select pg_duckdb for the entire query. Existing entity time defaults SHALL resolve before this decision. Store failures SHALL be returned without silently changing the selected store.
 
-#### Scenario: S3 backend
-- **WHEN** `analyticsStore.pgDuckdb.storage` is `s3` with a bucket and credentials
-- **THEN** writes and `read_parquet` use that bucket
-- **AND** DuckDB LocalFileSystem access remains disabled
+#### Scenario: Recent dashboard query
+- **WHEN** a hybrid metrics query requests the last hour
+- **THEN** it executes on Timescale without listing archive files or acquiring an analytics connection
 
-#### Scenario: Filesystem backend
-- **WHEN** `analyticsStore.pgDuckdb.storage` is `filesystem` with a data-dir path
-- **THEN** writes and reads use that directory
-- **AND** LocalFileSystem is permitted only for that prefix
+#### Scenario: Query spans the cutoff
+- **WHEN** a hybrid query includes timestamps on both sides of the hot cutoff
+- **THEN** the whole query executes against the complete Parquet copy
+- **AND** aggregation, rate calculation, ordering, and pagination occur once
 
-#### Scenario: Spill is ephemeral
-- **WHEN** the analytics head is scheduled
-- **THEN** `temp_directory` is an `emptyDir` with a configured size cap
-- **AND** `memory_limit` / `duckdb.max_memory` is set from Helm values
+#### Scenario: Exact boundary
+- **WHEN** a query's lower bound equals the resolved hot cutoff
+- **THEN** it uses Timescale
 
-### Requirement: JetStream remains the ingest bus; EventWriter remains the single writer
-Collectors and agents SHALL NOT write the analytics store. Every analytics-store table SHALL have exactly one EventWriter processor persisting it after JetStream, regardless of driver. A dual-write window SHALL exist only as an explicit, named cutover flag for a table and SHALL be removed once SRQL parity for that table passes.
+### Requirement: Archive publication uses verified manifest files
+The archive SHALL use S3-compatible storage or a persistent filesystem with a dedicated pg_duckdb head. EventWriter SHALL stage, verify, then publish Parquet under `analytics/v1/<table>/date=YYYY-MM-DD/`. Interactive readers SHALL use concrete published keys from the primary's manifest and SHALL NOT plan a wildcard across all dates. Spill SHALL remain ephemeral and separate from persistent Parquet data.
 
-#### Scenario: Collector cannot bypass the store
-- **WHEN** a new metric source is added
-- **THEN** it publishes to JetStream
-- **AND** it does not open a DuckDB, S3, or hypertable connection of its own
+#### Scenario: Interrupted COPY
+- **WHEN** a Parquet COPY fails verification
+- **THEN** its staging object is not query-visible
 
-#### Scenario: Dual-write is opt-in and temporary
-- **WHEN** a table's cutover flag is off
-- **THEN** only the selected driver receives writes
-- **AND** there is not a second consumer inserting the same rows into the other backend
+#### Scenario: Bounded archive read
+- **WHEN** a historical query has a resolved time window
+- **THEN** the primary manifest supplies overlapping published file keys
+- **AND** manifest lookup failure returns an error rather than an incomplete success
 
-### Requirement: Flipped tables leave Timescale CAGGs and drop Parquet by the existing retention window
-When a table uses the pg_duckdb driver, the system SHALL stop Timescale continuous-aggregate refresh for that table's views, SHALL NOT install or run Timescale `drop_chunks` for that table, and SHALL delete published Parquet objects older than the table's configured retention window before removing their manifest rows. Dual-write SHALL keep Timescale CAGG refresh and Timescale retention because the hypertable is still the store. SRQL on a flipped table SHALL aggregate over Parquet rather than those CAGGs. The system SHALL NOT keep a shadow hypertable solely to feed CAGGs.
+### Requirement: Hybrid retention preserves the hot guarantee and archive history
+Hybrid SHALL retain Timescale rows for at least the hot read window, preserve any longer configured table retention, and keep the table's CAGGs refreshing. Archive expiry SHALL be configured independently through `parquetRetentionDays`; absence SHALL mean no expiry deletion, and a finite value SHALL exceed the hot window. Pure pg_duckdb mode SHALL retain its existing table-retention behavior and SHALL not refresh the table's Timescale CAGGs.
 
-#### Scenario: Dual-write still feeds CAGGs
-- **WHEN** a table is dual-written and the selected driver is still `timescale`
-- **THEN** Timescale CAGG refresh policies remain installed
-- **AND** Timescale retention still ages the hypertable
-- **AND** Parquet prune does not run for that table
+#### Scenario: Existing shorter hot retention
+- **WHEN** a hybrid table's existing retention is shorter than its hot read window
+- **THEN** retention reconciliation raises it to cover that window
+- **AND** rollout restores missing historical coverage before claiming the window is available
 
-#### Scenario: Flip stops CAGG refresh
-- **WHEN** `timeseries_metrics` is configured on the pg_duckdb driver
-- **THEN** `remove_continuous_aggregate_policy` runs for `timeseries_metrics_hourly`, `timeseries_metrics_interface_hourly`, and `timeseries_metrics_disk_hourly`
-- **AND** the views remain in the catalog for rollback
-- **AND** `DataRetentionWorker` does not `drop_chunks` that hypertable
+#### Scenario: Return from Parquet-only mode
+- **WHEN** a table returns to hybrid and its CAGG refresh policies were removed
+- **THEN** reconciliation restores those policies
+- **AND** recovery refreshes the restored interval before aggregate acceptance
 
-#### Scenario: Parquet prune is object-first
-- **WHEN** a published object is older than the table's `SERVICERADAR_*_RETENTION_DAYS` window
-- **THEN** the object is deleted from the storage backend
-- **AND** the `analytics_file_manifest` row is removed only after that delete succeeds
-- **AND** readers never glob `_staging/` keys
+#### Scenario: No archive expiry specified
+- **WHEN** a hybrid operator does not configure `parquetRetentionDays`
+- **THEN** the pruner does not delete archive objects by the hot retention window
 
-#### Scenario: Sysmon hourly CAGGs stay until those tables flip
-- **WHEN** only `timeseries_metrics` is on pg_duckdb
-- **THEN** `cpu_metrics_hourly`, `memory_metrics_hourly`, `disk_metrics_hourly`, and `process_metrics_hourly` keep refreshing from their Timescale hypertables
+#### Scenario: Explicit archive expiry
+- **WHEN** a published object is older than the configured archive expiry
+- **THEN** its object is deleted before its manifest entry
+- **AND** a failed delete retains the manifest entry
+
+### Requirement: Archive publication is idempotent before query execution
+Hybrid EventWriter SHALL persist source receipts independently of hot retention and fix archive batch contents before publication. Regrouped delivery attempts SHALL NOT create additional archive copies. A batch SHALL select one immutable published object atomically with its completion. Query execution SHALL NOT require row deduplication to compensate for transport retries.
+
+#### Scenario: Regrouped retry
+- **WHEN** a committed batch containing messages A and B is retried as B and C
+- **THEN** B is recognized from its durable receipt
+- **AND** only C can create new hot rows and archive publication work
+
+#### Scenario: Lost acknowledgement after hot expiry
+- **WHEN** an original source message is redelivered after its hot row has expired
+- **THEN** its durable receipt prevents a second archive batch
+
+#### Scenario: Concurrent or uncertain publication
+- **WHEN** two attempts upload candidates for the same durable batch
+- **THEN** only one manifest entry can become visible
+- **AND** completion and payload cleanup are committed with that selection
+
+#### Scenario: Pending archive data in a historical query
+- **WHEN** a historical query overlaps pending batches
+- **THEN** it waits a bounded interval for the batch IDs captured at query start
+- **AND** it returns an explicit archive-not-ready error if those batches remain unpublished
+- **AND** recent Timescale queries are unaffected

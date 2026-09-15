@@ -122,4 +122,84 @@ defmodule ServiceRadar.AnalyticsStore.ConfigTest do
     cfg = Config.load(driver: "clickhouse")
     assert {:error, {:unknown_driver, "clickhouse"}} = Config.validate(cfg)
   end
+
+  test "hybrid selects both writers without disabling Timescale or CAGGs" do
+    cfg =
+      Config.load(
+        driver: "hybrid",
+        tables: "timeseries_metrics",
+        storage: :filesystem,
+        filesystem_path: "/tmp/synthetic-archive",
+        head_host: "analytics.example.com"
+      )
+
+    assert Config.validate(cfg) == :ok
+    assert cfg.hot_window_days == 30
+    assert cfg.parquet_retention_days == nil
+    assert Config.driver_for(cfg, "timeseries_metrics") == :hybrid
+    assert Config.dual_write?(cfg, "timeseries_metrics")
+    refute Config.dual_write?(cfg, "ocsf_network_activity")
+    assert Config.driver_for(cfg, "ocsf_network_activity") == :timescale
+    assert Config.flipped_tables(cfg) == []
+    assert Enum.map(Config.hybrid_tables(cfg), & &1.table) == ["timeseries_metrics"]
+    assert Config.analytics_tables(cfg) == Config.hybrid_tables(cfg)
+  end
+
+  test "hybrid requires the archive even in a query-only process" do
+    assert Config.validate(Config.load(driver: :hybrid, tables: "timeseries_metrics")) ==
+             {:error, :storage_required}
+  end
+
+  test "hybrid routes whole windows with an inclusive hot cutoff" do
+    cfg = Config.load(driver: :hybrid, tables: "timeseries_metrics", hot_window_days: "30")
+    now = ~U[2025-02-01 12:00:00Z]
+    cutoff = DateTime.add(now, -30, :day)
+    older = DateTime.add(cutoff, -1, :microsecond)
+    assert Config.read_driver_for(cfg, "timeseries_metrics", {cutoff, now}, now) == :timescale
+    assert Config.read_driver_for(cfg, "timeseries_metrics", {cutoff, nil}, now) == :timescale
+    assert Config.read_driver_for(cfg, "timeseries_metrics", {older, now}, now) == :pg_duckdb
+    assert Config.read_driver_for(cfg, "timeseries_metrics", {nil, now}, now) == :pg_duckdb
+    assert Config.read_driver_for(cfg, "timeseries_metrics", {nil, nil}, now) == :pg_duckdb
+    assert Config.read_driver_for(cfg, "ocsf_network_activity", {nil, nil}, now) == :timescale
+  end
+
+  test "retention settings reject invalid or shorter archive windows" do
+    for value <- [0, -1, "invalid", "1.5"] do
+      assert Config.validate(Config.load(hot_window_days: value)) ==
+               {:error, :invalid_hot_window_days}
+    end
+
+    for value <- [0, 15, 30, "invalid"] do
+      assert Config.validate(Config.load(parquet_retention_days: value)) ==
+               {:error, :invalid_parquet_retention_days}
+    end
+
+    cfg = Config.load(hot_window_days: "7", parquet_retention_days: "90")
+    assert cfg.hot_window_days == 7
+    assert cfg.parquet_retention_days == 90
+    assert Config.validate(cfg) == :ok
+    assert Config.load(parquet_retention_days: "").parquet_retention_days == nil
+  end
+
+  test "hybrid requires explicit recognized table names" do
+    assert Config.validate(Config.load(driver: :hybrid)) == {:error, :hybrid_tables_required}
+
+    assert Config.validate(Config.load(driver: :hybrid, tables: "timeseries_metric")) ==
+             {:error, {:unknown_hybrid_tables, ["timeseries_metric"]}}
+  end
+
+  test "hybrid fails closed for tables without durable writer coverage" do
+    assert Config.validate(Config.load(driver: :hybrid, tables: "ocsf_network_activity")) ==
+             {:error, {:unsupported_hybrid_tables, ["ocsf_network_activity"]}}
+  end
+
+  test "archive buffer is bounded and never silently defaults invalid limits" do
+    assert Config.load([]).archive_buffer_max_bytes == 268_435_456
+    assert Config.load(archive_buffer_max_bytes: "1048576").archive_buffer_max_bytes == 1_048_576
+
+    for value <- [0, -1, "invalid"] do
+      assert Config.validate(Config.load(archive_buffer_max_bytes: value)) ==
+               {:error, :invalid_archive_buffer_max_bytes}
+    end
+  end
 end

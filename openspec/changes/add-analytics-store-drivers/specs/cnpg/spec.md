@@ -11,12 +11,12 @@ The project SHALL keep publishing a dedicated analytics PostgreSQL image (`servi
 - **WHEN** an analytics-image build fails the boot-smoke test
 - **THEN** the digest pin cannot be bumped
 
-### Requirement: Analytics query head is rendered only for the pg_duckdb driver
-The Helm chart SHALL render the analytics-head CNPG cluster when `analyticsStore.driver` is `pg_duckdb`, or when `analyticsStore.headEnabled` is true while the driver remains `timescale` (idle soak: no table flip). The rendered head SHALL apply a bounded DuckDB posture: execution gated to a dedicated role, per-connection memory and thread caps, spill on an `emptyDir` with a size cap, community/auto-installed extensions disabled, and LocalFileSystem disabled unless the filesystem storage backend is selected.
+### Requirement: Analytics query head is rendered only when archive operation is enabled
+The Helm chart SHALL render the analytics-head CNPG cluster when `analyticsStore.driver` is `pg_duckdb` or `hybrid`, when named dual writes are enabled, or when `analyticsStore.headEnabled` is true while the driver remains `timescale` (idle soak: no table flip). The rendered head SHALL apply a bounded DuckDB posture: execution gated to a dedicated role, per-connection memory and thread caps, spill on an `emptyDir` with a size cap, community/auto-installed extensions disabled, and LocalFileSystem disabled unless the filesystem storage backend is selected.
 
 #### Scenario: Timescale driver
 - **WHEN** `analyticsStore.driver` is `timescale` or unset
-- **AND** `analyticsStore.headEnabled` is not true
+- **AND** `analyticsStore.headEnabled` is not true and named dual writes are disabled
 - **THEN** no analytics-head Cluster, Service, or spill volume is rendered
 
 #### Scenario: Idle soak

@@ -6,6 +6,7 @@ defmodule ServiceRadar.EventWriter.JetStreamAckTest do
   test "parses standard JetStream ack reply subjects" do
     assert %{
              stream: "events",
+             source_scope: "",
              consumer: "consumer",
              delivery_count: 5,
              stream_sequence: 42,
@@ -18,6 +19,7 @@ defmodule ServiceRadar.EventWriter.JetStreamAckTest do
   test "parses domain or account prefixed ack reply subjects from the right" do
     assert %{
              stream: "events",
+             source_scope: "domain.account",
              consumer: "serviceradar",
              delivery_count: 2,
              stream_sequence: 10,

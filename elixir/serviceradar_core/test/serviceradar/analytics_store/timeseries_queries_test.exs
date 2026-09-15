@@ -55,6 +55,22 @@ defmodule ServiceRadar.AnalyticsStore.TimeseriesQueriesTest do
     assert params == ["sr:device-1", "ifHCInOctets", 1, @cutoff]
   end
 
+  test "hybrid SQL builders agree with execution about recent versus historical windows" do
+    cfg = AnalyticsStore.Config.load(driver: :hybrid, tables: "timeseries_metrics")
+    opts = [config: cfg, now: ~U[2026-09-16 12:00:00Z]]
+    {recent, _} = TimeseriesQueries.snmp_present_sql("sr:synthetic-device", @cutoff, opts)
+    refute recent =~ "_partition_date"
+
+    {historical, _} =
+      TimeseriesQueries.snmp_present_sql(
+        "sr:synthetic-device",
+        DateTime.add(@cutoff, -31, :day),
+        opts
+      )
+
+    assert historical =~ "_partition_date"
+  end
+
   defp duckdb_cfg do
     AnalyticsStore.Config.validate!(
       AnalyticsStore.Config.load(

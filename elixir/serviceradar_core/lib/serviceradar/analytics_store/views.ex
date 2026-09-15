@@ -18,12 +18,12 @@ defmodule ServiceRadar.AnalyticsStore.Views do
   @spec partition_column() :: String.t()
   def partition_column, do: @partition_column
 
-  @doc "Create or replace views for every table flipped onto pg_duckdb."
+  @doc "Create or replace views for every table with an analytics archive."
   @spec ensure_all(pid(), Config.t(), keyword()) :: :ok
   def ensure_all(conn, %Config{} = cfg, opts \\ []) do
     query = Keyword.get(opts, :query, &query!/3)
 
-    Enum.each(Config.flipped_tables(cfg), fn entry ->
+    Enum.each(Config.analytics_tables(cfg), fn entry ->
       ensure_view(conn, cfg, entry, query)
     end)
 

@@ -67,4 +67,66 @@ defmodule ServiceRadar.AnalyticsStore.SQLTest do
     assert opts[:after_connect] == {Head, :after_connect, []}
     assert opts[:parameters][:application_name] == "sr_analytics_repo"
   end
+
+  test "hybrid recent SQL keeps PostgreSQL bindings without touching the manifest or head" do
+    cfg = AnalyticsStore.Config.load(driver: :hybrid, tables: "timeseries_metrics")
+    now = ~U[2025-02-01 12:00:00Z]
+    start = DateTime.add(now, -1, :hour)
+    sql = "SELECT value FROM platform.timeseries_metrics WHERE timestamp >= $1"
+
+    opts = [
+      config: cfg,
+      now: now,
+      time_range: {start, nil},
+      manifest_list_fn: fn _, _, _ -> flunk("hot query consulted the archive") end
+    ]
+
+    assert SQL.prepare_query("timeseries_metrics", sql, [start], opts) == {:ok, sql, [start]}
+    assert SQL.repo_for_table("timeseries_metrics", opts) == Repo
+  end
+
+  test "hybrid crossing and unbounded SQL uses the full archive window and fails closed" do
+    cfg = AnalyticsStore.Config.load(driver: :hybrid, tables: "timeseries_metrics")
+    now = ~U[2025-02-01 12:00:00Z]
+    start = DateTime.add(now, -31, :day)
+    sql = "SELECT value FROM platform.timeseries_metrics WHERE timestamp >= $1"
+
+    opts = [
+      config: cfg,
+      now: now,
+      time_range: {start, now},
+      archive_pending_fn: fn _, _, _ -> {:ok, []} end,
+      manifest_list_fn: fn "timeseries_metrics", ^start, ^now ->
+        {:error, :archive_unavailable}
+      end
+    ]
+
+    assert SQL.prepare_query("timeseries_metrics", sql, [start], opts) ==
+             {:error, :archive_unavailable}
+
+    assert SQL.repo_for_table("timeseries_metrics", opts) == {:error, :analytics_head_unavailable}
+
+    assert SQL.repo_for_table("timeseries_metrics", config: cfg, now: now) ==
+             {:error, :analytics_head_unavailable}
+  end
+
+  test "invalid direct bounds fail before checking out either backend" do
+    cfg = AnalyticsStore.Config.load(driver: :hybrid, tables: "timeseries_metrics")
+
+    assert {:error, :invalid_analytics_time_range} =
+             SQL.query("timeseries_metrics", "SELECT 1", [], config: cfg, time_range: :invalid)
+  end
+
+  test "hybrid native map carries the configured hot window" do
+    cfg =
+      AnalyticsStore.Config.load(
+        driver: :hybrid,
+        tables: "timeseries_metrics",
+        hot_window_days: 7
+      )
+
+    assert Jason.decode!(SQL.drivers_json(config: cfg)) == %{
+             "timeseries_metrics" => %{"driver" => "hybrid", "hot_window_days" => 7}
+           }
+  end
 end

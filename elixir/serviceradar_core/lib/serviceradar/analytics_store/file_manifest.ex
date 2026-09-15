@@ -34,6 +34,7 @@ defmodule ServiceRadar.AnalyticsStore.FileManifest do
         :max_timestamp,
         :content_checksum,
         :batch_id,
+        :archive_batch_id,
         :status
       ]
 
@@ -54,6 +55,7 @@ defmodule ServiceRadar.AnalyticsStore.FileManifest do
     attribute :max_timestamp, :utc_datetime_usec
     attribute :content_checksum, :string
     attribute :batch_id, :string, allow_nil?: false
+    attribute :archive_batch_id, :uuid
 
     attribute :status, :atom,
       allow_nil?: false,
@@ -66,6 +68,7 @@ defmodule ServiceRadar.AnalyticsStore.FileManifest do
 
   identities do
     identity :object_key, [:object_key]
+    identity :archive_batch_id, [:archive_batch_id]
   end
 
   @doc "Record a published object. Used by the pg_duckdb writer."
