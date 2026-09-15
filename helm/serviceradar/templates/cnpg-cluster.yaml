@@ -142,6 +142,13 @@ metadata:
 spec:
   imageName: {{ include "serviceradar.cnpgImageName" (dict "Values" .Values "Chart" .Chart "cnpg" $cnpg) }}
   instances: {{ default 3 $cnpg.instances }}
+  {{- if and $cnpg.requireResources (or (not $cnpg.resources) (empty $cnpg.resources)) }}
+  {{- fail "cnpg.resources is required when cnpg.requireResources=true" }}
+  {{- end }}
+  {{- with $cnpg.resources }}
+  resources:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   {{- with $cnpg.env }}
   env:
     {{- toYaml . | nindent 4 }}

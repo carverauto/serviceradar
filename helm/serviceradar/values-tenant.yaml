@@ -97,6 +97,14 @@ networkPolicy:
 cnpg:
   instances: 3
   storageSize: 100Gi
+  requireResources: true
+  resources:
+    requests:
+      memory: 16Gi
+      cpu: "1"
+    limits:
+      memory: 22Gi
+      cpu: "2"
   backup:
     enabled: true
     retentionPolicy: "30d"
