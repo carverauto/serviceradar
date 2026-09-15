@@ -57,4 +57,11 @@ defmodule ServiceRadar.AnalyticsStore.HeadTest do
     assert sql =~ "scope := 's3://serviceradar-demo-analytics'"
     refute sql =~ "serviceradar-control-plane-db-backups"
   end
+
+  test "S3 secret action keeps an existing server instead of dropping it" do
+    assert Head.s3_secret_action([]) == :create
+    assert Head.s3_secret_action(["simple_s3_secret"]) == :keep
+    assert Head.s3_secret_action(["simple_s3_secret_1"]) == :keep
+    assert Head.s3_secret_action(["analytics_primary"]) == :create
+  end
 end

@@ -2,6 +2,7 @@ defmodule ServiceRadar.AnalyticsStore.SQLTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.AnalyticsStore
+  alias ServiceRadar.AnalyticsStore.Head
   alias ServiceRadar.AnalyticsStore.SQL
   alias ServiceRadar.Repo
 
@@ -42,5 +43,22 @@ defmodule ServiceRadar.AnalyticsStore.SQLTest do
 
   test "drivers_json is empty on the timescale default" do
     assert SQL.drivers_json(config: AnalyticsStore.Config.load([])) == "{}"
+  end
+
+  test "analytics repo child spec uses unnamed prepares and S3 after_connect" do
+    cfg =
+      AnalyticsStore.Config.load(
+        head_host: "analytics-head",
+        head_port: 5432,
+        head_database: "serviceradar",
+        head_username: "serviceradar",
+        head_password: "secret",
+        pool_size: 4
+      )
+
+    assert {ServiceRadar.AnalyticsRepo, opts} = SQL.child_spec_or_nil(cfg)
+    assert opts[:prepare] == :unnamed
+    assert opts[:after_connect] == {Head, :after_connect, []}
+    assert opts[:parameters][:application_name] == "sr_analytics_repo"
   end
 end

@@ -154,6 +154,44 @@ defmodule ServiceRadar.AnalyticsStore.Head do
   defp quote_ident(name), do: ~s("#{String.replace(name, "\"", "\"\"")}")
   defp escape(url), do: String.replace(url, "'", "''")
 
+  @doc """
+  Postgrex `after_connect` for AnalyticsRepo.
+
+  pg_duckdb keeps S3 creds in the backend's DuckDB instance. A catalog
+  FOREIGN SERVER is not enough: each pooled connection must run
+  `create_simple_secret` in-process. EventWriter used to DROP the server
+  on every COPY, which raced query backends into `region ''` / HTTP 404
+  on `date=/`.
+  """
+  @spec after_connect(pid()) :: :ok
+  def after_connect(conn) when is_pid(conn) do
+    case Config.s3_secret(Config.load()) do
+      :disabled ->
+        :ok
+
+      {:ok, s3} ->
+        # Each backend has its own DuckDB instance. Re-running create is what
+        # attaches S3 creds in-process; a catalog FOREIGN SERVER is not enough.
+        # Duplicate-name errors mean the catalog already had one.
+        try do
+          query!(conn, create_s3_secret_sql(s3))
+          :ok
+        rescue
+          _ -> :ok
+        end
+    end
+  end
+
+  @doc "Keep an existing DuckDB S3 server; create only when none is present."
+  @spec s3_secret_action([String.t()]) :: :keep | :create
+  def s3_secret_action(names) when is_list(names) do
+    if Enum.any?(names, &String.starts_with?(to_string(&1), @s3_secret_prefix)) do
+      :keep
+    else
+      :create
+    end
+  end
+
   defp maybe_ensure_s3_secret(conn, cfg) do
     case Config.s3_secret(cfg) do
       :disabled -> :ok
@@ -167,12 +205,16 @@ defmodule ServiceRadar.AnalyticsStore.Head do
       SELECT srvname FROM pg_foreign_server WHERE srvname LIKE '#{@s3_secret_prefix}%'
       """)
 
-    for [srvname] <- rows do
-      query!(conn, ~s(DROP SERVER IF EXISTS "#{srvname}" CASCADE))
-    end
+    names = Enum.map(rows, fn [name] -> name end)
 
-    query!(conn, create_s3_secret_sql(s3))
-    :ok
+    case s3_secret_action(names) do
+      :keep ->
+        :ok
+
+      :create ->
+        query!(conn, create_s3_secret_sql(s3))
+        :ok
+    end
   end
 
   defp query!(conn, sql, params \\ []) do

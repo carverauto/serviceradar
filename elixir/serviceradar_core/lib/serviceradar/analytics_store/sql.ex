@@ -92,6 +92,10 @@ defmodule ServiceRadar.AnalyticsStore.SQL do
            timeout: @duckdb_timeout_ms,
            queue_target: 5_000,
            queue_interval: 1_000,
+           # pg_duckdb CreatePlan on named prepared statements fails S3 hive
+           # globs with `region ''` / HTTP 404 on `date=/`.
+           prepare: :unnamed,
+           after_connect: {ServiceRadar.AnalyticsStore.Head, :after_connect, []},
            parameters: [statement_timeout: "60s", application_name: "sr_analytics_repo"]
          )}
     end
