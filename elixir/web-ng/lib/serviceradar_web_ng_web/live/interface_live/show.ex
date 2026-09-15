@@ -1567,8 +1567,8 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     request_ref = make_ref()
     srql_module = Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
 
-    %{device_uid: device_uid, interface: interface, settings: settings, current_scope: scope, metrics_time_range: range} =
-      socket.assigns
+    %{device_uid: device_uid, interface: interface, settings: settings, current_scope: scope} = socket.assigns
+    range = socket.assigns.metrics_time_range
 
     socket
     |> assign(:metrics_request_ref, request_ref)

@@ -84,9 +84,11 @@ Hybrid SHALL retain Timescale rows for at least the hot read window, preserve an
 - **THEN** the pruner does not delete archive objects by the hot retention window
 
 #### Scenario: Explicit archive expiry
-- **WHEN** a published object is older than the configured archive expiry
-- **THEN** its object is deleted before its manifest entry
-- **AND** a failed delete retains the manifest entry
+- **WHEN** a published hybrid object is older than the configured archive expiry
+- **THEN** its manifest entry is atomically retired from new query selection
+- **AND** the object remains available for a 24-hour reader grace period
+- **AND** cleanup marks physical deletion only after deletion and an absence check succeed
+- **AND** publication provenance remains in the manifest, including after a failed deletion
 
 ### Requirement: Archive publication is idempotent before query execution
 Hybrid EventWriter SHALL persist source receipts independently of hot retention and fix archive batch contents before publication. Regrouped delivery attempts SHALL NOT create additional archive copies. A batch SHALL select one immutable published object atomically with its completion. Query execution SHALL NOT require row deduplication to compensate for transport retries.
