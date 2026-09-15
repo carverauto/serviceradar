@@ -109,7 +109,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.ChronologicalStateMigra
              )
 
     assert state.consecutive_anomalous == 0
-    assert state.bucket_started_at == ~U[2030-01-02 03:00:00Z]
+    assert state.bucket_started_at == ~U[2030-01-02 03:00:00.000000Z]
     assert state.previously_confirmed
 
     assert {:ok, %{source: "chronological:v1:custom", disposition: "normal"}} =
