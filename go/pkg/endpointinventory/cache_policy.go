@@ -34,11 +34,16 @@ func CollectSourceMTimes(cfg Config) map[string]SourceMTime {
 	return mtimes
 }
 
-// CacheCanSkipFullScan reports whether a producer can use its cached package set
-// instead of performing an expensive full collection. Cadence is the single
-// time-based owner: timer units may wake the producer more frequently, but an
-// unchanged source set is fully rescanned once the configured cadence elapses.
-func CacheCanSkipFullScan(
+// CacheNeedsReconcileUpload reports whether the server has asked for a full
+// package-set re-upload and that upload has not yet been queued.
+func CacheNeedsReconcileUpload(manifest *InventoryCacheManifest) bool {
+	return manifest != nil && manifest.ServerReconcileRequestedAt != nil && manifest.PendingUpload == nil
+}
+
+// CacheCanSkipCollection reports whether a producer can skip walking / parsing
+// package sources. Cadence is the time-based owner of collection. An outstanding
+// reconcile-floor request does not by itself require a new walk.
+func CacheCanSkipCollection(
 	cfg Config,
 	identity CacheIdentity,
 	manifest *InventoryCacheManifest,
@@ -63,9 +68,6 @@ func CacheCanSkipFullScan(
 		!legacyPendingProvesIdentity(manifest, pendingPayload, identity) {
 		return false
 	}
-	if manifest.ServerReconcileRequestedAt != nil && manifest.PendingUpload == nil {
-		return false
-	}
 	if !sourceMTimesEqual(cfg.Sources, manifest.SourceMTimes, current) {
 		return false
 	}
@@ -84,6 +86,21 @@ func CacheCanSkipFullScan(
 	}
 
 	return true
+}
+
+// CacheCanSkipFullScan reports whether a producer can skip both collection and
+// any full upload. Timer units may wake more often than cadence; an unchanged
+// source set is fully collected once cadence elapses. A reconcile-floor request
+// still needs a full upload of the cached set, so this returns false then.
+func CacheCanSkipFullScan(
+	cfg Config,
+	identity CacheIdentity,
+	manifest *InventoryCacheManifest,
+	current map[string]SourceMTime,
+	now time.Time,
+) bool {
+	return CacheCanSkipCollection(cfg, identity, manifest, current, now) &&
+		!CacheNeedsReconcileUpload(manifest)
 }
 
 func readMatchingPendingPayloadUnlocked(

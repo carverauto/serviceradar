@@ -111,22 +111,36 @@ func TestCacheCanSkipFullScanForceFreshBypassesCadenceFloor(t *testing.T) {
 func TestCacheCanSkipFullScanRespectsServerReconcileRequest(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Sources = []string{PackageSourceDpkg}
+	cfg.Cadence = "1h"
 	cfg.ForceFullScanInterval = 24
 	current := map[string]SourceMTime{
 		PackageSourceDpkg: {Source: PackageSourceDpkg, Path: "/var/lib/dpkg/status", Exists: true, MTimeUnixNano: 10, Size: 20},
 	}
 	requestedAt := time.Unix(100, 0).UTC()
+	lastFull := requestedAt.Add(-time.Minute)
 	manifest := &InventoryCacheManifest{
 		PackageSetHash:             "package-hash",
 		ArtifactHash:               "artifact-hash",
 		LastUploadedPackageSetHash: "package-hash",
 		LastUploadedArtifactHash:   "artifact-hash",
 		SourceMTimes:               copySourceMTimes(current),
+		LastFullScanAt:             &lastFull,
 		ServerReconcileRequestedAt: &requestedAt,
 	}
 
 	if cacheCanSkipFullScanForTest(cfg, manifest, current, requestedAt) {
 		t.Fatal("cache should not skip when the server requested a reconcile upload")
+	}
+	identity := testCacheIdentity(cfg)
+	manifest.AgentID = identity.AgentID
+	manifest.ConfigHash = identity.ConfigHash
+	manifest.ProducerID = identity.ProducerID
+	manifest.ProducerVersion = identity.ProducerVersion
+	if !CacheCanSkipCollection(cfg, identity, manifest, current, requestedAt) {
+		t.Fatal("reconcile floor must not force a new collection when cadence still holds")
+	}
+	if !CacheNeedsReconcileUpload(manifest) {
+		t.Fatal("reconcile floor should still require a cached full upload")
 	}
 }
 

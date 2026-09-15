@@ -53,6 +53,22 @@ func (p *PushLoop) recordEndpointInventoryUploadSuccesses(
 	}
 
 	now := time.Now().UTC()
+	ackedFullUpload := false
+	for _, payload := range payloads {
+		if err := endpointinventory.MarkUploadSucceeded(cfg, &payload, now); err != nil {
+			if !errors.Is(err, endpointinventory.ErrNoPendingUpload) {
+				p.logger.Warn().Err(err).Str("scan_id", payload.ScanID).Msg("Failed to mark endpoint inventory upload succeeded")
+			}
+			continue
+		}
+		if endpointinventory.PayloadRequiresFullUpload(&payload) {
+			ackedFullUpload = true
+		}
+	}
+	if ackedFullUpload {
+		return
+	}
+
 	for _, directive := range directives {
 		reason := directive.Message
 		if reason == "" {
@@ -60,13 +76,6 @@ func (p *PushLoop) recordEndpointInventoryUploadSuccesses(
 		}
 		if err := endpointinventory.MarkServerReconcileRequested(cfg, now, reason); err != nil {
 			p.logger.Warn().Err(err).Msg("Failed to record endpoint inventory reconcile directive")
-		}
-	}
-
-	for _, payload := range payloads {
-		if err := endpointinventory.MarkUploadSucceeded(cfg, &payload, now); err != nil &&
-			!errors.Is(err, endpointinventory.ErrNoPendingUpload) {
-			p.logger.Warn().Err(err).Str("scan_id", payload.ScanID).Msg("Failed to mark endpoint inventory upload succeeded")
 		}
 	}
 }

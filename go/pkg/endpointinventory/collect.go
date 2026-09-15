@@ -96,7 +96,13 @@ func (r *Runner) Run(ctx context.Context) (*ScanPayload, error) {
 	if err != nil {
 		return nil, err
 	}
-	if CacheCanSkipFullScan(r.cfg, identity, cache, sourceMTimes, started) {
+	if CacheCanSkipCollection(r.cfg, identity, cache, sourceMTimes, started) {
+		if CacheNeedsReconcileUpload(cache) {
+			return ReplayCachedReconcileUpload(r.cfg, identity, cache, sourceMTimes, started, CachedReconcileReplay{
+				CollectorVersion: collectorVersion,
+				EnabledPlugins:   append([]string(nil), r.cfg.Sources...),
+			})
+		}
 		payload := r.unchangedPayload(started, osInfo, cache, "source_mtime_unchanged")
 		if err := RecordCachedScan(r.cfg, identity, sourceMTimes, started); err == nil {
 			return payload, nil

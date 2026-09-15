@@ -1480,6 +1480,17 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
     assert scan_row_count(agent_id) == 1
     assert artifact_count(first_scan.id) == 1
     assert Enum.all?(current_packages(agent_id), &(&1.scan_ref == first_scan.id))
+
+    assert {:ok, duplicate} =
+             EndpointInventoryIngestor.ingest_report(unchanged_payload,
+               actor: actor,
+               upload_object: successful_upload(),
+               reconcile_floor_scan_count: 1,
+               reconcile_floor_max_age_days: 0
+             )
+
+    assert duplicate.reconcile_floor? == true
+    assert duplicate.directives == %{}
   end
 
   @tag sandbox: :unboxed

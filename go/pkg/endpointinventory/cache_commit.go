@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -87,6 +88,73 @@ func RecordCachedScan(
 			unchangedManifest(identity, latest, current, scannedAt, pendingPayload),
 		)
 	})
+}
+
+// CachedReconcileReplay carries producer-specific fields for a cached
+// reconcile-floor upload that must not re-walk package sources.
+type CachedReconcileReplay struct {
+	CollectorVersion string
+	EnabledPlugins   []string
+	Metadata         map[string]any
+}
+
+// ReplayCachedReconcileUpload emits a full changed upload from the cached
+// package set so a reconcile-floor request does not force a new collection.
+func ReplayCachedReconcileUpload(
+	cfg Config,
+	identity CacheIdentity,
+	cache *InventoryCacheManifest,
+	current map[string]SourceMTime,
+	scannedAt time.Time,
+	opts CachedReconcileReplay,
+) (*ScanPayload, error) {
+	if cache == nil || cache.PackageSetHash == "" || cache.ArtifactHash == "" {
+		return nil, ErrCacheRefreshRequired
+	}
+
+	osInfo, _ := ReadOSRelease(cfg.OSReleasePath)
+	sbom := BuildCycloneDX(cfg, scannedAt, osInfo, cache.Packages)
+	enabled := append([]string(nil), opts.EnabledPlugins...)
+	if len(enabled) == 0 {
+		enabled = append([]string(nil), cfg.Sources...)
+	}
+	version := strings.TrimSpace(opts.CollectorVersion)
+	if version == "" {
+		version = collectorVersion
+	}
+	successfulAt := cache.LastSuccessfulScanAt
+	if successfulAt == nil {
+		ts := scannedAt.UTC()
+		successfulAt = &ts
+	}
+
+	payload := &ScanPayload{
+		SchemaVersion:        SchemaVersion,
+		AgentID:              cfg.AgentID,
+		ScanID:               newScanID(),
+		CollectorVersion:     version,
+		State:                scanStateScanned,
+		CoverageState:        coverageComplete,
+		ConfigHash:           identity.ConfigHash,
+		LastScanAt:           scannedAt,
+		LastSuccessfulScanAt: successfulAt,
+		OS:                   osInfo,
+		EnabledPlugins:       enabled,
+		DetectedPlugins:      detectedSources(cache.SourceSummaries),
+		Diagnostics:          scannerDiagnostics(cache.SourceSummaries),
+		PackageCount:         cache.PackageCount,
+		PackageSetHash:       cache.PackageSetHash,
+		ArtifactHash:         cache.ArtifactHash,
+		HashAlgorithm:        firstNonEmpty(cache.HashAlgorithm, HashAlgorithm),
+		UploadReason:         UploadReasonChanged,
+		SBOM:                 &sbom,
+		Metadata:             withMetadataValues(collectionPolicyMetadata(cfg), opts.Metadata),
+	}
+	if err := FinalizeFullScan(cfg, identity, payload, append([]Package(nil), cache.Packages...), current, scannedAt); err != nil {
+		return nil, err
+	}
+
+	return payload, nil
 }
 
 func fullScanManifest(
