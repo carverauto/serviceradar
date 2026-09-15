@@ -83,7 +83,10 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
                  package_set_hash_mismatch?: context.package_set_hash_mismatch?,
                  reconcile_floor?: context.reconcile_floor_due?,
                  upload_reason: context.upload_reason,
-                 directives: scan_ack_directives(context),
+                 directives:
+                   scan_ack_directives(%{
+                     reconcile_floor_due?: newly_reconcile_floor_due?(context, current)
+                   }),
                  current?: successful_scan?(context),
                  package_change_signals: history.package_change_signals
                }
@@ -178,13 +181,19 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
 
   defp touch_hash_noop_freshness(context, current) do
     invoke_before_hash_freshness_touch(context)
+    emit_floor? = newly_reconcile_floor_due?(context, current)
 
     case Repo.transaction(fn ->
            {updated_count, _} = update_current_scan_freshness(context, current)
            insert_scan_activity_event(current.id, context)
 
            latest = current_scan_snapshot(context.agent_id)
-           result_context = freshness_result_context(context, latest, updated_count)
+
+           result_context =
+             context
+             |> freshness_result_context(latest, updated_count)
+             |> Map.put(:emit_reconcile_floor?, emit_floor? and updated_count == 1)
+
            hash_noop_result(latest, result_context)
          end) do
       {:ok, result} ->
@@ -283,8 +292,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
       directives:
         scan_ack_directives(%{
           reconcile_floor_due?:
-            context.reconcile_floor_due? or
-              Map.get(current || %{}, :reconcile_floor_due, false)
+            Map.get(context, :emit_reconcile_floor?, newly_reconcile_floor_due?(context, current))
         }),
       current?: Map.get(current || %{}, :current, false),
       package_change_signal_publish_count: 0,
@@ -375,8 +383,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
       package_set_hash_mismatch?: false,
       reconcile_floor?: Map.get(scan, :reconcile_floor_due, false),
       upload_reason: short_circuit_upload_reason(scan, reason),
-      directives:
-        scan_ack_directives(%{reconcile_floor_due?: Map.get(scan, :reconcile_floor_due, false)}),
+      directives: %{},
       current?: Map.get(scan, :current, false),
       package_change_signal_publish_count: 0,
       short_circuited?: true
@@ -1169,6 +1176,11 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
     successful_scan?(context) and context.upload_reason == @upload_reason_unchanged and
       (scan_floor_due?(context.reconcile_floor_scan_count, unchanged_scan_count) or
          age_floor_due?(context, last_changed_at))
+  end
+
+  defp newly_reconcile_floor_due?(context, current) do
+    context.reconcile_floor_due? == true and
+      Map.get(current || %{}, :reconcile_floor_due, false) != true
   end
 
   defp scan_floor_due?(scan_count_floor, unchanged_scan_count)

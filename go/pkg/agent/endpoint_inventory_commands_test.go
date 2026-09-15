@@ -21,6 +21,7 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/endpointinventory"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
@@ -140,5 +141,105 @@ func TestEndpointInventoryAckDirectiveRequestsServerReconcile(t *testing.T) {
 	}
 	if manifest.ServerReconcileReason != "server reconcile floor reached" {
 		t.Fatalf("server reconcile reason = %q", manifest.ServerReconcileReason)
+	}
+}
+
+func TestEndpointInventoryAckIgnoresFloorDirectiveAfterFullUpload(t *testing.T) {
+	dir := t.TempDir()
+	pl := &PushLoop{
+		server: &Server{
+			config: &ServerConfig{
+				AgentID: "agent-1",
+				EndpointInventory: &EndpointInventoryStatusConfig{
+					ConfigPath:  filepath.Join(dir, "missing-config.json"),
+					SpoolPath:   filepath.Join(dir, "spool", "latest.json"),
+					CacheDir:    filepath.Join(dir, "cache"),
+					ProfilePath: filepath.Join(dir, "missing-profile.json"),
+					TmpDir:      filepath.Join(dir, "tmp"),
+				},
+			},
+		},
+		logger: logger.NewTestLogger(),
+	}
+
+	cfg, err := pl.endpointInventoryCommandConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Unix(50, 0).UTC()
+	payload := &endpointinventory.ScanPayload{
+		SchemaVersion:    endpointinventory.SchemaVersion,
+		AgentID:          cfg.AgentID,
+		ScanID:           "scan-full-ack",
+		CollectorVersion: "test",
+		State:            "scanned",
+		CoverageState:    "complete",
+		ConfigHash:       "cfg-hash",
+		LastScanAt:       now,
+		PackageCount:     1,
+		PackageSetHash:   "pkg-hash",
+		ArtifactHash:     "art-hash",
+		HashAlgorithm:    "sha256-v1",
+		UploadReason:     endpointinventory.UploadReasonChanged,
+		SBOM:             &endpointinventory.CycloneDXBOM{},
+		Metadata:         map[string]any{"scanner_producer_id": "test-producer"},
+	}
+	identity := endpointinventory.CacheIdentity{
+		AgentID:         cfg.AgentID,
+		ConfigHash:      "cfg-hash",
+		ProducerID:      "test-producer",
+		ProducerVersion: "test",
+	}
+	if err := endpointinventory.FinalizeFullScan(
+		cfg,
+		identity,
+		payload,
+		[]endpointinventory.Package{{Name: "openssl", Version: "1"}},
+		nil,
+		now,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := endpointinventory.WriteSpool(cfg, payload); err != nil {
+		t.Fatal(err)
+	}
+
+	message, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	directivePayload, err := json.Marshal(map[string]any{
+		"reconcile_floor": true,
+		"upload_reason":   endpointinventory.UploadReasonChanged,
+		"message":         "server reconcile floor reached",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pl.recordEndpointInventoryUploadSuccesses([]*proto.GatewayServiceStatus{{
+		ServiceName: endpointinventory.ServiceName,
+		ServiceType: endpointinventory.ServiceType,
+		Message:     message,
+	}}, &proto.GatewayStatusResponse{
+		Received: true,
+		Directives: []*proto.GatewayStatusDirective{{
+			ServiceName:   endpointinventory.ServiceName,
+			ServiceType:   endpointinventory.ServiceType,
+			DirectiveType: endpointInventoryReconcileFloorDirective,
+			PayloadJson:   directivePayload,
+		}},
+	})
+
+	manifest, err := endpointinventory.ReadCacheManifest(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest == nil || manifest.PendingUpload != nil {
+		t.Fatalf("pending upload should be cleared after ack: %#v", manifest)
+	}
+	if manifest.ServerReconcileRequestedAt != nil {
+		t.Fatalf("leftover floor directive re-armed reconcile after full upload ack: %#v", manifest)
 	}
 }

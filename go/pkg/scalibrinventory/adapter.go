@@ -134,7 +134,27 @@ func (r *Runner) Run(ctx context.Context) (*endpointinventory.ScanPayload, error
 	if err != nil {
 		return nil, err
 	}
-	if endpointinventory.CacheCanSkipFullScan(r.cfg.Config, identity, cache, sourceMTimes, started) {
+	if endpointinventory.CacheCanSkipCollection(r.cfg.Config, identity, cache, sourceMTimes, started) {
+		if endpointinventory.CacheNeedsReconcileUpload(cache) {
+			return endpointinventory.ReplayCachedReconcileUpload(
+				r.cfg.Config,
+				identity,
+				cache,
+				sourceMTimes,
+				started,
+				endpointinventory.CachedReconcileReplay{
+					CollectorVersion: ProducerVersion,
+					EnabledPlugins:   append([]string(nil), r.cfg.ScaLibrPlugins...),
+					Metadata: map[string]any{
+						"scanner_family":           "endpoint_inventory",
+						"scanner_producer_id":      ProducerID,
+						"scanner_producer_version": ProducerVersion,
+						"scanner_id":               firstNonEmpty(r.cfg.ScannerID, DefaultScannerID),
+						"scanner_version":          r.cfg.ScannerVersion,
+					},
+				},
+			)
+		}
 		payload := r.unchangedPayload(started, configHash, cache, "cadence_not_due")
 		if err := endpointinventory.RecordCachedScan(r.cfg.Config, identity, sourceMTimes, started); err == nil {
 			return payload, nil
