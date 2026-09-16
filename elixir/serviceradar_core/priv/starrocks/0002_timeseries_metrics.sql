@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS serviceradar.timeseries_metrics (
   value DOUBLE NOT NULL,
   unit VARCHAR(64),
   if_index INT,
-  partition VARCHAR(128),
+  `partition` VARCHAR(128),
   scale DOUBLE,
   is_delta BOOLEAN,
   counter_width INT

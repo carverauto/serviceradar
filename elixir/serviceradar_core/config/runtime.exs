@@ -453,6 +453,10 @@ config :serviceradar_core, ServiceRadar.ColdTier,
       fn {_class, days} -> is_nil(days) end
     )
 
+config :serviceradar_core,
+       ServiceRadar.Analytics.StarRocks,
+       ServiceRadar.Analytics.StarRocks.Env.config()
+
 if config_env() == :prod do
   read_secret_env = fn env_name, file_env_name ->
     case System.get_env(env_name) do

@@ -85,9 +85,12 @@ py_test(
     name = "starrocks_analytics_pins_test",
     srcs = ["starrocks_analytics_pins_test.py"],
     data = [
+        "templates/_helpers.tpl",
         "templates/starrocks-analytics-config.yaml",
         "templates/starrocks-catalog-job.yaml",
         "templates/starrocks-catalog-network-policy.yaml",
+        "templates/core.yaml",
+        "templates/web.yaml",
         "values.yaml",
         "values-demo.yaml",
         "//k8s/starrocks:cluster_files",

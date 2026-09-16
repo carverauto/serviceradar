@@ -276,6 +276,11 @@ config :serviceradar_core,
 config :serviceradar_core,
   run_startup_migrations: false
 
+config :serviceradar_core, ServiceRadar.Analytics.StarRocks,
+  catalog_enabled: false,
+  cutover_datasets: [],
+  shadow_datasets: []
+
 # Sweep SRQL paging configuration
 config :serviceradar_core,
   sweep_srql_page_limit: 500

@@ -1078,6 +1078,10 @@ config :serviceradar_core,
   cluster_enabled: cluster_enabled,
   cluster_coordinator: cluster_coordinator
 
+config :serviceradar_core,
+       ServiceRadar.Analytics.StarRocks,
+       ServiceRadar.Analytics.StarRocks.Env.config()
+
 if cluster_enabled do
   topologies =
     case cluster_strategy do

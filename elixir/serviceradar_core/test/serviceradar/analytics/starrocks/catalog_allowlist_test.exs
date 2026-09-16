@@ -4,6 +4,7 @@ defmodule ServiceRadar.Analytics.StarRocks.CatalogAllowlistTest do
   alias ServiceRadar.Analytics.StarRocks
   alias ServiceRadar.Analytics.StarRocks.Catalog
   alias ServiceRadar.Analytics.StarRocks.CatalogAllowlist
+  alias ServiceRadar.Analytics.StarRocks.Env
 
   @moduletag :db_free
 
@@ -65,6 +66,41 @@ defmodule ServiceRadar.Analytics.StarRocks.CatalogAllowlistTest do
     refute sql =~ "password"
     refute sql =~ "repo1.maven.org"
     refute sql =~ "network_credential_secrets"
+  end
+
+  test "env config stays off and mint-no atoms from unknown dataset names" do
+    keys = [
+      "SERVICERADAR_STARROCKS_CATALOG_ENABLED",
+      "SERVICERADAR_STARROCKS_CUTOVER_DATASETS",
+      "SERVICERADAR_STARROCKS_SHADOW_DATASETS",
+      "SERVICERADAR_STARROCKS_FE_HTTP"
+    ]
+
+    previous = Map.new(keys, fn key -> {key, System.get_env(key)} end)
+
+    on_exit(fn ->
+      Enum.each(previous, fn
+        {key, nil} -> System.delete_env(key)
+        {key, value} -> System.put_env(key, value)
+      end)
+    end)
+
+    Enum.each(keys, &System.delete_env/1)
+    cfg = Env.config()
+    refute cfg[:catalog_enabled]
+    assert cfg[:cutover_datasets] == []
+    assert cfg[:shadow_datasets] == []
+    assert cfg[:fe_http] == "http://127.0.0.1:8030"
+
+    System.put_env("SERVICERADAR_STARROCKS_CATALOG_ENABLED", "true")
+    System.put_env("SERVICERADAR_STARROCKS_CUTOVER_DATASETS", "flows,not_a_dataset,metrics")
+    System.put_env("SERVICERADAR_STARROCKS_SHADOW_DATASETS", "logs")
+    System.put_env("SERVICERADAR_STARROCKS_FE_HTTP", "http://lab-fe-service.starrocks.svc:8030")
+    cfg = Env.config()
+    assert cfg[:catalog_enabled]
+    assert cfg[:cutover_datasets] == [:flows, :metrics]
+    assert cfg[:shadow_datasets] == [:logs]
+    assert cfg[:fe_http] == "http://lab-fe-service.starrocks.svc:8030"
   end
 
   test "catalog_enabled application env does not default on" do

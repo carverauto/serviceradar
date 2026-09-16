@@ -280,6 +280,38 @@ serviceradar.io/runtime-tls-revision: {{ default "initial" (default (dict) .Valu
 {{- end -}}
 
 {{/*
+StarRocks analytics env for core/web-ng. Empty unless analytics.starrocks.enabled.
+Cutover/shadow lists stay comma-separated; catalog_enabled is a boolean string.
+*/}}
+{{- define "serviceradar.starrocksAnalyticsEnv" -}}
+{{- $sr := default (dict) (default (dict) .Values.analytics).starrocks -}}
+{{- if $sr.enabled }}
+- name: SERVICERADAR_STARROCKS_CATALOG_ENABLED
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "serviceradar.fullname" . }}-starrocks-analytics
+      key: catalogEnabled
+- name: SERVICERADAR_STARROCKS_CUTOVER_DATASETS
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "serviceradar.fullname" . }}-starrocks-analytics
+      key: cutoverDatasets
+- name: SERVICERADAR_STARROCKS_SHADOW_DATASETS
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "serviceradar.fullname" . }}-starrocks-analytics
+      key: shadowDatasets
+- name: SERVICERADAR_STARROCKS_DATABASE
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "serviceradar.fullname" . }}-starrocks-analytics
+      key: database
+- name: SERVICERADAR_STARROCKS_FE_HTTP
+  value: {{ printf "http://%s:%v" $sr.fe.service $sr.fe.httpPort | quote }}
+{{- end }}
+{{- end -}}
+
+{{/*
 Topology spread constraints to distribute replicas of one workload across nodes.
 Enabled when .Values.topologySpread.enabled is true.
 Usage: {{ include "serviceradar.topologySpread" (dict "root" . "app" "serviceradar-core") | nindent 6 }}

@@ -22,6 +22,11 @@ VALUES_DEMO = (REPO_ROOT / "helm" / "serviceradar" / "values-demo.yaml").read_te
 TEMPLATE = (
     REPO_ROOT / "helm" / "serviceradar" / "templates" / "starrocks-analytics-config.yaml"
 ).read_text()
+HELPERS = (
+    REPO_ROOT / "helm" / "serviceradar" / "templates" / "_helpers.tpl"
+).read_text()
+CORE_TMPL = (REPO_ROOT / "helm" / "serviceradar" / "templates" / "core.yaml").read_text()
+WEB_TMPL = (REPO_ROOT / "helm" / "serviceradar" / "templates" / "web.yaml").read_text()
 LAB_CLUSTER = (REPO_ROOT / "k8s" / "starrocks" / "values-cluster.yaml").read_text()
 LAB_README = (REPO_ROOT / "k8s" / "starrocks" / "README.md").read_text()
 CATALOG_JOB = (
@@ -109,6 +114,18 @@ class StarRocksAnalyticsPinsTest(unittest.TestCase):
             "6e0e4cc2d8cae902084f8a2b18728b073a6fd9d1f87c9d8bff8f298c18185b93",
             LAB_CLUSTER,
         )
+
+    def test_starrocks_env_is_injected_when_analytics_is_enabled(self):
+        self.assertIn("serviceradar.starrocksAnalyticsEnv", HELPERS)
+        self.assertIn("SERVICERADAR_STARROCKS_CATALOG_ENABLED", HELPERS)
+        self.assertIn("SERVICERADAR_STARROCKS_CUTOVER_DATASETS", HELPERS)
+        self.assertLess(
+            HELPERS.find("if $sr.enabled"),
+            HELPERS.find("SERVICERADAR_STARROCKS_CATALOG_ENABLED"),
+        )
+        self.assertIn("serviceradar.starrocksAnalyticsEnv", CORE_TMPL)
+        self.assertIn("serviceradar.starrocksAnalyticsEnv", WEB_TMPL)
+        self.assertIn("`partition` VARCHAR(128)", (SCHEMA_DIR / "0002_timeseries_metrics.sql").read_text())
 
     def test_demo_overlay_enables_catalog_not_cutover(self):
         self.assertIn("enabled: true", VALUES_DEMO)
