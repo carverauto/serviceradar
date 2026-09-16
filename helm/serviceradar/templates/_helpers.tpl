@@ -279,6 +279,49 @@ serviceradar.io/runtime-tls-revision: {{ default "initial" (default (dict) .Valu
   value: "{{ default "/etc/serviceradar/certs" $vals.coreClient.certDir }}"
 {{- end -}}
 
+{{- define "serviceradar.requireStarRocksForNetFlow" -}}
+{{- $sr := default (dict) (default (dict) .Values.analytics).starrocks -}}
+{{- if not $sr.enabled }}
+{{- fail "flowCollector.enabled requires analytics.starrocks.enabled: NetFlow history is stored in StarRocks. Without StarRocks, logs stay on CNPG hypertables and NetFlow is not collected." }}
+{{- end }}
+{{- end -}}
+
+{{- define "serviceradar.starrocksShadowDatasets" -}}
+{{- $sr := default (dict) (default (dict) .Values.analytics).starrocks -}}
+{{- $shadow := $sr.shadowDatasets | default list -}}
+{{- if eq (len $shadow) 0 -}}
+{{- $shadow = list "flows" "metrics" "logs" "events" -}}
+{{- end -}}
+{{- $shadow | join "," -}}
+{{- end -}}
+
+{{- define "serviceradar.starrocksAnalyticsEnv" -}}
+{{- $sr := default (dict) (default (dict) .Values.analytics).starrocks -}}
+{{- if $sr.enabled }}
+- name: SERVICERADAR_STARROCKS_ENABLED
+  value: "true"
+- name: SERVICERADAR_STARROCKS_CATALOG_ENABLED
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "serviceradar.fullname" . }}-starrocks-analytics
+      key: catalogEnabled
+- name: SERVICERADAR_STARROCKS_CUTOVER_DATASETS
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "serviceradar.fullname" . }}-starrocks-analytics
+      key: cutoverDatasets
+- name: SERVICERADAR_STARROCKS_SHADOW_DATASETS
+  value: {{ include "serviceradar.starrocksShadowDatasets" . | quote }}
+- name: SERVICERADAR_STARROCKS_DATABASE
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "serviceradar.fullname" . }}-starrocks-analytics
+      key: database
+- name: SERVICERADAR_STARROCKS_FE_HTTP
+  value: {{ printf "http://%s:%v" $sr.fe.service $sr.fe.httpPort | quote }}
+{{- end }}
+{{- end -}}
+
 {{/*
 Topology spread constraints to distribute replicas of one workload across nodes.
 Enabled when .Values.topologySpread.enabled is true.

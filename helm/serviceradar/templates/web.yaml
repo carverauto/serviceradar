@@ -334,6 +334,7 @@ spec:
         - containerPort: 9100
           name: dist
         env:
+        {{- include "serviceradar.starrocksAnalyticsEnv" . | nindent 8 }}
         - name: PORT
           value: "4000"
         - name: TMPDIR

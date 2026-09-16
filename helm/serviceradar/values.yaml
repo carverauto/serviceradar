@@ -2448,6 +2448,38 @@ sweep:
 # SPIFFE Configuration (shared by all Elixir components)
 # =============================================================================
 
+# Optional telemetry warehouse. Enabling flowCollector requires this flag.
+analytics:
+  starrocks:
+    enabled: false
+    profile: sharedNothing
+    operatorChartVersion: "1.11.7"
+    imageTag: "3.5.21"
+    database: serviceradar
+    fe:
+      service: lab-fe-service.starrocks.svc
+      queryPort: 9030
+      httpPort: 8030
+    sharedData:
+      objectStorageBucket: ""
+      objectStorageEndpoint: ""
+    streamLoad:
+      maxRows: 50000
+      maxBytes: 33554432
+      maxAgeMs: 2000
+      maxInFlight: 4
+    shadowDatasets: []
+    cutoverDatasets: []
+    catalog:
+      enabled: false
+      name: cnpg_platform
+      driverClass: org.postgresql.Driver
+      driverUrl: "file:///opt/starrocks/jdbc/postgresql.jar"
+      user: serviceradar_starrocks_reader
+      secretName: ""
+      jdbcUri: "jdbc:postgresql://cnpg-rw:5432/serviceradar?ssl=true&sslmode=require"
+      sourceNamespace: starrocks
+
 spiffe:
   mode: "filesystem"
   trustDomain: "serviceradar.local"

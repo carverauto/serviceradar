@@ -242,6 +242,7 @@ spec:
           value: {{ .ociDigest | quote }}
         {{- end }}
         {{- end }}
+        {{- include "serviceradar.starrocksAnalyticsEnv" . | nindent 8 }}
         - name: CLUSTER_ENABLED
           value: "true"
         - name: CLUSTER_STRATEGY
