@@ -4,13 +4,16 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.NetflowTraffic do
 
   defmacro __using__(_opts) do
     quote do
-      defp traffic_links(%{seconds: seconds} = window) when seconds >= 21_600 do
+      defp traffic_links(%{seconds: seconds} = window, scope, srql_module) when seconds >= 21_600 do
         time = ServiceRadarWebNGWeb.DashboardLive.Window.query_time(window)
 
         query =
           ~s|in:flows #{time} stats:"sum(bytes_total) as bytes_total, sum(packets_total) as packets_total, count(*) as flow_count by src_endpoint_ip,dst_endpoint_ip" sort:bytes_total:desc limit:120|
 
-        case default_srql_module().query(query, %{scope: nil}) do
+        case srql_module.query(query, %{scope: scope}) do
+          {:ok, %{"results" => []}} ->
+            []
+
           {:ok, %{"results" => rows}} when is_list(rows) ->
             traffic_links_from_relation("analytics_flow_pairs", nil, rows)
 
@@ -19,14 +22,14 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.NetflowTraffic do
         end
       end
 
-      defp traffic_links(%{start: _, end: _} = window) do
+      defp traffic_links(%{start: _, end: _} = window, _scope, _srql_module) do
         traffic_links_from_relation("ocsf_network_activity", "time", window)
       rescue
         _ -> :error
       end
 
-      defp traffic_links(value) do
-        case traffic_links(ServiceRadarWebNGWeb.DashboardLive.Window.resolve(value, "netflow")) do
+      defp traffic_links(value, scope, srql_module) do
+        case traffic_links(ServiceRadarWebNGWeb.DashboardLive.Window.resolve(value, "netflow"), scope, srql_module) do
           :error -> []
           links -> links
         end

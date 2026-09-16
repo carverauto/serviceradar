@@ -94,6 +94,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
             if(Map.get(sources, :vulnerable_assets, []) == [], do: :configured_empty, else: :active)
           )
           |> overlay_loading_states(loaded)
+          |> overlay_netflow_error(Map.get(sources, :window_errors, %{}))
 
         %{
           dashboard_modules: enabled_modules(module_states),
@@ -125,6 +126,11 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
           flow_summary: flow_summary
         }
       end
+
+      defp overlay_netflow_error(states, %{"netflow" => error}) when is_binary(error),
+        do: Map.put(states, :netflow, :error)
+
+      defp overlay_netflow_error(states, _errors), do: states
 
       defp overlay_loading_states(states, loaded) when is_map(states) and is_map(loaded) do
         Enum.reduce(
@@ -174,8 +180,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
             collector_counts: {fn -> ServiceRadarWebNG.TenantUsage.collector_counts_by_type() end, %{}},
             device_summary: {fn -> device_summary(scope) end, empty_device_summary()},
             services_summary: {fn -> services_summary(scope, time_window) end, empty_services_summary()},
-            flow_summary: {fn -> flow_summary(time_window) end, empty_flow_summary()},
-            traffic_links: {fn -> traffic_links(time_window) end, []},
+            flow_summary: {fn -> flow_summary(time_window, scope, default_srql_module()) end, empty_flow_summary()},
+            traffic_links: {fn -> traffic_links(time_window, scope, default_srql_module()) end, []},
             topology_links: {fn -> topology_links(time_window) end, []},
             mtr_overlays: {fn -> mtr_overlays() end, []},
             mtr_timeseries: {fn -> mtr_timeseries_summary(time_window) end, empty_mtr_summary()},
@@ -388,19 +394,21 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
       end
 
       @spec load_netflow_map(term(), keyword()) :: map()
-      def load_netflow_map(_scope, opts \\ []) do
+      def load_netflow_map(scope, opts \\ []) do
         window =
           Keyword.get_lazy(opts, :window, fn ->
             ServiceRadarWebNGWeb.DashboardLive.Window.resolve(Keyword.get(opts, :time_window, "last_15m"), "netflow")
           end)
 
         time_window = window.value
+        srql_module = Keyword.get_lazy(opts, :srql_module, &default_srql_module/0)
 
         wave1 =
           run_concurrent(
             collector_counts: {fn -> ServiceRadarWebNG.TenantUsage.collector_counts_by_type() end, %{}},
-            flow_summary: {fn -> flow_summary(window) end, Map.put(empty_flow_summary(), :error, :query_failed)},
-            traffic_links: {fn -> traffic_links(window) end, :error},
+            flow_summary:
+              {fn -> flow_summary(window, scope, srql_module) end, Map.put(empty_flow_summary(), :error, :query_failed)},
+            traffic_links: {fn -> traffic_links(window, scope, srql_module) end, :error},
             topology_links: {fn -> topology_links(time_window) end, []},
             mtr_overlays: {fn -> mtr_overlays() end, []}
           )

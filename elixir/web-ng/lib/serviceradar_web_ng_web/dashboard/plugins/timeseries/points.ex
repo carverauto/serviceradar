@@ -118,12 +118,13 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Points do
   def chart_points(points, _unit, _compact, _cap), do: points
 
   # Find gaps before reducing display points, so decimation cannot invent
-  # outages or erase them. A known query bucket also handles sparse series;
-  # without one, the observed cadence can only identify unusually long gaps.
+  # outages or erase them. Query buckets may be shorter than collection cadence.
+  # At least three observed intervals establish a median cadence; sparse series
+  # retain the known-bucket threshold so two distant samples cannot hide an outage.
   def time_gaps(points, bucket_seconds \\ nil) do
     threshold =
       if is_number(bucket_seconds) and bucket_seconds > 0 do
-        bucket_seconds * 1.5
+        max(bucket_seconds * 1.5, established_cadence_threshold(points))
       else
         case median_delta_seconds(points) do
           {:ok, seconds} -> seconds * 3
@@ -143,6 +144,15 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Points do
       []
     end
   end
+
+  defp established_cadence_threshold([_, _, _, _ | _] = points) do
+    case median_delta_seconds(points) do
+      {:ok, seconds} -> seconds * 3
+      {:error, :no_deltas} -> 0
+    end
+  end
+
+  defp established_cadence_threshold(_points), do: 0
 
   def points_cap(points) when is_list(points) do
     width_cap = @max_points

@@ -112,11 +112,13 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.MapHelpers do
         }
       end
 
+      defp map_empty_title(:error), do: "Unable to load NetFlow map"
       defp map_empty_title(:loading), do: "Checking traffic sources"
       defp map_empty_title(:configured_empty), do: "Awaiting observed NetFlow summaries"
       defp map_empty_title(:unconfigured), do: "NetFlow collector not configured"
       defp map_empty_title(_), do: "No observed flow data"
 
+      defp map_empty_detail(:error), do: "Select a time window to retry the query."
       defp map_empty_detail(:loading), do: "Dashboard data will load after the LiveView connects."
 
       defp map_empty_detail(:configured_empty),

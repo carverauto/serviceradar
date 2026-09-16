@@ -74,7 +74,11 @@ function localizePointAxis(root, timeZone) {
   // Keep labels aligned with plotted bucket positions, including gapped input.
   // Long windows need fewer calendar labels than the original hourly ticks.
   labels.forEach((label, index) => {
-    const text = axis.format(label.dataset.timeAxisIso)
+    const canonical = label.dataset.timeAxisIso
+    const formatted = axis.format(canonical)
+    const text = formatted && formatted !== canonical
+      ? formatted
+      : label.dataset.timeAxisFallback || label.textContent
     const duplicate = axis.unit !== "hour" && seen.has(text)
     seen.add(text)
     label.textContent = text

@@ -114,6 +114,22 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.TimeseriesCounterGapTest do
     assert Points.time_gaps(points) == []
   end
 
+  test "fine query buckets keep regular slower interface polling connected without bridging outages" do
+    start = ~U[2034-01-01 00:00:00Z]
+    regular = for minute <- 0..59, do: {DateTime.add(start, minute, :minute), rem(minute, 7) * 1.0}
+    later = for minute <- 780..839, do: {DateTime.add(start, minute, :minute), rem(minute, 7) * 1.0}
+
+    [continuous] = SeriesData.build_series_data([{"ifInOctets", regular}], bucket_seconds: 15)
+    [interrupted] = SeriesData.build_series_data([{"ifInOctets", regular ++ later}], bucket_seconds: 15)
+
+    assert continuous.time_gaps == []
+    assert length(String.split(continuous.paths.line, "M ")) == 2
+    assert length(interrupted.time_gaps) == 1
+    assert length(String.split(interrupted.paths.line, "M ")) == 3
+    assert length(String.split(interrupted.paths.area, "M ")) == 3
+    assert Enum.map(continuous.point_data, & &1.v) == Enum.map(regular, &elem(&1, 1))
+  end
+
   test "long missing intervals break individual and combined lines using observed cadence" do
     start = ~U[2034-01-01 00:00:00Z]
     points = for seconds <- [0, 60, 43_200, 43_260], do: {DateTime.add(start, seconds), 20.0}

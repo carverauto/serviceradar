@@ -953,11 +953,19 @@
   },
   {
     "path": "lib/serviceradar_web_ng_web/live/dashboard_live/index/events_panel.ex",
+    "matcher": "calendar_strftime",
+    "occurrence": 1,
+    "fingerprint": "4cb68a6f8bf51186842ab01137d7469677bcd1fda06ae318661f1349d6acccbc",
+    "classification": "fixed_utc",
+    "reason": "Compact chart-axis fallback explicitly labels UTC before browser hydration or when client formatting is unavailable; canonical metadata remains available for user-zone localization."
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/live/dashboard_live/index/events_panel.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 1,
-    "fingerprint": "282b8e3ee82b927bdda15a068aa16006b2d2f56a57fed90d16b55f38f3bce965",
+    "fingerprint": "f55c25f56f184a598c5188590f437320d3e8ef720022de4b535eb7e0a041e88a",
     "classification": "infrastructure",
-    "reason": "canonical timestamp payload for the shared UserTime chart-axis presentation contract; browser localization preserves the instant"
+    "reason": "canonical timestamp payload for the shared adaptive chart-axis presentation contract; browser localization preserves the instant"
   },
   {
     "path": "lib/serviceradar_web_ng_web/live/dashboard_live/window.ex",

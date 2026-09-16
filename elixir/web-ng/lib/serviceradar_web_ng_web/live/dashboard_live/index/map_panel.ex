@@ -156,6 +156,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.MapPanel do
 
   defp geo_mapped_link?(_), do: false
 
+  defp map_empty_title("netflow", :error, _traffic_links), do: "Unable to load NetFlow map"
+
   defp map_empty_title("netflow", :unconfigured, _traffic_links), do: "NetFlow collector not configured"
   defp map_empty_title("netflow", :configured_empty, _traffic_links), do: "Awaiting observed NetFlow summaries"
 
@@ -171,6 +173,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.MapPanel do
 
   defp map_empty_title(_map_view, :unconfigured, _traffic_links), do: "NetFlow collector not configured"
   defp map_empty_title(_map_view, _state, _traffic_links), do: "No topology or flow data"
+
+  defp map_empty_detail("netflow", :error, _traffic_links), do: "Select a time window to retry the query."
 
   defp map_empty_detail("netflow", :unconfigured, _traffic_links),
     do: "Configure a NetFlow, IPFIX, or sFlow collector to enable this map."

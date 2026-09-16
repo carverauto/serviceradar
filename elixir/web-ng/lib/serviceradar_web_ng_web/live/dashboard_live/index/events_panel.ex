@@ -92,6 +92,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.EventsPanel do
                 :for={label <- event_axis_labels(@security_trend)}
                 class="sr-ops-events-x-grid"
                 data-time-axis-grid
+                visibility={if label.hidden, do: "hidden", else: "visible"}
                 x1={label.x}
                 x2={label.x}
                 y1="26"
@@ -141,10 +142,12 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.EventsPanel do
                 x={label.x}
                 y="204"
                 data-time-axis-iso={label.iso}
+                data-time-axis-fallback={label.text}
+                visibility={if label.hidden, do: "hidden", else: "visible"}
                 title={"#{label.iso} (UTC); display zone #{@timezone}"}
                 aria-label={"#{label.iso} UTC; display zone #{@timezone}"}
               >
-                {label.iso}
+                {label.text}
               </text>
             </g>
             <rect
@@ -224,20 +227,44 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.EventsPanel do
   defp event_axis_labels(points) do
     count = length(points)
     step = max(div(count, 5), 1)
+    format = event_axis_fallback_format(points)
 
     points
     |> Enum.with_index()
     |> Enum.filter(fn {_point, idx} -> idx == 0 or idx == count - 1 or rem(idx, step) == 0 end)
-    |> Enum.map(fn {point, idx} ->
+    |> Enum.map_reduce(MapSet.new(), fn {point, idx}, seen ->
       {x, _y} = event_xy(idx, count, 0, 1)
       canonical = canonical_bucket(point.bucket)
+      text = Calendar.strftime(canonical, format)
 
-      %{
+      label = %{
         x: x,
         id: "dashboard-events-axis-#{DateTime.to_unix(canonical)}",
-        iso: DateTime.to_iso8601(canonical)
+        iso: DateTime.to_iso8601(canonical),
+        text: text,
+        hidden: MapSet.member?(seen, text)
       }
+
+      {label, MapSet.put(seen, text)}
     end)
+    |> elem(0)
+  end
+
+  # Keep pre-hydration and interrupted clients readable without implying that
+  # the fallback uses the viewer's zone. The hook replaces these explicit UTC
+  # labels with the shared user-time formatter once it is available.
+  defp event_axis_fallback_format([]), do: "%H:%M UTC"
+
+  defp event_axis_fallback_format(points) do
+    {first, last} = points |> Enum.map(&canonical_bucket(&1.bucket)) |> Enum.min_max_by(&DateTime.to_unix/1)
+    seconds = DateTime.diff(last, first, :second)
+
+    cond do
+      seconds <= 86_400 -> "%H:%M UTC"
+      seconds <= 30 * 86_400 -> "%b %-d UTC"
+      seconds < 730 * 86_400 -> "%b %Y UTC"
+      true -> "%Y UTC"
+    end
   end
 
   defp canonical_bucket(%DateTime{} = bucket), do: DateTime.truncate(bucket, :second)

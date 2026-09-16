@@ -1,4 +1,5 @@
 import {describe, expect, it, vi} from "vitest"
+import {Window} from "happy-dom"
 
 import ChartRangeSelection from "./ChartRangeSelection"
 
@@ -145,6 +146,43 @@ function drag(svg, from, to, pointerType = "mouse") {
 }
 
 describe("ChartRangeSelection hook", () => {
+  it("localizes the nested Events SVG on mount and after a whole server-rendered chart replacement", () => {
+    const window = new Window()
+    const {document} = window
+    const chart = (dates) => `
+      <div id="dashboard-events-range-selector" phx-hook="ChartRangeSelection"
+        data-timezone="America/Chicago" data-range-event="select_events_range"
+        data-range-buckets='${JSON.stringify(initialBuckets)}'
+        data-chart-width="640" data-chart-left-pad="36" data-chart-right-pad="24">
+        <svg data-range-svg viewBox="0 0 640 220">
+          <g>${dates.map(() => '<line data-time-axis-grid x1="36" x2="36"/>').join("")}</g>
+          <g class="sr-ops-events-axis">${dates.map((iso, index) => `<text id="event-axis-${index}" data-time-axis-iso="${iso}" data-time-axis-fallback="UTC tick ${index}" x="${36 + index * 80}">UTC tick ${index}</text>`).join("")}</g>
+          <rect data-range-overlay class="hidden"/>
+        </svg>
+        <span data-range-status></span>
+      </div>`
+    document.body.innerHTML = chart(["2030-01-01T10:00:00Z", "2030-01-01T12:00:00Z"])
+    const root = document.querySelector("#dashboard-events-range-selector")
+    const ctx = {el: root, pushEvent: vi.fn(), ...ChartRangeSelection}
+    const labels = () => Array.from(root.querySelectorAll(".sr-ops-events-axis text"))
+    ctx.mounted()
+    expect(labels().map((node) => node.textContent)).toEqual(["04:00 AM", "06:00 AM"])
+
+    const replacement = document.createElement("div")
+    replacement.innerHTML = chart(["2030-01-01T12:00:00Z", "2030-01-16T12:00:00Z", "2030-04-01T12:00:00Z"])
+    root.innerHTML = replacement.firstElementChild.innerHTML
+    ctx.updated()
+    expect(labels().map((node) => node.textContent)).toEqual(["Jan 2030", "Jan 2030", "Apr 2030"])
+    expect(labels().map((node) => node.getAttribute("visibility"))).toEqual(["visible", "hidden", "visible"])
+    expect(root.querySelectorAll("[data-time-axis-grid][visibility='hidden']").length).toBe(1)
+    root.dataset.timezone = "Mars/Olympus"
+    ctx.updated()
+    expect(labels().map((node) => node.textContent)).toEqual(["UTC tick 0", "UTC tick 1", "UTC tick 2"])
+    expect(labels().every((node) => node.textContent !== node.dataset.timeAxisIso)).toBe(true)
+    ctx.destroyed()
+    window.happyDOM.cancelAsync()
+  })
+
   it.each([
     [["2030-01-01", "2030-01-07", "2030-01-31"], ["Jan 1", "Jan 7", "Jan 31"]],
     [["2030-01-01", "2030-01-16", "2030-02-01", "2030-02-16", "2030-03-01", "2030-03-16", "2030-04-01"], ["Jan 2030", "Feb 2030", "Mar 2030", "Apr 2030"]],

@@ -3,13 +3,13 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.NetflowSummary do
 
   defmacro __using__(_opts) do
     quote do
-      defp flow_summary(%{start: _, end: _, seconds: seconds} = window) do
+      defp flow_summary(%{start: _, end: _, seconds: seconds} = window, scope, srql_module) do
         time = ServiceRadarWebNGWeb.DashboardLive.Window.query_time(window)
 
         query =
           ~s|in:flows #{time} stats:"sum(bytes_total) as bytes_total, sum(packets_total) as packets_total, count(*) as flow_count" limit:1|
 
-        case default_srql_module().query(query, %{scope: nil}) do
+        case srql_module.query(query, %{scope: scope}) do
           {:ok, %{"results" => [%{} = row]}} ->
             bytes = to_int(row["bytes_total"])
             packets = to_int(row["packets_total"])
@@ -30,7 +30,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.NetflowSummary do
         end
       end
 
-      defp flow_summary(value), do: flow_summary(ServiceRadarWebNGWeb.DashboardLive.Window.resolve(value, "netflow"))
+      defp flow_summary(value, scope, srql_module),
+        do: flow_summary(ServiceRadarWebNGWeb.DashboardLive.Window.resolve(value, "netflow"), scope, srql_module)
     end
   end
 end

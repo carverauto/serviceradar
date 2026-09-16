@@ -1,10 +1,55 @@
 defmodule ServiceRadarWebNGWeb.DashboardLive.WindowTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadarWebNGWeb.DashboardLive.Data
   alias ServiceRadarWebNGWeb.DashboardLive.EventWindow
   alias ServiceRadarWebNGWeb.DashboardLive.Window
 
   @moduletag :db_free
+
+  defmodule MapQueryStub do
+    @moduledoc false
+    def query(query, %{scope: scope}) do
+      with :ok <- ServiceRadarWebNG.SRQL.EntityAccess.authorize(query, scope) do
+        send(scope.test_pid, {:map_query, query, scope})
+
+        rows =
+          if String.contains?(query, " by src_endpoint_ip,dst_endpoint_ip") do
+            []
+          else
+            [%{"bytes_total" => 1200, "packets_total" => 15, "flow_count" => 7}]
+          end
+
+        {:ok, %{"results" => rows}}
+      end
+    end
+  end
+
+  test "map loader forwards the caller scope to both summary and conversation queries" do
+    scope = %{permissions: MapSet.new(["observability.netflow.view"]), test_pid: self()}
+    window = Window.resolve("last_7d", "netflow", ~U[2032-04-02 12:00:00Z])
+
+    slice =
+      Data.load_netflow_map(scope,
+        window: window,
+        srql_module: MapQueryStub
+      )
+
+    assert slice.flow_summary.flow_count == 7
+    assert slice.traffic_links == []
+    assert slice.netflow_state == :active
+    assert_receive {:map_query, first, ^scope}
+    assert_receive {:map_query, second, ^scope}
+    assert Enum.any?([first, second], &String.contains?(&1, " by src_endpoint_ip,dst_endpoint_ip"))
+    assert Enum.all?([first, second], &String.contains?(&1, Window.query_time(window)))
+
+    assert_raise RuntimeError, "Dashboard NetFlow window query failed", fn ->
+      Data.load_netflow_map(nil,
+        window: window,
+        srql_module: MapQueryStub
+      )
+    end
+  end
 
   test "independent defaults reject unknown windows and pin exact request bounds" do
     assert Window.normalize("unbounded", "netflow") == "last_15m"

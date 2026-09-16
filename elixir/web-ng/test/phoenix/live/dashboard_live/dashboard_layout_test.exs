@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.DashboardLayoutTest do
   import Phoenix.LiveViewTest
 
   alias ServiceRadarWebNGWeb.DashboardLive.Data
+  alias ServiceRadarWebNGWeb.DashboardLive.Index.MapPanel
   alias ServiceRadarWebNGWeb.DashboardLive.Index.ObservabilityPanel
   alias ServiceRadarWebNGWeb.DashboardLive.Index.VirtualizationPanel
 
@@ -33,6 +34,23 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.DashboardLayoutTest do
     assert html =~ "No event trend data"
     refute html =~ "Observability Metrics"
     assert events_at < metrics_at
+  end
+
+  test "map query failures are not reported as unconfigured collectors" do
+    sources =
+      Data.empty()
+      |> Map.put(:loaded, %{netflow: true})
+      |> Map.put(:window_errors, %{"netflow" => "Unable to load this window."})
+      |> Map.put(:dashboard_package_instances, [])
+
+    dashboard = Map.merge(sources, Data.derive(sources))
+    assert dashboard.module_states.netflow == :error
+    assert dashboard.map_empty_title == "Unable to load NetFlow map"
+    html = render_component(&MapPanel.render/1, dashboard: dashboard)
+    assert html =~ "Unable to load NetFlow map"
+    assert html =~ "Select a time window to retry"
+    refute html =~ "collector not configured"
+    refute html =~ "Configure a NetFlow"
   end
 
   test "empty KPI cards start loading independently of NetFlow" do

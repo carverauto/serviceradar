@@ -116,6 +116,24 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.EventsPanelTest do
            |> LazyHTML.attribute("points") == ["36,118"]
   end
 
+  test "server-rendered axes remain readable before client hooks run for short and long ranges" do
+    for {dates, expected} <- [
+          {[~U[2030-01-01 10:00:00Z], ~U[2030-01-01 12:00:00Z]], ["10:00 UTC", "12:00 UTC"]},
+          {[~U[2030-01-01 00:00:00Z], ~U[2030-01-31 00:00:00Z]], ["Jan 1 UTC", "Jan 31 UTC"]},
+          {[~U[2030-01-01 00:00:00Z], ~U[2030-01-16 00:00:00Z], ~U[2030-04-01 00:00:00Z]],
+           ["Jan 2030 UTC", "Apr 2030 UTC"]},
+          {[~U[2027-01-01 00:00:00Z], ~U[2027-07-01 00:00:00Z], ~U[2030-01-01 00:00:00Z]], ["2027 UTC", "2030 UTC"]}
+        ] do
+      document = render_events(Enum.map(dates, &point(&1, "", 2)))
+      labels = LazyHTML.query(document, ".sr-ops-events-axis text[data-time-axis-iso]")
+      visible = LazyHTML.filter(labels, "[visibility='visible']")
+
+      assert Enum.map(visible, &(&1 |> LazyHTML.text() |> String.trim())) == expected
+      assert LazyHTML.attribute(labels, "data-time-axis-iso") == Enum.map(dates, &DateTime.to_iso8601/1)
+      assert Enum.count(LazyHTML.query(document, "[data-time-axis-grid][visibility='visible']")) == length(expected)
+    end
+  end
+
   test "renders malformed nonempty trend input as an inert fallback with a separate action" do
     document = render_events([%{bucket: "2026-08-27T10:00:00Z"}])
 
