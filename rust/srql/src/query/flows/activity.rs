@@ -31,7 +31,7 @@ pub(in crate::query) fn source_sql(inclusive_end: bool) -> String {
         bytes_total::double precision * GREATEST(COALESCE(sampling_rate, 1), 1)::double precision AS bytes_total, \
         packets_total::double precision * GREATEST(COALESCE(sampling_rate, 1), 1)::double precision AS packets_total, 1::bigint AS flow_count";
     format!(
-        "(WITH requested_window AS (\n\
+        "(WITH requested_window AS NOT MATERIALIZED (\n\
 SELECT ?::timestamptz AS start_at, ?::timestamptz AS end_at\n\
 ), classification_guard AS MATERIALIZED (\n\
 SELECT NOT EXISTS (SELECT 1 FROM netflow_app_classification_rules WHERE enabled AND (src_port IS NOT NULL OR src_cidr IS NOT NULL OR dst_cidr IS NOT NULL)) AS allowed\n\
@@ -90,6 +90,7 @@ mod tests {
                 )
             );
             assert!(sql.contains("bounds AS NOT MATERIALIZED"));
+            assert!(sql.contains("requested_window AS NOT MATERIALIZED"));
             assert!(sql.contains("time < rollup_start OR time >= rollup_end"));
             assert!(
                 sql.contains("COALESCE(override_rule.app_label, baseline.app_label, 'unknown')")

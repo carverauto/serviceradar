@@ -50,3 +50,21 @@ Eligible PostgreSQL flow activity queries SHALL use hourly protocol and applicat
 - **WHEN** one query requests byte sums, packet sums, and flow counts
 - **THEN** each aggregate is computed from the same exact coverage
 - **AND** unsupported aggregates prevent the aggregate route for the complete query
+
+### Requirement: Compatible archive chart queries share one scan
+The application MAY execute a bounded batch of compatible archive downsample queries using one Parquet scan. It SHALL authorize every member before execution and require the same resolved table, time window, bucket width, and storage target. Each member SHALL retain its filters, grouping, aggregation, NULL behavior, ordering, and limit. The batch SHALL use one manifest snapshot and one overall request deadline. Counter-rate queries SHALL remain outside this optimization until their boundary semantics are explicitly supported. Recent queries SHALL retain their eligible Timescale aggregate path.
+
+#### Scenario: Overall metrics and per-core peaks
+- **WHEN** an archived metric panel requests averages by metric and maximum CPU usage by core over the same window
+- **THEN** one scan may calculate both sets of results
+- **AND** each result matches its independently executed query, including missing core tags
+- **AND** the complete panel must finish within its existing request deadline
+
+#### Scenario: Unauthorized member
+- **WHEN** any member of a chart-query batch is unauthorized
+- **THEN** the complete batch is rejected before acquiring an analytics connection
+
+#### Scenario: Incompatible chart queries
+- **WHEN** batch members differ in storage target, window, table, or bucket width, or use an unsupported operation
+- **THEN** the combined execution is rejected explicitly
+- **AND** it does not silently change a member's storage target or aggregation semantics

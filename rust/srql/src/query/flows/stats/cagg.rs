@@ -11,7 +11,6 @@ fn cagg_filter_fields(table: &str) -> &'static [&'static str] {
         "ocsf_network_activity_hourly_talkers" => &["src_endpoint_ip", "src_ip"],
         "ocsf_network_activity_hourly_listeners" => &["dst_endpoint_ip", "dst_ip"],
         "ocsf_network_activity_hourly_proto" => &["protocol_num", "proto"],
-        "ocsf_network_activity_hourly_ports" => &["dst_endpoint_port", "dst_port"],
         super::super::activity::TABLE => &[
             "app",
             "partition",
@@ -84,7 +83,9 @@ pub(in crate::query::flows) fn should_route_flow_stats_to_cagg(
         [FlowGroupSpec::Field(FlowGroupField::ProtocolNum)] => "ocsf_network_activity_hourly_proto",
         [FlowGroupSpec::Field(FlowGroupField::App)] => super::super::activity::TABLE,
         [FlowGroupSpec::Field(FlowGroupField::DstEndpointPort)] => {
-            "ocsf_network_activity_hourly_ports"
+            // Unlike hourly_ports, this aggregate preserves NULL separately
+            // from port zero, so ranking needs no historical raw repair scan.
+            super::super::activity::TABLE
         }
         [
             FlowGroupSpec::Field(FlowGroupField::SrcEndpointIp),
@@ -101,7 +102,14 @@ pub(in crate::query::flows) fn should_route_flow_stats_to_cagg(
     // Only simple dimension-column filters are safe; expression-based filters
     // (device_id, exporter_name, app, geo, CIDR, etc.) reference raw-table-only
     // columns/subqueries and would produce wrong results or SQL errors.
-    let allowed_filters = cagg_filter_fields(table);
+    let allowed_filters = if matches!(
+        spec.group_by.as_slice(),
+        [FlowGroupSpec::Field(FlowGroupField::DstEndpointPort)]
+    ) {
+        &["dst_endpoint_port", "dst_port"][..]
+    } else {
+        cagg_filter_fields(table)
+    };
     if !plan
         .filters
         .iter()
@@ -145,7 +153,10 @@ fn excludes_sentinel(filter: &crate::parser::Filter, column: &str) -> bool {
 /// Bounds are global, never scoped to a selected dimension. A missing dimension
 /// is not evidence that aggregate coverage ended.
 pub(super) fn source_sql(table: &str, spec: &FlowStatsSpec, plan: &QueryPlan) -> String {
-    if table == super::super::activity::TABLE {
+    if matches!(
+        spec.group_by.as_slice(),
+        [FlowGroupSpec::Field(FlowGroupField::App)]
+    ) {
         return super::super::activity::source_sql(false);
     }
     let dimensions: Vec<(&str, &str)> = spec
@@ -172,10 +183,11 @@ pub(super) fn source_sql(table: &str, spec: &FlowStatsSpec, plan: &QueryPlan) ->
     let ambiguous = dimensions
         .iter()
         .filter(|(column, _)| {
-            !plan
-                .filters
-                .iter()
-                .any(|filter| excludes_sentinel(filter, column))
+            table != super::super::activity::TABLE
+                && !plan
+                    .filters
+                    .iter()
+                    .any(|filter| excludes_sentinel(filter, column))
         })
         .map(|(column, sentinel)| format!("f.{column} IS NULL OR f.{column} = {sentinel}"))
         .collect::<Vec<_>>()
@@ -318,11 +330,7 @@ mod tests {
 
     #[test]
     fn flow_stats_cagg_preserves_null_groups_and_filter_bind_order() {
-        for (field, sentinel) in [
-            ("protocol_num", "0"),
-            ("dst_endpoint_port", "0"),
-            ("src_endpoint_ip", "'Unknown'"),
-        ] {
+        for (field, sentinel) in [("protocol_num", "0"), ("src_endpoint_ip", "'Unknown'")] {
             let (sql, _) = sql(&plan(&format!("count(*) as total by {field}"), ""));
             assert!(sql.contains(&format!(
                 "AND NOT (f.{field} IS NULL OR f.{field} = {sentinel})"
@@ -340,16 +348,57 @@ mod tests {
     }
 
     #[test]
+    fn flow_stats_ports_use_lossless_dimensions_and_only_raw_window_edges() {
+        for filter in ["", "dst_port:0", "dst_port:(0,443)", "!dst_port:443"] {
+            let plan = plan(
+                "sum(bytes_total) as bytes, sum(packets_total) as packets, count(*) as flows by dst_endpoint_port",
+                filter,
+            );
+            let (sql, _) = sql(&plan);
+            assert!(
+                sql.contains(
+                    "FROM ocsf_network_activity_hourly_app_dimensions f CROSS JOIN bounds"
+                )
+            );
+            assert!(
+                sql.contains("SELECT MIN(bucket) FROM ocsf_network_activity_hourly_app_dimensions")
+            );
+            assert!(sql.contains("f.time >= start_at AND f.time < end_at AND (f.time < rollup_start OR f.time >= rollup_end)"));
+            assert_eq!(sql.matches("FROM ocsf_network_activity f").count(), 1);
+            assert!(!sql.contains("sentinel_guard"));
+            assert!(!sql.contains("classification_guard"));
+            assert!(sql.contains("SUM(bytes_total) AS"));
+            assert!(!sql.contains("COALESCE(SUM(bytes_total)"));
+        }
+
+        let (sql, params) = sql(&plan(
+            "count(*) as total by dst_endpoint_port",
+            "dst_port:(0,443)",
+        ));
+        assert!(sql.contains("dst_endpoint_port::bigint = ANY($3)"));
+        assert_eq!(
+            serde_json::to_value(&params[2..]).unwrap(),
+            json!([{"t":"int_array","v":[0,443]}])
+        );
+    }
+
+    #[test]
     fn flow_stats_duckdb_and_unsupported_filters_stay_raw() {
         let mut duckdb = plan("count(*) as total by protocol_num", "");
         duckdb.dialect = SqlDialect::Duckdb;
+        let mut duckdb_ports = plan("count(*) as total by dst_endpoint_port", "");
+        duckdb_ports.dialect = SqlDialect::Duckdb;
         for plan in [
             duckdb,
+            duckdb_ports,
             plan("count(*) as total", "proto:6"),
             plan("count(*) as total by protocol_num", "src_ip:192.0.2.9"),
+            plan("count(*) as total by dst_endpoint_port", "proto:6"),
+            plan("count(*) as total by dst_endpoint_port", "src_ip:192.0.2.9"),
+            plan("count(*) as total by dst_endpoint_port", "app:https"),
         ] {
             let (sql, _) = sql(&plan);
-            assert!(!sql.contains("hourly_proto"));
+            assert!(!sql.contains("hourly_"));
             assert!(sql.contains("FROM ocsf_network_activity f"));
         }
     }

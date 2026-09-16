@@ -80,7 +80,9 @@ the raw query path.
 
 Protocol activity uses hourly protocol aggregates. Application activity uses
 hourly partition, protocol, and destination-port dimensions with current
-classification rules. Rules requiring source ports or IP addresses retain the
+classification rules. Destination-port rankings use the same NULL-preserving
+dimensions, avoiding historical raw rescans needed by the older port aggregate.
+Rules requiring source ports or IP addresses retain the
 raw path. Sampling weights are applied once, and aggregate buckets and raw
 boundary rows are disjoint. A background job initializes retained application
 history one closed UTC hour at a time, checkpointing each successful refresh.
@@ -275,6 +277,27 @@ not enable legacy delete-first pruning for that table. It returns
 Increasing retention cannot recover data already deleted from both stores.
 Restore any available archive coverage and let the longer hot window accumulate.
 Do not claim historical completeness that has not been verified.
+
+### Verify historical-query performance
+
+A working recent dashboard does not establish archive performance. For each
+enabled dataset, verify the resolved backend and benchmark the complete panel
+through the authenticated SRQL path, including manifest selection, pool wait,
+and every query needed to render it. Keep one deadline for the complete load.
+
+Measure a fresh analytics connection as well as repeated reads. Backend-local
+caches can make a repeated query fast while the first visit still times out.
+Run the same checks with normal ingest and compaction active, and record the
+selected file count, returned rows, elapsed time, and explicit failures. Check
+counts, sums, NULL values, and counter resets against a known synthetic source;
+faster results that omit data do not pass.
+
+For capacity planning, specify flow records per second, sampling, retained days,
+dimension cardinality, and concurrent viewers. Router count alone does not
+define the load. A synthetic scale test must exercise both sustained ingest and
+dashboard queries, recording tail latency, queue time, backlog growth, memory,
+and spill usage. Increasing connection pools or timeouts is not evidence of
+additional capacity.
 
 To return from hybrid to Timescale-only, drain pending archive batches, then
 select `timescale` and clear named `dualWrite`. The hot copy remains; published Parquet is not deleted by that

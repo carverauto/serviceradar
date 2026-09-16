@@ -120,3 +120,13 @@
       through a schema and retained-history migration. Existing conversation
       aggregates report zero for this case; combined and separate queries must
       remain consistent until migration.
+- [ ] 10.6 Establish synthetic capacity acceptance for large flow deployments:
+      declare input records per second, sampling, dimension cardinality,
+      retention, and concurrent viewers; measure complete cold and warm panels
+      during sustained ingest, with explicit latency and backlog failure gates.
+      A router-count target or one fast cached query does not establish capacity.
+- [ ] 10.7 Combine compatible historical metric averages and per-core peaks in
+      one authorized, bounded archive scan. Preserve independent-query results
+      and per-query limits, share one manifest snapshot and request deadline,
+      and retain recent Timescale aggregate routing. Verify cold complete-panel
+      latency and interface counter queries separately.
