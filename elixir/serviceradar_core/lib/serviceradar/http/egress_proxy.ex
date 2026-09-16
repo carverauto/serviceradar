@@ -1,16 +1,23 @@
 defmodule ServiceRadar.HTTP.EgressProxy do
   @moduledoc """
-  Shared CONNECT-proxy settings for `ServiceRadar.Finch` and
-  `ServiceRadar.HTTP.EgressClient`.
+  `SERVICERADAR_EGRESS_PROXY` settings, and the options for the shared
+  `ServiceRadar.Finch` pool.
 
   `SERVICERADAR_EGRESS_PROXY` is an HTTP URL (`http://host:port`). When set,
-  release runtime configuration stores it as `:serviceradar_core, :egress_proxy`.
-  Finch pools and `EgressClient` use that host as an HTTP CONNECT proxy so a
-  default-deny NetworkPolicy can allow only the proxy. Unset leaves new clients
-  connecting directly. See `ServiceRadar.HTTP.EgressClient` for the external
-  artifact streaming contract and CONNECT compatibility constraints.
+  release runtime configuration stores it as `:serviceradar_core, :egress_proxy`,
+  and `ServiceRadar.HTTP.EgressClient` sends every fetch of a host outside the
+  deployment through it as an HTTP CONNECT proxy, so a default-deny
+  NetworkPolicy can allow only the proxy. Unset leaves `EgressClient` connecting
+  directly.
 
-  HTTPS proxy URLs are rejected: Mint's CONNECT proxy is itself HTTP.
+  The shared `ServiceRadar.Finch` pool never uses the proxy. Mint -- Finch's
+  transport -- cannot tunnel through the CONNECT reply Smokescreen sends (see
+  `ServiceRadar.HTTP.EgressClient`), so a proxied pool failed every request made
+  on it with `{:dtls_upgrade, :notsup}`, and it also sent in-cluster and
+  operator-configured targets to a proxy that denies them. The pool is for those
+  targets; hosts outside the deployment go through `EgressClient`.
+
+  HTTPS proxy URLs are rejected: the CONNECT hop itself is plain HTTP.
   """
 
   @env "SERVICERADAR_EGRESS_PROXY"
@@ -50,18 +57,14 @@ defmodule ServiceRadar.HTTP.EgressProxy do
   end
 
   @doc """
-  Finch `:pools` map, including CAStore transport opts when available.
+  Finch `:pools` map for `ServiceRadar.Finch`: CAStore transport opts when
+  available, and never a proxy, whatever `SERVICERADAR_EGRESS_PROXY` says.
 
-  `nil` pools means Finch's defaults (no proxy).
+  `nil` pools means Finch's defaults.
   """
-  @spec finch_pools(t() | nil) :: map() | nil
-  def finch_pools(proxy \\ Application.get_env(:serviceradar_core, :egress_proxy)) do
-    conn_opts =
-      []
-      |> maybe_put_cacert()
-      |> maybe_put_proxy(proxy)
-
-    case conn_opts do
+  @spec finch_pools() :: map() | nil
+  def finch_pools do
+    case maybe_put_cacert([]) do
       [] -> nil
       opts -> %{default: [conn_opts: opts]}
     end
@@ -70,8 +73,12 @@ defmodule ServiceRadar.HTTP.EgressProxy do
   @doc """
   Req options that use the named `ServiceRadar.Finch` pool.
 
+  The pool connects directly, so these are for targets inside the deployment or
+  configured by the operator. Hosts outside the deployment go through
+  `ServiceRadar.HTTP.EgressClient`, which honors `SERVICERADAR_EGRESS_PROXY`.
+
   Req 0.7 raises `ArgumentError` if a request sets both `:finch` and
-  `:connect_options`. Connect/TLS/proxy belong on the pool (`finch_pools/1`).
+  `:connect_options`. Connect/TLS settings belong on the pool (`finch_pools/0`).
   Callers that need per-request TLS (SNI-to-IP, `verify: :verify_none`) must
   drop `:finch` instead of combining the two.
 
@@ -92,12 +99,6 @@ defmodule ServiceRadar.HTTP.EgressProxy do
       conn_opts
     end
   end
-
-  defp maybe_put_proxy(conn_opts, %{scheme: :http, host: host, port: port}) do
-    Keyword.put(conn_opts, :proxy, {:http, host, port, []})
-  end
-
-  defp maybe_put_proxy(conn_opts, _), do: conn_opts
 
   defp env_get(env, key) when is_map(env), do: Map.get(env, key)
 

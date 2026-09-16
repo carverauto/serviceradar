@@ -231,6 +231,35 @@ describe("SRQLInput hook", () => {
     expect(values).toContain("awx")
   })
 
+  test("does not flag a negated array field as unknown", () => {
+    const query = "in:devices !discovery_sources:(armis)"
+    const state = tokenize(query, query.length)
+    const hook = hookFor(state, {value: query})
+
+    for (const token of state.tokens) {
+      expect(hook.isUnknown(token), `${token.kind}:${token.text}`).toBe(false)
+    }
+  })
+
+  test("suggests known values for a negated array field", () => {
+    const query = "in:devices !discovery_sources:(aw"
+    const state = tokenize(query, query.length)
+    const hook = hookFor(state, {value: query})
+
+    const values = hook.buildCandidates(state).map(candidate => candidate.value)
+    expect(values).toContain("awx")
+  })
+
+  test("still flags a negated unknown field", () => {
+    const query = "in:devices !bogus:(x)"
+    const state = tokenize(query, query.length)
+    const hook = hookFor(state, {value: query})
+    const field = state.tokens.find(token => token.kind === "field")
+
+    expect(field?.text).toBe("!bogus")
+    expect(hook.isUnknown(field)).toBe(true)
+  })
+
   test("shows recent history when the bar is empty", () => {
     const storage = memoryStorage()
     pushHistory("in:devices hostname:edge", storage)

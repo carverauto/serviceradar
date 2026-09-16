@@ -101,7 +101,13 @@
                 "type": "integer",
                 "minimum": 1
               },
-              "drift_clear_slots": {
+              "drift_anchor_min_samples": {
+      "type": "integer",
+      "title": "Rolling-window samples required before the drift anchor is captured",
+      "description": "The CUSUM anchor freezes the level sustained drift is measured against, so it must come from a mature baseline. Defaults to the full rolling window (window_size), never below min_samples. A cold start that anchored on its first min_samples in an overnight trough reported the morning ramp as sustained drift.",
+      "minimum": 1
+    },
+    "drift_clear_slots": {
                 "type": "integer",
                 "minimum": 1
               },
@@ -136,6 +142,26 @@
           "abs_effect_floor": {
             "type": "number",
             "minimum": 0
+          },
+          "burst_envelope_enabled": {
+            "type": "boolean"
+          },
+          "burst_envelope_quantile": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 1
+          },
+          "burst_envelope_multiplier": {
+            "type": "number",
+            "minimum": 1
+          },
+          "burst_envelope_lag_samples": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "burst_envelope_min_samples": {
+            "type": "integer",
+            "minimum": 1
           },
           "severity_cap": {
                 "type": "string",
@@ -229,6 +255,13 @@
       "description": "Minimum estimated sustained shift before a CUSUM alarm emits a drift finding. The estimate is k + S/N, so the finding score is bounded by effect size rather than the raw unbounded accumulator.",
       "exclusiveMinimum": 0,
       "default": 2.0
+    },
+    "drift_residual_clip": {
+      "type": "number",
+      "title": "Drift residual clip (sigma)",
+      "description": "Bound on the standardized residual the CUSUM consumes. One sample contributes at most clip - k, so a drift confirmation needs at least h * h_confirm_mult / (clip - k) samples of evidence (twelve with the defaults); deviations beyond the clip are left to the spike detector.",
+      "exclusiveMinimum": 0,
+      "default": 1.5
     },
     "drift_clear_slots": {
       "type": "integer",
@@ -417,6 +450,26 @@
             "type": "number",
             "minimum": 0
           },
+          "burst_envelope_enabled": {
+            "type": "boolean"
+          },
+          "burst_envelope_quantile": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 1
+          },
+          "burst_envelope_multiplier": {
+            "type": "number",
+            "minimum": 1
+          },
+          "burst_envelope_lag_samples": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "burst_envelope_min_samples": {
+            "type": "integer",
+            "minimum": 1
+          },
           "severity_cap": {
             "type": "string",
             "enum": ["low", "medium", "high", "critical"]
@@ -482,7 +535,7 @@
     "checkpoint_path": {
       "type": "string",
       "title": "Restart checkpoint file path",
-      "description": "Local path the add-on atomically persists its per-series baselines + counter state to, so a restart re-warms instead of cold-starting (which would storm false positives while windows refill). Unset disables checkpointing.",
+      "description": "Local path the add-on atomically persists its per-series baselines + counter state to, so a restart re-warms instead of cold-starting (which would storm false positives while windows refill). Optional: when unset, the add-on writes checkpoint.json inside the per-add-on state directory the agent provides (SERVICERADAR_ADDON_STATE_DIR, <agent runtime root>/addons/anomaly/state), which survives add-on upgrades and agent restarts. Set a path only to move the checkpoint elsewhere; a missing parent directory is created on the first write. Checkpointing is off only when neither is available.",
       "minLength": 1
     },
     "checkpoint_max_age_secs": {

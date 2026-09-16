@@ -24,6 +24,37 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerIdentifiersTest do
     {:ok, actor: actor}
   end
 
+  test "lookup_any matches alternatives while preserving identifier type and partition", %{
+    actor: actor
+  } do
+    {:ok, device} =
+      create_device_with_uid(
+        actor,
+        "sr:" <> Ecto.UUID.generate(),
+        "host01.example.com",
+        "192.0.2.10"
+      )
+
+    {:ok, first} = register_identifier(actor, device.uid, :agent_id, "synthetic-agent-01")
+
+    {:ok, second} =
+      register_identifier(actor, device.uid, :netbox_device_id, "synthetic-object-02")
+
+    {:ok, _decoy} = register_identifier(actor, device.uid, :agent_id, "synthetic-object-02")
+
+    query =
+      Ash.Query.for_read(DeviceIdentifier, :lookup_any, %{
+        identifiers: [
+          %{type: :agent_id, value: "synthetic-agent-01", partition: nil},
+          %{type: :netbox_device_id, value: "synthetic-object-02", partition: "default"},
+          %{type: :agent_id, value: "synthetic-object-02", partition: "synthetic-partition"}
+        ]
+      })
+
+    assert {:ok, matches} = Ash.read(query, actor: actor)
+    assert Enum.sort(Enum.map(matches, & &1.id)) == Enum.sort([first.id, second.id])
+  end
+
   test "register_identifiers merges conflicting strong identifiers", %{actor: actor} do
     armis_id = "armis-#{System.unique_integer([:positive])}"
     netbox_id = "netbox-#{System.unique_integer([:positive])}"

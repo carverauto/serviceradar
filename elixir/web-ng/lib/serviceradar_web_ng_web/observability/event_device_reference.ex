@@ -41,12 +41,18 @@ defmodule ServiceRadarWebNGWeb.Observability.EventDeviceReference do
   # uids are accepted so a raw hostname/agent id in one of these fields is
   # ignored rather than turned into a broken device link.
   @structured_paths [
+    # The OCSF device object: what a stateful rule's fired event now carries.
+    ["device", "uid"],
     ["device_uid"],
     ["device_id"],
     ["metadata", "service_radar", "device_uid"],
     ["metadata", "service_radar", "device_id"],
     ["metadata", "device_uid"],
-    ["metadata", "device_id"]
+    ["metadata", "device_id"],
+    # Fired events recorded before they carried a device keep it only in the
+    # rule's grouping diagnostics.
+    ["metadata", "serviceradar", "diagnostics", "group_values", "device"],
+    ["unmapped", "group_values", "device"]
   ]
 
   # Anomaly findings carry their device identity inside a hex-encoded series key

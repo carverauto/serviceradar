@@ -1,0 +1,26 @@
+load("@aspect_bazel_lib//lib:write_source_files.bzl", "write_source_files")
+
+package(default_visibility = ["//visibility:public"])
+
+# Host registry clients need ordinary files when a workstation builds on RBE.
+# Export declared artifacts through runfiles instead of reading Bazel's cache.
+[
+    write_source_files(
+        name = name,
+        check_that_out_file_exists = False,
+        diff_test = False,
+        files = {destination: source},
+        tags = ["manual"],
+    )
+    for name, destination, source in [
+        ("core_image", "artifacts/core", "//docker/images:core_elx_image_amd64"),
+        ("web_image", "artifacts/web", "//docker/images:web_ng_image_amd64"),
+        ("agent_image", "artifacts/agent", "//docker/images:agent_image_amd64"),
+        ("gateway_image", "artifacts/gateway", "//docker/images:agent_gateway_image_amd64"),
+        ("awx_bundle", "artifacts/awx.zip", "//build/wasm_plugins:awx_bundle_zip"),
+        ("awx_metadata", "artifacts/awx.metadata.json", "//build/wasm_plugins:awx_bundle_metadata"),
+        ("agent_deb", "artifacts/agent.deb", "//build/packaging/agent:agent_deb"),
+        ("agent_rpm", "artifacts/agent.rpm", "//build/packaging/agent:agent_rpm"),
+        ("agent_release", "artifacts/agent-release.tar.gz", "//build/packaging/agent:agent_release_runtime_archive"),
+    ]
+]

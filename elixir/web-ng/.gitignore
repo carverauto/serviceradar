@@ -38,3 +38,7 @@ npm-debug.log
 
 # Local CNPG CA extracted by scripts/dev-with-k8s-db.sh
 .local-dev-certs/
+
+# Deterministic Dialyzer PLTs (see mix.exs dialyzer config). Rebuilt locally
+# and in CI; never committed.
+/priv/plts/

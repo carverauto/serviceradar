@@ -25,6 +25,7 @@ defmodule ServiceRadar.Automation.Ansible.ControllerProvenance do
   alias ServiceRadar.Automation.Ansible.ControllerSecuritySnapshot
   alias ServiceRadar.Credentials.CredentialRedactor
   alias ServiceRadar.Edge.AgentCommand
+  alias ServiceRadar.Plugins.SecretRefs
 
   @job_fields ~w(
     id name status created modified started finished canceled_on launch_type
@@ -200,6 +201,49 @@ defmodule ServiceRadar.Automation.Ansible.ControllerProvenance do
 
   def fetch_launch_preflight(_controller, _request, _opts),
     do: {:error, :invalid_controller_launch_preflight_request}
+
+  @doc "Reads the complete current inventory group names through the frozen controller boundary."
+  def list_inventory_groups(controller, inventory_id, opts \\ [])
+      when is_integer(inventory_id) and inventory_id > 0 do
+    with {:ok, boundary} <- verify_security_boundary(controller, opts),
+         {:ok, payload} <-
+           dispatch_and_await(
+             controller,
+             "awx.list_inventory_groups",
+             %{"inventory_id" => inventory_id},
+             boundary,
+             opts
+           ),
+         %{
+           "ok" => true,
+           "verb" => "awx.list_inventory_groups",
+           "extra" => %{"inventory_id" => ^inventory_id},
+           "results" => groups,
+           "count" => count
+         } <- payload,
+         true <-
+           is_integer(count) and count in 0..5_000 and is_list(groups) and length(groups) == count,
+         names = Enum.map(groups, &value(&1, :name)),
+         true <- Enum.all?(names, &is_binary/1) and Enum.uniq(names) == names do
+      {:ok, names}
+    else
+      {:error, _reason} = error -> error
+      _ -> {:error, :controller_inventory_groups_unavailable}
+    end
+  end
+
+  @doc "Reads the current AWX execution principal through the frozen controller boundary."
+  def current_user(controller, opts \\ []) do
+    with {:ok, boundary} <- verify_security_boundary(controller, opts),
+         {:ok, %{"ok" => true, "verb" => "awx.current_user", "user_id" => id}} <-
+           dispatch_and_await(controller, "awx.current_user", %{}, boundary, opts),
+         true <- is_integer(id) and id > 0 do
+      {:ok, id}
+    else
+      {:error, _reason} = error -> error
+      _ -> {:error, :controller_principal_unavailable}
+    end
+  end
 
   @doc false
   @spec sanitize_job(map()) :: {:ok, map()} | {:error, term()}
@@ -415,6 +459,12 @@ defmodule ServiceRadar.Automation.Ansible.ControllerProvenance do
       "awx.fetch_launch_preflight" ->
         client.fetch_launch_preflight(controller, args, client_opts)
 
+      "awx.list_inventory_groups" ->
+        client.list_inventory_groups(controller, args["inventory_id"], client_opts)
+
+      "awx.current_user" ->
+        client.current_execution_user(controller, client_opts)
+
       _unsupported ->
         {:error, :controller_provenance_query_unsupported}
     end
@@ -545,12 +595,24 @@ defmodule ServiceRadar.Automation.Ansible.ControllerProvenance do
          true <- value(target, :id) == boundary.controller_id,
          true <- value(target, :agent_id) == boundary.agent_id,
          true <- value(broker, :resolution_location) == "agent",
+         {:ok, credential_ref} <- expected_credential_ref(verb, boundary),
+         true <- value(broker, :credential_secret_ref) == credential_ref,
          {:ok, scope} <- AwxClient.broker_scope(boundary.base_url, verb, stringify(args)),
          true <- stringify(value(broker, :allow) || %{}) == stringify(scope.allow),
          true <- CredentialRedactor.redact(payload) == payload do
       :ok
     else
       _ -> {:error, :controller_provenance_command_mismatch}
+    end
+  end
+
+  defp expected_credential_ref("awx.current_user", boundary) do
+    {:ok, SecretRefs.network_credential_ref(boundary.credential_refs["execution"])}
+  end
+
+  defp expected_credential_ref(verb, boundary) do
+    with {:ok, purpose} <- AwxClient.credential_purpose_for_verb(verb) do
+      {:ok, SecretRefs.network_credential_ref(boundary.credential_refs[Atom.to_string(purpose)])}
     end
   end
 
@@ -626,7 +688,8 @@ defmodule ServiceRadar.Automation.Ansible.ControllerProvenance do
          controller_id: controller_id,
          controller_name: controller_name,
          base_url: base_url,
-         insecure_skip_verify: insecure_skip_verify
+         insecure_skip_verify: insecure_skip_verify,
+         credential_refs: snapshot["credential_refs"]
        }}
     else
       false -> {:error, :controller_dispatch_partition_required}

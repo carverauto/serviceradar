@@ -397,6 +397,13 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirror do
   defp format_reason(:dns_resolution_failed), do: "artifact URL host could not be resolved"
   defp format_reason(:invalid_url), do: "artifact URL is invalid"
 
+  # gRPC 8 = RESOURCE_EXHAUSTED. datasvc returns this when the object store
+  # bucket is at its MaxBytes cap; its message already explains how to reclaim
+  # space, so surface it directly instead of burying it behind a status code.
+  defp format_reason(%GRPC.RPCError{status: 8} = error) do
+    "release artifact could not be stored: #{error.message}"
+  end
+
   defp format_reason(%GRPC.RPCError{} = error) do
     if upload_stream_closed_error?(error) do
       "datasvc object upload stream closed before the artifact stream completed"

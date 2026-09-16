@@ -2,7 +2,8 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
   @moduledoc """
   Tests for the Event Details LiveView (EventLive.Show), focused on the
   "Affected Device" link for device-scoped signals (e.g. Proxmox guest
-  bottlenecks).
+  bottlenecks) and the "Create alert rule" flow that turns the event being
+  viewed into a stateful alert rule.
   """
 
   use ServiceRadarWebNGWeb.ConnCase, async: false
@@ -10,8 +11,14 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
 
   import Phoenix.LiveViewTest
 
+  alias ServiceRadar.Observability.StatefulAlertEngine.Record
+  alias ServiceRadar.Observability.StatefulAlertEngine.RuleMatcher
+  alias ServiceRadar.Observability.StatefulAlertRule
+  alias ServiceRadarWebNG.Accounts.Scope
+
   @device_uid "sr:5bf1b6f6-0e7c-43ac-b883-a13447199d85"
   @event_id "00000000-0000-0000-0000-0000000009a1"
+  @triggering_event_id "00000000-0000-0000-0000-0000000009b2"
 
   setup %{conn: conn} do
     old = Application.get_env(:serviceradar_web_ng, :srql_module)
@@ -116,6 +123,23 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
     assert html =~ "qemu:116"
   end
 
+  # The event a stateful rule fires is a dead end without these: the device, the
+  # metric and the reason all live on the event that triggered it.
+  @tag :web_ng_shared_fixture_db
+  test "a rule-fired event links the triggering event and the device it grouped on", %{
+    conn: conn
+  } do
+    {:ok, lv, _html} = live(conn, ~p"/events/#{"stateful-fired-1"}")
+
+    assert has_element?(
+             lv,
+             "a[href='#{~p"/events/#{@triggering_event_id}"}']",
+             "View triggering event"
+           )
+
+    assert has_element?(lv, "a[href='#{~p"/devices/#{@device_uid}"}']", "View device")
+  end
+
   test "omits the Affected Device panel for a non-device signal", %{conn: conn} do
     {:ok, lv, html} = live(conn, ~p"/events/#{"no-device"}")
 
@@ -151,11 +175,248 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
     assert html_after =~ ~s(data-timezone="America/Chicago")
   end
 
+  describe "Create alert rule from event details" do
+    @tag :web_ng_shared_fixture_db
+    test "operator can see Create alert rule button", %{conn: conn} do
+      {:ok, lv, _html} = live(conn, ~p"/events/#{@event_id}")
+
+      assert has_element?(lv, "button", "Create alert rule")
+    end
+
+    @tag :web_ng_shared_fixture_db
+    test "admin can see Create alert rule button", %{conn: conn} do
+      conn = log_in_user(conn, admin_user_fixture())
+
+      {:ok, lv, _html} = live(conn, ~p"/events/#{@event_id}")
+
+      assert has_element?(lv, "button", "Create alert rule")
+    end
+
+    @tag :web_ng_shared_fixture_db
+    test "viewer cannot see Create alert rule button", %{conn: conn} do
+      conn = log_in_user(conn, viewer_user_fixture())
+
+      {:ok, lv, html} = live(conn, ~p"/events/#{@event_id}")
+
+      refute has_element?(lv, "button", "Create alert rule")
+      refute String.contains?(html, "Create alert rule")
+    end
+
+    @tag :web_ng_shared_fixture_db
+    test "viewer cannot open the builder by pushing the event directly", %{conn: conn} do
+      conn = log_in_user(conn, viewer_user_fixture())
+
+      {:ok, lv, _html} = live(conn, ~p"/events/#{@event_id}")
+
+      render_click(lv, "open_alert_rule_builder", %{})
+
+      refute has_element?(lv, "#alert_rule_modal")
+    end
+
+    @tag :web_ng_shared_fixture_db
+    test "opens alert rule modal when clicking Create alert rule", %{conn: conn} do
+      {:ok, lv, _html} = live(conn, ~p"/events/#{@event_id}")
+
+      lv
+      |> element("button", "Create alert rule")
+      |> render_click()
+
+      assert has_element?(lv, "#alert_rule_modal")
+      assert has_element?(lv, "#alert-rule-form")
+      assert render(lv) =~ "Create Alert Rule"
+    end
+
+    @tag :web_ng_shared_fixture_db
+    test "pre-populates match conditions from the event fields", %{conn: conn} do
+      {:ok, lv, _html} = live(conn, ~p"/events/#{@event_id}")
+
+      lv
+      |> element("button", "Create alert rule")
+      |> render_click()
+
+      assert has_element?(
+               lv,
+               ~s(#alert-rule-form input[name="alert_rule[body_contains]"][value="Proxmox guest memory bottleneck 95%"])
+             )
+
+      assert has_element?(
+               lv,
+               ~s(#alert-rule-form input[name="alert_rule[service_name]"][value="serviceradar-plugin"])
+             )
+
+      assert has_element?(
+               lv,
+               ~s(#alert-rule-form input[name="alert_rule[severity_text]"][value="Critical"])
+             )
+
+      assert has_element?(
+               lv,
+               ~s(#alert-rule-form select[name="alert_rule[alert_severity]"] option[value="critical"][selected])
+             )
+    end
+
+    @tag :web_ng_shared_fixture_db
+    test "creates a stateful alert rule that matches the source event", %{conn: conn} do
+      user = operator_user_fixture()
+      conn = log_in_user(conn, user)
+      scope = Scope.for_user(user)
+
+      {:ok, lv, _html} = live(conn, ~p"/events/#{@event_id}")
+
+      lv
+      |> element("button", "Create alert rule")
+      |> render_click()
+
+      unique = System.unique_integer([:positive])
+      rule_name = "event-alert-#{unique}"
+
+      lv
+      |> form("#alert-rule-form", %{"alert_rule" => %{"name" => rule_name}})
+      |> render_submit()
+
+      assert_redirect(lv, ~p"/settings/rules?#{%{tab: "alerts"}}")
+
+      rules = unwrap_page(Ash.read(StatefulAlertRule, scope: scope))
+      rule = Enum.find(rules, &(&1.name == rule_name))
+      assert rule
+      assert rule.signal == :event
+      assert rule.enabled
+      assert rule.threshold == 1
+      assert rule.window_seconds == 300
+      assert rule.alert == %{"title" => rule_name, "severity" => "critical"}
+
+      assert rule.match == %{
+               "service_name" => "serviceradar-plugin",
+               "severity_text" => "Critical",
+               "body_contains" => "Proxmox guest memory bottleneck 95%"
+             }
+
+      source_event = __MODULE__.EventShowSRQLStub.event_fixture(@event_id)
+      other_event = __MODULE__.EventShowSRQLStub.event_fixture("no-device")
+      assert RuleMatcher.rule_matches_event?(source_event, rule)
+      refute RuleMatcher.rule_matches_event?(other_event, rule)
+
+      assert rule.group_by == ["device.uid"]
+
+      assert {:ok, "device.uid=" <> @device_uid, %{"device.uid" => @device_uid}} =
+               Record.build_group(rule.group_by, source_event)
+    end
+
+    @tag :web_ng_shared_fixture_db
+    test "drops an unchecked match condition from the saved rule", %{conn: conn} do
+      user = operator_user_fixture()
+      conn = log_in_user(conn, user)
+      scope = Scope.for_user(user)
+
+      {:ok, lv, _html} = live(conn, ~p"/events/#{@event_id}")
+
+      lv
+      |> element("button", "Create alert rule")
+      |> render_click()
+
+      rule_name = "event-alert-unchecked-#{System.unique_integer([:positive])}"
+
+      lv
+      |> form("#alert-rule-form", %{
+        "alert_rule" => %{"name" => rule_name, "body_contains_enabled" => "false"}
+      })
+      |> render_submit()
+
+      assert_redirect(lv, ~p"/settings/rules?#{%{tab: "alerts"}}")
+
+      rules = unwrap_page(Ash.read(StatefulAlertRule, scope: scope))
+      rule = Enum.find(rules, &(&1.name == rule_name))
+      assert rule
+
+      assert rule.match == %{
+               "service_name" => "serviceradar-plugin",
+               "severity_text" => "Critical"
+             }
+    end
+
+    @tag :web_ng_shared_fixture_db
+    test "reports the field when the rule name is already taken", %{conn: conn} do
+      user = operator_user_fixture()
+      conn = log_in_user(conn, user)
+      rule_name = "event-alert-taken-#{System.unique_integer([:positive])}"
+      stateful_alert_rule_fixture(%{name: rule_name, signal: :event})
+
+      {:ok, lv, _html} = live(conn, ~p"/events/#{@event_id}")
+
+      lv
+      |> element("button", "Create alert rule")
+      |> render_click()
+
+      html =
+        lv
+        |> form("#alert-rule-form", %{"alert_rule" => %{"name" => rule_name}})
+        |> render_submit()
+
+      assert html =~ "name has already been taken"
+      assert has_element?(lv, "#alert_rule_modal")
+    end
+
+    @tag :web_ng_shared_fixture_db
+    test "rejects a rule with no enabled match condition", %{conn: conn} do
+      user = operator_user_fixture()
+      conn = log_in_user(conn, user)
+      scope = Scope.for_user(user)
+
+      {:ok, lv, _html} = live(conn, ~p"/events/#{@event_id}")
+
+      lv
+      |> element("button", "Create alert rule")
+      |> render_click()
+
+      rule_name = "event-alert-unmatched-#{System.unique_integer([:positive])}"
+
+      html =
+        lv
+        |> form("#alert-rule-form", %{
+          "alert_rule" => %{
+            "name" => rule_name,
+            "service_name_enabled" => "false",
+            "severity_text_enabled" => "false",
+            "body_contains_enabled" => "false"
+          }
+        })
+        |> render_submit()
+
+      assert html =~ "Enable at least one match condition"
+      assert has_element?(lv, "#alert_rule_modal")
+
+      rules = unwrap_page(Ash.read(StatefulAlertRule, scope: scope))
+      refute Enum.any?(rules, &(&1.name == rule_name))
+    end
+
+    @tag :web_ng_shared_fixture_db
+    test "closes modal when clicking cancel", %{conn: conn} do
+      {:ok, lv, _html} = live(conn, ~p"/events/#{@event_id}")
+
+      lv
+      |> element("button", "Create alert rule")
+      |> render_click()
+
+      assert has_element?(lv, "#alert_rule_modal")
+
+      lv
+      |> element("#alert-rule-form button", "Cancel")
+      |> render_click()
+
+      refute has_element?(lv, "#alert_rule_modal")
+    end
+  end
+
+  defp unwrap_page({:ok, %Ash.Page.Keyset{results: results}}), do: results
+  defp unwrap_page({:ok, results}) when is_list(results), do: results
+  defp unwrap_page(_), do: []
+
   defmodule EventShowSRQLStub do
     @moduledoc false
     @behaviour ServiceRadarWebNG.SRQLBehaviour
 
     @device_uid "sr:5bf1b6f6-0e7c-43ac-b883-a13447199d85"
+    @triggering_event_id "00000000-0000-0000-0000-0000000009b2"
 
     def query(query) when is_binary(query), do: query(query, %{})
 
@@ -167,6 +428,9 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
 
         String.contains?(query, "in:snmp_metrics") ->
           {:ok, %{"results" => snmp_metric_rows(), "pagination" => %{}, "error" => nil}}
+
+        String.contains?(query, "in:events") and String.contains?(query, "stateful-fired-1") ->
+          {:ok, %{"results" => [stateful_fired_event()], "pagination" => %{}, "error" => nil}}
 
         String.contains?(query, "in:events") and String.contains?(query, "no-device") ->
           {:ok, %{"results" => [non_device_event()], "pagination" => %{}, "error" => nil}}
@@ -187,6 +451,12 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
 
     def query(_query, _opts), do: {:error, :invalid_query}
 
+    def event_fixture("stateful-fired-1"), do: stateful_fired_event()
+    def event_fixture("no-device"), do: non_device_event()
+    def event_fixture("snmp-anomaly-1"), do: snmp_anomaly_event()
+    def event_fixture("capacity-forecast-1"), do: capacity_forecast_event()
+    def event_fixture(_id), do: proxmox_event()
+
     @impl true
     def query_request(%{"query" => query}) when is_binary(query), do: query(query, %{})
     def query_request(_payload), do: {:error, :invalid_request}
@@ -199,6 +469,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
         "severity" => "Critical",
         "log_provider" => "serviceradar-plugin",
         "message" => "Proxmox guest memory bottleneck 95%",
+        "device" => %{"uid" => @device_uid},
         "raw_data" => %{
           "event_time" => "2026-07-04T12:01:00Z",
           "observed_at" => "2026-07-04T12:02:00Z",
@@ -222,6 +493,33 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
         "unmapped" => %{
           "condition_key" => "proxmox:guest_memory:#{@device_uid}:qemu:116"
         }
+      }
+    end
+
+    # What the stateful alert engine recorded before it carried a device: an empty
+    # device object, with the device and the triggering event only in diagnostics.
+    defp stateful_fired_event do
+      %{
+        "id" => "stateful-fired-1",
+        "time" => "2026-07-04T12:00:00Z",
+        "severity" => "Medium",
+        "log_provider" => "serviceradar.core",
+        "log_name" => "alert.health.causal_prediction",
+        "message" => "Causal prediction finding detected",
+        "device" => %{},
+        "metadata" => %{
+          "serviceradar" => %{
+            "stateful_rule" => true,
+            "diagnostics" => %{
+              "group_values" => %{"device" => @device_uid},
+              "source" => %{
+                "source_signal" => "event",
+                "source_event_id" => @triggering_event_id
+              }
+            }
+          }
+        },
+        "unmapped" => %{"rule_name" => "causal_prediction_health_finding"}
       }
     end
 

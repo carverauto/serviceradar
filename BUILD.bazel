@@ -175,15 +175,18 @@ py_test(
     ],
 )
 
+genquery(
+    name = "web_ng_db_target_query",
+    expression = "//elixir/web-ng:networks_live_db_test",
+    opts = ["--output=xml"],
+    scope = ["//elixir/web-ng:networks_live_db_test"],
+)
+
 py_test(
     name = "web_ng_db_runner_contract_test",
     size = "small",
     srcs = ["web_ng_db_runner_contract_test.py"],
-    data = [
-        "buildbuddy.yaml",
-        "//elixir/web-ng:BUILD.bazel",
-        "//elixir/web-ng:config/test.exs",
-    ],
+    data = [":web_ng_db_target_query"],
 )
 
 py_test(

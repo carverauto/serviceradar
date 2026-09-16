@@ -224,8 +224,11 @@ defmodule ServiceRadar.Application do
 
   defp finch_child do
     if Application.get_env(:serviceradar_core, :http_client_enabled, true) do
-      # CAStore + optional SERVICERADAR_EGRESS_PROXY CONNECT hop. Release
-      # images are intentionally minimal and may not include OS CA bundles.
+      # CAStore, and no SERVICERADAR_EGRESS_PROXY hop: the pool connects
+      # directly, and hosts outside the deployment go through
+      # ServiceRadar.HTTP.EgressClient (ServiceRadar.HTTP.EgressProxy says why).
+      # Release images are intentionally minimal and may not include OS CA
+      # bundles.
       #
       # Call sites opt in with `finch: [name: ServiceRadar.Finch]` (see
       # ServiceRadar.HTTP.EgressProxy.req_opts/1). Do not set

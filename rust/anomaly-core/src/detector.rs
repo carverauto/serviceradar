@@ -27,6 +27,8 @@ struct DetectorThresholds {
     min_std_floor: f64,
     min_cv: f64,
     saturation_gate: Option<SaturationGate>,
+    /// Upward practical-significance ceiling (see [`ReasonContext::burst_envelope`]).
+    burst_envelope: Option<f64>,
     seasonal_baseline: Vec<f64>,
     seasonal_enabled: bool,
     seasonal_min_samples: usize,
@@ -169,6 +171,7 @@ impl DetectorThresholds {
             min_std_floor,
             min_cv,
             saturation_gate: context.saturation_gate,
+            burst_envelope: context.burst_envelope.filter(|value| value.is_finite()),
             seasonal_baseline: context.seasonal_baseline.clone().unwrap_or_default(),
             seasonal_enabled,
             seasonal_min_samples: context.seasonal_min_samples.unwrap_or(min_samples).max(1),
@@ -286,6 +289,12 @@ fn evaluate_detector(
         ),
     ];
 
+    let signals = apply_burst_envelope(
+        signals,
+        thresholds.burst_envelope,
+        state.rolling_stats.center,
+        state.sample.value,
+    );
     let ready = signals.iter().any(|signal| signal.ready);
     let breached = signals.iter().any(|signal| signal.breached);
     let score = signals
@@ -306,6 +315,38 @@ fn evaluate_detector(
         score,
         rolling_sample_count,
     }
+}
+
+/// The burst-envelope gate: an UPWARD sample (above the rolling center) that is
+/// no taller than the series' recent bursts is expected, not anomalous, however
+/// far over the z threshold it lands. Applied once to the combined signal set —
+/// a recurring sub-hour burst breaches the hour-of-week seasonal signal just as
+/// surely as the rolling one — and recorded on each suppressed signal's reason so
+/// the suppression stays auditable in the emitted payload. Downward moves and
+/// samples over the envelope are untouched.
+fn apply_burst_envelope(
+    mut signals: Vec<SignalVerdict>,
+    envelope: Option<f64>,
+    rolling_center: f64,
+    sample_value: f64,
+) -> Vec<SignalVerdict> {
+    let Some(envelope) = envelope.filter(|value| value.is_finite()) else {
+        return signals;
+    };
+    let upward = rolling_center.is_finite() && sample_value > rolling_center;
+    if !upward || sample_value > envelope {
+        return signals;
+    }
+
+    for signal in signals.iter_mut().filter(|signal| signal.breached) {
+        signal.breached = false;
+        signal.reason = format!(
+            "{} z-score {:.3} over {:.3} but within recent burst envelope {:.3}",
+            signal.name, signal.score, signal.threshold, envelope
+        );
+    }
+
+    signals
 }
 
 fn finalize_detector_verdict(
@@ -396,7 +437,14 @@ mod tests {
             min_std_floor: None,
             min_cv: None,
             saturation_gate: None,
+            burst_envelope: None,
         }
+    }
+
+    fn context_with_envelope(envelope: f64) -> ReasonContext {
+        let mut context = context(1, 0);
+        context.burst_envelope = Some(envelope);
+        context
     }
 
     fn sample(value: f64) -> ReasonSample {
@@ -404,6 +452,44 @@ mod tests {
             value,
             observed_at_unix_nano: None,
         }
+    }
+
+    /// A recurring bulk transfer: the sample is far over the rolling z threshold
+    /// but no taller than the series' recent bursts, so it is expected, not an
+    /// anomaly. The suppression is named on the signal so it stays auditable.
+    #[test]
+    fn upward_sample_within_burst_envelope_does_not_breach() {
+        let verdict =
+            reason_impl(context_with_envelope(1_500.0), sample(1_000.0)).expect("verdict");
+
+        assert!(!verdict.breached);
+        assert!(!verdict.anomalous);
+        assert_eq!(verdict.state, "clean");
+        assert!(
+            verdict.signals.iter().any(|signal| signal.name == "rolling"
+                && !signal.breached
+                && signal.reason.contains("within recent burst envelope")),
+            "rolling signal must record the envelope suppression: {:?}",
+            verdict.signals
+        );
+    }
+
+    #[test]
+    fn upward_sample_above_burst_envelope_breaches() {
+        let verdict = reason_impl(context_with_envelope(800.0), sample(1_000.0)).expect("verdict");
+
+        assert!(verdict.breached);
+        assert!(verdict.anomalous);
+    }
+
+    /// Traffic disappearing is never "within the envelope": the ceiling only
+    /// governs upward moves.
+    #[test]
+    fn downward_sample_is_not_gated_by_burst_envelope() {
+        let verdict =
+            reason_impl(context_with_envelope(1_500.0), sample(-1_000.0)).expect("verdict");
+
+        assert!(verdict.breached);
     }
 
     #[test]

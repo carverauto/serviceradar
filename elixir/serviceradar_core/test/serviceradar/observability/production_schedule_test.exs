@@ -166,7 +166,9 @@ defmodule ServiceRadar.Observability.ProductionScheduleTest do
       assert config[:emit_verdicts?] == true
       assert config[:seasonal_n_sigma] == 3.0
       assert config[:min_bucket_samples] == 4
-      assert config[:confirm_slots] == 1
+      # Two consecutive hourly buckets: one bucket at z just over 3.0 is
+      # threshold noise (demo median breach score 3.19 against 3.0).
+      assert config[:confirm_slots] == 2
     end
 
     test "env overrides" do
@@ -212,7 +214,7 @@ defmodule ServiceRadar.Observability.ProductionScheduleTest do
 
       assert config[:seasonal_n_sigma] == 3.0
       assert config[:min_bucket_samples] == 4
-      assert config[:confirm_slots] == 1
+      assert config[:confirm_slots] == 2
     end
 
     test "raises a named ArgumentError on garbage numeric envs" do
@@ -255,13 +257,15 @@ defmodule ServiceRadar.Observability.ProductionScheduleTest do
     test "returns operator-set stale thresholds" do
       env = %{
         "SERVICERADAR_STALE_ANOMALY_RESOLVE_HOURS" => "12",
-        "SERVICERADAR_ANOMALY_EPISODE_STALE_AFTER_MINUTES" => "90"
+        "SERVICERADAR_ANOMALY_EPISODE_STALE_AFTER_MINUTES" => "90",
+        "SERVICERADAR_CENTRAL_SEASONAL_STALE_AFTER_MINUTES" => "240"
       }
 
       config = ProductionSchedule.app_env(fetch(env))
 
       assert config[:stale_anomaly_resolve_hours] == 12
       assert config[:anomaly_episode_stale_after_minutes] == 90
+      assert config[:central_seasonal_episode_stale_after_minutes] == 240
     end
 
     test "returns operator-set tripwire thresholds" do

@@ -4,7 +4,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
 
   Provides fixtures, actors, and policy testing utilities for all
   ServiceRadar Ash domains: Identity, Inventory, Infrastructure,
-  Monitoring, and Edge.
+  Monitoring, Observability, and Edge.
 
   ## Usage
 
@@ -38,6 +38,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadar.Monitoring.PollingSchedule
   alias ServiceRadar.Monitoring.ServiceCheck
+  alias ServiceRadar.Observability.StatefulAlertRule
 
   require Ash.Query
 
@@ -388,6 +389,30 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
     attrs = Map.merge(defaults, Map.new(attrs))
 
     PollingSchedule
+    |> Ash.Changeset.for_create(:create, attrs, actor: system_actor())
+    |> Ash.create!()
+  end
+
+  # ============================================================================
+  # Observability Domain Fixtures
+  # ============================================================================
+
+  @doc """
+  Creates a stateful alert rule fixture.
+  """
+  def stateful_alert_rule_fixture(attrs \\ %{}) do
+    unique = System.unique_integer([:positive])
+
+    defaults = %{
+      name: "Stateful Alert Rule #{unique}",
+      signal: :log,
+      match: %{},
+      group_by: ["serviceradar.sync.integration_source_id"]
+    }
+
+    attrs = Map.merge(defaults, Map.new(attrs))
+
+    StatefulAlertRule
     |> Ash.Changeset.for_create(:create, attrs, actor: system_actor())
     |> Ash.create!()
   end

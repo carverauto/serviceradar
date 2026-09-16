@@ -14,6 +14,7 @@ import io
 import lzma
 import os
 import posixpath
+import subprocess
 import tarfile
 import traceback
 from typing import BinaryIO, List, Optional, Tuple
@@ -22,6 +23,7 @@ import shutil
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Overlay .deb packages into a rootfs directory.")
+    parser.add_argument("--zstd", help="Declared zstd executable for data.tar.zst payloads.")
     parser.add_argument("rootfs", help="Destination rootfs directory that already contains the CNPG files.")
     parser.add_argument("packages", nargs="+", help="One or more .deb archives to overlay.")
     return parser.parse_args()
@@ -107,8 +109,19 @@ def _extract_tar_stream(stream: BinaryIO, dest: str) -> None:
     _apply_dir_perms(dir_perms)
 
 
-def _open_data_stream(filename: str, data: bytes) -> BinaryIO:
+def _open_data_stream(filename: str, data: bytes, zstd_binary: Optional[str] = None) -> BinaryIO:
     buffer = io.BytesIO(data)
+    if filename.endswith(".zst"):
+        if not zstd_binary:
+            raise ValueError("A zstd executable is required for data.tar.zst payloads")
+        result = subprocess.run(
+            [zstd_binary, "--decompress", "--stdout"],
+            input=data,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        return io.BytesIO(result.stdout)
     if filename.endswith(".xz"):
         return lzma.LZMAFile(buffer)
     if filename.endswith(".gz"):
@@ -119,7 +132,7 @@ def _open_data_stream(filename: str, data: bytes) -> BinaryIO:
     return buffer
 
 
-def _apply_deb_package(dest: str, package_path: str) -> None:
+def _apply_deb_package(dest: str, package_path: str, zstd_binary: Optional[str] = None) -> None:
     with open(package_path, "rb") as deb_file:
         header = deb_file.read(8)
         if header != b"!<arch>\n":
@@ -142,7 +155,7 @@ def _apply_deb_package(dest: str, package_path: str) -> None:
 
             normalized_name = name.rstrip("/")
             if normalized_name.startswith("data.tar"):
-                stream = _open_data_stream(normalized_name, data)
+                stream = _open_data_stream(normalized_name, data, zstd_binary)
                 _extract_tar_stream(stream, dest)
                 return
         raise ValueError(f"{package_path} is missing a data.tar payload")
@@ -157,7 +170,7 @@ def main() -> None:
         pkg_path = os.path.abspath(package)
         if not os.path.isfile(pkg_path):
             raise ValueError(f"Package {pkg_path} is not accessible")
-        _apply_deb_package(rootfs, pkg_path)
+        _apply_deb_package(rootfs, pkg_path, args.zstd)
     _ensure_pg_config_header(rootfs)
 
 

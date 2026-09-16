@@ -217,7 +217,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
   defp check_existing_job do
     query =
       from(j in Oban.Job,
-        where: j.worker == ^to_string(__MODULE__),
+        where: j.worker == ^Oban.Worker.to_string(__MODULE__),
         where: j.state in ^@bootstrap_states,
         where: fragment("COALESCE(?->>'force', 'false') <> 'true'", j.args),
         limit: 1

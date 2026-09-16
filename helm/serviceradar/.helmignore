@@ -1,3 +1,32 @@
-values-demo.yaml
-values-demo-staging.yaml
-values-staging-demo.yaml
+# Paths in this directory that must NOT ship in the published chart package.
+#
+# `helm package` (the release workflow) applies this list when it builds the
+# archive; `helm pull --untar` only extracts what was packaged. Every rule is
+# anchored with a leading slash, so it matches only at the chart root and never
+# a nested path such as templates/tests/ (Helm's test-hook convention).
+#
+# Who reads the excluded files, and why excluding them is safe:
+# - A render from a Git checkout (the running demo Application, local work)
+#   reads `--values` files and Argo CD's `.argocd-source-*.yaml` from the
+#   repository, not from the package.
+# - Argo CD does read `.argocd-source-<app>.yaml` from inside the chart when an
+#   Application sources the published chart. The chart-sourced demo Application
+#   (carverauto/gitops k8s/serviceradar-demo) takes values-demo.yaml from Git and
+#   clears global.imageTag itself, so the chart version selects its images and it
+#   needs neither file from the package.
+#
+# chart_package_contents_test.py pins this in both directions: these stay
+# excluded, and the files operators are told to use from the package
+# (values-ha.yaml, values-tenant.yaml, files/, templates/) stay included.
+
+# Overlays and Argo CD overrides for ServiceRadar's own environments.
+/values-demo.yaml
+/values-demo-staging.yaml
+/values-staging-demo.yaml
+/.argocd-source-*.yaml
+
+# Build and test sources, and what running the tests leaves behind.
+/BUILD.bazel
+/*.py
+/tests/
+/__pycache__/

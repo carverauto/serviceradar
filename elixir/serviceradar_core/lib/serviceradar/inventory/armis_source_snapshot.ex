@@ -89,7 +89,12 @@ defmodule ServiceRadar.Inventory.ArmisSourceSnapshot do
           hostname: device.hostname,
           ip: device.ip,
           mac: device.mac,
-          serial_number: device.serial_number,
+          # `ServiceRadar.Inventory.Device` has no `serial_number` column -- it is only ever
+          # carried in `metadata` (see `DeviceSourceObservationIngestor`'s own
+          # `bounded_value(metadata, "serial_number", ...)` on the raw update path). Read it the
+          # same way `site_name` already does below rather than a plain field reference, which
+          # raises `Ecto.QueryError: field serial_number ... does not exist` at query build time.
+          serial_number: fragment("?->>'serial_number'", device.metadata),
           vendor_name: device.vendor_name,
           model: device.model,
           device_type: device.type,

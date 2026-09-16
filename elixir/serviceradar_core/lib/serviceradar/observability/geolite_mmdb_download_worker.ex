@@ -20,6 +20,7 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
   import Ecto.Query, only: [from: 2]
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.HTTP.EgressClient
   alias ServiceRadar.Observability.GeoIP
   alias ServiceRadar.Observability.NetflowSettings
   alias ServiceRadar.Observability.ObanFailureEventReporter
@@ -67,7 +68,7 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
         {:error, :oban_unavailable}
 
       not required_files_present?(dir) ->
-        case promote_scheduled_now() do
+        case promote_scheduled_now(failure_reschedule_seconds) do
           {:ok, :promoted} ->
             {:ok, :already_scheduled}
 
@@ -112,7 +113,7 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
             if File.regular?(dest) do
               :ok
             else
-              _ = download_file(url, dest, timeout_ms)
+              _ = download_file(url, dest, receive_timeout: timeout_ms)
             end
           end)
 
@@ -131,7 +132,7 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
 
     query =
       from(j in Oban.Job,
-        where: j.worker == ^to_string(__MODULE__),
+        where: j.worker == ^Oban.Worker.to_string(__MODULE__),
         where:
           j.state in ["available", "scheduled", "executing", "retryable"] or
             (j.state in ["completed", "discarded"] and j.attempted_at >= ^cooldown_started_at),
@@ -182,7 +183,7 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
           results =
             Enum.map(files, fn {name, url} ->
               dest = Path.join(dir, name)
-              download_file(url, dest, timeout_ms)
+              download_file(url, dest, receive_timeout: timeout_ms)
             end)
 
           if Enum.any?(results, &match?({:error, _}, &1)) do
@@ -243,35 +244,26 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
     end
   end
 
-  defp download_file(url, dest_path, timeout_ms) when is_binary(url) and is_binary(dest_path) do
-    tmp = dest_path <> ".tmp"
+  # Public so the CONNECT-proxy regression test can drive it; see
+  # test/serviceradar/http/egress_client_test.exs. Takes EgressClient options.
+  @doc false
+  def download_file(url, dest_path, opts) when is_binary(url) and is_binary(dest_path) do
+    # EgressClient, not the shared Finch pool: the pool cannot tunnel through
+    # SERVICERADAR_EGRESS_PROXY. It streams to disk, so a large MMDB is never
+    # held in memory, and only a complete 200 replaces the file.
+    case EgressClient.download_to_file(url, dest_path, opts) do
+      {:ok, _} = ok ->
+        Logger.info("GeoLite MMDB updated: #{Path.basename(dest_path)}", file: dest_path)
+        ok
 
-    File.rm(tmp)
-
-    req_opts = [
-      receive_timeout: timeout_ms,
-      retry: false,
-      finch: [name: ServiceRadar.Finch]
-    ]
-
-    try do
-      # Stream to disk to avoid loading large MMDBs in memory.
-      _resp = Req.get!(url, req_opts ++ [into: File.stream!(tmp)])
-
-      File.rename!(tmp, dest_path)
-      Logger.info("GeoLite MMDB updated: #{Path.basename(dest_path)}", file: dest_path)
-      {:ok, dest_path}
-    rescue
-      e ->
-        File.rm(tmp)
-
+      {:error, reason} = error ->
         Logger.warning("GeoLite MMDB download failed",
           url: url,
           dest: dest_path,
-          error: inspect(e)
+          error: inspect(reason)
         )
 
-        {:error, e}
+        error
     end
   end
 
@@ -344,13 +336,19 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
     Enum.all?(@required_files, &File.regular?(Path.join(dir, &1)))
   end
 
-  defp promote_scheduled_now do
+  # Runs a pending download now when the files are missing, e.g. after an emptyDir was wiped. A
+  # successor inserted inside the failure backoff window comes from a run that just ended without
+  # the files, typically a failed download; promoting it on every scheduler tick would retry
+  # about once a minute instead of backing off, so only successors older than the window move.
+  defp promote_scheduled_now(failure_reschedule_seconds) do
     now = DateTime.utc_now()
+    backoff_started_at = DateTime.add(now, -max(failure_reschedule_seconds, 3_600), :second)
 
     query =
       from(j in Oban.Job,
-        where: j.worker == ^to_string(__MODULE__),
-        where: j.state == "scheduled"
+        where: j.worker == ^Oban.Worker.to_string(__MODULE__),
+        where: j.state == "scheduled",
+        where: j.inserted_at < ^backoff_started_at
       )
 
     case Repo.update_all(query, [set: [scheduled_at: now]], prefix: ObanSupport.prefix()) do

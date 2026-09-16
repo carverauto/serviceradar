@@ -37,6 +37,16 @@ exports_files([
 
 package(default_visibility = ["//visibility:public"])
 
+py_test(
+    name = "overlay_deb_packages_test",
+    srcs = ["overlay_deb_packages_test.py"],
+    args = ["$(rootpath @zstd//:zstd_cli)"],
+    data = [
+        "overlay_deb_packages.py",
+        "@zstd//:zstd_cli",
+    ],
+)
+
 # ARC runner image -----------------------------------------------------------
 
 declare_loaded_oci_image_amd64(
@@ -173,13 +183,22 @@ declare_multiarch_image_index(
 
 # elixir core-elx ------------------------------------------------------------
 
-declare_elixir_release_container_amd64(
+alias(
+    name = "core_git_runtime_debs",
+    actual = select({
+        "//build/platforms:target_linux_arm64": "@ubuntu_git_runtime_arm64//:packages",
+        "//conditions:default": "@ubuntu_git_runtime_amd64//:packages",
+    }),
+)
+
+declare_elixir_release_container_with_debs_amd64(
     name = "core_elx_image_amd64",
     base = select({
         "//build/platforms:target_linux_arm64": "@ubuntu_noble_linux_arm64_v8//:ubuntu_noble_linux_arm64_v8",
         "//conditions:default": "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
     }),
     cmd = ["start"],
+    deb_packages = [":core_git_runtime_debs"],
     entrypoint = ["/app/bin/serviceradar_core_elx"],
     env = {
         "HOME": "/app",
@@ -189,6 +208,7 @@ declare_elixir_release_container_amd64(
     extra_tars = [
         ":sshca_signer_layer_amd64",
         ":ubuntu_feed_merge_layer_amd64",
+        ":web_ng_ca_bundle_layer_amd64",
     ],
     image_title = "serviceradar-core-elx",
     local_repo_tag = "registry.carverauto.dev/serviceradar/serviceradar-core-elx:local",

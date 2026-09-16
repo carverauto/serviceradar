@@ -20,6 +20,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -217,7 +218,7 @@ type EndpointInventoryStatusConfig struct {
 
 func (c *EndpointInventoryStatusConfig) effectiveConfigPath() string {
 	if c == nil || c.ConfigPath == "" {
-		return "/etc/serviceradar/endpoint-inventory.json"
+		return filepath.Join(defaultConfigDir(), "endpoint-inventory.json")
 	}
 
 	return c.ConfigPath
@@ -225,7 +226,7 @@ func (c *EndpointInventoryStatusConfig) effectiveConfigPath() string {
 
 func (c *EndpointInventoryStatusConfig) effectiveSpoolPath() string {
 	if c == nil || c.SpoolPath == "" {
-		return endpointinventory.LatestPath("/var/lib/serviceradar/endpoint-inventory/spool")
+		return endpointinventory.LatestPath(filepath.Join(defaultStateDir(), "endpoint-inventory", "spool"))
 	}
 
 	return c.SpoolPath

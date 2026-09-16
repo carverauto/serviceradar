@@ -29,6 +29,17 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
   @active_target_states [:waiting_health, :healthy_soak, :rollback_pending]
   @failed_rollout_states [:failed, :rolled_back]
 
+  # Partial unique index addon_rollout_targets_one_active_target_index covers
+  # these states. A failed 1/2 canary leaves the healthy agent as :succeeded,
+  # which blocks the next create for the same (agent_uid, addon_id).
+  @slot_holding_target_states [
+    :pending,
+    :waiting_health,
+    :healthy_soak,
+    :succeeded,
+    :rollback_pending
+  ]
+
   @type source :: AddonAssignment.t() | AddonProfile.t()
 
   @spec reconcile(keyword()) :: {:ok, map()} | {:error, term()}
@@ -46,7 +57,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
       created =
         assignments
         |> Enum.concat(profiles)
-        |> Enum.reduce(%{started: 0, blocked: 0, skipped: 0}, fn source, stats ->
+        |> Enum.reduce(%{started: 0, blocked: 0, skipped: 0, repaired: 0}, fn source, stats ->
           reconcile_source(source, packages, package_by_id, rollouts, actor, now, stats)
         end)
 
@@ -145,7 +156,19 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
   # direct assignment, an operator reinstalling on the host.
   defp supersede_if_converged(rollout, targets, packages, actor, now) do
     candidate = Map.get(packages, to_string(rollout.candidate_package_id))
-    in_scope = Enum.reject(targets, &(&1.state in [:excluded, :canceled]))
+    # :rolled_back is terminal and belongs with :excluded/:canceled here. A target
+    # whose agent never reports -- a decommissioned host still enrolled in
+    # ocsf_agents, which is never deleted regardless of age -- fails its health
+    # deadline, lands :rolled_back, and pauses the rollout. Keeping it in scope
+    # then made convergence unprovable forever, because the reap asks every
+    # in-scope target for a status >= the candidate and a dead agent has none.
+    # The rollout could neither promote (finish_or_advance short-circuits on
+    # :paused) nor fail forward, and reconcile_source skips any source with an
+    # active rollout -- so ONE dead agent silently froze managed updates for its
+    # whole fleet. Observed on demo: seven sources stuck 17-19 days behind.
+    # If every target rolled back, in_scope is empty and the guard below keeps
+    # the rollout paused, which is the real failure this must not mask.
+    in_scope = Enum.reject(targets, &(&1.state in [:excluded, :canceled, :rolled_back]))
 
     cond do
       # Only a paused rollout is reaped. A rollout that can still make progress
@@ -161,7 +184,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
         :continue
 
       converged_on_candidate?(in_scope, rollout.addon_id, candidate, actor) ->
-        mark_superseded(rollout, candidate, length(in_scope), actor, now)
+        mark_superseded(rollout, candidate, targets, length(in_scope), actor, now)
 
       true ->
         :continue
@@ -182,27 +205,111 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     end)
   end
 
-  defp mark_superseded(rollout, candidate, target_count, actor, now) do
+  defp mark_superseded(rollout, candidate, targets, target_count, actor, now) do
     details = %{candidate_version: candidate.version, target_count: target_count}
 
-    case update_rollout(
-           rollout,
-           %{
-             state: :superseded,
-             completed_at: now,
-             paused_at: nil,
-             blocked_reason: "fleet_already_on_candidate"
-           },
-           actor
-         ) do
-      {:ok, updated} ->
-        audit(:supersede, updated, details)
-        emit(:superseded, updated, details)
-        :superseded
-
-      {:error, reason} ->
-        {:error, reason}
+    with :ok <- finish_superseded_source(rollout, candidate, targets, actor, now),
+         {:ok, updated} <-
+           update_rollout(
+             rollout,
+             %{
+               state: :superseded,
+               completed_at: now,
+               paused_at: nil,
+               blocked_reason: "fleet_already_on_candidate"
+             },
+             actor
+           ) do
+      audit(:supersede, updated, details)
+      emit(:superseded, updated, details)
+      :superseded
     end
+  end
+
+  # Superseding ENDS a rollout, so it has to leave the source where completing it
+  # would have: on the candidate, overrides cleared, target slots released. It used
+  # to do none of that. On demo the anomaly profile stayed on 0.3.10 while seven
+  # agents ran 0.3.11 through orphaned overrides, the catalog showed 0.3.11 as
+  # assigned to nobody (and refused a second profile), and reconcile_source tried
+  # to start the same rollout every 30 s into the slots this one still held.
+  #
+  # This mirrors promote_source/4. The one difference is promote_source_if_behind/3:
+  # a superseded rollout can be older than the source's current package (a later
+  # rollout already moved it), and finishing it must never move the source back.
+  defp finish_superseded_source(rollout, candidate, targets, actor, now) do
+    with :ok <- pin_tolerated_profile_failures(rollout, targets, actor),
+         :ok <- promote_source_if_behind(rollout, candidate, actor),
+         :ok <- clear_all_overrides(targets, actor) do
+      release_superseded_slots(targets, actor, now)
+    end
+  end
+
+  defp promote_source_if_behind(rollout, candidate, actor) do
+    with {:ok, source} <- source_for_rollout(rollout, actor),
+         {:ok, current} <- source_package(source, actor) do
+      if Eligibility.version_at_least?(current.version, candidate.version) do
+        :ok
+      else
+        promote_authoritative_source(rollout, actor)
+      end
+    end
+  end
+
+  # A target still holding its slot when the rollout is superseded is one of the
+  # in-scope targets that just proved convergence on the candidate, so it is
+  # promoted rather than canceled.
+  defp release_superseded_slots(targets, actor, now) do
+    Enum.reduce_while(targets, :ok, fn target, :ok ->
+      if target.state in @slot_holding_target_states do
+        case update_target(
+               target,
+               %{state: :promoted, completed_at: target.completed_at || now},
+               actor
+             ) do
+          {:ok, _} -> {:cont, :ok}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+      else
+        {:cont, :ok}
+      end
+    end)
+  end
+
+  # Rollouts superseded before supersede finished its source are terminal, so
+  # advance/2 never revisits them and their targets keep holding slots. Every
+  # deployment that hit one would stay stranded until someone edited rows by hand,
+  # so reconcile finishes them the way supersede now does. Returns :repaired when
+  # it changed anything, because the caller's copy of the source is then stale.
+  defp repair_stranded_supersessions(source_rollouts, package_by_id, actor, now) do
+    source_rollouts
+    |> Enum.filter(&(&1.state == :superseded))
+    |> Enum.reduce(:none, fn rollout, acc ->
+      candidate = Map.get(package_by_id, to_string(rollout.candidate_package_id))
+
+      with %AddonPackage{} <- candidate,
+           {:ok, targets} <- rollout_targets(rollout.id, actor),
+           true <- Enum.any?(targets, &(&1.state in @slot_holding_target_states)),
+           :ok <- finish_superseded_source(rollout, candidate, targets, actor, now) do
+        Logger.info("Finished superseded native add-on rollout that still held its source",
+          rollout_id: to_string(rollout.id),
+          addon_id: rollout.addon_id,
+          candidate_version: candidate.version
+        )
+
+        :repaired
+      else
+        {:error, reason} ->
+          Logger.warning("Failed to finish superseded native add-on rollout",
+            rollout_id: to_string(rollout.id),
+            reason: inspect(reason)
+          )
+
+          acc
+
+        _ ->
+          acc
+      end
+    end)
   end
 
   @spec pause(Ecto.UUID.t(), keyword()) :: :ok | {:error, term()}
@@ -280,40 +387,56 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     current = Map.get(package_by_id, to_string(source.addon_package_id))
     source_rollouts = Enum.filter(rollouts, &same_source?(&1, source))
 
-    if is_nil(current) or Enum.any?(source_rollouts, &(&1.state in @active_rollout_states)) do
-      increment(stats, :skipped)
-    else
-      blocked_ids =
-        source_rollouts
-        |> Enum.filter(&(&1.state in @failed_rollout_states))
-        |> Enum.map(& &1.candidate_package_id)
+    cond do
+      is_nil(current) or Enum.any?(source_rollouts, &(&1.state in @active_rollout_states)) ->
+        increment(stats, :skipped)
 
-      case Eligibility.latest_candidate(current, packages, source,
-             blocked_candidate_ids: blocked_ids
-           ) do
-        {:ok, candidate} ->
-          case start(source, candidate, actor: actor, now: now, trigger: :track_latest) do
-            {:ok, _} ->
-              increment(stats, :started)
+      repair_stranded_supersessions(source_rollouts, package_by_id, actor, now) == :repaired ->
+        # The source row just moved; start nothing from the stale copy read above.
+        increment(stats, :repaired)
 
-            {:error, reason} ->
-              Logger.warning("Failed to start native add-on rollout",
-                source_id: to_string(source.id),
-                reason: inspect(reason)
-              )
+      true ->
+        start_next_candidate(source, current, packages, source_rollouts, actor, now, stats)
+    end
+  end
 
-              increment(stats, :skipped)
-          end
+  defp start_next_candidate(source, current, packages, source_rollouts, actor, now, stats) do
+    blocked_ids =
+      source_rollouts
+      |> Enum.filter(&(&1.state in @failed_rollout_states))
+      |> Enum.map(& &1.candidate_package_id)
 
-        {:blocked, reason, candidate} ->
-          case record_blocked_candidate(source, current, candidate, reason, actor, now) do
-            {:ok, _} -> increment(stats, :blocked)
-            {:error, _} -> increment(stats, :skipped)
-          end
+    case Eligibility.latest_candidate(current, packages, source,
+           blocked_candidate_ids: blocked_ids
+         ) do
+      {:ok, candidate} ->
+        case start(source, candidate, actor: actor, now: now, trigger: :track_latest) do
+          {:ok, _} ->
+            increment(stats, :started)
 
-        :none ->
-          increment(stats, :skipped)
-      end
+          {:error, :no_eligible_targets} ->
+            # Not a failure: no agent for this source can take the candidate
+            # right now. Reconcile runs every 30s, so warning here would spam
+            # the log for as long as the fleet is offline.
+            increment(stats, :skipped)
+
+          {:error, reason} ->
+            Logger.warning("Failed to start native add-on rollout",
+              source_id: to_string(source.id),
+              reason: inspect(reason)
+            )
+
+            increment(stats, :skipped)
+        end
+
+      {:blocked, reason, candidate} ->
+        case record_blocked_candidate(source, current, candidate, reason, actor, now) do
+          {:ok, _} -> increment(stats, :blocked)
+          {:error, _} -> increment(stats, :skipped)
+        end
+
+      :none ->
+        increment(stats, :skipped)
     end
   end
 
@@ -341,6 +464,44 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     target_specs =
       target_specs(source, candidate, assignments, agents, direct_overrides, policy, now)
 
+    # A source whose targets all exist but none of which can take the candidate
+    # has nothing to prove: every target would be terminal the moment it is
+    # created, finish_or_advance/4 would promote on the spot, and the source would
+    # advance to a candidate version no agent has actually run. Refuse that; the
+    # next reconcile retries once an agent reports in.
+    #
+    # A source with NO targets at all is deliberately exempt. A profile that
+    # currently matches nothing has nothing to verify, and letting its pin track
+    # the latest approved package means it is already correct the moment an agent
+    # appears. That behaviour predates this guard and is covered by the "reconcile
+    # repairs a non-explicit first-party profile stranded on a staged package"
+    # test, which starts a rollout for a profile with zero targets.
+    if target_specs == [] or Enum.any?(target_specs, &(&1.classification == :eligible)) do
+      create_rollout_with_specs(
+        source,
+        previous,
+        candidate,
+        policy,
+        target_specs,
+        actor,
+        now,
+        trigger
+      )
+    else
+      {:error, :no_eligible_targets}
+    end
+  end
+
+  defp create_rollout_with_specs(
+         source,
+         previous,
+         candidate,
+         policy,
+         target_specs,
+         actor,
+         now,
+         trigger
+       ) do
     rollout_attrs = %{
       addon_id: previous.addon_id,
       source_type: source_type(source),
@@ -395,7 +556,11 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
         %{assignment: assignment, classification: classification, reason_code: reason}
       end)
 
-    advanceable = Enum.filter(classified, &(&1.classification in [:eligible, :unavailable]))
+    # Only :eligible targets are batched. An agent that is not reporting must not
+    # consume a canary slot -- it cannot demonstrate the candidate is healthy, so
+    # spending the canary on it means the batch behind it waits on a host that
+    # will never answer.
+    advanceable = Enum.filter(classified, &(&1.classification == :eligible))
     batch_by_assignment = batch_indexes(advanceable, policy)
 
     Enum.map(classified, fn spec ->
@@ -418,7 +583,15 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
   defp create_targets(rollout, specs, previous, candidate, actor) do
     Enum.reduce_while(specs, {:ok, []}, fn spec, {:ok, notifications} ->
       assignment = spec.assignment
-      state = if spec.classification in [:eligible, :unavailable], do: :pending, else: :excluded
+      # :unavailable belongs with :incompatible, not with :eligible. An agent that
+      # is not reporting cannot run the candidate now, and making it a :pending
+      # target means the rollout waits out its health deadline and then pauses --
+      # which is how one retired agent identity froze managed updates for a whole
+      # fleet for 19 days. Exclude it with its reason recorded, and let the next
+      # rollout pick the agent up once it reports in. Operators should never have
+      # to hand-write target queries to route around an agent the system can
+      # already see is not there.
+      state = if spec.classification == :eligible, do: :pending, else: :excluded
 
       attrs = %{
         rollout_id: rollout.id,
@@ -491,7 +664,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
 
   defp evaluate_candidate_target(rollout, target, status, candidate, actor, now) do
     cond do
-      explicit_failure?(status, target.override_applied_at) ->
+      explicit_failure?(status, candidate, target.override_applied_at) ->
         fail_and_rollback_target(rollout, target, "candidate_reported_unhealthy", actor, now)
 
       candidate_ready?(status, candidate, target.override_applied_at) ->
@@ -954,7 +1127,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
       Eligibility.supervision_state_ready?(candidate, status)
   end
 
-  defp explicit_failure?(nil, _applied_at), do: false
+  defp explicit_failure?(nil, _candidate, _applied_at), do: false
 
   # A candidate fails on its reported STATE. It does not fail merely because the
   # add-on also reported a degradation reason: that reason is advisory, describes
@@ -962,10 +1135,17 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
   # identical before and after an upgrade -- so gating on it could only ever wedge
   # the rollout, never protect it. The reason is still recorded and surfaced; see
   # advisory_degradation/1 and the fleet row.
-  defp explicit_failure?(status, applied_at) do
+  #
+  # And it fails only on a report ABOUT the candidate. The agent reports the add-on
+  # it is running; until it has applied the override that is still the previous
+  # version, so a fresh "unhealthy" from it says nothing about the candidate. On demo
+  # a wedged 0.3.10 failed the 0.3.11 target for its host 31 s after the override,
+  # before the agent had even polled for the new assignment. An agent that never
+  # applies the candidate still fails, as candidate_health_timeout.
+  defp explicit_failure?(status, candidate, applied_at) do
     state = status.state |> to_string() |> String.downcase()
 
-    fresh_status?(status, applied_at) and
+    fresh_status?(status, applied_at) and status.version == candidate.version and
       state in ["circuit_open", "failed", "unhealthy", "verification_failed"]
   end
 
@@ -1211,9 +1391,18 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     end)
   end
 
+  # :succeeded belongs in this list even though the target's own work is done.
+  # addon_rollout_targets_one_active_target_index treats succeeded as an ACTIVE
+  # target for (agent_uid, addon_id), and only promote_source/4 ever moves it to
+  # :promoted. Cancelling a rollout therefore used to strand every succeeded
+  # target as permanently active, and the next rollout for that source died in
+  # create_targets/5 on a unique-constraint violation -- which reconcile_source
+  # only logs, so the source silently never advanced again. Observed on demo:
+  # cancelling seven wedged rollouts stranded 26 succeeded targets and no
+  # replacement rollout could be created for any of them.
   defp mark_targets_canceled(targets, actor, now) do
     Enum.reduce_while(targets, :ok, fn target, :ok ->
-      if target.state in [:pending, :waiting_health, :healthy_soak, :rollback_pending] do
+      if target.state in [:pending, :waiting_health, :healthy_soak, :rollback_pending, :succeeded] do
         case update_target(target, %{state: :canceled, completed_at: now}, actor) do
           {:ok, _} -> {:cont, :ok}
           {:error, reason} -> {:halt, {:error, reason}}
@@ -1257,17 +1446,6 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
   defp source_type(%AddonProfile{}), do: :profile
 
   defp increment(map, key), do: Map.update!(map, key, &(&1 + 1))
-
-  # Partial unique index addon_rollout_targets_one_active_target_index covers
-  # these states. A failed 1/2 canary leaves the healthy agent as :succeeded,
-  # which blocks the next create for the same (agent_uid, addon_id).
-  @slot_holding_target_states [
-    :pending,
-    :waiting_health,
-    :healthy_soak,
-    :succeeded,
-    :rollback_pending
-  ]
 
   defp vacate_target_slots(rollout, actor) do
     with {:ok, targets} <- rollout_targets(rollout.id, actor) do

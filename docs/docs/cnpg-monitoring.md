@@ -234,8 +234,9 @@ ORDER BY total_exec_time DESC
 LIMIT 20;
 ```
 
-The slow-query log threshold is set in `helm/serviceradar/values.yaml`. Which key
-applies depends on which CNPG cluster the install runs:
+Set the slow-query log threshold in your own values file or with `--set`;
+`helm show values oci://registry.carverauto.dev/serviceradar/charts/serviceradar --version <chart-version>`
+shows the default. Which key applies depends on which CNPG cluster the install runs:
 
 - `cnpg.postgresqlParameters.log_min_duration_statement` for a normal install.
 - `spire.postgres.postgresqlParameters.log_min_duration_statement` when

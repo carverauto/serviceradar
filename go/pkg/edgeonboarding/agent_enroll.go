@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -130,7 +131,7 @@ func EnrollAgentFromToken(ctx context.Context, opts EnrollOptions) error {
 		return err
 	}
 
-	overridesPath := resolveAgentOverridesPath(opts.OverridesPath)
+	overridesPath := resolveAgentOverridesPath(opts.OverridesPath, opts.ConfigPath)
 	overrideUpdates := extractEnvOverrides(bundle.EnvOverrides)
 	natsCredsPath := resolveAgentNATSCredsPath(opts.NATSCredsPath)
 	if err := backupLegacyAgentNATSCreds(opts.ConfigPath, natsCredsPath, opts.Logf); err != nil {
@@ -312,12 +313,23 @@ func updateAgentConfig(configJSON []byte, hostIPOverride, certDirOverride string
 	return updated, certDir, nil
 }
 
-func resolveAgentOverridesPath(path string) string {
-	if strings.TrimSpace(path) == "" {
-		return defaultAgentOverridesPath
+func resolveAgentOverridesPath(path, configPath string) string {
+	return agentOverridesPathFor(runtime.GOOS, path, configPath)
+}
+
+// agentOverridesPathFor keeps the overrides beside the agent config on Windows,
+// where there is no /etc and no systemd EnvironmentFile to read it from.
+func agentOverridesPathFor(goos, path, configPath string) string {
+	if strings.TrimSpace(path) != "" {
+		return strings.TrimSpace(path)
 	}
 
-	return strings.TrimSpace(path)
+	if goos == "windows" && strings.TrimSpace(configPath) != "" {
+		dir := configPath[:strings.LastIndexAny(configPath, `\/`)+1]
+		return dir + "kv-overrides.env"
+	}
+
+	return defaultAgentOverridesPath
 }
 
 // resolveAgentNATSCredsPath returns the legacy credential location to inspect
@@ -747,18 +759,45 @@ func lookupUserIDs(name string) (int, int, bool, error) {
 	return 0, 0, false, nil
 }
 
+// agentRestartCommand is the command that restarts the installed agent service
+// on goos: the systemd unit on Linux, the launchd job the macOS installer loads,
+// the ServiceRadarAgent service the Windows MSI installs.
+// It returns nil where no service manager is known.
+func agentRestartCommand(goos string) []string {
+	switch goos {
+	case "linux":
+		return []string{"systemctl", "restart", "serviceradar-agent"}
+	case "darwin":
+		return []string{"launchctl", "kickstart", "-k", "system/com.serviceradar.agent"}
+	case "windows":
+		// Restart-Service also starts a stopped service: the MSI leaves it stopped
+		// until the agent is enrolled.
+		return []string{"powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "Restart-Service -Name ServiceRadarAgent"}
+	default:
+		return nil
+	}
+}
+
 func restartAgentService(ctx context.Context, logf func(string, ...interface{})) error {
-	if _, err := exec.LookPath("systemctl"); err != nil {
+	argv := agentRestartCommand(runtime.GOOS)
+	if argv == nil {
 		if logf != nil {
-			logf("systemctl not found; skipping agent restart")
+			logf("No known service manager on %s; restart serviceradar-agent to apply the new config", runtime.GOOS)
 		}
 		return nil
 	}
 
-	cmd := exec.CommandContext(ctx, "systemctl", "restart", "serviceradar-agent")
+	if _, err := exec.LookPath(argv[0]); err != nil {
+		if logf != nil {
+			logf("%s not found; skipping agent restart", argv[0])
+		}
+		return nil
+	}
+
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("restart serviceradar-agent: %w: %s", err, strings.TrimSpace(string(output)))
+		return fmt.Errorf("restart serviceradar-agent (%s): %w: %s", strings.Join(argv, " "), err, strings.TrimSpace(string(output)))
 	}
 
 	if logf != nil {

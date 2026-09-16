@@ -34,7 +34,7 @@ func buildUpdate(run syncsources.RunContext, item device, queryLabel string) map
 		return nil
 	}
 
-	metadata := buildMetadata(item, queryLabel, metadataFieldsForSource(run.Source))
+	metadata := buildMetadata(item, queryLabel, metadataFieldsForSource(run.Source), run.Source.SyncServiceID)
 	update := map[string]interface{}{
 		"agent_id":   run.AgentID,
 		"gateway_id": run.GatewayID,
@@ -55,14 +55,23 @@ func formatSecondTimestamp(t time.Time) string {
 	return t.UTC().Truncate(time.Second).Format(time.RFC3339)
 }
 
-func buildMetadata(item device, queryLabel string, rawMetadataFields []string) map[string]string {
+func buildMetadata(item device, queryLabel string, rawMetadataFields []string, scope string) map[string]string {
 	metadata := map[string]string{
 		"integration_type": SourceType,
 	}
 	if item.ID > 0 {
 		armisID := strconv.Itoa(item.ID)
+		// Native provider key. Retained for northbound write-back, drift
+		// audit, and resolution of identifier rows minted before scoped
+		// integration IDs existed.
 		metadata["armis_device_id"] = armisID
-		metadata["integration_id"] = armisID
+		if scoped := syncsources.ScopedIntegrationID(SourceType, scope, "device", armisID); scoped != "" {
+			metadata["integration_id"] = scoped
+		} else {
+			// No stable source scope; keep the legacy bare value. Core
+			// rejects it as unscoped rather than merging on it.
+			metadata["integration_id"] = armisID
+		}
 	}
 	if id := item.effectiveID(); id > 0 {
 		metadata["source_device_id"] = strconv.Itoa(id)

@@ -71,6 +71,12 @@ describe("srqlCompletionItems", () => {
     expect(byLabel(items, "awx").kind).toBe("enum")
   })
 
+  test("suggests known enum values inside a negated discovery_sources set", () => {
+    const items = srqlCompletionItems({catalog, linePrefix: "in:devices !discovery_sources:("})
+    expect(labels(items)).toEqual(["agent", "awx", "armis"])
+    expect(byLabel(items, "awx").kind).toBe("enum")
+  })
+
   test("leads with severity_text enum values right after the colon (op slot)", () => {
     const items = srqlCompletionItems({catalog, linePrefix: "in:logs severity_text:"})
     // Enum values come first, then the comparison operators are still available.

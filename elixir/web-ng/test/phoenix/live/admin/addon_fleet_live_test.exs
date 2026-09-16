@@ -362,6 +362,111 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
     refute row_html =~ "profile ·"
   end
 
+  test "finished rollouts paginate so a long tail stays reachable", %{
+    conn: conn,
+    actor: actor
+  } do
+    import Ecto.Query
+
+    unique = System.unique_integer([:positive])
+    addon_id = "fleet-rollout-pages-#{unique}"
+    gateway = gateway_fixture(%{id: "fleet-pages-gw-#{unique}", component_id: "fleet-pages-#{unique}"})
+    agent = agent_fixture(gateway, %{uid: "fleet-pages-agent-#{unique}", name: "Pages Agent #{unique}"})
+
+    previous = create_addon_package!(actor, addon_id, "1.0.0")
+    candidate = create_addon_package!(actor, addon_id, "1.1.0")
+    assignment = create_assignment!(actor, agent.uid, previous.id, enabled: true)
+    active_assignment = create_assignment!(actor, agent.uid, candidate.id, enabled: true)
+
+    base = DateTime.utc_now()
+
+    finished_ids =
+      for i <- 1..22 do
+        attrs = %{
+          addon_id: addon_id,
+          source_type: :assignment,
+          source_id: assignment.id,
+          previous_package_id: previous.id,
+          candidate_package_id: candidate.id,
+          trigger: :track_latest,
+          state: :completed,
+          policy: %{},
+          target_snapshot: %{"eligible" => 1},
+          started_at: DateTime.add(base, i, :second)
+        }
+
+        attrs
+        |> then(&Ash.Changeset.for_create(AddonRollout, :create, &1, actor: actor))
+        |> Ash.create!()
+        |> Map.fetch!(:id)
+      end
+
+    oldest_id = List.first(finished_ids)
+
+    _active =
+      %{
+        addon_id: addon_id,
+        source_type: :assignment,
+        source_id: active_assignment.id,
+        previous_package_id: previous.id,
+        candidate_package_id: candidate.id,
+        trigger: :track_latest,
+        state: :running,
+        policy: %{},
+        target_snapshot: %{"eligible" => 1},
+        started_at: DateTime.add(base, 60, :second)
+      }
+      |> then(&Ash.Changeset.for_create(AddonRollout, :create, &1, actor: actor))
+      |> Ash.create!()
+
+    {:ok, lv, html} = live(conn, ~p"/settings/agents/addons/fleet")
+
+    # One active rollout visible; finished history stays behind the toggle.
+    assert count_occurrences(html, ~s(data-role="addon-rollout-row")) == 1
+    assert html =~ "Show finished (22)"
+
+    html = render_click(lv, "toggle_finished_rollouts")
+
+    # First page: the active rollout plus the 10 newest finished ones.
+    assert count_occurrences(html, ~s(data-role="addon-rollout-row")) == 11
+    assert html =~ "Showing 1-10 of 22"
+    assert html =~ "Page 1 of 3"
+    refute html =~ oldest_id
+
+    html = render_click(lv, "finished_rollout_page", %{"page" => "3"})
+
+    # Last page: the active rollout plus the 2 remaining finished ones,
+    # including the oldest, which was unreachable before pagination.
+    assert count_occurrences(html, ~s(data-role="addon-rollout-row")) == 3
+    assert html =~ "Showing 21-22 of 22"
+    assert html =~ "Page 3 of 3"
+    assert html =~ oldest_id
+
+    html = render_click(lv, "finished_rollout_page", %{"page" => "1"})
+    assert html =~ "Showing 1-10 of 22"
+    refute html =~ oldest_id
+    render_click(lv, "toggle_finished_rollouts")
+    render_click(lv, "focus_rollout", %{"id" => oldest_id})
+
+    assert has_element?(lv, "#addon-rollout-#{oldest_id}")
+    assert has_element?(lv, "[data-role='addon-rollout-detail']")
+    assert has_element?(lv, "button", "Page 3 of 3")
+
+    removed_ids = Enum.take(finished_ids, 2)
+    assert {2, _} = ServiceRadar.Repo.delete_all(from(r in AddonRollout, where: r.id in ^removed_ids))
+
+    render_click(lv, "refresh")
+
+    assert has_element?(lv, "button", "Page 2 of 2")
+    assert has_element?(lv, "#addon-finished-rollouts-next-page[disabled]")
+    assert has_element?(lv, "#addon-rollout-#{Enum.at(finished_ids, 2)}")
+
+    lv |> element("#addon-finished-rollouts-prev-page") |> render_click()
+
+    assert has_element?(lv, "button", "Page 1 of 2")
+    refute has_element?(lv, "#addon-rollout-#{Enum.at(finished_ids, 2)}")
+  end
+
   # The fleet matrix table markup (everything before the catalog inventory
   # panel), so assertions can scope to fleet rows only.
   defp fleet_table_html(html) do

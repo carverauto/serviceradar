@@ -56,9 +56,10 @@ The ServiceRadar Helm chart ships the Trivy publisher as
 `serviceradar-trivy-sidecar`. It is disabled by default.
 
 ```bash
-helm upgrade --install serviceradar ./helm/serviceradar \
-  --namespace <namespace> \
-  -f helm/serviceradar/values.yaml \
+helm upgrade --install serviceradar oci://registry.carverauto.dev/serviceradar/charts/serviceradar \
+  --version <chart-version> \
+  --namespace <namespace> --create-namespace \
+  -f my-values.yaml \
   --set trivySidecar.enabled=true
 ```
 

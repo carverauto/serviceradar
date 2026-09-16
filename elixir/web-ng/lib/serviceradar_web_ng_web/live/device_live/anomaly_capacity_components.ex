@@ -23,7 +23,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
         anomaly_pagination(
           assigns.overview.anomaly_rows,
           assigns.anomaly_page,
-          Map.get(assigns.overview, :anomaly_pagination, %{})
+          Map.get(assigns.overview, :anomaly_pagination, %{}),
+          assigns.anomaly_filters
         )
       )
 
@@ -437,6 +438,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
       |> assign(:detail_chart_sections, detail_chart_sections(assigns.detail, assigns.metric_sections))
       |> assign(:detail_chart_focus, detail_chart_focus(assigns.detail))
       |> assign(:lifecycle_notice, detail_lifecycle_notice(assigns.detail))
+      |> assign(:seasonal_context, value(assigns.detail.row, "seasonal_disposition"))
 
     ~H"""
     <dialog
@@ -494,6 +496,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
             timezone={@timezone}
           />
           <.detail_item label="Confidence" value={detail_confidence(@detail)} />
+          <.detail_time_item
+            :if={@seasonal_context}
+            id="anomaly-capacity-detail-bucket-start"
+            label="Scored hour start"
+            value={value(@seasonal_context, "bucket_started_at")}
+            timezone={@timezone}
+          />
+          <.detail_time_item
+            :if={@seasonal_context}
+            id="anomaly-capacity-detail-bucket-end"
+            label="Scored hour end"
+            value={value(@seasonal_context, "bucket_ended_at")}
+            timezone={@timezone}
+          />
         </div>
 
         <div
@@ -649,13 +665,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
 
   defp detail_chart_sections(%{row: row}, sections) when is_list(sections) do
     key = detail_metric_section_key(row)
+    # Central seasonal CPU findings score the host mean, not any individual core.
+    panel_limit = if key == "cpu" and is_map(value(row, "seasonal_disposition")), do: 1, else: 2
 
     sections
     |> Enum.filter(fn section ->
       is_map(section) and Map.get(section, :key) == key and is_list(Map.get(section, :panels))
     end)
     |> Enum.map(fn section ->
-      %{section | panels: Enum.take(Map.get(section, :panels, []), 2)}
+      section = %{section | panels: Enum.take(Map.get(section, :panels, []), panel_limit)}
+      if panel_limit == 1, do: %{section | subtitle: "hourly mean context · overall utilization"}, else: section
     end)
   end
 
@@ -699,13 +718,34 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
   end
 
   defp maybe_put_detail_chart_focus(assigns, nil), do: assigns
-  defp maybe_put_detail_chart_focus(assigns, focus), do: Map.put(assigns, :chart_focus, focus)
+
+  defp maybe_put_detail_chart_focus(assigns, focus) do
+    assigns
+    |> Map.put(:chart_focus, focus)
+    |> append_panel_list(:reference_lines, Map.get(focus, :reference_lines, []))
+    |> append_panel_list(:chart_overlays, Map.get(focus, :chart_overlays, []))
+  end
+
+  defp append_panel_list(assigns, _key, []), do: assigns
+
+  defp append_panel_list(assigns, key, items) do
+    existing =
+      case Map.get(assigns, key) do
+        list when is_list(list) -> list
+        _ -> []
+      end
+
+    Map.put(assigns, key, existing ++ items)
+  end
 
   defp detail_chart_focus(%{kind: kind, row: row}) when is_map(row) do
     timestamp =
       case kind do
-        "capacity" -> first_present(row, [["forecasted_at"], ["time"], ["timestamp"], ["window_ended_at"]])
-        _ -> first_present(row, [["time"], ["timestamp"], ["window_ended_at"], ["forecasted_at"]])
+        "capacity" ->
+          first_present(row, [["forecasted_at"], ["time"], ["timestamp"], ["window_ended_at"]])
+
+        _ ->
+          first_present(row, [["metric_context_time"], ["time"], ["timestamp"], ["window_ended_at"], ["forecasted_at"]])
       end
 
     case timestamp do
@@ -713,21 +753,251 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
         nil
 
       timestamp ->
-        %{
-          timestamp: timestamp,
-          label: detail_marker_label(%{kind: kind, row: row}),
-          severity: value(row, "effective_severity") || value(row, "severity") || value(row, "status"),
-          series: first_present(row, [["series"], ["series_key"], ["metric_name"], ["resource_key"]]),
-          series_key: value(row, "series_key"),
-          metric_name: value(row, "metric_name"),
-          resource_key: value(row, "resource_key"),
-          before_seconds: @detail_chart_focus_side_seconds,
-          after_seconds: @detail_chart_focus_side_seconds
-        }
+        focus =
+          put_drift_focus(
+            %{
+              timestamp: timestamp,
+              label: detail_marker_label(%{kind: kind, row: row}),
+              severity: value(row, "effective_severity") || value(row, "severity") || value(row, "status"),
+              series: first_present(row, [["series"], ["series_key"], ["metric_name"], ["resource_key"]]),
+              series_key: value(row, "series_key"),
+              metric_name: value(row, "metric_name"),
+              resource_key: value(row, "resource_key"),
+              before_seconds: @detail_chart_focus_side_seconds,
+              after_seconds: @detail_chart_focus_side_seconds
+            },
+            kind,
+            row
+          )
+
+        put_seasonal_focus(focus, row)
     end
   end
 
   defp detail_chart_focus(_detail), do: nil
+
+  defp put_seasonal_focus(focus, %{"metric_context_time" => center, "seasonal_disposition" => seasonal}) do
+    Map.put(focus, :chart_overlays, [
+      %{
+        kind: "anomaly",
+        time: center,
+        window_started_at: Map.get(seasonal, "bucket_started_at"),
+        window_ended_at: Map.get(seasonal, "bucket_ended_at"),
+        value: Map.get(seasonal, "sample_value"),
+        label: "Scored hourly bucket",
+        severity: Map.get(focus, :severity),
+        reason: "Hourly mean compared with the baseline for the same hour of the week"
+      }
+    ])
+  end
+
+  defp put_seasonal_focus(focus, _row), do: focus
+
+  # A drift finding claims a level shift, so its chart has to show the level the
+  # accumulator measured against and the level it estimated, over the whole
+  # episode rather than the two hours around one heartbeat.
+  defp put_drift_focus(focus, "anomaly", row) do
+    case drift_context(row) do
+      nil -> focus
+      drift -> apply_drift_focus(focus, drift)
+    end
+  end
+
+  defp put_drift_focus(focus, _kind, _row), do: focus
+
+  defp apply_drift_focus(%{timestamp: timestamp} = focus, drift) do
+    observed = parse_timestamp(timestamp)
+
+    before_seconds =
+      case {observed, drift.started_at} do
+        {%DateTime{} = observed, %DateTime{} = started_at} ->
+          max(
+            @detail_chart_focus_side_seconds,
+            DateTime.diff(observed, started_at, :second) + 30 * 60
+          )
+
+        _ ->
+          @detail_chart_focus_side_seconds
+      end
+
+    focus
+    |> Map.put(:before_seconds, before_seconds)
+    |> Map.put(:reference_lines, drift_reference_lines(drift))
+    |> Map.put(:chart_overlays, drift_overlays(drift, focus, observed))
+  end
+
+  defp drift_context(row) when is_map(row) do
+    if first_present(row, anomaly_field_paths("detector_method")) == "cusum_drift" do
+      {target, scale} = drift_target_and_scale(row)
+
+      if is_number(target) and is_number(scale) do
+        %{
+          target: target,
+          scale: scale,
+          shift_sigma:
+            row
+            |> first_present(anomaly_field_paths("drift_shift_sigma"))
+            |> numeric_value(),
+          level:
+            row
+            |> first_present(anomaly_field_paths("drift_level"))
+            |> numeric_value(),
+          direction:
+            row
+            |> first_present(anomaly_field_paths("drift_direction"))
+            |> drift_direction(),
+          started_at:
+            row
+            |> first_present(anomaly_field_paths("episode_started_at_unix_nano"))
+            |> unix_nano_datetime()
+        }
+      end
+    end
+  end
+
+  defp drift_context(_row), do: nil
+
+  # Rows read back from the events entity carry the verdict under `unmapped.anomaly`
+  # (and mirror a few keys at `unmapped.*`); projected rows use `metadata.anomaly`.
+  defp anomaly_field_paths(key) do
+    [
+      ["metadata", "anomaly", key],
+      ["unmapped", "anomaly", key],
+      ["raw_data", "anomaly", key],
+      ["unmapped", key],
+      [key]
+    ]
+  end
+
+  # Findings emitted before the add-on published the drift target carry the same
+  # level in their signal evidence: the seasonal bucket when it was ready, else the
+  # rolling window.
+  defp drift_target_and_scale(row) do
+    target = numeric_value(first_present(row, anomaly_field_paths("drift_target")))
+    scale = numeric_value(first_present(row, anomaly_field_paths("drift_scale")))
+
+    if is_number(target) and is_number(scale) do
+      {target, scale}
+    else
+      signals = first_present(row, anomaly_field_paths("signals"))
+
+      signal_target_and_scale(signals)
+    end
+  end
+
+  defp signal_target_and_scale(signals) when is_list(signals) do
+    ready =
+      Enum.filter(signals, fn signal ->
+        is_map(signal) and Map.get(signal, "ready") in [true, "true"]
+      end)
+
+    signal =
+      Enum.find(ready, &(Map.get(&1, "name") == "seasonal")) ||
+        Enum.find(ready, &(Map.get(&1, "name") == "rolling"))
+
+    case signal do
+      %{"mean" => mean, "stddev" => stddev} -> {numeric_value(mean), numeric_value(stddev)}
+      _ -> {nil, nil}
+    end
+  end
+
+  defp signal_target_and_scale(_signals), do: {nil, nil}
+
+  defp drift_direction(value) when is_atom(value) and not is_nil(value) do
+    value |> Atom.to_string() |> drift_direction()
+  end
+
+  defp drift_direction(value) when is_binary(value) do
+    case value |> String.trim() |> String.downcase() do
+      "down" -> :down
+      "downward" -> :down
+      _ -> :up
+    end
+  end
+
+  defp drift_direction(_value), do: :up
+
+  defp unix_nano_datetime(value) when is_integer(value) and value > 0 do
+    case DateTime.from_unix(value, :nanosecond) do
+      {:ok, dt} -> dt
+      _ -> nil
+    end
+  end
+
+  defp unix_nano_datetime(value) when is_float(value), do: unix_nano_datetime(trunc(value))
+
+  defp unix_nano_datetime(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {number, ""} -> unix_nano_datetime(number)
+      _ -> nil
+    end
+  end
+
+  defp unix_nano_datetime(_value), do: nil
+
+  defp drift_reference_lines(%{target: target, scale: scale} = drift) do
+    baseline = %{
+      value: target,
+      label: "Drift baseline (#{format_level(target)})",
+      severity: "info"
+    }
+
+    case drift.shift_sigma do
+      shift when is_number(shift) and shift > 0 ->
+        sign = if drift.direction == :down, do: -1.0, else: 1.0
+
+        # The add-on reports the level it measured (add-on 0.3.11+). The sigma
+        # reconstruction is a fallback for older verdicts and overstates the level
+        # when the anchor scale grew during the run.
+        level =
+          case Map.get(drift, :level) do
+            measured when is_number(measured) -> measured
+            _ -> target + sign * shift * scale
+          end
+
+        sign_text = if drift.direction == :down, do: "-", else: "+"
+        shift_text = :erlang.float_to_binary(shift * 1.0, decimals: 1)
+
+        [
+          baseline,
+          %{
+            value: level,
+            label: "Sustained level (#{sign_text}#{shift_text} sigma, #{format_level(level)})",
+            severity: "warning"
+          }
+        ]
+
+      _ ->
+        [baseline]
+    end
+  end
+
+  defp drift_overlays(%{started_at: %DateTime{} = started_at} = drift, focus, %DateTime{} = observed) do
+    [
+      %{
+        kind: "anomaly",
+        time: observed,
+        window_started_at: started_at,
+        window_ended_at: observed,
+        value: drift.target,
+        label: "Drift episode",
+        severity: Map.get(focus, :severity),
+        reason: "band spans the episode from its open to this finding"
+      }
+    ]
+  end
+
+  defp drift_overlays(_drift, _focus, _observed), do: []
+
+  defp format_level(value) when is_number(value) do
+    rounded = Float.round(value * 1.0, 1)
+
+    if rounded == Float.round(rounded) do
+      Integer.to_string(round(rounded))
+    else
+      :erlang.float_to_binary(rounded, decimals: 1)
+    end
+  end
 
   defp observability_href(query) do
     "/observability/events?" <> URI.encode_query(%{q: query})
@@ -741,8 +1011,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
 
   defp filter_label(_), do: "Device identity fallback"
 
-  defp anomaly_pagination(rows, page, pagination) when is_list(rows) do
-    paged_rows = actionable_anomaly_rows(rows)
+  defp anomaly_pagination(rows, page, pagination, filters) when is_list(rows) do
+    paged_rows = actionable_anomaly_rows(rows, filters)
     local_total = length(paged_rows)
 
     %{
@@ -755,17 +1025,59 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
     }
   end
 
-  defp anomaly_pagination(_rows, page, _pagination) do
+  defp anomaly_pagination(_rows, page, _pagination, _filters) do
     %{rows: [], page: page, page_count: nil, filtered_total: 0, range_start: 0, range_end: 0}
   end
 
-  defp actionable_anomaly_rows(rows) do
+  defp actionable_anomaly_rows(rows, filters) do
+    sort = anomaly_sort_mode(filters)
+
     rows
     |> Enum.with_index()
     |> Enum.filter(fn {row, _index} -> actionable_anomaly_row?(row) end)
-    |> Enum.sort_by(fn {row, index} ->
-      {finding_priority(row), timestamp_sort(value(row, "time")), index}
-    end)
+    |> Enum.sort_by(fn {row, index} -> anomaly_display_key(row, index, sort) end)
+  end
+
+  # The displayed findings follow the user-selected Sort control (Newest,
+  # Oldest, Severity). Sorting by finding state first would float e.g. a
+  # confirmed finding above a newer cleared one even with Sort=Newest.
+  defp anomaly_display_key(row, index, :oldest) do
+    {capacity_notice_last(row), timestamp_sort_asc(value(row, "time")), index}
+  end
+
+  defp anomaly_display_key(row, index, :severity) do
+    {capacity_notice_last(row), severity_rank(row), timestamp_sort(value(row, "time")), index}
+  end
+
+  defp anomaly_display_key(row, index, _newest) do
+    {capacity_notice_last(row), timestamp_sort(value(row, "time")), index}
+  end
+
+  defp capacity_notice_last(row) do
+    if capacity_notice?(row), do: 1, else: 0
+  end
+
+  defp anomaly_sort_mode(filters) when is_map(filters) do
+    sort = Map.get(filters, "sort") || Map.get(filters, :sort)
+
+    case normalize_text(sort) do
+      "oldest" -> :oldest
+      "severity" -> :severity
+      _ -> :newest
+    end
+  end
+
+  defp anomaly_sort_mode(_filters), do: :newest
+
+  defp severity_rank(row) do
+    case normalize_text(value(row, "severity")) do
+      "critical" -> 0
+      "high" -> 1
+      "medium" -> 2
+      "warning" -> 2
+      "low" -> 3
+      _ -> 4
+    end
   end
 
   defp actionable_anomaly_row?(row) when is_map(row) do
@@ -790,16 +1102,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
     end
   end
 
-  defp finding_priority(row) do
-    cond do
-      capacity_notice?(row) -> 4
-      finding_state(row) in ["confirmed", "anomalous"] -> 0
-      finding_state(row) in ["pending", "pending_anomaly"] -> 1
-      normalize_text(value(row, "status")) == "suppressed" -> 3
-      true -> 2
-    end
-  end
-
   defp filter_value(filters, key) when is_map(filters) do
     atom_value =
       case key do
@@ -821,6 +1123,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
     case parse_timestamp(value) do
       %DateTime{} = dt -> -DateTime.to_unix(dt, :microsecond)
       nil -> 0
+    end
+  end
+
+  # Ascending companion for Oldest sort. Missing timestamps sort last:
+  # in Erlang term order atoms sort after numbers, so nil never wins.
+  defp timestamp_sort_asc(value) do
+    case parse_timestamp(value) do
+      %DateTime{} = dt -> DateTime.to_unix(dt, :microsecond)
+      nil -> nil
     end
   end
 
@@ -1338,7 +1649,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
 
   defp detail_value_score(%{row: row}) do
     [
-      anomaly_value_label(row),
+      detail_anomaly_value_label(row),
       anomaly_score_label(row)
     ]
     |> Enum.reject(&blank?/1)
@@ -1346,6 +1657,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
   end
 
   defp detail_value_score(_), do: nil
+
+  defp detail_anomaly_value_label(%{"seasonal_disposition" => %{"sample_value" => sample}} = row) do
+    "hourly mean #{format_metric_value(sample, row)}"
+  end
+
+  defp detail_anomaly_value_label(row), do: anomaly_value_label(row)
 
   defp detail_resource(detail, device_uid, device_display_name)
 
@@ -1384,6 +1701,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
 
   defp detail_time_label(%{kind: "capacity"}), do: "Forecasted"
   defp detail_time_label(%{kind: "capacity_notice"}), do: "Event time"
+  defp detail_time_label(%{kind: "anomaly", row: %{"seasonal_disposition" => %{}}}), do: "Evaluated"
 
   defp detail_time_label(%{kind: "anomaly", row: row}) do
     if resolved_anomaly?(row), do: "Resolved", else: "Observed"
@@ -1401,6 +1719,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
     row
     |> first_present([["time"], ["forecasted_at"], ["window_ended_at"]])
     |> parse_timestamp()
+  end
+
+  defp detail_time(%{kind: "anomaly", row: %{"seasonal_disposition" => %{}} = row}) do
+    parse_timestamp(value(row, "time"))
   end
 
   defp detail_time(%{kind: "anomaly", row: row}) do
@@ -1457,6 +1779,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
   end
 
   defp detail_marker_label(%{kind: "capacity"}), do: "Capacity forecast"
+  defp detail_marker_label(%{kind: "anomaly", row: %{"metric_context_time" => _}}), do: "Scored hour midpoint"
   defp detail_marker_label(_detail), do: "Selected anomaly finding"
 
   defp detail_marker_description(%{kind: "capacity_notice", row: row}) do
@@ -1471,7 +1794,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
     "The vertical marker is the forecast event time. The projected crossing or exhaustion time is shown in the details above."
   end
 
-  defp detail_marker_description(_detail) do
+  defp detail_marker_description(%{kind: "anomaly", row: %{"metric_context_time" => _}}) do
+    "The shaded band is the scored hour. Its marker shows the hourly mean at the middle of that hour; evaluation occurred later."
+  end
+
+  defp detail_marker_description(%{kind: "anomaly", row: row}) when is_map(row) do
+    if drift_context(row) do
+      "The vertical marker is the selected finding time and the shaded band is the drift episode, from its open to this finding. The dashed baseline is the level the accumulator measured against; the second line is the sustained level the detector estimated."
+    else
+      generic_marker_description()
+    end
+  end
+
+  defp detail_marker_description(_detail), do: generic_marker_description()
+
+  defp generic_marker_description do
     "The vertical marker is the selected anomaly finding time. Shaded bands mark detection windows when the engine provides start and end timestamps."
   end
 
@@ -1485,6 +1822,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
   end
 
   defp detail_reason(%{kind: "capacity_notice", row: row}), do: finding_reason(row)
+
+  defp detail_reason(%{kind: "anomaly", row: %{"seasonal_disposition" => %{"sample_value" => sample}} = row}) do
+    if resolved_anomaly?(row) do
+      resolution_reason_copy(row)
+    else
+      "The hourly mean #{format_metric_value(sample, row)} differs from its baseline for the same hour of the week " <>
+        "(absolute residual z #{format_number(anomaly_score(row))}). " <>
+        "A breach can be above or below the baseline."
+    end
+  end
 
   defp detail_reason(%{kind: "anomaly", row: row}) do
     if resolved_anomaly?(row) do
@@ -1764,6 +2111,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
 
   defp known_atom_key("anomaly_score"), do: :anomaly_score
   defp known_atom_key("anomaly_value"), do: :anomaly_value
+  defp known_atom_key("bucket_started_at"), do: :bucket_started_at
+  defp known_atom_key("bucket_ended_at"), do: :bucket_ended_at
+  defp known_atom_key("metric_context_time"), do: :metric_context_time
+  defp known_atom_key("seasonal_disposition"), do: :seasonal_disposition
   defp known_atom_key("confidence"), do: :confidence
   defp known_atom_key("capacity_forecast"), do: :capacity_forecast
   defp known_atom_key("clears_finding_uid"), do: :clears_finding_uid

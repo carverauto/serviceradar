@@ -33,6 +33,12 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiRouter do
   - PATCH /api/v2/alerts/:id/acknowledge - Acknowledge alert
   - PATCH /api/v2/alerts/:id/resolve - Resolve alert
 
+  ### Observability Domain
+
+  Alert-rule provisioning and telemetry reads are documented in
+  `docs/docs/api-reference.md`. The resources' JSON:API DSL owns the route
+  inventory and request schemas; consult the generated OpenAPI document below.
+
   Node probe actions and notification routes are defined by the resources'
   JSON:API DSL. Consult the generated OpenAPI document below for their paths,
   request schemas, and supported operations.
@@ -62,7 +68,8 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiRouter do
       ServiceRadar.Inventory,
       ServiceRadar.Infrastructure,
       ServiceRadar.Monitoring,
-      ServiceRadar.Notifications
+      ServiceRadar.Notifications,
+      ServiceRadar.Observability
     ],
     open_api_title: "ServiceRadar API",
     open_api_version: "2.0.0"

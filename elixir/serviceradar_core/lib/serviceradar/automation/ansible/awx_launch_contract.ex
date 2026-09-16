@@ -42,6 +42,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxLaunchContract do
   # larger Elixir integer would create an attestation shape the plugin can
   # never emit.
   @max_awx_id 2_147_483_647
+  @max_membership_generation 9_223_372_036_854_775_807
   @max_template_timeout 7 * 24 * 60 * 60
   @max_template_forks 10_000
   @max_template_job_slice_count 1_000
@@ -210,6 +211,22 @@ defmodule ServiceRadar.Automation.Ansible.AwxLaunchContract do
   @doc "The only AWX plugin verb accepted by `from_plugin_result/1`."
   @spec result_verb() :: String.t()
   def result_verb, do: @result_verb
+
+  @doc """
+  Validates the canonical decimal string for a positive signed 64-bit generation.
+
+  Inventory sync emits nanosecond generations, independently of AWX resource IDs.
+  Keep them as strings in the launch contract to preserve every digit across JSON.
+  """
+  @spec validate_membership_generation(term()) ::
+          :ok | {:error, :invalid_awx_membership_generation}
+  def validate_membership_generation(value) when is_binary(value) and byte_size(value) <= 19 do
+    if canonical_decimal_in_range?(value, @canonical_positive_id, 1, @max_membership_generation),
+      do: :ok,
+      else: {:error, :invalid_awx_membership_generation}
+  end
+
+  def validate_membership_generation(_value), do: {:error, :invalid_awx_membership_generation}
 
   @doc """
   Validates the exact non-secret request passed to `awx.fetch_launch_preflight`.
@@ -939,7 +956,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxLaunchContract do
          :ok <- valid_normalized_host_name(value["host_name"]),
          :ok <- valid_normalized_address(value["ansible_host"]),
          :ok <- equals(value["enabled"], true, :awx_selected_host_must_be_enabled),
-         :ok <- valid_positive_id(value["membership_generation"]) do
+         :ok <- validate_membership_generation(value["membership_generation"]) do
       valid_fingerprint(value["source_fingerprint"])
     end
   end
@@ -954,7 +971,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxLaunchContract do
          :ok <- valid_normalized_host_name(value["host_name"]),
          :ok <- valid_normalized_address(value["ansible_host"]),
          :ok <- equals(value["enabled"], true, :awx_selected_host_must_be_enabled),
-         :ok <- valid_positive_id(value["membership_generation"]),
+         :ok <- validate_membership_generation(value["membership_generation"]),
          :ok <- valid_fingerprint(value["source_fingerprint"]) do
       valid_digest(value["identity_variables_digest"])
     end

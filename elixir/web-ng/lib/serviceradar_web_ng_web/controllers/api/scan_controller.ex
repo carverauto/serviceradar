@@ -173,8 +173,8 @@ defmodule ServiceRadarWebNGWeb.Api.ScanController do
   end
 
   defp ip_in_inventory?(ip, scope) do
+    # get_by_ip is an Ash read: {:ok, [Device.t()]} | {:error, _}, never {:ok, nil}.
     case Device.get_by_ip(ip, false, scope: scope) do
-      {:ok, nil} -> false
       {:ok, []} -> false
       {:ok, _} -> true
       _ -> false

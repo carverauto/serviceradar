@@ -19,14 +19,16 @@ podDisruptionBudgets:
 global:
   # Override all ServiceRadar image tags at once. Leave empty to track the
   # chart appVersion, which is almost always what you want -- the chart and the
-  # application it deploys are released together. Set a sha-* tag or use
-  # image.digests.* for production rollouts needing immutable references.
+  # application it deploys are released together, so `--version` alone selects
+  # matching images. If you set it, use v<chart-version>: any other tag drifts
+  # from the core.migrations.expectedVersion and templates this chart ships.
+  # For immutable references, pin image.digests.* instead.
   imageTag: ""
   # The ServiceRadar RELEASE this deployment corresponds to, as a `v<semver>`
   # tag. Distinct from imageTag on purpose: web-ng resolves plugin and native
   # add-on assets from the GitHub release with this name, and shows it in the
-  # product status UI. Immutable rollouts set imageTag to a `sha-<gitsha>`, and
-  # no release is ever named that, so the two cannot share one value.
+  # product status UI. Development rollouts may set imageTag to a `sha-<gitsha>`
+  # build tag, and no release is ever named that, so the two cannot share one value.
   # Empty means "use the chart appVersion", which is what you want unless you are
   # deliberately pulling add-ons from a different release than the chart.
   releaseVersion: ""
@@ -48,9 +50,12 @@ global:
     allowInsecureStorage: false
 
 image:
-  # Base registry/repository prefix for first-party ServiceRadar images.
-  # Override with ghcr.io/carverauto to pull published GHCR images.
+  # Base registry/repository prefix for first-party ServiceRadar images. They
+  # are published only here and pull anonymously; ghcr.io/carverauto does not
+  # carry current releases. Override only to pull from your own mirror.
   registry: registry.carverauto.dev/serviceradar
+  # Published images pull anonymously, so this secret is only needed for an
+  # authenticated mirror. Set it to "" to drop the reference.
   registryPullSecret: registry-carverauto-dev-cred
   tags:
     # Default tag for first-party ServiceRadar images. Empty means "use the
@@ -427,8 +432,8 @@ core:
     runWatchdogIntervalSeconds: 60
     # ScheduleEvaluatorWorker cron evaluation cadence.
     scheduleEvaluatorIntervalSeconds: 60
-    # Base directory for GitCatalogSyncWorker repo clones.
-    # Mount a PVC at this path if you want survival across pod restarts.
+    # Writable emptyDir for GitCatalogSyncWorker repo clones. Catalog metadata
+    # is stored in CNPG; clones are recreated after pod replacement.
     catalogBaseDir: "/var/lib/serviceradar/ansible_catalog"
   # EventWriter persists NATS JetStream records (incl. edge anomaly verdicts on
   # signals.analytics.predictions.*) into CNPG. On by default so anomaly findings
@@ -617,7 +622,7 @@ core:
     #
     # Set to "" to fall back to the old existence-only check (for operators
     # running the chart against a deliberately pinned schema).
-    expectedVersion: "20260907090000"
+    expectedVersion: "20260915000000"
   # Stale device reaper settings - controls cleanup of IP-only "ghost" devices
   reaper:
     # How often to run the reaper job
@@ -851,6 +856,11 @@ cnpg:
   instances: 3
   storageClass: ""
   storageSize: 100Gi
+  # Hosted control plane always sets this. Leave empty for OSS installs that
+  # still want CNPG to inherit node RAM; set requireResources=true to fail
+  # closed instead of scheduling with no requests.
+  requireResources: false
+  resources: {}
   # Optional CNPG instance placement controls. Use these for dedicated database
   # nodes with labels/taints such as cnpg.io/dedicated=true.
   affinity:
@@ -932,12 +942,13 @@ cnpg:
     pg_stat_statements.track: "all"
     pg_stat_statements.track_planning: "on"
     track_io_timing: "on"
-  extensionsSQL:
-    - CREATE EXTENSION IF NOT EXISTS timescaledb;
-    - CREATE EXTENSION IF NOT EXISTS age;
-    - CREATE EXTENSION IF NOT EXISTS postgis;
-    - CREATE EXTENSION IF NOT EXISTS vector;
-    - CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+  # SQL CNPG runs once, as superuser, when it initializes the application database.
+  # Empty on purpose: the schema baseline and migrations create every extension in the
+  # schema they reference, and an extension created here first lands in `public`, where
+  # the baseline cannot move it, so a fresh database fails to bootstrap (#454). If you add
+  # an extension here, create it where the baseline expects it (`platform`, or
+  # `ag_catalog` for age). sharedPreloadLibraries above is unrelated and stays as is.
+  extensionsSQL: []
   superuserSecret: cnpg-superuser
   superuserUsername: postgres
   superuserPassword: ""
@@ -1186,11 +1197,19 @@ webNg:
   nativeAddonImport:
     repoUrl: "https://github.com/carverauto/serviceradar"
     indexAssetName: "serviceradar-native-addon-index.json"
-    autoSyncEnabled: false
+    # Import newly published first-party add-on releases automatically. This is
+    # what lets a `track_latest_approved` profile ever see a newer package: with
+    # it off, the catalog never learns a new version exists and managed add-on
+    # updates are silently inert. An installation that never turned this on sat
+    # on anomaly 0.3.6 for days while 0.3.7 had been published. Importing only
+    # stages the package; nothing changes on an agent until it is approved.
+    autoSyncEnabled: true
     syncReleaseLimit: 10
     syncIntervalSeconds: 3600
     # Official native add-ons discovered in the release index are imported as
-    # staged packages. Approval and assignment remain operator-controlled.
+    # staged packages. Approval and assignment remain operator-controlled:
+    # listing an id here auto-approves its imports, which is a policy choice
+    # to make deliberately, not a default to inherit.
     autoApproveAddonIds: []
   host: ""
   # Canonical externally reachable HTTPS origin for web-ng (for example,
@@ -1233,6 +1252,26 @@ webNg:
   auth:
     forceLocalLogin: false
     disableSso: false
+  # Real client IP extraction behind the envoy Gateway API proxy.
+  # web-ng only honors x-forwarded-for when the direct peer is inside
+  # trustedProxyCidrs (see ServiceRadarWebNG.ClientIP). Leave
+  # trustXForwardedFor false for deployments exposed without a proxy;
+  # otherwise audit logs record the proxy/LB address instead of the client.
+  # Gateway-fronted deployments (gatewayApi.enabled or attach mode) should
+  # set trustXForwardedFor: true and list the envoy pod / service CIDRs.
+  # Envoy appends the downstream address to x-forwarded-for by default, so
+  # no gateway-side change is needed for chart-managed gateways; shared
+  # gateways owned outside this chart must be checked separately.
+  #
+  # List the proxy's OWN address range and nothing wider. Every CIDR here is
+  # an address web-ng will never report as a client: it walks the chain
+  # right-to-left and reports the first hop outside this list. RFC1918
+  # wholesale puts the LAN in the list, and a LAN client then has no hop
+  # left to report -- web-ng falls back to the proxy address and logs a
+  # warning naming this setting.
+  clientIp:
+    trustXForwardedFor: false
+    trustedProxyCidrs: []
   # Trusted Ed25519 public key used to verify signed agent release manifests.
   agentReleasePublicKey: "ZY2//cpkD3oVdC6q4Cg6lN1I2M6SgmDMzL4QyQjptH8="
   # Extra environment variables for the web-ng pod.
@@ -1303,6 +1342,22 @@ webNg:
     jetstreamBucket: "serviceradar_plugins"
     jetstreamReplicas: 3
 
+# Retention for ServiceRadar-owned artifacts in the datasvc object store
+# (mirrored agent releases and native add-on bundles).
+# Bumblebee (supply-chain compromise scanner) exposure catalog refresh. The
+# catalog is downloaded from the upstream threat-intel source, converted to the
+# scanner's schema and promoted for agents by a daily job on core. With this
+# off no agent ever receives a catalog, every scan fails on catalog load, and
+# a deployment upgraded from a release older than v1.4.53 keeps serving a
+# catalog the scanner cannot read (#439).
+bumblebeeCatalogRefresh:
+  enabled: true
+#
+# Leave this enabled. The object store stream is created DiscardNew with a
+# MaxBytes cap (datasvc.objectStoreBytes), so a full bucket does NOT evict old
+# artifacts to make room -- JetStream rejects every new upload with error 10077
+# "maximum bytes exceeded", and agent release imports fail until space is freed
+# by hand. This cron is the only thing that reclaims that space.
 objectStoreRetention:
   enabled: true
   dryRun: false

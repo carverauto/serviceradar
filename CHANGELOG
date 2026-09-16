@@ -1,3 +1,793 @@
+# ServiceRadar v1.4.68
+
+Events raised by stateful alert rules now carry the affected
+device, the triggering event's observables and message, and a
+link back to the triggering event, and no longer a blanket
+Failure status.
+
+## Whats New
+
+**1.4.68**
+- Alerts: the event a stateful alert rule records when it fires
+  now says what happened and where. It carries the device the
+  alert is about, unless that device is out of service, and the
+  triggering event's observables. A fixed rule message such as
+  "Falco security incident detected" now has the triggering
+  event's own message appended, and a rule with no message
+  (such as one built from an event page) uses that message
+  instead of the "Stateful rule ... triggered for ..." summary.
+  The alert copies its description from this message, so the
+  dashboard alert list now shows it for Falco, anomaly and
+  capacity forecast alerts in place of the generic rule title.
+  Fired events are no longer stamped with status Failure; the
+  triggering event's status is kept as the status detail. The
+  seeded anomaly rule's message becomes "Anomaly finding". The
+  event page shows the device and, for rules that match events,
+  a "View triggering event" link. Both work for events recorded
+  before the upgrade too, though there the device appears only
+  for rules that group by device (PR #467).
+
+## Upgrade Notes
+
+- Events recorded by stateful alert rules no longer set an OCSF
+  status: status and status_id are empty on new fired events
+  (previously Failure / status_id 2), and the triggering event's
+  own status is in status_detail. An event search, dashboard or
+  integration that picked out rule-fired events by status Failure
+  stops matching new ones. Select them by the rule's log_name
+  instead (alert.rule.threshold for a rule that sets none).
+  Events recorded before the upgrade keep Failure.
+- The message on new fired events changes whenever the triggering
+  event has a message of its own. A stateful rule with a fixed
+  event message now records "<rule message>: <triggering
+  message>". A rule with no event message, including any rule
+  created from an event page, now records the triggering message
+  instead of "Stateful rule <name> triggered for <group>
+  (<count>/<threshold> in <window>s)". The description of alerts
+  raised from these events changes too, unless the rule sets its
+  own alert description, and so does the alert title if the rule
+  sets no title. The seeded anomaly rule's message also changes
+  from "Causal prediction finding detected" to "Anomaly finding"
+  (template version 2 to 3). The seeder applies that change on
+  the next boot only to a managed rule an operator has not
+  modified, and skips a modified one. Update anything that
+  matches the old exact message or description text.
+
+# ServiceRadar v1.4.67
+
+A new CNPG cluster created by the chart now bootstraps its
+database instead of failing the core migrations hook, and core
+health events stop reporting an hourly "healthy to healthy"
+change.
+
+## Whats New
+
+**1.4.67**
+- Helm: a new CNPG cluster created by the chart now bootstraps
+  its database. The cluster's initdb SQL created timescaledb,
+  postgis and vector before the `platform` schema existed, so
+  they landed in `public`, where the schema baseline cannot move
+  them, and the `serviceradar-core-migrations` hook failed on
+  `platform.create_hypertable`. The chart now runs no initdb SQL
+  by default and leaves the core migrations job to create those
+  extensions in `platform`. `cnpg.extensionsSQL` still renders
+  when set, and an explicit `[]` now means none instead of
+  falling back to the old list. Existing clusters and SPIRE-mode
+  Postgres are unaffected (PR #461, issue #454).
+- Core: health tracking no longer announces an unchanged state as
+  a transition. The seasonal baseline producer records a heartbeat
+  on every hourly run, and each one was published as "changed from
+  healthy to healthy", which became a `health.core.state_change`
+  event every hour. Unchanged records still land on the health
+  timeline, so the baseline freshness check keeps working, but
+  only a real change or a first record now publishes the health
+  log, the event and the live broadcast. The heartbeat also
+  reports the state it last recorded instead of always "healthy",
+  so a repeated failure publishes nothing, a lasting failure keeps
+  one `core_health_check_unhealthy` incident open instead of
+  resolving and reopening it every hour, and a recovery still
+  clears it. Events already recorded stay until retention removes
+  them (PR #457).
+
+## Upgrade Notes
+
+- If your values set `cnpg.extensionsSQL`, CNPG still runs that
+  SQL when it creates a new cluster, and an override that copies
+  the old unqualified `CREATE EXTENSION` list still leaves a new
+  cluster unable to bootstrap. Drop the override, or run
+  `CREATE SCHEMA IF NOT EXISTS platform;` first and create each
+  extension `WITH SCHEMA platform` (`age` in `ag_catalog`).
+  Existing clusters never re-run this SQL and need no action.
+
+# ServiceRadar v1.4.66
+
+Add-on rollouts no longer wedge: a superseded rollout finishes
+its source, a candidate is no longer failed on the health report
+of the version it replaces, and the agent restarts an add-on
+whose RPC server died while its process stayed up. Existing
+anomaly settings pick up the per-class drift mode defaults.
+
+## Whats New
+
+**1.4.66**
+- Add-on rollouts: a rollout superseded because the fleet already
+  runs the candidate now finishes like a completed rollout. It
+  promotes the source when the source is behind the candidate,
+  clears per-assignment overrides and releases the target slots.
+  Before, the profile stayed on the old package, every retry
+  failed on `addon_rollout_targets_one_active_target_index`, and
+  the source could never roll out again. Reconcile repairs
+  rollouts already stuck this way (PR #449, issue #445).
+- Add-on rollouts: a candidate is failed only on a health report
+  for the candidate version. An unhealthy report from the version
+  being replaced no longer rolls the upgrade back; an agent that
+  never applies the candidate still fails as
+  `candidate_health_timeout` (PR #449, issue #430).
+- Agent: the add-on supervisor restarts an add-on whose process is
+  alive but whose RPC server is gone, instead of reporting it
+  unhealthy until someone restarts the agent (PR #449).
+- Anomaly: migration `20260914120000` fills the per-metric-class
+  `drift_mode` defaults into existing anomaly settings where a
+  class has none (cpu, memory and interface
+  `deseasonalized_only`; disk, icmp and other `off`). Values an
+  operator already set are left untouched (PR #452).
+- Jobs: 49 Oban queries looked up a worker's jobs by
+  `to_string(Module)`, which keeps the `Elixir.` prefix Oban strips
+  from the stored name, so none of them matched. "Already
+  scheduled" guards now work: the sweep coverage rollup stops
+  adding a daily chain every hour and the Bumblebee catalog
+  refresh stops adding one per coordinator start, and both cancel
+  existing duplicates. Composite check cancel, the GeoLite and
+  IPinfo "download now" promotion and the IP enrichment stuck-job
+  reaper now take effect. A Credo check rejects the old form
+  (PR #455, issue #448).
+
+## Upgrade Notes
+
+- New migration `20260914120000`. The chart default for
+  `core.migrations.expectedVersion` moves to `20260914120000`; a
+  deployment that pins that value in its own values file (manual
+  Helm installs) must bump it in the same upgrade.
+- The add-on supervisor fix ships in the agent binary, so hosts
+  pick it up through the normal agent release rollout.
+- On first start, the sweep coverage rollup and Bumblebee
+  catalog refresh cancel duplicate scheduled jobs down to one
+  chain each and log "Cancelled duplicate pending Oban jobs" once.
+  IP enrichment refresh runs now stop after half of
+  `stale_executing_minutes` (30 minutes by default).
+
+# ServiceRadar v1.4.65
+
+The anomaly add-on no longer treats a cold start's first samples
+as the level to measure drift against, drift findings report the
+level the series actually moved to, and every Rust native add-on
+now exits promptly on SIGTERM instead of outliving its RPC server.
+
+## Whats New
+
+**1.4.65**
+- anomaly add-on 0.3.11: the CUSUM drift anchor is captured only
+  once the rolling window holds `drift_anchor_min_samples` samples
+  (default: the full `window_size`, never below `min_samples`). An
+  add-on that had cold-started in the overnight trough anchored on
+  its first thirty samples and reported the ordinary morning ramp
+  as sustained upward drift on a flat uplink (PR #438).
+- anomaly add-on 0.3.11: drift verdicts carry `drift_level`, the
+  mean raw value over the run in the metric's units. The former
+  reconstruction `drift_target + drift_shift_sigma * drift_scale`
+  overstated the level several times over: the anchor scale is
+  refreshed every sample while its center stays frozen. The
+  add-on also writes its checkpoint on shutdown (PR #438).
+- Add-on SDK: after SIGINT or SIGTERM a Rust add-on runs its
+  shutdown hook, drains its gRPC server for at most two seconds,
+  and exits. Before, the drain waited for the agent's never-ending
+  telemetry stream, the process outlived its server, the supervisor
+  reported it unhealthy without restarting it, and every upgrade
+  ended in SIGKILL with no final checkpoint. netprobe 0.2.63,
+  otel-collector 0.1.7 and powerdns 0.1.8 carry the rebuilt SDK
+  (PR #438).
+- Web: the drift finding chart draws the reported `drift_level` as
+  the sustained level and keeps the sigma reconstruction only for
+  verdicts from add-ons older than 0.3.11 (PR #438).
+- Bumblebee: the catalog refresh worker is on by default
+  (`bumblebeeCatalogRefresh.enabled`, env
+  `BUMBLEBEE_CATALOG_REFRESH_ENABLED`), so a fresh deployment
+  materializes and promotes a `0.1.0` catalog at boot instead of
+  failing every scan on catalog load; the scan unit's state
+  directory is group-writable so the agent can write it
+  (bumblebee-scan add-on 0.1.6) (PR #440).
+- Bumblebee: a device posture now moves with its agent when the
+  agent is re-identified to another device, instead of staying on
+  the device it had when first seen (PR #441).
+
+## Upgrade Notes
+
+- After a genuine first start, drift detection now waits for a full
+  rolling window (five hours at one sample a minute) before it can
+  open an episode. Restarts with a checkpoint do not reset that
+  clock. Set `drift_anchor_min_samples` lower on a profile to trade
+  that protection for earlier detection.
+- netprobe, otel-collector and powerdns are re-released only for
+  the SDK change; their behaviour is otherwise unchanged.
+
+# ServiceRadar v1.4.64
+
+The agent now hands every native add-on a persistent state
+directory, so the anomaly detector keeps its baselines across
+add-on upgrades and agent restarts instead of cold-starting;
+drift findings draw their episode on the chart for real event
+rows; and Create alert rule is back on the event details page.
+
+## Whats New
+
+**1.4.64**
+- Agent: every native sidecar add-on receives a persistent
+  state directory, `<runtime root>/addons/<id>/state` (mode
+  0700, owned by the user the add-on runs as), created before
+  each spawn and exported as `SERVICERADAR_ADDON_STATE_DIR`. It
+  sits beside the versions tree, so an artifact upgrade or
+  rollback never touches it (PR #431).
+- anomaly add-on 0.3.10: the restart checkpoint no longer
+  depends on an operator setting `checkpoint_path`. Resolution
+  is explicit `checkpoint_path`, else `checkpoint.json` in the
+  agent-provided state directory, else off. A missing parent
+  directory is created on the first write, which previously
+  left an operator-chosen path silently unwritten. Without a
+  checkpoint, every restart cold-started the detector and its
+  open episodes were stale-closed by core instead of recovered
+  (PR #431). A checkpoint path applied to a running add-on by
+  a config-only update now takes effect on the open metric
+  feed; before, the feed loop kept the settings it had at
+  stream open and nothing was written until the next restart
+  (PR #433).
+- Web: the drift episode band, baseline and sustained-level
+  lines added in 1.4.63 now render for real event rows, whose
+  verdict payload lives under `unmapped.anomaly`; the first
+  version only matched the projected `metadata.anomaly` shape
+  (PR #429).
+- Web: Create alert rule is back on the event details page for
+  operators and admins. The modal is pre-filled from the event
+  (provider, subject, severity, message conditions, a slugified
+  name and `device.uid` grouping), validates the threshold and
+  window, and saves a stateful alert rule before opening the
+  Alerts tab (PR #425, fixes #345).
+
+## Upgrade Notes
+
+- The state directory is created by the agent in this release;
+  add-ons older than 0.3.10 ignore the variable and behave as
+  before. The first checkpoint is written after 100 feed
+  frames, so the first restart after this upgrade still
+  cold-starts once; later restarts re-warm.
+- A profile or assignment that sets `checkpoint_path`
+  explicitly keeps that path. Remove it to use the agent
+  default.
+
+# ServiceRadar v1.4.63
+
+netprobe 0.2.62 loads again on 6.8 kernels, newly published
+add-on releases are imported into the catalog by default, and
+the anomaly add-on's drift detector no longer opens an episode
+on a short spike or holds one open for hours.
+
+## Whats New
+
+**1.4.63**
+- netprobe 0.2.62: the TCP attribution tracepoint failed the
+  6.8 verifier (`combined stack size of 2 calls is 544`), so
+  every release since v1.4.52 shipped a netprobe that could not
+  start on those kernels. Adding the `_rhel9` layout variant had
+  given the shared event emitter a second caller and LLVM
+  stopped inlining it. The emitter's frame is trimmed and every
+  program chain now fits in 416 of the 512 byte BPF stack. A
+  static stack-depth gate on the built object
+  (`//rust/netprobe:ebpf_stack_depth_test`) runs in `make test`
+  so the regression cannot ship silently again (PR #422, fixes
+  #405).
+- Add-ons: `webNg.nativeAddonImport.autoSyncEnabled` now
+  defaults to `true`, so a newly published add-on release is
+  imported into the catalog without operator action. Import
+  only stages the package; approval stays opt-in
+  (`autoApproveAddonIds`, empty by default) and remains the
+  security boundary. The three keys are documented in the chart
+  README (PR #421).
+- anomaly add-on 0.3.8: drift detection clips each sample's
+  contribution to the CUSUM accumulator (`drift_residual_clip`,
+  default 1.5 sigma), so confirming a sustained drift needs at
+  least twelve samples of evidence instead of three large ones.
+  Effect size is the mean of the unclipped residuals over the
+  run, and an open episode recovers when the accumulator stops
+  re-crossing its threshold rather than after thirty
+  consecutive quiet samples. Drift findings carry
+  `drift_target`, `drift_scale` and `drift_shift_sigma`
+  (PR #420).
+- Web: a drift finding's chart draws the episode window, the
+  baseline the detector compared against and the sustained
+  level the series moved to, with the focus window widened to
+  show the whole episode. Findings from add-ons older than
+  0.3.8 keep the plain marker (PR #423).
+- Docs: the broken link that failed every Publish Docs run
+  since September 11 is fixed, and the anomaly engine blog post
+  moved to the website (PRs #417, #418).
+
+## Upgrade Notes
+
+- Agents on 6.8 kernels whose netprobe rollout is paused on
+  0.2.61 pick up 0.2.62 through the normal rollout once it is
+  imported and approved; the paused rollout is superseded.
+- An installation that depended on add-on import being off must
+  now set `webNg.nativeAddonImport.autoSyncEnabled: false`
+  explicitly. Import alone approves nothing and changes nothing
+  on an agent.
+
+# ServiceRadar v1.4.62
+
+Capacity forecasting now watches each disk mount point on its
+own, core health checks raise an incident when they go
+unhealthy, and a crossing far beyond the forecast horizon is
+labeled as such instead of as a history-cap skip.
+
+## Whats New
+
+**1.4.62**
+- Capacity: disk usage is forecast per mount point. A new
+  hourly continuous aggregate (`timeseries_metrics_disk_hourly`)
+  keeps `sysmon.disk` per device, series and mount point, so a
+  data volume filling toward 100 percent is no longer averaged
+  away behind a flat root filesystem. Exposed as SRQL entity
+  `timeseries_metric_disk_hourly` and JSON:API
+  `/timeseries_metrics_disk_hourly` (PR #415).
+- Core: a core health check transitioning to unhealthy now
+  opens one critical incident per entity and recovers it on
+  the healthy transition, via the seeded
+  `core_health_state_change_events` and
+  `core_health_check_unhealthy` rules. Health log lines carry a
+  structured `health` attribute block (PR #413).
+- Capacity: a capped crossing that lies beyond the 90 day
+  horizon is recorded as `outside_forecast_horizon` instead of
+  `exhaustion_beyond_history_cap`, with the crossing kept in
+  diagnostics (PR #412).
+
+## Upgrade Notes
+
+- New migration `20260912120000` creates the disk hourly
+  aggregate `WITH NO DATA` and registers its refresh and
+  retention policies. The chart default for
+  `core.migrations.expectedVersion` moves to
+  `20260912120000`; a deployment that pins that value in its
+  own values file (manual Helm installs) must bump it in the
+  same upgrade.
+
+# ServiceRadar v1.4.61
+
+Managed add-on updates no longer freeze because one agent
+stopped reporting, and object-store retention now actually
+runs on the deployed core so a full bucket can reclaim space.
+
+## Whats New
+
+**1.4.61**
+- Add-ons: a decommissioned or unreporting agent no longer
+  pauses a managed-add-on rollout for the rest of the fleet.
+  Unreporting hosts are excluded from new rollouts the same
+  way incompatible hosts already were, and a paused rollout
+  can be reaped when the live hosts already have the
+  candidate (PR #404, PR #410).
+- core_elx: object-store retention is registered on the
+  deployed release. The chart has been setting
+  `OBJECT_STORE_RETENTION_*` since the feature shipped, but
+  `serviceradar_core_elx` never scheduled the worker, so
+  mirrored agent-release and native add-on artifacts were
+  never reclaimed (PR #403).
+- datasvc / web-ng: a full object store (JetStream DiscardNew
+  at MaxBytes) returns ResourceExhausted naming the bucket
+  and its cap, instead of an opaque gRPC Internal (PR #403).
+
+## Upgrade Notes
+
+- If a managed add-on source is still sitting paused from an
+  unreporting agent, the next reconcile should supersede it
+  when the live hosts already have the candidate. If it stays
+  paused, cancel that rollout so a new one can start without
+  those hosts.
+- Object-store retention now runs on core (default 03:00 UTC).
+  A bucket that is already full still refuses new uploads
+  until space is reclaimed.
+
+# ServiceRadar v1.4.60
+
+Agent enrollment works on macOS and Windows: both installers now
+ship the `srctl` CLI, the command the UI shows names it, and
+enrollment writes the paths each platform's agent actually reads.
+
+## Whats New
+
+**1.4.60**
+- Agent: the macOS installer ships `srctl` at
+  `/usr/local/bin/srctl`, signed and notarized with the agent, and
+  the agent now reads `/etc/serviceradar/agent.json` like Linux. An
+  existing config at the old `/usr/local/etc` path is carried
+  forward on upgrade (PR #400).
+- Agent: the Windows installers ship `srctl.exe` beside the agent
+  in `C:\Program Files\ServiceRadar` and put that folder on the
+  system PATH. `srctl enroll` writes
+  `%ProgramData%\ServiceRadar\config`, and enrollment starts the
+  ServiceRadarAgent service (PR #401).
+- Edge onboarding: the enrollment command in the package modal, on
+  Agent Deploy, and in the collector bundle names
+  `/usr/local/bin/srctl`; it named the retired `serviceradar-cli`,
+  which the agent packages do not install. The modal also shows a
+  Windows command for PowerShell as Administrator (PR #400,
+  PR #401).
+- Edge onboarding: enrollment restarts the agent through the
+  service manager of the host it runs on: systemd on Linux,
+  launchd on macOS, the Windows service manager on Windows. It
+  only ever used systemd, so a macOS agent kept running its old
+  config after enrolling (PR #400, PR #401).
+- Helm: the published chart carries `values-demo.yaml`, so a demo
+  deployment can track the chart by version instead of a branch
+  (PR #399).
+- Release: the publish job no longer refuses to publish when a
+  tracked file was merely touched during the run, and it names the
+  files when the source really did change. This stopped v1.4.59
+  after its images and chart had published (PR #398).
+
+## Upgrade Notes
+
+- Enrollment commands copied from an older UI still name
+  `serviceradar-cli`. Recreate the package, or run `srctl enroll`
+  with the same arguments.
+- macOS: the agent's config moves to `/etc/serviceradar/agent.json`.
+  The installer carries an existing `/usr/local/etc` config forward,
+  and leaves the old file in place.
+- Windows: the installers add `C:\Program Files\ServiceRadar` to
+  the system PATH. Already-open terminals keep the old PATH until
+  they are restarted.
+
+# ServiceRadar v1.4.59
+
+v1.4.58 was tagged but never published: its macOS signing step
+failed, so no images, chart or demo roll went out. v1.4.59 carries
+everything listed under v1.4.58 below, plus a Windows installer
+for the agent and the fixes that let the release publish.
+
+## Whats New
+
+**1.4.59**
+- Agent: Windows amd64 and arm64 MSI installers. The agent runs as
+  the `ServiceRadarAgent` service (LocalSystem, automatic start,
+  restart 10 s after a failure) and keeps its config, state and log
+  under `%ProgramData%\ServiceRadar\`. A fresh install does not
+  start the service until it is configured; an upgrade restarts
+  it; config survives upgrade and uninstall. The installers are
+  unsigned for now (PR #392).
+- Release: the macOS signing keychain is put on the user search
+  list, and a signing failure now names its cause from a fixed
+  list instead of only an exit status (PR #393, PR #394).
+- core_elx: `mix.lock` records `ash_events`, so its dependency
+  check passes again, and the Bazel Hex closure matches (PR #391).
+- Release: a failed or hung macOS signing step no longer blocks
+  the release. Images, chart, Linux packages and Windows MSIs
+  publish regardless, and the macOS installer is attached only when
+  its job succeeds. Each signing command is time-limited and named
+  in the log (PR #396).
+
+## Upgrade Notes
+
+- v1.4.58 has no published images or chart. Upgrade from v1.4.57
+  straight to v1.4.59; the v1.4.58 upgrade notes below apply.
+- Windows installers are not Authenticode-signed yet, so
+  SmartScreen may warn when one is opened.
+
+# ServiceRadar v1.4.58
+
+Outbound fetches work behind `SERVICERADAR_EGRESS_PROXY` again:
+GeoLite and ipinfo databases, advisory and threat-intel feeds,
+enrichment datasets and ARIN/RIPE lookups had all been failing on
+proxied deployments. Also: anomaly baselines, seasonal episodes,
+recurring-burst alerts and capacity runway are fixed, and the
+agent gains arm64 Linux packages, a signed macOS installer and
+Windows builds.
+
+## Whats New
+
+**1.4.58**
+- Egress: every fetch of a host outside the deployment now goes
+  through `EgressClient`, which tunnels through the
+  `SERVICERADAR_EGRESS_PROXY` CONNECT proxy correctly. Setting the
+  proxy had also put it on the shared `ServiceRadar.Finch` pool,
+  which cannot tunnel through Smokescreen's CONNECT reply, so every
+  request on that pool failed with `{:dtls_upgrade, :notsup}` while
+  the proxy logged the connection as allowed. Affected: GeoLite and
+  ipinfo MMDB downloads, the VulnCheck backup-index lookup,
+  AlienVault OTX, threat-intel feeds, the cloud-provider and IEEE
+  OUI datasets, the Bumblebee catalog, and web-ng's ARIN/RIPE ASN
+  lookups. The shared pool now always connects directly and serves
+  in-cluster and operator-configured targets only (PR #389).
+- Anomaly: seasonal baselines are delivered again. Host sources
+  fetch one statement per device instead of one statement the 30 s
+  statement timeout cancelled, a partial run still delivers what it
+  fetched, and the freshness heartbeat names the sources that
+  failed (PR #384).
+- Anomaly: central seasonal (cpu/memory) episodes carry the
+  evaluation time and a producer-cadence stale window (default
+  150 min, `SERVICERADAR_CENTRAL_SEASONAL_STALE_AFTER_MINUTES`), so
+  they are no longer stale-closed before their next evaluation, and
+  a clear that resolves nothing no longer records a zero-length
+  episode (PR #384).
+- Anomaly: interface counter rates carry a recent-burst envelope,
+  so a recurring burst no taller than 1.25x the p99 of recent
+  history stops paging while a sustained surge still breaches.
+  Anomaly add-on 0.3.6 -> 0.3.7 (PR #384).
+- Capacity: runway reports a crossing beyond the history cap as
+  `exhaustion_beyond_history_cap` instead of dropping it, and the
+  Health page shows only the newest forecast per resource from the
+  last 24 h (PR #384).
+- Agent: `.deb` and `.rpm` packages for Linux arm64, and a signed,
+  notarized macOS arm64 `.pkg` installer (PR #385).
+- Agent: builds for Windows amd64 and arm64 -- binaries only;
+  packaging and service registration follow. MTR reports
+  unavailable on Windows (PR #386).
+
+## Upgrade Notes
+
+- Deployments that set `SERVICERADAR_EGRESS_PROXY` on core and
+  web-ng now fetch external data through the proxy successfully. If
+  you removed the setting to work around the failures, you can set
+  it again once your proxy's allowlist covers the feed and dataset
+  hosts you use.
+- GeoLite and ipinfo downloads treat a non-200 response as a
+  failure; previously an error page could be saved as the database.
+- The VulnCheck backup-index lookup no longer retries within a
+  single request; a failed lookup fails that acquisition attempt.
+
+# ServiceRadar v1.4.57
+
+Fixes a v1.4.56 regression: when `webNg.clientIp.trustedProxyCidrs`
+covered the range clients connect from, every route that resolves
+the client IP returned HTTP 500 for those clients. web-ng now falls
+back to the direct peer and logs a warning, and the demo overlays
+trust only the envoy pod range.
+
+## Whats New
+
+**1.4.57**
+- Web: an X-Forwarded-For chain with no hop outside
+  `trustedProxyCidrs`, or with no address at all, now falls back to
+  the direct peer and logs a warning naming the setting to narrow,
+  instead of raising `FunctionClauseError` in
+  `ClientIP.valid_ip_or/2`. v1.4.56's demo overlays listed all of
+  RFC1918, so a client on the site LAN was stripped as a proxy hop,
+  no hop remained, and every route that resolves the client
+  (OIDC callback, MCP `/oauth/authorize`, local login, CSP reports,
+  MCP session audit) returned 500; external clients were
+  unaffected.
+- Helm: `values-demo.yaml` and `values-demo-staging.yaml` trust
+  only the k3s cluster CIDR (`10.42.0.0/16`), the envoy pod range;
+  the staging value is marked to confirm against the target
+  cluster's `--cluster-cidr` before first use. `values.yaml` and
+  the chart README now state that `trustedProxyCidrs` is the set of
+  proxy peers whose header is believed, not an allow-list of
+  clients: every CIDR in it is an address web-ng will never report
+  as a client, so RFC1918 wholesale makes LAN clients unreportable.
+- Tests: the three pre-existing `ClientIP` tests had never executed
+  in CI (the web-ng unit tier is a `:db_free` allow-list and the
+  module carried no tag, so they were loaded and excluded); they
+  run now, plus regressions for the all-trusted and empty chains
+  and a rate-limiter plug test for the same case.
+
+## Upgrade Notes
+
+- If you enabled `webNg.clientIp.trustXForwardedFor` with broad
+  CIDRs (all of RFC1918, or any range your clients connect from),
+  narrow `webNg.clientIp.trustedProxyCidrs` to the proxy's own
+  pod/service range. On v1.4.57 the broad list no longer crashes
+  requests, but web-ng logs a warning per affected request and
+  records the proxy address instead of the client in audit logs,
+  rate limiting and lockout checks.
+
+# ServiceRadar v1.4.56
+
+Settings > Audit > History now captures and resolves an actor for
+every audited resource, linking human actors to their login email
+and labeling background actors explicitly, and opens row diffs in
+a modal. Also: negated SRQL array-membership filters, out-of-order
+anomaly findings, unbounded device-log/sysmon queries, noisy Ubuntu
+vulnerability candidates, unpaginated add-on rollouts, and the real
+client IP now reaching audit logs behind the shared gateway.
+
+## Whats New
+
+**1.4.56**
+- Audit history: AshPaperTrail-only resources (Controller, Playbook,
+  AuthLockout, and 12 others) now capture an actor instead of always
+  showing "-", resolved to a linked login email or an explicit
+  "System - <component>" label for background actors; row clicks
+  open the diff in a modal instead of an inline panel below the
+  table. Schema: adds actor/actor_id/request_id columns to the
+  affected version tables in migration `20260909150000`;
+  `migrations.expectedVersion` advances to `20260909150000`.
+- Web: passes the real client IP from X-Forwarded-For into audit
+  logs, rate limiting, and lockout checks instead of the shared
+  gateway's own address.
+- Inventory: sorts a device's Recent Anomaly Findings by the
+  selected order (Newest, Oldest, Severity) instead of ignoring it.
+- SRQL: accepts negated array-membership filters (for example
+  `!discovery_sources:(armis)`) in the query editor instead of
+  flagging them as invalid; adds time-bounded indexes so device-log
+  and sysmon probe queries no longer time out.
+- Security: stops noisy, unverifiable Ubuntu advisory candidates
+  from padding the endpoint vulnerability tab.
+- Web: paginates finished add-on automatic rollouts instead of
+  rendering all of them unreachably on one page.
+- Integrations: makes integration-identity admission
+  provider-neutral instead of hardcoding Armis-specific
+  identifiers.
+- Documentation: proposes a retention and compression plan for the
+  audit history tables (api_events, security_events, and the
+  AshPaperTrail version tables), none of which currently have one.
+
+# ServiceRadar v1.4.55
+
+Plugin package details open correctly again, including manifests
+with credential profiles and timezone-aware timestamps. This
+release also adds alert-rule and telemetry JSON:API endpoints,
+restores inventory tag display, and fixes upload and identifier
+lookup errors.
+
+## Whats New
+
+**1.4.55**
+- Plugins Manager: fixes the View/details rendering crash by
+  passing the authenticated user scope into the details modal.
+  Synthetic regression coverage exercises credential profiles
+  and timestamp rendering.
+- Inventory: displays device tags in sorted, read-only chips in
+  inventory tables and device summaries, including key-only tags.
+- JSON:API: adds stateful alert-rule list, read, create, update,
+  delete, and enabled-rule endpoints, plus bounded read-only
+  telemetry collections and refreshed OpenAPI documentation.
+  Reads require viewer access; writes require operator access.
+  OAuth token scopes remain unenforced in this JSON:API pipeline;
+  restrict the credential owner's role to limit access.
+- Web: fixes filename sanitization for accepted uploads and
+  preserves typed MCP authorization and not-found errors.
+  Restores copy buttons for generated API credentials.
+- Identity: fixes persisted device-identifier lookups while
+  preserving identifier-type and partition matching.
+- Quality: maintains narrow Dialyzer exclusions and isolates
+  generated PLTs from Bazel source inputs. Documents conditional
+  CNPG 1.30 upgrade compatibility without changing the operator.
+- Documentation: refreshes Cowlib/ESAML advisory-waiver rationale
+  and clarifies OpenSpec requirement validation guidance.
+- Audit history: records stateful alert-rule creates, updates, and
+  deletions with actor attribution and changed attributes alongside
+  existing PaperTrail history.
+- Schema: adds the shared API event store in migration
+  `20260909100000`; `migrations.expectedVersion` advances to
+  `20260909100000`.
+
+# ServiceRadar v1.4.54
+
+ServiceRadar gains a Terraform provider and public configuration
+APIs for credentials, credential rules, Ansible controllers, and
+playbook repositories. Ansible execution recovers from AWX bridge
+and inventory ordering failures without weakening launch review.
+Also: Proxmox agent compatibility, authenticated API rate limits,
+database bootstrap fixes, and reproducible Arrow source imports.
+
+## Whats New
+
+**1.4.54**
+- Declarative configuration: a first-party Terraform provider adds
+  four resource and data source families: credential secrets,
+  credential rules, Ansible controllers, and Git playbook
+  repositories. Supports import, refresh, drift reconciliation,
+  guarded deletion, and write-only credential rotation with
+  Terraform 1.11+. The provider is available from source; it is
+  not yet published to the Terraform Registry.
+- Configuration API: lifecycle endpoints enforce token scopes
+  and account RBAC, support ETag concurrency checks and durable
+  idempotent retries, and preserve configuration history after
+  deletion. Credential-rule deletion coordinates with grant
+  issuance and retains historical grants.
+- Ansible API: adds operation preparation, launch, and observation,
+  exact inventory-membership approval, and two-phase template
+  binding review. Review and launch require a human principal.
+  Binding review supports non-callback bindings; upstream AWX
+  provisioning remains outside this release, and operation
+  cancellation explicitly returns 501.
+- AWX bridge 0.1.16: fixes validation under the agent's Wasm
+  entrypoint lifecycle, credential-kind projection, and empty
+  survey choices. Membership generations retain signed 64-bit
+  precision through decimal-string API boundaries while AWX
+  object IDs keep their existing bounds.
+- Ansible inventory: unchanged observations preserve approved
+  membership authority. A durable observation fence rejects old
+  or conflicting snapshots before device and membership writes;
+  deferred discovery effects run only after the transaction
+  commits. Existing jobs can be polled and reconciled after launch
+  preflight expires while retaining controller, dispatch, and
+  evidence checks.
+- Ansible catalogs: core images include Git and CA certificates,
+  the Helm chart provides writable catalog and temporary storage,
+  and synchronization honors changed repository origins and refs.
+- Agent: accepts the exact legacy and purpose-qualified Proxmox
+  inventory policy IDs emitted by core, restoring compatibility
+  with the existing Proxmox Inventory 0.1.8 plugin. Proxmox Console
+  remains 0.1.4 with its purpose-specific authority checks.
+  Adds `--version` and an isolated signed test-artifact workflow.
+- Security and operations docs: new API, Terraform, and declarative
+  environment guides cover staged bootstrap, state-safe credential
+  inputs, permissions, recovery ownership, and current provider
+  limits. Authenticated API routes now receive the default rate
+  limit, including SRQL queries.
+- Build reliability: replaces the orphan Arrow Swift gitlink with
+  a pinned, licensed source import and compatibility coverage.
+  Git metadata and synthetic checkout checks guard release jobs;
+  Debian package overlays support Zstandard-compressed payloads.
+- Database bootstrap honors the configured migration ledger
+  instead of recording baseline versions in a hard-coded schema.
+- Schema: `20260908180000` (provisioning retry receipts),
+  `20260908180100` (retained configuration history), and
+  `20260908180200` (AWX observation ordering).
+  `migrations.expectedVersion` is `20260908180200`.
+
+# ServiceRadar v1.4.53
+
+Advisory-feed downloads (CISA KEV, presigned VulnCheck fetches) and
+edge release-artifact mirroring move onto a dedicated `:httpc`
+egress client, fixing outbound-proxy tunnels that closed silently
+under Mint 1.10.0. Seasonal-baseline delivery to the edge anomaly
+add-on batches per device instead of one fleet-wide query. Also:
+pre-1.4.52 agents get a usable remote-access host-key failure
+message, the Bumblebee vulnerability-catalog schema matches what
+agents expect, device identity ignores addresses no device can
+hold, and a merge survivor's first-seen date is restored.
+
+## Whats New
+
+**1.4.53**
+- Advisory feeds: CISA KEV and presigned VulnCheck downloads, plus
+  edge release-artifact mirroring, move to a new `:httpc`-based
+  egress client (`ServiceRadar.HTTP.EgressClient`). Mint 1.10.0 --
+  required for two CVE fixes -- closes the CONNECT tunnel
+  immediately after connecting through this deployment's outbound
+  proxy, which OTP reported only as an opaque `dtls_upgrade: notsup`
+  error with no mention of the proxy. The new client tunnels
+  correctly through the same proxy and reports a real error when a
+  download does fail. The Ubuntu OSV/VEX feed is now enabled by
+  default on installs that never touched its setting.
+- Advisory feeds: plugins can emit a normalized `advisory-feed:v1`
+  batch (purl/CPE/vendor-product coordinates) via
+  `serviceradar-sdk-go/v2`, a new major SDK version.
+- Observability: seasonal-baseline delivery to the edge anomaly
+  add-on now fetches the full 168-bucket profile in bounded
+  per-device (and, for interfaces, per-interface) chunks instead of
+  one fleet-wide query, so delivery no longer times out as a fleet
+  grows.
+- Remote access: SSH host-key failures reported by agents older
+  than 1.4.52 are now classified too, with `reviewable: false` and
+  no fingerprint, instead of falling through to an opaque close.
+  Fingerprint-bearing review is unchanged for 1.4.52+ agents.
+- Vulnerabilities: the Bumblebee exposure-catalog artifact now
+  writes the schema the vendored agent-side parser actually expects
+  (schema version `0.1.0`, `id`/`ecosystem`/`package`/`versions`
+  keys). The previous mismatch failed catalog load for every
+  package on every agent.
+- Inventory: a passive census sighting of an address no device can
+  hold (`::`, `0.0.0.0`, loopback) can no longer mint a device, and
+  a link-local address alone can no longer anchor device identity.
+  A migration restores `first_seen_time` on merge survivors that
+  had absorbed an older device, fixing the "Recently added devices"
+  report.
+- Ansible: `GitCatalogSyncWorker` no longer performs an eager
+  temp-directory lookup for the git catalog cache. Settings >
+  Ansible tab switches reset their stream and count correctly and
+  render timestamps in the viewer's timezone.
+- Schema: `20260907090000` (restore merged device first-seen
+  dates). `migrations.expectedVersion` is `20260907090000`.
+
 # ServiceRadar v1.4.52
 
 An unenrolled SSH host key is a reviewable trust decision at the

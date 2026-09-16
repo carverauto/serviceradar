@@ -1,0 +1,45 @@
+suite: CNPG initdb leaves extension placement to the schema baseline
+templates:
+  - templates/cnpg-cluster.yaml
+release:
+  namespace: serviceradar-test
+tests:
+  # The core schema baseline creates every extension WITH SCHEMA platform. An extension
+  # created at initdb lands in public first, the baseline's IF NOT EXISTS cannot move it,
+  # and every platform.create_hypertable(...) fails, so a fresh database never bootstraps
+  # (#454). The previous default rendered four unqualified CREATE EXTENSION statements
+  # here, which this first test rejects.
+  - it: runs no initdb SQL by default
+    documentSelector:
+      path: kind
+      value: Cluster
+    asserts:
+      - notExists:
+          path: spec.bootstrap.initdb.postInitApplicationSQL
+
+  # Helm's `default` treats an empty list as unset; with the old chart that fell back to
+  # the four-extension list, so an operator could not opt out with [].
+  - it: treats an explicitly empty list as no initdb SQL
+    set:
+      cnpg.extensionsSQL: []
+    documentSelector:
+      path: kind
+      value: Cluster
+    asserts:
+      - notExists:
+          path: spec.bootstrap.initdb.postInitApplicationSQL
+
+  - it: renders operator-supplied initdb SQL in order
+    set:
+      cnpg.extensionsSQL:
+        - CREATE SCHEMA IF NOT EXISTS platform;
+        - CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA platform;
+    documentSelector:
+      path: kind
+      value: Cluster
+    asserts:
+      - equal:
+          path: spec.bootstrap.initdb.postInitApplicationSQL
+          value:
+            - CREATE SCHEMA IF NOT EXISTS platform;
+            - CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA platform;

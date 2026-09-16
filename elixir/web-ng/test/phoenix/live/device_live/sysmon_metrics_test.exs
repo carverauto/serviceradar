@@ -375,6 +375,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
            ] = assigns.annotations
   end
 
+  test "seasonal annotations mark the scored hour rather than its later evaluation" do
+    section = %{key: "cpu", panels: [%{id: "cpu", assigns: %{series_points: [{"Overall utilization", []}]}}]}
+
+    row = %{
+      "time" => "2026-01-08T10:20:00Z",
+      "metric_context_time" => "2026-01-08T09:30:00Z",
+      "metric_class" => "cpu",
+      "seasonal_disposition" => %{
+        "bucket_started_at" => "2026-01-08T09:00:00Z",
+        "bucket_ended_at" => "2026-01-08T10:00:00Z"
+      }
+    }
+
+    [%{panels: [%{assigns: assigns}]}] = SysmonMetrics.annotate_metric_sections([section], %{anomaly_rows: []}, row)
+
+    assert [%{dt: ~U[2026-01-08 09:30:00Z], start_dt: ~U[2026-01-08 09:00:00Z], end_dt: ~U[2026-01-08 10:00:00Z]}] =
+             assigns.annotations
+  end
+
   test "CPU annotations ignore edge-only findings without central escalation" do
     section = %{
       key: "cpu",

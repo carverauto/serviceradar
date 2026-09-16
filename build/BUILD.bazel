@@ -17,6 +17,16 @@ load(":template_authority.bzl", "template_authority_file")
 package(default_visibility = ["//visibility:public"])
 
 ex_unit_test(
+    name = "web_ng_db_config_test",
+    size = "small",
+    srcs = ["web_ng_db_config_test.exs"],
+    data = [
+        "//elixir/serviceradar_core:config/test_database_guard.exs",
+        "//elixir/web-ng:config/test.exs",
+    ],
+)
+
+ex_unit_test(
     name = "integration_selection_formatter_test",
     size = "small",
     srcs = ["integration_selection_formatter_test.exs"],

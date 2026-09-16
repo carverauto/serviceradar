@@ -603,7 +603,7 @@ pub fn inet_csk_accept(ctx: RetProbeContext) -> u32 {
 
     if let Some(tuple) = socket_tuple(sock, IPPROTO_TCP, true) {
         if !tuple_destination_is_zero(&tuple) {
-            emit_event(&ctx, EVENT_TCP_ACCEPT, sock, tuple, 0, 0);
+            emit_event(&ctx, EVENT_TCP_ACCEPT, sock, &tuple, 0, 0);
         }
     }
 
@@ -623,7 +623,7 @@ pub fn tcp_close(ctx: ProbeContext) -> u32 {
             // both the actual attribution gate key and socket key before it can
             // return, even when the ring is full. If the tracepoint also fires,
             // its later duplicate has no cached owner and is suppressed.
-            emit_event_with_cached_owner(&ctx, EVENT_TCP_CLOSE, sock, tuple, 0, 0);
+            emit_event_with_cached_owner(&ctx, EVENT_TCP_CLOSE, sock, &tuple, 0, 0);
         }
     }
     remove_socket_pid_by_address(sock as u64);
@@ -678,7 +678,7 @@ fn emit_udp(ctx: &ProbeContext, event_kind: u16) {
     if tuple_destination_is_zero(&tuple) {
         return;
     }
-    emit_event(ctx, event_kind, sock, tuple, 0, 0);
+    emit_event(ctx, event_kind, sock, &tuple, 0, 0);
 }
 
 // ICMP echo (ping) attribution. The unprivileged ping path uses a dgram ICMP
@@ -741,7 +741,7 @@ fn emit_icmp_send(ctx: &ProbeContext) {
     if tuple_destination_is_zero(&tuple) {
         return;
     }
-    emit_event(ctx, EVENT_ICMP_SEND, sock, tuple, 0, 0);
+    emit_event(ctx, EVENT_ICMP_SEND, sock, &tuple, 0, 0);
 }
 
 #[tracepoint(name = "inet_sock_set_state", category = "sock")]
@@ -797,24 +797,42 @@ fn emit_inet_sock_set_state<const SHIFT: usize>(ctx: &TracePointContext) -> u32 
     tuple.source_port = source_port;
     tuple.destination_port = destination_port;
 
+    // Read the addresses straight into the tuple. The by-value trace_read
+    // temporaries were another 32 bytes of address-taken stack on the entry
+    // frame, which shares a 512-byte budget with the out-of-line emitter it
+    // calls (see the frame-budget note on emit_event_with_cached_owner).
     if family == AF_INET {
-        let Ok(source_addr) = trace_read::<[u8; 4]>(ctx, TRACE_SADDR_V4_OFFSET + SHIFT) else {
+        if trace_read_bytes(
+            ctx,
+            TRACE_SADDR_V4_OFFSET + SHIFT,
+            &mut tuple.source_addr[..4],
+        )
+        .is_err()
+        {
             return 0;
-        };
-        let Ok(destination_addr) = trace_read::<[u8; 4]>(ctx, TRACE_DADDR_V4_OFFSET + SHIFT) else {
+        }
+        if trace_read_bytes(
+            ctx,
+            TRACE_DADDR_V4_OFFSET + SHIFT,
+            &mut tuple.destination_addr[..4],
+        )
+        .is_err()
+        {
             return 0;
-        };
-        tuple.source_addr[..4].copy_from_slice(&source_addr);
-        tuple.destination_addr[..4].copy_from_slice(&destination_addr);
+        }
     } else if family == AF_INET6 {
-        let Ok(source_addr) = trace_read::<[u8; 16]>(ctx, TRACE_SADDR_V6_OFFSET + SHIFT) else {
+        if trace_read_bytes(ctx, TRACE_SADDR_V6_OFFSET + SHIFT, &mut tuple.source_addr).is_err() {
             return 0;
-        };
-        let Ok(destination_addr) = trace_read::<[u8; 16]>(ctx, TRACE_DADDR_V6_OFFSET + SHIFT) else {
+        }
+        if trace_read_bytes(
+            ctx,
+            TRACE_DADDR_V6_OFFSET + SHIFT,
+            &mut tuple.destination_addr,
+        )
+        .is_err()
+        {
             return 0;
-        };
-        tuple.source_addr = source_addr;
-        tuple.destination_addr = destination_addr;
+        }
     } else {
         return 0;
     }
@@ -823,7 +841,7 @@ fn emit_inet_sock_set_state<const SHIFT: usize>(ctx: &TracePointContext) -> u32 
         ctx,
         EVENT_INET_SOCK_SET_STATE,
         sock,
-        tuple,
+        &tuple,
         old_state,
         new_state,
     );
@@ -1065,26 +1083,29 @@ fn emit_event(
     ctx: &impl EbpfContext,
     event_kind: u16,
     sock: *const c_void,
-    tuple: FlowTuple,
+    tuple: &FlowTuple,
     old_state: i32,
     new_state: i32,
 ) {
-    let Some(canonical_flow) = flow_key_from_tuple(&tuple) else {
+    let Some(mut canonical_flow) = flow_key_from_tuple(tuple) else {
         return;
     };
     let now = now_ns();
     let socket_address = sock as u64;
     let close_event = is_close_event(event_kind, new_state);
-    let gate_flow_key = attribution_gate_flow_key(&canonical_flow);
+    // Derived in place: a second FlowKey is 40 bytes of stack this frame does
+    // not have, and nothing below reads the pre-gate key -- only .source_endpoint.
+    attribution_gate_flow_key(&mut canonical_flow);
+    let gate_flow_key = &canonical_flow.key;
     // Prefer socket owner map (filled at connect/accept). Only fall back to the
     // current task when it has a non-zero pid — never attribute process identity
     // from the idle task (pid 0 / swapper) or other zero-pid contexts.
-    let cached_owner = cached_owner_for_event(&gate_flow_key, socket_address);
+    let cached_owner = cached_owner_for_event(gate_flow_key, socket_address);
     if close_event {
         // Cleanup is a lifecycle invariant, not a side effect of successful
         // publication. Remove the exact key that non-close emission stored and
         // the socket owner before any owner-miss or ring-reservation return.
-        remove_flow_pid_by_key(&gate_flow_key);
+        remove_flow_pid_by_key(gate_flow_key);
         remove_socket_pid_by_address(socket_address);
     }
     let owner_record = if let Some(owner) = cached_owner {
@@ -1120,7 +1141,7 @@ fn emit_event(
             )
         }
     };
-    if !close_event && !should_emit_flow_event(&gate_flow_key, &owner_record, now) {
+    if !close_event && !should_emit_flow_event(gate_flow_key, &owner_record, now) {
         return;
     }
 
@@ -1129,11 +1150,14 @@ fn emit_event(
     };
     let record = entry.as_mut_ptr();
     // Comm must match the process owner, not the currently running CPU task.
-    let comm = if is_valid_process_owner_ids(owner_record.pid, owner_record.tgid) {
-        process_comm(owner_record.tgid).unwrap_or_else(|| ctx.command().unwrap_or([0; 16]))
-    } else {
-        [0u8; 16]
-    };
+    // Copied straight into one 16-byte slot: an Option<[u8; 16]> temporary is
+    // another 17 bytes on a frame that shares a 512-byte budget with its caller.
+    let mut comm = [0u8; 16];
+    if is_valid_process_owner_ids(owner_record.pid, owner_record.tgid)
+        && !copy_owner_comm(owner_record.tgid, &mut comm)
+    {
+        comm = ctx.command().unwrap_or([0; 16]);
+    }
 
     // SAFETY: `record` points to a freshly reserved ring-buffer slot for a
     // FlowAttributionRecord. Every field is written before the slot is submitted.
@@ -1148,45 +1172,52 @@ fn emit_event(
         addr_of_mut!((*record).process_generation_ns).write(owner_record.process_generation_ns);
         addr_of_mut!((*record).old_state).write(old_state);
         addr_of_mut!((*record).new_state).write(new_state);
-        addr_of_mut!((*record).tuple).write(tuple);
+        addr_of_mut!((*record).tuple).write(*tuple);
         addr_of_mut!((*record).comm).write(comm);
     }
 
-    // SAFETY: All fields were initialized above and the ring-buffer slot is not
-    // submitted until after the map updates finish.
-    let record_ref = unsafe { &*record };
-    if !close_event {
-        if is_valid_process_owner_ids(owner_record.pid, owner_record.tgid) {
-            record_process_info(record_ref, now);
-            record_flow_pid_by_key(&gate_flow_key, &owner_record);
-            record_socket_pid_by_address(socket_address, &owner_record);
-        }
+    if !close_event && is_valid_process_owner_ids(owner_record.pid, owner_record.tgid) {
+        record_pid_process_info(&owner_record, comm, now);
+        record_flow_pid_by_key(gate_flow_key, &owner_record);
+        record_socket_pid_by_address(socket_address, &owner_record);
     }
 
     entry.submit(0);
 }
 
+// Frame budget. This function is generic over the context and has two tracepoint
+// instantiations (`inet_sock_set_state` and its rhel9 layout twin), so LLVM emits
+// it once as a BPF-to-BPF callee instead of inlining it into each entry. The
+// verifier then charges the entry frame plus this frame against one 512-byte
+// budget, rounding each frame up to 32 bytes. 0.2.61 shipped a 328-byte frame
+// under a 168-byte entry (192 + 352 = 544) and failed to load on 6.8 kernels for
+// ten releases (#405). Keep by-value temporaries out of this path, and do not
+// reach for #[inline(always)]: merging every local into each entry can overflow a
+// single frame instead. //rust/netprobe:ebpf_stack_depth_test measures it.
 fn emit_event_with_cached_owner(
     ctx: &impl EbpfContext,
     event_kind: u16,
     sock: *const c_void,
-    tuple: FlowTuple,
+    tuple: &FlowTuple,
     old_state: i32,
     new_state: i32,
 ) {
-    let Some(canonical_flow) = flow_key_from_tuple(&tuple) else {
+    let Some(mut canonical_flow) = flow_key_from_tuple(tuple) else {
         return;
     };
     let now = now_ns();
     let socket_address = sock as u64;
     let close_event = is_close_event(event_kind, new_state);
-    let gate_flow_key = attribution_gate_flow_key(&canonical_flow);
-    let cached_owner = cached_owner_for_event(&gate_flow_key, socket_address);
+    // Derived in place: a second FlowKey is 40 bytes of stack this frame does
+    // not have, and nothing below reads the pre-gate key -- only .source_endpoint.
+    attribution_gate_flow_key(&mut canonical_flow);
+    let gate_flow_key = &canonical_flow.key;
+    let cached_owner = cached_owner_for_event(gate_flow_key, socket_address);
     if close_event {
         // Snapshot above, then unconditionally evict before any early return.
         // In particular, a missing owner or full ring must never retain a stale
         // service-coalesced gate entry and suppress a later socket reuse.
-        remove_flow_pid_by_key(&gate_flow_key);
+        remove_flow_pid_by_key(gate_flow_key);
         remove_socket_pid_by_address(socket_address);
     }
     // State-change hooks often run in softirq / idle context. Process identity
@@ -1226,7 +1257,7 @@ fn emit_event_with_cached_owner(
         )
     };
 
-    if !close_event && !should_emit_flow_event(&gate_flow_key, &owner_record, now) {
+    if !close_event && !should_emit_flow_event(gate_flow_key, &owner_record, now) {
         return;
     }
 
@@ -1234,11 +1265,10 @@ fn emit_event_with_cached_owner(
         return;
     };
     let record = entry.as_mut_ptr();
-    let comm = if is_valid_process_owner_ids(owner_record.pid, owner_record.tgid) {
-        process_comm(owner_record.tgid).unwrap_or([0; 16])
-    } else {
-        [0u8; 16]
-    };
+    let mut comm = [0u8; 16];
+    if is_valid_process_owner_ids(owner_record.pid, owner_record.tgid) {
+        copy_owner_comm(owner_record.tgid, &mut comm);
+    }
 
     // SAFETY: `record` points to a freshly reserved ring-buffer slot for a
     // FlowAttributionRecord. Every field is written before the slot is submitted.
@@ -1253,16 +1283,13 @@ fn emit_event_with_cached_owner(
         addr_of_mut!((*record).process_generation_ns).write(owner_record.process_generation_ns);
         addr_of_mut!((*record).old_state).write(old_state);
         addr_of_mut!((*record).new_state).write(new_state);
-        addr_of_mut!((*record).tuple).write(tuple);
+        addr_of_mut!((*record).tuple).write(*tuple);
         addr_of_mut!((*record).comm).write(comm);
     }
 
-    // SAFETY: All fields were initialized above and the ring-buffer slot is not
-    // submitted until after the map updates finish.
-    let record_ref = unsafe { &*record };
     if !close_event && is_valid_process_owner_ids(owner_record.pid, owner_record.tgid) {
-        record_process_info(record_ref, now);
-        record_flow_pid_by_key(&gate_flow_key, &owner_record);
+        record_pid_process_info(&owner_record, comm, now);
+        record_flow_pid_by_key(gate_flow_key, &owner_record);
     }
 
     entry.submit(0);
@@ -1358,7 +1385,7 @@ fn current_pid_record(
 
 #[inline(always)]
 fn owner_pid_record(
-    owner: FlowPidRecord,
+    owner: OwnerIdentity,
     event_kind: u16,
     socket_address: u64,
     now: u64,
@@ -1383,8 +1410,35 @@ fn owner_pid_record(
     }
 }
 
+/// The owner fields the emitters actually consume from a cached FlowPidRecord.
+///
+/// Copied out of the map value instead of the whole 64-byte record. `.copied()`
+/// of the full record put a 72-byte Option<FlowPidRecord> on the emitter frame,
+/// one of the copies that pushed the tracepoint chain past the BPF stack limit
+/// on 6.8 kernels (#405). The identity is captured before any caller evicts the
+/// entry, so no map pointer outlives the lookup.
+#[derive(Copy, Clone)]
+struct OwnerIdentity {
+    pid: u32,
+    tgid: u32,
+    uid: u32,
+    gid: u32,
+    process_generation_ns: u64,
+}
+
 #[inline(always)]
-fn cached_owner_for_event(flow: &FlowKey, socket_address: u64) -> Option<FlowPidRecord> {
+fn owner_identity(record: &FlowPidRecord) -> OwnerIdentity {
+    OwnerIdentity {
+        pid: record.pid,
+        tgid: record.tgid,
+        uid: record.uid,
+        gid: record.gid,
+        process_generation_ns: record.process_generation_ns,
+    }
+}
+
+#[inline(always)]
+fn cached_owner_for_event(flow: &FlowKey, socket_address: u64) -> Option<OwnerIdentity> {
     if let Some(owner) = cached_flow_pid_by_key(flow, socket_address) {
         return Some(owner);
     }
@@ -1393,22 +1447,25 @@ fn cached_owner_for_event(flow: &FlowKey, socket_address: u64) -> Option<FlowPid
 }
 
 #[inline(always)]
-fn cached_flow_pid_by_key(flow: &FlowKey, socket_address: u64) -> Option<FlowPidRecord> {
-    let owner = unsafe { FLOW_TO_PID.get(flow) }.copied()?;
+fn cached_flow_pid_by_key(flow: &FlowKey, socket_address: u64) -> Option<OwnerIdentity> {
+    // SAFETY: the map value pointer is valid for this BPF invocation; only the
+    // owner identity is copied out, before any caller evicts the entry.
+    let owner = unsafe { FLOW_TO_PID.get(flow) }?;
     if owner.socket_address == socket_address || owner.socket_address == 0 || socket_address == 0 {
-        Some(owner)
+        Some(owner_identity(owner))
     } else {
         None
     }
 }
 
 #[inline(always)]
-fn cached_socket_pid_by_address(socket_address: u64) -> Option<FlowPidRecord> {
+fn cached_socket_pid_by_address(socket_address: u64) -> Option<OwnerIdentity> {
     if socket_address == 0 {
         return None;
     }
 
-    unsafe { SOCKET_TO_PID.get(&socket_address) }.copied()
+    // SAFETY: see cached_flow_pid_by_key.
+    unsafe { SOCKET_TO_PID.get(&socket_address) }.map(owner_identity)
 }
 
 fn should_emit_flow_event(flow: &FlowKey, next: &FlowPidRecord, now: u64) -> bool {
@@ -1453,26 +1510,10 @@ fn is_close_event(event_kind: u16, new_state: i32) -> bool {
         || (event_kind == EVENT_INET_SOCK_SET_STATE && new_state == TCP_CLOSE_STATE)
 }
 
-fn record_process_info(record: &FlowAttributionRecord, now: u64) {
-    let owner = FlowPidRecord {
-        version: EVENT_VERSION,
-        event_kind: record.event_kind,
-        pid: record.pid,
-        tgid: record.tgid,
-        uid: record.uid,
-        gid: record.gid,
-        socket_address: record.socket_address,
-        last_seen_ns: now,
-        process_generation_ns: record.process_generation_ns,
-        old_state: record.old_state,
-        new_state: record.new_state,
-        local_endpoint: 0,
-        reserved: [0; 7],
-    };
-
-    record_pid_process_info(&owner, record.comm, now);
-}
-
+// inline(always): with three callers LLVM would otherwise be free to outline
+// this, and an outlined ProcessInfoRecord builder is a third frame on the
+// tracepoint chain -- the exact shape #405 came from.
+#[inline(always)]
 fn record_pid_process_info(owner: &FlowPidRecord, comm: [u8; 16], now: u64) {
     let process = ProcessInfoRecord {
         version: EVENT_VERSION,
@@ -1513,8 +1554,19 @@ fn process_generation_ns(tgid: u32) -> Option<u64> {
         .filter(|generation| *generation != 0)
 }
 
-fn process_comm(tgid: u32) -> Option<[u8; 16]> {
-    unsafe { PROCESS_INFO.get(&tgid) }.map(|record| record.comm)
+/// Copies the owner's comm into `comm`; false when the owner is unknown.
+///
+/// Writes into the caller's slot instead of returning an Option<[u8; 16]>, so an
+/// emitter holds one 16-byte comm rather than a 17-byte temporary beside it.
+#[inline(always)]
+fn copy_owner_comm(tgid: u32, comm: &mut [u8; 16]) -> bool {
+    match unsafe { PROCESS_INFO.get(&tgid) } {
+        Some(record) => {
+            *comm = record.comm;
+            true
+        }
+        None => false,
+    }
 }
 
 fn record_flow_pid_by_key(flow: &FlowKey, pid: &FlowPidRecord) {
@@ -1564,30 +1616,31 @@ fn flow_key_from_tuple(tuple: &FlowTuple) -> Option<CanonicalFlowKey> {
     ))
 }
 
+/// Rewrites `flow.key` into the attribution gate key in place.
+///
+/// In place rather than returning a fresh FlowKey: no caller reads the pre-gate
+/// key afterwards, and the returned 40-byte copy was stack the emitters cannot
+/// afford (see the frame-budget note on emit_event_with_cached_owner).
 #[inline(always)]
-fn attribution_gate_flow_key(flow: &CanonicalFlowKey) -> FlowKey {
-    let mut key = flow.key;
-
+fn attribution_gate_flow_key(flow: &mut CanonicalFlowKey) {
     if should_coalesce_udp_client_gate(flow) {
         if flow.source_endpoint == FLOW_ENDPOINT_A {
-            key.endpoint_a_port = 0;
+            flow.key.endpoint_a_port = 0;
         } else {
-            key.endpoint_b_port = 0;
+            flow.key.endpoint_b_port = 0;
         }
-        return key;
+        return;
     }
 
     if should_coalesce_service_gate(flow) {
         if flow.source_endpoint == FLOW_ENDPOINT_A {
-            key.endpoint_b_port = 0;
-            key.endpoint_b_addr = [0; 16];
+            flow.key.endpoint_b_port = 0;
+            flow.key.endpoint_b_addr = [0; 16];
         } else {
-            key.endpoint_a_port = 0;
-            key.endpoint_a_addr = [0; 16];
+            flow.key.endpoint_a_port = 0;
+            flow.key.endpoint_a_addr = [0; 16];
         }
     }
-
-    key
 }
 
 #[inline(always)]
@@ -2744,6 +2797,16 @@ fn trace_read<T: Copy>(ctx: &TracePointContext, offset: usize) -> Result<T, i64>
     // format. The eBPF helper copies the value out and returns an error if the
     // tracepoint context cannot satisfy the read.
     unsafe { ctx.read_at(offset) }
+}
+
+/// Like `trace_read`, but copies into caller-provided storage so the address
+/// bytes never exist as a separate stack temporary (the kernel_bytes pattern
+/// socket_tuple uses for kprobe sockets).
+#[inline(always)]
+fn trace_read_bytes(ctx: &TracePointContext, offset: usize, dst: &mut [u8]) -> Result<(), i64> {
+    // SAFETY: same contract as trace_read; the helper bounds the copy to dst
+    // and fails closed if the tracepoint context cannot satisfy the read.
+    unsafe { bpf_probe_read_kernel_buf((ctx.as_ptr() as *const u8).add(offset), dst) }
 }
 
 #[panic_handler]

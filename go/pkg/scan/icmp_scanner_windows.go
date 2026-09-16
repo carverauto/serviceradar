@@ -23,12 +23,16 @@ const (
 	defaultICMPRateLimit = 1000 // packets per second
 	defaultICMPTimeout   = 5 * time.Second
 	batchInterval        = 10 * time.Millisecond
+	defaultICMPCount     = 3 // matches the unix default; see icmpCount
 )
 
 type ICMPSweeper struct {
-	rateLimit   int
-	timeout     time.Duration
-	identifier  int
+	rateLimit  int
+	timeout    time.Duration
+	identifier int
+	// icmpCount is accepted for API parity with the unix sweeper, but this
+	// implementation still sends a single echo request per target.
+	icmpCount   int
 	rawSocketFD syscall.Handle // Change to syscall.Handle for Windows
 	conn        *icmp.PacketConn
 	mu          sync.Mutex
@@ -48,7 +52,7 @@ const (
 )
 
 // NewICMPSweeper creates a new scanner for ICMP sweeping.
-func NewICMPSweeper(timeout time.Duration, rateLimit int, log logger.Logger) (*ICMPSweeper, error) {
+func NewICMPSweeper(timeout time.Duration, rateLimit int, log logger.Logger, opts ...ICMPSweeperOption) (*ICMPSweeper, error) {
 	if timeout == 0 {
 		timeout = defaultICMPTimeout
 	}
@@ -80,10 +84,15 @@ func NewICMPSweeper(timeout time.Duration, rateLimit int, log logger.Logger) (*I
 		rateLimit:   rateLimit,
 		timeout:     timeout,
 		identifier:  identifier,
+		icmpCount:   defaultICMPCount,
 		rawSocketFD: fd,
 		conn:        conn,
 		results:     make(map[string]models.Result),
 		logger:      log,
+	}
+
+	for _, opt := range opts {
+		opt(s)
 	}
 
 	return s, nil
@@ -96,6 +105,18 @@ func (s *ICMPSweeper) Capabilities() ScannerCapabilities {
 
 	return ScannerCapabilities{
 		ICMPv4: s.conn != nil,
+	}
+}
+
+// ICMPSweeperOption configures an ICMPSweeper instance.
+type ICMPSweeperOption func(*ICMPSweeper)
+
+// WithICMPCount sets the number of ICMP packets to send per target.
+func WithICMPCount(count int) ICMPSweeperOption {
+	return func(s *ICMPSweeper) {
+		if count > 0 {
+			s.icmpCount = count
+		}
 	}
 }
 

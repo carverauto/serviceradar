@@ -37,6 +37,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
   alias ServiceRadar.EventWriter.DeviceCorrelation
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceLifecycle
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadar.Monitoring.AlertGenerator
   alias ServiceRadar.Monitoring.OcsfEvent
@@ -48,7 +49,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
   require Logger
 
   def create_event_and_alert(rule, snapshot, record, now) do
-    event = build_event(rule, snapshot, record, now)
+    device_uid = resolved_device_uid(record)
+    event_device = event_device(record, device_uid, device_active?(device_uid))
+    event = build_event(rule, snapshot, record, now, event_device)
     synthetic_liveness_check? = synthetic_liveness_check?(record)
     # DB connection's search_path determines the schema
     actor = SystemActor.system(:alert_engine)
@@ -57,7 +60,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
       case AlertGenerator.from_event(ocsf_event,
              actor: actor,
              alert: alert_config(rule, record),
-             device_uid: resolved_device_uid(record)
+             device_uid: device_uid
            ) do
         {:ok, %Alert{} = alert} ->
           if !synthetic_liveness_check? do
@@ -347,19 +350,17 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
 
   defp normalize_incident_count(_value), do: 1
 
-  defp build_event(rule, snapshot, record, now) do
+  @doc false
+  # The fired event is what an operator opens from the event stream, and the alert
+  # copies its description from it. It used to be a rollup of the rule's group: a
+  # fixed message, no device, no observables and the status Failure on every one,
+  # so it could not say where a problem was or what it was.
+  def build_event(rule, snapshot, record, now, device) do
     activity_id = OCSF.activity_log_create()
     class_uid = OCSF.class_event_log_activity()
     category_uid = OCSF.category_system_activity()
     severity_id = severity_id(rule.alert, record)
-    message_override = rule.event["message"] || rule.event[:message]
-
-    message =
-      if is_binary(message_override) do
-        render_template(message_override, record)
-      else
-        "Stateful rule #{rule.name} triggered for #{snapshot.group_key} (#{snapshot.window_count}/#{rule.threshold} in #{rule.window_seconds}s)"
-      end
+    message = fired_message(rule, snapshot, rule.event["message"] || rule.event[:message], record)
 
     source = source_record_details(record)
     diagnostics = diagnostic_summary(rule, snapshot, now, source)
@@ -386,8 +387,11 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
         severity_id: severity_id,
         severity: OCSF.severity_name(severity_id),
         message: message,
-        status_id: OCSF.status_failure(),
-        status: OCSF.status_name(OCSF.status_failure()),
+        # No OCSF status: a rule firing is neither a success nor a failure of
+        # anything. The triggering event's own status ("breach") is the detail.
+        status_detail: source_status(record),
+        device: device,
+        observables: source_observables(record),
         metadata:
           [
             product_name: "ServiceRadar Core",
@@ -403,6 +407,93 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
       :unmapped,
       build_unmapped(rule, snapshot, source, diagnostics)
     )
+  end
+
+  @doc false
+  # The fired event carries the device the incident is about: the uid
+  # resolved_device_uid/1 confirmed against the inventory (the one the alert gets),
+  # plus the hostname and ip the triggering event reported for that same device.
+  #
+  # An out-of-service device is left off. OcsfEvent :record rejects operational
+  # events for such a device, and incidents about one fired before the event
+  # carried a device, so it is recorded without one rather than lost.
+  @spec event_device(map(), String.t() | nil, boolean()) :: map()
+  def event_device(_record, nil, _active?), do: %{}
+  def event_device(_record, _device_uid, false), do: %{}
+
+  def event_device(record, device_uid, true) do
+    source = record_device(record)
+    base = %{"uid" => device_uid}
+
+    if device_field(source, "uid", :uid) == device_uid do
+      Enum.reduce([{"hostname", :hostname}, {"ip", :ip}], base, fn {key, atom_key}, acc ->
+        case device_field(source, key, atom_key) do
+          value when is_binary(value) and value != "" -> Map.put(acc, key, value)
+          _ -> acc
+        end
+      end)
+    else
+      base
+    end
+  end
+
+  defp device_field(device, key, atom_key), do: Map.get(device, key) || Map.get(device, atom_key)
+
+  defp device_active?(nil), do: false
+
+  defp device_active?(device_uid) do
+    DeviceLifecycle.active?(device_uid)
+  rescue
+    # Never let identity enrichment be the reason an incident is lost.
+    _ -> false
+  end
+
+  # Most seeded rules have a fixed message ("Falco security incident detected"),
+  # which named no device, metric or reason. A fixed message now carries the
+  # triggering event's own message. A template that names its subject with
+  # placeholders is left as the operator wrote it.
+  defp fired_message(_rule, _snapshot, template, record) when is_binary(template) do
+    rendered = render_template(template, record)
+    source = source_message(record)
+
+    if Regex.match?(~r/\{[a-zA-Z0-9_.\-]+\}/, template) or is_nil(source) or source == rendered do
+      rendered
+    else
+      rendered <> ": " <> source
+    end
+  end
+
+  defp fired_message(rule, snapshot, _template, record) do
+    source_message(record) ||
+      "Stateful rule #{rule.name} triggered for #{snapshot.group_key} (#{snapshot.window_count}/#{rule.threshold} in #{rule.window_seconds}s)"
+  end
+
+  defp source_message(record) do
+    case record_field_value(record, "body") do
+      value when is_binary(value) -> blank_to_nil(value)
+      _ -> nil
+    end
+  end
+
+  defp source_status(record) do
+    case Map.get(record, :status) || Map.get(record, "status") do
+      value when is_binary(value) -> blank_to_nil(value)
+      _ -> nil
+    end
+  end
+
+  defp source_observables(record) do
+    case Map.get(record, :observables) || Map.get(record, "observables") do
+      observables when is_list(observables) -> observables
+      _ -> []
+    end
+  end
+
+  defp blank_to_nil(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
   end
 
   defp alert_config(rule, record) do

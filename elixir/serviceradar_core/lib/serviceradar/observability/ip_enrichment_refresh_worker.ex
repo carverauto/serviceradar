@@ -69,7 +69,7 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
   defp check_existing_job do
     query =
       from(j in Job,
-        where: j.worker == ^to_string(__MODULE__),
+        where: j.worker == ^Oban.Worker.to_string(__MODULE__),
         where: j.state in ["available", "scheduled", "executing", "retryable"],
         limit: 1
       )
@@ -78,22 +78,18 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
   end
 
   defp reap_stale_executing_jobs do
-    config = Application.get_env(:serviceradar_core, __MODULE__, [])
-
-    stale_minutes =
-      Keyword.get(config, :stale_executing_minutes, @default_stale_executing_minutes)
-
-    cutoff = DateTime.add(DateTime.utc_now(), -max(stale_minutes, 1) * 60, :second)
+    stale_minutes = stale_executing_minutes()
+    cutoff = DateTime.add(DateTime.utc_now(), -stale_minutes * 60, :second)
 
     query =
       from(j in Job,
-        where: j.worker == ^to_string(__MODULE__),
+        where: j.worker == ^Oban.Worker.to_string(__MODULE__),
         where: j.state == "executing",
         where: not is_nil(j.attempted_at) and j.attempted_at < ^cutoff
       )
 
     case Engine.rescue_jobs(Oban.config(Oban), query,
-           rescue_after: to_timeout(minute: max(stale_minutes, 1))
+           rescue_after: to_timeout(minute: stale_minutes)
          ) do
       {:ok, []} ->
         :ok
@@ -116,6 +112,19 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
 
       :ok
   end
+
+  defp stale_executing_minutes do
+    :serviceradar_core
+    |> Application.get_env(__MODULE__, [])
+    |> Keyword.get(:stale_executing_minutes, @default_stale_executing_minutes)
+    |> max(1)
+  end
+
+  # reap_stale_executing_jobs/0 rescues any executing refresh job attempted more than
+  # :stale_executing_minutes ago without checking that it stopped, so a run is ended well before
+  # then and is never rescued while it is still running.
+  @impl Oban.Worker
+  def timeout(_job), do: div(to_timeout(minute: stale_executing_minutes()), 2)
 
   @impl Oban.Worker
   def perform(_job) do

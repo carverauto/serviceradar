@@ -1,0 +1,5 @@
+load("//build/packaging:agent_packages.bzl", "declare_linux_agent_packages")
+
+package(default_visibility = ["//visibility:public"])
+
+declare_linux_agent_packages(["arm64"])

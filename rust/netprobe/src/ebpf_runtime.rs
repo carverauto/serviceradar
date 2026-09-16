@@ -944,6 +944,26 @@ mod loaded_tcp_tests {
             })?;
         let layout = attach_attribution_probes(&mut ebpf)
             .context("attach/readiness: attach production attribution probes")?;
+        // The layout detector attaches exactly one inet_sock_set_state variant.
+        // Push the other through the same verifier too: the two are separate
+        // programs sharing one out-of-line emitter, and #405 shipped for ten
+        // releases because the variant a 6.8 kernel selects was never loaded
+        // anywhere before release.
+        for name in ["inet_sock_set_state", "inet_sock_set_state_rhel9"] {
+            if name == layout.program_name() {
+                continue;
+            }
+            let program: &mut aya::programs::TracePoint = ebpf
+                .program_mut(name)
+                .with_context(|| {
+                    format!("verifier gate: {name} is missing from the production object")
+                })?
+                .try_into()
+                .with_context(|| format!("verifier gate: {name} is not a tracepoint program"))?;
+            program
+                .load()
+                .with_context(|| format!("verifier gate: the kernel rejected {name}"))?;
+        }
         let flow_to_pid_map = ebpf.take_map("flow_to_pid").context(
             "close handling: production object is missing flow_to_pid for cleanup proof",
         )?;

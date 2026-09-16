@@ -9,9 +9,14 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Source do
 
   The 168-bucket aggregation STAYS in SQL (data gravity, design D6): the SRQL layer
   emits the per-bucket summary statistics (`bucket_count`/`bucket_sum`/`bucket_sum_sq`
-  for the mean/stddev statistic, and the per-bucket order statistics `center`/`mad`/
-  `p05`/`p95` for the robust statistics) so the NIF moves only the residual-z, breach,
-  baseline-sufficiency gate, and robust-statistic selection — never raw points.
+  for the mean/stddev statistic, and `robust_bucket_count` with the per-bucket order
+  statistics `center`/`mad`/`p05`/`p95` for the robust statistics) so the NIF moves only
+  the residual-z, breach, baseline-sufficiency gate, and robust-statistic selection —
+  never raw points.
+
+  `robust_bucket_count` counts the observations used for the order statistics,
+  excluding the latest sample in its hour-of-week cell. Custom profiles that omit
+  it must supply an already-excluded count through `count_field` for robust statistics.
 
   Mirrors `ServiceRadar.Observability.CapacityForecasting.Source`.
   """

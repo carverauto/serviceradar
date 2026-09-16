@@ -13,6 +13,7 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
     extensions: [AshStateMachine, AshPaperTrail.Resource],
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Credentials.Changes.GuardCredentialRuleLifecycle
   alias ServiceRadar.Credentials.Changes.WriteBrokerGrantLifecycleEvent
   alias ServiceRadar.Credentials.RequestBodyPolicy
   alias ServiceRadar.Credentials.Validations.GrantPrunableForSecretDeletion
@@ -114,6 +115,7 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
 
     create :issue do
       accept @fields
+      change {GuardCredentialRuleLifecycle, mode: :issue}
       change set_attribute(:issued_at, &__MODULE__.utc_now/0)
       change {WriteBrokerGrantLifecycleEvent, action: :issue}
     end

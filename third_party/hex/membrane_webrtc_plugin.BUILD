@@ -31,6 +31,7 @@ mix_app(
         "@hex_ex_webrtc//:erlang_app",
         "@hex_membrane_core//:erlang_app",
         "@hex_membrane_rtp_h264_plugin//:erlang_app",
+        "@hex_membrane_rtp_h265_plugin//:erlang_app",
         "@hex_membrane_rtp_opus_plugin//:erlang_app",
         "@hex_membrane_rtp_plugin//:erlang_app",
         "@hex_membrane_rtp_vp8_plugin//:erlang_app",

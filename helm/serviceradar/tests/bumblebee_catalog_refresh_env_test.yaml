@@ -1,0 +1,33 @@
+suite: bumblebee catalog refresh environment
+templates:
+  - templates/core.yaml
+tests:
+  # The refresh job is the only thing that gives agents a catalog the scanner
+  # can read. It was gated on an env var no template set, so every deployment
+  # ran with it off and Bumblebee never produced a finding (#439). These
+  # assertions pin the wiring so it cannot be silently dropped again.
+  - it: enables the bumblebee catalog refresh on core by default
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: BUMBLEBEE_CATALOG_REFRESH_ENABLED
+            value: "true"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+  - it: honours an explicit opt-out
+    set:
+      bumblebeeCatalogRefresh:
+        enabled: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: BUMBLEBEE_CATALOG_REFRESH_ENABLED
+            value: "false"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment

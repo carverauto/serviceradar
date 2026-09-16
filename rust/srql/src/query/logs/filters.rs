@@ -520,7 +520,7 @@ mod tests {
         let (sql, _params) = to_sql_and_params(&plan).expect("sql should generate");
 
         assert!(
-            sql.contains("logs.source_ip IS NOT NULL AND logs.source_ip ="),
+            sql.contains("logs.source_ip IN ("),
             "device_id must join inventory IPs to logs.source_ip, got: {sql}"
         );
         assert!(
@@ -532,7 +532,7 @@ mod tests {
             "device_id should also match registered IP/hostname identifiers, got: {sql}"
         );
         assert!(
-            sql.contains("logs.source IS NOT NULL AND logs.source ="),
+            sql.contains("logs.source IN ("),
             "device_id should match syslog source hostname, got: {sql}"
         );
         assert!(
@@ -542,6 +542,14 @@ mod tests {
         assert!(
             !sql.contains("ILIKE"),
             "device_id must not scan log attributes with ILIKE, got: {sql}"
+        );
+        assert!(
+            !sql.contains("EXISTS ("),
+            "device_id identity must stay uncorrelated so the window scan stays bounded, got: {sql}"
+        );
+        assert!(
+            !sql.contains("CROSS JOIN LATERAL"),
+            "device_id must not unnest interfaces per log row, got: {sql}"
         );
     }
 

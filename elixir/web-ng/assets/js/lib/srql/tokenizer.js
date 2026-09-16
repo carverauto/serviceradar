@@ -374,6 +374,16 @@ export function isValidJsonbKey(key = "") {
   return JSONB_KEY_PATTERN.test(String(key))
 }
 
+// The engine's `!` negation prefix (`build_filter` in rust/srql
+// parser/filters.rs) strips exactly one leading `!` from the field name, so
+// `!discovery_sources:(armis)` filters on `discovery_sources` with a negated
+// op. Editors must resolve catalog entries through the same mapping or every
+// negated filter is underlined as an unknown field.
+export function baseFieldName(field = "") {
+  const text = String(field)
+  return text.startsWith("!") ? text.slice(1) : text
+}
+
 // True when `field` is a dynamic JSONB-key filter the engine accepts but the
 // static catalog can't enumerate, e.g. `metadata.gateway_id` or `tags.owner`.
 // Editors must treat these as valid fields (no "unknown field" flag). Only the

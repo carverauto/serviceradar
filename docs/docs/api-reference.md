@@ -31,6 +31,29 @@ environment variable, never in source control.
 To let an IDE or agent use those credentials over the Model Context
 Protocol, add the `mcp` scope and see [MCP Integration](./mcp-integration.md).
 
+## Rate limits
+
+The authenticated `/api` scope uses the shared `api_default` request budget,
+keyed by client IP rather than user or token. This includes queries, the SRQL
+catalog, devices, camera and Proxmox console sessions, spatial endpoints, and
+`/api/remote-access/*` session, WebRTC signaling, file-transfer, host-key,
+recording, and desktop-target requests. Requests from the same client IP share
+the budget with other routes using `api_default`; changing endpoints or tokens
+does not create a separate allowance. Separately declared scopes such as
+`/api/admin` are not covered by this scope's limiter.
+
+Authentication runs first: requests rejected as unauthenticated return `401`
+without consuming this budget. Responses passing through the limiter include
+`x-ratelimit-limit`, `x-ratelimit-remaining`, and `x-ratelimit-reset` headers.
+When exhausted, JSON clients receive `429` with `error: "rate_limited"` and
+`retry_after` in the response body. Wait for the `retry-after` header's number
+of seconds before retrying, and reduce polling or request bursts.
+
+For bucket configuration and defaults, see
+[`ServiceRadar.Security.RateLimiter`](https://github.com/carverauto/serviceradar/blob/staging/elixir/serviceradar_core/lib/serviceradar/security/rate_limiter.ex).
+This is a request budget, not a concurrent-session cap or a limit on traffic
+inside an established stream.
+
 ## Run an SRQL query — `POST /api/query`
 
 The `/api/query` endpoint executes a [ServiceRadar Query Language
@@ -123,6 +146,39 @@ A successful response has this shape:
 `version` is the raw catalog digest. The `ETag` header wraps the same digest in
 quotes for HTTP validation; send the quoted header value back in
 `If-None-Match`.
+
+## Alert rules and telemetry via JSON:API
+
+The `/api/v2` JSON:API surface supports automated provisioning of stateful
+alert rules, alongside read-only log, service-status, capacity-forecast,
+metric, and trace collections. Use `Accept: application/vnd.api+json` and,
+for request bodies, `Content-Type: application/vnd.api+json`.
+
+Stateful alert rules support listing, reading by ID, creating, updating,
+and deleting at `/api/v2/stateful-alert-rules`. The `/active` collection
+returns enabled rules. Send a JSON:API `data` object with
+`type: "stateful-alert-rule"` and an `attributes` object; updates also carry
+the rule's `id`. For rule behavior and incident controls, see
+[Rule Builder](./rule-builder.md). Promotion rules, templates, and alert
+engine state/history are not exposed by this mount.
+
+Reads use the resource's viewer-or-higher policy; mutations require an
+operator or administrator, with the existing internal system bypass.
+OAuth2 token scopes are not enforced by this JSON:API pipeline: restrict the
+credential owner's role rather than relying on a `read` scope to prevent
+writes. This limitation is tracked in
+[scope enforcement](https://github.com/carverauto/serviceradar/issues/329).
+
+Telemetry collections use bounded offset pagination even when no page is
+requested. Use `page[limit]` and `page[offset]` and follow response pagination
+links to retrieve subsequent pages. Treat each returned JSON:API `id` as an
+opaque value, including composite IDs for telemetry; do not reconstruct IDs
+from individual attributes.
+
+For the generated route inventory, accepted fields, and response schemas,
+fetch `/api/v2/open_api` from your authenticated deployment. For the committed
+schema's generation, path conventions, and drift checks,
+see the [OpenAPI dump task](https://github.com/carverauto/serviceradar/blob/staging/elixir/web-ng/lib/mix/tasks/serviceradar/openapi/dump.ex).
 
 ## Other endpoints
 

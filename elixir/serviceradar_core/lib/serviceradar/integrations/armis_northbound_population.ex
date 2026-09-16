@@ -13,6 +13,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundPopulation do
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.DeviceSourceObservation
   alias ServiceRadar.Inventory.DeviceSourceSnapshot
+  alias ServiceRadar.Inventory.IntegrationIdentity
   alias ServiceRadar.Repo
 
   @spec load(map(), keyword()) :: {:ok, map()} | {:error, term()}
@@ -52,7 +53,11 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundPopulation do
       typed_ids != [source_id] ->
         withheld(observation, "source_identifier_mismatch", %{"typed_ids" => typed_ids})
 
-      metadata_disagrees?(observation.metadata, source_id) ->
+      metadata_disagrees?(
+        observation.metadata,
+        source_id,
+        Map.get(observation, :expected_source_instance)
+      ) ->
         withheld(observation, "metadata_identifier_disagreement")
 
       source_linkage_disagrees?(observation, source_id) ->
@@ -232,12 +237,12 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundPopulation do
     linked_source = present(metadata["sync_service_id"])
 
     (linked_source != nil and expected_source != nil and linked_source != expected_source) or
-      metadata_disagrees?(metadata, source_id)
+      metadata_disagrees?(metadata, source_id, expected_source)
   end
 
   defp metadata_source_id_disagrees?(_metadata, _source_id, _expected_source), do: false
 
-  defp metadata_disagrees?(metadata, source_id) when is_map(metadata) do
+  defp metadata_disagrees?(metadata, source_id, expected_source) when is_map(metadata) do
     typed_metadata_id = present(metadata["armis_device_id"])
 
     generic_id =
@@ -245,11 +250,18 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundPopulation do
         present(metadata["integration_id"])
       end
 
+    scoped_id =
+      IntegrationIdentity.scoped_device_id(
+        "armis",
+        expected_source || metadata["sync_service_id"],
+        source_id
+      )
+
     (typed_metadata_id != nil and typed_metadata_id != source_id) or
-      (generic_id != nil and generic_id != source_id)
+      (generic_id != nil and generic_id not in [source_id, scoped_id])
   end
 
-  defp metadata_disagrees?(_metadata, _source_id), do: false
+  defp metadata_disagrees?(_metadata, _source_id, _expected_source), do: false
 
   defp accounting(snapshot) do
     metadata = snapshot.metadata || %{}

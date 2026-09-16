@@ -460,6 +460,366 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
            ]
   end
 
+  test "seasonal detail shows the scored hour and hourly mean separately from evaluation time" do
+    anomaly = %{
+      "finding_uid" => "finding-seasonal-example",
+      "finding_title" => "Seasonal CPU anomaly",
+      "metric_class" => "cpu",
+      "metric_name" => "usage_percent",
+      "source_device_uid" => "host01.example.com",
+      "severity" => "Low",
+      "state" => "confirmed",
+      "score" => 4.5,
+      "time" => "2026-01-08T10:20:00Z",
+      "metric_context_time" => "2026-01-08T09:30:00Z",
+      "seasonal_disposition" => %{
+        "sample_value" => 8.25,
+        "bucket_started_at" => "2026-01-08T09:00:00Z",
+        "bucket_ended_at" => "2026-01-08T10:00:00Z"
+      }
+    }
+
+    overview = %{
+      status: :ok,
+      anomaly_rows: [anomaly],
+      capacity_rows: [],
+      anomaly_query: nil,
+      capacity_query: nil,
+      anomaly_filter: nil,
+      capacity_filter: nil,
+      anomaly_error: nil,
+      capacity_error: nil,
+      metric_statuses: []
+    }
+
+    points = for minute <- 0..360//30, do: {DateTime.add(~U[2026-01-08 07:00:00Z], minute * 60), 8.0}
+
+    sections = [
+      %{
+        key: "cpu",
+        title: "CPU",
+        subtitle: "selected finding window",
+        panels: [
+          %{
+            plugin: Timeseries,
+            id: "seasonal-cpu",
+            assigns: %{chart_mode: :single, rate_mode: :none, series_points: [{"Overall utilization", points}]}
+          },
+          %{
+            plugin: Timeseries,
+            id: "seasonal-cores",
+            assigns: %{chart_mode: :single, rate_mode: :none, series_points: [{"0", points}]}
+          }
+        ]
+      }
+    ]
+
+    html =
+      render_component(&AnomalyCapacityComponents.anomaly_capacity_section/1,
+        overview: overview,
+        detail: %{kind: "anomaly", row: anomaly},
+        metric_sections: sections,
+        timezone: "Etc/UTC"
+      )
+
+    document = LazyHTML.from_fragment(html)
+    modal = LazyHTML.query(document, "#anomaly-capacity-detail-modal")
+    assert LazyHTML.text(modal) =~ "hourly mean 8.25%"
+    assert LazyHTML.text(modal) =~ "host01.example.com"
+    assert LazyHTML.text(modal) =~ "Evaluated"
+    assert LazyHTML.text(modal) =~ "above or below"
+
+    for {id, timestamp} <- [
+          {"observed-time", "2026-01-08T10:20:00Z"},
+          {"bucket-start", "2026-01-08T09:00:00Z"},
+          {"bucket-end", "2026-01-08T10:00:00Z"}
+        ] do
+      time = LazyHTML.query(modal, "#anomaly-capacity-detail-#{id}")
+      assert LazyHTML.attribute(time, "datetime") == [timestamp]
+    end
+
+    panel = LazyHTML.query(modal, "#panel-anomaly-capacity-detail-cpu-seasonal-cpu-0")
+    assert modal |> LazyHTML.query("#panel-anomaly-capacity-detail-cpu-seasonal-cores-1") |> Enum.empty?()
+    band = LazyHTML.query(panel, "[data-testid=timeseries-anomaly-window]")
+    assert LazyHTML.attribute(band, "data-overlay-label") == ["Scored hourly bucket"]
+    marker = LazyHTML.query(panel, "[data-testid=timeseries-overlay-value]")
+    assert LazyHTML.attribute(marker, "data-time-title-iso") == ["2026-01-08T09:30:00Z"]
+
+    assert LazyHTML.attribute(LazyHTML.query(panel, "[data-time-axis-iso]"), "data-time-axis-iso") == [
+             "2026-01-08T07:30:00Z",
+             "2026-01-08T09:30:00Z",
+             "2026-01-08T11:30:00Z"
+           ]
+  end
+
+  test "draws the drift episode window and the baseline it departed from for a drift finding" do
+    episode_started_at = ~U[2026-06-22 13:30:00Z]
+
+    anomaly = %{
+      "id" => "event-drift",
+      "finding_uid" => "finding-drift",
+      "finding_title" => "snmp sustained drift on switch-1",
+      "metric_class" => "snmp",
+      "metric_name" => "ifInUcastPkts",
+      "if_index" => 23,
+      "severity" => "Medium",
+      "status" => "anomaly_update",
+      "time" => "2026-06-22T16:00:00Z",
+      "metadata" => %{
+        "anomaly" => %{
+          "detector_method" => "cusum_drift",
+          "drift_direction" => "upward",
+          "drift_target" => 120.0,
+          "drift_scale" => 15.0,
+          "drift_shift_sigma" => 2.0,
+          "episode_started_at_unix_nano" => DateTime.to_unix(episode_started_at, :nanosecond),
+          "reason" => "sustained upward drift"
+        }
+      }
+    }
+
+    overview = %{
+      status: :ok,
+      anomaly_rows: [anomaly],
+      capacity_rows: [],
+      anomaly_query: "in:events limit:20",
+      capacity_query: "in:capacity_forecasts limit:12",
+      anomaly_filter: %{field: "service_radar_device_uid", label: "device", value: "switch-1"},
+      capacity_filter: %{field: "resource_id", label: "device", value: "switch-1"},
+      anomaly_error: nil,
+      capacity_error: nil,
+      metric_statuses: []
+    }
+
+    # Six hours of samples: the default two-hour focus window would start at 14:00
+    # and hide the 13:30 episode open; a drift focus reaches back to it.
+    points =
+      for minute <- 0..(6 * 60)//10 do
+        {DateTime.add(~U[2026-06-22 10:30:00Z], minute * 60, :second), 120.0 + rem(minute, 7)}
+      end
+
+    metric_sections = [
+      %{
+        key: "interfaces",
+        title: "Interface metrics",
+        subtitle: "selected finding window",
+        error: nil,
+        panels: [
+          %{
+            plugin: Timeseries,
+            id: "if-23",
+            assigns: %{
+              chart_mode: :single,
+              rate_mode: :none,
+              series_points: [{"ifInUcastPkts", points}]
+            }
+          }
+        ]
+      }
+    ]
+
+    html =
+      render_component(&AnomalyCapacityComponents.anomaly_capacity_section/1,
+        overview: overview,
+        detail: %{kind: "anomaly", row: anomaly},
+        metric_sections: metric_sections,
+        timezone: "Etc/UTC"
+      )
+
+    document = LazyHTML.from_fragment(html)
+    panel_selector = "#panel-anomaly-capacity-detail-interfaces-if-23-0"
+
+    assert LazyHTML.attribute(
+             LazyHTML.query(document, "#{panel_selector} [data-testid=timeseries-reference-line]"),
+             "data-reference-label"
+           ) == ["Drift baseline (120)", "Sustained level (+2.0 sigma, 150)"]
+
+    assert LazyHTML.attribute(
+             LazyHTML.query(document, "#{panel_selector} [data-testid=timeseries-anomaly-window]"),
+             "data-overlay-label"
+           ) == ["Drift episode"]
+
+    assert html =~ "shaded band is the drift episode"
+  end
+
+  # The add-on reports the sustained level it measured, in metric units. The
+  # sigma reconstruction (target + shift * scale) is only a fallback for older
+  # verdicts: the anchor scale is refreshed every sample while the center stays
+  # frozen, so the product can overstate the level badly.
+  test "draws the emitted drift level rather than reconstructing it from sigma" do
+    episode_started_at = ~U[2026-06-22 13:30:00Z]
+
+    anomaly = %{
+      "id" => "event-drift-level",
+      "finding_uid" => "finding-drift-level",
+      "finding_title" => "snmp sustained drift on switch-1",
+      "metric_class" => "snmp",
+      "metric_name" => "ifInUcastPkts",
+      "if_index" => 23,
+      "severity" => "Medium",
+      "status" => "open",
+      "time" => "2026-06-22T16:00:00Z",
+      "unmapped" => %{
+        "anomaly" => %{
+          "detector_method" => "cusum_drift",
+          "drift_direction" => "upward",
+          "drift_target" => 120.0,
+          "drift_scale" => 15.0,
+          "drift_shift_sigma" => 2.0,
+          "drift_level" => 140.0,
+          "episode_started_at_unix_nano" => DateTime.to_unix(episode_started_at, :nanosecond)
+        }
+      }
+    }
+
+    overview = %{
+      status: :ok,
+      anomaly_rows: [anomaly],
+      capacity_rows: [],
+      anomaly_query: "in:events limit:20",
+      capacity_query: "in:capacity_forecasts limit:12",
+      anomaly_filter: %{field: "service_radar_device_uid", label: "device", value: "switch-1"},
+      capacity_filter: %{field: "resource_id", label: "device", value: "switch-1"},
+      anomaly_error: nil,
+      capacity_error: nil,
+      metric_statuses: []
+    }
+
+    points =
+      for minute <- 0..(6 * 60)//10 do
+        {DateTime.add(~U[2026-06-22 10:30:00Z], minute * 60, :second), 120.0 + rem(minute, 7)}
+      end
+
+    metric_sections = [
+      %{
+        key: "interfaces",
+        title: "Interface metrics",
+        subtitle: "selected finding window",
+        error: nil,
+        panels: [
+          %{
+            plugin: Timeseries,
+            id: "if-23",
+            assigns: %{
+              chart_mode: :single,
+              rate_mode: :none,
+              series_points: [{"ifInUcastPkts", points}]
+            }
+          }
+        ]
+      }
+    ]
+
+    html =
+      render_component(&AnomalyCapacityComponents.anomaly_capacity_section/1,
+        overview: overview,
+        detail: %{kind: "anomaly", row: anomaly},
+        metric_sections: metric_sections,
+        timezone: "Etc/UTC"
+      )
+
+    document = LazyHTML.from_fragment(html)
+    panel_selector = "#panel-anomaly-capacity-detail-interfaces-if-23-0"
+
+    assert LazyHTML.attribute(
+             LazyHTML.query(document, "#{panel_selector} [data-testid=timeseries-reference-line]"),
+             "data-reference-label"
+           ) == ["Drift baseline (120)", "Sustained level (+2.0 sigma, 140)"]
+  end
+
+  # Rows read back from the events entity keep the verdict payload under
+  # `unmapped.anomaly`, and add-ons before 0.3.8 published no drift target: the
+  # baseline then comes from the seasonal signal when it was ready, else rolling.
+  test "draws the drift band for a live event row whose payload sits under unmapped" do
+    episode_started_at = ~U[2026-06-22 13:30:00Z]
+
+    anomaly = %{
+      "id" => "event-drift-live",
+      "finding_uid" => "finding-drift-live",
+      "finding_title" => "snmp sustained drift on switch-1",
+      "metric_class" => "snmp",
+      "metric_name" => "ifInUcastPkts",
+      "if_index" => 23,
+      "severity" => "Medium",
+      "status" => "open",
+      "time" => "2026-06-22T16:00:00Z",
+      "unmapped" => %{
+        "detector_method" => "cusum_drift",
+        "anomaly" => %{
+          "detector_method" => "cusum_drift",
+          "drift_direction" => "upward",
+          "episode_started_at_unix_nano" => DateTime.to_unix(episode_started_at, :nanosecond),
+          "reason" => "sustained upward drift",
+          "signals" => [
+            %{"name" => "rolling", "ready" => true, "mean" => 120.0, "stddev" => 15.0},
+            %{"name" => "seasonal", "ready" => true, "mean" => 130.0, "stddev" => 9.0}
+          ]
+        }
+      }
+    }
+
+    overview = %{
+      status: :ok,
+      anomaly_rows: [anomaly],
+      capacity_rows: [],
+      anomaly_query: "in:events limit:20",
+      capacity_query: "in:capacity_forecasts limit:12",
+      anomaly_filter: %{field: "service_radar_device_uid", label: "device", value: "switch-1"},
+      capacity_filter: %{field: "resource_id", label: "device", value: "switch-1"},
+      anomaly_error: nil,
+      capacity_error: nil,
+      metric_statuses: []
+    }
+
+    points =
+      for minute <- 0..(6 * 60)//10 do
+        {DateTime.add(~U[2026-06-22 10:30:00Z], minute * 60, :second), 120.0 + rem(minute, 7)}
+      end
+
+    metric_sections = [
+      %{
+        key: "interfaces",
+        title: "Interface metrics",
+        subtitle: "selected finding window",
+        error: nil,
+        panels: [
+          %{
+            plugin: Timeseries,
+            id: "if-23",
+            assigns: %{
+              chart_mode: :single,
+              rate_mode: :none,
+              series_points: [{"ifInUcastPkts", points}]
+            }
+          }
+        ]
+      }
+    ]
+
+    html =
+      render_component(&AnomalyCapacityComponents.anomaly_capacity_section/1,
+        overview: overview,
+        detail: %{kind: "anomaly", row: anomaly},
+        metric_sections: metric_sections,
+        timezone: "Etc/UTC"
+      )
+
+    document = LazyHTML.from_fragment(html)
+    panel_selector = "#panel-anomaly-capacity-detail-interfaces-if-23-0"
+
+    assert LazyHTML.attribute(
+             LazyHTML.query(document, "#{panel_selector} [data-testid=timeseries-reference-line]"),
+             "data-reference-label"
+           ) == ["Drift baseline (130)"]
+
+    assert LazyHTML.attribute(
+             LazyHTML.query(document, "#{panel_selector} [data-testid=timeseries-anomaly-window]"),
+             "data-overlay-label"
+           ) == ["Drift episode"]
+
+    assert html =~ "shaded band is the drift episode"
+  end
+
   test "renders an explicit note when the detail marker is outside the metric context window" do
     capacity = %{
       "finding_title" => "Capacity forecast: memory",
@@ -520,6 +880,117 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
     assert html =~ "data-annotation-window-position=\"after_window\""
     assert html =~ "data-testid=\"timeseries-marker-window-note\""
     assert html =~ "Capacity forecast is after this chart window"
+  end
+
+  test "sorts recent anomaly findings newest-first regardless of finding state" do
+    rows = [
+      confirmed_finding("Confirmed medium finding", "Medium", "2026-09-09T00:21:00Z"),
+      cleared_finding("Older cleared low finding", "Low", "2026-09-09T00:19:00Z"),
+      cleared_finding("Newest cleared low finding", "Low", "2026-09-09T00:24:00Z")
+    ]
+
+    html = render_findings(rows, %{"severity" => "all", "status" => "all", "sort" => "newest"})
+
+    assert_finding_order(html, [
+      "Newest cleared low finding",
+      "Confirmed medium finding",
+      "Older cleared low finding"
+    ])
+  end
+
+  test "sorts recent anomaly findings oldest-first regardless of finding state" do
+    rows = [
+      confirmed_finding("Confirmed medium finding", "Medium", "2026-09-09T00:21:00Z"),
+      cleared_finding("Older cleared low finding", "Low", "2026-09-09T00:19:00Z"),
+      cleared_finding("Newest cleared low finding", "Low", "2026-09-09T00:24:00Z")
+    ]
+
+    html = render_findings(rows, %{"severity" => "all", "status" => "all", "sort" => "oldest"})
+
+    assert_finding_order(html, [
+      "Older cleared low finding",
+      "Confirmed medium finding",
+      "Newest cleared low finding"
+    ])
+  end
+
+  test "sorts recent anomaly findings by severity before recency" do
+    rows = [
+      cleared_finding("Older cleared low finding", "Low", "2026-09-09T00:19:00Z"),
+      cleared_finding("Newest cleared low finding", "Low", "2026-09-09T00:24:00Z"),
+      confirmed_finding("Confirmed medium finding", "Medium", "2026-09-09T00:21:00Z"),
+      cleared_finding("Old cleared high finding", "High", "2026-09-08T23:58:00Z")
+    ]
+
+    html = render_findings(rows, %{"severity" => "all", "status" => "all", "sort" => "severity"})
+
+    assert_finding_order(html, [
+      "Old cleared high finding",
+      "Confirmed medium finding",
+      "Newest cleared low finding",
+      "Older cleared low finding"
+    ])
+  end
+
+  defp render_findings(rows, filters) do
+    overview = %{
+      status: :ok,
+      anomaly_rows: rows,
+      capacity_rows: [],
+      anomaly_query: "in:events limit:20",
+      capacity_query: "in:capacity_forecasts limit:12",
+      anomaly_filter: %{field: "service_radar_device_uid", label: "device", value: "router-1"},
+      capacity_filter: %{field: "resource_id", label: "device", value: "router-1"},
+      anomaly_error: nil,
+      capacity_error: nil,
+      metric_statuses: []
+    }
+
+    render_component(&AnomalyCapacityComponents.anomaly_capacity_section/1,
+      overview: overview,
+      anomaly_filters: filters,
+      timezone: "Etc/UTC"
+    )
+  end
+
+  defp confirmed_finding(title, severity, time) do
+    %{
+      "finding_title" => title,
+      "metric_name" => "ifInUcastPkts",
+      "if_index" => 30,
+      "score" => 4.98,
+      "severity" => severity,
+      "status" => "anomaly_open",
+      "state" => "confirmed",
+      "time" => time
+    }
+  end
+
+  defp cleared_finding(title, severity, time) do
+    %{
+      "finding_title" => title,
+      "episode_uid" => "episode-#{Base.encode16(title, case: :lower)}",
+      "metric_name" => "ifOutUcastPkts",
+      "if_index" => 3,
+      "score" => 3.22,
+      "severity" => severity,
+      "status" => "cleared",
+      "state" => "cleared",
+      "time" => time
+    }
+  end
+
+  defp assert_finding_order(html, titles) do
+    positions =
+      Enum.map(titles, fn title ->
+        case :binary.match(html, title) do
+          {position, _} -> position
+          :nomatch -> flunk("expected finding #{inspect(title)} in rendered findings")
+        end
+      end)
+
+    assert positions == Enum.sort(positions),
+           "expected findings in order #{inspect(titles)}"
   end
 
   defp series_component(name, value), do: "#{name}=#{series_hex(value)}"

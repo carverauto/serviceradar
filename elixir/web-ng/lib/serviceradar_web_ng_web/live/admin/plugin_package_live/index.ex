@@ -1108,9 +1108,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       id
       |> list_assignments(scope)
       |> Enum.reduce([], fn assignment, errors ->
+        # Assignments.delete/2 normalizes destroys to {:ok, _} | {:error, _}.
         case Assignments.delete(assignment.id, scope: scope) do
           {:ok, _} -> errors
-          :ok -> errors
           {:error, error} -> [format_error(error) | errors]
         end
       end)
@@ -1898,6 +1898,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         download_token={@download_token}
         download_expires_at={@download_expires_at}
         plugins_base_path={@plugins_base_path}
+        current_scope={@current_scope}
       />
       <.repository_modal
         show_repository_modal={@show_repository_modal}

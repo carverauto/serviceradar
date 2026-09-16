@@ -15,6 +15,7 @@
 {{- $webNgGodView := default (dict) $webNg.godView -}}
 {{- $webNgFirstPartyImport := default (dict) $webNg.firstPartyPluginImport -}}
 {{- $webNgNativeAddonImport := default (dict) $webNg.nativeAddonImport -}}
+{{- $webNgClientIp := default (dict) $webNg.clientIp -}}
 {{- $controlPlaneRuntime := default (dict) $webNg.controlPlaneRuntime -}}
 {{- $controlPlaneRuntimeEnabled := default false $controlPlaneRuntime.enabled -}}
 {{- $controlPlaneRuntimePort := default 4001 $controlPlaneRuntime.port -}}
@@ -382,6 +383,14 @@ spec:
           value: {{ default "28800" $webNg.mcpRefreshTtlSeconds | quote }}
         - name: SERVICERADAR_DEV_ROUTES
           value: {{ default "false" $webNg.devRoutes | quote }}
+        # Real client IP behind the envoy gateway. Only honored for direct
+        # peers inside SERVICERADAR_TRUSTED_PROXY_CIDRS (see
+        # ServiceRadarWebNG.ClientIP); empty CIDRs keep the secure default
+        # of logging the direct peer address.
+        - name: SERVICERADAR_TRUST_X_FORWARDED_FOR
+          value: {{ default false $webNgClientIp.trustXForwardedFor | quote }}
+        - name: SERVICERADAR_TRUSTED_PROXY_CIDRS
+          value: {{ join "," (default (list) $webNgClientIp.trustedProxyCidrs) | quote }}
         {{- if not (hasKey (default (dict) $webNg.extraEnv) "SERVICERADAR_LOCAL_MAILER") }}
         - name: SERVICERADAR_LOCAL_MAILER
           value: {{ default "false" $webNg.localMailer | quote }}

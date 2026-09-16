@@ -20,13 +20,20 @@ extra_checks = ex_slop_checks ++ ex_dna_checks ++ jump_checks
         excluded: [~r"/_build/", ~r"/deps/", ~r"/node_modules/"]
       },
       plugins: [{AshCredo, []}],
-      requires: ["deps/ex_dna/lib/ex_dna/integrations/credo.ex"],
+      requires: [
+        "deps/ex_dna/lib/ex_dna/integrations/credo.ex",
+        # Shared with serviceradar_core, which owns the check; web-ng defines Oban workers too.
+        "../serviceradar_core/credo/check/warning/oban_worker_name_comparison.ex"
+      ],
       strict: false,
       parse_timeout: 5000,
       color: true,
       checks: %{
         extra: extra_checks,
         enabled: [
+          # Custom checks
+          {ServiceRadar.Credo.Check.Warning.ObanWorkerNameComparison, []},
+
           # Consistency Checks
           {Credo.Check.Consistency.ExceptionNames, []},
           {Credo.Check.Consistency.LineEndings, []},

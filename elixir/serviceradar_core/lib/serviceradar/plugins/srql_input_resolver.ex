@@ -12,10 +12,13 @@ defmodule ServiceRadar.Plugins.SRQLInputResolver do
 
   @supported_entities MapSet.new(["agents", "devices", "interfaces"])
 
+  # Input definitions arrive with atom keys from Elixir callers and tests,
+  # and with string keys from JSON/DB-backed callers (e.g. the producer
+  # schedule dispatcher's target-query input). Normalization accepts both,
+  # so the type admits both shapes.
   @type input_definition :: %{
-          required(:name) => String.t(),
-          required(:entity) => String.t(),
-          required(:query) => String.t()
+          optional(:name | :entity | :query) => String.t(),
+          optional(binary()) => String.t()
         }
 
   @spec resolve([input_definition()], keyword()) ::

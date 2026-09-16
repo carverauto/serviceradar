@@ -20,6 +20,19 @@ defmodule ServiceRadarWebNGWeb.Plugs.RateLimitTest do
   setup do
     # Clear the limiter table between tests so they don't leak state.
     :ets.delete_all_objects(RateLimiter.__table__())
+
+    # Tests that enable x-forwarded-for trust must not leak it: without a
+    # restore, a shuffled order would change IP resolution for other tests.
+    original = Application.get_env(:serviceradar_web_ng, :client_ip)
+
+    on_exit(fn ->
+      if is_nil(original) do
+        Application.delete_env(:serviceradar_web_ng, :client_ip)
+      else
+        Application.put_env(:serviceradar_web_ng, :client_ip, original)
+      end
+    end)
+
     :ok
   end
 
@@ -76,7 +89,12 @@ defmodule ServiceRadarWebNGWeb.Plugs.RateLimitTest do
   end
 
   describe "subject key derivation" do
-    test "honors x-forwarded-for for the client IP" do
+    test "honors x-forwarded-for for the client IP from a trusted proxy" do
+      Application.put_env(:serviceradar_web_ng, :client_ip,
+        trust_x_forwarded_for: true,
+        trusted_proxy_cidrs: ["10.0.0.0/8"]
+      )
+
       opts = RateLimit.init(bucket: :plug_test_xff, limit: 1, window_seconds: 60)
 
       first =
@@ -96,6 +114,53 @@ defmodule ServiceRadarWebNGWeb.Plugs.RateLimitTest do
         |> RateLimit.call(opts)
 
       assert second.halted
+    end
+
+    test "does not fail the request when every forwarded hop is a trusted proxy" do
+      # The v1.4.56 production failure: demo listed all of RFC1918 as trusted proxies, so a
+      # LAN client's own address was stripped as a proxy hop, ClientIP.get/1 raised, and
+      # every rate-limited route was a 500. The plug must fall back to the peer and carry on.
+      Application.put_env(:serviceradar_web_ng, :client_ip,
+        trust_x_forwarded_for: true,
+        trusted_proxy_cidrs: ["10.0.0.0/8", "192.168.0.0/16"]
+      )
+
+      opts = RateLimit.init(bucket: :plug_test_xff_all_trusted, limit: 5, window_seconds: 60)
+
+      conn =
+        :remote_ip
+        |> build_conn({10, 0, 0, 1})
+        |> put_req_header("x-forwarded-for", "192.168.100.7")
+        |> RateLimit.call(opts)
+
+      refute conn.halted
+      assert get_resp_header(conn, "x-ratelimit-remaining") == ["4"]
+    end
+
+    test "ignores spoofed x-forwarded-for from an untrusted peer" do
+      Application.put_env(:serviceradar_web_ng, :client_ip,
+        trust_x_forwarded_for: true,
+        trusted_proxy_cidrs: ["10.0.0.0/8"]
+      )
+
+      opts = RateLimit.init(bucket: :plug_test_xff_spoof, limit: 1, window_seconds: 60)
+
+      first =
+        :remote_ip
+        |> build_conn({203, 0, 113, 1})
+        |> put_req_header("x-forwarded-for", "198.51.100.7")
+        |> RateLimit.call(opts)
+
+      refute first.halted
+
+      # Same spoofed header but a different direct peer: independent bucket.
+      second =
+        :remote_ip
+        |> build_conn({203, 0, 113, 2})
+        |> put_req_header("x-forwarded-for", "198.51.100.7")
+        |> RateLimit.call(opts)
+
+      refute second.halted
     end
 
     test "ip_and_actor keys on (ip, actor_id) so password spraying does not collapse" do

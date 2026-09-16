@@ -11,6 +11,8 @@ defmodule ServiceRadar.Observability do
   ## Resources
 
   - `ServiceRadar.Observability.Log` - Log entries (OCSF-aligned)
+  - `ServiceRadar.Observability.ApiEvent` - Centralized AshEvents audit log for
+    API-first mutable resources (see `add-ash-events-audit-log` design doc)
   - `ServiceRadar.Observability.TimeseriesMetric` - Generic time-series metrics
   - `ServiceRadar.Observability.CpuMetric` - CPU utilization metrics
   - `ServiceRadar.Observability.MemoryMetric` - Memory usage metrics
@@ -35,6 +37,7 @@ defmodule ServiceRadar.Observability do
 
   resources do
     resource ServiceRadar.Observability.Log
+    resource ServiceRadar.Observability.ApiEvent
     resource ServiceRadar.Observability.ZenRule
     resource ServiceRadar.Observability.ZenRuleTemplate
     resource ServiceRadar.Observability.EventRule
@@ -43,6 +46,7 @@ defmodule ServiceRadar.Observability do
     resource ServiceRadar.Observability.StatefulAlertRule
     resource ServiceRadar.Observability.StatefulAlertRuleTemplate
     resource ServiceRadar.Observability.StatefulAlertRuleState
+    resource ServiceRadar.Observability.SeasonalDisposition.ChronologicalState
     resource ServiceRadar.Observability.StatefulAlertRuleHistory
     resource ServiceRadar.Observability.IpGeoEnrichmentCache
     resource ServiceRadar.Observability.IpRdnsCache
@@ -87,6 +91,7 @@ defmodule ServiceRadar.Observability do
     resource ServiceRadar.Observability.ProcessMetricHourly
     resource ServiceRadar.Observability.TimeseriesMetricHourly
     resource ServiceRadar.Observability.TimeseriesMetricInterfaceHourly
+    resource ServiceRadar.Observability.TimeseriesMetricDiskHourly
     resource ServiceRadar.Observability.CapacityForecast
     # MTR resources - map to TimescaleDB hypertables with migrate?: false
     resource ServiceRadar.Observability.MtrTrace

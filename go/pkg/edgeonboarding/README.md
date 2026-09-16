@@ -33,7 +33,7 @@ func main() {
 	// Create bootstrapper with minimal config
 	b, err := edgeonboarding.NewBootstrapper(&edgeonboarding.Config{
 		Token:      "your-onboarding-token-here",
-		KVEndpoint: "23.138.124.23:50057", // Bootstrap config
+		KVEndpoint: "192.0.2.10:50057", // Bootstrap config
 		ServiceType: models.EdgeOnboardingComponentTypeGateway,
 	})
 	if err != nil {
@@ -61,8 +61,8 @@ func main() {
 # Just set a signed onboarding token - everything else is automatic
 docker run \
   -e ONBOARDING_TOKEN=edgepkg-v3:<signed-token> \
-  -e KV_ENDPOINT=23.138.124.23:50057 \
-  ghcr.io/carverauto/serviceradar-agent-gateway:latest
+  -e KV_ENDPOINT=192.0.2.10:50057 \
+  registry.carverauto.dev/serviceradar/serviceradar-agent-gateway:v<version>
 ```
 
 ## Architecture

@@ -76,17 +76,26 @@
 {{- $appPass := include "serviceradar.reuseSecretPassword" (dict "namespace" $ns "name" $appSecretName "fromValues" (default "" $cnpg.password)) -}}
 {{- $superUser := default "postgres" $cnpg.superuserUsername -}}
 {{- $superPass := include "serviceradar.reuseSecretPassword" (dict "namespace" $ns "name" $superSecretName "fromValues" (default "" $cnpg.superuserPassword)) -}}
-{{- $defaultExtensionsSQL := list
-      "CREATE EXTENSION IF NOT EXISTS timescaledb;"
-      "CREATE EXTENSION IF NOT EXISTS age;"
-      "CREATE EXTENSION IF NOT EXISTS postgis;"
-      "CREATE EXTENSION IF NOT EXISTS vector;"
-      (printf "GRANT USAGE ON SCHEMA ag_catalog TO \"%s\";" $appUser)
-      (printf "GRANT ALL ON ALL TABLES IN SCHEMA ag_catalog TO \"%s\";" $appUser)
-      (printf "GRANT ALL ON ALL SEQUENCES IN SCHEMA ag_catalog TO \"%s\";" $appUser)
-      (printf "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA ag_catalog TO \"%s\";" $appUser)
-  -}}
-{{- $extensionsSQL := default $defaultExtensionsSQL $cnpg.extensionsSQL -}}
+{{- /* No extension is created at initdb by default (#454). The core schema baseline and the
+       migrations create every extension in the schema they reference -- `CREATE EXTENSION
+       ... WITH SCHEMA platform`, and ag_catalog for age -- and the migrations job runs them
+       as the CNPG superuser, so nothing has to exist beforehand.
+
+       Creating one here first is what breaks a brand-new database. initdb runs this SQL
+       before any `platform` schema exists, so an unqualified CREATE EXTENSION lands in
+       `public`. The baseline's `CREATE EXTENSION IF NOT EXISTS ... WITH SCHEMA platform` is
+       then a no-op, because IF NOT EXISTS never moves an existing extension (and timescaledb,
+       postgis and age cannot be relocated at all), so every `platform.create_hypertable(...)`
+       the baseline issues fails and the migrations hook never succeeds. Databases that were
+       already initialized are unaffected: CNPG runs postInitApplicationSQL once, at creation.
+
+       The ag_catalog grants that used to follow here are made by core once age exists
+       (StartupMigrations.ensure_ag_catalog_privileges!).
+
+       cnpg.extensionsSQL remains for SQL that genuinely must run at initdb. An extension
+       created through it must be placed where the baseline expects it. An empty list and an
+       unset value both mean "run nothing". */ -}}
+{{- $extensionsSQL := default (list) $cnpg.extensionsSQL -}}
 {{- $clientCASecret := default "" $cnpg.clientCASecret -}}
 {{- if and (not $clientCASecret) $cnpg.requireClientCert }}
   {{- $clientCASecret = "serviceradar-cnpg-client-ca" }}
@@ -133,6 +142,13 @@ metadata:
 spec:
   imageName: {{ include "serviceradar.cnpgImageName" (dict "Values" .Values "Chart" .Chart "cnpg" $cnpg) }}
   instances: {{ default 3 $cnpg.instances }}
+  {{- if and $cnpg.requireResources (or (not $cnpg.resources) (empty $cnpg.resources)) }}
+  {{- fail "cnpg.resources is required when cnpg.requireResources=true" }}
+  {{- end }}
+  {{- with $cnpg.resources }}
+  resources:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   {{- with $cnpg.env }}
   env:
     {{- toYaml . | nindent 4 }}

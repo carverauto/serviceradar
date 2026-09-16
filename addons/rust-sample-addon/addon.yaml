@@ -12,7 +12,7 @@
 # manifest and the runtime agree.
 id: rust-sample
 name: Rust Sample Add-on
-version: 0.1.0
+version: 0.1.1
 description: >-
   Reference Rust native add-on that validates the go-plugin add-on contract from
   a non-Go implementation. Proves the framework's polyglot claim and the
