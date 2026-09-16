@@ -43,11 +43,11 @@
 - [x] 5.5 Define and implement logs/events/alert-history phase with hosted one-year retention; keep current alert state in CNPG. Specify remaining datasets separately before enabling them.
   - Schema + SRQL dialect + shadow destination exist; remaining CNPG-direct history readers dispatch through `Readers.mode_for/1` (`event_window`, dns-policy, anomaly 2004 rows, logs rollup bounds). `in:alerts` stays a capability error. Dataset not enabled.
 - [ ] 5.6 Provision an opt-in read-only StarRocks JDBC catalog `cnpg_platform` onto CNPG `platform` current-state tables used for flow attribution and enrichment (process-correlation current-state, prefix tags, device/inventory identity); pin the PostgreSQL JDBC driver as a Bazel artifact; use a least-privilege CNPG reader role and infrastructure secrets; never expose auth, credentials, Oban or telemetry hypertables.
-  - Allowlist module + Helm `catalog.enabled: false` + documented 0009 SQL (no password, not applied). Driver pin and live CREATE still open.
+  - Allowlist module + Helm `catalog.enabled: false` + documented 0009 SQL (no password, not applied). JDBC 42.7.13 is checksum-pinned at `file://`; live CREATE against lab CNPG still open.
 - [ ] 5.7 Compile authorized SRQL that needs current attribution, prefix tags or device identity as StarRocks joins against the catalog; attribution correlation, exporter cache, maps, threat queries and dashboard flow loaders MUST NOT dual-query CNPG and StarRocks and merge in application code.
   - StarRocks dialect joins `in:attributed_flows` / `hostname` / `prefix_tag` to allowlisted `cnpg_platform.platform` tables. Elixir refuses catalog SQL while `catalog_enabled` is false.
 - [ ] 5.8 Prove synthetic join parity for attribution/enrichment, allowlist misses and catalog/CNPG unavailability as explicit errors; the catalog MUST NOT serve cut-over telemetry from CNPG, MUST NOT invent live process identity from the observation snapshot when current-state was requested, and MUST NOT write back to CNPG. Helm catalog flag stays off until those tests pass.
-  - Unit proofs for join SQL, allowlist misses, and catalog-disabled errors exist. Live FE join parity and JDBC driver image copy remain open. Helm `catalog.enabled` is false.
+  - Unit proofs for join SQL, allowlist misses, catalog-disabled errors, FE connect failure on catalog SQL, and CREATE CATALOG without a baked-in password exist. Live lab FE join and copying the JAR onto FE/BE images remain open. Helm `catalog.enabled` is false.
 
 ## 6. Migration, verification and rollout
 - [x] 6.1 Inventory actual source coverage privately and define historical identity mapping, backfill watermarks/checkpoints and overlap deduplication; do not resume paused recovery blindly.

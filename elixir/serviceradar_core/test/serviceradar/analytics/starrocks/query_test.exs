@@ -51,6 +51,20 @@ defmodule ServiceRadar.Analytics.StarRocks.QueryTest do
     assert rows == [["flow-alpha-0001", 1200]]
   end
 
+  test "catalog join SQL is an HTTP error, never a PostgreSQL fallback" do
+    sql =
+      "SELECT f.id FROM serviceradar.ocsf_network_activity AS f " <>
+        "INNER JOIN cnpg_platform.platform.flow_process_attribution_current AS attr " <>
+        "ON attr.local_ip = f.src_endpoint_ip LIMIT 1"
+
+    http = fn request ->
+      assert Jason.decode!(request.body) == %{"query" => sql}
+      {:error, :connect_failed}
+    end
+
+    assert {:error, :connect_failed} = Query.execute(sql, http: http)
+  end
+
   test "uninjected execute uses HTTP rather than a stub ACK" do
     assert {:error, reason} =
              Query.execute("SELECT 1",

@@ -2,6 +2,7 @@ defmodule ServiceRadar.Analytics.StarRocks.CatalogAllowlistTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadar.Analytics.StarRocks
+  alias ServiceRadar.Analytics.StarRocks.Catalog
   alias ServiceRadar.Analytics.StarRocks.CatalogAllowlist
 
   @moduletag :db_free
@@ -53,6 +54,16 @@ defmodule ServiceRadar.Analytics.StarRocks.CatalogAllowlistTest do
     after
       Application.put_env(:serviceradar_core, StarRocks, prev)
     end
+  end
+
+  test "CREATE CATALOG SQL uses a file driver and omits password by default" do
+    sql = Catalog.create_sql()
+    assert sql =~ "CREATE EXTERNAL CATALOG IF NOT EXISTS cnpg_platform"
+    assert sql =~ ~s("type" = "jdbc")
+    assert sql =~ ~s("driver_url" = "file:///opt/starrocks/jdbc/postgresql.jar")
+    refute sql =~ "password"
+    refute sql =~ "repo1.maven.org"
+    refute sql =~ "network_credential_secrets"
   end
 
   test "catalog_enabled application env does not default on" do

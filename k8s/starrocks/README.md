@@ -15,6 +15,11 @@ Cluster-scoped operator, pinned to chart/operator **1.11.7**. The lab
 StarRocks **3.5.21**. Hosted shared-data (CN + object storage) is not this
 directory.
 
+The CNPG JDBC catalog (`cnpg_platform`) is opt-in and off by default. When it
+is enabled, copy the pinned PostgreSQL JDBC driver to
+`file:///opt/starrocks/jdbc/postgresql.jar` on FE/BE (checksum in
+`third_party/jdbc/postgresql.pin`). Do not let the Frontend download Maven.
+
 The upstream `operator.yaml` is not restricted-PSS compatible. On carverauto an
 unlabeled namespace enforces `restricted:latest`, so a raw apply creates the
 Deployment and then ReplicaSet `FailedCreate` with no pods:
