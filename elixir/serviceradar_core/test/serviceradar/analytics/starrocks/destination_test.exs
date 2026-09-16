@@ -22,6 +22,47 @@ defmodule ServiceRadar.Analytics.StarRocks.DestinationTest do
     }
   ]
 
+  test "binary UUID log ids encode as JSON-safe hyphenated UUIDs" do
+    {:ok, bin} = Ecto.UUID.dump("550e8400-e29b-41d4-a716-446655440000")
+
+    assert Identity.record_id(:logs, %{id: bin, timestamp: ~U[2026-01-15 10:00:01Z]}) ==
+             "550e8400-e29b-41d4-a716-446655440000"
+
+    encoded =
+      ServiceRadar.Analytics.StarRocks.Rows.encode(:logs, [
+        %{id: bin, timestamp: ~U[2026-01-15 10:00:01Z], body: "synthetic uuid log"}
+      ])
+
+    assert hd(encoded)["id"] == "550e8400-e29b-41d4-a716-446655440000"
+    assert {:ok, _} = Jason.encode(encoded)
+  end
+
+  test "shadow persist crash does not fail ACK while cutover is empty" do
+    prev = Application.get_env(:serviceradar_core, StarRocks, [])
+
+    Application.put_env(
+      :serviceradar_core,
+      StarRocks,
+      prev
+      |> Keyword.put(:enabled, true)
+      |> Keyword.put(:shadow_datasets, [:logs])
+      |> Keyword.put(:cutover_datasets, [])
+    )
+
+    try do
+      persist = fn _table, _rows, _opts -> raise "stream load unavailable" end
+
+      assert {:ok, :disabled} =
+               Destination.persist_after_cnpg(
+                 :logs,
+                 [%{id: "log-alpha-0001", timestamp: ~U[2026-01-15 10:00:01Z], body: "x"}],
+                 persist: persist
+               )
+    after
+      Application.put_env(:serviceradar_core, StarRocks, prev)
+    end
+  end
+
   test "flow identity is the observation, not only the five-tuple" do
     shared = %{
       src_endpoint_ip: "192.0.2.10",

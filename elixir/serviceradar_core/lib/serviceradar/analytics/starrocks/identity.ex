@@ -12,9 +12,23 @@ defmodule ServiceRadar.Analytics.StarRocks.Identity do
   @spec record_id(dataset(), map()) :: String.t()
   def record_id(_dataset, row) when is_map(row) do
     case field(row, :id) do
-      id when is_binary(id) and id != "" -> id
-      id when is_integer(id) -> Integer.to_string(id)
-      _ -> hash_observation(row)
+      id when is_integer(id) ->
+        Integer.to_string(id)
+
+      id when is_binary(id) and byte_size(id) == 16 ->
+        # EventWriter log/event rows store raw UUID bytes for CNPG. Those are
+        # not valid UTF-8; Jason.encode! of that id crashes Stream Load and
+        # the batch never reaches StarRocks.
+        case Ecto.UUID.load(id) do
+          {:ok, uuid} -> uuid
+          :error -> hash_observation(row)
+        end
+
+      id when is_binary(id) and id != "" ->
+        if String.valid?(id), do: id, else: hash_observation(row)
+
+      _ ->
+        hash_observation(row)
     end
   end
 

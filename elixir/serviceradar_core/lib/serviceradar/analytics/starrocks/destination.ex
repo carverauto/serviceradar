@@ -76,7 +76,18 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
         |> Keyword.put(:require_all, true)
       )
     else
-      maybe_shadow(dataset, rows, opts)
+      case maybe_shadow(dataset, rows, opts) do
+        {:error, reason} ->
+          Logger.warning("StarRocks shadow persist failed",
+            dataset: dataset,
+            error: inspect(reason)
+          )
+
+          {:ok, :disabled}
+
+        other ->
+          other
+      end
     end
   end
 
