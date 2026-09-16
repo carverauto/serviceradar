@@ -26,7 +26,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowSummary do
          {:ok, total} <- scalar(srql_module, base, scope, "count(*) as total", "total"),
          {:ok, bytes} <- scalar(srql_module, base, scope, "sum(bytes_total) as total_bytes", "total_bytes"),
          {:ok, packets} <- scalar(srql_module, base, scope, "sum(packets_total) as total_packets", "total_packets"),
-         {:ok, protocols} <- rows(srql_module, ~s|#{base} stats:"count(*) as total by protocol_num" limit:256|, scope),
+         {:ok, protocols} <-
+           rows(srql_module, ~s|#{base} proto:(6,17) stats:"count(*) as total by protocol_num" limit:2|, scope),
          :ok <- consistent_totals(total, protocols, observed_rows?) do
       tcp = protocol_count(protocols, 6)
       udp = protocol_count(protocols, 17)

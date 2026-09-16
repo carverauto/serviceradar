@@ -39,9 +39,30 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowSummaryTest do
       refute query =~ "sort:time:desc"
       refute query =~ "sum(packets)"
       refute query =~ "packets_in"
+
+      if query =~ "by protocol_num" do
+        assert query =~ "proto:(6,17)"
+        assert query =~ "limit:2"
+      else
+        refute query =~ "proto:(6,17)"
+      end
     end
 
     refute_receive {:query, _, _}
+  end
+
+  test "protocol breakdown narrows existing filters and keeps other-only traffic in the scalar total" do
+    responses([[%{"total" => 8}], [%{"total_bytes" => 800}], [%{"total_packets" => 8}], []])
+
+    assert {:ok, %{total: 8, tcp: 0, udp: 0, other: 8}} =
+             NetflowSummary.load(__MODULE__, "in:flows time:last_7d proto:1", @scope)
+
+    for _ <- 1..4 do
+      assert_receive {:query, query, %{scope: @scope}}
+      assert query =~ "proto:1"
+
+      if query =~ "by protocol_num", do: assert(query =~ "proto:(6,17)")
+    end
   end
 
   test "empty materialized totals with real page observations fail instead of reporting the page size" do

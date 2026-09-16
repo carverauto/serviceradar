@@ -95,7 +95,7 @@ fn build_grouped_stats_query(
     }
 
     if let Some(TimeRange { start, end }) = &plan.time_range {
-        // ocsf_network_activity.time is a timestamp without timezone storing UTC; normalize the bind.
+        // Flow event times are timestamptz; preserve the exact half-open requested window.
         where_parts.push("f.time >= ?::timestamptz AND f.time < ?::timestamptz".to_string());
         binds.push(FlowSqlBindValue::Timestamp(*start));
         binds.push(FlowSqlBindValue::Timestamp(*end));
@@ -152,21 +152,18 @@ fn build_grouped_stats_query(
     // Check if this query can be served from a CAGG
     let cagg_route = should_route_flow_stats_to_cagg(plan, spec);
 
-    let (from_table, time_col) = if let Some((cagg_table, ts_col)) = cagg_route {
-        (cagg_table, ts_col)
+    let from_table = if let Some((cagg_table, _)) = cagg_route {
+        super::cagg::source_sql(cagg_table, spec, plan)
     } else {
-        ("ocsf_network_activity", "time")
+        "ocsf_network_activity".to_string()
     };
 
-    // For CAGG-routed queries, rewrite time predicates to use the bucket column
-    // and re-add only the dimension-safe filters validated by should_route_flow_stats_to_cagg.
+    // The derived relation owns the two time binds. Filters apply once to
+    // reconstructed raw dimension values after both stores of rows combine.
     if cagg_route.is_some() {
         where_parts.clear();
         binds.clear();
         if let Some(TimeRange { start, end }) = &plan.time_range {
-            where_parts.push(format!(
-                "f.{time_col} >= ?::timestamptz AND f.{time_col} < ?::timestamptz"
-            ));
             binds.push(FlowSqlBindValue::Timestamp(*start));
             binds.push(FlowSqlBindValue::Timestamp(*end));
         }
@@ -191,7 +188,7 @@ fn build_grouped_stats_query(
                 && matches!(agg.agg_func, FlowAggFunc::Count)
                 && matches!(agg.agg_field, FlowAggField::Star)
             {
-                Ok("SUM(flow_count)".to_string())
+                Ok("COALESCE(SUM(flow_count), 0)".to_string())
             } else if matches!(agg.agg_func, FlowAggFunc::CountDistinct) {
                 if matches!(agg.agg_field, FlowAggField::Star) {
                     return Err(ServiceError::InvalidRequest(

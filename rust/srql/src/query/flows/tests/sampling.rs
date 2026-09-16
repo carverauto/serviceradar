@@ -113,8 +113,9 @@ fn flow_cagg_stats_read_pre_scaled_volume_columns() {
         "expected CAGG route to use pre-scaled bytes_total: {sql}"
     );
     assert!(
-        !sql.contains("sampling_rate"),
-        "CAGGs do not carry sampling_rate; they store scaled volume: {sql}"
+        sql.contains("f.bytes_total::double precision AS bytes_total")
+            && sql.contains("GREATEST(COALESCE(f.sampling_rate, 1), 1)"),
+        "CAGG values must stay pre-scaled while raw edges use sampling_rate: {sql}"
     );
 }
 
