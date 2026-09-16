@@ -179,6 +179,60 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
     refute body =~ "platform.timeseries_metrics"
   end
 
+  test "attributed flow queries error when the JDBC catalog is disabled", %{prev: prev} do
+    http = fn _request ->
+      flunk("catalog-disabled attributed_flows must not call StarRocks HTTP")
+    end
+
+    Application.put_env(
+      :serviceradar_core,
+      ServiceRadar.Analytics.StarRocks,
+      prev
+      |> Keyword.put(:cutover_datasets, [:flows])
+      |> Keyword.put(:query_http, http)
+    )
+
+    assert {:error, {:starrocks_catalog_disabled, "cnpg_platform"}} =
+             SRQL.query("in:attributed_flows time:last_1h limit:1", %{scope: @scope})
+  end
+
+  test "attributed flow queries execute catalog joins when the catalog is enabled",
+       %{prev: prev} do
+    parent = self()
+
+    http = fn request ->
+      send(parent, {:starrocks_query, request.body})
+
+      {:ok,
+       %{
+         status: 200,
+         body:
+           Jason.encode!(%{
+             "meta" => [%{"name" => "id"}, %{"name" => "comm"}],
+             "data" => [["flow-alpha-0001", "sshd"]]
+           })
+       }}
+    end
+
+    Application.put_env(
+      :serviceradar_core,
+      ServiceRadar.Analytics.StarRocks,
+      prev
+      |> Keyword.put(:cutover_datasets, [:flows])
+      |> Keyword.put(:catalog_enabled, true)
+      |> Keyword.put(:query_http, http)
+    )
+
+    assert {:ok, %{"results" => [row], "error" => nil}} =
+             SRQL.query("in:attributed_flows time:last_1h limit:1", %{scope: @scope})
+
+    assert row["id"] == "flow-alpha-0001"
+    assert_received {:starrocks_query, body}
+    assert body =~ "cnpg_platform.platform.flow_process_attribution_current"
+    refute body =~ "platform.ocsf_network_activity"
+    refute body =~ "network_credential_secrets"
+  end
+
   test "authorized log and event queries execute StarRocks SQL when those datasets are cut over",
        %{prev: prev} do
     parent = self()

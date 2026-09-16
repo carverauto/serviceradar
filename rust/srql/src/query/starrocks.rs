@@ -1,4 +1,4 @@
-use super::{types::BindParam, PaginationMeta, QueryPlan, QueryResponse, TranslateResponse};
+use super::{PaginationMeta, QueryPlan, QueryResponse, TranslateResponse, types::BindParam};
 use crate::{
     error::{Result, ServiceError},
     parser::{Entity, Filter, StatsAggType, StatsAggregation},
@@ -58,7 +58,6 @@ impl HttpSqlExecutor {
             password: std::env::var("STARROCKS_PASSWORD").unwrap_or_default(),
         })
     }
-
 }
 
 impl SqlExecutor for HttpSqlExecutor {
@@ -68,8 +67,9 @@ impl SqlExecutor for HttpSqlExecutor {
             self.fe_http.trim_end_matches('/'),
             self.database
         );
-        let body = serde_json::to_vec(&serde_json::json!({ "query": sql }))
-            .map_err(|err| ServiceError::Internal(anyhow::anyhow!("starrocks_http_encode: {err}")))?;
+        let body = serde_json::to_vec(&serde_json::json!({ "query": sql })).map_err(|err| {
+            ServiceError::Internal(anyhow::anyhow!("starrocks_http_encode: {err}"))
+        })?;
         let response = ureq::post(&url)
             .header(
                 "authorization",
@@ -174,7 +174,8 @@ fn dataset_for(entity: &Entity) -> Option<Dataset> {
 }
 
 fn dataset_sql(plan: &QueryPlan, dataset: Dataset) -> Result<TranslateResponse> {
-    let use_hourly = should_use_hourly_mv(plan, dataset);
+    let joins = catalog_joins(plan, dataset)?;
+    let use_hourly = joins.is_empty() && should_use_hourly_mv(plan, dataset);
     let table = if use_hourly {
         dataset.hourly_table.unwrap_or(dataset.raw_table)
     } else {
@@ -186,9 +187,10 @@ fn dataset_sql(plan: &QueryPlan, dataset: Dataset) -> Result<TranslateResponse> 
         dataset.time_column
     };
     let (select, group) = stats_select(plan, use_hourly)?;
-    let (where_sql, params) = time_predicate(plan, time_column);
+    let from = from_with_catalog_joins(table, &joins);
+    let (where_sql, params) = time_predicate(plan, time_column, !joins.is_empty());
     let sql = format!(
-        "SELECT {select} FROM {table}{where_sql}{group} LIMIT {limit}",
+        "SELECT {select} FROM {from}{where_sql}{group} LIMIT {limit}",
         limit = plan.limit.max(1)
     );
 
@@ -202,6 +204,98 @@ fn dataset_sql(plan: &QueryPlan, dataset: Dataset) -> Result<TranslateResponse> 
         },
         viz: None,
     })
+}
+
+const CNPG_CATALOG: &str = "cnpg_platform.platform";
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CatalogJoin {
+    Attribution,
+    PrefixTags,
+    Devices,
+}
+
+impl CatalogJoin {
+    fn table(self) -> &'static str {
+        match self {
+            Self::Attribution => "flow_process_attribution_current",
+            Self::PrefixTags => "prefix_tags",
+            Self::Devices => "ocsf_devices",
+        }
+    }
+
+    fn sql(self) -> &'static str {
+        match self {
+            Self::Attribution => {
+                "INNER JOIN cnpg_platform.platform.flow_process_attribution_current AS attr ON attr.local_ip = f.src_endpoint_ip AND attr.remote_ip = f.dst_endpoint_ip"
+            }
+            Self::PrefixTags => {
+                "LEFT JOIN cnpg_platform.platform.prefix_tags AS tags ON tags.prefix = concat(f.src_endpoint_ip, '/32')"
+            }
+            Self::Devices => {
+                "LEFT JOIN cnpg_platform.platform.ocsf_devices AS dev ON dev.uid = f.device_uid"
+            }
+        }
+    }
+}
+
+fn catalog_joins(plan: &QueryPlan, dataset: Dataset) -> Result<Vec<CatalogJoin>> {
+    let wants_attribution = matches!(plan.entity, Entity::AttributedFlows);
+    let wants_prefix = plan_mentions(plan, &["prefix_tag", "live_prefix_tag"]);
+    let wants_device = plan_mentions(plan, &["hostname", "device_name"]);
+    if !(wants_attribution || wants_prefix || wants_device) {
+        return Ok(Vec::new());
+    }
+    if dataset.raw_table != "serviceradar.ocsf_network_activity" {
+        return Err(ServiceError::NotImplemented(
+            "starrocks_catalog_unsupported_entity".to_string(),
+        ));
+    }
+    let mut joins = Vec::new();
+    if wants_attribution {
+        joins.push(CatalogJoin::Attribution);
+    }
+    if wants_prefix {
+        joins.push(CatalogJoin::PrefixTags);
+    }
+    if wants_device {
+        joins.push(CatalogJoin::Devices);
+    }
+    let _ = CNPG_CATALOG;
+    Ok(joins)
+}
+
+fn plan_mentions(plan: &QueryPlan, fields: &[&str]) -> bool {
+    let hit = |name: &str| {
+        let name = name.to_ascii_lowercase();
+        fields.iter().any(|field| name == *field)
+    };
+    if plan.filters.iter().any(|filter| hit(&filter.field)) {
+        return true;
+    }
+    if let Some(stats) = plan.stats.as_ref() {
+        let raw = stats.as_raw().to_ascii_lowercase();
+        if fields.iter().any(|field| {
+            raw.split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+                .any(|tok| tok == *field)
+        }) {
+            return true;
+        }
+    }
+    false
+}
+
+fn from_with_catalog_joins(table: &str, joins: &[CatalogJoin]) -> String {
+    if joins.is_empty() {
+        return table.to_string();
+    }
+    let mut from = format!("{table} AS f");
+    for join in joins {
+        from.push(' ');
+        from.push_str(join.sql());
+        let _ = join.table();
+    }
+    from
 }
 
 fn should_use_hourly_mv(plan: &QueryPlan, dataset: Dataset) -> bool {
@@ -308,9 +402,7 @@ fn hourly_agg(agg_type: &StatsAggType, field: &str) -> Result<String> {
     match (agg_type, field) {
         (StatsAggType::Sum, "bytes_in") => Ok("SUM(bytes_in)".to_string()),
         (StatsAggType::Sum, "bytes_out") => Ok("SUM(bytes_out)".to_string()),
-        (StatsAggType::Sum, "bytes_total") => {
-            Ok("SUM(bytes_in) + SUM(bytes_out)".to_string())
-        }
+        (StatsAggType::Sum, "bytes_total") => Ok("SUM(bytes_in) + SUM(bytes_out)".to_string()),
         (StatsAggType::Sum, "packets_total") => {
             Ok("SUM(packets_in) + SUM(packets_out)".to_string())
         }
@@ -331,11 +423,20 @@ fn hourly_agg(agg_type: &StatsAggType, field: &str) -> Result<String> {
     }
 }
 
-fn time_predicate(plan: &QueryPlan, time_column: &str) -> (String, Vec<BindParam>) {
+fn time_predicate(
+    plan: &QueryPlan,
+    time_column: &str,
+    qualify_flow: bool,
+) -> (String, Vec<BindParam>) {
+    let column = if qualify_flow {
+        format!("f.`{time_column}`")
+    } else {
+        format!("`{time_column}`")
+    };
     match &plan.time_range {
         Some(range) => (
             format!(
-                " WHERE `{time_column}` >= '{}' AND `{time_column}` < '{}'",
+                " WHERE {column} >= '{}' AND {column} < '{}'",
                 range.start.to_rfc3339_opts(SecondsFormat::Secs, true),
                 range.end.to_rfc3339_opts(SecondsFormat::Secs, true)
             ),
@@ -349,7 +450,7 @@ fn time_predicate(plan: &QueryPlan, time_column: &str) -> (String, Vec<BindParam
             let start = end - chrono::Duration::hours(1);
             (
                 format!(
-                    " WHERE `{time_column}` >= '{}' AND `{time_column}` < '{}'",
+                    " WHERE {column} >= '{}' AND {column} < '{}'",
                     start.to_rfc3339_opts(SecondsFormat::Secs, true),
                     end.to_rfc3339_opts(SecondsFormat::Secs, true)
                 ),
@@ -364,7 +465,7 @@ mod tests {
     use super::*;
     use crate::config::AppConfig;
     use crate::parser;
-    use crate::query::{build_query_plan, QueryDirection, QueryRequest};
+    use crate::query::{QueryDirection, QueryRequest, build_query_plan};
     use std::time::Duration as StdDuration;
 
     fn config() -> AppConfig {
@@ -409,11 +510,21 @@ mod tests {
             r#"in:flows time:last_1h stats:"sum(bytes_total) as bytes_total, sum(packets_total) as packets_total, count(*) as flow_count by src_endpoint_ip,dst_endpoint_ip" limit:120"#,
         ))
         .expect("compile");
-        assert!(compiled
-            .sql
-            .contains("FROM serviceradar.ocsf_network_activity"));
-        assert!(compiled.sql.contains("COALESCE(bytes_in, 0) + COALESCE(bytes_out, 0)"));
-        assert!(compiled.sql.contains("GROUP BY src_endpoint_ip,dst_endpoint_ip"));
+        assert!(
+            compiled
+                .sql
+                .contains("FROM serviceradar.ocsf_network_activity")
+        );
+        assert!(
+            compiled
+                .sql
+                .contains("COALESCE(bytes_in, 0) + COALESCE(bytes_out, 0)")
+        );
+        assert!(
+            compiled
+                .sql
+                .contains("GROUP BY src_endpoint_ip,dst_endpoint_ip")
+        );
         assert!(!compiled.sql.contains("ocsf_network_activity_hourly"));
         refute_postgres(&compiled.sql);
     }
@@ -424,9 +535,11 @@ mod tests {
             r#"in:flows time:last_1h stats:"sum(bytes_in) as bytes_in" limit:10"#,
         ))
         .expect("compile");
-        assert!(compiled
-            .sql
-            .contains("FROM serviceradar.ocsf_network_activity"));
+        assert!(
+            compiled
+                .sql
+                .contains("FROM serviceradar.ocsf_network_activity")
+        );
         assert!(compiled.sql.contains("SUM(bytes_in) AS bytes_in"));
         assert!(compiled.sql.contains("LIMIT 10"));
         refute_postgres(&compiled.sql);
@@ -438,9 +551,11 @@ mod tests {
             r#"in:flows time:last_7d stats:"sum(bytes_in) as bytes_in" limit:10"#,
         ))
         .expect("compile");
-        assert!(compiled
-            .sql
-            .contains("FROM serviceradar.ocsf_network_activity_hourly"));
+        assert!(
+            compiled
+                .sql
+                .contains("FROM serviceradar.ocsf_network_activity_hourly")
+        );
         assert!(compiled.sql.contains("SUM(bytes_in) AS bytes_in"));
         refute_postgres(&compiled.sql);
     }
@@ -468,9 +583,11 @@ mod tests {
             r#"in:timeseries_metrics time:last_1h stats:"avg(value) as avg_value" limit:20"#,
         ))
         .expect("compile");
-        assert!(compiled
-            .sql
-            .contains("FROM serviceradar.timeseries_metrics"));
+        assert!(
+            compiled
+                .sql
+                .contains("FROM serviceradar.timeseries_metrics")
+        );
         assert!(compiled.sql.contains("AVG(value) AS avg_value"));
         refute_postgres(&compiled.sql);
     }
@@ -481,9 +598,11 @@ mod tests {
             r#"in:cpu_metrics time:last_7d stats:"avg(usage_percent) as avg_usage" limit:20"#,
         ))
         .expect("compile");
-        assert!(compiled
-            .sql
-            .contains("FROM serviceradar.timeseries_metrics_hourly"));
+        assert!(
+            compiled
+                .sql
+                .contains("FROM serviceradar.timeseries_metrics_hourly")
+        );
         refute_postgres(&compiled.sql);
     }
 
@@ -498,6 +617,68 @@ mod tests {
         assert!(events.sql.contains("`time`"));
         refute_postgres(&logs.sql);
         refute_postgres(&events.sql);
+    }
+
+    #[test]
+    fn attributed_flows_join_cnpg_attribution_current_state() {
+        let compiled =
+            translate(&plan("in:attributed_flows time:last_1h limit:5")).expect("compile");
+        assert!(
+            compiled
+                .sql
+                .contains("FROM serviceradar.ocsf_network_activity AS f")
+        );
+        assert!(
+            compiled
+                .sql
+                .contains("cnpg_platform.platform.flow_process_attribution_current AS attr")
+        );
+        assert!(compiled.sql.contains("attr.local_ip = f.src_endpoint_ip"));
+        assert!(!compiled.sql.contains("ocsf_network_activity_hourly"));
+        assert!(!compiled.sql.contains("network_credential_secrets"));
+        assert!(!compiled.sql.contains("platform.logs"));
+        refute_postgres(&compiled.sql);
+    }
+
+    #[test]
+    fn flow_hostname_join_cnpg_devices() {
+        let compiled = translate(&plan(
+            r#"in:flows hostname:host-alpha time:last_1h stats:"sum(bytes_in) as bytes_in" limit:10"#,
+        ))
+        .expect("compile");
+        assert!(
+            compiled
+                .sql
+                .contains("cnpg_platform.platform.ocsf_devices AS dev")
+        );
+        assert!(compiled.sql.contains("dev.uid = f.device_uid"));
+        refute_postgres(&compiled.sql);
+    }
+
+    #[test]
+    fn flow_prefix_tag_join_cnpg_prefix_tags() {
+        let compiled = translate(&plan(
+            r#"in:flows prefix_tag:dns-policy:hit time:last_1h limit:10"#,
+        ))
+        .expect("compile");
+        assert!(
+            compiled
+                .sql
+                .contains("cnpg_platform.platform.prefix_tags AS tags")
+        );
+        assert!(!compiled.sql.contains("cnpg_platform.platform.logs"));
+        refute_postgres(&compiled.sql);
+    }
+
+    #[test]
+    fn plain_flows_do_not_join_the_cnpg_catalog() {
+        let compiled = translate(&plan("in:flows time:last_1h limit:5")).expect("compile");
+        assert!(!compiled.sql.contains("cnpg_platform"));
+        assert!(
+            compiled
+                .sql
+                .contains("FROM serviceradar.ocsf_network_activity")
+        );
     }
 
     #[test]

@@ -2536,6 +2536,8 @@ analytics:
     catalog:
       enabled: false
       name: cnpg_platform
+      driverClass: org.postgresql.Driver
+      driverUrl: "file:///opt/starrocks/jdbc/postgresql.jar"
 
 spiffe:
   mode: "filesystem"

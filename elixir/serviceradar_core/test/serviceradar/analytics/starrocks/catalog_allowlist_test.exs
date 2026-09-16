@@ -29,6 +29,32 @@ defmodule ServiceRadar.Analytics.StarRocks.CatalogAllowlistTest do
     end
   end
 
+  test "compiled catalog SQL is refused while the Helm flag is off" do
+    sql =
+      "SELECT f.id FROM serviceradar.ocsf_network_activity AS f " <>
+        "INNER JOIN cnpg_platform.platform.flow_process_attribution_current AS attr " <>
+        "ON attr.local_ip = f.src_endpoint_ip"
+
+    assert {:error, {:starrocks_catalog_disabled, "cnpg_platform"}} =
+             CatalogAllowlist.assert_sql_executable(sql)
+  end
+
+  test "SQL naming a forbidden CNPG table is rejected even if the catalog is on" do
+    prev = Application.get_env(:serviceradar_core, StarRocks, [])
+
+    try do
+      Application.put_env(:serviceradar_core, StarRocks, Keyword.put(prev, :catalog_enabled, true))
+
+      sql =
+        "SELECT 1 FROM cnpg_platform.platform.network_credential_secrets"
+
+      assert {:error, {:not_allowlisted, "network_credential_secrets"}} =
+               CatalogAllowlist.assert_sql_executable(sql)
+    after
+      Application.put_env(:serviceradar_core, StarRocks, prev)
+    end
+  end
+
   test "catalog_enabled application env does not default on" do
     prev = Application.get_env(:serviceradar_core, StarRocks, [])
 

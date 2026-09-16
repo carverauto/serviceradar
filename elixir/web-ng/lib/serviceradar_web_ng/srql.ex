@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNG.SRQL do
     exports: :all
 
   alias Ecto.Adapters.SQL
+  alias ServiceRadar.Analytics.StarRocks.CatalogAllowlist
   alias ServiceRadar.Analytics.StarRocks.Query, as: StarRocksQuery
   alias ServiceRadar.Analytics.StarRocks.Readers
   alias ServiceRadar.Repo
@@ -139,16 +140,20 @@ defmodule ServiceRadarWebNG.SRQL do
   end
 
   defp execute_backend(%{"sql" => sql} = translation, "starrocks") when is_binary(sql) do
-    case StarRocksQuery.execute(sql) do
-      {:ok, result} -> {:ok, build_response(translation, result)}
-      {:error, reason} -> {:error, reason}
+    with :ok <- CatalogAllowlist.assert_sql_executable(sql) do
+      case StarRocksQuery.execute(sql) do
+        {:ok, result} -> {:ok, build_response(translation, result)}
+        {:error, reason} -> {:error, reason}
+      end
     end
   end
 
   defp execute_backend(translation, _mode), do: execute_translation(translation)
 
   defp execute_backend_raw(%{"sql" => sql}, "starrocks") when is_binary(sql) do
-    StarRocksQuery.execute(sql)
+    with :ok <- CatalogAllowlist.assert_sql_executable(sql) do
+      StarRocksQuery.execute(sql)
+    end
   end
 
   defp execute_backend_raw(translation, _mode), do: execute_translation_raw(translation)

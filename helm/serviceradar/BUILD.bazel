@@ -89,6 +89,7 @@ py_test(
         "values.yaml",
         "//k8s/starrocks:cluster_files",
         "//elixir/serviceradar_core/priv/starrocks:schema_sql",
+        "//third_party/jdbc:postgresql.pin",
     ],
 )
 

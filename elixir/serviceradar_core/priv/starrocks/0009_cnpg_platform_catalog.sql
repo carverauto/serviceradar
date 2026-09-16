@@ -12,6 +12,8 @@
 --   "driver_class" = "org.postgresql.Driver",
 --   "driver_url" = "file:///opt/starrocks/jdbc/postgresql.jar"
 -- );
+-- Driver runtime path is file:// (helm analytics.starrocks.catalog.driverUrl
+-- and third_party/jdbc/postgresql.pin). FE must not download Maven at CREATE.
 --
 -- Allowlisted platform tables only:
 --   flow_process_attribution_current

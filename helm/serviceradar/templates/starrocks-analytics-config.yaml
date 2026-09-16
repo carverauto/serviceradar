@@ -28,4 +28,6 @@ data:
   cutoverDatasets: {{ $sr.cutoverDatasets | default list | join "," | quote }}
   catalogEnabled: {{ dig "catalog" "enabled" false $sr | quote }}
   catalogName: {{ dig "catalog" "name" "cnpg_platform" $sr | quote }}
+  catalogDriverClass: {{ dig "catalog" "driverClass" "org.postgresql.Driver" $sr | quote }}
+  catalogDriverUrl: {{ dig "catalog" "driverUrl" "file:///opt/starrocks/jdbc/postgresql.jar" $sr | quote }}
 {{- end }}

@@ -57,4 +57,26 @@ defmodule ServiceRadar.Analytics.StarRocks.CatalogAllowlist do
       {:error, :not_allowlisted}
     end
   end
+
+  @spec assert_sql_executable(String.t()) :: :ok | {:error, term()}
+  def assert_sql_executable(sql) when is_binary(sql) do
+    if String.contains?(sql, @catalog) and not enabled?() do
+      {:error, {:starrocks_catalog_disabled, @catalog}}
+    else
+      assert_sql_allowlisted(sql)
+    end
+  end
+
+  @spec assert_sql_allowlisted(String.t()) :: :ok | {:error, term()}
+  def assert_sql_allowlisted(sql) when is_binary(sql) do
+    ~r/#{@catalog}\.#{@schema}\.([A-Za-z0-9_]+)/
+    |> Regex.scan(sql)
+    |> Enum.reduce_while(:ok, fn [_, table], _acc ->
+      if allowed?(table) do
+        {:cont, :ok}
+      else
+        {:halt, {:error, {:not_allowlisted, table}}}
+      end
+    end)
+  end
 end
