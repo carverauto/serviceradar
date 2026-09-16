@@ -1,0 +1,43 @@
+# StarRocks Kubernetes operator. Chart: operator 1.11.7
+# (https://starrocks.github.io/starrocks-kubernetes-operator).
+#
+# Operator only. A StarRocksCluster CR belongs in a separate values file and a
+# separate namespace; see README.md.
+#
+# Deploy:
+#   kubectl apply -f k8s/starrocks/namespace.yaml
+#   helm upgrade --install kube-starrocks-operator starrocks/operator \
+#     --namespace starrocks --version 1.11.7 -f k8s/starrocks/values.yaml
+
+timeZone: UTC
+
+# Keep the resource names the upstream operator.yaml uses (kube-starrocks-operator,
+# ClusterRole kube-starrocks-operator) so a Helm install can take over an existing
+# kubectl-applied operator.
+nameOverride: kube-starrocks
+
+starrocksOperator:
+  enabled: true
+  image:
+    repository: starrocks/operator
+    tag: v1.11.7
+  imagePullPolicy: IfNotPresent
+  replicaCount: 1
+  resources:
+    limits:
+      cpu: 500m
+      memory: 800Mi
+    requests:
+      cpu: 500m
+      memory: 400Mi
+  # Chart default omits drop ALL and seccompProfile. Restricted PSS rejects the
+  # pod without both; this is the whole reason this file exists.
+  securityContext:
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+    seccompProfile:
+      type: RuntimeDefault
