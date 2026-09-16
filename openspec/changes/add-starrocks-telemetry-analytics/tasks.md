@@ -37,6 +37,7 @@
 
 ## 5. Authorized queries and dashboard acceleration
 - [x] 5.1 Add backend-aware SRQL compilation and nonblocking execution with parameter binding, feature capability checks, stable result/cursor/Arrow contracts and existing authorization boundaries.
+  - Elixir `Query.execute/2` submits compiled StarRocks SQL over pooled MyXQL to FE:9030 (text protocol). Stream Load HTTP remains the EventWriter write path.
 - [x] 5.2 Add scoped query caching only where measured; verify tenant isolation and revoked-access behavior.
 - [x] 5.3 Implement time-bucket MVs/aggregate routing, freshness detection, disjoint raw edges and raw fallback for unsupported filters/classification; prove EXPLAIN selection and exact parity.
 - [ ] 5.4 Migrate all flow readers including attribution/exporter cache/maps/threat paths, then all scalar-metric consumers including thresholds/anomaly/capacity/topology before their cutovers.

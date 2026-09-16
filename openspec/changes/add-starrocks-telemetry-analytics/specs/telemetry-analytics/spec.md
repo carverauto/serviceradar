@@ -126,6 +126,20 @@ The system SHALL validate analytics using synthetic, reproducible workloads with
 - **THEN** recovery tests compare final identities and totals against ground truth
 - **AND** report restore time, errors and data-loss boundaries against the approved RPO/RTO
 
+### Requirement: Authorized StarRocks reads use the MySQL protocol
+The system SHALL execute authorized StarRocks SRQL over a pooled MySQL-protocol connection to the Frontend query port, and SHALL keep EventWriter persistence on Stream Load HTTP.
+
+#### Scenario: Authorized SRQL against a StarRocks-served dataset
+- **WHEN** an authorized caller runs SRQL that `Readers.mode_for/1` routes to StarRocks
+- **THEN** Elixir submits the compiled SQL on the Frontend MySQL query port
+- **AND** it does not use the Frontend HTTP SQL JSON API for that read
+- **AND** EventWriter still persists through Stream Load HTTP
+
+#### Scenario: StarRocks query path is unavailable
+- **WHEN** the Frontend query port cannot be reached
+- **THEN** the query returns an explicit error
+- **AND** it does not silently execute the StarRocks SQL against CNPG
+
 ### Requirement: Read-only CNPG catalog for current-state joins
 The system SHALL provide an opt-in StarRocks JDBC catalog onto CNPG so authorized analytics can join local StarRocks telemetry with allowlisted `platform` current-state dimension tables for flow attribution and enrichment, and SHALL NOT use that catalog as a telemetry serving path or a write path into CNPG.
 

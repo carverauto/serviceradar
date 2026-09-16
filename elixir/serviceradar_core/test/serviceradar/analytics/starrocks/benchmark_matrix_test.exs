@@ -52,29 +52,28 @@ defmodule ServiceRadar.Analytics.StarRocks.BenchmarkMatrixTest do
                "NumberFilteredRows" => 0
              })
          }}
+    end
 
-      %{method: :post, url: url, body: body} ->
-        assert url =~ "/api/v1/catalogs/default_catalog/databases/serviceradar/sql"
-        %{"query" => sql} = Jason.decode!(body)
-        assert sql =~ "FROM serviceradar.ocsf_network_activity"
-        assert sql =~ "flow-bench-unit-"
-        count = Agent.get(loaded, & &1)
-        send(parent, {:query, sql, count})
+    mysql = fn sql ->
+      assert sql =~ "FROM serviceradar.ocsf_network_activity"
+      assert sql =~ "flow-bench-unit-"
+      count = Agent.get(loaded, & &1)
+      send(parent, {:query, sql, count})
 
-        {:ok,
-         %{
-           status: 200,
-           body:
-             Jason.encode!(%{
-               "meta" => [%{"name" => "c"}, %{"name" => "b"}],
-               "data" => [[count, count * 1200]]
-             })
-         }}
+      {:ok,
+       %Postgrex.Result{
+         command: :select,
+         columns: ["c", "b"],
+         rows: [[count, count * 1200]],
+         num_rows: 1,
+         connection_id: nil
+       }}
     end
 
     results =
       Benchmark.run_matrix(
         http: http,
+        mysql: mysql,
         run_id: "unit",
         max_identity: 100,
         max_readers: 1

@@ -88,6 +88,8 @@ Schema manifests and upgrades are versioned Bazel-declared inputs. CNPG bookkeep
 
 Retain SRQL syntax and authorized Ash-facing entry points. Add an explicit backend/feature capability to translation and execution; preserve result JSON, Arrow where used, pagination/cursor ordering, NULLs, timestamp precision and errors. Parameter binding and identifier allowlists must be backend-specific. No regex conversion of PostgreSQL SQL. No new controller-level SQL escape hatch.
 
+Elixir authorized reads use a pooled MyXQL connection to the Frontend query port (9030, text protocol). Stream Load HTTP remains the EventWriter write path; the two transports are not interchangeable. A MySQL wire client still cannot execute PostgreSQL SRQL output — the StarRocks dialect compiler remains required. Missing query-port connectivity is an explicit error, never a silent CNPG fallback.
+
 Route by configured dataset and migration generation, not time guessed from data presence. Keep PostgreSQL for control-plane entities and unmigrated history. Unsupported StarRocks query shapes return an explicit capability error during preview and block dataset cutover; do not silently fall back to incomplete CNPG data. Inventory and eliminate direct historical SQL assumptions before switching writers.
 
 Authorization context must reach every loader and executor. Preserve tenant isolation, device/group access and actor permissions; cache keys include authorization scope/version, backend generation, full query, resolved bounds and timezone. A short scoped cache may reduce repeated refreshes, but cannot conceal missing coverage or errors. Include cross-tenant and revoked-access tests.

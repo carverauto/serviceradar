@@ -327,6 +327,8 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     with_env("SERVICERADAR_STARROCKS_CATALOG_ENABLED", "true")
     with_env("SERVICERADAR_STARROCKS_SHADOW_DATASETS", "flows,metrics,logs,events")
     with_env("SERVICERADAR_STARROCKS_FE_HTTP", "http://lab-fe-service.starrocks.svc:8030")
+    with_env("SERVICERADAR_STARROCKS_FE_HOST", "lab-fe-service.starrocks.svc")
+    with_env("SERVICERADAR_STARROCKS_FE_QUERY_PORT", "9030")
     with_env("SERVICERADAR_STARROCKS_DATABASE", "serviceradar")
 
     starrocks =
@@ -337,6 +339,8 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     assert starrocks[:cutover_datasets] == []
     assert starrocks[:shadow_datasets] == [:flows, :metrics, :logs, :events]
     assert starrocks[:fe_http] == "http://lab-fe-service.starrocks.svc:8030"
+    assert starrocks[:fe_mysql_host] == "lab-fe-service.starrocks.svc"
+    assert starrocks[:fe_mysql_port] == 9030
     assert starrocks[:database] == "serviceradar"
   end
 

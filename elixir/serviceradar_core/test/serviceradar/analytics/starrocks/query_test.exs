@@ -1,79 +1,73 @@
 defmodule ServiceRadar.Analytics.StarRocks.QueryTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.Analytics.StarRocks.Env
   alias ServiceRadar.Analytics.StarRocks.Query
 
   @moduletag :db_free
 
-  test "execute submits compiled SQL and maps HTTP rows" do
+  test "execute submits compiled SQL on the MySQL query path" do
     sql = "SELECT id, bytes_in FROM serviceradar.ocsf_network_activity LIMIT 1"
 
-    http = fn request ->
-      assert request.method == :post
-      assert request.url =~ "/api/v1/catalogs/default_catalog/databases/serviceradar/sql"
-      assert Jason.decode!(request.body) == %{"query" => sql}
+    mysql = fn submitted ->
+      assert submitted == sql
 
       {:ok,
-       %{
-         status: 200,
-         body:
-           Jason.encode!(%{
-             "meta" => [%{"name" => "id"}, %{"name" => "bytes_in"}],
-             "data" => [["flow-alpha-0001", 1200]]
-           })
+       %Postgrex.Result{
+         command: :select,
+         columns: ["id", "bytes_in"],
+         rows: [["flow-alpha-0001", 1200]],
+         num_rows: 1,
+         connection_id: nil
        }}
     end
 
     assert {:ok, %Postgrex.Result{columns: columns, rows: rows, num_rows: 1}} =
-             Query.execute(sql, http: http)
+             Query.execute(sql, mysql: mysql)
 
     assert columns == ["id", "bytes_in"]
     assert rows == [["flow-alpha-0001", 1200]]
   end
 
-  test "execute maps Frontend NDJSON data frames" do
-    body =
-      """
-      {"connectionId":1}
-      {"meta":[{"name":"id","type":"varchar(64)"},{"name":"bytes_in","type":"bigint(20)"}]}
-      {"data":["flow-alpha-0001",1200]}
-      {"statistics":{"returnRows":1}}
-      """
-
-    http = fn _request -> {:ok, %{status: 200, body: body}} end
-
-    assert {:ok, %Postgrex.Result{columns: columns, rows: rows}} =
-             Query.execute("SELECT id, bytes_in FROM serviceradar.ocsf_network_activity LIMIT 1",
-               http: http
-             )
-
-    assert columns == ["id", "bytes_in"]
-    assert rows == [["flow-alpha-0001", 1200]]
-  end
-
-  test "catalog join SQL is an HTTP error, never a PostgreSQL fallback" do
+  test "catalog join SQL is a MySQL error, never a PostgreSQL fallback" do
     sql =
       "SELECT f.id FROM serviceradar.ocsf_network_activity AS f " <>
         "INNER JOIN cnpg_platform.platform.flow_process_attribution_current AS attr " <>
         "ON attr.local_ip = f.src_endpoint_ip LIMIT 1"
 
-    http = fn request ->
-      assert Jason.decode!(request.body) == %{"query" => sql}
+    mysql = fn submitted ->
+      assert submitted == sql
       {:error, :connect_failed}
     end
 
-    assert {:error, :connect_failed} = Query.execute(sql, http: http)
+    assert {:error, :connect_failed} = Query.execute(sql, mysql: mysql)
   end
 
-  test "uninjected execute uses HTTP rather than a stub ACK" do
-    assert {:error, reason} =
-             Query.execute("SELECT 1",
-               config: %{fe_http: "http://127.0.0.1:1", database: "serviceradar"}
-             )
+  test "uninjected execute uses the MySQL pool rather than a stub ACK" do
+    assert {:error, :starrocks_mysql_not_started} = Query.execute("SELECT 1")
+  end
 
-    refute reason == :starrocks_not_configured
+  test "env derives the FE query host and port for MySQL protocol" do
+    previous = %{
+      "SERVICERADAR_STARROCKS_FE_HTTP" => System.get_env("SERVICERADAR_STARROCKS_FE_HTTP"),
+      "SERVICERADAR_STARROCKS_FE_HOST" => System.get_env("SERVICERADAR_STARROCKS_FE_HOST"),
+      "SERVICERADAR_STARROCKS_FE_QUERY_PORT" => System.get_env("SERVICERADAR_STARROCKS_FE_QUERY_PORT")
+    }
 
-    assert reason in [:connect_failed, :timeout] or match?({:failed_connect, _}, reason) or
-             is_tuple(reason)
+    System.put_env("SERVICERADAR_STARROCKS_FE_HTTP", "http://lab-fe-service.starrocks.svc:8030")
+    System.delete_env("SERVICERADAR_STARROCKS_FE_HOST")
+    System.delete_env("SERVICERADAR_STARROCKS_FE_QUERY_PORT")
+
+    try do
+      config = Env.config()
+      assert config[:fe_mysql_host] == "lab-fe-service.starrocks.svc"
+      assert config[:fe_mysql_port] == 9030
+      assert config[:fe_http] == "http://lab-fe-service.starrocks.svc:8030"
+    after
+      Enum.each(previous, fn
+        {name, nil} -> System.delete_env(name)
+        {name, value} -> System.put_env(name, value)
+      end)
+    end
   end
 end

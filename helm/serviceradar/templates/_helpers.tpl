@@ -319,6 +319,10 @@ serviceradar.io/runtime-tls-revision: {{ default "initial" (default (dict) .Valu
       key: database
 - name: SERVICERADAR_STARROCKS_FE_HTTP
   value: {{ printf "http://%s:%v" $sr.fe.service $sr.fe.httpPort | quote }}
+- name: SERVICERADAR_STARROCKS_FE_HOST
+  value: {{ $sr.fe.service | quote }}
+- name: SERVICERADAR_STARROCKS_FE_QUERY_PORT
+  value: {{ $sr.fe.queryPort | quote }}
 {{- end }}
 {{- end -}}
 

@@ -193,6 +193,7 @@ HEX_PACKAGES = [
     ("mox", "mox", "1.2.0", "c7b92b3cc69ee24a7eeeaf944cd7be22013c52fcb580c1f33f50845ec821089a"),
     ("mpeg_ts", "mpeg_ts", "3.3.19", "53bd9e18fd91c1bff6ee6499464a1b7a6d7675a44630ff6134cbde6a093a122a"),
     ("multigraph", "multigraph", "0.16.1-mg.4", "b9f3e2577cef4658eeedf97c76d22a86d33a7aab702a93c1da9c122e849e9037"),
+    ("myxql", "myxql", "0.9.0", "3a17b38562a7a995c291570875fd96c06b7b0369d6eb0592a52a9dccbe5d144b"),
     ("nimble_options", "nimble_options", "1.1.1", "821b2470ca9442c4b6984882fe9bb0389371b8ddec4d45a9504f00a66f650b44"),
     ("nimble_ownership", "nimble_ownership", "1.0.2", "098af64e1f6f8609c6672127cfe9e9590a5d3fcdd82bc17a377b8692fd81a879"),
     ("nimble_parsec", "nimble_parsec", "1.4.2", "4b21398942dda052b403bbe1da991ccd03a053668d147d53fb8c4e0efe09c973"),

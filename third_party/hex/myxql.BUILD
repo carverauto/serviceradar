@@ -18,7 +18,7 @@ filegroup(
 
 mix_app(
     name = "erlang_app",
-    app_name = "ecto_sql",
+    app_name = "myxql",
     srcs = [":sources"],
     hdrs = glob(
         ["include/**/*.hrl"],
@@ -28,10 +28,7 @@ mix_app(
     deps = [
         "@hex_db_connection//:erlang_app",
         "@hex_decimal//:erlang_app",
-        "@hex_ecto//:erlang_app",
-        "@hex_myxql//:erlang_app",
-        "@hex_postgrex//:erlang_app",
-        "@hex_telemetry//:erlang_app",
+        "@hex_jason//:erlang_app",
         "@rules_elixir//elixir",
     ],
 )

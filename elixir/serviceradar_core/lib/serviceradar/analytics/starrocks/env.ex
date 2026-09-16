@@ -25,6 +25,9 @@ defmodule ServiceRadar.Analytics.StarRocks.Env do
       cutover_datasets: csv_datasets("SERVICERADAR_STARROCKS_CUTOVER_DATASETS"),
       shadow_datasets: shadow_datasets(enabled),
       fe_http: fe_http(),
+      fe_mysql_host: fe_mysql_host(),
+      fe_mysql_port: fe_mysql_port(),
+      mysql_pool_size: mysql_pool_size(),
       database: nonempty("SERVICERADAR_STARROCKS_DATABASE", "serviceradar"),
       user: nonempty("SERVICERADAR_STARROCKS_USER", "root"),
       password: System.get_env("SERVICERADAR_STARROCKS_PASSWORD", "")
@@ -47,6 +50,34 @@ defmodule ServiceRadar.Analytics.StarRocks.Env do
         service = nonempty("SERVICERADAR_STARROCKS_FE_SERVICE", "127.0.0.1")
         port = nonempty("SERVICERADAR_STARROCKS_FE_HTTP_PORT", "8030")
         "http://#{service}:#{port}"
+    end
+  end
+
+  defp fe_mysql_host do
+    case System.get_env("SERVICERADAR_STARROCKS_FE_HOST") do
+      host when is_binary(host) and host != "" ->
+        host
+
+      _ ->
+        case URI.parse(fe_http()) do
+          %URI{host: host} when is_binary(host) and host != "" -> host
+          _ -> nonempty("SERVICERADAR_STARROCKS_FE_SERVICE", "127.0.0.1")
+        end
+    end
+  end
+
+  defp fe_mysql_port do
+    parse_port(nonempty("SERVICERADAR_STARROCKS_FE_QUERY_PORT", "9030"), 9030)
+  end
+
+  defp mysql_pool_size do
+    parse_port(nonempty("SERVICERADAR_STARROCKS_MYSQL_POOL_SIZE", "8"), 8)
+  end
+
+  defp parse_port(raw, default) when is_binary(raw) do
+    case Integer.parse(raw) do
+      {port, _} when port > 0 and port < 65_536 -> port
+      _ -> default
     end
   end
 

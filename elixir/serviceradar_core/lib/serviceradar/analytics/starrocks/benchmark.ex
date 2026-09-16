@@ -207,6 +207,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Benchmark do
   defp client_opts(opts) do
     []
     |> maybe_put(:http, Keyword.get(opts, :http))
+    |> maybe_put(:mysql, Keyword.get(opts, :mysql))
     |> maybe_put(:config, Keyword.get(opts, :config))
   end
 
