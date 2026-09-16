@@ -2531,6 +2531,11 @@ analytics:
     # state is never listed here.
     shadowDatasets: []
     cutoverDatasets: []
+    # JDBC catalog onto CNPG current-state tables for attribution/enrichment
+    # joins. Off until synthetic join parity (tasks 5.6–5.8) passes.
+    catalog:
+      enabled: false
+      name: cnpg_platform
 
 spiffe:
   mode: "filesystem"

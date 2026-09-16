@@ -26,4 +26,6 @@ data:
   streamLoadMaxInFlight: {{ $sr.streamLoad.maxInFlight | quote }}
   shadowDatasets: {{ $sr.shadowDatasets | default list | join "," | quote }}
   cutoverDatasets: {{ $sr.cutoverDatasets | default list | join "," | quote }}
+  catalogEnabled: {{ dig "catalog" "enabled" false $sr | quote }}
+  catalogName: {{ dig "catalog" "name" "cnpg_platform" $sr | quote }}
 {{- end }}

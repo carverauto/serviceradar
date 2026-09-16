@@ -1,0 +1,22 @@
+-- JDBC catalog onto CNPG current-state tables for flow attribution/enrichment.
+-- This file documents the intended CREATE. It is NOT applied with a password.
+-- Helm analytics.starrocks.catalog.enabled stays false until 5.8 synthetic
+-- join tests pass. Driver JAR is a Bazel-pinned file:// artifact, not Maven.
+-- Applied by a versioned Bazel/Helm step, not Mix/Postgres migrations.
+--
+-- CREATE EXTERNAL CATALOG IF NOT EXISTS cnpg_platform
+-- PROPERTIES (
+--   "type" = "jdbc",
+--   "user" = "<cnpg-reader>",
+--   "jdbc_uri" = "jdbc:postgresql://<cnpg-rw>:5432/serviceradar",
+--   "driver_class" = "org.postgresql.Driver",
+--   "driver_url" = "file:///opt/starrocks/jdbc/postgresql.jar"
+-- );
+--
+-- Allowlisted platform tables only:
+--   flow_process_attribution_current
+--   prefix_tags
+--   ocsf_devices
+-- Forbidden: network_credential_secrets, oban_jobs, logs, ocsf_events,
+-- ocsf_network_activity, timeseries_metrics, alerts, users.
+SELECT 'cnpg_platform catalog is documented; not provisioned' AS status;

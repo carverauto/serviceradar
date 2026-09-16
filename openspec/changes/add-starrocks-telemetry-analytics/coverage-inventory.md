@@ -13,4 +13,4 @@ Unknown consumers block cutover. CNPG remains authoritative for inventory, auth,
 
 Rollback: serving follows `Readers.mode_for/1`. Clearing a name from Helm `cutoverDatasets` (already `[]`) returns that dataset to CNPG immediately. EventWriter stays CNPG-first until a separate 6.7 writer cleanup. No live dataset is enabled; demo and serviceradar were not cut over.
 
-CNPG JDBC catalog (`cnpg_platform`) is specified for query-time joins of StarRocks facts to allowlisted `platform` current-state tables, first for flow attribution and enrichment (process-correlation current-state, prefix tags, device identity). It is not provisioned and is not a telemetry serving path.
+CNPG JDBC catalog (`cnpg_platform`) is specified for query-time joins of StarRocks facts to allowlisted `platform` current-state tables, first for flow attribution and enrichment (`flow_process_attribution_current`, `prefix_tags`, `ocsf_devices`). Helm `catalog.enabled` is false. It is not a telemetry serving path.
