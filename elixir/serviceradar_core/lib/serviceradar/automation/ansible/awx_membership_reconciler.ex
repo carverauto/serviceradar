@@ -11,6 +11,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipReconciler do
 
   alias Ash.Page.Keyset
   alias ServiceRadar.Automation.Ansible.AwxHostMembership
+  alias ServiceRadar.Automation.Ansible.AwxInventoryObservationFence
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Repo
 
@@ -27,6 +28,20 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipReconciler do
   @max_ansible_host_bytes 1_024
   @fingerprint_regex ~r/\Asha256:[0-9a-f]{64}\z/
   @contract_keys ["source_generation", "source_fingerprint", "complete"]
+  @authority_fields [
+    :controller_id,
+    :inventory_id,
+    :awx_host_id,
+    :canonical_device_uid,
+    :host_name,
+    :ansible_host,
+    :enabled,
+    :current,
+    :expired_at,
+    :link_disposition,
+    :link_evidence,
+    :source_fingerprint
+  ]
 
   @type source_tuple :: {String.t(), pos_integer(), pos_integer()}
 
@@ -43,10 +58,34 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipReconciler do
     dependencies = dependencies(opts)
 
     with {:ok, aggregates} <- parse(payload) do
-      reconcile_aggregates(aggregates, actor, dependencies)
+      reconcile_aggregates(
+        aggregates,
+        actor,
+        dependencies,
+        Keyword.get(opts, :return_notifications?, false)
+      )
     end
   rescue
     error -> {:error, error}
+  end
+
+  @doc false
+  def notify_committed(notifications, opts \\ []) do
+    dispatch_notifications(notifications, dependencies(opts))
+  end
+
+  @doc "Rejects already superseded observations before device inventory writes."
+  def preflight(payload, opts \\ []) do
+    check = Keyword.get(opts, :check_observation, &AwxInventoryObservationFence.check/1)
+
+    with {:ok, aggregates} <- parse(payload) do
+      Enum.reduce_while(aggregates, :ok, fn aggregate, :ok ->
+        case check.(aggregate) do
+          {:ok, disposition} when disposition in [:initial, :advance, :replay] -> {:cont, :ok}
+          {:error, _} = error -> {:halt, error}
+        end
+      end)
+    end
   end
 
   @doc false
@@ -96,6 +135,10 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipReconciler do
   defp dependencies(opts) do
     %{
       transaction: Keyword.get(opts, :transaction, &default_transaction/1),
+      lock_observation:
+        Keyword.get(opts, :lock_observation, &AwxInventoryObservationFence.lock_and_check/1),
+      advance_observation:
+        Keyword.get(opts, :advance_observation, &AwxInventoryObservationFence.advance/1),
       load_existing: Keyword.get(opts, :load_existing, &load_existing/2),
       resolve_links: Keyword.get(opts, :resolve_links, &resolve_links/2),
       upsert: Keyword.get(opts, :upsert, &upsert_membership/2),
@@ -104,22 +147,23 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipReconciler do
     }
   end
 
-  defp reconcile_aggregates(aggregates, actor, dependencies) do
-    Enum.reduce_while(aggregates, :ok, fn aggregate, :ok ->
+  defp reconcile_aggregates(aggregates, actor, dependencies, return_notifications?) do
+    aggregates
+    |> Enum.reduce_while({:ok, []}, fn aggregate, {:ok, accumulated} ->
       case dependencies.transaction.(fn ->
              reconcile_aggregate(aggregate, actor, dependencies)
            end) do
         {:ok, notifications} when is_list(notifications) ->
-          continue_after_notification_dispatch(notifications, dependencies)
+          collect_or_dispatch(notifications, accumulated, dependencies, return_notifications?)
 
         {:ok, {:ok, notifications}} when is_list(notifications) ->
-          continue_after_notification_dispatch(notifications, dependencies)
+          collect_or_dispatch(notifications, accumulated, dependencies, return_notifications?)
 
         :ok ->
-          {:cont, :ok}
+          {:cont, {:ok, accumulated}}
 
         {:ok, :ok} ->
-          {:cont, :ok}
+          {:cont, {:ok, accumulated}}
 
         {:error, reason} ->
           {:halt, {:error, reason}}
@@ -128,21 +172,47 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipReconciler do
           {:halt, {:error, {:invalid_membership_transaction_result, other}}}
       end
     end)
+    |> case do
+      {:ok, batches} when return_notifications? ->
+        {:ok, batches |> Enum.reverse() |> List.flatten()}
+
+      {:ok, _batches} ->
+        :ok
+
+      {:error, _} = error ->
+        error
+    end
   end
 
   defp reconcile_aggregate(aggregate, actor, dependencies) do
-    with {:ok, existing} <- dependencies.load_existing.(aggregate.controller_id, actor),
+    with {:ok, observation} <- dependencies.lock_observation.(aggregate),
+         {:ok, existing} <- dependencies.load_existing.(aggregate.controller_id, actor),
          :ok <- validate_existing_bound(existing),
          :ok <- validate_generation(aggregate, existing),
          :ok <- validate_same_generation_source_state(aggregate, existing),
+         :ok <- validate_observation_bootstrap(observation, aggregate, existing),
          {:ok, evidence_index} <- dependencies.resolve_links.(aggregate, actor),
+         aggregate = Map.put(aggregate, :replayed?, observation == :replay),
          {:ok, upsert_notifications} <-
            upsert_memberships(aggregate, existing, evidence_index, actor, dependencies),
          {:ok, expire_notifications} <-
-           maybe_expire_absent(aggregate, existing, actor, dependencies) do
+           maybe_expire_absent(aggregate, existing, actor, dependencies),
+         :ok <- dependencies.advance_observation.(aggregate) do
       {:ok, upsert_notifications ++ expire_notifications}
     end
   end
+
+  defp validate_observation_bootstrap(:initial, aggregate, existing) do
+    if Enum.any?(existing, &(field(&1, :source_generation) == aggregate.source_generation)) do
+      # Legacy memberships cannot reconstruct whether their source was complete.
+      # Require a newer observation before establishing the independent fence.
+      {:error, :awx_inventory_observation_bootstrap_requires_newer_generation}
+    else
+      :ok
+    end
+  end
+
+  defp validate_observation_bootstrap(_observation, _aggregate, _existing), do: :ok
 
   defp validate_existing_bound(existing) when length(existing) <= @max_existing_memberships,
     do: :ok
@@ -229,7 +299,21 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipReconciler do
         metadata: host.metadata
       }
 
-      case write_notifications(dependencies.upsert.(attrs, actor)) do
+      unchanged? = unchanged_authority?(existing_membership, attrs)
+
+      attrs =
+        if unchanged?,
+          do: Map.put(attrs, :source_generation, field(existing_membership, :source_generation)),
+          else: attrs
+
+      result =
+        if aggregate.replayed? and not unchanged? do
+          {:error, :same_observation_authority_changed}
+        else
+          dependencies.upsert.(attrs, actor)
+        end
+
+      case write_notifications(result) do
         {:ok, notifications} ->
           {:cont, {:ok, [notifications | notification_batches]}}
 
@@ -241,6 +325,12 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipReconciler do
       end
     end)
     |> flatten_notification_batches()
+  end
+
+  defp unchanged_authority?(nil, _attrs), do: false
+
+  defp unchanged_authority?(existing, attrs) do
+    Enum.all?(@authority_fields, &(field(existing, &1) == Map.fetch!(attrs, &1)))
   end
 
   defp maybe_expire_absent(%{complete: false}, _existing, _actor, _dependencies), do: {:ok, []}
@@ -261,7 +351,12 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipReconciler do
         metadata: expiration_metadata(aggregate, membership)
       }
 
-      case write_notifications(dependencies.expire.(membership, attrs, actor)) do
+      result =
+        if aggregate.replayed?,
+          do: {:error, :same_observation_authority_changed},
+          else: dependencies.expire.(membership, attrs, actor)
+
+      case write_notifications(result) do
         {:ok, notifications} ->
           {:cont, {:ok, [notifications | notification_batches]}}
 
@@ -308,9 +403,12 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipReconciler do
     end
   end
 
-  defp continue_after_notification_dispatch(notifications, dependencies) do
+  defp collect_or_dispatch(notifications, accumulated, _dependencies, true),
+    do: {:cont, {:ok, [notifications | accumulated]}}
+
+  defp collect_or_dispatch(notifications, accumulated, dependencies, false) do
     case dispatch_notifications(notifications, dependencies) do
-      :ok -> {:cont, :ok}
+      :ok -> {:cont, {:ok, accumulated}}
       {:error, _reason} = error -> {:halt, error}
     end
   end

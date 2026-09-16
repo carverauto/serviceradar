@@ -372,7 +372,24 @@ PY
         )
         rpm_extra_kwargs["spec_template"] = ":{}".format(rpm_template_target)
 
-    rpm_arch = "x86_64" if architecture == "amd64" else architecture
+    rpm_arch = {"amd64": "x86_64", "arm64": "aarch64"}.get(architecture, architecture)
+    if architecture == "arm64":
+        # These binaries were cross-compiled by Bazel. BuildArch would ask the
+        # x86 RPM host to rebuild the spec for a compatible machine; instead set
+        # the target macros used for the package header and dependency metadata.
+        rpm_extra_kwargs["defines"] = {
+            # RPM initializes platform ISA macros before applying --define;
+            # changing _target_cpu alone leaves host ISA Provides behind.
+            "__isa_bits": "64",
+            "__isa_name": "aarch",
+            # Preserve Bazel's linked payload. The RPM host's x86-only strip
+            # cannot process AArch64 executables and must not rewrite them.
+            "__strip": "/bin/true",
+            "_arch": "aarch64",
+            "_target": "aarch64-linux",
+            "_target_cpu": "aarch64",
+            "_target_os": "linux",
+        }
 
     pkg_rpm(
         name = "{}_rpm".format(name),
@@ -380,7 +397,7 @@ PY
         package_file_name = "{}-{}-{}.{}.rpm".format(package_name, VERSION, RELEASE, rpm_arch),
         version_file = ":{}".format(rpm_version_output),
         release_file = ":{}".format(rpm_release_output),
-        architecture = rpm_arch,
+        architecture = "" if architecture == "arm64" else rpm_arch,
         summary = summary or description,
         description = description,
         license = license,

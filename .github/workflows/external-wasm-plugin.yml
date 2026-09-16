@@ -107,6 +107,10 @@ jobs:
           PLUGIN_TAG: ${{ github.event.inputs.plugin_tag }}
           SOURCE_COMMIT: ${{ steps.source.outputs.commit }}
           SOURCE_COMMITTED_AT: ${{ steps.source.outputs.committed_at }}
+          # serviceradar-sdk-go is not served via the public Go proxy
+          # (proxy.golang.org/sum.golang.org block), so the TinyGo build
+          # below must resolve it directly from GitHub.
+          GOPRIVATE: github.com/carverauto/serviceradar-sdk-go
         run: |
           set -euo pipefail
           plugin_root="${GITHUB_WORKSPACE}/external-plugin"

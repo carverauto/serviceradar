@@ -32,3 +32,28 @@ py_test(
         ":wait_for_large_ingestion_gate",
     ],
 )
+
+py_library(
+    name = "git_metadata",
+    srcs = ["git_metadata.py"],
+)
+
+py_binary(
+    name = "verify_git_metadata",
+    srcs = ["verify_git_metadata.py"],
+    visibility = ["//visibility:public"],
+    deps = [":git_metadata"],
+)
+
+py_test(
+    name = "git_metadata_test",
+    srcs = ["git_metadata_test.py"],
+    deps = [":git_metadata"],
+)
+
+py_binary(
+    name = "git_checkout_regression",
+    srcs = ["git_checkout_regression.py"],
+    visibility = ["//visibility:public"],
+    deps = [":git_metadata"],
+)

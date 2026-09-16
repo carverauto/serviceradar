@@ -169,6 +169,76 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     end
   end
 
+  defmodule PerMountDiskRunner do
+    @moduledoc false
+    # Two mounts on one host, as the per-mount disk aggregate returns them: the root
+    # filesystem is flat at 20 percent while the data mount climbs toward 100.
+    @start ~U[2026-06-01 00:00:00Z]
+
+    def query(query, _opts) do
+      send(self(), {:capacity_forecast_query, query})
+
+      rows =
+        for hour <- 0..71, {mount, value} <- [{"/", 20.0}, {"/data", 20.0 + hour}] do
+          %{
+            "bucket" => DateTime.add(@start, hour * 3_600, :second),
+            "device_id" => "sr:device-a",
+            "metric_type" => "sysmon.disk",
+            "metric_name" => "disk.used_percent",
+            "series_key" => "sr:device-a|disk.used_percent|tag_mount_point=#{mount}",
+            "mount_point" => mount,
+            "avg_value" => value,
+            "sample_count" => 12
+          }
+        end
+
+      {:ok, rows}
+    end
+  end
+
+  defmodule SlowGrowthPercentRunner do
+    @moduledoc false
+    # 24 days of clean linear growth (0.57 points/day, 33 -> 46.7): the 80 percent
+    # crossing is 58 days out, beyond twice the observed span.
+    @start ~U[2026-06-01 00:00:00Z]
+
+    def query(_query, _opts) do
+      rows =
+        for hour <- 0..575 do
+          %{
+            "bucket" => DateTime.add(@start, hour * 3_600, :second),
+            "device_id" => "device-a",
+            "mount_point" => "/var/lib/checkers",
+            "avg_usage_percent" => 33.0 + hour * (0.57 / 24)
+          }
+        end
+
+      {:ok, rows}
+    end
+  end
+
+  defmodule DistantGrowthPercentRunner do
+    @moduledoc false
+    # 42 days of clean linear growth (0.2333 points/day, 10 -> 19.8): the 80 percent
+    # crossing is ~300 days out, beyond both twice the observed span and the 90 day
+    # horizon, but inside the 10x-horizon noise cap.
+    @start ~U[2026-06-01 00:00:00Z]
+
+    def query(_query, _opts) do
+      rows =
+        for hour <- 0..1007 do
+          %{
+            "bucket" => DateTime.add(@start, hour * 3_600, :second),
+            "device_id" => "device-a",
+            "mount_point" => "/var/lib/slow",
+            "avg_usage_percent" => 10.0 + hour * (70.0 / 300.0 / 24)
+          }
+        end
+
+      {:ok, rows}
+    end
+  end
+
   defmodule OutOfDomainGaugePercentRunner do
     @moduledoc false
     @start ~U[2026-06-01 00:00:00Z]
@@ -995,6 +1065,55 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     assert attrs.metadata["diagnostics"]["lower_bound"] < 80.0
   end
 
+  test "default disk source forecasts each mount separately under the device resource id" do
+    # The default source keeps its query, key and label fields; only the model is
+    # pinned so the growth verdict does not depend on the auto selection, which the
+    # model tests cover. This test is about per-mount identity.
+    [default_source] = Enum.filter(Source.defaults(), &(&1.name == "disk_usage"))
+    source = %{default_source | model: "linear"}
+
+    upsert_fun = fn attrs, _actor ->
+      send(self(), {:capacity_forecast_upsert, attrs})
+      {:ok, attrs}
+    end
+
+    job = %Oban.Job{args: %{"forecasted_at" => DateTime.to_iso8601(@forecasted_at)}}
+
+    assert :ok =
+             Worker.run(job,
+               sources: [source],
+               runner: PerMountDiskRunner,
+               upsert_fun: upsert_fun,
+               emit_verdicts?: false,
+               horizon_seconds: 30 * 24 * 3_600,
+               min_points: 24
+             )
+
+    assert_received {:capacity_forecast_query, query}
+    assert String.starts_with?(query, "in:timeseries_metric_disk_hourly")
+
+    root_key = "disk_usage:sr:device-a:/"
+    data_key = "disk_usage:sr:device-a:/data"
+    assert_received {:capacity_forecast_upsert, %{resource_key: ^root_key} = root}
+    assert_received {:capacity_forecast_upsert, %{resource_key: ^data_key} = data}
+    refute_received {:capacity_forecast_upsert, _}
+
+    assert root.resource_id == "sr:device-a"
+    assert data.resource_id == "sr:device-a"
+    assert root.resource_label == "sr:device-a / /"
+    assert data.resource_label == "sr:device-a / /data"
+
+    # A perfectly flat mount has no trend at all, so the kernel gates it on
+    # significance before it ever reaches the exhaustion projection.
+    assert root.status == "skipped"
+    assert root.skip_reason == "trend_not_significant"
+    assert root.projected_exhaustion_at == nil
+
+    assert data.status == "projected"
+    assert %DateTime{} = data.projected_exhaustion_at
+    assert data.sample_count == 72
+  end
+
   test "percent forecasts keep threshold ETA and clamp projected percent values in the kernel" do
     source = %Source{
       name: "disk_usage",
@@ -1163,6 +1282,104 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     assert attrs.projected_exhaustion_at == nil
     assert attrs.metadata["forecast_value_unit"] == "percent"
     assert attrs.metadata["diagnostics"]["sample_count"] == 48
+  end
+
+  test "worker records a crossing beyond the history cap distinctly from no crossing" do
+    source = %Source{
+      name: "disk_usage",
+      resource_type: "disk",
+      metric_class: "disk",
+      metric_name: "usage_percent",
+      query: "in:disk_metrics time:last_180d bucket:1h",
+      value_field: "avg_usage_percent",
+      key_fields: ["device_id", "mount_point"],
+      label_fields: ["mount_point"],
+      threshold: 80.0,
+      model: "linear",
+      value_unit: "percent"
+    }
+
+    upsert_fun = fn attrs, _actor ->
+      send(self(), {:capacity_forecast_history_capped, attrs})
+      {:ok, attrs}
+    end
+
+    job = %Oban.Job{args: %{"forecasted_at" => DateTime.to_iso8601(@forecasted_at)}}
+
+    assert :ok =
+             Worker.run(job,
+               sources: [source],
+               runner: SlowGrowthPercentRunner,
+               upsert_fun: upsert_fun,
+               emit_verdicts?: false,
+               horizon_seconds: 90 * 24 * 3_600,
+               min_points: 24
+             )
+
+    assert_received {:capacity_forecast_history_capped, attrs}
+    assert attrs.status == "skipped"
+    assert attrs.skip_reason == "exhaustion_beyond_history_cap"
+    assert attrs.projected_exhaustion_at == nil
+
+    diagnostics = attrs.metadata["diagnostics"]
+    assert diagnostics["model"] == "linear"
+    assert diagnostics["history_span_seconds"] == 575 * 3_600
+    assert diagnostics["extrapolation_cap_seconds"] == 2 * 575 * 3_600
+    assert diagnostics["lower_bound"] > 80.0
+
+    # (80 - 33) / (0.57 / 24 per hour) = 1978.9 h after the window start.
+    assert {:ok, raw_crossing, _offset} =
+             DateTime.from_iso8601(diagnostics["raw_projected_exhaustion_at"])
+
+    assert abs(DateTime.diff(raw_crossing, ~U[2026-08-22 10:57:30Z], :second)) < 120
+  end
+
+  test "a crossing beyond both the history cap and the horizon is outside the horizon, not history-capped" do
+    source = %Source{
+      name: "disk_usage",
+      resource_type: "disk",
+      metric_class: "disk",
+      metric_name: "usage_percent",
+      query: "in:disk_metrics time:last_180d bucket:1h",
+      value_field: "avg_usage_percent",
+      key_fields: ["device_id", "mount_point"],
+      label_fields: ["mount_point"],
+      threshold: 80.0,
+      model: "linear",
+      value_unit: "percent"
+    }
+
+    upsert_fun = fn attrs, _actor ->
+      send(self(), {:capacity_forecast_distant_growth, attrs})
+      {:ok, attrs}
+    end
+
+    job = %Oban.Job{args: %{"forecasted_at" => DateTime.to_iso8601(@forecasted_at)}}
+
+    assert :ok =
+             Worker.run(job,
+               sources: [source],
+               runner: DistantGrowthPercentRunner,
+               upsert_fun: upsert_fun,
+               emit_verdicts?: false,
+               horizon_seconds: 90 * 24 * 3_600,
+               min_points: 24
+             )
+
+    assert_received {:capacity_forecast_distant_growth, attrs}
+    assert attrs.status == "skipped"
+    assert attrs.skip_reason == "outside_forecast_horizon"
+    assert attrs.projected_exhaustion_at == nil
+
+    diagnostics = attrs.metadata["diagnostics"]
+    assert diagnostics["history_span_seconds"] == 1_007 * 3_600
+    assert diagnostics["extrapolation_cap_seconds"] == 2 * 1_007 * 3_600
+
+    # (80 - 10) / (70 / 300 per day) = 300 days after the window start.
+    assert {:ok, crossing, _offset} =
+             DateTime.from_iso8601(diagnostics["projected_exhaustion_at"])
+
+    assert abs(DateTime.diff(crossing, ~U[2027-03-28 00:00:00Z], :second)) < 3_600
   end
 
   test "interface forecasts convert byte rates to utilization percent before no-risk skip" do

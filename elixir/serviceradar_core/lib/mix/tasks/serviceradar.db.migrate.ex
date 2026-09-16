@@ -71,7 +71,7 @@ defmodule Mix.Tasks.Serviceradar.Db.Migrate do
         ambiguous database state; refusing to bootstrap automatically.
 
         Platform objects exist without coherent migration history. Restore from backup or
-        repair platform.schema_migrations before retrying.
+        repair the repository's configured migration ledger before retrying.
 
         Details: #{inspect(details)}
         """)

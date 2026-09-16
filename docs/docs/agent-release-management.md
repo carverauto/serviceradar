@@ -22,6 +22,27 @@ Before using release management in production:
 - Include per-platform artifact metadata in the release manifest, including `os`, `arch`, `url`, `sha256`, and optional `format`, `entrypoint`, `capabilities`, `helper_protocol_version`, `compatible_agent_versions`, `checksums`, `signatures`, `sbom`, `license_review`, and `deployment_requirements`.
 - If repository-hosted release assets redirect to object storage or a CDN, keep the redirect chain on HTTPS. The control plane mirrors those artifacts into internal storage at publish time, and agents still reject insecure redirects, digest mismatches, and manifest-signature failures.
 
+## Prepare a reviewed agent test artifact
+
+For an unpublished base-agent build, dispatch `.github/workflows/native-addons.yml`
+with `mode=agent-test-artifact` from the reviewed branch and set `expected_commit`
+to its full commit SHA. The workflow rejects a mismatch with its own SHA. Operators
+must configure the HTTPS `AGENT_TEST_ARTIFACT_BASE_URL` variable in the protected
+`release` environment; dispatch inputs cannot choose an arbitrary artifact origin.
+
+This mode builds only the declared Linux amd64 agent runtime archive. It derives
+a unique prerelease version without changing `VERSION` or creating a release tag,
+executes the packaged binary's `--version`, and signs the canonical manifest at
+runtime with the protected release key. The signature is verified against the
+committed agent public root; signing material is never a Bazel action input.
+The verified archive, manifest, signature, and metadata are uploaded as workflow
+artifacts retained for seven days.
+
+The workflow does not host the archive at its manifest URL, publish it into
+ServiceRadar, or roll out agents. After validation, place the archive at the
+exact signed URL and use the publication and rollout steps below. Building a
+Kubernetes agent image alone does not update native agents running plugin runners.
+
 ## Publish A Release
 
 Use the authenticated release-management page:
@@ -59,10 +80,64 @@ Recommended repository-release asset convention:
 - `serviceradar-agent-release-manifest.json`
 - `serviceradar-agent-release-manifest.sig`
 - `serviceradar-agent_<version>_linux_amd64.tar.gz`
+- `serviceradar-agent_<version>_linux_arm64.tar.gz`
 
 The manifest asset should contain the full multi-platform release manifest, including the final artifact URLs, SHA256 digests, and platform metadata. Base agent artifacts should use `capabilities: ["agent"]`. Optional capability helpers are not bundled into alternate managed-agent runtimes; publish them as native add-ons with their own signed artifacts and discovery index entries.
 
-The GitHub release pipeline now publishes these assets automatically when `SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY` is configured for the release job. Manual repository releases must attach the same three assets for one-click import to work. RDP helper delivery uses the `rdp` native add-on artifact instead of a `serviceradar-agent-rdp_*` runtime archive.
+The GitHub release pipeline publishes both Linux runtime archives and their shared
+manifest and signature when `SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY` is configured
+for the release job. Manual repository releases must attach the manifest,
+signature, and every runtime archive referenced by that manifest for one-click
+import to work. RDP helper delivery uses the `rdp` native add-on artifact instead
+of a `serviceradar-agent-rdp_*` runtime archive.
+
+Linux `.deb`/`.rpm` packages and the signed macOS ARM64 `.pkg` are initial
+installation assets, separate from the runtime archives in the managed manifest.
+The macOS installer retains its standalone launchd layout and does not support
+managed runtime activation. See [agent platform packages](./agent-platform-packages.md)
+for platform support, installation, and Apple signing configuration in CI.
+
+## Windows Installer
+
+Each agent-capable release publishes `serviceradar-agent_<version>_windows_amd64.msi` and
+`serviceradar-agent_<version>_windows_arm64.msi`, each with a `.provenance.json` that records the
+version, source commit, architecture and SHA256 digests. The installers are unsigned until
+Authenticode signing is configured (issue #388), so SmartScreen can warn when one is opened.
+
+Install from an elevated PowerShell:
+
+```powershell
+msiexec /i serviceradar-agent_<version>_windows_amd64.msi /qn
+```
+
+The installer:
+
+- installs `serviceradar-agent.exe` and `srctl.exe` under `C:\Program Files\ServiceRadar\`, and adds
+  that folder to the system `PATH`
+- writes `C:\ProgramData\ServiceRadar\config\agent.json` only when that file does not exist
+- registers the `ServiceRadarAgent` service to run as LocalSystem, start automatically, and restart
+  10 s after a failure
+- does not start the service on a fresh install, because the default configuration names a
+  placeholder gateway and certificates
+
+Enroll it: create an agent onboarding package in the UI and run the Windows command it shows in
+PowerShell as Administrator. The MSI installs `srctl.exe` beside the agent and adds that folder to
+the system `PATH`:
+
+```powershell
+& "$env:ProgramFiles\ServiceRadar\srctl.exe" enroll --core-url '<your-serviceradar-url>' --token '<token>'
+```
+
+`srctl enroll` writes `agent.json` and the certificates under
+`C:\ProgramData\ServiceRadar\config\` and starts the service.
+
+The service writes its log to `C:\ProgramData\ServiceRadar\logs\agent.log`; the file is appended to
+and not rotated.
+
+Upgrading means installing a newer MSI. It replaces the binary, keeps `agent.json`, and starts the
+service again. Uninstalling (`msiexec /x <msi> /qn`) removes the binary and the service and keeps
+everything under `C:\ProgramData\ServiceRadar\`. Managed release rollouts do not update Windows
+agents yet; upgrade them with the MSI.
 
 ## Signing Key Handling
 

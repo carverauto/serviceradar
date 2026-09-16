@@ -38,6 +38,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducerTes
         "sample_value" => center,
         "bucket" => "2026-06-22T#{pad(hod)}:00:00Z",
         "bucket_count" => 8,
+        "robust_bucket_count" => if(dow == 1 and hod == 9, do: 7, else: 8),
         "center" => center,
         "mad" => 2.0
       }
@@ -71,7 +72,8 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducerTes
     assert peak["center"] == 70.0
     # MAD 2.0 * 1.4826 MAD->sigma consistency constant.
     assert_in_delta peak["scale"], 2.9652, 1.0e-6
-    assert peak["sample_count"] == 8
+    assert peak["sample_count"] == 7
+    assert Enum.find(cpu_buckets, &(&1["dow"] == 0 and &1["hod"] == 0))["sample_count"] == 8
 
     assert %{"buckets" => mem_buckets} = baselines[mem_key]
     assert Enum.find(mem_buckets, &(&1["dow"] == 1 and &1["hod"] == 9))["center"] == 88.0
@@ -438,7 +440,9 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducerTes
              assignments: summary.assignments_total,
              profiles_updated: summary.profiles_updated,
              assignments_updated: summary.assignments_updated,
-             series: summary.series
+             series: summary.series,
+             healthy: true,
+             failed_sources: []
            }
 
     assert_received {:profile_updated, profile_params}
@@ -451,6 +455,118 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducerTes
     refute Map.has_key?(profile_params, "seasonal_baselines_meta")
     refute Map.has_key?(assignment_params, "seasonal_baselines_meta")
     assert :ok = ConfigSchema.validate_params(load_addon_schema(), assignment_params)
+  end
+
+  # The heartbeat is written every run, because the freshness tripwire needs one
+  # inside its window, but it always claimed the previous state was healthy. Every
+  # hourly run then published "changed from healthy to healthy", a failed run after
+  # a failed run said "healthy to unhealthy", and a recovery was indistinguishable
+  # from a heartbeat, so suppressing unchanged records alone would have hidden it.
+  describe "heartbeat_transition/2" do
+    test "the first heartbeat has no previous state" do
+      assert {nil, :healthy, :heartbeat} =
+               EdgeBaselineProducer.heartbeat_transition(nil, %{healthy: true})
+    end
+
+    test "a healthy run after a healthy one is unchanged" do
+      assert {:healthy, :healthy, :heartbeat} =
+               EdgeBaselineProducer.heartbeat_transition(:healthy, %{healthy: true})
+    end
+
+    test "a healthy run after a failed one is a recovery" do
+      assert {:unhealthy, :healthy, :heartbeat} =
+               EdgeBaselineProducer.heartbeat_transition(:unhealthy, %{healthy: true})
+    end
+
+    test "a failed run after a healthy one is a real failure" do
+      assert {:healthy, :unhealthy, :partial_delivery} =
+               EdgeBaselineProducer.heartbeat_transition(:healthy, %{
+                 healthy: false,
+                 failed_sources: ["cpu_seasonal"]
+               })
+    end
+
+    test "a failed run after a failed one stays unhealthy" do
+      assert {:unhealthy, :unhealthy, :partial_delivery} =
+               EdgeBaselineProducer.heartbeat_transition(:unhealthy, %{
+                 healthy: false,
+                 failed_sources: ["cpu_seasonal"]
+               })
+    end
+  end
+
+  defmodule CpuSourceFailsRunner do
+    @moduledoc false
+    # The statement for the cpu source is cancelled (what a 20-device full-profile
+    # chunk did on demo for eight weeks); memory still answers.
+    def query(query, opts) do
+      if String.contains?(query, "sysmon.cpu") do
+        {:error, %{reason: :statement_timeout}}
+      else
+        ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducerTest.ProfileRunner.query(
+          query,
+          opts
+        )
+      end
+    end
+  end
+
+  test "reconcile delivers the sources that succeeded when one source fails and reports it" do
+    test_pid = self()
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert {:ok, summary} =
+                 EdgeBaselineProducer.reconcile(
+                   sources: sources(),
+                   runner: CpuSourceFailsRunner,
+                   profiles_loader: fn _actor -> {:ok, [%{id: "profile-1", params: %{}}]} end,
+                   profile_updater: fn profile, params, _actor ->
+                     send(test_pid, {:profile_updated, params})
+                     {:ok, Map.put(profile, :params, params)}
+                   end,
+                   heartbeat_recorder: fn metadata ->
+                     send(test_pid, {:heartbeat, metadata})
+                     :ok
+                   end
+                 )
+
+        assert summary.failed_sources == ["cpu_seasonal"]
+        assert summary.global_series == 1
+      end)
+
+    # The release log format drops logger metadata, so the source and reason
+    # must be in the message body to be visible in `kubectl logs`.
+    assert log =~ "Edge baseline source fetch failed source=cpu_seasonal reason="
+    assert log =~ "statement_timeout"
+
+    assert_received {:profile_updated, params}
+    baselines = params["seasonal_baselines"]
+    assert Map.has_key?(baselines, "#{ProfileRunner.device()}|memory.used_percent")
+    refute Map.has_key?(baselines, "#{ProfileRunner.device()}|cpu.usage_percent")
+
+    # The freshness tripwire only trusts healthy heartbeats, so a partial run
+    # records an unhealthy one that names what failed instead of going silent.
+    assert_received {:heartbeat, %{healthy: false, failed_sources: ["cpu_seasonal"]}}
+  end
+
+  defmodule AllSourcesFailRunner do
+    @moduledoc false
+    def query(_query, _opts), do: {:error, :statement_timeout}
+  end
+
+  test "reconcile fails when every source fetch fails" do
+    ExUnit.CaptureLog.capture_log(fn ->
+      assert {:error, {:all_sources_failed, names}} =
+               EdgeBaselineProducer.reconcile(
+                 sources: sources(),
+                 runner: AllSourcesFailRunner,
+                 profiles_loader: fn _actor -> {:ok, []} end
+               )
+
+      assert "cpu_seasonal" in names
+      assert "memory_seasonal" in names
+    end)
   end
 
   test "reconcile heartbeat failures never fail a successful delivery" do

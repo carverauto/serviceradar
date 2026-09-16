@@ -182,7 +182,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.UploadGuard do
   def sanitize_filename(filename) when is_binary(filename) do
     sanitized =
       filename
-      |> Regex.replace(@control_char_re, "_")
+      |> then(&Regex.replace(@control_char_re, &1, "_"))
       |> String.replace(["/", "\\"], "_")
       |> String.trim()
       |> truncate(@max_filename_bytes)

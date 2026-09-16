@@ -1,0 +1,9 @@
+load("@serviceradar//third_party/arrow_swift:inventory.bzl", "ARROW_UPSTREAM_FILES", "ARROW_UPSTREAM_TESTS")
+
+exports_files(ARROW_UPSTREAM_FILES)
+
+filegroup(
+    name = "core_tests",
+    srcs = ARROW_UPSTREAM_TESTS,
+    visibility = ["//visibility:public"],
+)

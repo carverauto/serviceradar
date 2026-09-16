@@ -38,21 +38,33 @@ it.
 
 The bundled chart must be new enough to template those keys. A published chart
 that predates `webNg.mcpEnabled` will store the value unused and leave `/mcp`
-404. Use the chart from this repo (or a release that includes the MCP env
-block in `templates/web.yaml`).
+404. Upgrade to a published chart version (`--version <chart-version>`
+below) that includes the MCP env block in `templates/web.yaml`; its
+`helm show values` output lists `mcpEnabled` under `webNg`.
 
 ### Existing install
 
 ```bash
-helm upgrade serviceradar ./helm/serviceradar \
+helm get values serviceradar -n <namespace> | grep -E 'imageTag|expectedVersion'
+helm upgrade serviceradar oci://registry.carverauto.dev/serviceradar/charts/serviceradar \
+  --version <chart-version> \
   -n <namespace> \
-  --reuse-values \
+  --reset-then-reuse-values \
+  --set global.imageTag="" \
   --set webNg.mcpEnabled="true"
 ```
 
-`--reuse-values` keeps cluster-specific settings (VIPs, storage, pull
-secrets). For a one- or two-service image pin, keep using `image.digests.*`
-as usual; enabling MCP does not require moving `global.imageTag`.
+`--reset-then-reuse-values` needs Helm 3.14 or newer. It takes the defaults of
+the chart version you install, but any value the release was given earlier
+with `--set` or `-f` still wins, including an old `global.imageTag`.
+`--set global.imageTag=""` clears a stale tag so `--version` selects matching
+images. If the first command shows `expectedVersion` or other copied chart
+defaults, drop the reuse flag and upgrade with your site values file instead
+(`-f my-values.yaml --set webNg.mcpEnabled="true"`). Plain `--reuse-values`
+keeps the previous chart's defaults, including its
+`core.migrations.expectedVersion`, which then drifts from the images. For a
+one- or two-service image pin, keep using `image.digests.*` (digests of the
+`v<chart-version>` images) as usual.
 
 ### Demo overlay
 

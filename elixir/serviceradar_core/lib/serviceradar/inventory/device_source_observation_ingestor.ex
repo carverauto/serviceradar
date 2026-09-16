@@ -17,6 +17,8 @@ defmodule ServiceRadar.Inventory.DeviceSourceObservationIngestor do
   @max_devices 100_000
   @max_metadata_bytes 16 * 1024
   @lookup_chunk_size 5_000
+  # Postgres's wire protocol hard limit (int16) on bound parameters in one query.
+  @max_bound_parameters 65_535
   @db_prefix "platform"
   @observations_table "device_source_observations"
   @snapshots_table "device_source_snapshots"
@@ -450,11 +452,25 @@ defmodule ServiceRadar.Inventory.DeviceSourceObservationIngestor do
           end)
 
         if records != [] do
-          Repo.insert_all(@observations_table, records,
-            prefix: @db_prefix,
-            on_conflict: {:replace, @replace_observation_fields},
-            conflict_target: [:partition, :source, :source_instance, :source_object_id]
-          )
+          # Postgres's wire protocol caps a single query at 65535 bound parameters
+          # (Postgrex raises "postgresql protocol can not handle N parameters" past
+          # that). insert_all/3 does not chunk on its own, so a collection large
+          # enough to cross that line at this table's field count -- reached for
+          # the first time only once a full 50k-device sync actually got this far
+          # -- fails the whole activation. Chunk by the actual field count instead
+          # of a fixed record count so this stays correct if fields are added.
+          field_count = records |> hd() |> map_size()
+          batch_size = max(div(@max_bound_parameters, field_count), 1)
+
+          records
+          |> Enum.chunk_every(batch_size)
+          |> Enum.each(fn batch ->
+            Repo.insert_all(@observations_table, batch,
+              prefix: @db_prefix,
+              on_conflict: {:replace, @replace_observation_fields},
+              conflict_target: [:partition, :source, :source_instance, :source_object_id]
+            )
+          end)
         end
 
         {absent_count, _} =

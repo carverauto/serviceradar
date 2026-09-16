@@ -9,7 +9,7 @@
     <array>
         <string>/usr/local/libexec/serviceradar/serviceradar-agent</string>
         <string>--config</string>
-        <string>/usr/local/etc/serviceradar/agent.json</string>
+        <string>/etc/serviceradar/agent.json</string>
     </array>
 
     <key>RunAtLoad</key>

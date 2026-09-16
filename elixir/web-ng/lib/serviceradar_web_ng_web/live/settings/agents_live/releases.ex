@@ -1497,7 +1497,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                       </td>
                       <td><.target_status_badge status={target.status} /></td>
                       <td class="text-xs text-sr-muted">
-                        <span :if={target_progress_text(target) not in [nil, ""]}>
+                        <span :if={target_progress_text(target) != ""}>
                           {target_progress_text(target)} ·
                         </span>
                         <.user_time

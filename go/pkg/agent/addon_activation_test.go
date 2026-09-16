@@ -1033,3 +1033,15 @@ func setReleaseVerificationKey(t *testing.T, key string) {
 	ReleaseSigningPublicKey = key
 	t.Cleanup(func() { ReleaseSigningPublicKey = previous })
 }
+
+func TestAddonStateDirLivesBesideTheVersionsTree(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "agent")
+	got := addonStateDir(root, "anomaly")
+	want := filepath.Join(root, addonsDirName, "anomaly", addonStateDirName)
+	if got != want {
+		t.Fatalf("addonStateDir = %q, want %q", got, want)
+	}
+	if got := addonStateDir(root, "../escape"); got != "" {
+		t.Fatalf("unsafe add-on id must yield no state dir, got %q", got)
+	}
+}

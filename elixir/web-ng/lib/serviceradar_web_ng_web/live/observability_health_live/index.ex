@@ -10,8 +10,13 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
   @anomaly_query "in:events event_type:(anomaly,anomaly_detection) time:last_24h sort:time:desc limit:25"
   @health_query "in:events rollup_stats:anomaly_findings time:last_24h limit:1"
   # The worker/DB only ever persist status projected|skipped (DB CHECK);
-  # at_risk/exhaustion_projected never occur as row statuses.
-  @capacity_query "in:capacity_forecasts status:projected has_exhaustion:true sort:projected_exhaustion_at:asc limit:25"
+  # at_risk/exhaustion_projected never occur as row statuses. The default is
+  # bounded to the last 24 h of runs and collapsed to the newest row per
+  # resource in `collapse_default_runway/2`: an unbounded exhaustion-ascending
+  # query surfaced months-old projections from a retired model first, because
+  # the table never records a projection retiring.
+  @capacity_query "in:capacity_forecasts status:projected has_exhaustion:true time:last_24h sort:forecasted_at:desc limit:500"
+  @capacity_visible_rows 25
   # SRQL has no grouped stats for capacity_forecasts (the entity executor
   # ignores stats clauses), so fetch a bounded recent sample and aggregate
   # skip reasons per series in Elixir.
@@ -644,6 +649,7 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
       capacity_result
       |> result_rows()
       |> Enum.reject(&invalid_capacity_runway_row?/1)
+      |> collapse_default_runway(capacity_query)
 
     # Supplemental summary; only fetched when the runway table is small enough
     # for the summary line to render at all. A failure is logged by query_rows
@@ -751,6 +757,47 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
       capacity_count: 0
     }
   end
+
+  # The default runway query returns every forecast from the last 24 h (one row
+  # per hourly run per resource): keep the newest row per resource, order by
+  # projected exhaustion, and show the nearest risks. An operator-typed query is
+  # shown exactly as SRQL returned it.
+  defp collapse_default_runway(rows, @capacity_query) do
+    rows
+    |> Enum.filter(&is_map/1)
+    |> Enum.group_by(&runway_row_identity/1)
+    |> Enum.map(fn {_identity, group} -> Enum.max_by(group, &forecasted_at_unix/1) end)
+    |> Enum.sort_by(&exhaustion_sort_key/1)
+    |> Enum.take(@capacity_visible_rows)
+  end
+
+  defp collapse_default_runway(rows, _query), do: rows
+
+  defp runway_row_identity(row) do
+    {value(row, "resource_id"), value(row, "resource_key"), value(row, "metric_name")}
+  end
+
+  defp forecasted_at_unix(row), do: row |> value("forecasted_at") |> unix_seconds() || 0
+
+  defp exhaustion_sort_key(row) do
+    case row |> value("projected_exhaustion_at") |> unix_seconds() do
+      nil -> {1, 0}
+      unix -> {0, unix}
+    end
+  end
+
+  defp unix_seconds(%DateTime{} = datetime), do: DateTime.to_unix(datetime)
+
+  defp unix_seconds(%NaiveDateTime{} = datetime), do: datetime |> DateTime.from_naive!("Etc/UTC") |> DateTime.to_unix()
+
+  defp unix_seconds(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, datetime, _offset} -> DateTime.to_unix(datetime)
+      _ -> nil
+    end
+  end
+
+  defp unix_seconds(_value), do: nil
 
   defp summarize_skipped_series(rows) do
     series =

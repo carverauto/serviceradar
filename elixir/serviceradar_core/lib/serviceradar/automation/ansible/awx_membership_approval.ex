@@ -12,13 +12,13 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipApproval do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Automation.Ansible.AwxHostMembership
+  alias ServiceRadar.Automation.Ansible.AwxLaunchContract
   alias ServiceRadar.Automation.CallbackGrants.CanonicalJSON
   alias ServiceRadar.Identity.RBAC
   alias ServiceRadar.Identity.User
 
   @permission "ansible.controllers.manage"
   @store_actor SystemActor.system(:awx_membership_approval_store)
-  @max_generation 9_223_372_036_854_775_807
   @request_keys MapSet.new(~w(
     membership_id
     controller_id
@@ -46,7 +46,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipApproval do
           inventory_id: pos_integer(),
           awx_host_id: pos_integer(),
           canonical_device_uid: String.t(),
-          source_generation: pos_integer(),
+          source_generation: pos_integer() | String.t(),
           source_fingerprint: String.t(),
           link_evidence_digest: String.t()
         }
@@ -353,8 +353,15 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipApproval do
   defp positive_integer(value) when is_integer(value) and value > 0, do: {:ok, value}
   defp positive_integer(_value), do: {:error, :invalid_positive_integer}
 
-  defp source_generation(value) when is_integer(value) and value > 0 and value <= @max_generation,
-    do: {:ok, value}
+  defp source_generation(value) when is_integer(value),
+    do: source_generation(Integer.to_string(value))
+
+  defp source_generation(value) when is_binary(value) do
+    case AwxLaunchContract.validate_membership_generation(value) do
+      :ok -> {:ok, String.to_integer(value)}
+      {:error, _reason} -> {:error, :invalid_source_generation}
+    end
+  end
 
   defp source_generation(_value), do: {:error, :invalid_source_generation}
 

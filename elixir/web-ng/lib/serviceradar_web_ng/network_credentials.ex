@@ -3,12 +3,14 @@ defmodule ServiceRadarWebNG.NetworkCredentials do
   Web-facing operations for network credential secrets and rules.
   """
 
-  alias Ash.Error.Query.NotFound
+  alias Ash.Error.Invalid
   alias ServiceRadar.Credentials.CredentialRotation
   alias ServiceRadar.Credentials.CredentialSecretBuilder
   alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Plugins.IntegrationCatalog
+  alias ServiceRadar.Repo
+  alias ServiceRadarWebNG.ConfigurationRequest
 
   require Ash.Query
 
@@ -36,12 +38,9 @@ defmodule ServiceRadarWebNG.NetworkCredentials do
   def get_secret(id, opts \\ []) when is_binary(id) do
     scope = Keyword.fetch!(opts, :scope)
 
-    case NetworkCredentialSecret.get_by_id(id, scope: scope) do
-      {:ok, nil} -> {:error, :not_found}
-      {:ok, secret} -> {:ok, secret}
-      {:error, %NotFound{}} -> {:error, :not_found}
-      {:error, error} -> {:error, error}
-    end
+    id
+    |> NetworkCredentialSecret.get_by_id(scope: scope)
+    |> ConfigurationRequest.require_record()
   end
 
   @spec create_secret(map(), keyword()) :: {:ok, struct()} | {:error, term()}
@@ -62,21 +61,70 @@ defmodule ServiceRadarWebNG.NetworkCredentials do
     scope = Keyword.fetch!(opts, :scope)
 
     with {:ok, secret} <- get_secret(id, scope: scope) do
-      NetworkCredentialSecret.edit_details(secret, drop_nils(attrs), scope: scope)
+      secret
+      |> Ash.Changeset.for_update(:edit_details, attrs, scope: scope)
+      |> ConfigurationRequest.constrain(opts)
+      |> Ash.update(scope: scope)
+      |> ConfigurationRequest.normalize_result()
     end
   end
+
+  @spec delete_secret(String.t(), keyword()) :: :ok | {:error, term()}
+  def delete_secret(id, opts \\ []) when is_binary(id) do
+    scope = Keyword.fetch!(opts, :scope)
+
+    with {:ok, secret} <- get_secret(id, scope: scope) do
+      secret
+      |> Ash.Changeset.for_destroy(:destroy_permanently, %{confirm_secret_id: id}, scope: scope)
+      |> ConfigurationRequest.constrain(opts)
+      |> Ash.destroy(scope: scope)
+      |> ConfigurationRequest.normalize_result()
+      |> normalize_secret_delete_error()
+    end
+  end
+
+  defp normalize_secret_delete_error({:error, %Invalid{errors: errors}} = result) do
+    if Enum.any?(errors, &match?(%{message: "credential_in_use"}, &1)),
+      do: {:error, :credential_in_use},
+      else: result
+  end
+
+  defp normalize_secret_delete_error(result), do: result
 
   @spec rotate_secret(String.t(), map(), keyword()) ::
           {:ok, struct()} | {:error, :not_found} | {:error, term()}
   def rotate_secret(id, values, opts \\ []) when is_binary(id) and is_map(values) do
     scope = Keyword.fetch!(opts, :scope)
 
-    with_result =
-      with {:ok, secret} <- get_secret(id, scope: scope) do
-        CredentialRotation.rotate(secret, stringify_keys(values), scope)
-      end
+    result =
+      Repo.transaction(fn ->
+        result =
+          with {:ok, secret} <- lock_secret(id, scope),
+               :ok <- ConfigurationRequest.assert_current(secret, opts) do
+            CredentialRotation.rotate(secret, stringify_keys(values), scope)
+          end
 
-    normalize_credential_error(with_result)
+        case result do
+          {:ok, secret} -> secret
+          error -> Repo.rollback(error)
+        end
+      end)
+
+    case result do
+      {:ok, secret} -> {:ok, secret}
+      {:error, error} -> normalize_credential_error(error)
+    end
+  end
+
+  defp lock_secret(id, scope) do
+    NetworkCredentialSecret
+    |> Ash.Query.for_read(:by_id, %{id: id}, scope: scope)
+    |> Ash.Query.lock(:for_update)
+    |> Ash.read_one(scope: scope)
+    |> case do
+      {:ok, nil} -> {:error, :not_found}
+      result -> result
+    end
   end
 
   @spec list_rules(keyword()) :: {:ok, [struct()]} | {:error, term()}
@@ -103,12 +151,9 @@ defmodule ServiceRadarWebNG.NetworkCredentials do
   def get_rule(id, opts \\ []) when is_binary(id) do
     scope = Keyword.fetch!(opts, :scope)
 
-    case NetworkCredentialRule.get_by_id(id, scope: scope) do
-      {:ok, nil} -> {:error, :not_found}
-      {:ok, rule} -> {:ok, rule}
-      {:error, %NotFound{}} -> {:error, :not_found}
-      {:error, error} -> {:error, error}
-    end
+    id
+    |> NetworkCredentialRule.get_by_id(scope: scope)
+    |> ConfigurationRequest.require_record()
   end
 
   @spec create_rule(map(), keyword()) :: {:ok, struct()} | {:error, term()}
@@ -123,7 +168,11 @@ defmodule ServiceRadarWebNG.NetworkCredentials do
     scope = Keyword.fetch!(opts, :scope)
 
     with {:ok, rule} <- get_rule(id, scope: scope) do
-      NetworkCredentialRule.update_rule(rule, attrs, scope: scope)
+      rule
+      |> Ash.Changeset.for_update(:update, attrs, scope: scope)
+      |> ConfigurationRequest.constrain(opts)
+      |> Ash.update(scope: scope)
+      |> ConfigurationRequest.normalize_result()
     end
   end
 
@@ -136,9 +185,38 @@ defmodule ServiceRadarWebNG.NetworkCredentials do
     with {:ok, rule} <- get_rule(id, scope: scope) do
       rule
       |> Ash.Changeset.for_update(action, %{}, scope: scope)
+      |> ConfigurationRequest.constrain(opts)
       |> Ash.update(scope: scope)
+      |> ConfigurationRequest.normalize_result()
     end
   end
+
+  @spec delete_rule(String.t(), keyword()) :: :ok | {:error, term()}
+  def delete_rule(id, opts \\ []) when is_binary(id) do
+    scope = Keyword.fetch!(opts, :scope)
+
+    with {:ok, rule} <- get_rule(id, scope: scope) do
+      rule
+      |> Ash.Changeset.for_destroy(:destroy, %{}, scope: scope)
+      |> ConfigurationRequest.constrain(opts)
+      |> Ash.destroy(scope: scope)
+      |> ConfigurationRequest.normalize_result()
+      |> normalize_rule_delete_error()
+    end
+  end
+
+  defp normalize_rule_delete_error({:error, %Invalid{errors: errors}} = result) do
+    conflict =
+      Enum.find_value(errors, fn
+        %{message: "credential_rule_must_be_disabled"} -> :credential_rule_must_be_disabled
+        %{message: "credential_rule_in_use"} -> :credential_rule_in_use
+        _ -> nil
+      end)
+
+    if conflict, do: {:error, conflict}, else: result
+  end
+
+  defp normalize_rule_delete_error(result), do: result
 
   defp normalize_credential_error({:error, {:missing_credential_field, field}}) do
     {:error, :invalid_request, "missing credential field: #{field}"}
@@ -245,12 +323,6 @@ defmodule ServiceRadarWebNG.NetworkCredentials do
   end
 
   defp normalize_limit(_), do: @default_limit
-
-  defp drop_nils(attrs) when is_map(attrs) do
-    attrs
-    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
-    |> Map.new()
-  end
 
   defp stringify_keys(map) when is_map(map) do
     Map.new(map, fn

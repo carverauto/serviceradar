@@ -10,9 +10,12 @@ topologySpread:
   whenUnsatisfiable: ScheduleAnyway
 
 global:
-  # Demo uses an immutable ServiceRadar image tag so Kyverno can verify
-  # signatures without requiring digest-pinned user-facing values.
-  imageTag: "sha-217d693de66908133302bffea9a1091b03e45d87"
+  # No imageTag here. Images follow the chart version (v<appVersion>); release
+  # images are signed with the release key, so Kyverno verification still holds.
+  # The Git-sourced demo Application sets the release tag through its Argo CD
+  # source override, and the chart-sourced one clears global.imageTag in its own
+  # valuesObject, so a tag pinned here would either be ignored or point every
+  # workload at a build that may no longer exist.
   imagePullPolicy: Always
   forceRolloutOnUpgrade: true
   storage:
@@ -499,6 +502,21 @@ webNg:
   auth:
     forceLocalLogin: false
     disableSso: false
+  # Demo attaches to the shared envoy gateway in serviceradar-system, so
+  # trust its x-forwarded-for for audit logging.
+  #
+  # ONLY the envoy pod range. web-ng walks x-forwarded-for right-to-left and
+  # reports the first hop that is NOT in this list, so every CIDR here is an
+  # address web-ng will refuse to report as a client. Listing all of RFC1918
+  # put the site LAN in that set: a browser on 192.168.0.0/16 was treated as
+  # a proxy hop, no hop was left, and every login from the LAN was a 500
+  # (v1.4.56). Envoy is the only proxy in front of web-ng, its pods live in
+  # the k3s cluster CIDR, and the web-ng Service is IPv4-only, so the peer
+  # web-ng sees is always in this range.
+  clientIp:
+    trustXForwardedFor: true
+    trustedProxyCidrs:
+      - "10.42.0.0/16"
   publicUrl: "https://demo.serviceradar.cloud"
   # MCP OAuth AS for Authentik SSO testing. Chart default is off. Keep this
   # on the demo overlay so /mcp survives Image Updater rewrite of

@@ -68,12 +68,21 @@ defmodule ServiceRadar.Observability.Log do
     routes do
       base "/logs"
 
-      index :read
+      index :api_index
     end
   end
 
   actions do
     defaults [:read]
+
+    read :api_index do
+      pagination do
+        offset? true
+        default_limit 100
+        max_page_size 1000
+        required? true
+      end
+    end
 
     read :by_trace do
       argument :trace_id, :string, allow_nil?: false

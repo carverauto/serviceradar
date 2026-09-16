@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   alias Phoenix.LiveView.JS
   alias ServiceRadar.Events.PubSub, as: EventsPubSub
+  alias ServiceRadar.HTTP.EgressClient
   alias ServiceRadar.Integrations.MapboxSettings
   alias ServiceRadar.Observability.AlertPubSub
   alias ServiceRadar.Observability.EventTitle
@@ -355,18 +356,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   def handle_event("toggle_alerts_live", _params, socket) do
     {:noreply, toggle_tab_live(socket, "alerts", :alerts_live?)}
-  end
-
-  # Shared live-toggle behavior: flip the flag, and when turning live on,
-  # reload the head of the current result set so the tail starts fresh.
-  defp toggle_tab_live(socket, tab, flag) do
-    socket = assign(socket, flag, !Map.get(socket.assigns, flag, false))
-
-    if socket.assigns.active_tab == tab and Map.get(socket.assigns, flag, false) do
-      refresh_tab(socket, tab)
-    else
-      socket
-    end
   end
 
   def handle_event("srql_paginate", params, socket) do
@@ -852,6 +841,18 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     case AlertActions.snooze_seconds(%{"duration" => duration}) do
       {:ok, seconds} -> run_alert_bulk(socket, :snooze, seconds: seconds)
       :error -> {:noreply, put_flash(socket, :error, AlertActions.describe_error(:invalid_duration))}
+    end
+  end
+
+  # Shared live-toggle behavior: flip the flag, and when turning live on,
+  # reload the head of the current result set so the tail starts fresh.
+  defp toggle_tab_live(socket, tab, flag) do
+    socket = assign(socket, flag, !Map.get(socket.assigns, flag, false))
+
+    if socket.assigns.active_tab == tab and Map.get(socket.assigns, flag, false) do
+      refresh_tab(socket, tab)
+    else
+      socket
     end
   end
 
@@ -5817,7 +5818,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp fetch_arin_asn(asn) when is_integer(asn) and asn > 0 do
     url = "https://whois.arin.net/rest/asn/AS#{asn}.json"
 
-    case Req.get(url, arin_http_req_opts()) do
+    case arin_http_get(url) do
       {:ok, %Req.Response{status: 200, body: %{"asn" => %{} = asn_payload}}} ->
         {:ok, normalize_arin_asn(asn_payload)}
 
@@ -5836,13 +5837,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp fetch_arin_asn(_), do: {:error, :invalid_asn}
 
-  defp arin_http_req_opts do
-    opts = [receive_timeout: 8_000, retry: false, headers: [{"accept", "application/json"}]]
+  # EgressClient, not the shared Finch pool: the pool cannot tunnel through
+  # SERVICERADAR_EGRESS_PROXY. Decodes a 200 body; other statuses pass through.
+  defp arin_http_get(url) do
+    opts = [receive_timeout: 8_000, headers: [{"accept", "application/json"}]]
 
-    if Process.whereis(ServiceRadar.Finch) do
-      Keyword.put(opts, :finch, ServiceRadar.Finch)
-    else
-      opts
+    with {:ok, %Req.Response{status: 200, body: body} = response} <-
+           EgressClient.fetch_body(url, opts),
+         {:ok, decoded} <- Jason.decode(body) do
+      {:ok, %{response | body: decoded}}
     end
   end
 

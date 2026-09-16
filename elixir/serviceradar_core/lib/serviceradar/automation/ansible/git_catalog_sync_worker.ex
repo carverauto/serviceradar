@@ -9,9 +9,9 @@ defmodule ServiceRadar.Automation.Ansible.GitCatalogSyncWorker do
   metadata becomes the catalog `Playbook` row, upserted via
   `Playbook.upsert_git` with `source_type: :git`.
 
-  Path layout: `<base_dir>/<repository_id>/`. Default base dir is
-  `System.tmp_dir!()/serviceradar_ansible_catalog`; override with
-  `:ansible_catalog_base_dir`. Each pod has its own cache; sharing
+  Path layout: `<base_dir>/<repository_id>/`. For cache configuration and
+  temporary-directory requirements, see `docs/docs/ansible.md`,
+  "Configure environment variables". Each pod has its own cache; sharing
   across pods isn't required since the upsert is idempotent.
 
   v1 limitations:
@@ -226,15 +226,19 @@ defmodule ServiceRadar.Automation.Ansible.GitCatalogSyncWorker do
     git_runner = Keyword.get(opts, :git_runner, &System.cmd/3)
 
     if File.dir?(Path.join(repo_dir, ".git")) do
-      with {:ok, _} <- git(git_runner, ["fetch", "--prune", "origin"], cd: repo_dir),
-           {:ok, _} <- git(git_runner, ["reset", "--hard", "origin/#{ref}"], cd: repo_dir) do
+      with {:ok, _} <- git(git_runner, ["remote", "set-url", "origin", url], cd: repo_dir),
+           {:ok, _} <-
+             git(git_runner, ["fetch", "--depth", "50", "--prune", "origin", ref], cd: repo_dir),
+           {:ok, _} <- git(git_runner, ["reset", "--hard", "FETCH_HEAD"], cd: repo_dir) do
         :ok
       end
     else
       File.mkdir_p!(Path.dirname(repo_dir))
 
       with {:ok, _} <-
-             git(git_runner, ["clone", "--depth", "50", "--branch", ref, url, repo_dir], cd: nil) do
+             git(git_runner, ["clone", "--depth", "50", "--branch", ref, "--", url, repo_dir],
+               cd: nil
+             ) do
         # Touch repo_id so future runs hit the fast path.
         _ = repo
         :ok
@@ -332,11 +336,15 @@ defmodule ServiceRadar.Automation.Ansible.GitCatalogSyncWorker do
   defp sanitize_git_error(other), do: other |> inspect() |> String.slice(0, 200)
 
   defp default_base_dir do
-    Application.get_env(
-      :serviceradar_core,
-      :ansible_catalog_base_dir,
-      Path.join(System.tmp_dir!(), "serviceradar_ansible_catalog")
-    )
+    # Application.get_env/3 evaluates its default eagerly. Keep temporary-directory
+    # lookup lazy so a configured cache works even when no writable temp dir exists.
+    case Application.fetch_env(:serviceradar_core, :ansible_catalog_base_dir) do
+      {:ok, dir} when is_binary(dir) and dir != "" ->
+        dir
+
+      _ ->
+        Path.join(System.tmp_dir!(), "serviceradar_ansible_catalog")
+    end
   end
 
   defp schedule_next(%PlaybookRepository{} = repo) do
@@ -361,12 +369,13 @@ defmodule ServiceRadar.Automation.Ansible.GitCatalogSyncWorker do
     import Ecto.Query
 
     query =
-      from job in Oban.Job,
+      from(job in Oban.Job,
         where:
-          job.worker == ^to_string(__MODULE__) and
+          job.worker == ^Oban.Worker.to_string(__MODULE__) and
             fragment("? -> ?", job.args, "repository_id") == ^repository_id and
             job.state in ["available", "scheduled", "executing", "retryable"],
         limit: 1
+      )
 
     ServiceRadar.Repo.exists?(query, prefix: ObanSupport.prefix())
   end

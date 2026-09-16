@@ -14,6 +14,15 @@ The Go SDK is for building ServiceRadar Wasm plugins and integrations in Go. It 
 
 Use it when you want to write a custom checker, feed producer, notifier, or integration in Go and prefer an ergonomic SDK over hand-writing host imports.
 
+Fetching the module requires `GOPRIVATE=github.com/carverauto/serviceradar-sdk-go`
+on every `go get` / `go mod` / `tinygo build` invocation that resolves it — the
+module is not served via the public Go proxy, so without this Go fails against
+the proxy/checksum database instead of fetching directly from GitHub:
+
+```
+export GOPRIVATE=github.com/carverauto/serviceradar-sdk-go
+```
+
 See the full reference at [developer.serviceradar.cloud](https://developer.serviceradar.cloud).
 
 ## serviceradar-sdk-rust

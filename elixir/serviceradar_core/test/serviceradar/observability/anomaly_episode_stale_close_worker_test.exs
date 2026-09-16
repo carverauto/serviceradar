@@ -19,25 +19,51 @@ defmodule ServiceRadar.Observability.AnomalyEpisodeStaleCloseWorkerTest do
     previous_global =
       Application.get_env(:serviceradar_core, :anomaly_episode_stale_after_minutes)
 
+    previous_central =
+      Application.get_env(:serviceradar_core, :central_seasonal_episode_stale_after_minutes)
+
     Process.put(:stale_close_test_pid, self())
 
     on_exit(fn ->
       Process.delete(:stale_close_test_pid)
       restore_env(AnomalyEpisodeStaleCloseWorker, previous_module)
       restore_env(:anomaly_episode_stale_after_minutes, previous_global)
+      restore_env(:central_seasonal_episode_stale_after_minutes, previous_central)
     end)
   end
 
-  test "close_stale marks open rows as stale closed" do
+  test "close_stale marks open rows as stale closed with a detector-aware cutoff" do
     cutoff = ~N[2026-07-04 11:30:00.000000]
+    central_cutoff = ~N[2026-07-04 09:30:00.000000]
     now = ~N[2026-07-04 12:00:00.000000]
 
-    assert {:ok, 3} = AnomalyEpisodeStaleCloseWorker.close_stale(cutoff, now, RepoStub)
+    assert {:ok, 3} =
+             AnomalyEpisodeStaleCloseWorker.close_stale(cutoff, central_cutoff, now, RepoStub)
 
-    assert_receive {:stale_close_query, sql, [^cutoff, ^now]}
+    assert_receive {:stale_close_query, sql, [^cutoff, ^central_cutoff, ^now]}
     assert sql =~ "status = 'stale_closed'"
     assert sql =~ "clear_reason = 'stale'"
     assert sql =~ "WHERE status = 'open'"
+    # Central seasonal episodes are refreshed once an hour by a cron worker, so
+    # they get their own (longer) window instead of the edge heartbeat margin.
+    assert sql =~ "detector = 'central_seasonal'"
+    assert sql =~ "last_seen_at < $2"
+    assert sql =~ "last_seen_at < $1"
+  end
+
+  test "central seasonal window covers two hourly runs and never undercuts the edge window" do
+    Application.delete_env(:serviceradar_core, :anomaly_episode_stale_after_minutes)
+    Application.delete_env(:serviceradar_core, :central_seasonal_episode_stale_after_minutes)
+
+    put_settings_fetcher(emission_fetcher(1_800))
+    assert AnomalyEpisodeStaleCloseWorker.central_seasonal_stale_after_seconds() == 150 * 60
+
+    # A very long edge heartbeat still bounds the central window from below.
+    put_settings_fetcher(emission_fetcher(6_000))
+    assert AnomalyEpisodeStaleCloseWorker.central_seasonal_stale_after_seconds() == 12_000
+
+    Application.put_env(:serviceradar_core, :central_seasonal_episode_stale_after_minutes, 240)
+    assert AnomalyEpisodeStaleCloseWorker.central_seasonal_stale_after_seconds() == 240 * 60
   end
 
   test "stale window derives two heartbeats from emission settings with a 30 minute floor" do

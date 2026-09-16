@@ -17,6 +17,7 @@ pub(crate) fn supports_hourly_cagg(entity: &Entity) -> bool {
             | Entity::ProcessMetrics
             | Entity::TimeseriesMetrics
             | Entity::TimeseriesMetricInterfaceHourly
+            | Entity::TimeseriesMetricDiskHourly
             | Entity::SnmpMetrics
             | Entity::RperfMetrics
             | Entity::Flows
@@ -33,6 +34,7 @@ pub(crate) fn cagg_table_for_entity(entity: &Entity) -> Option<&'static str> {
             Some("timeseries_metrics_hourly")
         }
         Entity::TimeseriesMetricInterfaceHourly => Some("timeseries_metrics_interface_hourly"),
+        Entity::TimeseriesMetricDiskHourly => Some("timeseries_metrics_disk_hourly"),
         Entity::Flows => Some("ocsf_network_activity_5m_traffic"),
         _ => None,
     }
@@ -75,6 +77,7 @@ pub(crate) fn cagg_column_for_entity(
         },
         Entity::TimeseriesMetrics
         | Entity::TimeseriesMetricInterfaceHourly
+        | Entity::TimeseriesMetricDiskHourly
         | Entity::SnmpMetrics
         | Entity::RperfMetrics => match (agg.as_str(), field.as_str()) {
             ("avg", "value") => Some("avg_value"),
@@ -100,9 +103,14 @@ fn is_hourly_cagg_eligible_query(entity: &Entity, has_stats: bool, has_downsampl
 }
 
 pub(crate) fn max_time_range_days_for_ast(ast: &QueryAst) -> i64 {
-    if matches!(ast.entity, Entity::TimeseriesMetricInterfaceHourly)
-        || is_hourly_cagg_eligible_query(&ast.entity, ast.stats.is_some(), ast.downsample.is_some())
-    {
+    if matches!(
+        ast.entity,
+        Entity::TimeseriesMetricInterfaceHourly | Entity::TimeseriesMetricDiskHourly
+    ) || is_hourly_cagg_eligible_query(
+        &ast.entity,
+        ast.stats.is_some(),
+        ast.downsample.is_some(),
+    ) {
         CAGG_MAX_TIME_RANGE_DAYS
     } else {
         90

@@ -35,7 +35,7 @@ defmodule ServiceRadar.Observability.OtelMetricPoint do
     routes do
       base "/otel_metric_points"
 
-      index :read
+      index :api_index
     end
   end
 
@@ -43,6 +43,15 @@ defmodule ServiceRadar.Observability.OtelMetricPoint do
 
   actions do
     defaults [:read]
+
+    read :api_index do
+      pagination do
+        offset? true
+        default_limit 100
+        max_page_size 1000
+        required? true
+      end
+    end
 
     read :by_metric do
       argument :metric_name, :string, allow_nil?: false
@@ -61,9 +70,10 @@ defmodule ServiceRadar.Observability.OtelMetricPoint do
   end
 
   policies do
-    policy action_type(:read) do
-      authorize_if always()
-    end
+    import ServiceRadar.Policies
+
+    system_bypass()
+    read_viewer_plus()
   end
 
   attributes do

@@ -30,7 +30,9 @@ itself - capabilities, permissions, signing, and the import workflow - see
 - Use an SDK. `serviceradar-sdk-go` and `serviceradar-sdk-rust` both ship the
   notifier envelopes, the manifest-block builder, and the credential helpers,
   and both emit exactly the keys the platform validator accepts. See
-  [SDKs & Plugin Development](./sdks.md).
+  [SDKs & Plugin Development](./sdks.md). When fetching the Go SDK, set
+  `GOPRIVATE=github.com/carverauto/serviceradar-sdk-go` — the module is not
+  served via the public Go proxy, so Go must resolve it directly from GitHub.
 - A notifier package is an ordinary signed Wasm plugin package. It is uploaded,
   approved, and assigned like any other, and it delivers nothing until it is
   **approved with `notify:v1`** and **assigned to an agent**.

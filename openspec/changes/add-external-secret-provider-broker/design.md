@@ -1,5 +1,5 @@
 ## Context
-ServiceRadar already has internal encrypted credential records, network credential rules, plugin secret references, and some broker-grant behavior. The current model is enough for internally stored secrets, but it does not provide a clean way to point a credential rule at an enterprise secret server record and resolve it only at runtime.
+ServiceRadar already has internal encrypted credential records, network credential rules, plugin secret references, and some broker-grant behavior. External references extend that model to point a credential rule at an enterprise secret server record and resolve it at runtime; implementation limits are linked below.
 
 External secret servers also change failure and trust behavior:
 - a secret may be reachable from the control plane, from an edge agent, from both, or from neither
@@ -7,6 +7,13 @@ External secret servers also change failure and trust behavior:
 - a returned secret may be leased, versioned, disabled, or field-shaped
 - checks should fail closed when a secret cannot be resolved
 - plugins should not receive plaintext even when the resolved credential is needed for an HTTP/database request
+
+## Implementation status and remaining integration
+
+See [Declarative environments: future Delinea Secret Server integration](../../../docs/docs/declarative-environments.md#future-delinea-secret-server-integration)
+for the implemented broker subset, remaining consumer and adapter work,
+credential-custody constraints, and separate runner-delivery contract.
+The design below describes the target contract, not completed acceptance.
 
 ## Goals
 - Treat "internal encrypted secret" and "external secret reference" as interchangeable credential sources for consumers.
@@ -17,7 +24,7 @@ External secret servers also change failure and trust behavior:
 - Keep mapper/discovery, plugins, remote access, SNMP, and service monitoring on one credential resolution interface.
 
 ## Non-Goals
-- No specific external secret server adapter in the first implementation.
+- No additional concrete adapter in this documentation follow-up; OpenBao/Vault support already exists.
 - No generic "run arbitrary provider script" escape hatch.
 - No plaintext external secret values in CNPG except optional encrypted local cache entries with strict TTL, when policy allows.
 - No browser-side secret resolution.
@@ -25,8 +32,8 @@ External secret servers also change failure and trust behavior:
 ## Core Model
 Add these concepts:
 
-- `SecretProvider`: configured external secret server connection metadata. Examples: `delinea`, `cyberark`, `vault`, `aws_secrets_manager`, `azure_key_vault`, `gcp_secret_manager`, `custom_future`. Initial implementation may only support provider records and test stubs.
-- `SecretProviderAuth`: how ServiceRadar authenticates to the provider. The provider bootstrap credential is itself internally encrypted or supplied by deployment runtime secret, never by plugin config.
+- `SecretProvider`: configured external secret server connection metadata. Examples: `delinea`, `cyberark`, `vault`, `aws_secrets_manager`, `azure_key_vault`, `gcp_secret_manager`, `custom_future`. The implemented subset is described in the status note above.
+- `SecretProviderAuth`: how ServiceRadar authenticates to the provider. New provider bootstrap credentials must use canonical internally encrypted custody, never plugin config. Existing OpenBao deployment-sourced authentication is a legacy limitation, as noted above.
 - `CredentialSource`: either `internal_encrypted` or `external_reference`.
 - `ExternalSecretReference`: provider ID, object/path identifier, optional field mapping, version selector, expected credential kind, redaction hints, cache/lease policy, and test status.
 - `CredentialBrokerGrant`: target-bound, purpose-bound, consumer-bound, time-bound permission for an agent or control-plane worker to resolve a credential and use it in a specific adapter.

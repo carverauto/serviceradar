@@ -79,6 +79,7 @@ fn agent_context(baseline: Vec<f64>) -> ReasonContext {
         min_std_floor: None,
         min_cv: None,
         saturation_gate: None,
+        burst_envelope: None,
     }
 }
 

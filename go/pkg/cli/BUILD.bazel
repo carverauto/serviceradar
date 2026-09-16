@@ -8,6 +8,7 @@ go_library(
         "cli.go",
         "edge_onboarding.go",
         "enroll.go",
+        "enroll_paths.go",
         "errors.go",
         "flags.go",
         "help.go",
@@ -36,6 +37,7 @@ go_test(
     srcs = [
         "auth_test.go",
         "cli_tls_test.go",
+        "enroll_paths_test.go",
         "nats_bootstrap_acl_integration_test.go",
         "nats_bootstrap_acl_test.go",
     ],

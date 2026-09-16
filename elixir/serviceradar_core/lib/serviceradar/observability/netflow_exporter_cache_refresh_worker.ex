@@ -52,7 +52,7 @@ defmodule ServiceRadar.Observability.NetflowExporterCacheRefreshWorker do
   defp check_existing_job do
     query =
       from(j in Oban.Job,
-        where: j.worker == ^to_string(__MODULE__),
+        where: j.worker == ^Oban.Worker.to_string(__MODULE__),
         where: j.state in ["available", "scheduled", "executing", "retryable"],
         limit: 1
       )

@@ -84,7 +84,7 @@ NETPROBE_RUSTC_FLAGS = select({
     "//conditions:default": [],
 })
 
-NETPROBE_VERSION = "0.2.61"
+NETPROBE_VERSION = "0.2.63"
 
 cargo_build_script(
     name = "build_script",
@@ -186,6 +186,34 @@ rust_test(
         "requires_cap_net_admin",
         "requires_cap_perfmon",
     ],
+    target_compatible_with = ["@platforms//os:linux"],
+)
+
+# Static BPF stack-depth gate over the shipped eBPF object.
+#
+# No kernel and no capabilities: it decodes the object and reproduces the
+# verifier's 32-byte-rounded frame accounting along every BPF-to-BPF call chain,
+# so it runs on RBE in every `make test`. It exists because nothing loaded the
+# object on any kernel before release, and netprobe 0.2.61 shipped for ten
+# releases with an inet_sock_set_state program the 6.8 verifier rejects
+# (combined stack 544 > 512, #405). Deliberately NOT manual: an unprivileged
+# lane must run this, since it is the only pre-release check of the limit.
+rust_test(
+    name = "ebpf_stack_depth_test",
+    # The gate is #[ignore] so a plain `cargo test` without the object stays
+    # green; this target is the one runner. `--include-ignored` rather than a
+    # test name: libtest exits 0 with "running 0 tests" when a name filter
+    # matches nothing, so a renamed test would leave `make test` green while the
+    # only pre-release stack-depth check ran nothing.
+    args = [
+        "--include-ignored",
+        "--nocapture",
+    ],
+    srcs = ["tests/ebpf_stack_depth.rs"],
+    data = ["//rust/netprobe/ebpf:netprobe_ebpf_object"],
+    env = {
+        "NETPROBE_TEST_EBPF_OBJECT": "$(rootpath //rust/netprobe/ebpf:netprobe_ebpf_object)",
+    },
     target_compatible_with = ["@platforms//os:linux"],
 )
 

@@ -560,6 +560,376 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
     assert get_assignment(fixture.assignment.id, actor).addon_package_id == fixture.current.id
   end
 
+  # Demo ran seven sources 17-19 days behind because one decommissioned agent
+  # held every rollout paused. ocsf_agents rows are never deleted, so the dead
+  # host stayed a target, failed its health deadline, and landed :rolled_back --
+  # and the reap asked it for a status it could never report.
+  test "a paused rollout is reaped once its live targets converge despite a dead peer" do
+    actor = SystemActor.system(:addon_rollout_dead_peer_supersede_test)
+    fixture = profile_rollout_fixture(actor)
+
+    assert {:ok, rollout} =
+             AddonRolloutCoordinator.start(fixture.profile, fixture.candidate,
+               actor: actor,
+               now: fixture.started_at,
+               trigger: :manual
+             )
+
+    assert :ok = AddonRolloutCoordinator.pause(rollout.id, actor: actor)
+
+    targets = list_rollout_targets(rollout.id, actor)
+    assert length(targets) == 2
+    dead = Enum.find(targets, &(&1.agent_uid == fixture.dead_uid))
+
+    # What a never-reporting host leaves behind once its deadline elapses.
+    {:ok, _} =
+      dead
+      |> Ash.Changeset.for_update(
+        :update,
+        %{state: :rolled_back, reason_code: "rollback_recovery_unverified"},
+        actor: actor
+      )
+      |> Ash.update(actor: actor)
+
+    # The live half of the fleet is on the candidate. The dead peer never reports.
+    later = DateTime.add(fixture.started_at, 60)
+    report_status_for(fixture.addon_id, fixture.live_uid, fixture.candidate.version, later, actor)
+
+    assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: actor, now: later)
+
+    reaped = get_rollout(rollout.id, actor)
+    assert reaped.state == :superseded
+    assert reaped.blocked_reason == "fleet_already_on_candidate"
+  end
+
+  # The agent reports the add-on it is RUNNING. Until it has applied the override
+  # that is the previous version, and its state says nothing about the candidate.
+  # Failing the target on it rolled back an agent that had not been handed the
+  # candidate yet: on demo a wedged 0.3.10 reporting unhealthy failed the 0.3.11
+  # target for its host 31 s after the override, before the agent had polled.
+  test "an unhealthy report from the previous version does not fail the candidate" do
+    actor = SystemActor.system(:addon_rollout_stale_failure_test)
+    fixture = rollout_fixture(actor)
+
+    assert {:ok, rollout} =
+             AddonRolloutCoordinator.start(fixture.assignment, fixture.candidate,
+               actor: actor,
+               now: fixture.started_at,
+               trigger: :manual
+             )
+
+    stale_at = DateTime.add(fixture.started_at, 1)
+    report_status(fixture, fixture.current.version, "unhealthy", false, stale_at, actor)
+
+    assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: actor, now: stale_at)
+    refute get_rollout(rollout.id, actor).state == :paused
+    assert get_rollout_target(rollout.id, actor).state == :waiting_health
+    assert get_assignment(fixture.assignment.id, actor).rollout_package_id == fixture.candidate.id
+
+    ready_at = DateTime.add(stale_at, 1)
+    report_status(fixture, fixture.candidate.version, "running", true, ready_at, actor)
+
+    assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: actor, now: ready_at)
+    assert get_rollout(rollout.id, actor).state == :completed
+    assert get_assignment(fixture.assignment.id, actor).addon_package_id == fixture.candidate.id
+  end
+
+  # Superseding ends a rollout, so it has to leave the source where completing it
+  # would: on the candidate, overrides cleared, target slots released. It did none
+  # of that. On demo the anomaly profile stayed on 0.3.10 while seven agents ran
+  # 0.3.11 through orphaned overrides, the catalog showed 0.3.11 assigned to
+  # nobody, and reconcile tried to start the same rollout every 30 s into the
+  # slots the superseded one still held.
+  test "superseding a rollout promotes its source and releases its target slots" do
+    actor = SystemActor.system(:addon_rollout_supersede_promotes_test)
+    {fixture, rollout, later} = superseded_profile_rollout(actor)
+
+    assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: actor, now: later)
+
+    assert get_rollout(rollout.id, actor).state == :superseded
+    assert_source_finished(fixture, rollout, actor)
+  end
+
+  # Rollouts superseded before the fix above are already terminal, so advance/2
+  # never looks at them again. Reconcile has to finish them, or every deployment
+  # that hit a supersede keeps its source stranded until someone edits the rows.
+  test "reconcile finishes a rollout that was superseded without promoting its source" do
+    actor = SystemActor.system(:addon_rollout_supersede_repair_test)
+    {fixture, rollout, later} = superseded_profile_rollout(actor)
+
+    # The end state the old supersede left behind.
+    {:ok, _} =
+      rollout
+      |> Ash.Changeset.for_update(
+        :update,
+        %{state: :superseded, blocked_reason: "fleet_already_on_candidate", completed_at: later},
+        actor: actor
+      )
+      |> Ash.update(actor: actor)
+
+    assert get_profile(fixture.profile.id, actor).addon_package_id == fixture.current.id
+
+    assert {:ok, _stats} = AddonRolloutCoordinator.reconcile(actor: actor, now: later)
+
+    assert_source_finished(fixture, rollout, actor)
+  end
+
+  defp superseded_profile_rollout(actor) do
+    fixture = profile_rollout_fixture(actor)
+
+    {:ok, rollout} =
+      AddonRolloutCoordinator.start(fixture.profile, fixture.candidate,
+        actor: actor,
+        now: fixture.started_at,
+        trigger: :manual
+      )
+
+    :ok = AddonRolloutCoordinator.pause(rollout.id, actor: actor)
+
+    dead =
+      rollout.id
+      |> list_rollout_targets(actor)
+      |> Enum.find(&(&1.agent_uid == fixture.dead_uid))
+
+    {:ok, _} =
+      dead
+      |> Ash.Changeset.for_update(
+        :update,
+        %{state: :rolled_back, reason_code: "rollback_recovery_unverified"},
+        actor: actor
+      )
+      |> Ash.update(actor: actor)
+
+    later = DateTime.add(fixture.started_at, 60)
+    report_status_for(fixture.addon_id, fixture.live_uid, fixture.candidate.version, later, actor)
+
+    {fixture, rollout, later}
+  end
+
+  defp assert_source_finished(fixture, rollout, actor) do
+    assert get_profile(fixture.profile.id, actor).addon_package_id == fixture.candidate.id
+
+    for target <- list_rollout_targets(rollout.id, actor) do
+      refute target.state in [
+               :pending,
+               :waiting_health,
+               :healthy_soak,
+               :rollback_pending,
+               :succeeded
+             ],
+             "target #{target.agent_uid} still holds its slot as #{target.state}"
+    end
+
+    for assignment <- profile_assignments(fixture.profile.id, actor) do
+      assert is_nil(assignment.rollout_package_id),
+             "assignment #{assignment.agent_uid} still carries the rollout override"
+    end
+  end
+
+  # addon_rollout_targets_one_active_target_index counts :succeeded as an active
+  # target, so leaving those rows behind on a canceled rollout made every later
+  # rollout for the source die on a unique-constraint violation that
+  # reconcile_source only logs. Cancelling seven rollouts on demo stranded 26.
+  test "cancelling a rollout frees its succeeded targets for the next rollout" do
+    actor = SystemActor.system(:addon_rollout_cancel_succeeded_test)
+    fixture = profile_rollout_fixture(actor)
+
+    assert {:ok, rollout} =
+             AddonRolloutCoordinator.start(fixture.profile, fixture.candidate,
+               actor: actor,
+               now: fixture.started_at,
+               trigger: :manual
+             )
+
+    targets = list_rollout_targets(rollout.id, actor)
+    succeeded = Enum.find(targets, &(&1.agent_uid == fixture.live_uid))
+
+    {:ok, _} =
+      succeeded
+      |> Ash.Changeset.for_update(:update, %{state: :succeeded}, actor: actor)
+      |> Ash.update(actor: actor)
+
+    assert :ok = AddonRolloutCoordinator.cancel(rollout.id, actor: actor)
+
+    index_active = [:pending, :waiting_health, :healthy_soak, :succeeded, :rollback_pending]
+
+    for target <- list_rollout_targets(rollout.id, actor) do
+      refute target.state in index_active
+    end
+
+    # The point of terminalizing them: the source can roll out again.
+    assert {:ok, _next} =
+             AddonRolloutCoordinator.start(fixture.profile, fixture.candidate,
+               actor: actor,
+               now: DateTime.add(fixture.started_at, 120),
+               trigger: :manual
+             )
+  end
+
+  # Operators should never have to write a target query that routes around an
+  # agent the system can already see is not there. A non-reporting agent is
+  # excluded automatically, exactly like one that advertises it cannot host
+  # native add-ons.
+  test "an agent that is not reporting is excluded rather than blocking the rollout" do
+    actor = SystemActor.system(:addon_rollout_unavailable_excluded_test)
+    fixture = profile_rollout_fixture(actor)
+
+    # :register_connected always stamps last_seen_time with now, so age the agent
+    # through the real lifecycle action instead. :mark_unavailable moves
+    # :connected -> :unavailable, which is the state a retired-but-still-enrolled
+    # agent actually sits in, and is what agent_available?/3 reads.
+    {:ok, _} =
+      fixture.agents
+      |> Map.fetch!(fixture.dead_uid)
+      |> Ash.Changeset.for_update(:mark_unavailable, %{reason: "test"}, actor: actor)
+      |> Ash.update(actor: actor)
+
+    assert {:ok, rollout} =
+             AddonRolloutCoordinator.start(fixture.profile, fixture.candidate,
+               actor: actor,
+               now: fixture.started_at,
+               trigger: :manual
+             )
+
+    targets = list_rollout_targets(rollout.id, actor)
+    dead = Enum.find(targets, &(&1.agent_uid == fixture.dead_uid))
+    live = Enum.find(targets, &(&1.agent_uid == fixture.live_uid))
+
+    assert dead.classification == :unavailable
+    assert dead.state == :excluded
+    assert dead.reason_code == "agent_unavailable_or_stale"
+    assert live.classification == :eligible
+    assert live.state in [:pending, :waiting_health]
+  end
+
+  test "a rollout is not created when no target is eligible" do
+    actor = SystemActor.system(:addon_rollout_no_eligible_test)
+    fixture = profile_rollout_fixture(actor)
+
+    for uid <- [fixture.live_uid, fixture.dead_uid] do
+      {:ok, _} =
+        fixture.agents
+        |> Map.fetch!(uid)
+        |> Ash.Changeset.for_update(:mark_unavailable, %{reason: "test"}, actor: actor)
+        |> Ash.update(actor: actor)
+    end
+
+    # Promoting here would advance the source to a version no agent has run.
+    assert {:error, :no_eligible_targets} =
+             AddonRolloutCoordinator.start(fixture.profile, fixture.candidate,
+               actor: actor,
+               now: fixture.started_at,
+               trigger: :manual
+             )
+  end
+
+  defp profile_rollout_fixture(actor) do
+    unique = System.unique_integer([:positive])
+    addon_id = "rollout-profile-#{unique}"
+    live_uid = "rollout-profile-live-#{unique}"
+    dead_uid = "rollout-profile-dead-#{unique}"
+    current = approved_package(addon_id, "1.0.0", actor)
+    candidate = approved_package(addon_id, "1.1.0", actor)
+
+    agents =
+      Map.new([live_uid, dead_uid], fn uid ->
+        {:ok, agent} =
+          Agent
+          |> Ash.Changeset.for_create(
+            :register_connected,
+            %{
+              uid: uid,
+              name: "Rollout profile test agent #{uid}",
+              version: "1.4.23",
+              capabilities: [],
+              host: "127.0.0.1",
+              port: 50_051,
+              metadata: %{"os" => "linux", "arch" => "amd64"}
+            },
+            actor: actor
+          )
+          |> Ash.create(actor: actor)
+
+        {uid, agent}
+      end)
+
+    {:ok, profile} =
+      AddonProfile
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Rollout profile #{unique}",
+          addon_package_id: current.id,
+          target_query: "in:agents"
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    for uid <- [live_uid, dead_uid] do
+      {:ok, _assignment} =
+        AddonAssignment
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            agent_uid: uid,
+            addon_package_id: current.id,
+            source: :profile,
+            source_key: "#{profile.id}:#{uid}",
+            addon_profile_id: profile.id,
+            rollout_policy: %{
+              "canary_size" => 2,
+              "batch_size" => 2,
+              "max_parallel" => 2,
+              "soak_seconds" => 0,
+              "health_timeout_seconds" => 60,
+              "tolerated_failures" => 0
+            }
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+    end
+
+    %{
+      addon_id: addon_id,
+      live_uid: live_uid,
+      dead_uid: dead_uid,
+      agents: agents,
+      profile: profile,
+      current: current,
+      candidate: candidate,
+      started_at: DateTime.utc_now()
+    }
+  end
+
+  defp report_status_for(addon_id, agent_uid, version, reported_at, actor) do
+    {:ok, status} =
+      AddonStatus
+      |> Ash.Changeset.for_create(
+        :report,
+        %{
+          agent_uid: agent_uid,
+          addon_id: addon_id,
+          state: "running",
+          active: true,
+          version: version,
+          reported_at: reported_at
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    status
+  end
+
+  defp list_rollout_targets(rollout_id, actor) do
+    AddonRolloutTarget
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(rollout_id == ^rollout_id)
+    |> Ash.read!(actor: actor)
+  end
+
   defp rollout_fixture(actor) do
     unique = System.unique_integer([:positive])
     addon_id = "rollout-state-#{unique}"
@@ -688,6 +1058,20 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
     |> Ash.Query.for_read(:read)
     |> Ash.Query.filter(id == ^id)
     |> Ash.read_one!(actor: actor)
+  end
+
+  defp get_profile(id, actor) do
+    AddonProfile
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(id == ^id)
+    |> Ash.read_one!(actor: actor)
+  end
+
+  defp profile_assignments(profile_id, actor) do
+    AddonAssignment
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(addon_profile_id == ^profile_id)
+    |> Ash.read!(actor: actor)
   end
 
   defp get_rollout(id, actor) do

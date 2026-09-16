@@ -182,6 +182,7 @@ impl SeriesState {
                 consecutive_anomalous: Some(self.consecutive_anomalous),
                 min_std_floor: cfg.min_std_floor,
                 min_cv: cfg.min_cv,
+                burst_envelope: None,
                 saturation_gate: cfg.saturation_gate_min.map(|min_value| SaturationGate {
                     directional: true,
                     min_value,

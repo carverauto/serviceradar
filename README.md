@@ -112,15 +112,17 @@ docker compose logs config-updater
 ServiceRadar provides an official Helm chart for Kubernetes deployments, published to Harbor as an OCI artifact.
 
 ```bash
-# Inspect chart metadata and default values
-helm show chart oci://registry.carverauto.dev/serviceradar/charts/serviceradar
-helm show values oci://registry.carverauto.dev/serviceradar/charts/serviceradar > values.yaml
+# Find the latest published chart version, then inspect its defaults
+helm show chart oci://registry.carverauto.dev/serviceradar/charts/serviceradar | grep '^version'
+helm show values oci://registry.carverauto.dev/serviceradar/charts/serviceradar \
+  --version <chart-version> > default-values.yaml
 
-# Install latest release
+# Install or upgrade (no repository checkout needed). Put only the keys you
+# change in my-values.yaml (it can start empty), not a copy of the defaults.
 helm upgrade --install serviceradar oci://registry.carverauto.dev/serviceradar/charts/serviceradar \
-  -n serviceradar --create-namespace
+  --version <chart-version> -n serviceradar --create-namespace -f my-values.yaml
 
-# Track mutable images (staging/dev): pulls :latest and forces re-pull
+# Track mutable images (staging/dev only): pulls :latest and forces re-pull
 helm upgrade --install serviceradar oci://registry.carverauto.dev/serviceradar/charts/serviceradar \
   -n serviceradar --create-namespace \
   --set global.imageTag="latest" \
@@ -131,14 +133,14 @@ kubectl get secret serviceradar-secrets -n serviceradar \
     -o jsonpath='{.data.admin-password}' | base64 -d
 ```
 
-Note: if you omit `global.imageTag`, the chart defaults to `latest`. Set `global.imagePullPolicy=Always` when you want to pick up new pushes on restart.
+Note: the chart and its images are published together and pull anonymously. If you leave `global.imageTag` empty (the default), every first-party image except `serviceradar-cnpg` (pinned by digest) uses the chart's own version, so `--version` alone selects matching images; if you set it, it must be `v<chart-version>`. Only the staging/dev example uses `latest`, with `global.imagePullPolicy=Always` to pick up new pushes on restart.
 
 ## Verifying Published Images
 
-ServiceRadar publishes Cosign-signed images to Harbor. The public verification key is committed in [docs/cosign.pub](/Users/mfreeman/src/serviceradar/docs/cosign.pub).
+ServiceRadar publishes Cosign-signed images to Harbor. The public verification key is committed in [docs/cosign.pub](docs/cosign.pub).
 
 For the self-hosted keyless migration path, keep custom Sigstore trust
-material under [docs/sigstore/README.md](/home/mfreeman/src/serviceradar/docs/sigstore/README.md).
+material under [docs/sigstore/README.md](docs/sigstore/README.md).
 The release scripts now support both legacy key-based verification and
 keyless verification against a custom trusted root.
 
@@ -182,7 +184,7 @@ Docker Compose notes:
 
 Notes:
 - [Chart](helm/serviceradar/Chart.yaml) versions are like `1.4.49`; ServiceRadar image tags are like `v1.4.49`.
-- If your cluster requires registry credentials, set `image.registryPullSecret` (default `registry-carverauto-dev-cred`).
+- Published images pull anonymously, so no registry credentials are needed. `image.registryPullSecret` (default `registry-carverauto-dev-cred`) only matters when you pull through an authenticated mirror; set it to `""` to drop the reference otherwise.
 
 For ArgoCD deployments, use `registry.carverauto.dev/serviceradar/charts` as the repository URL (without the `oci://` prefix):
 
@@ -199,12 +201,10 @@ spec:
   source:
     repoURL: registry.carverauto.dev/serviceradar/charts
     chart: serviceradar
-    targetRevision: "1.4.49"
-    helm:
-      values: |
-        global:
-          imageTag: "v1.4.49"
+    targetRevision: "<chart-version>"
 ```
+
+The chart version selects matching images, so the Application needs no `global.imageTag`. Remove any `global.imageTag` an existing Application still sets before changing `targetRevision`.
 
 ## Architecture
 

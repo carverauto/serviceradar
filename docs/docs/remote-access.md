@@ -953,6 +953,7 @@ authentication or host-key failure.
 
 Common failures:
 
+- HTTP `429` from `/api/remote-access/*`: see [API rate limits](./api-reference.md#rate-limits) for the shared request budget and retry guidance.
 - `Permission denied (publickey)`: the CA public key is missing, the certificate is expired, the selected Unix account is not authorized, or its `AuthorizedPrincipalsFile` does not list the opaque principal in the presented certificate.
 - User exists in ServiceRadar but not on the host: create the account locally or fix LDAP/AD/NSS/PAM integration on the target.
 - Route denied: the device is not assigned to an eligible agent or gateway, or the remote access policy does not allow that target.

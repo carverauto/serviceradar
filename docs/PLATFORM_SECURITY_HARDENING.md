@@ -113,13 +113,24 @@ If a specific route serves third-party content that violates CSP:
 - Long-term: extend `@csp` in `router.ex` with the specific
   directive (`script-src 'self' https://trusted.example`).
 
+## Audit history
+
+Open **Settings → Audit → History** (`/settings/audit/history`) with
+`settings.audit.view` to browse the merged timeline of configured
+PaperTrail resources and StatefulAlertRule mutations. Both are included
+when no resource filter is selected. Filter by resource, actor identifier,
+action, or time range; select a row to inspect **Changes** and **Action inputs**.
+For StatefulAlertRule, these show changed attributes and the submitted
+mutation values respectively, alongside actor attribution.
+
+**Origin** shows the recorded source for StatefulAlertRule events and `—`
+for PaperTrail versions. Source classification is defined by
+[StampEventSource](../elixir/serviceradar_core/lib/serviceradar/observability/changes/stamp_event_source.ex).
+The configurable resource lists and query contract are owned by
+[AuditHistory](../elixir/serviceradar_core/lib/serviceradar/security/audit_history.ex).
+
 ## 6. Known follow-ups
 
-- **AshPaperTrail unified history page.** The Audit UI lists the
-  event stream and current state of lockouts but does not yet
-  surface cross-resource version history. Each resource already
-  writes to its own `*_versions` table; the cross-cutting
-  query + diff view is tracked separately.
 - **Cluster-aggregated rate-limit inspection.** The
   `Settings → Audit → Rate Limits` panel is not built yet — bucket
   state lives in per-node ETS and needs an aggregated read path.
