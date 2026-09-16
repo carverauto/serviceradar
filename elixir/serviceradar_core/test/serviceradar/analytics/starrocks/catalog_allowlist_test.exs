@@ -11,7 +11,7 @@ defmodule ServiceRadar.Analytics.StarRocks.CatalogAllowlistTest do
   test "catalog stays off and names the CNPG platform catalog" do
     assert CatalogAllowlist.catalog_name() == "cnpg_platform"
     assert CatalogAllowlist.schema_name() == "platform"
-    refute CatalogAllowlist.enabled?
+    refute CatalogAllowlist.enabled?()
   end
 
   test "allowlist is attribution and enrichment current-state only" do
@@ -46,7 +46,11 @@ defmodule ServiceRadar.Analytics.StarRocks.CatalogAllowlistTest do
     prev = Application.get_env(:serviceradar_core, StarRocks, [])
 
     try do
-      Application.put_env(:serviceradar_core, StarRocks, Keyword.put(prev, :catalog_enabled, true))
+      Application.put_env(
+        :serviceradar_core,
+        StarRocks,
+        Keyword.put(prev, :catalog_enabled, true)
+      )
 
       sql =
         "SELECT 1 FROM cnpg_platform.platform.network_credential_secrets"
@@ -114,11 +118,16 @@ defmodule ServiceRadar.Analytics.StarRocks.CatalogAllowlistTest do
     prev = Application.get_env(:serviceradar_core, StarRocks, [])
 
     try do
-      Application.put_env(:serviceradar_core, StarRocks, Keyword.put(prev, :catalog_enabled, true))
-      assert CatalogAllowlist.enabled?
+      Application.put_env(
+        :serviceradar_core,
+        StarRocks,
+        Keyword.put(prev, :catalog_enabled, true)
+      )
+
+      assert CatalogAllowlist.enabled?()
 
       Application.put_env(:serviceradar_core, StarRocks, Keyword.delete(prev, :catalog_enabled))
-      refute CatalogAllowlist.enabled?
+      refute CatalogAllowlist.enabled?()
     after
       Application.put_env(:serviceradar_core, StarRocks, prev)
     end

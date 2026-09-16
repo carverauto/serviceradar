@@ -1,6 +1,7 @@
 defmodule ServiceRadar.Analytics.StarRocks.QueryTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.Analytics.StarRocks
   alias ServiceRadar.Analytics.StarRocks.Env
   alias ServiceRadar.Analytics.StarRocks.Query
 
@@ -47,11 +48,41 @@ defmodule ServiceRadar.Analytics.StarRocks.QueryTest do
     assert {:error, :starrocks_mysql_not_started} = Query.execute("SELECT 1")
   end
 
+  test "execute honors a MySQL inject from application env" do
+    previous = Application.get_env(:serviceradar_core, StarRocks, [])
+
+    mysql = fn sql ->
+      assert sql == "SELECT 1"
+
+      {:ok,
+       %Postgrex.Result{
+         command: :select,
+         columns: ["c"],
+         rows: [[1]],
+         num_rows: 1,
+         connection_id: nil
+       }}
+    end
+
+    Application.put_env(
+      :serviceradar_core,
+      StarRocks,
+      Keyword.put(previous, :mysql, mysql)
+    )
+
+    try do
+      assert {:ok, %Postgrex.Result{rows: [[1]]}} = Query.execute("SELECT 1")
+    after
+      Application.put_env(:serviceradar_core, StarRocks, previous)
+    end
+  end
+
   test "env derives the FE query host and port for MySQL protocol" do
     previous = %{
       "SERVICERADAR_STARROCKS_FE_HTTP" => System.get_env("SERVICERADAR_STARROCKS_FE_HTTP"),
       "SERVICERADAR_STARROCKS_FE_HOST" => System.get_env("SERVICERADAR_STARROCKS_FE_HOST"),
-      "SERVICERADAR_STARROCKS_FE_QUERY_PORT" => System.get_env("SERVICERADAR_STARROCKS_FE_QUERY_PORT")
+      "SERVICERADAR_STARROCKS_FE_QUERY_PORT" =>
+        System.get_env("SERVICERADAR_STARROCKS_FE_QUERY_PORT")
     }
 
     System.put_env("SERVICERADAR_STARROCKS_FE_HTTP", "http://lab-fe-service.starrocks.svc:8030")

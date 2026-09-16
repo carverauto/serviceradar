@@ -35,18 +35,9 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
        %{prev: prev} do
     parent = self()
 
-    http = fn request ->
-      send(parent, {:starrocks_query, request.body})
-
-      {:ok,
-       %{
-         status: 200,
-         body:
-           Jason.encode!(%{
-             "meta" => [%{"name" => "id"}, %{"name" => "bytes_in"}],
-             "data" => [["flow-alpha-0001", 1200]]
-           })
-       }}
+    mysql = fn sql ->
+      send(parent, {:starrocks_query, sql})
+      {:ok, postgrex_result(["id", "bytes_in"], [["flow-alpha-0001", 1200]])}
     end
 
     Application.put_env(
@@ -54,7 +45,7 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
       StarRocks,
       prev
       |> Keyword.put(:cutover_datasets, [:flows])
-      |> Keyword.put(:query_http, http)
+      |> Keyword.put(:mysql, mysql)
     )
 
     assert {:ok, %{"results" => [row], "error" => nil}} =
@@ -74,22 +65,14 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
        %{prev: prev} do
     parent = self()
 
-    http = fn request ->
-      send(parent, {:starrocks_query, request.body})
+    mysql = fn sql ->
+      send(parent, {:starrocks_query, sql})
 
       {:ok,
-       %{
-         status: 200,
-         body:
-           Jason.encode!(%{
-             "meta" => [
-               %{"name" => "bytes_total"},
-               %{"name" => "src_endpoint_ip"},
-               %{"name" => "dst_endpoint_ip"}
-             ],
-             "data" => [[1200, "192.0.2.10", "198.51.100.20"]]
-           })
-       }}
+       postgrex_result(
+         ["bytes_total", "src_endpoint_ip", "dst_endpoint_ip"],
+         [[1200, "192.0.2.10", "198.51.100.20"]]
+       )}
     end
 
     Application.put_env(
@@ -97,7 +80,7 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
       StarRocks,
       prev
       |> Keyword.put(:cutover_datasets, [:flows])
-      |> Keyword.put(:query_http, http)
+      |> Keyword.put(:mysql, mysql)
     )
 
     window = ServiceRadarWebNGWeb.DashboardLive.Window.resolve("last_1h", "netflow")
@@ -114,24 +97,15 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
   end
 
   test "explicit mode=starrocks executes after authorization without cutting over", %{prev: prev} do
-    http = fn request ->
-      send(self(), {:starrocks_query, request.body})
-
-      {:ok,
-       %{
-         status: 200,
-         body:
-           Jason.encode!(%{
-             "meta" => [%{"name" => "id"}, %{"name" => "bytes_in"}],
-             "data" => [["flow-alpha-0001", 1200]]
-           })
-       }}
+    mysql = fn sql ->
+      send(self(), {:starrocks_query, sql})
+      {:ok, postgrex_result(["id", "bytes_in"], [["flow-alpha-0001", 1200]])}
     end
 
     Application.put_env(
       :serviceradar_core,
       StarRocks,
-      Keyword.put(prev, :query_http, http)
+      Keyword.put(prev, :mysql, mysql)
     )
 
     assert {:ok, %{"results" => [row]}} =
@@ -148,18 +122,9 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
     parent = self()
     scope = %{permissions: MapSet.new(["observability.metrics.view"])}
 
-    http = fn request ->
-      send(parent, {:starrocks_query, request.body})
-
-      {:ok,
-       %{
-         status: 200,
-         body:
-           Jason.encode!(%{
-             "meta" => [%{"name" => "device_id"}, %{"name" => "value"}],
-             "data" => [["sr:host-alpha", 42.0]]
-           })
-       }}
+    mysql = fn sql ->
+      send(parent, {:starrocks_query, sql})
+      {:ok, postgrex_result(["device_id", "value"], [["sr:host-alpha", 42.0]])}
     end
 
     Application.put_env(
@@ -167,7 +132,7 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
       StarRocks,
       prev
       |> Keyword.put(:cutover_datasets, [:metrics])
-      |> Keyword.put(:query_http, http)
+      |> Keyword.put(:mysql, mysql)
     )
 
     assert {:ok, %{"results" => [row], "error" => nil}} =
@@ -180,8 +145,8 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
   end
 
   test "attributed flow queries error when the JDBC catalog is disabled", %{prev: prev} do
-    http = fn _request ->
-      flunk("catalog-disabled attributed_flows must not call StarRocks HTTP")
+    mysql = fn _sql ->
+      flunk("catalog-disabled attributed_flows must not call StarRocks")
     end
 
     Application.put_env(
@@ -189,7 +154,7 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
       StarRocks,
       prev
       |> Keyword.put(:cutover_datasets, [:flows])
-      |> Keyword.put(:query_http, http)
+      |> Keyword.put(:mysql, mysql)
     )
 
     assert {:error, {:starrocks_catalog_disabled, "cnpg_platform"}} =
@@ -200,18 +165,9 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
        %{prev: prev} do
     parent = self()
 
-    http = fn request ->
-      send(parent, {:starrocks_query, request.body})
-
-      {:ok,
-       %{
-         status: 200,
-         body:
-           Jason.encode!(%{
-             "meta" => [%{"name" => "id"}, %{"name" => "comm"}],
-             "data" => [["flow-alpha-0001", "sshd"]]
-           })
-       }}
+    mysql = fn sql ->
+      send(parent, {:starrocks_query, sql})
+      {:ok, postgrex_result(["id", "comm"], [["flow-alpha-0001", "sshd"]])}
     end
 
     Application.put_env(
@@ -220,7 +176,7 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
       prev
       |> Keyword.put(:cutover_datasets, [:flows])
       |> Keyword.put(:catalog_enabled, true)
-      |> Keyword.put(:query_http, http)
+      |> Keyword.put(:mysql, mysql)
     )
 
     assert {:ok, %{"results" => [row], "error" => nil}} =
@@ -239,18 +195,9 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
     logs_scope = %{permissions: MapSet.new(["observability.logs.view"])}
     events_scope = %{permissions: MapSet.new(["observability.events.view"])}
 
-    http = fn request ->
-      send(parent, {:starrocks_query, request.body})
-
-      {:ok,
-       %{
-         status: 200,
-         body:
-           Jason.encode!(%{
-             "meta" => [%{"name" => "id"}, %{"name" => "severity"}],
-             "data" => [["row-alpha-0001", "low"]]
-           })
-       }}
+    mysql = fn sql ->
+      send(parent, {:starrocks_query, sql})
+      {:ok, postgrex_result(["id", "severity"], [["row-alpha-0001", "low"]])}
     end
 
     Application.put_env(
@@ -258,7 +205,7 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
       StarRocks,
       prev
       |> Keyword.put(:cutover_datasets, [:logs, :events])
-      |> Keyword.put(:query_http, http)
+      |> Keyword.put(:mysql, mysql)
     )
 
     assert {:ok, %{"results" => [log_row], "error" => nil}} =
@@ -281,5 +228,15 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
 
     assert {:error, :forbidden} =
              SRQL.query("in:logs time:last_1h limit:1", %{scope: %{permissions: MapSet.new()}})
+  end
+
+  defp postgrex_result(columns, rows) do
+    %Postgrex.Result{
+      command: :select,
+      columns: columns,
+      rows: rows,
+      num_rows: length(rows),
+      connection_id: nil
+    }
   end
 end

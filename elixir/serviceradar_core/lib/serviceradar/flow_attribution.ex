@@ -10,11 +10,11 @@ defmodule ServiceRadar.FlowAttribution do
   """
 
   alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEvent
+  alias ServiceRadar.Analytics.StarRocks.Attribution
   alias ServiceRadar.FlowAttribution.Correlation
   alias ServiceRadar.FlowAttribution.EventRows
   alias ServiceRadar.FlowAttribution.Persistence
   alias ServiceRadar.FlowAttribution.Retention
-  alias ServiceRadar.Analytics.StarRocks.Attribution
   alias ServiceRadar.FlowAttribution.WorkloadBackfill
 
   require Logger

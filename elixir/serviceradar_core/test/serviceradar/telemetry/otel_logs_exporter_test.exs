@@ -65,7 +65,8 @@ defmodule ServiceRadar.Telemetry.OtelLogsExporterTest do
       ]
     }
 
-    {usec, sanitized} = :timer.tc(fn -> :otel_exporter_logs_otlp.sanitize_logs_for_export(batch) end)
+    {usec, sanitized} =
+      :timer.tc(fn -> :otel_exporter_logs_otlp.sanitize_logs_for_export(batch) end)
 
     assert usec < 250_000
     assert %{undefined: [%{meta: metadata, msg: {:report, report}}]} = sanitized
@@ -116,7 +117,7 @@ defmodule ServiceRadar.Telemetry.OtelLogsExporterTest do
   end
 
   test "prepare converts charlist bodies to bounded binaries before to_proto" do
-    charlist = String.duplicate("warning body ", 20_000) |> String.to_charlist()
+    charlist = "warning body " |> String.duplicate(20_000) |> String.to_charlist()
 
     batch = %{
       undefined: [

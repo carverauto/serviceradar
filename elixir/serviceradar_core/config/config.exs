@@ -78,6 +78,12 @@ config :serviceradar_core, Oban,
   ],
   peer: Oban.Peers.Database
 
+config :serviceradar_core, ServiceRadar.Analytics.StarRocks,
+  enabled: false,
+  catalog_enabled: false,
+  cutover_datasets: [],
+  shadow_datasets: []
+
 # Advisory-feed staging reaper. Oban :kill skips FeedWorker after-cleanup.
 config :serviceradar_core, ServiceRadar.Inventory.AdvisoryFeeds.StagingCleanupWorker,
   reschedule_seconds: 60
@@ -275,12 +281,6 @@ config :serviceradar_core,
 
 config :serviceradar_core,
   run_startup_migrations: false
-
-config :serviceradar_core, ServiceRadar.Analytics.StarRocks,
-  enabled: false,
-  catalog_enabled: false,
-  cutover_datasets: [],
-  shadow_datasets: []
 
 # Sweep SRQL paging configuration
 config :serviceradar_core,

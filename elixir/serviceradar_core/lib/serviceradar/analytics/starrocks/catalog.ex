@@ -45,9 +45,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Catalog do
       end
 
     inner =
-      props
-      |> Enum.map(fn {key, value} -> ~s(  "#{key}" = "#{escape(value)}") end)
-      |> Enum.join(",\n")
+      Enum.map_join(props, ",\n", fn {key, value} -> ~s(  "#{key}" = "#{escape(value)}") end)
 
     "CREATE EXTERNAL CATALOG IF NOT EXISTS #{name}\nPROPERTIES (\n#{inner}\n);"
   end
