@@ -412,6 +412,10 @@ cold_window = fn name ->
   end
 end
 
+config :serviceradar_core,
+       ServiceRadar.Analytics.StarRocks,
+       ServiceRadar.Analytics.StarRocks.Env.config()
+
 config :serviceradar_core, ServiceRadar.ColdTier,
   enabled: System.get_env("SERVICERADAR_COLD_TIER_ENABLED") in ["true", "1"],
   bucket_url: System.get_env("SERVICERADAR_COLD_TIER_BUCKET_URL"),
@@ -452,10 +456,6 @@ config :serviceradar_core, ServiceRadar.ColdTier,
       ],
       fn {_class, days} -> is_nil(days) end
     )
-
-config :serviceradar_core,
-       ServiceRadar.Analytics.StarRocks,
-       ServiceRadar.Analytics.StarRocks.Env.config()
 
 if config_env() == :prod do
   read_secret_env = fn env_name, file_env_name ->

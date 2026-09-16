@@ -80,6 +80,7 @@ jobs:
           helm template serviceradar helm/serviceradar \
             --set global.imageTag="v1.0.0" \
             --set flowCollector.enabled=true \
+            --set analytics.starrocks.enabled=true \
             --debug > /dev/null
 
       - name: Verify web-ng secret-backed environment values

@@ -10,10 +10,10 @@ defmodule ServiceRadar.Otel.LogSelfFilter do
   """
 
   @self_modules MapSet.new([
-    :otel_exporter_logs_otlp,
-    :serviceradar_otel_log_handler,
-    :serviceradar_otel_log_handler_v2
-  ])
+                  :otel_exporter_logs_otlp,
+                  :serviceradar_otel_log_handler,
+                  :serviceradar_otel_log_handler_v2
+                ])
 
   @doc """
   `:logger` filter callback. Returns `:stop` for exporter/handler MFA, `:ignore`
