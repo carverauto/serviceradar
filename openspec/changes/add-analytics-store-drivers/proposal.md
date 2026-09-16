@@ -1,5 +1,10 @@
 # Change: Optional analytics archive with fast Timescale reads
 
+> **Withdrawn.** The pg_duckdb architecture is no longer being pursued. This
+> branch preserves the implementation and independent fixes for selective reuse;
+> it is not a candidate for merge or further rollout. See [handoff.md](handoff.md).
+> Do not archive-apply this change or the superseded offload proposal.
+
 GitHub: [carverauto/serviceradar#477](https://github.com/carverauto/serviceradar/issues/477)
 
 ## Why

@@ -1,3 +1,7 @@
+> **Withdrawn; implementation stopped.** Checkboxes below preserve the work
+> record, not release acceptance. Outstanding tasks are not authorized follow-up
+> work. See [handoff.md](handoff.md) for independent fixes to carry forward.
+
 ## 0. Reuse and prerequisites
 
 - [x] 0.1 Reuse the dedicated analytics image, head, registry, COPY staging and
