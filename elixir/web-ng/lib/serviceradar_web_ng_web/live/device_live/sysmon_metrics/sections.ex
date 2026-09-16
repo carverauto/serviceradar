@@ -22,11 +22,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Sections do
       2 * Keyword.get(opts, :metrics_limit, @metrics_limit) + Keyword.get(opts, :disk_metrics_limit, @disk_metrics_limit)
 
     query = Query.summary_query(filter_tokens, limit, metric_query_opts(opts))
-    summary = Query.run(srql_module, query, scope, opts)
+
+    core_query =
+      Query.timeseries_metric_query(
+        "sysmon.cpu",
+        "cpu.usage_percent",
+        filter_tokens,
+        "core_id",
+        Keyword.get(opts, :cpu_metrics_limit, @cpu_metrics_limit),
+        Keyword.put(metric_query_opts(opts), :agg, "max")
+      )
+
+    results = Query.run_batch(srql_module, [summary: query, cores: core_query], scope, opts)
+    summary = Map.fetch!(results, :summary)
+    cores = Map.fetch!(results, :cores)
 
     Enum.map(
       [
-        build_cpu_section(srql_module, filter_tokens, scope, Map.get(reference_lines, :cpu, []), opts, summary),
+        build_cpu_section(filter_tokens, Map.get(reference_lines, :cpu, []), opts, summary, cores),
         build_memory_section(filter_tokens, Map.get(reference_lines, :memory, []), opts, summary),
         build_disk_section(filter_tokens, Map.get(reference_lines, :disk, []), opts, summary)
       ],
@@ -43,7 +56,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Sections do
 
   defp metric_result(other, _name), do: other
 
-  defp build_cpu_section(srql_module, filter_tokens, scope, reference_lines, opts, summary) do
+  defp build_cpu_section(filter_tokens, reference_lines, opts, summary, cores) do
     query_opts = metric_query_opts(opts)
 
     overall_query =
@@ -56,25 +69,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Sections do
         query_opts
       )
 
-    per_core_query =
-      Query.timeseries_metric_query(
-        "sysmon.cpu",
-        "cpu.usage_percent",
-        filter_tokens,
-        "core_id",
-        Keyword.get(opts, :cpu_metrics_limit, @cpu_metrics_limit),
-        Keyword.put(query_opts, :agg, "max")
-      )
-
     base = section_base("cpu", "CPU", "#{window_label(opts)} · overall utilization", overall_query)
 
     overall = metric_result(summary, "cpu.usage_percent")
-
-    cores =
-      case summary do
-        {:ok, %{"results" => rows}} when is_list(rows) -> Query.run(srql_module, per_core_query, scope, opts)
-        _ -> {:ok, %{"results" => []}}
-      end
 
     case {overall, cores} do
       {{:ok, %{"results" => overall_results}}, {:ok, %{"results" => core_results}}}

@@ -5,6 +5,48 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.QueryTest do
 
   @moduletag :db_free
 
+  defmodule BatchStub do
+    @moduledoc false
+    def query_batch(queries, opts) do
+      send(self(), {:batch_queries, queries, opts})
+      {:ok, Map.new(queries, fn {key, _query} -> {key, {:ok, %{"results" => []}}} end)}
+    end
+  end
+
+  defmodule FailingStub do
+    @moduledoc false
+    def query(query, _opts) do
+      send(self(), {:single_query, query})
+      {:error, :statement_timeout}
+    end
+  end
+
+  test "summary and cores share one public batch call with the original scope and deadline" do
+    queries = [summary: "synthetic summary", cores: "synthetic cores"]
+    scope = %{permissions: MapSet.new(["observability.metrics.view"])}
+    deadline = System.monotonic_time(:millisecond) + 10_000
+    assert %{summary: {:ok, _}, cores: {:ok, _}} = Query.run_batch(BatchStub, queries, scope, deadline: deadline)
+    assert_receive {:batch_queries, ^queries, %{scope: ^scope, deadline: ^deadline}}
+  end
+
+  test "expired batch budget does not invoke a backend" do
+    queries = [summary: "synthetic summary", cores: "synthetic cores"]
+    deadline = System.monotonic_time(:millisecond) - 1
+
+    assert %{summary: {:error, :timeout}, cores: {:error, :timeout}} =
+             Query.run_batch(BatchStub, queries, nil, deadline: deadline)
+
+    refute_receive {:batch_queries, _, _}
+  end
+
+  test "legacy query modules stop before cores when summary fails" do
+    assert %{summary: {:error, :statement_timeout}, cores: {:error, :statement_timeout}} =
+             Query.run_batch(FailingStub, [summary: "first", cores: "second"], nil, [])
+
+    assert_receive {:single_query, "first"}
+    refute_receive {:single_query, "second"}
+  end
+
   test "requested chart bounds are pinned independently of sparse returned samples" do
     now = ~U[2025-04-01 00:00:00Z]
     assert Query.requested_window("last_90d", now) == {~U[2025-01-01 00:00:00Z], now}

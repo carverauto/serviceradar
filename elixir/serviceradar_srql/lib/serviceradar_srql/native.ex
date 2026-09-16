@@ -31,6 +31,9 @@ defmodule ServiceRadarSRQL.Native do
 
   def translate(_query, _limit, _cursor, _direction, _mode, _drivers), do: :erlang.nif_error(:nif_not_loaded)
 
+  @doc "Translate two to four queries with one resolved clock and optional shared archive scan."
+  def translate_batch(_requests_json, _drivers), do: :erlang.nif_error(:nif_not_loaded)
+
   @doc """
   Parse an SRQL query and return the AST as JSON.
   This allows consuming the structured query without re-parsing in Elixir.

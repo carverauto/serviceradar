@@ -90,6 +90,10 @@ The normal policy refreshes recent hours; aggregate retention is 395 days.
 This cannot recreate raw history that has already expired. Failed activity
 queries show an error separately from an empty result.
 
+Interactive SRQL transactions disable PostgreSQL JIT compilation so compiling
+large aggregate plans does not consume the request budget. This setting ends
+with the transaction; background jobs retain their connection defaults.
+
 The existing flow conversation aggregates store an all-NULL byte or packet
 sum as zero. Combined totals preserve the same result as separate aggregate
 queries; raw SQL returns NULL for that case. The new application aggregate
@@ -99,6 +103,9 @@ and retained-history migration.
 Changing a window clears the previous chart while the new results load. Device
 sysmon requests share a 15-second budget across their queries; a failed request
 stops loading and can be retried by selecting a window again.
+Compatible historical metric summaries and per-core peaks share one archive
+scan and manifest snapshot while preserving each query's filters, aggregation,
+and result limit. Recent queries retain their Timescale aggregate paths.
 
 To verify archive reads, choose a bounded range older than the configured hot
 window **that actually contains published archive data**. Recent dashboard

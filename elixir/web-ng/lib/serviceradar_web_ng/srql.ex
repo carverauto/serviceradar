@@ -14,6 +14,7 @@ defmodule ServiceRadarWebNG.SRQL do
 
   alias Ecto.Adapters.SQL
   alias ServiceRadar.AnalyticsStore
+  alias ServiceRadarWebNG.SRQL.Batch
   alias ServiceRadarWebNG.SRQL.EntityAccess
   alias ServiceRadarWebNG.SRQL.Native
 
@@ -23,6 +24,30 @@ defmodule ServiceRadarWebNG.SRQL do
 
   @default_query_timeout_ms 15_000
   @db_timeout_margin_ms 1_000
+
+  @doc "Run two to four named queries, sharing an eligible archive scan and one request budget."
+  @impl true
+  def query_batch(queries, opts \\ %{}) do
+    execution = batch_execution_opts(opts)
+
+    Batch.run(
+      queries,
+      Map.get(opts, :scope),
+      &translate_batch/1,
+      &execute_translation(&1, execution),
+      fn translation, lanes ->
+        with {:ok, result} <- execute_translation_raw(translation, execution) do
+          Batch.split(result, lanes, &build_response/2)
+        end
+      end
+    )
+  end
+
+  defp translate_batch(requests) do
+    with {:ok, json} <- Native.translate_batch(Jason.encode!(requests), AnalyticsStore.SQL.drivers_json()) do
+      Jason.decode(json)
+    end
+  end
 
   @impl true
   def query(query, opts \\ %{}) when is_binary(query) do
@@ -237,9 +262,13 @@ defmodule ServiceRadarWebNG.SRQL do
 
   # An internal caller may shorten the configured query budget. Capture timeout
   # once so translation, archive readiness and SQL all spend the same budget.
-  defp execution_opts(opts) do
-    now = System.monotonic_time(:millisecond)
+  @doc false
+  def batch_execution_opts(opts, now \\ System.monotonic_time(:millisecond)) do
+    default = now + min(srql_query_timeout_ms(), AnalyticsStore.SQL.duckdb_timeout_ms())
+    opts |> execution_opts(now) |> Map.update(:deadline, default, &min(&1, default))
+  end
 
+  defp execution_opts(opts, now \\ System.monotonic_time(:millisecond)) do
     deadlines = [
       Map.get(opts, :deadline),
       case Map.get(opts, :timeout) do
@@ -303,11 +332,15 @@ defmodule ServiceRadarWebNG.SRQL do
   end
 
   # Transaction-local session settings applied immediately before every SRQL
-  # query. Both use `set_config(name, value, is_local = true)`, the `SET LOCAL`
+  # query. All use `set_config(name, value, is_local = true)`, the `SET LOCAL`
   # form: they are scoped to the enclosing SRQL transaction (see `run_sql/2`) and
   # never leak to unrelated queries sharing the pooled connection.
   #
   #   * `statement_timeout` bounds runaway ad-hoc queries.
+  #
+  #   * `jit = off` keeps interactive aggregate queries from spending their
+  #     request budget compiling guarded raw branches. Background queries retain
+  #     their session default after the SRQL transaction ends.
   #
   #   * `plan_cache_mode = force_custom_plan` defeats PostgreSQL's generic-plan
   #     trap. Postgrex executes SRQL as *named prepared statements*, so after ~5
@@ -333,7 +366,8 @@ defmodule ServiceRadarWebNG.SRQL do
   @doc false
   def session_setup_sql do
     "SELECT set_config('statement_timeout', $1, true), " <>
-      "set_config('plan_cache_mode', 'force_custom_plan', true)"
+      "set_config('plan_cache_mode', 'force_custom_plan', true), " <>
+      "set_config('jit', 'off', true)"
   end
 
   defp srql_query_timeout_ms do

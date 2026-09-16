@@ -1,6 +1,7 @@
 #[macro_use]
 mod filters_common;
 
+mod batch;
 mod cagg;
 mod cold;
 mod dialect;
@@ -65,6 +66,7 @@ mod wifi_map;
 #[cfg(test)]
 mod tests;
 
+pub use batch::{BatchTranslateResponse, translate_batch_with_store_configs};
 #[cfg(test)]
 pub(crate) use cagg::should_route_to_hourly_cagg;
 pub(crate) use cagg::{

@@ -30,15 +30,37 @@ defmodule ServiceRadarWebNG.SRQLPlanCacheModeTest do
       # ...and the statement timeout must still be applied.
       assert sql =~ "statement_timeout"
 
-      # ...both via the SET LOCAL / transaction-local form of set_config
+      # ...all via the SET LOCAL / transaction-local form of set_config
       # (is_local = true), so the settings never leak to unrelated queries on
       # the pooled connection. A `false` is_local here would be a leak.
       refute sql =~ ~r/set_config\([^)]*,\s*false\)/
       assert sql =~ ~r/set_config\('plan_cache_mode',\s*'force_custom_plan',\s*true\)/
+      assert sql =~ ~r/set_config\('jit',\s*'off',\s*true\)/
     end
   end
 
   describe "caller query deadline" do
+    @tag :db_free
+    test "a batch shares one configured deadline that callers can only shorten" do
+      now = 1_000
+      assert {:ok, postgres_budget} = SRQL.query_timeout_ms(%{}, %{}, now)
+      assert {:ok, duckdb_budget} = SRQL.query_timeout_ms(%{"dialect" => "duckdb"}, %{}, now)
+      budget = min(postgres_budget, duckdb_budget)
+      deadline = now + budget
+      shorter = max(div(budget, 2), 1)
+
+      assert SRQL.batch_execution_opts(%{}, now) == %{deadline: deadline}
+      assert SRQL.batch_execution_opts(%{timeout: shorter}, now) == %{deadline: now + shorter}
+
+      assert SRQL.batch_execution_opts(%{deadline: now + shorter, timeout: budget}, now) ==
+               %{deadline: now + shorter}
+
+      assert SRQL.batch_execution_opts(%{deadline: deadline + budget, timeout: budget * 3}, now) ==
+               %{deadline: deadline}
+
+      assert SRQL.query_timeout_ms(%{}, SRQL.batch_execution_opts(%{}, now), deadline) == {:error, :timeout}
+    end
+
     @tag :db_free
     test "shortens both backends and never extends configured budgets" do
       for translation <- [%{}, %{"dialect" => "duckdb"}] do
@@ -76,6 +98,33 @@ defmodule ServiceRadarWebNG.SRQLPlanCacheModeTest do
       # The statement timeout was applied in the same call.
       assert %{rows: [["5s"]]} =
                SQL.query!(Repo, "SELECT current_setting('statement_timeout')", [])
+
+      assert %{rows: [["off"]]} = SQL.query!(Repo, "SELECT current_setting('jit')", [])
+    end
+
+    test "restores the pooled connection's JIT setting after commit and rollback" do
+      Sandbox.unboxed_run(Repo, fn ->
+        %{rows: [[original]]} = SQL.query!(Repo, "SELECT current_setting('jit')", [])
+
+        try do
+          SQL.query!(Repo, "SELECT set_config('jit', 'on', false)", [])
+
+          for outcome <- [:commit, :rollback] do
+            result =
+              Repo.transaction(fn ->
+                SQL.query!(Repo, SRQL.session_setup_sql(), ["5s"])
+                assert %{rows: [["off"]]} = SQL.query!(Repo, "SELECT current_setting('jit')", [])
+
+                if outcome == :rollback, do: Repo.rollback(:expected), else: :ok
+              end)
+
+            assert result == if(outcome == :commit, do: {:ok, :ok}, else: {:error, :expected})
+            assert %{rows: [["on"]]} = SQL.query!(Repo, "SELECT current_setting('jit')", [])
+          end
+        after
+          SQL.query!(Repo, "SELECT set_config('jit', $1, false)", [original])
+        end
+      end)
     end
   end
 end

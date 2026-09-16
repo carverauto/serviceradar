@@ -38,9 +38,18 @@ pub fn translate_request_with_store_configs(
     request: QueryRequest,
     drivers: &std::collections::HashMap<String, super::AnalyticsDriver>,
 ) -> Result<TranslateResponse> {
+    translate_request_with_store_configs_at(config, request, drivers, chrono::Utc::now())
+}
+
+pub(crate) fn translate_request_with_store_configs_at(
+    config: &AppConfig,
+    request: QueryRequest,
+    drivers: &std::collections::HashMap<String, super::AnalyticsDriver>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<TranslateResponse> {
     let ast = parser::parse(&request.query)?;
     let (plan, hybrid) =
-        super::plan::build_query_plan_with_store_configs(config, &request, ast, drivers)?;
+        super::plan::build_query_plan_with_store_configs_at(config, &request, ast, drivers, now)?;
     let viz = viz::meta_for_plan(&plan);
 
     // A `profile_hour_of_week[_peak]` stats query is a profile aggregation, never a

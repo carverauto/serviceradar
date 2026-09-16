@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Query do
 
   import ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Common, only: [escape_value: 1]
 
+  alias ServiceRadarWebNG.SRQL.Batch
+
   # Aim for roughly this many points across the selected window, then snap to a
   # "nice" bucket size. 300 keeps a 24h view at the familiar 5m bucket while a
   # 1h view drops to ~15s and a 7d view coarsens to ~1h.
@@ -214,6 +216,27 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Query do
       {:error, :timeout}
     else
       srql_module.query(query, %{scope: scope, deadline: deadline})
+    end
+  end
+
+  def run_batch(srql_module, queries, scope, opts) do
+    deadline = Keyword.get(opts, :deadline)
+
+    result =
+      cond do
+        is_integer(deadline) and deadline <= System.monotonic_time(:millisecond) ->
+          {:error, :timeout}
+
+        Code.ensure_loaded?(srql_module) and function_exported?(srql_module, :query_batch, 2) ->
+          srql_module.query_batch(queries, %{scope: scope, deadline: deadline})
+
+        true ->
+          {:ok, Batch.execute_separately(queries, &run(srql_module, &1, scope, opts))}
+      end
+
+    case result do
+      {:ok, results} -> results
+      {:error, _} = error -> Map.new(queries, fn {key, _query} -> {key, error} end)
     end
   end
 

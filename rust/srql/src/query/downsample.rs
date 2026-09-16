@@ -1,3 +1,4 @@
+mod batch;
 mod bind;
 mod fields;
 mod filters;
@@ -5,6 +6,8 @@ mod flow_apps;
 mod flow_dimensions;
 mod row;
 mod sql;
+
+pub(super) use batch::build_batch;
 
 use self::{
     row::DownsampleRow,

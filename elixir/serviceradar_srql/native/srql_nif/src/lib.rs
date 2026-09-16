@@ -91,6 +91,27 @@ fn translate(
     }
 }
 
+/// Translate a bounded batch; hot queries retain independent plans and CAGG routes.
+#[rustler::nif(schedule = "DirtyCpu")]
+fn translate_batch(env: Env, requests_json: String, drivers_json: Option<String>) -> Term {
+    let requests: Vec<srql::QueryRequest> = match serde_json::from_str(&requests_json) {
+        Ok(requests) => requests,
+        Err(_) => return (atoms::error(), "invalid SRQL batch requests").encode(env),
+    };
+    let drivers = match parse_drivers(drivers_json.as_deref()) {
+        Ok(drivers) => drivers,
+        Err(err) => return (atoms::error(), err).encode(env),
+    };
+    let config = srql::config::AppConfig::embedded("postgres://unused/db".to_string());
+    match srql::query::translate_batch_with_store_configs(&config, requests, &drivers) {
+        Ok(response) => match serde_json::to_string(&response) {
+            Ok(json) => (atoms::ok(), json).encode(env),
+            Err(_) => (atoms::error(), "failed to encode SRQL batch translation").encode(env),
+        },
+        Err(err) => (atoms::error(), err.to_string()).encode(env),
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ColumnKind {
     Bool,
