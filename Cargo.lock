@@ -4978,6 +4978,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "quick-xml"
+version = "0.42.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41b1177fdf999d2321d3fb46ff47159d9c1fb9ad66a4879f8c50a0b504615e9b"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "quickcheck"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5354,7 +5363,7 @@ dependencies = [
  "http",
  "log",
  "percent-encoding",
- "quick-xml",
+ "quick-xml 0.41.0",
  "reqsign-core 3.3.0",
  "rust-ini",
  "serde",
@@ -5372,7 +5381,7 @@ dependencies = [
  "bytes",
  "http",
  "log",
- "quick-xml",
+ "quick-xml 0.41.0",
  "reqsign-aws-core",
  "reqsign-core 3.3.0",
  "serde",
@@ -6524,7 +6533,7 @@ dependencies = [
  "prometheus",
  "prost",
  "prost-build",
- "quick-xml",
+ "quick-xml 0.42.0",
  "regex-automata",
  "serde",
  "serde_json",

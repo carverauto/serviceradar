@@ -153,7 +153,7 @@ prost-types = "0.14"
 # match.
 protoc-gen-prost = "0.5"
 protoc-gen-tonic = "0.5"
-quick-xml = "0.41"
+quick-xml = "0.42"
 quickcheck = "1"
 rand = "0.10"
 rcgen = "0.12"
