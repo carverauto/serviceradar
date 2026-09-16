@@ -17,7 +17,7 @@
 --
 -- Allowlisted platform tables only:
 --   flow_process_attribution_current
---   prefix_tags
+--   prefix_tags_catalog
 --   ocsf_devices
 -- Forbidden: network_credential_secrets, oban_jobs, logs, ocsf_events,
 -- ocsf_network_activity, timeseries_metrics, alerts, users.

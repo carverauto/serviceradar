@@ -15,7 +15,8 @@ defmodule ServiceRadar.Analytics.StarRocks.CatalogAllowlistTest do
 
   test "allowlist is attribution and enrichment current-state only" do
     assert "flow_process_attribution_current" in CatalogAllowlist.allowed_tables()
-    assert "prefix_tags" in CatalogAllowlist.allowed_tables()
+    assert "prefix_tags_catalog" in CatalogAllowlist.allowed_tables()
+    refute "prefix_tags" in CatalogAllowlist.allowed_tables()
     assert "ocsf_devices" in CatalogAllowlist.allowed_tables()
 
     assert {:ok, "cnpg_platform.platform.flow_process_attribution_current"} ==

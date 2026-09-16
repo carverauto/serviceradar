@@ -10,7 +10,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Catalog do
 
   @driver_url "file:///opt/starrocks/jdbc/postgresql.jar"
   @driver_class "org.postgresql.Driver"
-  @jdbc_uri "jdbc:postgresql://cnpg-rw:5432/serviceradar"
+  @jdbc_uri "jdbc:postgresql://cnpg-rw:5432/serviceradar?ssl=true&sslmode=require"
   @reader "serviceradar_starrocks_reader"
 
   @spec driver_url() :: String.t()

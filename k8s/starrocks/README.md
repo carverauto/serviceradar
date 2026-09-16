@@ -21,11 +21,11 @@ expect the pinned PostgreSQL JDBC driver at
 `third_party/jdbc/postgresql.pin`). `values-cluster.yaml` has a checksummed
 alpine initContainer that mounts the 1Gi `jdbc` volume (the operator does
 not copy storageVolumes onto init containers) for the next starrocks-lab
-upgrade; do not enable Helm `analytics.starrocks.catalog.enabled` until
-CREATE EXTERNAL CATALOG is supplied via an infrastructure secret. Demo
-CNPG NetworkPolicy currently admits only the demo namespace on 5432, so
-lab FE/BE cannot JDBC to CNPG until the gated catalog NetworkPolicy is
-applied. Do not let the Frontend download Maven at catalog-create time.
+upgrade. Demo CNPG now has an additive NetworkPolicy allowing namespace
+`starrocks` on 5432. Lab FE has `cnpg_platform` (infra secret
+`serviceradar-starrocks-catalog`, not in git). Helm default catalog stays
+off; `values-demo.yaml` enables it with empty cutover. Do not let the
+Frontend download Maven at catalog-create time.
 
 The upstream `operator.yaml` is not restricted-PSS compatible. On carverauto an
 unlabeled namespace enforces `restricted:latest`, so a raw apply creates the

@@ -12,7 +12,7 @@ defmodule ServiceRadar.Analytics.StarRocks.CatalogAllowlist do
 
   @allowed_tables ~w(
     flow_process_attribution_current
-    prefix_tags
+    prefix_tags_catalog
     ocsf_devices
   )
 

@@ -18,6 +18,7 @@ def _repo_root() -> Path:
 
 REPO_ROOT = _repo_root()
 VALUES = (REPO_ROOT / "helm" / "serviceradar" / "values.yaml").read_text()
+VALUES_DEMO = (REPO_ROOT / "helm" / "serviceradar" / "values-demo.yaml").read_text()
 TEMPLATE = (
     REPO_ROOT / "helm" / "serviceradar" / "templates" / "starrocks-analytics-config.yaml"
 ).read_text()
@@ -108,6 +109,15 @@ class StarRocksAnalyticsPinsTest(unittest.TestCase):
             "6e0e4cc2d8cae902084f8a2b18728b073a6fd9d1f87c9d8bff8f298c18185b93",
             LAB_CLUSTER,
         )
+
+    def test_demo_overlay_enables_catalog_not_cutover(self):
+        self.assertIn("enabled: true", VALUES_DEMO)
+        self.assertIn("secretName: serviceradar-starrocks-catalog", VALUES_DEMO)
+        self.assertIn("cutoverDatasets: []", VALUES_DEMO)
+        self.assertIn("shadowDatasets: []", VALUES_DEMO)
+        self.assertIn("sslmode=require", VALUES_DEMO)
+        self.assertNotIn("repo1.maven.org", VALUES_DEMO)
+        self.assertIn("sourceNamespace: starrocks", VALUES_DEMO)
 
     def test_schema_covers_flows_metrics_logs_events_and_hourly_mvs(self):
         names = sorted(path.name for path in SCHEMA_DIR.glob("*.sql"))

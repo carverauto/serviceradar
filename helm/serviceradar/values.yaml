@@ -2532,7 +2532,8 @@ analytics:
     shadowDatasets: []
     cutoverDatasets: []
     # JDBC catalog onto CNPG current-state tables for attribution/enrichment
-    # joins. Off until synthetic join parity (tasks 5.6–5.8) passes.
+    # joins. Default chart stays off; values-demo.yaml enables it with an
+    # infra secret. Cutover stays empty.
     catalog:
       enabled: false
       name: cnpg_platform
@@ -2545,7 +2546,7 @@ analytics:
       # JDBC URI baked into that secret. Lab FE/BE run in namespace starrocks,
       # so the host must be reachable from there (cnpg-rw.<cnpg-ns>.svc), not
       # the same-namespace short name.
-      jdbcUri: "jdbc:postgresql://cnpg-rw:5432/serviceradar"
+      jdbcUri: "jdbc:postgresql://cnpg-rw:5432/serviceradar?ssl=true&sslmode=require"
       # Namespace that hosts the StarRocksCluster FE/BE (lab: starrocks).
       sourceNamespace: starrocks
 

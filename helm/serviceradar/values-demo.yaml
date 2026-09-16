@@ -35,6 +35,19 @@ argocdImageUpdater:
 tools:
   enabled: true
 
+# Opt-in StarRocks analytics for the demo lab FE/BE in namespace starrocks.
+# Cutover stays empty; catalog is the CNPG current-state join path only.
+analytics:
+  starrocks:
+    enabled: true
+    shadowDatasets: []
+    cutoverDatasets: []
+    catalog:
+      enabled: true
+      secretName: serviceradar-starrocks-catalog
+      jdbcUri: "jdbc:postgresql://cnpg-rw.demo.svc:5432/serviceradar?ssl=true&sslmode=require"
+      sourceNamespace: starrocks
+
 trivySidecar:
   enabled: true
   clusterId: demo
