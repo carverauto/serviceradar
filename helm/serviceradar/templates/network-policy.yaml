@@ -77,7 +77,7 @@
 {{- $gatewayApiBmpCollectorEnabled := default false $gatewayApiBmpCollector.enabled -}}
 {{- $gatewayApiBmpCollectorEnvoyNamespace := default $gatewayApiEnvoyNamespace $gatewayApiBmpCollector.envoyGatewayNamespace -}}
 {{- $flowCollector := default (dict) .Values.flowCollector -}}
-{{- $flowCollectorEnabled := eq (include "serviceradar.netFlowEnabled" .) "true" -}}
+{{- $flowCollectorEnabled := default false $flowCollector.enabled -}}
 {{- $flowCollectorService := default (dict) $flowCollector.service -}}
 {{- $flowCollectorServiceType := default "ClusterIP" $flowCollectorService.type -}}
 {{- $flowCollectorServicePorts := default (dict) $flowCollectorService.ports -}}

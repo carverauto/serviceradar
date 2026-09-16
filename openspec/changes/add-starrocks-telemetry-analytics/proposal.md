@@ -9,7 +9,7 @@ This is a proposal only. No application code, migrations, deployment, data recov
 ## What Changes
 
 - Selectively recover storage-independent fixes and their synthetic tests from the preserved source; add the still-unimplemented full-width favorited-interface charts. See [extraction.md](extraction.md).
-- Introduce optional StarRocks analytics as a single warehouse switch. When enabled, NetFlow collection is on and EventWriter persists flows, scalar metrics, logs and event history into StarRocks. When disabled, NetFlow is not collected and remaining telemetry stays on CNPG hypertables. Keep CNPG as the control-plane/current-state database. Serving still follows per-dataset cutover.
+- Introduce optional StarRocks analytics as the warehouse for flows, scalar metrics, logs and event history. Keep NetFlow collection independently gated in Helm/Compose. Enabling NetFlow requires StarRocks. When StarRocks is off, remaining telemetry stays on CNPG hypertables. Keep CNPG as the control-plane/current-state database. Serving still follows per-dataset cutover.
 - Use operator-managed shared-data StarRocks with dedicated object storage for hosted installations; provide a shared-nothing, durable-disk StarRocks profile for OSS installations without object storage. Existing CNPG installations remain supported until explicitly migrated.
 - Keep JetStream first and EventWriter as the single persistence owner. Add bounded Stream Load batching and crash-safe delivery semantics within that owner, preserving independent flow and metric demand domains.
 - Add a StarRocks SQL compiler/executor behind existing authorized SRQL entry points, with stable response contracts and explicit dataset routing. Dashboard callers do not issue database-specific SQL.

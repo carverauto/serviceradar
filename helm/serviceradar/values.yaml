@@ -1719,8 +1719,8 @@ trapd:
         port: 162
         targetPort: 162
         protocol: UDP
-# NetFlow/IPFIX collector. Enabling StarRocks turns this on. Enabling this
-# without StarRocks fails closed.
+# NetFlow/IPFIX collector. Independent of StarRocks except that enabling
+# this without analytics.starrocks.enabled fails closed.
 flowCollector:
   enabled: false
   replicaCount: 1
@@ -2505,10 +2505,9 @@ sweep:
 # SPIFFE Configuration (shared by all Elixir components)
 # =============================================================================
 
-# Optional telemetry warehouse. One switch: enabled means NetFlow collection
-# plus EventWriter shadow of flows, scalar metrics, logs and events into
-# StarRocks. Disabled means no NetFlow and remaining telemetry (logs, sysmon,
-# SNMP) stays on CNPG hypertables. Empty shadowDatasets means all four
+# Optional telemetry warehouse for flows, scalar metrics, logs and events.
+# Disabled means remaining telemetry stays on CNPG hypertables. Enabling
+# flowCollector requires this flag. Empty shadowDatasets means all four
 # datasets. Cutover stays empty until a dataset is explicitly listed. Lab
 # clusters run the shared-nothing profile from k8s/starrocks/, not this chart.
 analytics:

@@ -22,7 +22,7 @@
 - [x] 3.1 Pin compatible StarRocks/operator/CRDs/images, architectures and resource profiles; approve ownership, RPO/RTO and cost envelope.
 - [x] 3.2 Add Bazel-managed synthetic shared-data and shared-nothing test environments and versioned schema/migration targets; no new shell scripts.
 - [x] 3.3 Add opt-in Helm/operator integration and Compose profile, internal transport authentication, scoped roles/secrets, redirect policy and dedicated object storage configuration.
-  - `analytics.starrocks.enabled` is the warehouse switch: it deploys NetFlow and shadows flows/metrics/logs/events. Off means no NetFlow and CNPG hypertables. `flowCollector.enabled` without StarRocks fails closed. `cutoverDatasets` stays empty.
+  - `analytics.starrocks.enabled` warehouses flows/metrics/logs/events. `flowCollector.enabled` is independent and fails closed without StarRocks. Off StarRocks means remaining telemetry on CNPG hypertables. `cutoverDatasets` stays empty.
 - [ ] 3.4 Prove FE metadata persistence, CN cache loss, upgrades, object outage and full restore; publish minimum supported installation profiles.
   - Lab shared-nothing limits recorded: FE follower restart PASS (3 Alive, invented rows survived). CN cache loss FAIL (enabledCn false). Object outage FAIL (no bucket). Full restore FAIL (not executed). Upgrade FAIL (already 3.5.21). Demo/serviceradar untouched.
 

@@ -1,11 +1,11 @@
 ## ADDED Requirements
 
 ### Requirement: StarRocks is the optional telemetry warehouse switch
-The system SHALL treat StarRocks as a single optional warehouse switch: when enabled, NetFlow collection is on and EventWriter persists flows, scalar metrics, logs and event history into StarRocks; when disabled, NetFlow is not collected and remaining telemetry stays on CNPG hypertables.
+The system SHALL treat StarRocks as an optional warehouse for flows, scalar metrics, logs and event history, SHALL keep NetFlow collection independently gated, and SHALL require StarRocks when NetFlow collection is enabled.
 
 #### Scenario: Install without StarRocks
 - **WHEN** an operator leaves StarRocks analytics disabled
-- **THEN** NetFlow collection is not deployed
+- **THEN** NetFlow collection cannot be enabled
 - **AND** logs and other remaining telemetry persist to CNPG hypertables
 - **AND** Helm does not fail closed for the missing warehouse
 
@@ -14,12 +14,17 @@ The system SHALL treat StarRocks as a single optional warehouse switch: when ena
 - **THEN** chart rendering fails closed
 - **AND** the collector workload is not deployed
 
-#### Scenario: Enabling StarRocks turns on NetFlow and all telemetry ingest
-- **WHEN** an operator enables StarRocks analytics
-- **THEN** the NetFlow collector is deployed
-- **AND** EventWriter shadows flows, scalar metrics, logs and event history into StarRocks
+#### Scenario: StarRocks without NetFlow still warehouses other telemetry
+- **WHEN** an operator enables StarRocks analytics and leaves NetFlow collection disabled
+- **THEN** the flow collector is not deployed
+- **AND** EventWriter shadows scalar metrics, logs and event history into StarRocks
 - **AND** CNPG remains authoritative for inventory, configuration, credentials and current alert state
 - **AND** serving still follows per-dataset cutover rather than implying every dataset has switched
+
+#### Scenario: StarRocks with NetFlow
+- **WHEN** an operator enables StarRocks analytics and NetFlow collection
+- **THEN** the flow collector is deployed
+- **AND** EventWriter shadows flows together with scalar metrics, logs and event history into StarRocks
 
 ### Requirement: Explicit analytics deployment profiles
 The system SHALL provide opt-in StarRocks shared-data analytics with dedicated object storage and a shared-nothing profile with durable local storage, while retaining CNPG for control-plane state and unmigrated datasets.

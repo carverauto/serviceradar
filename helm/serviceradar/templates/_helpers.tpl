@@ -279,23 +279,10 @@ serviceradar.io/runtime-tls-revision: {{ default "initial" (default (dict) .Valu
   value: "{{ default "/etc/serviceradar/certs" $vals.coreClient.certDir }}"
 {{- end -}}
 
-{{/*
-StarRocks warehouse switch. Enabling StarRocks turns on NetFlow collection
-and shadows all telemetry datasets. Without StarRocks, NetFlow is off and
-logs stay on CNPG hypertables.
-*/}}
-{{- define "serviceradar.netFlowEnabled" -}}
-{{- $fc := default (dict) .Values.flowCollector -}}
-{{- $sr := default (dict) (default (dict) .Values.analytics).starrocks -}}
-{{- if or $fc.enabled $sr.enabled -}}
-true
-{{- end -}}
-{{- end -}}
-
 {{- define "serviceradar.requireStarRocksForNetFlow" -}}
 {{- $sr := default (dict) (default (dict) .Values.analytics).starrocks -}}
 {{- if not $sr.enabled }}
-{{- fail "flowCollector.enabled requires analytics.starrocks.enabled: NetFlow is part of the StarRocks warehouse. Without StarRocks, logs stay on CNPG hypertables and NetFlow is not collected." }}
+{{- fail "flowCollector.enabled requires analytics.starrocks.enabled: NetFlow history is stored in StarRocks. Without StarRocks, logs stay on CNPG hypertables and NetFlow is not collected." }}
 {{- end }}
 {{- end -}}
 
