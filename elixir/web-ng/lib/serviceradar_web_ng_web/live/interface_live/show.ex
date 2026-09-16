@@ -1619,6 +1619,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
 
   defp fetch_interface_metrics(srql_module, device_uid, interface, settings, scope, range) do
     if_index = Map.get(interface, "if_index")
+    time_window = MetricsQuery.requested_window(range)
 
     # SRQL agg:rate returns per-second rates; Timeseries uses rate_mode :rate
     # below only for units/labels, never for a second client-side delta.
@@ -1645,7 +1646,13 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
         panels = build_metrics_panels(response, if_speed_bytes_per_sec, metric_groups, reference_lines_by_metric)
 
         panels =
-          Enum.map(panels, &%{&1 | assigns: Map.put(&1.assigns, :bucket_seconds, Query.query_bucket_seconds(query))})
+          Enum.map(panels, fn panel ->
+            %{
+              panel
+              | assigns:
+                  Map.merge(panel.assigns, %{bucket_seconds: Query.query_bucket_seconds(query), time_window: time_window})
+            }
+          end)
 
         %{panels: panels, error: nil, message: nil}
 

@@ -8,6 +8,8 @@ import {
   colorScale as nfColorScale,
   ensureSVG as nfEnsureSVG,
   netflowAxisTimeFormatter,
+  netflowTimeAxis,
+  netflowTimeDomain,
   netflowDisplayTimeZone,
   netflowRangeSelectionStatus,
   normalizeTimeSeries as nfNormalizeTimeSeries,
@@ -52,6 +54,8 @@ export function stackedChartFingerprint(el, dimensions) {
     dataset.rangeIntervals || "",
     dataset.rangeEvent || "",
     dataset.timezone || "",
+    dataset.timeStart || "",
+    dataset.timeEnd || "",
     dataset.zoomable || "",
     Number(dimensions?.width || 0),
     Number(dimensions?.height || 0),
@@ -102,7 +106,7 @@ export default {
     const dimensions = nfChartDims(this.el, {
       minW: 360,
       minH: 220,
-      margin: {top: 8, right: 110, bottom: 18, left: 44},
+      margin: {top: 8, right: 110, bottom: 18, left: 72},
     })
     const fingerprint = stackedChartFingerprint(this.el, dimensions)
     if (!force && fingerprint === this._lastRenderFingerprint && stackedRenderTreeIntact(this.el, fingerprint)) {
@@ -133,7 +137,7 @@ export default {
       nfChartDims(el, {
         minW: 360,
         minH: 220,
-        margin: {top: 8, right: 110, bottom: 18, left: 44},
+        margin: {top: 8, right: 110, bottom: 18, left: 72},
       })
 
     try {
@@ -363,7 +367,7 @@ export function renderStackedFrame(
     .sort((a, b) => (keyTotals.get(b) || 0) - (keyTotals.get(a) || 0))
   const series = d3.stack().keys(stackKeys)(data)
   const maxY = d3.max(series, (stackedSeries) => d3.max(stackedSeries, (point) => point[1])) || 1
-  const x = d3.scaleTime().domain(d3.extent(data, (row) => row.t)).range([0, iw])
+  const x = d3.scaleTime().domain(netflowTimeDomain(el.dataset, d3.extent(data, (row) => row.t))).range([0, iw])
   const y = d3.scaleLinear().domain([0, maxY]).nice().range([ih, 0])
   const g = selectRoot(svg)
     .append("g")
@@ -415,7 +419,8 @@ export function renderStackedFrame(
       d3
         .axisBottom(x)
         .ticks(5)
-        .tickFormat(netflowAxisTimeFormatter(el.dataset.timezone))
+        .tickValues(netflowTimeAxis(el.dataset.timezone, x.domain()).ticks)
+        .tickFormat(netflowAxisTimeFormatter(el.dataset.timezone, x.domain()))
         .tickSizeOuter(0),
     )
     .call(nfStyleChartAxis)

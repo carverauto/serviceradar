@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
   import ServiceRadarWebNGWeb.UIComponents
 
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Metrics
+  alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths
 
   @series_encodings [
     %{shape: :circle, label: "Circle"},
@@ -299,6 +300,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
       assigns
       |> assign(:encoding, series_encoding(assigns.data.idx))
       |> assign(:effective_chart_left_pad, Map.get(assigns.data, :chart_left_pad, assigns.chart_left_pad))
+      |> assign(:time_window, Paths.time_window(assigns.data))
       |> assign(:annotation_window_notice, annotation_window_notice(Map.get(assigns.data, :annotations, [])))
 
     ~H"""
@@ -319,6 +321,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
       data-chart-left-pad={@effective_chart_left_pad}
       data-chart-right-pad={@chart_right_pad}
       data-timezone={@timezone}
+      data-time-start={@time_window && DateTime.to_iso8601(elem(@time_window, 0))}
+      data-time-end={@time_window && DateTime.to_iso8601(elem(@time_window, 1))}
     >
       <div class="flex items-center justify-between gap-3 mb-2">
         <div class="flex items-center gap-2 min-w-0">
@@ -374,7 +378,13 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
               <line x1={@effective_chart_left_pad} x2={@chart_width - @chart_right_pad} y1={y} y2={y} />
             <% end %>
             <%= for {x, _label} <- @data.x_ticks do %>
-              <line x1={x} x2={x} y1={@chart_top_pad} y2={@chart_height - @chart_bottom_pad} />
+              <line
+                x1={x}
+                x2={x}
+                y1={@chart_top_pad}
+                y2={@chart_height - @chart_bottom_pad}
+                data-time-axis-grid
+              />
             <% end %>
           </g>
 
@@ -403,6 +413,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
                 x2={x}
                 y1={@chart_height - @chart_bottom_pad}
                 y2={@chart_height - @chart_bottom_pad + 3}
+                data-time-axis-tick
               />
             <% end %>
           </g>
@@ -500,6 +511,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
           peak: <span class="font-mono">{Metrics.format_value(@data.paths.max, @data.unit)}</span>
         </span>
       </div>
+      <div :if={@time_window} class="mt-1 text-[10px] text-sr-muted">First / last sample</div>
       <div class={[
         "flex items-center justify-between text-sr-muted mt-1 font-mono",
         @compact && "text-[9px]",

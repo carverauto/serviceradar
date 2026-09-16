@@ -374,3 +374,21 @@ describe("NetflowTrafficTooltip shared range integration", () => {
     }
   })
 })
+
+
+it("updates server-rendered axis labels when the plotted range becomes multi-day", () => {
+  const {root, axisTime} = chart()
+  root.dataset.rangeBuckets = JSON.stringify([
+    {x: 0, start: "2031-04-03T01:00:00Z", end: "2031-04-03T03:00:00Z"},
+    {x: 1000, start: "2031-04-10T01:00:00Z", end: "2031-04-10T03:00:00Z"},
+  ])
+  axisTime.setAttribute("data-time-iso", "2031-04-03T01:00:00Z")
+  NetflowTrafficTooltip._localizeTimeMarkers.call({el: root})
+  expect(axisTime.textContent).toContain("Apr")
+  expect(axisTime.textContent).not.toContain("08:00")
+
+  root.dataset.rangeBuckets = JSON.stringify(buckets)
+  NetflowTrafficTooltip._localizeTimeMarkers.call({el: root})
+  expect(axisTime.textContent).toContain("08:00")
+  expect(axisTime.textContent).not.toContain("2031")
+})

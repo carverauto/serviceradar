@@ -29,6 +29,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
       annotations: Keyword.get(opts, :annotations, []),
       chart_overlays: Keyword.get(opts, :chart_overlays, []),
       bucket_seconds: Keyword.get(opts, :bucket_seconds),
+      time_window: Paths.time_window(opts),
       compact: Keyword.get(opts, :compact, false),
       max_speed: Keyword.get(opts, :max_speed),
       rate_mode: Keyword.get(opts, :rate_mode, :none),
@@ -97,7 +98,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
     y_domain = Points.y_domain(chart_points ++ reference_points(reference_values), unit, y_scale)
     y_ticks = Points.y_ticks(y_domain, compact, unit)
     chart_left_pad = Paths.chart_left_pad(y_ticks)
-    geometry = %{chart_left_pad: chart_left_pad, time_gaps: time_gaps}
+    geometry = %{chart_left_pad: chart_left_pad, time_gaps: time_gaps, time_window: Map.get(opts, :time_window)}
     paths = chart_points |> Paths.chart_paths(y_domain, geometry) |> Map.merge(raw_stats)
     utilization = Metrics.compute_utilization(paths.avg, effective_max)
 
@@ -111,6 +112,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
       unit: unit,
       raw_points: points,
       time_gaps: time_gaps,
+      time_window: geometry.time_window,
       y_domain: y_domain,
       x_ticks: Points.x_ticks(points, compact, geometry),
       y_ticks: y_ticks,
@@ -136,12 +138,13 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
     y_domain = combined_y_domain(traffic_series, unit, y_scale)
     y_ticks = Points.y_ticks(y_domain, compact, unit)
     chart_left_pad = Paths.chart_left_pad(y_ticks)
-    geometry = %{chart_left_pad: chart_left_pad}
+    geometry = %{chart_left_pad: chart_left_pad, time_window: first_series && first_series.time_window}
     traffic_series = apply_shared_domain(traffic_series, y_domain, unit, compact, geometry)
     x_ticks = first_series && Points.x_ticks(first_series.raw_points || [], compact, geometry)
 
     %{
       type: :combined,
+      time_window: geometry.time_window,
       title: "Interface Traffic",
       series: traffic_series,
       max_speed: max_speed,
@@ -167,12 +170,13 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
     y_domain = combined_y_domain(series_data, unit, y_scale)
     y_ticks = Points.y_ticks(y_domain, compact, unit)
     chart_left_pad = Paths.chart_left_pad(y_ticks)
-    geometry = %{chart_left_pad: chart_left_pad}
+    geometry = %{chart_left_pad: chart_left_pad, time_window: first_series && first_series.time_window}
     series_data = apply_shared_domain(series_data, y_domain, unit, compact, geometry)
     x_ticks = first_series && Points.x_ticks(first_series.raw_points || [], compact, geometry)
 
     %{
       type: :combined,
+      time_window: geometry.time_window,
       title: title,
       series: series_data,
       max_speed: nil,

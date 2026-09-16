@@ -87,7 +87,7 @@ function key(key, shiftKey = false) {
   return {key, preventDefault: vi.fn(), shiftKey, type: "keydown"}
 }
 
-function rangeElement({buckets = initialBuckets, eventName = "select_events_range", timeZone = "Etc/UTC"} = {}) {
+function rangeElement({buckets = initialBuckets, eventName = "select_events_range", timeZone = "Etc/UTC", axisTimes = []} = {}) {
   const svg = eventTarget({viewBox: "0 0 640 160"})
   svg.getBoundingClientRect = () => ({left: 0, width: 640})
   const overlay = eventTarget()
@@ -115,8 +115,19 @@ function rangeElement({buckets = initialBuckets, eventName = "select_events_rang
     if (selector === "[data-range-status]") return status
     return null
   }
+  const labels = axisTimes.map((iso, index) => {
+    const label = eventTarget({x: String(36 + index * 80)})
+    label.dataset.timeAxisIso = iso
+    return label
+  })
+  const grid = labels.map(() => eventTarget())
+  root.querySelectorAll = (selector) => {
+    if (selector === "[data-time-axis-iso]") return labels
+    if (selector === "[data-time-axis-grid]") return grid
+    return []
+  }
 
-  return {overlay, root, status, svg}
+  return {overlay, root, status, svg, labels, grid}
 }
 
 function mount(options) {
@@ -134,6 +145,36 @@ function drag(svg, from, to, pointerType = "mouse") {
 }
 
 describe("ChartRangeSelection hook", () => {
+  it.each([
+    [["2030-01-01", "2030-01-07", "2030-01-31"], ["Jan 1", "Jan 7", "Jan 31"]],
+    [["2030-01-01", "2030-01-16", "2030-02-01", "2030-02-16", "2030-03-01", "2030-03-16", "2030-04-01"], ["Jan 2030", "Feb 2030", "Mar 2030", "Apr 2030"]],
+    [["2027-01-01", "2027-07-01", "2028-01-01", "2029-01-01", "2030-01-01"], ["2027", "2028", "2029", "2030"]],
+  ])("uses unique calendar labels for long event windows %j", (dates, expected) => {
+    const {labels, grid, pushEvent} = mount({axisTimes: dates.map((date) => `${date}T12:00:00Z`)})
+    const visible = labels.filter((label) => label.getAttribute("visibility") === "visible")
+
+    expect(visible.map((label) => label.textContent)).toEqual(expected)
+    expect(grid.map((line) => line.getAttribute("visibility"))).toEqual(labels.map((label) => label.getAttribute("visibility")))
+    expect(labels.map((label) => label.getAttribute("x"))).toEqual(dates.map((_, index) => String(36 + index * 80)))
+    expect(pushEvent).not.toHaveBeenCalled()
+  })
+
+  it("uses the viewer timezone and restores hidden ticks when returning to hours", () => {
+    const {ctx, labels, grid} = mount({
+      timeZone: "America/Chicago",
+      axisTimes: ["2030-01-01T00:00:00Z", "2030-01-16T00:00:00Z", "2030-02-01T00:00:00Z", "2030-04-01T00:00:00Z"],
+    })
+
+    expect(labels[0].textContent).toBe("Dec 2029")
+    expect(labels[2].getAttribute("visibility")).toBe("hidden")
+    labels.forEach((label, index) => { label.dataset.timeAxisIso = `2030-04-01T${String(10 + index).padStart(2, "0")}:00:00Z` })
+    ctx.updated()
+
+    expect(labels.every((label) => label.getAttribute("visibility") === "visible")).toBe(true)
+    expect(grid.every((line) => line.getAttribute("visibility") === "visible")).toBe(true)
+    expect(labels.map((label) => label.textContent)).toEqual(["05:00 AM", "06:00 AM", "07:00 AM", "08:00 AM"])
+  })
+
   it("commits the latest focused bucket when Enter is pressed initially", () => {
     const {pushEvent, root} = mount()
     const enter = key("Enter")

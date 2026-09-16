@@ -11,8 +11,30 @@ defmodule ServiceRadarWebNGWeb.Netflow.RangeSelection do
 
   def canonical_intervals(_points), do: []
 
-  @spec intervals(list(), :lines | :grid | String.t(), number()) :: [interval()]
-  def intervals(points, mode, width)
+  @spec intervals(list(), :lines | :grid | String.t(), number(), term()) :: [interval()]
+  def intervals(points, mode, width, time_window \\ nil)
+
+  def intervals(points, mode, width, {%DateTime{} = from, %DateTime{} = until})
+      when is_list(points) and mode in [:lines, :grid, "lines", "grid"] and is_number(width) and width > 0 do
+    duration = DateTime.diff(until, from, :microsecond)
+
+    if duration > 0 do
+      points
+      |> canonical_intervals_with_times()
+      |> Enum.map(fn interval ->
+        offset = DateTime.diff(interval.start_time, from, :microsecond)
+
+        midpoint =
+          if mode in [:grid, "grid"], do: DateTime.diff(interval.end_time, interval.start_time, :microsecond) / 2, else: 0
+
+        %{x: (offset + midpoint) / duration * width, start: interval.start, end: interval.end}
+      end)
+    else
+      intervals(points, mode, width, nil)
+    end
+  end
+
+  def intervals(points, mode, width, _time_window)
       when is_list(points) and mode in [:lines, :grid, "lines", "grid"] and is_number(width) and width > 0 do
     canonical = canonical_intervals(points)
     xs = x_positions(length(canonical), mode, width)
@@ -22,7 +44,7 @@ defmodule ServiceRadarWebNGWeb.Netflow.RangeSelection do
     end)
   end
 
-  def intervals(_points, _mode, _width), do: []
+  def intervals(_points, _mode, _width, _time_window), do: []
 
   @spec x_positions(non_neg_integer(), :lines | :grid | String.t(), number()) :: [float()]
   def x_positions(count, mode, width)

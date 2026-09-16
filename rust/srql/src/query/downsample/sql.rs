@@ -61,6 +61,13 @@ pub(super) fn build_sql(plan: &QueryPlan) -> Result<String> {
         ));
     }
 
+    if super::flow_apps::route(plan) {
+        return Ok(finalize_downsample_sql(
+            super::flow_apps::build_body(plan)?,
+            downsample_keeps_newest(plan),
+        ));
+    }
+
     // Flows route through a dedicated closed-vs-current UNION builder: materialized buckets
     // come from the pre-aggregated traffic CAGG and only the still-open bucket is read from
     // the raw hypertable. This keeps the sampling-rate-weighted throughput chart off the raw

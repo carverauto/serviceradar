@@ -1,6 +1,6 @@
 import {describe, expect, it} from "vitest"
 
-import TimeseriesChart from "./TimeseriesChart"
+import TimeseriesChart, {localizeTimeseriesAxis} from "./TimeseriesChart"
 import TimeseriesCombinedChart from "./TimeseriesCombinedChart"
 
 function classList() {
@@ -225,5 +225,43 @@ describe("TimeseriesCombinedChart hook", () => {
 
     expect(el.timeTitle.textContent).toBe(el.titleFallback)
     ctx.destroyed()
+  })
+})
+
+
+describe("requested timeseries window", () => {
+  it("positions distinct month labels and grid lines over the requested domain", () => {
+    const node = (iso) => ({dataset: {timeAxisIso: iso}, attributes: {}, setAttribute(name, value) { this.attributes[name] = value }})
+    const labels = Array.from({length: 5}, (_, i) => node(new Date(Date.parse("2025-01-01T00:00:00Z") + i * 90 * 86_400_000 / 4).toISOString()))
+    const grids = labels.map(() => node())
+    const marks = labels.map(() => node())
+    const el = {
+      dataset: {timeStart: "2025-01-01T00:00:00Z", timeEnd: "2025-04-01T00:00:00Z", chartLeftPad: "72", chartRightPad: "32", chartWidth: "800"},
+      querySelectorAll(selector) {
+        return {"[data-time-axis-iso]": labels, "[data-time-axis-grid]": grids, "[data-time-axis-tick]": marks}[selector] || []
+      },
+    }
+    localizeTimeseriesAxis(el, "America/Chicago")
+    const visible = labels.filter((label) => label.attributes.visibility === "visible")
+    expect(visible.length).toBe(3)
+    expect(new Set(visible.map((label) => label.textContent)).size).toBe(3)
+    expect(visible[0].textContent).toContain("Jan")
+    expect(visible[2].textContent).toContain("Mar")
+    expect(Number(visible[0].attributes.x)).toBeLessThan(80)
+    expect(Number(visible[2].attributes.x)).toBeGreaterThan(500)
+    expect(grids[0].attributes.x1).toBe(visible[0].attributes.x)
+    expect(marks[0].attributes.x1).toBe(visible[0].attributes.x)
+    expect(labels[4].attributes.visibility).toBe("hidden")
+
+    // LiveView need not resend uniform x attributes when only the range changes.
+    el.dataset.timeStart = "2025-04-01T00:00:00Z"
+    el.dataset.timeEnd = "2025-04-02T00:00:00Z"
+    labels.forEach((label, index) => {
+      label.dataset.timeAxisIso = new Date(Date.parse(el.dataset.timeStart) + index * 86_400_000 / 4).toISOString()
+    })
+    localizeTimeseriesAxis(el, "America/Chicago")
+    expect(labels.every((label) => label.attributes.visibility === "visible")).toBe(true)
+    expect(labels.map((label) => Number(label.attributes.x))).toEqual([72, 246, 420, 594, 768])
+    expect(grids.map((line) => Number(line.attributes.x1))).toEqual([72, 246, 420, 594, 768])
   })
 })

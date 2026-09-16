@@ -72,6 +72,30 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Query do
 
   def query_bucket_seconds(_query), do: nil
 
+  def requested_window(time_range, now \\ DateTime.utc_now())
+
+  def requested_window("last_" <> duration, %DateTime{} = now) do
+    case relative_window_seconds(duration) do
+      seconds when is_integer(seconds) and seconds > 0 -> {DateTime.add(now, -seconds, :second), now}
+      _ -> nil
+    end
+  end
+
+  def requested_window("[" <> _ = range, _now) do
+    with true <- String.ends_with?(range, "]"),
+         [start_raw, end_raw] <-
+           range |> String.trim_leading("[") |> String.trim_trailing("]") |> String.split(",", parts: 2),
+         {:ok, start_dt, _} <- DateTime.from_iso8601(String.trim(start_raw)),
+         {:ok, end_dt, _} <- DateTime.from_iso8601(String.trim(end_raw)),
+         true <- DateTime.before?(start_dt, end_dt) do
+      {start_dt, end_dt}
+    else
+      _ -> nil
+    end
+  end
+
+  def requested_window(_range, _now), do: nil
+
   defp pick_bucket(target_seconds) do
     Enum.find_value(@nice_buckets, "#{ceil(target_seconds / 86_400)}d", fn {seconds, token} ->
       if seconds >= target_seconds, do: token
@@ -109,17 +133,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Query do
   end
 
   defp absolute_window_seconds(bracketed) do
-    inner = bracketed |> String.trim_leading("[") |> String.trim_trailing("]")
-
-    with [start_raw, end_raw] <- String.split(inner, ",", parts: 2),
-         {:ok, start_dt, _} <- DateTime.from_iso8601(String.trim(start_raw)),
-         {:ok, end_dt, _} <- DateTime.from_iso8601(String.trim(end_raw)) do
-      case DateTime.diff(end_dt, start_dt, :microsecond) do
-        microseconds when microseconds > 0 -> ceil(microseconds / 1_000_000)
-        _ -> nil
-      end
-    else
-      _ -> nil
+    case requested_window(bracketed) do
+      {start_dt, end_dt} -> ceil(DateTime.diff(end_dt, start_dt, :microsecond) / 1_000_000)
+      nil -> nil
     end
   end
 

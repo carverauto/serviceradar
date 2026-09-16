@@ -140,6 +140,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
 
     {series_points, focus_annotation} = Focus.apply(series_points, chart_focus)
     annotations = annotations_from_assigns(assigns, focus_annotation)
+    # A selected finding retains its existing focused chart domain.
+    time_window = if !chart_focus, do: Paths.time_window(time_window: Spec.fetch_panel_value(assigns, :time_window))
 
     series_data =
       SeriesData.build_series_data(
@@ -148,6 +150,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
         rate_mode: Map.get(assigns, :rate_mode, :none),
         compact: compact,
         bucket_seconds: Spec.fetch_panel_value(assigns, :bucket_seconds),
+        time_window: time_window,
         max_speed: max_speed,
         annotations: annotations,
         reference_lines: reference_lines,
@@ -181,6 +184,9 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
       |> assign(:empty_state, empty_state)
       |> assign(:first_dt, Points.first_dt(series_points))
       |> assign(:last_dt, Points.last_dt(series_points))
+      |> assign(:time_window, time_window)
+      |> assign(:window_start, time_window && elem(time_window, 0))
+      |> assign(:window_end, time_window && elem(time_window, 1))
 
     render_chart(assigns, compact)
   end
@@ -718,10 +724,39 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     """
   end
 
+  defp requested_window_label(assigns) do
+    ~H"""
+    <div data-requested-window>
+      <span>Requested window:</span>
+      <.user_time
+        id={"timeseries-#{@id}-window-start"}
+        value={@start_at}
+        timezone={@timezone}
+        style={:compact}
+      />
+      <span class="px-1">→</span>
+      <.user_time
+        id={"timeseries-#{@id}-window-end"}
+        value={@end_at}
+        timezone={@timezone}
+        style={:compact}
+      />
+    </div>
+    """
+  end
+
   defp render_compact(assigns) do
     ~H"""
     <div id={"panel-#{@id}"} class="p-4" data-timezone={@timezone}>
       <.empty_state_box empty_state={@empty_state} compact={@compact} />
+      <div :if={@time_window} class="mb-2 text-[10px] text-sr-muted font-mono">
+        <.requested_window_label
+          id={@id}
+          start_at={@window_start}
+          end_at={@window_end}
+          timezone={@timezone}
+        />
+      </div>
 
       <div
         :if={is_binary(@compact_title) and @series_data != []}
@@ -782,6 +817,14 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
             <div class="text-sm font-semibold">{@title || "Timeseries"}</div>
           </div>
           <div class="text-xs text-sr-muted font-mono">
+            <.requested_window_label
+              :if={@time_window}
+              id={@id}
+              start_at={@window_start}
+              end_at={@window_end}
+              timezone={@timezone}
+            />
+            <span :if={@time_window}>First / last sample:</span>
             <.user_time
               :if={is_struct(@first_dt, DateTime)}
               id={"timeseries-#{@id}-first-time"}

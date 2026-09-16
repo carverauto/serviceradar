@@ -151,12 +151,11 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.StatesCards do
         to_int(events.fatal) + to_int(events.critical) + to_int(events.high)
       end
 
-      defp map_stats(_flows, _mtr, traffic_links) do
+      defp map_stats(flows, _mtr, traffic_links, time_window \\ "last_15m") do
         link_count = length(List.wrap(traffic_links))
-        window_bytes = traffic_links |> Enum.map(&to_int(Map.get(&1, :bytes, Map.get(&1, "bytes", 0)))) |> Enum.sum()
+        window_bytes = to_int(flows.bytes_total)
 
-        window_flows =
-          traffic_links |> Enum.map(&to_int(Map.get(&1, :flow_count, Map.get(&1, "flow_count", 0)))) |> Enum.sum()
+        window_flows = to_int(flows.flow_count)
 
         geo_mapped = Enum.count(traffic_links, &Map.get(&1, :geo_mapped, Map.get(&1, "geo_mapped", false)))
         geo_pct = if link_count > 0, do: geo_mapped * 100 / link_count, else: 0
@@ -164,41 +163,41 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.StatesCards do
         [
           %{
             label: "Window",
-            value: netflow_map_window_label(),
-            href: netflow_observability_path("traffic"),
+            value: ServiceRadarWebNGWeb.DashboardLive.Window.label(time_window),
+            href: netflow_observability_path("traffic", %{}, time_window),
             aria_label: "Open NetFlow traffic window"
           },
           %{
             label: "Conversations",
             value: format_count(link_count),
-            href: netflow_observability_path("topology", %{"graph" => "sankey"}),
+            href: netflow_observability_path("topology", %{"graph" => "sankey"}, time_window),
             aria_label: "Open NetFlow conversations"
           },
           %{
             label: "Flow Records",
             value: format_count(window_flows),
-            href: netflow_observability_path("explorer"),
+            href: netflow_observability_path("explorer", %{}, time_window),
             aria_label: "Open NetFlow flow records"
           },
           %{
             label: "Traffic",
             value: format_bytes(window_bytes),
-            href: netflow_observability_path("traffic"),
+            href: netflow_observability_path("traffic", %{}, time_window),
             aria_label: "Open NetFlow traffic analytics"
           },
           %{
             label: "Geo Mapped",
             value: "#{format_percent(geo_pct)}%",
-            href: netflow_observability_path("topology", %{"geo" => "dst"}),
+            href: netflow_observability_path("topology", %{"geo" => "dst"}, time_window),
             aria_label: "Open geo-mapped NetFlow analytics"
           }
         ]
       end
 
-      defp netflow_observability_path(view, extra_params \\ %{}) do
+      defp netflow_observability_path(view, extra_params \\ %{}, time_window \\ "last_15m") do
         params =
           Map.merge(
-            %{"view" => view, "q" => "in:flows time:last_15m sort:timestamp:desc limit:100"},
+            %{"view" => view, "q" => "in:flows time:#{time_window} sort:timestamp:desc limit:100"},
             extra_params
           )
 

@@ -27,6 +27,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNGWeb.Components.PrefixTagChips
+  alias ServiceRadarWebNGWeb.LogLive.NetflowActivity
   alias ServiceRadarWebNGWeb.LogLive.NetflowRuntime
   alias ServiceRadarWebNGWeb.LogLive.NetflowSummary
   alias ServiceRadarWebNGWeb.MetricSeries
@@ -2376,6 +2377,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                   else: Map.get(@timeseries_stacked, :points, [])
                 )
               }
+              time_window={Map.get(@timeseries, :time_window)}
               keys={Map.get(@timeseries_stacked, :keys, [])}
               mode={@stack_mode}
               range_intervals={RangeSelection.canonical_intervals(@timeseries.points)}
@@ -2385,6 +2387,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             <.netflow_timeseries_chart
               timezone={@timezone}
               points={@timeseries.points}
+              time_window={Map.get(@timeseries, :time_window)}
               compare_points={Map.get(@timeseries_compare, :points, [])}
               bucket_seconds={@timeseries.bucket_seconds}
               compare_mode={@compare_mode}
@@ -3223,7 +3226,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr(:mode, :string, default: "grid")
   attr(:timezone, :string, required: true)
 
+  attr(:time_window, :any, default: nil)
+
   def netflow_timeseries_chart(assigns) do
+    assigns = Map.put_new(assigns, :time_window, nil)
+
     points =
       Enum.filter(assigns.points, fn point ->
         is_map(point) and RangeSelection.canonical_intervals([point]) != []
@@ -3243,7 +3250,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     range_points =
       points
-      |> RangeSelection.intervals(mode, 1000)
+      |> RangeSelection.intervals(mode, 1000, assigns.time_window)
       |> Enum.zip_with(points, fn interval, point -> Map.put(interval, :point, point) end)
 
     {axis_start, axis_middle, axis_end} =
@@ -3262,17 +3269,21 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           }
       end
 
+    {requested_start, requested_end} = netflow_chart_time_window(assigns.time_window)
+
     assigns =
       assigns
+      |> assign(:time_start, requested_start)
+      |> assign(:time_end, requested_end)
       |> assign(:points, points)
       |> assign(:compare_points, compare_points)
       |> assign(:max_bytes, max_bytes)
       |> assign(:bucket_seconds, bucket_seconds)
       |> assign(:range_points, range_points)
       |> assign(:range_buckets, Enum.map(range_points, &Map.take(&1, [:x, :start, :end])))
-      |> assign(:axis_start, axis_start)
+      |> assign(:axis_start, requested_start || axis_start)
       |> assign(:axis_middle, axis_middle)
-      |> assign(:axis_end, axis_end)
+      |> assign(:axis_end, requested_end || axis_end)
 
     ~H"""
     <div :if={@points == []} class="py-8 text-center text-sm text-sr-muted">
@@ -3283,6 +3294,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       :if={@points != []}
       id="netflow-traffic-timeseries"
       phx-hook="NetflowTrafficTooltip"
+      data-time-start={@time_start}
+      data-time-end={@time_end}
       data-timezone={@timezone}
       data-points={netflow_timeseries_tooltip_points_json(@range_points, @bucket_seconds)}
       data-bucket-seconds={@bucket_seconds}
@@ -3398,7 +3411,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
         <%= if @mode != "lines" do %>
           <%= for %{point: point, x: center_x, start: start_time, end: end_time} <- @range_points do %>
-            {w = netflow_chart_bar_w(length(@points), 1000)}
+            {w = netflow_chart_bar_w(length(@points), 1000, @bucket_seconds, @time_window)}
             {x = center_x - w / 2}
             {h = netflow_chart_h(Map.get(point, :bytes, 0), @max_bytes, 140)}
             <% title = netflow_bucket_hover_title(point, @bucket_seconds, end_time) %>
@@ -3425,7 +3438,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         <% end %>
 
         <polyline
-          points={netflow_timeseries_polyline(@points, @max_bytes, 1000, 140, @mode)}
+          points={netflow_timeseries_polyline(@points, @max_bytes, 1000, 140, @mode, @time_window)}
           fill="none"
           class="stroke-sr-brand opacity-80"
           stroke-width="2"
@@ -3433,7 +3446,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
         <polyline
           :if={@compare_points != [] and @compare_mode in ["previous", "yesterday"]}
-          points={netflow_timeseries_polyline(@compare_points, @max_bytes, 1000, 140, @mode)}
+          points={
+            netflow_timeseries_polyline(@compare_points, @max_bytes, 1000, 140, @mode, @time_window)
+          }
           fill="none"
           class="stroke-sr-muted/50"
           stroke-dasharray="4 4"
@@ -3509,13 +3524,18 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr(:range_bucket_name, :string, default: "traffic")
   attr(:timezone, :string, required: true)
 
+  attr(:time_window, :any, default: nil)
+
   def netflow_timeseries_stacked_area_chart(assigns) do
+    {time_start, time_end} = netflow_chart_time_window(Map.get(assigns, :time_window))
     points = Enum.filter(assigns.points, &is_map/1)
 
     assigns =
       assigns
       |> assign(:points, points)
       |> assign(:keys, Enum.filter(assigns.keys || [], &is_binary/1))
+      |> assign(:time_start, time_start)
+      |> assign(:time_end, time_end)
 
     ~H"""
     <div :if={@points == [] or @keys == []} class="py-6 text-center text-sm text-sr-muted">
@@ -3527,6 +3547,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         id={@id}
         class={["w-full h-56", @range_event && "touch-pan-y"]}
         phx-hook="NetflowStackedAreaChart"
+        data-time-start={@time_start}
+        data-time-end={@time_end}
         phx-update="ignore"
         data-timezone={@timezone}
         data-keys={Jason.encode!(@keys)}
@@ -3572,8 +3594,18 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           </div>
         </div>
         <div class="p-3">
+          <p
+            :if={Map.get(@protocol_activity, :error)}
+            id="netflow-protocol-activity-error"
+            role="alert"
+            class="text-sm text-error"
+          >
+            {@protocol_activity.error}
+          </p>
           <.netflow_timeseries_stacked_area_chart
+            :if={is_nil(Map.get(@protocol_activity, :error))}
             id="netflow-protocol-stacked"
+            time_window={Map.get(@timeseries, :time_window)}
             timezone={@timezone}
             points={Map.get(@protocol_activity, :points, [])}
             keys={Map.get(@protocol_activity, :keys, [])}
@@ -3603,8 +3635,18 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           </div>
         </div>
         <div class="p-3">
+          <p
+            :if={Map.get(@app_activity, :error)}
+            id="netflow-app-activity-error"
+            role="alert"
+            class="text-sm text-error"
+          >
+            {@app_activity.error}
+          </p>
           <.netflow_timeseries_stacked_area_chart
+            :if={is_nil(Map.get(@app_activity, :error))}
             id="netflow-app-stacked"
+            time_window={Map.get(@timeseries, :time_window)}
             timezone={@timezone}
             points={Map.get(@app_activity, :points, [])}
             keys={Map.get(@app_activity, :keys, [])}
@@ -9037,10 +9079,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     time_token = extract_time_from_query(base_query) || @default_netflow_window
 
-    bucket_seconds =
+    {bucket_seconds, time_window} =
       case resolve_srql_time(time_token) do
-        {:ok, %{start: start_dt, end: end_dt}} -> choose_netflow_bucket_seconds(start_dt, end_dt)
-        _ -> 300
+        {:ok, %{start: start_dt, end: end_dt}} ->
+          {choose_netflow_bucket_seconds(start_dt, end_dt), {start_dt, end_dt}}
+
+        _ ->
+          {300, nil}
       end
 
     bucket = bucket_seconds_to_srql(bucket_seconds)
@@ -9083,7 +9128,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       end)
       |> Enum.take(120)
 
-    %{bucket_seconds: bucket_seconds, points: points}
+    %{bucket_seconds: bucket_seconds, points: points, time_window: time_window}
   rescue
     _ ->
       %{bucket_seconds: 300, points: []}
@@ -9126,201 +9171,19 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp load_netflow_timeseries_stacked(_srql_module, _current_query, _scope, bucket_seconds, _points, _mode),
     do: %{bucket_seconds: bucket_seconds, keys: [], points: []}
 
-  defp load_netflow_protocol_activity(srql_module, current_query, scope, bucket_seconds, total_points)
-       when is_integer(bucket_seconds) and is_list(total_points) do
-    keys = ["tcp", "udp", "other"]
-
-    colors =
-      netflow_series_colors(keys, [
-        "#4e79a7",
-        "#59a14f",
-        "#bab0ac"
-      ])
-
-    series_maps =
-      load_netflow_timeseries_series_maps(
-        srql_module,
-        current_query,
-        scope,
-        bucket_seconds,
-        total_points,
-        "protocol_group",
-        keys
-      )
-
-    %{bucket_seconds: bucket_seconds, keys: keys, points: series_maps.points, colors: colors}
-  rescue
-    _ ->
-      %{bucket_seconds: bucket_seconds, keys: [], points: [], colors: %{}}
+  defp load_netflow_protocol_activity(srql_module, query, scope, bucket_seconds, points) do
+    load_netflow_activity(:protocol, srql_module, query, scope, bucket_seconds, points)
   end
 
-  defp load_netflow_protocol_activity(_srql_module, _current_query, _scope, bucket_seconds, _points),
-    do: %{bucket_seconds: bucket_seconds, keys: [], points: [], colors: %{}}
-
-  defp load_netflow_app_activity(srql_module, current_query, scope, bucket_seconds, total_points)
-       when is_integer(bucket_seconds) and is_list(total_points) do
-    base_query =
-      current_query
-      |> netflow_base_query()
-      |> sanitize_srql_for_stats()
-
-    # Find top apps by bytes for this window, then downsample only those.
-    keys =
-      srql_module
-      |> apply(:query, [
-        ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by app" sort:total_bytes:desc limit:8|,
-        %{scope: scope}
-      ])
-      |> extract_stats_rows()
-      |> Enum.map(&Map.get(&1, "app"))
-      |> Enum.filter(&is_binary/1)
-      |> Enum.map(&String.trim/1)
-      |> Enum.reject(&(&1 in ["", "unknown", "Unknown", "—", "-"]))
-      |> Enum.uniq()
-      |> Enum.take(8)
-
-    colors = netflow_series_colors(keys, netflow_default_palette())
-
-    series_maps =
-      load_netflow_timeseries_series_maps(
-        srql_module,
-        current_query,
-        scope,
-        bucket_seconds,
-        total_points,
-        "app",
-        keys
-      )
-
-    %{bucket_seconds: bucket_seconds, keys: keys, points: series_maps.points, colors: colors}
-  rescue
-    _ ->
-      %{bucket_seconds: bucket_seconds, keys: [], points: [], colors: %{}}
+  defp load_netflow_app_activity(srql_module, query, scope, bucket_seconds, points) do
+    load_netflow_activity(:app, srql_module, query, scope, bucket_seconds, points)
   end
 
-  defp load_netflow_app_activity(_srql_module, _current_query, _scope, bucket_seconds, _points),
-    do: %{bucket_seconds: bucket_seconds, keys: [], points: [], colors: %{}}
-
-  defp load_netflow_timeseries_series_maps(
-         srql_module,
-         current_query,
-         scope,
-         bucket_seconds,
-         total_points,
-         series_field,
-         keys
-       )
-       when is_integer(bucket_seconds) and is_list(total_points) and is_binary(series_field) do
-    base_query =
-      current_query
-      |> netflow_base_query()
-      |> sanitize_srql_for_stats()
-
-    bucket = bucket_seconds_to_srql(bucket_seconds)
-
-    query =
-      base_query
-      |> maybe_limit_series(series_field, keys)
-      |> then(fn q ->
-        ~s|#{q} bucket:#{bucket} agg:sum value_field:bytes_total series:#{series_field} limit:2000|
-      end)
-
-    rows =
-      case srql_module.query(query, %{scope: scope}) do
-        {:ok, %{"results" => results}} when is_list(results) -> results
-        _ -> []
-      end
-
-    series_maps =
-      Enum.reduce(rows, %{}, fn
-        %{"timestamp" => ts, "series" => series, "value" => value}, acc ->
-          with {:ok, dt} <- parse_srql_datetime(ts),
-               series when is_binary(series) <- series,
-               bytes when is_number(bytes) <- to_number(value) do
-            put_netflow_series_value(acc, series, dt, bytes)
-          else
-            _ -> acc
-          end
-
-        _row, acc ->
-          acc
-      end)
-
-    keys =
-      keys
-      |> Enum.filter(&is_binary/1)
-      |> Enum.map(&String.trim/1)
-      |> Enum.reject(&(&1 in ["", "unknown", "Unknown", "—", "-"]))
-      |> Enum.uniq()
-
-    points =
-      total_points
-      |> Enum.filter(&is_map/1)
-      |> Enum.map(fn p ->
-        start_dt = Map.get(p, :bucket_start)
-
-        Enum.reduce(keys, %{"t" => DateTime.to_iso8601(start_dt)}, fn k, acc ->
-          bytes = to_int(Map.get(Map.get(series_maps, k, %{}), start_dt, 0))
-          Map.put(acc, k, bytes)
-        end)
-      end)
-      |> Enum.take(120)
-
-    %{points: points, series_maps: series_maps}
-  rescue
-    _ ->
-      %{points: [], series_maps: %{}}
-  end
-
-  defp put_netflow_series_value(acc, series, dt, bytes) when is_map(acc) and is_binary(series) do
-    series = String.trim(series)
-
-    if series == "" do
-      acc
-    else
-      Map.update(acc, series, %{dt => bytes}, fn m ->
-        Map.update(m, dt, bytes, &(&1 + bytes))
-      end)
+  defp load_netflow_activity(kind, srql_module, query, scope, bucket_seconds, points) do
+    case NetflowActivity.load(kind, srql_module, query, scope, bucket_seconds, points) do
+      {:ok, activity} -> activity
+      {:error, _reason} -> Map.put(NetflowActivity.empty(bucket_seconds), :error, NetflowActivity.error_message(kind))
     end
-  end
-
-  defp put_netflow_series_value(acc, _series, _dt, _bytes), do: acc
-
-  defp maybe_limit_series(query, series_field, keys) when is_binary(query) and is_binary(series_field) do
-    values =
-      keys
-      |> Enum.filter(&is_binary/1)
-      |> Enum.map(&String.trim/1)
-      |> Enum.reject(&(&1 in ["", "unknown", "Unknown", "—", "-"]))
-      |> Enum.uniq()
-      |> Enum.take(20)
-
-    if values == [] do
-      query
-    else
-      upsert_query_filter(query, series_field, "(" <> Enum.join(values, ",") <> ")")
-    end
-  end
-
-  defp netflow_default_palette do
-    [
-      "#4e79a7",
-      "#f28e2b",
-      "#e15759",
-      "#76b7b2",
-      "#59a14f",
-      "#edc948",
-      "#b07aa1",
-      "#ff9da7",
-      "#9c755f",
-      "#bab0ac"
-    ]
-  end
-
-  defp netflow_series_colors(keys, palette) when is_list(keys) and is_list(palette) do
-    keys
-    |> Enum.with_index()
-    |> Map.new(fn {k, idx} -> {k, Enum.at(palette, rem(idx, max(length(palette), 1)))} end)
   end
 
   defp load_netflow_top_talkers_ips(srql_module, current_query, scope, limit) do
@@ -9847,8 +9710,18 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp to_number(_), do: 0.0
 
-  defp netflow_chart_bar_w(total, _width) when total <= 0, do: 1.0
-  defp netflow_chart_bar_w(total, width), do: max(width / total, 1.0)
+  defp netflow_chart_time_window({%DateTime{} = start_at, %DateTime{} = end_at}) do
+    {DateTime.to_iso8601(start_at), DateTime.to_iso8601(end_at)}
+  end
+
+  defp netflow_chart_time_window(_window), do: {nil, nil}
+
+  defp netflow_chart_bar_w(_total, width, bucket_seconds, {%DateTime{} = start_at, %DateTime{} = end_at}) do
+    max(width * bucket_seconds / max(DateTime.diff(end_at, start_at, :second), 1), 1.0)
+  end
+
+  defp netflow_chart_bar_w(total, _width, _bucket_seconds, _window) when total <= 0, do: 1.0
+  defp netflow_chart_bar_w(total, width, _bucket_seconds, _window), do: max(width / total, 1.0)
 
   defp netflow_chart_h(_bytes, 0, _height), do: 1.0
 
@@ -9857,11 +9730,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     max(scaled, 1.0)
   end
 
-  defp netflow_timeseries_polyline(points, max_bytes, width, height, mode) do
+  defp netflow_timeseries_polyline(points, max_bytes, width, height, mode, time_window) do
     chart_mode = if mode == "lines", do: :lines, else: :grid
 
     points
-    |> Enum.zip(RangeSelection.x_positions(length(points), chart_mode, width))
+    |> Enum.zip(Enum.map(RangeSelection.intervals(points, chart_mode, width, time_window), & &1.x))
     |> Enum.map_join(" ", fn {p, x} ->
       y = 150 - netflow_chart_h(Map.get(p, :bytes, 0), max_bytes, height)
       "#{Float.round(x, 1)},#{Float.round(y, 1)}"

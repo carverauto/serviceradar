@@ -1,8 +1,7 @@
 import {timeseriesClientXToPointIndex, timeseriesNearestPointIndexByX, timeseriesPointToLocalX} from "./geometry"
 import {hoverPosition, plotGeometryFromDataset} from "../../utils/chart_hover_geometry"
 import {dashboardUserTimeHtml} from "../../utils/dashboard_user_time"
-import {axisUserTimeFormatter} from "../../utils/user_time"
-import {localizeTimeseriesTimeTitles} from "./TimeseriesChart"
+import {localizeTimeseriesAxis, localizeTimeseriesTimeTitles} from "./TimeseriesChart"
 
 export default {
   mounted() {
@@ -23,12 +22,7 @@ export default {
     const hoverLine = el.querySelector("[data-hover-line]")
     const seriesData = JSON.parse(el.dataset.series || "[]")
     const timezone = el.dataset.timezone || "Etc/UTC"
-    const axisFormatter = axisUserTimeFormatter({timeZone: timezone})
-
-    el.querySelectorAll?.("[data-time-axis-iso]").forEach((node) => {
-      const instant = node.dataset.timeAxisIso
-      node.textContent = axisFormatter(instant) || instant
-    })
+    localizeTimeseriesAxis(el, timezone)
 
     localizeTimeseriesTimeTitles(el, timezone)
 

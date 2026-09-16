@@ -6,6 +6,18 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.MetricsQueryTest do
   @moduletag :unit
   @moduletag :db_free
 
+  test "requested display bounds preserve the chosen duration and relative query routing" do
+    now = ~U[2025-04-01 12:00:00Z]
+    assert MetricsQuery.requested_window("last_90d", now) == {~U[2025-01-01 12:00:00Z], now}
+    assert MetricsQuery.requested_window("last_30d", now) == {~U[2025-03-02 12:00:00Z], now}
+    assert MetricsQuery.requested_window("invalid", now) == {~U[2025-03-31 12:00:00Z], now}
+
+    query =
+      MetricsQuery.build_snmp_counter_query("synthetic-device", 7, ["ifInOctets"], MetricsQuery.window_opts("last_90d"))
+
+    assert query =~ "time:last_90d"
+  end
+
   test "long history windows use bounded coarse buckets without changing the default" do
     for {range, bucket} <- [{"last_24h", "1m"}, {"last_30d", "6h"}, {"last_90d", "12h"}] do
       query =

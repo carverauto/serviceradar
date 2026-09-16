@@ -70,16 +70,16 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.EventsPanelTest do
     assert_present(selector, ".sr-ops-events-axis + [data-range-overlay]")
     assert_present(selector, ".sr-ops-events-legend")
 
-    axis_times = LazyHTML.query(selector, ".sr-ops-events-axis text[phx-hook='UserTime']")
+    axis_times = LazyHTML.query(selector, ".sr-ops-events-axis text[data-time-axis-iso]")
 
-    assert LazyHTML.attribute(axis_times, "data-user-time-iso") == [
+    assert LazyHTML.attribute(axis_times, "data-time-axis-iso") == [
              "2026-08-27T10:00:00Z",
              "2026-08-27T12:00:00Z",
              "2026-08-27T13:00:00Z"
            ]
 
-    assert LazyHTML.attribute(axis_times, "data-user-time-zone") ==
-             List.duplicate("America/Chicago", 3)
+    assert LazyHTML.attribute(axis_times, "phx-hook") == []
+    assert Enum.count(LazyHTML.query(selector, "[data-time-axis-grid]")) == 3
 
     assert axis_times |> LazyHTML.attribute("id") |> Enum.uniq() |> length() == 3
 

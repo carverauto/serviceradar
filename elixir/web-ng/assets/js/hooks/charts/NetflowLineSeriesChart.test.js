@@ -11,3 +11,11 @@ describe("NetflowLineSeriesChart user timezone presentation", () => {
     expect(presentation.axisFormatter(instant)).toContain("01:00 PM")
   })
 })
+
+
+it("uses different calendar dates for multi-day lineSeriesTimePresentation ticks", () => {
+  const domain = [new Date("2031-04-03T01:00:00Z"), new Date("2031-04-10T01:00:00Z")]
+  const presentation = lineSeriesTimePresentation("America/Chicago", domain)
+  expect(presentation.axisFormatter(domain[0])).toContain("Apr")
+  expect(presentation.axisFormatter(domain[0])).not.toBe(presentation.axisFormatter(domain[1]))
+})

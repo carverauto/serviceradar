@@ -8,18 +8,20 @@ import {
   colorScale as nfColorScale,
   ensureSVG as nfEnsureSVG,
   netflowAxisTimeFormatter,
+  netflowTimeAxis,
+  netflowTimeDomain,
   netflowDisplayTimeZone,
   normalizeTimeSeries as nfNormalizeTimeSeries,
   parseSeriesData as nfParseSeriesData,
 } from "../../netflow_charts/util"
 import {nfFormatRateValue} from "../../utils/formatters"
 
-export function lineSeriesTimePresentation(timeZone) {
+export function lineSeriesTimePresentation(timeZone, domain = []) {
   const displayTimeZone = netflowDisplayTimeZone(timeZone)
 
   return {
     timeZone: displayTimeZone,
-    axisFormatter: netflowAxisTimeFormatter(displayTimeZone),
+    axisFormatter: netflowAxisTimeFormatter(displayTimeZone, domain),
   }
 }
 
@@ -51,7 +53,7 @@ export default {
     const {width, height, margin: m, iw, ih} = nfChartDims(el, {
       minW: 360,
       minH: 220,
-      margin: {top: 8, right: 110, bottom: 18, left: 44},
+      margin: {top: 8, right: 110, bottom: 18, left: 72},
     })
 
     nfClearSVG(svg, width, height)
@@ -67,10 +69,9 @@ export default {
     const visibleKeys = keys.filter((k) => !this._hidden.has(k))
     if (visibleKeys.length === 0) return
 
-    const timePresentation = lineSeriesTimePresentation(el.dataset.timezone)
-
     const maxY = d3.max(visibleKeys, (k) => d3.max(data, (d) => d[k])) || 1
-    const x = d3.scaleTime().domain(d3.extent(data, (d) => d.t)).range([0, iw])
+    const x = d3.scaleTime().domain(netflowTimeDomain(el.dataset, d3.extent(data, (d) => d.t))).range([0, iw])
+    const timePresentation = lineSeriesTimePresentation(el.dataset.timezone, x.domain())
     const y = d3.scaleLinear().domain([0, maxY]).nice().range([ih, 0])
 
     const g = d3.select(svg).append("g").attr("transform", `translate(${m.left},${m.top})`)
@@ -125,7 +126,7 @@ export default {
 
     g.append("g")
       .attr("transform", `translate(0,${ih})`)
-      .call(d3.axisBottom(x).ticks(5).tickFormat(timePresentation.axisFormatter).tickSizeOuter(0))
+      .call(d3.axisBottom(x).ticks(5).tickValues(netflowTimeAxis(el.dataset.timezone, x.domain()).ticks).tickFormat(timePresentation.axisFormatter).tickSizeOuter(0))
       .call((gg) => gg.selectAll("text").attr("font-size", 10).attr("opacity", 0.7))
 
     g.append("g")

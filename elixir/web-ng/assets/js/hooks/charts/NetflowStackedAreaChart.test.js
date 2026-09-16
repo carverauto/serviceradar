@@ -339,6 +339,8 @@ describe("NetflowStackedAreaChart range geometry", () => {
       ["rangeIntervals", "[]"],
       ["rangeEvent", "other_event"],
       ["timezone", "Etc/UTC"],
+      ["timeStart", "2030-01-01T00:00:00Z"],
+      ["timeEnd", "2033-01-01T00:00:00Z"],
       ["zoomable", "true"],
     ]) {
       const changed = root()
@@ -352,6 +354,22 @@ describe("NetflowStackedAreaChart range geometry", () => {
 })
 
 describe("NetflowStackedAreaChart production render helpers", () => {
+  it("uses the requested multi-year domain and calendar ticks for sparse observations", () => {
+    const el = root()
+    el.dataset.timeStart = "2030-01-01T00:00:00Z"
+    el.dataset.timeEnd = "2033-01-01T00:00:00Z"
+    const seams = renderSeams(el)
+    const args = directFrameArgs(el, seams.svg)
+    args.data = [{t: new Date("2032-12-30T00:00:00Z"), web: 10, db: 0}, {t: new Date("2032-12-31T00:00:00Z"), web: 20, db: 0}]
+    const frame = renderStackedFrame(args, seams.dependencies)
+    expect(frame.x.domain().map(Number)).toEqual([Date.parse(el.dataset.timeStart), Date.parse(el.dataset.timeEnd)])
+    expect(frame.x(args.data[0].t)).toBeGreaterThan(args.iw * 0.99)
+    const axis = seams.records.calls.find(({callback}) => typeof callback?.scale === "function" && callback.scale() === frame.x).callback
+    const labels = axis.tickValues().map(axis.tickFormat())
+    expect(labels).toEqual(["2030", "2031", "2032"])
+    expect(args.data).toHaveLength(2)
+  })
+
   it("renders the marked frame and wires the real series and legend callbacks", () => {
     const el = root()
     const seams = renderSeams(el)
@@ -508,8 +526,8 @@ describe("NetflowStackedAreaChart lifecycle", () => {
           expect.objectContaining({timeZone: "America/Chicago"}),
         )
 
-        seams.svg.dispatch(pointer("pointerdown", 44, 10))
-        seams.svg.dispatch(pointer("pointerup", 50, 10))
+        seams.svg.dispatch(pointer("pointerdown", 72, 10))
+        seams.svg.dispatch(pointer("pointerup", 78, 10))
         expect(pushEvent).not.toHaveBeenCalledWith("netflow_range_selected", expect.anything())
 
         dispatchChartClick(el, seriesClick, seriesKey)
@@ -518,7 +536,7 @@ describe("NetflowStackedAreaChart lifecycle", () => {
         ])
 
         pushEvent.mockClear()
-        seams.svg.dispatch(pointer("pointerdown", 44, 11))
+        seams.svg.dispatch(pointer("pointerdown", 72, 11))
         seams.svg.dispatch(pointer("pointerup", 490, 11))
         expect(pushEvent.mock.calls).toEqual([
           [
@@ -534,7 +552,7 @@ describe("NetflowStackedAreaChart lifecycle", () => {
 
         pushEvent.mockClear()
         seams.svg.dispatch(pointer("pointerdown", 490, 12))
-        seams.svg.dispatch(pointer("pointerup", 44, 12))
+        seams.svg.dispatch(pointer("pointerup", 72, 12))
         expect(pushEvent.mock.calls).toEqual([
           [
             "netflow_range_selected",
@@ -628,7 +646,7 @@ describe("NetflowStackedAreaChart lifecycle", () => {
       const firstSeriesClick = seams.records.handlers.find(
         ({name, selection}) => name === "click" && selection.tag === "path",
       )
-      seams.svg.dispatch(pointer("pointerdown", 44, 21))
+      seams.svg.dispatch(pointer("pointerdown", 72, 21))
       seams.svg.dispatch(pointer("pointerup", 490, 21))
       expect(pushEvent).toHaveBeenCalledWith("netflow_range_selected", {
         start: intervals[0].start,

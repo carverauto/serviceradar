@@ -117,6 +117,19 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowDataTest do
     refute Enum.any?(queries, &String.contains?(&1, "time:["))
   end
 
+  test "a requested multi-year window survives sparse returned samples" do
+    data =
+      Index.load_netflow_assigns(
+        context("overview", "stacked", "[1999-01-01T00:00:00Z,2001-01-01T00:00:00Z]"),
+        __MODULE__
+      )
+
+    assert data.netflow_timeseries.time_window == {~U[1999-01-01 00:00:00Z], ~U[2001-01-01 00:00:00Z]}
+    assert length(data.netflow_timeseries.points) == 1
+    assert length(data.netflow_timeseries_stacked.points) == 1
+    queries()
+  end
+
   defp context(view, graph, range \\ "last_7d") do
     %{
       current_scope: nil,

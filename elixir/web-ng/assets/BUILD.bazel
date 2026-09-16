@@ -240,6 +240,18 @@ js_test(
 )
 
 vitest_bin.vitest_test(
+    name = "dashboard_window_select_tests",
+    args = ["run", "js/hooks/DashboardWindowSelect.test.js"],
+    chdir = package_name(),
+    data = [
+        "js/hooks/DashboardWindowSelect.js",
+        "js/hooks/DashboardWindowSelect.test.js",
+        ":node_modules",
+    ],
+    tags = ["unit_test"],
+)
+
+vitest_bin.vitest_test(
     name = "credential_deep_link_focus_test",
     args = [
         "run",

@@ -95,9 +95,10 @@
 - [ ] 9.1 Add shared 30-day, 90-day, and custom date windows to sysmon metrics,
       interface history, and NetFlow. Preserve existing filters and use coarser
       buckets for longer windows. Custom opens the prefilled SRQL editor.
-- [ ] 9.2 Inventory canonical writers, primary keys, updates, and SRQL readers
+- [x] 9.2 Inventory canonical writers, primary keys, updates, and SRQL readers
       for network activity, logs, events, and alert history before enabling each
-      archive. Mutable alert state needs an explicit history contract.
+      archive. Findings and prerequisites are recorded in design D8. Mutable
+      events and alert state need explicit history contracts.
 - [ ] 9.3 Extend optional hybrid publication and dataset-specific archive
       retention to the supported datasets. Use a 365-day hosted default for flows,
       logs, events, and alert history. Support multi-year history without
@@ -105,3 +106,17 @@
 - [ ] 9.4 Verify replay identity, full archive coverage, bounded queries, and
       retention independently for each enabled dataset; keep active operational
       state available and prohibit silent cross-store fallback.
+
+## 10. History-query and dashboard follow-up
+
+- [ ] 10.1 Preserve requested chart domains with sparse history, calendar-scale
+      ticks, and fully visible numeric labels; verify interface and flow charts.
+- [ ] 10.2 Route eligible protocol/application activity through exact hourly
+      aggregates, backfill retained data, and measure the complete panels.
+- [ ] 10.3 Display activity query failures separately from empty history.
+- [ ] 10.4 Add independent cookie-backed map and event dashboard windows, with
+      consistent bounds for panel data and totals and stale-request protection.
+- [ ] 10.5 Preserve all-NULL sum information in legacy flow dimension aggregates
+      through a schema and retained-history migration. Existing conversation
+      aggregates report zero for this case; combined and separate queries must
+      remain consistent until migration.

@@ -35,3 +35,11 @@ describe("NetflowStacked100Chart absolute volume", () => {
     expect(absoluteTotalSeries(rows)).toEqual([{t: rows[0].t, v: 10}])
   })
 })
+
+
+it("uses different calendar dates for multi-day stacked100TimePresentation ticks", () => {
+  const domain = [new Date("2031-04-03T01:00:00Z"), new Date("2031-04-10T01:00:00Z")]
+  const presentation = stacked100TimePresentation("America/Chicago", domain)
+  expect(presentation.axisFormatter(domain[0])).toContain("Apr")
+  expect(presentation.axisFormatter(domain[0])).not.toBe(presentation.axisFormatter(domain[1]))
+})

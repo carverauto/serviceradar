@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Sections do
   def load_metric_sections(_srql_module, [], _scope, _opts), do: []
 
   def load_metric_sections(srql_module, filter_tokens, scope, opts) do
+    time_window = Query.requested_window(Keyword.get(opts, :time_range, "last_24h"))
     reference_lines = ReferenceLines.sysmon_reference_lines(filter_tokens, scope, opts)
 
     limit =
@@ -23,11 +24,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Sections do
     query = Query.summary_query(filter_tokens, limit, metric_query_opts(opts))
     summary = Query.run(srql_module, query, scope, opts)
 
-    [
-      build_cpu_section(srql_module, filter_tokens, scope, Map.get(reference_lines, :cpu, []), opts, summary),
-      build_memory_section(filter_tokens, Map.get(reference_lines, :memory, []), opts, summary),
-      build_disk_section(filter_tokens, Map.get(reference_lines, :disk, []), opts, summary)
-    ]
+    Enum.map(
+      [
+        build_cpu_section(srql_module, filter_tokens, scope, Map.get(reference_lines, :cpu, []), opts, summary),
+        build_memory_section(filter_tokens, Map.get(reference_lines, :memory, []), opts, summary),
+        build_disk_section(filter_tokens, Map.get(reference_lines, :disk, []), opts, summary)
+      ],
+      fn section ->
+        panels = Enum.map(section.panels, &%{&1 | assigns: Map.put(&1.assigns, :time_window, time_window)})
+        %{section | panels: panels}
+      end
+    )
   end
 
   defp metric_result({:ok, %{"results" => rows}}, name) when is_list(rows) do

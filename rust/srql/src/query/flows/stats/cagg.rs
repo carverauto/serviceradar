@@ -12,6 +12,16 @@ fn cagg_filter_fields(table: &str) -> &'static [&'static str] {
         "ocsf_network_activity_hourly_listeners" => &["dst_endpoint_ip", "dst_ip"],
         "ocsf_network_activity_hourly_proto" => &["protocol_num", "proto"],
         "ocsf_network_activity_hourly_ports" => &["dst_endpoint_port", "dst_port"],
+        super::super::activity::TABLE => &[
+            "app",
+            "partition",
+            "proto",
+            "protocol_num",
+            "protocol_group",
+            "proto_group",
+            "dst_port",
+            "dst_endpoint_port",
+        ],
         "ocsf_network_activity_hourly_conversations" => {
             &["src_endpoint_ip", "src_ip", "dst_endpoint_ip", "dst_ip"]
         }
@@ -32,40 +42,25 @@ pub(in crate::query::flows) fn should_route_flow_stats_to_cagg(
         return None;
     }
 
-    // CAGG routing currently supports only one aggregate expression.
-    let agg = match spec.aggregations.as_slice() {
-        [agg] => agg,
-        _ => return None,
-    };
-
-    // 1. Must have a time range >= threshold
     let time_range = plan.time_range.as_ref()?;
     let span = time_range.end.signed_duration_since(time_range.start);
     if span < chrono::Duration::hours(FLOW_CAGG_ROUTING_THRESHOLD_HOURS) {
         return None;
     }
 
-    // 2. Agg field must exist in CAGGs
-    if !matches!(
-        agg.agg_field,
-        FlowAggField::BytesTotal | FlowAggField::PacketsTotal | FlowAggField::Star
-    ) {
-        return None;
-    }
-
-    // 3. Agg function must be Sum or Count (CAGGs store SUMs, not raw values)
-    if !matches!(agg.agg_func, FlowAggFunc::Sum | FlowAggFunc::Count) {
-        return None;
-    }
-
-    // 3b. Only count(*) can be safely rewritten to CAGGs (SUM(flow_count));
-    // count(field) would count pre-aggregated rows/buckets, not underlying flows.
-    if matches!(agg.agg_func, FlowAggFunc::Count) && !matches!(agg.agg_field, FlowAggField::Star) {
-        return None;
-    }
-
-    // 3c. sum(*) is not valid
-    if matches!(agg.agg_field, FlowAggField::Star) && matches!(agg.agg_func, FlowAggFunc::Sum) {
+    // Every projected aggregate must be reconstructible from weighted sums and
+    // row counts. Reject averages, distinct counts, and count(nullable_column).
+    if spec.aggregations.is_empty()
+        || !spec.aggregations.iter().all(|agg| {
+            matches!(
+                (&agg.agg_func, &agg.agg_field),
+                (
+                    FlowAggFunc::Sum,
+                    FlowAggField::BytesTotal | FlowAggField::PacketsTotal
+                ) | (FlowAggFunc::Count, FlowAggField::Star)
+            )
+        })
+    {
         return None;
     }
 
@@ -87,6 +82,7 @@ pub(in crate::query::flows) fn should_route_flow_stats_to_cagg(
             "ocsf_network_activity_hourly_listeners"
         }
         [FlowGroupSpec::Field(FlowGroupField::ProtocolNum)] => "ocsf_network_activity_hourly_proto",
+        [FlowGroupSpec::Field(FlowGroupField::App)] => super::super::activity::TABLE,
         [FlowGroupSpec::Field(FlowGroupField::DstEndpointPort)] => {
             "ocsf_network_activity_hourly_ports"
         }
@@ -149,6 +145,9 @@ fn excludes_sentinel(filter: &crate::parser::Filter, column: &str) -> bool {
 /// Bounds are global, never scoped to a selected dimension. A missing dimension
 /// is not evidence that aggregate coverage ended.
 pub(super) fn source_sql(table: &str, spec: &FlowStatsSpec, plan: &QueryPlan) -> String {
+    if table == super::super::activity::TABLE {
+        return super::super::activity::source_sql(false);
+    }
     let dimensions: Vec<(&str, &str)> = spec
         .group_by
         .iter()
@@ -254,6 +253,33 @@ mod tests {
             parser::parse(&request.query).unwrap(),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn flow_stats_multi_aggregate_preserves_weighted_sums_and_row_counts() {
+        for group in ["", " by src_endpoint_ip,dst_endpoint_ip", " by app"] {
+            let plan = plan(
+                &format!(
+                    "sum(bytes_total) as bytes, sum(packets_total) as packets, count(*) as flows{group}"
+                ),
+                "",
+            );
+            let (sql, _) = super::super::to_sql_and_params_stats(&plan).unwrap();
+            assert!(sql.contains("hourly_"));
+            assert!(sql.contains("SUM(bytes_total)"));
+            assert!(sql.contains("SUM(packets_total)"));
+            assert!(sql.contains("COALESCE(SUM(flow_count), 0)"));
+        }
+
+        for aggregate in [
+            "avg(bytes_total) as mean",
+            "count(bytes_total) as present",
+            "count_distinct(bytes_total) as sizes",
+        ] {
+            let plan = plan(&format!("sum(bytes_total) as bytes, {aggregate}"), "");
+            let (sql, _) = super::super::to_sql_and_params_stats(&plan).unwrap();
+            assert!(!sql.contains("hourly_"));
+        }
     }
 
     fn sql(plan: &QueryPlan) -> (String, Vec<crate::query::BindParam>) {

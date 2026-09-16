@@ -334,10 +334,33 @@ defmodule ServiceRadar.AnalyticsStore.ManifestCompactionDbTest do
        %{key: key} do
     table = "synthetic_compaction_#{key}"
     singletons = for day <- 0..1_024, do: plain_attrs(key, table, Date.add(~D[2030-01-01], day))
-    pair = for _ <- 1..2, do: plain_attrs(key, table, DateTime.to_date(@start))
+    now = ~U[2040-01-01 00:00:00Z]
+
+    pair =
+      for _ <- 1..2 do
+        key
+        |> plain_attrs(table, ~D[2039-12-31])
+        |> Map.merge(%{
+          min_timestamp: DateTime.add(now, -90, :second),
+          max_timestamp: DateTime.add(now, -61, :second)
+        })
+      end
+
+    fresh =
+      for _ <- 1..2 do
+        key
+        |> plain_attrs(table, ~D[2039-12-31])
+        |> Map.merge(%{
+          min_timestamp: DateTime.add(now, -59, :second),
+          max_timestamp: DateTime.add(now, -59, :second)
+        })
+      end
+
+    oversized =
+      for _ <- 1..2, do: Map.put(plain_attrs(key, table, ~D[2033-01-01]), :row_count, 250_001)
 
     assert %Ash.BulkResult{status: :success, error_count: 0} =
-             Ash.bulk_create(singletons ++ pair, FileManifest, :record,
+             Ash.bulk_create(singletons ++ oversized ++ pair ++ fresh, FileManifest, :record,
                actor: SystemActor.system(:test),
                upsert_fields: [],
                return_errors?: true,
@@ -345,7 +368,7 @@ defmodule ServiceRadar.AnalyticsStore.ManifestCompactionDbTest do
              )
 
     assert {:ok, selected} =
-             FileManifest.compaction_candidates(table, now: ~U[2040-01-01 00:00:00Z])
+             FileManifest.compaction_candidates(table, now: now)
 
     assert keys(selected) == keys(pair)
   end

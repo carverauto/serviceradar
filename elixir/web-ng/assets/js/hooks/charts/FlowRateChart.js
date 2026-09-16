@@ -5,11 +5,8 @@
  *   data-points — JSON array of {t: timestamp, v: number}
  *   data-color  — stroke/fill color
  */
-import {
-  axisUserTimeFormatter,
-  canonicalUtcInstant,
-  formatUserTime,
-} from "../../utils/user_time"
+import {netflowAxisTimeFormatter, netflowTimeAxis, netflowTimeDomain} from "../../netflow_charts/util"
+import {canonicalUtcInstant, formatUserTime} from "../../utils/user_time"
 
 const DEFAULT_TIME_ZONE = "Etc/UTC"
 
@@ -75,8 +72,8 @@ function formatRate(value) {
   return `${Math.round(value)}`
 }
 
-export function flowRateTimeLabel(raw, {timeZone = "Etc/UTC", locale} = {}) {
-  return axisUserTimeFormatter({timeZone, locale})(raw)
+export function flowRateTimeLabel(raw, {timeZone = "Etc/UTC", locale, domain = []} = {}) {
+  return netflowAxisTimeFormatter(timeZone, domain, {locale})(raw)
 }
 
 export function flowRateAccessibility(points, {timeZone = DEFAULT_TIME_ZONE, locale} = {}) {
@@ -164,7 +161,7 @@ export default {
     ctx.scale(dpr, dpr)
     ctx.clearRect(0, 0, w, h)
 
-    const padLeft = 48
+    const padLeft = 72
     const padRight = 12
     const padTop = 10
     const padBottom = 24
@@ -188,7 +185,10 @@ export default {
     const paddedMax = maxVal <= minVal ? minVal + 1 : maxVal * 1.05
     const range = paddedMax - minVal
 
-    const xFor = (i) => padLeft + (i / (points.length - 1)) * plotW
+    const domain = netflowTimeDomain(this.el.dataset, [points[0]?.t, points[points.length - 1]?.t])
+    const [start, end] = domain.map((value) => new Date(value).getTime())
+    const xAt = (time) => padLeft + ((new Date(time).getTime() - start) / (end - start)) * plotW
+    const xFor = (i) => xAt(points[i].t)
     const yFor = (v) => padTop + (1 - (v - minVal) / range) * plotH
     const segments = contiguousValidSegments(points)
 
@@ -214,9 +214,10 @@ export default {
     }
 
     // Vertical guide lines
-    const xTicks = [0, Math.floor((points.length - 1) / 2), points.length - 1]
-    for (const idx of xTicks) {
-      const x = xFor(idx)
+    const axis = netflowTimeAxis(this.el.dataset.timezone, domain, {count: 3})
+    const xTicks = axis.ticks || [new Date(start), new Date((start + end) / 2), new Date(end)]
+    for (const tick of xTicks) {
+      const x = xAt(tick)
       ctx.strokeStyle = "rgba(148, 163, 184, 0.2)"
       ctx.lineWidth = 1
       ctx.beginPath()
@@ -269,12 +270,13 @@ export default {
     ctx.fillStyle = "rgba(100, 116, 139, 0.95)"
     ctx.textAlign = "center"
     ctx.textBaseline = "top"
-    for (const idx of xTicks) {
-      const label = flowRateTimeLabel(points[idx]?.t, {
+    for (const tick of xTicks) {
+      const label = flowRateTimeLabel(tick, {
         timeZone: this.el.dataset.timezone || "Etc/UTC",
+        domain,
       })
       if (!label) continue
-      ctx.fillText(label, xFor(idx), h - padBottom + 6)
+      ctx.fillText(label, xAt(tick), h - padBottom + 6)
     }
   },
 }

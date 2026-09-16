@@ -1,5 +1,6 @@
 //! Query execution for OCSF network_activity (flows) entity.
 
+pub(super) mod activity;
 mod expressions;
 mod filters;
 mod literals;

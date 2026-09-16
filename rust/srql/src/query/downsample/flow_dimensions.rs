@@ -28,7 +28,14 @@ pub(super) fn route(plan: &QueryPlan) -> Option<&'static str> {
         return None;
     }
 
-    let column = dimension(&plan.filters.first()?.field)?;
+    let column = plan
+        .filters
+        .first()
+        .and_then(|filter| dimension(&filter.field))
+        .or_else(|| spec.series.as_deref().and_then(dimension))?;
+    if plan.filters.is_empty() && column != "protocol_group" {
+        return None;
+    }
     if !plan
         .filters
         .iter()
@@ -45,6 +52,7 @@ pub(super) fn route(plan: &QueryPlan) -> Option<&'static str> {
     match column {
         "dst_endpoint_port" => Some("ocsf_network_activity_hourly_ports"),
         "src_endpoint_ip" => Some("ocsf_network_activity_hourly_talkers"),
+        "protocol_group" => Some("ocsf_network_activity_hourly_proto"),
         _ => None,
     }
 }
@@ -53,6 +61,7 @@ fn dimension(field: &str) -> Option<&'static str> {
     match field {
         "dst_port" | "dst_endpoint_port" => Some("dst_endpoint_port"),
         "src_ip" | "src_endpoint_ip" => Some("src_endpoint_ip"),
+        "protocol_group" | "proto_group" => Some("protocol_group"),
         _ => None,
     }
 }
@@ -74,6 +83,8 @@ fn safe_value(value: &str, column: &str) -> bool {
     match column {
         "dst_endpoint_port" => value.parse::<u16>().is_ok_and(|port| port != 0),
         "src_endpoint_ip" => value.parse::<std::net::IpAddr>().is_ok(),
+        // NULL and the aggregate's zero sentinel both belong to "other".
+        "protocol_group" => matches!(value, "tcp" | "udp" | "other"),
         _ => false,
     }
 }
@@ -84,12 +95,13 @@ pub(super) fn build_body(plan: &QueryPlan, table: &str) -> Result<String> {
     let cagg_value = resolve_value_column(Entity::Flows, spec.value_field.as_deref(), true)?;
     let raw_value = resolve_value_column(Entity::Flows, spec.value_field.as_deref(), false)?;
     let series = series_expr(plan, table)?;
-    let filters = plan
+    let clauses = plan
         .filters
         .iter()
         .map(|filter| filter_clause(&Entity::Flows, table, filter).map(|(sql, _)| sql))
         .collect::<Result<Vec<_>>>()?
         .join(" AND ");
+    let filters = if clauses.is_empty() { "TRUE" } else { &clauses };
 
     // Bounds are across the aggregate, not the selected dimension: an absent
     // port/talker is not evidence that materialization stopped. Empty aggregates

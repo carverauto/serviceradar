@@ -1,5 +1,6 @@
 import {hoverPosition, plotGeometryFromDataset} from "../../utils/chart_hover_geometry"
 import {netflowRangeSelectionStatus} from "../../netflow_charts/util"
+import {adaptiveUserTimeAxis} from "../../utils/user_time"
 import ChartRangeSelectionController from "./ChartRangeSelectionController"
 import {parseRangeBuckets} from "./chart_range_selection"
 
@@ -31,6 +32,7 @@ export default {
       : "Etc/UTC"
     const buckets = parseRangeBuckets(serializedBuckets)
     this.rangeEventName = eventName
+    localizePointAxis(root, timeZone)
 
     return {
       bindingKey: `${serializedBuckets ?? ""}\u0000${eventName ?? ""}`,
@@ -58,4 +60,25 @@ export default {
       },
     }
   },
+}
+
+function localizePointAxis(root, timeZone) {
+  const labels = Array.from(root.querySelectorAll?.("[data-time-axis-iso]") || [])
+  const times = labels.map((label) => Date.parse(label.dataset.timeAxisIso)).filter(Number.isFinite)
+  if (times.length === 0) return
+
+  const axis = adaptiveUserTimeAxis([Math.min(...times), Math.max(...times)], {timeZone})
+  const grid = Array.from(root.querySelectorAll?.("[data-time-axis-grid]") || [])
+  const seen = new Set()
+
+  // Keep labels aligned with plotted bucket positions, including gapped input.
+  // Long windows need fewer calendar labels than the original hourly ticks.
+  labels.forEach((label, index) => {
+    const text = axis.format(label.dataset.timeAxisIso)
+    const duplicate = axis.unit !== "hour" && seen.has(text)
+    seen.add(text)
+    label.textContent = text
+    label.setAttribute("visibility", duplicate ? "hidden" : "visible")
+    grid[index]?.setAttribute("visibility", duplicate ? "hidden" : "visible")
+  })
 }

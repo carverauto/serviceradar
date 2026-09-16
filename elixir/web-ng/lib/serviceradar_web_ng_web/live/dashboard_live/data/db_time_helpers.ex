@@ -98,6 +98,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.DbTimeHelpers do
       defp flow_count_expr("ocsf_network_activity"), do: "COUNT(*)"
       defp flow_count_expr(_relation), do: "SUM(flow_count)"
 
+      defp cutoff_for_time_window("last_15m"), do: DateTime.add(DateTime.utc_now(), -15, :minute)
+      defp cutoff_for_time_window("last_90d"), do: DateTime.add(DateTime.utc_now(), -90, :day)
       defp cutoff_for_time_window("last_1h"), do: DateTime.add(DateTime.utc_now(), -1, :hour)
       defp cutoff_for_time_window("last_6h"), do: DateTime.add(DateTime.utc_now(), -6, :hour)
       defp cutoff_for_time_window("last_24h"), do: DateTime.add(DateTime.utc_now(), -24, :hour)
@@ -105,10 +107,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.DbTimeHelpers do
       defp cutoff_for_time_window("last_30d"), do: DateTime.add(DateTime.utc_now(), -30, :day)
       defp cutoff_for_time_window(_), do: cutoff_for_time_window("last_24h")
 
-      defp netflow_map_cutoff(_time_window), do: DateTime.add(DateTime.utc_now(), -15, :minute)
-
       defp netflow_map_window_label, do: "Last #{15} min"
 
+      defp sparkline_bucket_for("last_15m"), do: "1 minute"
+      defp sparkline_bucket_for("last_90d"), do: "1 day"
       defp sparkline_bucket_for("last_1h"), do: "1 minute"
       defp sparkline_bucket_for("last_6h"), do: "5 minutes"
       defp sparkline_bucket_for("last_24h"), do: "15 minutes"
@@ -116,6 +118,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.DbTimeHelpers do
       defp sparkline_bucket_for("last_30d"), do: "6 hours"
       defp sparkline_bucket_for(_), do: sparkline_bucket_for("last_24h")
 
+      defp bucket_seconds_for("last_15m"), do: 60
+      defp bucket_seconds_for("last_90d"), do: 86_400
       defp bucket_seconds_for("last_1h"), do: 60
       defp bucket_seconds_for("last_6h"), do: 300
       defp bucket_seconds_for("last_24h"), do: 900
@@ -130,6 +134,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.DbTimeHelpers do
       defp sparkline_bucket_for_from_seconds(21_600), do: "6 hours"
       defp sparkline_bucket_for_from_seconds(_), do: sparkline_bucket_for("last_24h")
 
+      defp bucket_interval_literal("1 day"), do: "'1 day'::interval"
       defp bucket_interval_literal("1 minute"), do: "'1 minute'::interval"
       defp bucket_interval_literal("5 minutes"), do: "'5 minutes'::interval"
       defp bucket_interval_literal("15 minutes"), do: "'15 minutes'::interval"

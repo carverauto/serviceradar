@@ -39,7 +39,7 @@ defmodule ServiceRadar.AnalyticsStore.ManifestCompaction do
 
   def compaction_candidates(table, opts \\ []) do
     now = Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
-    before = Keyword.get(opts, :older_than, DateTime.add(now, -600, :second))
+    before = Keyword.get(opts, :older_than, DateTime.add(now, -60, :second))
     max_files = Keyword.get(opts, :max_files, @max_sources)
     max_rows = Keyword.get(opts, :max_rows, @max_rows)
     max_source_rows = div(max_rows, 2)

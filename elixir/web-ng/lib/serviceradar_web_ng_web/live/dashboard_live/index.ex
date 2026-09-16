@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   alias ServiceRadarWebNGWeb.DashboardLive.Data
   alias ServiceRadarWebNGWeb.DashboardLive.EventRange
   alias ServiceRadarWebNGWeb.DashboardLive.Index.Page
+  alias ServiceRadarWebNGWeb.DashboardLive.Window
   alias ServiceRadarWebNGWeb.ObservabilityPaths
 
   require Logger
@@ -24,6 +25,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
       |> assign(:camera_preview_tiles, [])
       |> assign(:dashboard_package_instances, [])
       |> assign_dashboard(Data.empty())
+      |> assign_window_preferences()
 
     socket =
       if connected?(socket) do
@@ -56,8 +58,35 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
     {:noreply, put_sources(socket, slice, loaded: [security_events: true], kpi_loading: [events: false, threat: false])}
   end
 
-  def handle_async(:netflow_load, {:ok, slice}, socket) do
-    {:noreply, put_sources(socket, slice, loaded: [netflow: true])}
+  def handle_async({:dashboard_window, kind, ref}, {:ok, slice}, socket) do
+    if socket.assigns.window_requests[kind] == ref do
+      loaded = if kind == "netflow", do: [netflow: true], else: [security_events: true]
+      kpi_loading = if kind == "events", do: [events: false, threat: false], else: []
+      socket = assign(socket, :window_requests, Map.delete(socket.assigns.window_requests, kind))
+      {:noreply, put_sources(socket, slice, loaded: loaded, kpi_loading: kpi_loading)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_async({:dashboard_window, kind, ref}, {:exit, _reason}, socket) do
+    if socket.assigns.window_requests[kind] == ref do
+      loaded = if kind == "netflow", do: [netflow: true], else: [security_events: true]
+      kpi_loading = if kind == "events", do: [events: false, threat: false], else: []
+
+      socket =
+        socket
+        |> assign(:window_requests, Map.delete(socket.assigns.window_requests, kind))
+        |> assign(
+          :window_errors,
+          Map.put(socket.assigns.window_errors, kind, "Unable to load this window. Select a window to retry.")
+        )
+        |> put_sources(%{}, loaded: loaded, kpi_loading: kpi_loading)
+
+      {:noreply, socket}
+    else
+      {:noreply, socket}
+    end
   end
 
   def handle_async(:mtr_load, {:ok, slice}, socket) do
@@ -139,6 +168,18 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
         {:noreply, socket}
     end
   end
+
+  def handle_event("select_dashboard_window", %{"kind" => kind, "window" => value}, socket)
+      when kind in ["netflow", "events"] do
+    if Window.valid?(value) do
+      key = if kind == "netflow", do: :netflow_window, else: :events_window
+      {:noreply, socket |> assign(key, value) |> begin_window_refresh(kind)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("select_dashboard_window", _params, socket), do: {:noreply, socket}
 
   def handle_event("select_map_view", %{"map_view" => "dashboard:" <> route_slug}, socket) do
     if dashboard_package_route?(socket.assigns.dashboard_package_instances, route_slug) do
@@ -244,11 +285,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
     |> start_async(:health_load, fn -> Data.load_health(scope, time_window) end)
     |> start_async(:camera_summary_load, fn -> Data.load_camera_summary(scope) end)
     |> start_async(:alerts_summary_load, fn -> Data.load_alerts_summary(scope) end)
-    |> start_async(:events_summary_load, fn -> Data.load_events_summary(time_window) end)
-    |> start_async(:netflow_load, fn -> Data.load_netflow_map(scope, time_window: time_window) end)
     |> start_async(:mtr_load, fn -> Data.load_mtr(time_window) end)
     |> start_async(:traces_load, fn -> Data.load_traces(scope, time_window) end)
-    |> start_async(:security_trend_load, fn -> Data.load_security_trend(time_window) end)
     |> start_async(:sparklines_load, fn -> Data.load_sparklines(time_window) end)
     |> start_async(:alert_feed_load, fn -> Data.load_alert_feed(time_window) end)
     |> start_async(:threat_intel_load, fn -> Data.load_threat_intel() end)
@@ -257,6 +295,48 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
     |> start_async(:fieldsurvey_summary_load, fn -> Data.load_survey_summary(scope) end)
     |> start_async(:dashboard_packages_load, fn -> dashboard_package_instances(scope) end)
     |> maybe_start_camera_previews_async()
+    |> begin_window_refresh("netflow")
+    |> begin_window_refresh("events")
+  end
+
+  defp assign_window_preferences(socket) do
+    params = if connected?(socket), do: get_connect_params(socket) || %{}, else: %{}
+    preferences = Map.get(params, "dashboard_windows", %{})
+    preferences = if is_map(preferences), do: preferences, else: %{}
+
+    socket
+    |> assign(:netflow_window, Window.normalize(preferences["netflow"], "netflow"))
+    |> assign(:events_window, Window.normalize(preferences["events"], "events"))
+    |> assign(:window_requests, %{})
+    |> assign(:window_errors, %{})
+  end
+
+  defp begin_window_refresh(socket, kind) do
+    key = if kind == "netflow", do: :netflow_window, else: :events_window
+    window = Window.resolve(socket.assigns[key], kind)
+    scope = socket.assigns.current_scope
+    ref = make_ref()
+
+    socket =
+      case socket.assigns.window_requests[kind] do
+        previous when is_reference(previous) -> cancel_async(socket, {:dashboard_window, kind, previous})
+        _ -> socket
+      end
+
+    empty =
+      if kind == "netflow" do
+        %{flow_summary: Data.empty().flow_summary, traffic_links: [], traffic_links_json: "[]"}
+      else
+        %{security_trend: [], event_summary: Data.empty().event_summary}
+      end
+
+    socket
+    |> put_sources(empty, loaded: [{if(kind == "netflow", do: :netflow, else: :security_events), false}])
+    |> assign(:window_requests, Map.put(socket.assigns.window_requests, kind, ref))
+    |> assign(:window_errors, Map.delete(socket.assigns.window_errors, kind))
+    |> start_async({:dashboard_window, kind, ref}, fn ->
+      if kind == "netflow", do: Data.load_netflow_map(scope, window: window), else: Data.load_event_window(window)
+    end)
   end
 
   defp put_sources(socket, updates, opts \\ []) when is_map(updates) do

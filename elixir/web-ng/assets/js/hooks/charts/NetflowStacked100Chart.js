@@ -10,6 +10,8 @@ import {
   fmtNumber as nfFmtNumber,
   fmtPct as nfFmtPct,
   netflowAxisTimeFormatter,
+  netflowTimeAxis,
+  netflowTimeDomain,
   netflowDisplayTimeZone,
   parseSeriesData as nfParseSeriesData,
   renderYGrid as nfRenderYGrid,
@@ -18,12 +20,12 @@ import {
 import {nfFormatRateValue} from "../../utils/formatters"
 import {yGridTicks} from "../../utils/chart_axis_grid"
 
-export function stacked100TimePresentation(timeZone) {
+export function stacked100TimePresentation(timeZone, domain = []) {
   const displayTimeZone = netflowDisplayTimeZone(timeZone)
 
   return {
     timeZone: displayTimeZone,
-    axisFormatter: netflowAxisTimeFormatter(displayTimeZone),
+    axisFormatter: netflowAxisTimeFormatter(displayTimeZone, domain),
   }
 }
 
@@ -98,7 +100,7 @@ export default {
     const {width, height, margin: m, iw, ih} = nfChartDims(el, {
       minW: 360,
       minH: 220,
-      margin: {top: 8, right: 170, bottom: 18, left: 44},
+      margin: {top: 8, right: 170, bottom: 18, left: 72},
     })
 
     nfClearSVG(svg, width, height)
@@ -114,14 +116,13 @@ export default {
 
     if (data.length === 0) return
 
-    const timePresentation = stacked100TimePresentation(el.dataset.timezone)
-
     const stack = d3.stack().keys(visibleKeys)
     const series = stack(data)
     const absoluteData = absoluteTotalSeries(data)
     const maxAbsolute = d3.max(absoluteData, (d) => d.v) || 1
 
-    const x = d3.scaleTime().domain(d3.extent(data, (d) => d.t)).range([0, iw])
+    const x = d3.scaleTime().domain(netflowTimeDomain(el.dataset, d3.extent(data, (d) => d.t))).range([0, iw])
+    const timePresentation = stacked100TimePresentation(el.dataset.timezone, x.domain())
     const y = d3.scaleLinear().domain([0, 1]).nice().range([ih, 0])
     const yAbsolute = d3.scaleLinear().domain([0, maxAbsolute]).nice().range([ih, 0])
 
@@ -289,7 +290,7 @@ export default {
 
     g.append("g")
       .attr("transform", `translate(0,${ih})`)
-      .call(d3.axisBottom(x).ticks(5).tickFormat(timePresentation.axisFormatter).tickSizeOuter(0))
+      .call(d3.axisBottom(x).ticks(5).tickValues(netflowTimeAxis(el.dataset.timezone, x.domain()).ticks).tickFormat(timePresentation.axisFormatter).tickSizeOuter(0))
       .call(nfStyleChartAxis)
 
     g.append("g")

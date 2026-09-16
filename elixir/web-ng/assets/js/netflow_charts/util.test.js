@@ -4,6 +4,8 @@ import {describe, expect, it} from "vitest"
 import {
   clientXToScaleX,
   netflowAxisTimeFormatter,
+  netflowTimeAxis,
+  netflowTimeDomain,
   netflowRangeSelectionStatus,
   netflowTooltipTimeHtml,
   netflowTooltipTimeLabel,
@@ -84,5 +86,71 @@ describe("explicit-zone NetFlow time presentation", () => {
     expect(utc).toContain("GMT+0")
     expect(start).toBe("2026-08-27T10:00:00Z")
     expect(end).toBe("2026-08-27T10:04:59.999999Z")
+  })
+})
+
+
+describe("NetFlow multi-day axis labels", () => {
+  const domain = ["2031-04-03T01:00:00Z", "2031-04-10T01:00:00Z"]
+
+  it("distinguishes daily ticks using the saved timezone's calendar date", () => {
+    const format = netflowAxisTimeFormatter("America/Chicago", domain, {locale: "en-US"})
+    expect(format(domain[0])).toBe("Apr 2")
+    expect(format(domain[1])).toBe("Apr 9")
+    expect(netflowAxisTimeFormatter("Etc/UTC", domain, {locale: "en-US"})(domain[0])).toBe("Apr 3")
+  })
+
+  it("keeps time labels for hourly and 24-hour plots", () => {
+    for (const hours of [1, 24]) {
+      const start = new Date(domain[0])
+      const end = new Date(start.getTime() + hours * 60 * 60 * 1000)
+      const format = netflowAxisTimeFormatter("America/Chicago", [start, end], {locale: "en-US"})
+      expect(format(start)).toBe("08:00 PM")
+    }
+  })
+
+  it("identifies years across long windows and preserves unsupported-zone fallback", () => {
+    const bounds = ["2030-12-30T12:00:00Z", "2032-01-02T12:00:00Z"]
+    const format = netflowAxisTimeFormatter("Etc/UTC", bounds, {locale: "en-US"})
+    expect(format(bounds[0])).toBe("Dec 2030")
+    expect(format(bounds[1])).toBe("Jan 2032")
+    expect(netflowAxisTimeFormatter("Mars/Olympus", bounds)(bounds[0])).toBe(bounds[0])
+  })
+
+  it("keeps the existing label when plot bounds are invalid", () => {
+    const format = netflowAxisTimeFormatter("Etc/UTC", ["invalid", domain[1]], {locale: "en-US"})
+    expect(format(domain[0])).toBe("01:00 AM")
+  })
+})
+
+
+describe("requested NetFlow calendar axes", () => {
+  it("keeps sparse observations inside the requested multi-year domain", () => {
+    const dataset = {timeStart: "2030-01-01T00:00:00Z", timeEnd: "2033-01-01T00:00:00Z"}
+    const observed = [new Date("2032-12-30T12:00:00Z"), new Date("2032-12-31T12:00:00Z")]
+    const domain = netflowTimeDomain(dataset, observed)
+    const axis = netflowTimeAxis("America/Chicago", domain, {locale: "en-US"})
+    expect(domain.map(Number)).toEqual([Date.parse(dataset.timeStart), Date.parse(dataset.timeEnd)])
+    expect(axis.unit).toBe("year")
+    expect(axis.ticks.map(axis.format)).toEqual(["2030", "2031", "2032"])
+    expect(observed).toHaveLength(2)
+  })
+
+  it("uses distinct day ticks at 30 days and month ticks at 90 days across a year", () => {
+    for (const [days, unit] of [[30, "day"], [90, "month"]]) {
+      const start = Date.parse("2030-11-15T00:00:00Z")
+      const axis = netflowTimeAxis("America/Chicago", [start, start + days * 86400000], {locale: "en-US"})
+      const labels = axis.ticks.map(axis.format)
+      expect(axis.unit).toBe(unit)
+      expect(new Set(labels).size).toBe(labels.length)
+      expect(labels.length).toBeGreaterThan(1)
+      if (unit === "month") expect(labels).toEqual(["Dec 2030", "Jan 2031", "Feb 2031"])
+    }
+  })
+
+  it("rejects incomplete and reversed requested bounds", () => {
+    const observed = [new Date("2031-01-01T00:00:00Z"), new Date("2031-01-02T00:00:00Z")]
+    expect(netflowTimeDomain({timeStart: "invalid"}, observed)).toBe(observed)
+    expect(netflowTimeDomain({timeStart: "2031-01-03T00:00:00Z", timeEnd: "2031-01-01T00:00:00Z"}, observed)).toBe(observed)
   })
 })

@@ -1,6 +1,7 @@
 import {
   ensureTooltip as nfEnsureTooltip,
-  netflowAxisTimeFormatter,
+  netflowTimeAxis,
+  netflowTimeDomain,
   netflowDisplayTimeZone,
   netflowRangeSelectionStatus,
   netflowTooltipTimeHtml,
@@ -156,16 +157,34 @@ export default {
 }
 
 function localizeAxisMarkers(root) {
-  const formatter = netflowAxisTimeFormatter(root.dataset.timezone)
+  const buckets = parseRangeBuckets(root.dataset.rangeBuckets) || []
+  const observed = buckets.length > 0 ? [buckets[0].start, buckets[buckets.length - 1].end] : []
+  const domain = netflowTimeDomain(root.dataset, observed)
+  const axis = netflowTimeAxis(root.dataset.timezone, domain, {count: 3})
+  const nodes = Array.from(root.querySelectorAll("[data-netflow-time='axis']"))
+  const bounds = domain.map((value) => new Date(value).getTime())
+  const ticks = axis.ticks || (root.dataset.timeStart && bounds.every(Number.isFinite)
+    ? bounds.map((value) => new Date(value)).flatMap((value, index) => index === 0
+      ? [value, new Date((bounds[0] + bounds[1]) / 2)] : [value])
+    : null)
+  const step = ticks ? Math.max(1, Math.ceil(ticks.length / Math.max(nodes.length, 1))) : 1
+  const selected = ticks?.filter((_tick, index) => index % step === 0)
 
-  for (const node of root.querySelectorAll("[data-netflow-time='axis']")) {
+  nodes.forEach((node, index) => {
+    const canonical = selected ? selected[index] : node.getAttribute("data-time-iso") || ""
+    if (!canonical) {
+      node.textContent = ""
+      return
+    }
     const fallback = node.getAttribute("data-time-fallback") || ""
-    const canonical = node.getAttribute("data-time-iso") || ""
-    node.textContent = fallback
-
-    const localized = formatter(canonical)
-    if (localized && localized !== canonical) node.textContent = localized
-  }
+    const localized = axis.format(canonical)
+    node.textContent = localized && localized !== canonical ? localized : fallback
+    if (selected) {
+      const x = (canonical.getTime() - bounds[0]) / (bounds[1] - bounds[0]) * Number(root.dataset.chartWidth || 1000)
+      node.setAttribute("x", String(x))
+      node.setAttribute("text-anchor", "middle")
+    }
+  })
 }
 
 function localizeRangeTitleMarkers(root) {

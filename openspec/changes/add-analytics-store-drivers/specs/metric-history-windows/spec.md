@@ -29,3 +29,38 @@ Custom history SHALL accept an explicitly labeled UTC start and end date. The en
 #### Scenario: Invalid custom dates
 - **WHEN** the dates are invalid or the end is not later than the start
 - **THEN** the page displays a validation error and does not navigate or issue the historical query
+
+### Requirement: Chart axes describe the requested window
+History charts SHALL preserve the requested time domain even when only a small portion contains samples. They SHALL distinguish the selected window from the first and last available sample, leave missing history empty, and use timezone-aware calendar ticks. Thirty-day windows SHALL use day labels, longer windows SHALL use month labels, and multi-year windows SHALL use year labels with matching tick spacing. Numeric axes SHALL reserve sufficient space for complete formatted values.
+
+#### Scenario: Sparse ninety-day history
+- **WHEN** a ninety-day interface query returns two recent buckets
+- **THEN** the chart retains the ninety-day domain and requested-range heading
+- **AND** the two samples remain at their actual positions near the end of the window
+- **AND** no synthetic values fill the missing history
+
+#### Scenario: Calendar-scale flow history
+- **WHEN** a user selects thirty days, ninety days, or several years
+- **THEN** the axis uses distinct day, month, or year ticks respectively
+- **AND** tooltips retain the full sample timestamp
+
+### Requirement: Dashboard windows persist independently
+The operations dashboard SHALL provide a time-window selector between the NetFlow map selector and Full Screen, and a selector in place of the Events Over Time range label. Each selection SHALL be validated and saved in its own cookie. Map and event selections SHALL be independent. Without a valid stored preference, the map SHALL default to fifteen minutes and events SHALL default to twenty-four hours. Each panel's data and summary SHALL share one resolved window, and stale requests SHALL NOT replace a later selection.
+
+#### Scenario: Remembered map window
+- **WHEN** a user chooses a map window and reloads the operations dashboard
+- **THEN** the validated cookie restores that map window
+- **AND** map links and totals use the same requested bounds
+- **AND** the event chart's independent preference is preserved
+
+#### Scenario: Extended events history
+- **WHEN** a user selects a multi-day event window
+- **THEN** aggregation uses appropriately sized buckets across the full requested range
+- **AND** an hourly row limit does not truncate the chart to two days
+
+### Requirement: Activity failures remain distinguishable from empty history
+NetFlow activity panels SHALL distinguish an unsuccessful query from a successful query with no matching samples. A failed protocol or application query SHALL display a panel-specific error and SHALL NOT render fabricated zero-valued history. Application ranking with no matching applications SHALL skip its dependent series query.
+
+#### Scenario: Timed-out application activity
+- **WHEN** an application activity query times out
+- **THEN** its panel displays a load failure rather than an empty-data message or zero-valued chart

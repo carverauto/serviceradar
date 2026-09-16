@@ -1,12 +1,49 @@
 import {describe, expect, it} from "vitest"
 
 import {
+  adaptiveUserTimeAxis,
   axisUserTimeFormatter,
   canonicalUtcInstant,
   formatUserTime,
   STYLE_OPTIONS,
   userTimeFormatter,
 } from "./user_time"
+
+describe("adaptiveUserTimeAxis", () => {
+  const options = {timeZone: "America/Chicago", locale: "en-US"}
+  const axis = (start, end, opts = options) => adaptiveUserTimeAxis([Date.parse(start), Date.parse(end)], opts)
+
+  it("keeps hour labels for a day and uses days, months and years for longer windows", () => {
+    expect(axis("2026-01-01T00:00:00Z", "2026-01-02T00:00:00Z")).toMatchObject({unit: "hour", ticks: null})
+    expect(axis("2026-01-01T00:00:00Z", "2026-01-31T00:00:00Z").unit).toBe("day")
+    expect(axis("2026-01-01T00:00:00Z", "2026-04-01T00:00:00Z").unit).toBe("month")
+    expect(axis("2023-01-01T00:00:00Z", "2026-04-01T00:00:00Z").unit).toBe("year")
+  })
+
+  it("uses distinct calendar-month ticks in the viewer timezone across a year boundary", () => {
+    const result = axis("2025-11-15T00:00:00Z", "2026-03-15T00:00:00Z")
+    expect(result.ticks.map(result.format)).toEqual(["Dec 2025", "Jan 2026", "Feb 2026", "Mar 2026"])
+    expect(new Set(result.ticks.map(result.format)).size).toBe(result.ticks.length)
+    expect(result.ticks.map((value) => new Date(value).toISOString())).toContain("2026-01-01T18:00:00.000Z")
+  })
+
+  it("keeps daily ticks at local noon across DST and bounds their count", () => {
+    const result = axis("2026-03-06T00:00:00Z", "2026-03-11T00:00:00Z", {...options, count: 8})
+    const ticks = result.ticks.map((value) => new Date(value).toISOString())
+    expect(ticks).toContain("2026-03-07T18:00:00.000Z")
+    expect(ticks).toContain("2026-03-08T17:00:00.000Z")
+    expect(result.ticks.every((value) => value >= Date.parse("2026-03-06T00:00:00Z") && value <= Date.parse("2026-03-11T00:00:00Z"))).toBe(true)
+    expect(result.ticks.length).toBeLessThanOrEqual(8)
+  })
+
+  it("spaces multi-year ticks without repeating year labels and tolerates invalid input", () => {
+    const result = axis("2010-06-01T00:00:00Z", "2026-06-01T00:00:00Z")
+    expect(result.ticks.length).toBeLessThanOrEqual(5)
+    expect(new Set(result.ticks.map(result.format)).size).toBe(result.ticks.length)
+    expect(adaptiveUserTimeAxis([NaN, NaN], options).ticks).toBeNull()
+    expect(axis("2026-01-01T00:00:00Z", "2026-04-01T00:00:00Z", {timeZone: "invalid"}).ticks).toBeNull()
+  })
+})
 
 describe("formatUserTime", () => {
   it("formats chart Date values through the shared explicit-zone contract", () => {

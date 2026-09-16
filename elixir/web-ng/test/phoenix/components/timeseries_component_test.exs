@@ -13,6 +13,57 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesComponentTest do
   @moduletag :unit
   @moduletag :db_free
 
+  test "requested history is distinct from sparse samples without filling missing history" do
+    points = [{~U[2025-03-31 00:00:00Z], 10.0}, {~U[2025-03-31 12:00:00Z], 20.0}]
+    window = {~U[2025-01-01 00:00:00Z], ~U[2025-04-01 00:00:00Z]}
+
+    html =
+      render_component(Timeseries, %{
+        id: "ts-requested-window",
+        title: "Traffic",
+        panel_assigns: %{chart_mode: :single, rate_mode: :none, time_window: window, bucket_seconds: 3_600},
+        series_points: [{"ifInOctets", points}]
+      })
+
+    assert html =~ "Requested window:"
+    assert html =~ "First / last sample:"
+    assert html =~ ~s(data-time-start="2025-01-01T00:00:00Z")
+    assert html =~ ~s(data-time-end="2025-04-01T00:00:00Z")
+    assert html =~ ~s(id="timeseries-ts-requested-window-first-time")
+    assert html =~ "2025-03-31T00:00:00Z"
+    assert html =~ "2025-03-31T12:00:00Z"
+    samples = decode_chart_points(html)
+    assert Enum.map(samples, & &1["v"]) == [10.0, 20.0]
+    assert Enum.all?(samples, &(&1["x"] > 750))
+    refute html =~ " C "
+  end
+
+  test "combined series share the requested domain while retaining their actual samples" do
+    points = [{~U[2025-03-31 00:00:00Z], 10.0}, {~U[2025-03-31 12:00:00Z], 20.0}]
+
+    html =
+      render_component(Timeseries, %{
+        id: "ts-combined-window",
+        title: "Traffic",
+        panel_assigns: %{
+          chart_mode: :combined,
+          rate_mode: :none,
+          time_window: {~U[2025-01-01 00:00:00Z], ~U[2025-04-01 00:00:00Z]}
+        },
+        series_points: [{"ifInOctets", points}, {"ifOutOctets", points}]
+      })
+
+    [_, encoded] = Regex.run(~r/data-series="([^"]+)"/, html)
+    series = encoded |> String.replace("&quot;", "\"") |> Jason.decode!()
+    assert length(series) == 2
+
+    assert Enum.all?(series, fn series ->
+             length(series["points"]) == 2 and Enum.all?(series["points"], &(&1["x"] > 750))
+           end)
+
+    assert html =~ ~s(data-time-start="2025-01-01T00:00:00Z")
+  end
+
   test "renders gridlines and axis labels" do
     points = [
       {~U[2025-01-01 00:00:00Z], 0.0},
@@ -243,6 +294,7 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesComponentTest do
         panel_assigns: %{
           chart_mode: :single,
           rate_mode: :none,
+          time_window: {~U[2025-01-01 00:00:00Z], ~U[2025-01-02 00:00:00Z]},
           chart_focus: %{
             timestamp: ~U[2025-01-01 00:10:00Z],
             label: "CPU saturation",
@@ -258,6 +310,7 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesComponentTest do
       })
 
     assert html =~ "CPU saturation"
+    refute html =~ "data-time-start="
     assert html =~ "data-annotation-label=\"CPU saturation\""
     assert html =~ "x1=\"420.0\""
     assert html =~ "cpu1"

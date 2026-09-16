@@ -91,6 +91,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.EventsPanel do
               <line
                 :for={label <- event_axis_labels(@security_trend)}
                 class="sr-ops-events-x-grid"
+                data-time-axis-grid
                 x1={label.x}
                 x2={label.x}
                 y1="26"
@@ -139,11 +140,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.EventsPanel do
                 id={label.id}
                 x={label.x}
                 y="204"
-                phx-hook="UserTime"
-                data-user-time-iso={label.iso}
-                data-user-time-zone={@timezone}
-                data-user-time-style="axis"
-                data-user-time-fallback={label.iso}
+                data-time-axis-iso={label.iso}
                 title={"#{label.iso} (UTC); display zone #{@timezone}"}
                 aria-label={"#{label.iso} UTC; display zone #{@timezone}"}
               >

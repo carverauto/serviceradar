@@ -226,6 +226,32 @@ require a history contract that preserves transitions and keeps active alerts
 available; copying a mutable table as if it were immutable telemetry is not
 sufficient. Enable and validate each dataset separately after metrics pass.
 
+#### Writer and reader inventory
+
+| Dataset | Existing write contract | Required work before enablement |
+| --- | --- | --- |
+| Network activity | `Flows.process_batch/1` writes through `AnalyticsStore`; the table has no unique row key. `Sweep` also invokes the facade. | Extend the metrics-only delivery receipts, canonical archive payloads, and hybrid writer. Establish durable backfill provenance: event-time cutoffs alone do not exclude late arrivals or mixed-version writers. |
+| Logs | The primary key is `(timestamp, id)`, but parsing generates a new UUID. Writers include Logs, Falco, internal log publication, and direct Ash writes from SyncLogWriter. | Freeze generated IDs in the durable ingestion transaction and cover every writer, including paths that currently bypass JetStream receipts. |
+| OCSF events | The primary key is `(time, id)`; Events preserves or deterministically normalizes producer IDs. Other writers include PowerDNS, Falco, AnalyticsSignals, Trivy, and log promotion. AnalyticsSignals updates existing events; Trivy replaces earlier event rows. | Define immutable event revisions or transitions separately from mutable current event state. An event ID alone cannot identify an immutable revision. |
+| Alert history | `Monitoring.Alert` is mutable operational state. `StatefulAlertRuleHistory` is append-only but covers only stateful-rule activity. | Record complete append-only lifecycle history transactionally with acknowledge, snooze, resolve, suppress, reopen, and relevant metadata changes. Keep current and active alert state on the primary. |
+
+Reader work also gates enablement. SRQL archive routing recognizes logs and
+flows, but events and alerts still address current primary tables. Logs'
+`rollup_stats:severity` uses a primary CAGG and needs equivalent archive
+aggregation semantics. Alert queries by `triggered_at` are not lifecycle-history
+queries.
+
+`ThreatIntelRetrohuntWorker.process_indicator_batch` currently uses one analytics
+SQL statement to read flows, join primary indicators, and insert primary
+findings. Split its bounded analytics read from the primary mutation, or define
+an explicit hot-only policy, before enabling archived network activity.
+
+Network activity is the first follow-on dataset after metrics acceptance. Add
+per-dataset retention policies in place of the single archive-expiry value;
+preserve existing metrics retention, OSS opt-in behavior, source receipts,
+publication provenance, and the reader grace period. Validate each dataset's
+replay, bootstrap coverage, aggregates, pagination, and expiry independently.
+
 ## Risks / Trade-offs
 
 - Continuous dual writes retain the cost of a bounded hot copy and add write

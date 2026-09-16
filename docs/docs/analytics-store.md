@@ -48,6 +48,17 @@ windows. Longer windows use coarser buckets so chart point limits cover the
 entire period. Custom accepts UTC start and end dates and opens a prefilled
 SRQL query with the selected device, interface, and metric filters.
 
+Charts retain the requested time range even when only part of it contains
+samples. Interface history labels the first and last samples separately.
+Calendar ticks show dates for day-scale windows, months for longer windows,
+and years for multi-year ranges, in the user's display timezone.
+
+The operations dashboard has independent window selectors for its NetFlow map
+and Events Over Time chart. Each remembers the last choice in a browser cookie
+for one year. Without a saved choice, the map uses 15 minutes and events use
+24 hours. Map conversations, totals, and event buckets use the selected bounds;
+results from a superseded request cannot replace the current selection.
+
 The NetFlow page offers the same range controls. Its storage remains Timescale
 until that dataset is explicitly enabled; selecting a longer range does not
 create archive coverage or recover expired data. Native flow queries currently
@@ -66,6 +77,22 @@ Stacked port and source-IP charts use hourly dimension aggregates for supported
 byte and packet sums. Partial boundary hours and unmaterialized history come
 from the raw hypertable. Filters that those aggregates cannot represent keep
 the raw query path.
+
+Protocol activity uses hourly protocol aggregates. Application activity uses
+hourly partition, protocol, and destination-port dimensions with current
+classification rules. Rules requiring source ports or IP addresses retain the
+raw path. Sampling weights are applied once, and aggregate buckets and raw
+boundary rows are disjoint. A background job initializes retained application
+history one closed UTC hour at a time, checkpointing each successful refresh.
+The normal policy refreshes recent hours; aggregate retention is 395 days.
+This cannot recreate raw history that has already expired. Failed activity
+queries show an error separately from an empty result.
+
+The existing flow conversation aggregates store an all-NULL byte or packet
+sum as zero. Combined totals preserve the same result as separate aggregate
+queries; raw SQL returns NULL for that case. The new application aggregate
+preserves NULL sums. Correcting the older aggregates requires a separate schema
+and retained-history migration.
 
 Changing a window clears the previous chart while the new results load. Device
 sysmon requests share a 15-second budget across their queries; a failed request
@@ -145,8 +172,9 @@ returns an error; an empty manifest selection returns no rows. Only verified,
 published objects are visible.
 
 Metric compaction sorts rows by device, metric name, and timestamp so Parquet
-row-group statistics can skip unrelated devices. Scheduled compaction combines
-at most 256 files and 500,000 rows from one day. For an existing unsorted daily
+row-group statistics can skip unrelated devices. Scheduled compaction runs
+every minute and combines at most 256 files and 500,000 rows from one day,
+excluding files published or sampled within the last minute. For an existing unsorted daily
 file, operators can call
 `ServiceRadar.AnalyticsStore.Compactor.rewrite_file("timeseries_metrics", manifest_id)`
 from a release RPC. This explicit operation accepts one published file of at
@@ -166,6 +194,11 @@ directory and those object paths, then disable external access and lock the
 DuckDB configuration. Close the backend and remove its owned scratch directory
 afterward. The two-argument session callback remains supported. A Kubernetes
 `emptyDir.sizeLimit` is a limit, not reserved disk capacity.
+Secrets also belong to the PostgreSQL user: a maintenance role needs temporary
+DuckDB secrets with the existing application's credentials and exact object
+scopes. Resolve that mapping inside the head without exporting credentials or
+changing foreign servers or user mappings. Verify an authenticated source
+footer read before starting a rewrite; a secret's name alone proves no access.
 
 Both operations verify row count, timestamp bounds, and two order-independent
 row hashes before atomically replacing the manifest entry. Source objects stay

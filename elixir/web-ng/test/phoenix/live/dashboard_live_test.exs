@@ -24,7 +24,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
     assert has_element?(view, "a[aria-current='page'][href='/dashboard']")
     assert has_element?(view, "#ops-traffic-map[phx-hook='OperationsTrafficMap']")
     assert has_element?(view, "select[name='map_view']", "NetFlow Map")
-    assert has_element?(view, "a[href='/netflow-map']", "Full Screen")
+    assert has_element?(view, "a[href='/netflow-map?window=last_15m']", "Full Screen")
     assert has_element?(view, "#ops-traffic-map[data-topology-links]")
     assert has_element?(view, "a.sr-ops-topbar-icon[href='/observability?tab=alerts'][aria-label='Alerts']")
     assert has_element?(view, "#ops-topbar")
@@ -144,7 +144,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
     html = render_hook(view, "select_map_view", %{"map_view" => "unsupported"})
 
     assert html =~ "NetFlow Map"
-    assert has_element?(view, "a[href='/netflow-map']", "Full Screen")
+    assert has_element?(view, "a[href='/netflow-map?window=last_15m']", "Full Screen")
   end
 
   test "dashboard selects the default dashboard package map view", %{conn: conn} do

@@ -125,13 +125,21 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths do
   def datetime_to_x(%DateTime{} = dt, points), do: datetime_to_x(dt, points, %{})
 
   def datetime_to_x(%DateTime{} = dt, points, opts) when is_list(points) do
+    window = time_window(opts)
+
     times =
-      points
-      |> Enum.map(fn
-        {%DateTime{} = point_dt, _value} -> DateTime.to_unix(point_dt, :millisecond)
-        _point -> nil
-      end)
-      |> Enum.reject(&is_nil/1)
+      case window do
+        {start_dt, end_dt} ->
+          [DateTime.to_unix(start_dt, :millisecond), DateTime.to_unix(end_dt, :millisecond)]
+
+        nil ->
+          points
+          |> Enum.map(fn
+            {%DateTime{} = point_dt, _value} -> DateTime.to_unix(point_dt, :millisecond)
+            _point -> nil
+          end)
+          |> Enum.reject(&is_nil/1)
+      end
 
     case times do
       [] ->
@@ -144,6 +152,9 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths do
         target = DateTime.to_unix(dt, :millisecond)
         first = List.first(times)
         last = List.last(times)
+        # A partial leading aggregation bucket can start just before the query.
+        # Keep it at the boundary instead of stretching sparse samples by index.
+        target = if window, do: min(max(target, first), last), else: target
 
         cond do
           target < first or target > last ->
@@ -161,6 +172,18 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths do
   end
 
   def datetime_to_x(_dt, _points, _opts), do: nil
+
+  def time_window(opts) when is_map(opts) or is_list(opts) do
+    case opts[:time_window] do
+      {%DateTime{} = start_dt, %DateTime{} = end_dt} ->
+        if DateTime.before?(start_dt, end_dt), do: {start_dt, end_dt}
+
+      _ ->
+        nil
+    end
+  end
+
+  def time_window(_opts), do: nil
 
   def value_to_y(_v, min_v, max_v) when min_v == max_v, do: round(@chart_height / 2)
 
@@ -378,12 +401,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths do
   end
 
   defp geometry_value(opts, keys, default) when is_list(opts) do
-    Enum.find_value(keys, default, fn key ->
-      case Keyword.get(opts, key) do
-        value when is_number(value) -> value
-        _ -> nil
-      end
-    end)
+    geometry_value(Map.new(opts), keys, default)
   end
 
   defp geometry_value(_opts, _keys, default), do: default

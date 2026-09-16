@@ -824,6 +824,38 @@
     "reason": null
   },
   {
+    "path": "lib/serviceradar_web_ng_web/dashboard/plugins/timeseries/chart_card.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 1,
+    "fingerprint": "cc1145f1d0402007c6c7909335d42515fde51c5ca3cab190d72e06bfa24a4227",
+    "classification": "canonical_machine",
+    "reason": null
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/dashboard/plugins/timeseries/chart_card.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 2,
+    "fingerprint": "2cf0ae1f9c7932361d300f2ecce83e5733fe26c855df3acbb4f43b92eedfd7b3",
+    "classification": "canonical_machine",
+    "reason": null
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/dashboard/plugins/timeseries/combined_chart_card.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 1,
+    "fingerprint": "84a68ae753594d272d183a3791d4b4a602a50af81da3e3e5c65af6e6afd4ed5f",
+    "classification": "canonical_machine",
+    "reason": null
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/dashboard/plugins/timeseries/combined_chart_card.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 2,
+    "fingerprint": "9fed9adece59792dcbb4f3d63f0590d6d76638c983f683efa2dfc4eb3c8968ad",
+    "classification": "canonical_machine",
+    "reason": null
+  },
+  {
     "path": "lib/serviceradar_web_ng_web/dashboard/plugins/timeseries/points.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 1,
@@ -926,6 +958,22 @@
     "fingerprint": "282b8e3ee82b927bdda15a068aa16006b2d2f56a57fed90d16b55f38f3bce965",
     "classification": "infrastructure",
     "reason": "canonical timestamp payload for the shared UserTime chart-axis presentation contract; browser localization preserves the instant"
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/live/dashboard_live/window.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 1,
+    "fingerprint": "cd038e6ca76606c737ce1f12797f4aba63ddd07a4028c2dac666b2016f470d51",
+    "classification": "canonical_machine",
+    "reason": null
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/live/dashboard_live/window.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 2,
+    "fingerprint": "3fed276ffa0b9c7e3c3a75d59f93d8ef1ea3483be3aa512fb144315ee46111d0",
+    "classification": "canonical_machine",
+    "reason": null
   },
   {
     "path": "lib/serviceradar_web_ng_web/live/device_live/anomaly_capacity_data.ex",
@@ -1138,14 +1186,6 @@
   {
     "path": "lib/serviceradar_web_ng_web/live/log_live/index.ex",
     "matcher": "datetime_iso8601",
-    "occurrence": 7,
-    "fingerprint": "9e6bcebdb710ccc4311b4de1f16ea3f61a00856e6d55dcd032f37267b71f7169",
-    "classification": "canonical_machine",
-    "reason": null
-  },
-  {
-    "path": "lib/serviceradar_web_ng_web/live/log_live/index.ex",
-    "matcher": "datetime_iso8601",
     "occurrence": 8,
     "fingerprint": "36486d5206f2ccc8268da530a7b071022e34436bd3051364fd68a781a99cfed4",
     "classification": "canonical_machine",
@@ -1163,7 +1203,7 @@
     "path": "lib/serviceradar_web_ng_web/live/log_live/index.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 10,
-    "fingerprint": "1d8daba798b02169aca877afbfe10cf196f611c18df4c80d1629f38d64cb5c2c",
+    "fingerprint": "4f538545575aee28ed829f25ecad4681522a11f75f9d4d723417e14ac0bf10ea",
     "classification": "canonical_machine",
     "reason": null
   },
@@ -1171,7 +1211,31 @@
     "path": "lib/serviceradar_web_ng_web/live/log_live/index.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 11,
+    "fingerprint": "fc624673e052aba2c1cf9d81ef32f6f4a8474a10de85efe9ebf59070989b071e",
+    "classification": "canonical_machine",
+    "reason": null
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/live/log_live/index.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 12,
+    "fingerprint": "1d8daba798b02169aca877afbfe10cf196f611c18df4c80d1629f38d64cb5c2c",
+    "classification": "canonical_machine",
+    "reason": null
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/live/log_live/index.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 13,
     "fingerprint": "9e742d141f389898b6309c48c64130d6232ded1a5038ccf308a6e6340b351219",
+    "classification": "canonical_machine",
+    "reason": null
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/live/log_live/netflow_activity.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 1,
+    "fingerprint": "30d0a58601201ea638eb7a4d956520a69cf1a6bdd3254fc0360412fe4883f908",
     "classification": "canonical_machine",
     "reason": null
   },

@@ -5,6 +5,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.QueryTest do
 
   @moduletag :db_free
 
+  test "requested chart bounds are pinned independently of sparse returned samples" do
+    now = ~U[2025-04-01 00:00:00Z]
+    assert Query.requested_window("last_90d", now) == {~U[2025-01-01 00:00:00Z], now}
+    assert Query.requested_window("[2025-01-01T00:00:00Z,2025-04-01T00:00:00Z]", now) == {~U[2025-01-01 00:00:00Z], now}
+    assert Query.requested_window("[2025-04-01T00:00:00Z,2025-01-01T00:00:00Z]", now) == nil
+    assert Query.requested_window("last_0d", now) == nil
+    assert Query.requested_window(nil, now) == nil
+  end
+
   describe "bucket_for_time_range/1" do
     test "sizes the bucket to relative windows so short views get fine points" do
       assert Query.bucket_for_time_range("last_1h") == "15s"

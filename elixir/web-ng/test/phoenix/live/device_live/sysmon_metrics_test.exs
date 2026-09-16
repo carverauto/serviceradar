@@ -243,6 +243,43 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
            ]
   end
 
+  test "all sysmon panels retain the same requested window before the first query" do
+    previous_responder = Application.get_env(:serviceradar_web_ng, :sysmon_metrics_test_responder)
+    on_exit(fn -> restore_env(:sysmon_metrics_test_responder, previous_responder) end)
+
+    Application.put_env(:serviceradar_web_ng, :sysmon_metrics_test_responder, fn query, _opts ->
+      assert query =~ "time:last_90d"
+      assert query =~ "bucket:12h"
+
+      rows =
+        if query =~ "series:metric_name" do
+          for name <- ["cpu.usage_percent", "memory.used_percent", "disk.used_percent"] do
+            %{"timestamp" => "2025-03-31T00:00:00Z", "series" => name, "value" => 25}
+          end
+        else
+          []
+        end
+
+      {:ok, %{"results" => rows}}
+    end)
+
+    before_load = DateTime.utc_now()
+
+    sections =
+      SysmonMetrics.load_metric_sections(RecordingSRQLStub, [~s|device_id:"synthetic-window"|], nil,
+        time_range: "last_90d",
+        thresholds: %{}
+      )
+
+    panels = Enum.flat_map(sections, & &1.panels)
+    assert Enum.map(sections, & &1.key) == ["cpu", "memory", "disk"]
+    assert Enum.all?(sections, &(&1.panels != []))
+    assert [{start_at, end_at}] = panels |> Enum.map(& &1.assigns.time_window) |> Enum.uniq()
+    assert DateTime.diff(end_at, start_at, :second) == 90 * 86_400
+    assert DateTime.compare(end_at, before_load) in [:eq, :gt]
+    assert DateTime.compare(end_at, DateTime.utc_now()) in [:eq, :lt]
+  end
+
   test "CPU section attributes a failed per-core query to the core response" do
     previous_responder = Application.get_env(:serviceradar_web_ng, :sysmon_metrics_test_responder)
 

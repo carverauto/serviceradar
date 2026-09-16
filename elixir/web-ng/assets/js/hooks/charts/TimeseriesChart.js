@@ -1,7 +1,7 @@
 import {timeseriesClientXToPointIndex, timeseriesNearestPointIndexByX, timeseriesPointToLocalX} from "./geometry"
 import {hoverPosition, plotGeometryFromDataset} from "../../utils/chart_hover_geometry"
 import {dashboardUserTimeHtml} from "../../utils/dashboard_user_time"
-import {axisUserTimeFormatter, canonicalUtcInstant, formatUserTime} from "../../utils/user_time"
+import {adaptiveUserTimeAxis, canonicalUtcInstant, formatUserTime} from "../../utils/user_time"
 
 const timeTitleFallbacks = new WeakMap()
 
@@ -25,12 +25,7 @@ export default {
     const pointsData = JSON.parse(el.dataset.points || "[]")
     const unit = el.dataset.unit || "number"
     const timezone = el.dataset.timezone || "Etc/UTC"
-    const axisFormatter = axisUserTimeFormatter({timeZone: timezone})
-
-    el.querySelectorAll?.("[data-time-axis-iso]").forEach((node) => {
-      const instant = node.dataset.timeAxisIso
-      node.textContent = axisFormatter(instant) || instant
-    })
+    localizeTimeseriesAxis(el, timezone)
 
     localizeTimeseriesTimeTitles(el, timezone)
 
@@ -182,4 +177,40 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;")
+}
+
+export function localizeTimeseriesAxis(el, timeZone) {
+  const labels = Array.from(el.querySelectorAll?.("[data-time-axis-iso]") || [])
+  const originalTimes = labels.map((node) => Date.parse(node.dataset.timeAxisIso)).filter(Number.isFinite)
+  const requestedStart = Date.parse(el.dataset.timeStart)
+  const requestedEnd = Date.parse(el.dataset.timeEnd)
+  const start = Number.isFinite(requestedStart) ? requestedStart : Math.min(...originalTimes)
+  const end = Number.isFinite(requestedEnd) ? requestedEnd : Math.max(...originalTimes)
+  const axis = adaptiveUserTimeAxis([start, end], {timeZone, count: labels.length})
+  const left = Number(el.dataset.chartLeftPad)
+  const width = Number(el.dataset.chartWidth) - left - Number(el.dataset.chartRightPad)
+  const ticks = axis.ticks || originalTimes
+  const reposition = Number.isFinite(start) && Number.isFinite(end) && end > start && Number.isFinite(left) && width > 0
+  const grid = Array.from(el.querySelectorAll?.("[data-time-axis-grid]") || [])
+  const marks = Array.from(el.querySelectorAll?.("[data-time-axis-tick]") || [])
+
+  labels.forEach((node, index) => {
+    const instant = reposition ? ticks[index] : node.dataset.timeAxisIso
+    if (reposition) {
+      const hidden = instant === undefined
+      for (const part of [node, grid[index], marks[index]]) {
+        if (part) part.setAttribute("visibility", hidden ? "hidden" : "visible")
+      }
+      if (hidden) return
+      const x = left + (instant - start) / (end - start) * width
+      node.setAttribute("x", String(x))
+      for (const line of [grid[index], marks[index]]) {
+        if (line) {
+          line.setAttribute("x1", String(x))
+          line.setAttribute("x2", String(x))
+        }
+      }
+    }
+    node.textContent = axis.format(instant) || instant
+  })
 }

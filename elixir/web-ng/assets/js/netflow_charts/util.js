@@ -1,7 +1,7 @@
 import * as d3 from "d3"
 
 import {hoverPosition} from "../utils/chart_hover_geometry"
-import {axisUserTimeFormatter, canonicalUtcInstant, formatUserTime} from "../utils/user_time"
+import {adaptiveUserTimeAxis, canonicalUtcInstant, formatUserTime} from "../utils/user_time"
 
 const DEFAULT_NETFLOW_TIME_ZONE = "Etc/UTC"
 
@@ -11,8 +11,20 @@ export function netflowDisplayTimeZone(timeZone) {
     : DEFAULT_NETFLOW_TIME_ZONE
 }
 
-export function netflowAxisTimeFormatter(timeZone) {
-  return axisUserTimeFormatter({timeZone: netflowDisplayTimeZone(timeZone)})
+export function netflowTimeDomain(dataset, observed = []) {
+  const requested = [dataset?.timeStart, dataset?.timeEnd].map((value) => Date.parse(canonicalUtcInstant(value)))
+  if (requested.every(Number.isFinite) && requested[1] > requested[0]) return requested.map((value) => new Date(value))
+  return observed
+}
+
+export function netflowTimeAxis(timeZone, domain = [], options = {}) {
+  const bounds = domain.map((value) => Date.parse(canonicalUtcInstant(value)))
+  const axis = adaptiveUserTimeAxis(bounds, {timeZone: netflowDisplayTimeZone(timeZone), ...options})
+  return {...axis, ticks: axis.ticks?.map((value) => new Date(value))}
+}
+
+export function netflowAxisTimeFormatter(timeZone, domain = [], options = {}) {
+  return netflowTimeAxis(timeZone, domain, options).format
 }
 
 export function netflowTooltipTimeLabel(canonical, timeZone) {
@@ -186,7 +198,7 @@ export function clearSVG(svg, width, height) {
 export function chartDims(el, opts = {}) {
   const minW = opts.minW ?? 360
   const minH = opts.minH ?? 220
-  const margin = opts.margin ?? { top: 8, right: 10, bottom: 18, left: 44 }
+  const margin = opts.margin ?? { top: 8, right: 10, bottom: 18, left: 72 }
 
   const width = Math.max(minW, el.clientWidth || 0)
   const height = Math.max(minH, el.clientHeight || 0)

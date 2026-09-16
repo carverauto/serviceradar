@@ -33,6 +33,9 @@ export const STYLE_OPTIONS = Object.freeze({
   date: Object.freeze({year: "numeric", month: "short", day: "2-digit"}),
   time: Object.freeze({hour: "2-digit", minute: "2-digit", second: "2-digit"}),
   axis: Object.freeze({hour: "2-digit", minute: "2-digit"}),
+  axis_day: Object.freeze({month: "short", day: "numeric"}),
+  axis_month: Object.freeze({year: "numeric", month: "short"}),
+  axis_year: Object.freeze({year: "numeric"}),
   tooltip: Object.freeze({
     year: "numeric",
     month: "short",
@@ -200,4 +203,68 @@ export function userTimeFormatter(options = {}) {
 
 export function axisUserTimeFormatter(options = {}) {
   return userTimeFormatter({...options, style: "axis"})
+}
+
+// Calendar ticks use the viewer's timezone, including DST, rather than the
+// browser timezone or fixed 30-day approximations of months.
+export function adaptiveUserTimeAxis(domain, {timeZone, locale, count = 5, intl = globalThis.Intl} = {}) {
+  const [start, end] = domain || []
+  const span = end - start
+  const day = 86_400_000
+  const unit = span >= 730 * day ? "year" : span > 30 * day ? "month" : span > day ? "day" : "hour"
+  const style = unit === "hour" ? "axis" : `axis_${unit}`
+  const format = userTimeFormatter({timeZone, locale, intl, style})
+  const fallback = {format, ticks: null, unit}
+
+  if (!Number.isFinite(start) || !Number.isFinite(end) || span <= 0 || unit === "hour" || !timeZone) return fallback
+
+  try {
+    const partsFormatter = compatibleFormatter(intl, locale, {...DATE_PART_OPTIONS, timeZone})
+    const first = dateParts(formatterParts(partsFormatter, new Date(start)))
+    const last = dateParts(formatterParts(partsFormatter, new Date(end)))
+    if (!first || !last) return fallback
+
+    const firstIndex = calendarIndex(first, unit)
+    const lastIndex = calendarIndex(last, unit)
+    const tickCount = Math.max(2, Math.min(12, Math.floor(count) || 5))
+    const step = Math.max(1, Math.ceil((lastIndex - firstIndex + 1) / tickCount))
+    const ticks = []
+
+    for (let index = firstIndex; index <= lastIndex; index += step) {
+      const tick = localCalendarNoon(index, unit, partsFormatter)
+      if (Number.isFinite(tick) && tick >= start && tick <= end) ticks.push(tick)
+    }
+
+    return {format, ticks: ticks.length ? ticks : null, unit}
+  } catch (_error) {
+    return fallback
+  }
+}
+
+function calendarIndex(parts, unit) {
+  const [year, month, day] = parts
+  if (unit === "year") return year
+  if (unit === "month") return year * 12 + month
+  return Math.floor(Date.UTC(year, month, day) / 86_400_000)
+}
+
+function localCalendarNoon(index, unit, formatter) {
+  const wallTime = unit === "year"
+    ? Date.UTC(index, 0, 1, 12)
+    : unit === "month"
+      ? Date.UTC(Math.floor(index / 12), index % 12, 1, 12)
+      : index * 86_400_000 + 12 * 3_600_000
+  let instant = wallTime
+
+  // Noon avoids the repeated/missing local times at ordinary DST transitions.
+  // Recompute the offset at the candidate instant to handle boundary changes.
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const parts = dateParts(formatterParts(formatter, new Date(instant)))
+    if (!parts) return NaN
+    const next = instant + wallTime - Date.UTC(...parts)
+    if (next === instant) return instant
+    instant = next
+  }
+
+  return instant
 }

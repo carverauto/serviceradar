@@ -414,6 +414,48 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowChartRangeComponentsTest do
     end
   end
 
+  test "activity query failures render per-card errors without a fabricated empty chart" do
+    for {key, failed_chart, error_id, healthy_chart, message} <- [
+          {:protocol_activity, "netflow-protocol-stacked", "netflow-protocol-activity-error", "netflow-app-stacked",
+           "Protocol activity could not be loaded."},
+          {:app_activity, "netflow-app-stacked", "netflow-app-activity-error", "netflow-protocol-stacked",
+           "Application activity could not be loaded."}
+        ] do
+      activity = Map.put(empty_activity(), :error, message)
+      document = render_activity_cards(%{key => activity})
+      assert one?(LazyHTML.query(document, "##{error_id}[role='alert']"))
+      assert document |> LazyHTML.query("##{error_id}") |> LazyHTML.text() |> String.trim() == message
+      assert Enum.empty?(LazyHTML.query(document, "##{failed_chart}"))
+      assert one?(LazyHTML.query(document, "##{healthy_chart}"))
+      refute LazyHTML.text(document) =~ "No samples"
+    end
+  end
+
+  test "requested window reaches the hook and preserves sparse line geometry" do
+    window = {~U[2030-01-01 00:00:00Z], ~U[2033-01-01 00:00:00Z]}
+    point = %{bucket_start: ~U[2032-12-30 00:00:00Z], bucket_end: ~U[2032-12-31 00:00:00Z], bytes: 10}
+
+    document =
+      (&Index.netflow_timeseries_chart/1)
+      |> render_component(%{
+        points: [point],
+        compare_points: [],
+        bucket_seconds: 86_400,
+        compare_mode: "off",
+        mode: "lines",
+        timezone: "America/Chicago",
+        time_window: window
+      })
+      |> LazyHTML.from_fragment()
+
+    selector = LazyHTML.query(document, "#netflow-traffic-timeseries")
+    assert LazyHTML.attribute(selector, "data-time-start") == ["2030-01-01T00:00:00Z"]
+    assert LazyHTML.attribute(selector, "data-time-end") == ["2033-01-01T00:00:00Z"]
+    assert [%{"x" => x}] = decode_attribute(selector, "data-range-buckets")
+    assert x > 990 and x < 1000
+    assert length(LazyHTML.attribute(LazyHTML.query(selector, "circle"), "cx")) == 1
+  end
+
   defp render_timeseries(mode, chart_points, timezone \\ "America/Chicago") do
     (&Index.netflow_timeseries_chart/1)
     |> render_component(%{

@@ -4,41 +4,56 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.NetflowTraffic do
 
   defmacro __using__(_opts) do
     quote do
-      defp traffic_links(time_window) do
-        cutoff = netflow_map_cutoff(time_window)
+      defp traffic_links(%{seconds: seconds} = window) when seconds >= 21_600 do
+        time = ServiceRadarWebNGWeb.DashboardLive.Window.query_time(window)
 
-        Enum.find_value(
-          traffic_link_sources(time_window),
-          [],
-          fn {relation_ref, relation, time_column} ->
-            if relation_exists?(relation_ref) do
-              links = traffic_links_from_relation(relation, time_column, cutoff)
-              if links != [], do: links
-            end
-          end
-        )
+        query =
+          ~s|in:flows #{time} stats:"sum(bytes_total) as bytes_total, sum(packets_total) as packets_total, count(*) as flow_count by src_endpoint_ip,dst_endpoint_ip" sort:bytes_total:desc limit:120|
+
+        case default_srql_module().query(query, %{scope: nil}) do
+          {:ok, %{"results" => rows}} when is_list(rows) ->
+            traffic_links_from_relation("analytics_flow_pairs", nil, rows)
+
+          _ ->
+            :error
+        end
+      end
+
+      defp traffic_links(%{start: _, end: _} = window) do
+        traffic_links_from_relation("ocsf_network_activity", "time", window)
       rescue
-        _ -> []
+        _ -> :error
       end
 
-      defp traffic_link_sources(time_window) when time_window in ["last_1h", "last_6h"] do
-        [
-          {"platform.ocsf_network_activity", "ocsf_network_activity", "time"},
-          {"platform.ocsf_network_activity_hourly_conversations", "ocsf_network_activity_hourly_conversations", "bucket"}
-        ]
-      end
-
-      defp traffic_link_sources(_time_window) do
-        [
-          {"platform.ocsf_network_activity", "ocsf_network_activity", "time"},
-          {"platform.ocsf_network_activity_hourly_conversations", "ocsf_network_activity_hourly_conversations", "bucket"}
-        ]
+      defp traffic_links(value) do
+        case traffic_links(ServiceRadarWebNGWeb.DashboardLive.Window.resolve(value, "netflow")) do
+          :error -> []
+          links -> links
+        end
       end
 
       @sobelow_skip ["SQL.Query"]
-      defp traffic_links_from_relation(relation, time_column, cutoff) do
+      defp traffic_links_from_relation(relation, time_column, input) do
         flow_count_expr = flow_count_expr(relation)
-        time_predicate = netflow_map_time_predicate(time_column)
+
+        bytes_expr =
+          if relation == "ocsf_network_activity",
+            do: "bytes_total::numeric * GREATEST(COALESCE(sampling_rate, 1), 1)",
+            else: "bytes_total"
+
+        packets_expr =
+          if relation == "ocsf_network_activity",
+            do: "packets_total::numeric * GREATEST(COALESCE(sampling_rate, 1), 1)",
+            else: "packets_total"
+
+        {source, time_predicate, params} =
+          if relation == "analytics_flow_pairs" do
+            {"jsonb_to_recordset($1::jsonb) AS f(src_endpoint_ip text, dst_endpoint_ip text, bytes_total float8, packets_total float8, flow_count bigint)",
+             "TRUE", [input, 120]}
+          else
+            {"#{relation} f", "f.#{time_column} >= $1 AND f.#{time_column} < $3", [input.start, 120, input.end]}
+          end
+
         has_geo? = relation_exists?("platform.ip_geo_enrichment_cache")
         has_ipinfo? = relation_exists?("platform.ip_ipinfo_cache")
         has_threat? = relation_exists?("platform.ip_threat_intel_cache")
@@ -172,13 +187,13 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.NetflowTraffic do
         SELECT
           COALESCE(f.src_endpoint_ip, 'Unknown') AS src,
           COALESCE(f.dst_endpoint_ip, 'Unknown') AS dst,
-          COALESCE(SUM(bytes_total), 0)::bigint AS bytes_total,
-          COALESCE(SUM(packets_total), 0)::bigint AS packets_total,
+          COALESCE(SUM(#{bytes_expr}), 0)::bigint AS bytes_total,
+          COALESCE(SUM(#{packets_expr}), 0)::bigint AS packets_total,
           COALESCE(#{flow_count_expr}, 0)::bigint AS flow_count,
           #{geo_select},
           #{threat_select},
           #{attribution_select}
-        FROM #{relation} f
+        FROM #{source}
         #{geo_join}
         #{ipinfo_join}
         #{anchor_join}
@@ -192,7 +207,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.NetflowTraffic do
         LIMIT $2
         """
 
-        case ServiceRadarWebNG.Repo.query(sql, [cutoff, 120]) do
+        case ServiceRadarWebNG.Repo.query(sql, params) do
           {:ok, %{rows: rows}} ->
             rows
             |> Enum.with_index()
@@ -281,7 +296,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.NetflowTraffic do
             end)
 
           _ ->
-            []
+            :error
         end
       end
     end

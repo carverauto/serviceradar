@@ -51,6 +51,25 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Points do
   def x_ticks(points, compact, opts \\ %{})
 
   def x_ticks(points, compact, opts) when is_list(points) do
+    case Paths.time_window(opts) do
+      {start_dt, end_dt} -> window_ticks(start_dt, end_dt, compact, opts)
+      nil -> sample_ticks(points, compact, opts)
+    end
+  end
+
+  def x_ticks(_points, _compact, _opts), do: []
+
+  defp window_ticks(start_dt, end_dt, compact, opts) do
+    intervals = if compact, do: 2, else: 4
+    span = DateTime.diff(end_dt, start_dt, :millisecond)
+
+    Enum.map(0..intervals, fn index ->
+      dt = DateTime.add(start_dt, div(span * index, intervals), :millisecond)
+      {Paths.datetime_to_x(dt, [], opts), canonical_time(dt)}
+    end)
+  end
+
+  defp sample_ticks(points, compact, opts) do
     len = length(points)
 
     case len do
@@ -77,8 +96,6 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Points do
         end)
     end
   end
-
-  def x_ticks(_points, _compact, _opts), do: []
 
   def y_ticks(%{min: min_v, max: max_v, scale: scale}, compact, unit)
       when is_number(min_v) and is_number(max_v) and max_v > min_v do
@@ -148,21 +165,17 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Points do
   def limit_points(points, _max_points), do: points
 
   def first_dt(series_points) when is_list(series_points) do
-    Enum.find_value(series_points, fn {_series, points} ->
-      case points do
-        [{%DateTime{} = dt, _} | _] -> dt
-        _ -> nil
-      end
-    end)
+    series_points
+    |> Enum.map(fn {_series, points} -> series_first_dt(points) end)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.min(DateTime, fn -> nil end)
   end
 
   def last_dt(series_points) when is_list(series_points) do
-    Enum.find_value(series_points, fn {_series, points} ->
-      case List.last(points) do
-        {%DateTime{} = dt, _} -> dt
-        _ -> nil
-      end
-    end)
+    series_points
+    |> Enum.map(fn {_series, points} -> series_last_dt(points) end)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.max(DateTime, fn -> nil end)
   end
 
   def series_first_dt([{%DateTime{} = dt, _} | _]), do: dt

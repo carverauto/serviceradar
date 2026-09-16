@@ -16,6 +16,10 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.MetricsQuery do
     [time_range: range, bucket: bucket]
   end
 
+  def requested_window(range, now \\ DateTime.utc_now()) do
+    range |> MetricWindowComponents.normalize_range() |> Query.requested_window(now)
+  end
+
   def build_snmp_counter_query(device_uid, if_index, metric_names, opts \\ []) do
     names = normalize_metric_names(metric_names)
     build_counter_query(device_uid, "if_index:#{if_index}", names, "metric_name", row_limit(names), opts)

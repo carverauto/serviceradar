@@ -111,3 +111,11 @@ describe("FlowRateChart gap handling", () => {
     ])
   })
 })
+
+
+it("uses calendar dates for multi-day canvas chart labels", () => {
+  const domain = ["2031-04-03T01:00:00Z", "2031-04-10T01:00:00Z"]
+  const options = {timeZone: "America/Chicago", locale: "en-US", domain}
+  expect(flowRateTimeLabel(domain[0], options)).toBe("Apr 2")
+  expect(flowRateTimeLabel(domain[1], options)).toBe("Apr 9")
+})

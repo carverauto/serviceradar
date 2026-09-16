@@ -23,6 +23,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
         %{
           time_window: time_window,
           time_window_label: time_window_label(time_window),
+          netflow_window: "last_15m",
+          events_window: "last_24h",
           device_summary: empty_device_summary(),
           services_summary: empty_services_summary(),
           flow_summary: empty_flow_summary(),
@@ -110,8 +112,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
               ),
               kpi_loading
             ),
-          map_stats: map_stats(flow_summary, mtr_summary, traffic_links),
-          traffic_links_window_label: netflow_map_window_label(),
+          map_stats: map_stats(flow_summary, mtr_summary, traffic_links, Map.get(sources, :netflow_window, "last_15m")),
+          traffic_links_window_label:
+            ServiceRadarWebNGWeb.DashboardLive.Window.label(Map.get(sources, :netflow_window, "last_15m")),
           map_empty_title: map_empty_title(Map.get(module_states, :netflow)),
           map_empty_detail: map_empty_detail(Map.get(module_states, :netflow)),
           observability_metrics:
@@ -223,6 +226,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
           time_window
           |> empty_sources()
           |> Map.merge(%{
+            netflow_window: time_window,
             device_summary: device_summary,
             services_summary: services_summary,
             flow_summary: flow_summary,
@@ -385,13 +389,18 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
 
       @spec load_netflow_map(term(), keyword()) :: map()
       def load_netflow_map(_scope, opts \\ []) do
-        time_window = Keyword.get(opts, :time_window, "last_24h")
+        window =
+          Keyword.get_lazy(opts, :window, fn ->
+            ServiceRadarWebNGWeb.DashboardLive.Window.resolve(Keyword.get(opts, :time_window, "last_15m"), "netflow")
+          end)
+
+        time_window = window.value
 
         wave1 =
           run_concurrent(
             collector_counts: {fn -> ServiceRadarWebNG.TenantUsage.collector_counts_by_type() end, %{}},
-            flow_summary: {fn -> flow_summary(time_window) end, empty_flow_summary()},
-            traffic_links: {fn -> traffic_links(time_window) end, []},
+            flow_summary: {fn -> flow_summary(window) end, Map.put(empty_flow_summary(), :error, :query_failed)},
+            traffic_links: {fn -> traffic_links(window) end, :error},
             topology_links: {fn -> topology_links(time_window) end, []},
             mtr_overlays: {fn -> mtr_overlays() end, []}
           )
@@ -404,6 +413,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
           mtr_overlays: mtr_overlays
         } = wave1
 
+        if Map.has_key?(flow_summary_raw, :error) or traffic_links == :error do
+          raise "Dashboard NetFlow window query failed"
+        end
+
         flow_summary =
           Map.put(
             flow_summary_raw,
@@ -415,13 +428,12 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
         netflow_state = netflow_source_state(collector_counts, flow_summary, traffic_links)
 
         %{
-          time_window: time_window,
-          time_window_label: time_window_label(time_window),
+          netflow_window: time_window,
           netflow_state: netflow_state,
           collector_counts: collector_counts,
           flow_summary: flow_summary,
-          map_stats: map_stats(flow_summary, mtr_summary, traffic_links),
-          traffic_links_window_label: netflow_map_window_label(),
+          map_stats: map_stats(flow_summary, mtr_summary, traffic_links, time_window),
+          traffic_links_window_label: window.label,
           topology_links: topology_links,
           topology_links_json: Jason.encode!(topology_links),
           traffic_links: traffic_links,
@@ -431,6 +443,13 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
           map_empty_title: map_empty_title(netflow_state),
           map_empty_detail: map_empty_detail(netflow_state)
         }
+      end
+
+      def load_event_window(window) do
+        case ServiceRadarWebNGWeb.DashboardLive.EventWindow.load(window) do
+          {:ok, slice} -> slice
+          {:error, _reason} -> raise "Dashboard event window query failed"
+        end
       end
 
       @spec load_survey_summary(term()) :: map()

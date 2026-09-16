@@ -110,6 +110,22 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowRangeSelectionTest do
     end
   end
 
+  test "requested multi-year geometry retains empty history without adding points" do
+    window = {~U[2030-01-01 00:00:00Z], ~U[2033-01-01 00:00:00Z]}
+
+    points = [
+      point(~U[2032-12-30 00:00:00Z], ~U[2032-12-31 00:00:00Z]),
+      point(~U[2032-12-31 00:00:00Z], ~U[2033-01-01 00:00:00Z])
+    ]
+
+    for mode <- [:lines, :grid] do
+      intervals = RangeSelection.intervals(points, mode, 1000, window)
+      assert length(intervals) == 2
+      assert Enum.all?(intervals, &(&1.x > 990 and &1.x < 1000))
+      assert Enum.map(intervals, & &1.start) == ["2032-12-30T00:00:00Z", "2032-12-31T00:00:00Z"]
+    end
+  end
+
   defp points_with_gaps do
     [
       point(~U[2026-08-27 10:00:00Z], ~U[2026-08-27 10:05:00Z]),
