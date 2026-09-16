@@ -47,14 +47,12 @@ starrocksFESpec:
     storageClassName: local-path
     storageSize: 20Gi
     logStorageSize: 5Gi
-  # JDBC driver for cnpg_platform. Checksum is third_party/jdbc/postgresql.pin.
-  # Not applied until the next starrocks-lab helm upgrade. Catalog stays unused
-  # until CREATE EXTERNAL CATALOG runs with an infra secret. Init containers
-  # must mount storageVolumes themselves; the operator does not copy them.
-  storageVolumes:
+  # JDBC driver for cnpg_platform. Chart 1.11.7 only emits extra volumes from
+  # emptyDirs/hostPaths/csiVolumes — values storageVolumes is ignored and a
+  # PVC named jdbc never reaches the StatefulSet. emptyDir is shared with the
+  # initContainer; wget re-runs on a new pod if the checksum is missing.
+  emptyDirs:
     - name: jdbc
-      storageClassName: local-path
-      storageSize: 1Gi
       mountPath: /opt/starrocks/jdbc
   initContainers:
     - name: postgresql-jdbc
@@ -69,7 +67,15 @@ starrocksFESpec:
           if [ -f "$dest" ] && echo "$want  $dest" | sha256sum -c; then
             exit 0
           fi
-          wget -O "$dest" "https://repo1.maven.org/maven2/org/postgresql/postgresql/42.7.13/postgresql-42.7.13.jar"
+          url="https://repo1.maven.org/maven2/org/postgresql/postgresql/42.7.13/postgresql-42.7.13.jar"
+          i=0
+          while [ "$i" -lt 5 ]; do
+            if wget -4 -T 30 -O "$dest" "$url"; then
+              break
+            fi
+            i=$((i + 1))
+            sleep 2
+          done
           echo "$want  $dest" | sha256sum -c
       volumeMounts:
         - name: jdbc
@@ -116,10 +122,8 @@ starrocksBeSpec:
     storageClassName: local-path
     storageSize: 50Gi
     logStorageSize: 5Gi
-  storageVolumes:
+  emptyDirs:
     - name: jdbc
-      storageClassName: local-path
-      storageSize: 1Gi
       mountPath: /opt/starrocks/jdbc
   initContainers:
     - name: postgresql-jdbc
@@ -134,7 +138,15 @@ starrocksBeSpec:
           if [ -f "$dest" ] && echo "$want  $dest" | sha256sum -c; then
             exit 0
           fi
-          wget -O "$dest" "https://repo1.maven.org/maven2/org/postgresql/postgresql/42.7.13/postgresql-42.7.13.jar"
+          url="https://repo1.maven.org/maven2/org/postgresql/postgresql/42.7.13/postgresql-42.7.13.jar"
+          i=0
+          while [ "$i" -lt 5 ]; do
+            if wget -4 -T 30 -O "$dest" "$url"; then
+              break
+            fi
+            i=$((i + 1))
+            sleep 2
+          done
           echo "$want  $dest" | sha256sum -c
       volumeMounts:
         - name: jdbc

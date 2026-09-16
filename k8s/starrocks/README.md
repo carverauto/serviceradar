@@ -19,9 +19,13 @@ The CNPG JDBC catalog (`cnpg_platform`) is opt-in and off by default. FE/BE
 expect the pinned PostgreSQL JDBC driver at
 `file:///opt/starrocks/jdbc/postgresql.jar` (checksum in
 `third_party/jdbc/postgresql.pin`). `values-cluster.yaml` has a checksummed
-alpine initContainer that mounts the 1Gi `jdbc` volume (the operator does
-not copy storageVolumes onto init containers) for the next starrocks-lab
-upgrade. Demo CNPG now has an additive NetworkPolicy allowing namespace
+alpine initContainer that mounts an emptyDir `jdbc` volume (chart 1.11.7
+ignores extra storageVolumes; emptyDir is the extra-volume API) so FE/BE
+share `file:///opt/starrocks/jdbc/postgresql.jar`. The initContainer
+re-fetches the pinned jar (IPv4 wget) when the checksum is missing.
+Nodes that cannot resolve repo1.maven.org will CrashLoop the init
+container; do not roll those until the jar is available in-cluster.
+Demo CNPG now has an additive NetworkPolicy allowing namespace
 `starrocks` on 5432. Lab FE has `cnpg_platform` (infra secret
 `serviceradar-starrocks-catalog`, not in git). Helm default catalog stays
 off; `values-demo.yaml` enables it with empty cutover. Do not let the
