@@ -1,7 +1,9 @@
 ## 1. Review and source preparation
 - [x] 1.1 Approve this proposal and its storage-destination contract; update applicable JetStream/EventWriter guidance before implementation.
-- [ ] 1.2 Rebase a fresh feature worktree on current staging; audit every extraction bundle against the pinned source and current code without wholesale cherry-picks.
-- [ ] 1.3 Resolve overlap with active ingestion, counter semantics, anomaly, downsampling and retention proposals; leave both withdrawn designs and private recovery artifacts untouched.
+- [x] 1.2 Rebase a fresh feature worktree on current staging; audit every extraction bundle against the pinned source and current code without wholesale cherry-picks.
+  - Rebased the three StarRocks commits onto live `origin/staging` (`e2827cf94c`, restore merge #4427). Restore merge remains an ancestor; not squashed. Worktree `/Users/mfreeman/src/serviceradar-495` from live `carverauto/serviceradar`. No wholesale cherry-pick of #488.
+- [x] 1.3 Resolve overlap with active ingestion, counter semantics, anomaly, downsampling and retention proposals; leave both withdrawn designs and private recovery artifacts untouched.
+  - Keep JetStream-first / EventWriter-only persistence. Coordinate, do not absorb: `scale-netflow-ingest-isolation` (dedicated flows stream), `fix-eventwriter-backpressure-hotpath` (pull consumers), `add-event-writer-processor-contributions` (add-on processors), `add-monotonic-counter-metric-semantics` and `update-sysmon-downsampling` (metric identity/volume), `harden-flow-attribution-pipeline` plus `add-flow-prefix-tag-enrichment` (current-state stays CNPG; catalog joins in 5.6–5.8), anomaly/causal proposals (edge move; do not extend retired central path), `add-object-store-retention` / `add-audit-history-retention-compression` / `add-tiered-telemetry-offload` (retention is per-dataset, not a CNPG-only assumption). Withdrawn pg_duckdb #488 and private recovery artifacts remain untouched.
 
 ## 2. Independently shippable fixes
 - [x] 2.1 Port pending interface tasks and ICMP/availability lifecycle fixes with pagination/source-change/stale-result tests.
