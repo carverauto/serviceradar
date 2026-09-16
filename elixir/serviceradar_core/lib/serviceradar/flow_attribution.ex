@@ -14,6 +14,7 @@ defmodule ServiceRadar.FlowAttribution do
   alias ServiceRadar.FlowAttribution.EventRows
   alias ServiceRadar.FlowAttribution.Persistence
   alias ServiceRadar.FlowAttribution.Retention
+  alias ServiceRadar.Analytics.StarRocks.Attribution
   alias ServiceRadar.FlowAttribution.WorkloadBackfill
 
   require Logger
@@ -41,11 +42,23 @@ defmodule ServiceRadar.FlowAttribution do
         persistence = Keyword.get(opts, :persistence, &Persistence.insert_current_rows/1)
 
         case persistence.(rows) do
-          :ok -> :ok
-          {:ok, _result} -> :ok
-          {:error, reason} -> persistence_error(reason)
-          %Postgrex.Result{} -> :ok
-          other -> persistence_error({:unexpected_persistence_result, other})
+          :ok ->
+            publish_starrocks_updates(rows, opts)
+            :ok
+
+          {:ok, _result} ->
+            publish_starrocks_updates(rows, opts)
+            :ok
+
+          {:error, reason} ->
+            persistence_error(reason)
+
+          %Postgrex.Result{} ->
+            publish_starrocks_updates(rows, opts)
+            :ok
+
+          other ->
+            persistence_error({:unexpected_persistence_result, other})
         end
     end
   rescue
@@ -90,6 +103,10 @@ defmodule ServiceRadar.FlowAttribution do
   """
   @spec retention_minutes() :: pos_integer()
   defdelegate retention_minutes, to: Retention
+
+  defp publish_starrocks_updates(rows, opts) do
+    Attribution.publish_updates(rows, Keyword.take(opts, [:publish]))
+  end
 
   defp persistence_error(reason) do
     Logger.warning("FlowAttribution.persist failed: #{inspect(reason)}")

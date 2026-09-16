@@ -27,6 +27,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceMountAssigns do
     |> assign(:snmp_polling_source, ServiceRadarWebNGWeb.DeviceLive.SNMPPollingSource.empty())
     |> assign(:available_profiles, [])
     |> assign(:availability, nil)
+    |> assign(:availability_request_ref, nil)
+    |> assign(:availability_request_source, nil)
     |> assign(:agent_availability, [])
     |> assign(:composite_verdicts, [])
     |> assign(:healthcheck_summary, nil)

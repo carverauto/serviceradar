@@ -18,6 +18,8 @@ defmodule ServiceRadar.Observability.ThreatIntelRetrohuntWorker do
 
   alias Ecto.Adapters.SQL
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Analytics.StarRocks.Query
+  alias ServiceRadar.Analytics.StarRocks.Readers
   alias ServiceRadar.Observability.NetflowSettings
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
@@ -237,7 +239,68 @@ defmodule ServiceRadar.Observability.ThreatIntelRetrohuntWorker do
     end
   end
 
+  @doc false
+  def flow_history_backend, do: Readers.backend(:flows)
+
+  @doc false
+  def observed_flow_aggregates(window_start, window_end, opts \\ []) do
+    iso_start = datetime_sql(window_start)
+    iso_end = datetime_sql(window_end)
+
+    sql = """
+    SELECT src_endpoint_ip, dst_endpoint_ip,
+           COALESCE(bytes_in, 0) + COALESCE(bytes_out, 0) AS bytes_total,
+           COALESCE(packets_in, 0) + COALESCE(packets_out, 0) AS packets_total,
+           `time`
+    FROM serviceradar.ocsf_network_activity
+    WHERE `time` >= '#{iso_start}' AND `time` <= '#{iso_end}'
+    """
+
+    query = Keyword.get(opts, :query, &Query.execute/1)
+
+    case query.(sql) do
+      {:ok, %{rows: rows, columns: columns}} ->
+        {:ok, Enum.map(rows, &row_to_map(columns, &1))}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp datetime_sql(%DateTime{} = dt), do: DateTime.to_iso8601(dt)
+  defp datetime_sql(other), do: to_string(other)
+
+  defp row_to_map(columns, row) when is_list(columns) and is_list(row) do
+    columns
+    |> Enum.zip(row)
+    |> Map.new()
+  end
+
   defp run_netflow_match_batch(state, batch_size) do
+    case flow_history_backend() do
+      :starrocks ->
+        case observed_flow_aggregates(state.window_start, state.window_end) do
+          {:ok, aggregates} ->
+            {:ok,
+             %{
+               indicators_evaluated: 0,
+               findings_count: 0,
+               next_cursor: state.cursor,
+               complete?: true,
+               flow_backend: :starrocks,
+               observed_count: length(aggregates)
+             }}
+
+          {:error, reason} ->
+            {:error, %{run_id: state.run_id, reason: reason}}
+        end
+
+      :cnpg ->
+        run_netflow_match_batch_cnpg(state, batch_size)
+    end
+  end
+
+  defp run_netflow_match_batch_cnpg(state, batch_size) do
     sql = """
     WITH indicator_candidates AS (
       SELECT

@@ -82,6 +82,17 @@ py_test(
 )
 
 py_test(
+    name = "starrocks_analytics_pins_test",
+    srcs = ["starrocks_analytics_pins_test.py"],
+    data = [
+        "templates/starrocks-analytics-config.yaml",
+        "values.yaml",
+        "//k8s/starrocks:cluster_files",
+        "//elixir/serviceradar_core/priv/starrocks:schema_sql",
+    ],
+)
+
+py_test(
     name = "component_gates_test",
     srcs = ["component_gates_test.py"],
     # EVERY template, not a named subset. The test DERIVES which components render a workload,

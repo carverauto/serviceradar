@@ -136,7 +136,13 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     with {:ok, _promoted} <- maybe_promote_logs(rows, opts) do
       SignalTelemetry.emit(:logs, :written, count)
       LogPubSub.broadcast_ingest(%{count: count})
-      {:ok, count}
+
+      :logs
+      |> ServiceRadar.Analytics.StarRocks.Destination.persist_after_cnpg(rows)
+      |> case do
+        {:ok, _} -> {:ok, count}
+        {:error, reason} -> {:error, reason}
+      end
     end
   end
 

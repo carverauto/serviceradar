@@ -51,7 +51,34 @@ During shadowing, the same owner tracks each required destination independently.
 
 Flows retain the current OCSF fields, nullable ports, IP family, UTC precision, exporter/interface identities, sampling factors, directions and enrichment provenance. Choose partition granularity, sort order and sharding from measured filters/skew; do not copy a fixed bucket count. Metrics retain series identity, temporality, units, counter resets/wraps, timestamps and metadata. Precompute additive quantities only where semantics permit; averages require sum/count and percentiles require a defined mergeable representation.
 
-Flow process attribution is a blocking seam: retain current correlation state in CNPG and publish versioned attribution changes through JetStream to EventWriter. Apply monotonic partial updates to stable flow identities, preserving telemetry columns on redelivery and preventing older enrichment from overwriting newer state. No direct correlator-to-StarRocks writes. Backfill needs a stable mapping from historical flow identity and a pinned enrichment snapshot/version. Test late attribution, retraction, stale update and replay. Evaluate join-based enrichment only if bounded and semantically equivalent; no distributed join in the request path is assumed.
+Flow process attribution and flow enrichment are the blocking reason the JDBC catalog exists.
+
+Two layers stay distinct:
+
+- **Observation snapshot (StarRocks):** EventWriter persists the flow row, then JetStream attribution updates apply monotonic partial updates (`pid`, `comm`, `cmdline`, `workload_identity`) onto that stable flow identity without touching traffic totals. No correlator writes StarRocks. Redelivery cannot erase newer enrichment.
+- **Current-state (CNPG):** live process-correlation rows, prefix-tag tries (provider, threat-intel, dns-policy, manual), and device/inventory identity keep changing after the observation is stored. Those tables are not duplicated into StarRocks.
+
+Query-time authorized SRQL that needs *current* attribution or enrichment joins StarRocks `serviceradar.ocsf_network_activity` to the allowlisted CNPG tables through `cnpg_platform`. Attribution correlation, exporter-cache, maps, threat retrohunt and dashboard flow loaders MUST NOT dual-query CNPG plus StarRocks and merge in Elixir. Ingest-time lookup of prefix tags onto the observation remains EventWriter's job; the catalog does not replace that write path.
+
+Backfill still needs a stable historical flow identity and a pinned enrichment snapshot/version for the observation snapshot. Test late attribution, retraction, stale update, replay, and catalog joins against current-state.
+
+## CNPG external catalog for current-state joins
+
+StarRocks 3.5 JDBC catalogs can query PostgreSQL without loading those rows into StarRocks. Use that for **small current-state dimension tables in CNPG**, not for historical telemetry. First-class allowlisted consumers are flow attribution and flow enrichment.
+
+Contract:
+
+- One opt-in catalog, invented name `cnpg_platform`, type `jdbc`, driver class `org.postgresql.Driver`.
+- JDBC URI targets the ServiceRadar CNPG database over internal TLS. Schema is `platform`, never `public`.
+- Visible objects are an allowlist of current-state tables required for flow attribution and enrichment: process-correlation current-state, prefix-tag sources, device/inventory identity, site/group labels. Auth, credentials, Oban, sessions and cut-over telemetry hypertables are not in the allowlist.
+- Catalog credentials are ServiceRadar-to-self infrastructure secrets (least-privilege CNPG reader). They are not device or integration secrets and MUST NOT live in `network_credential_secrets`.
+- The catalog is read-only. StarRocks MUST NOT INSERT/UPDATE/DELETE CNPG through it. EventWriter remains the only telemetry writer. The correlator still publishes attribution on JetStream; it does not JDBC-write CNPG from StarRocks or StarRocks from the correlator.
+- The JDBC driver JAR is a Bazel-pinned input served as a `file://` path (or equivalent internal artifact). FE MUST NOT fetch an unpinned driver from the public internet at catalog-create time.
+- Authorized SRQL that needs current attribution, prefix tags or device identity on a StarRocks-served flow compiles a StarRocks SQL join: `serviceradar.ocsf_network_activity` JOIN `cnpg_platform.platform.<allowlisted_table>`. Dashboard and core loaders MUST NOT dual-query CNPG plus StarRocks and merge rows in Elixir/Go.
+- Catalog unavailability or an allowlist miss is an explicit capability/error. It MUST NOT silently serve cut-over telemetry from CNPG, MUST NOT drop attribution/enrichment columns without saying so, and MUST NOT invent current-state process identity from the observation snapshot alone when the caller asked for live correlation.
+- Helm/Compose keep the catalog disabled until the driver, reader role, allowlist and synthetic join tests pass. Empty `cutoverDatasets` still keeps telemetry serving on CNPG; enabling the catalog is independent of dataset cutover.
+
+This is a query-time broadcast of a small CNPG dimension into StarRocks' vectorized engine against local fact tables. It is not a replacement for Stream Load, not a hybrid-file/pg_duckdb path, and not an application-level N+1 join.
 
 Schema manifests and upgrades are versioned Bazel-declared inputs. CNPG bookkeeping uses Ash resources/codegen; StarRocks DDL runs through a versioned, idempotent migration target with locks/version tracking and compatibility checks, not a shell script or PostgreSQL migration pretending to manage another engine. Define rollback-compatible additive changes and failed-migration recovery.
 
@@ -109,6 +136,7 @@ Official documentation checked while drafting; pin/recheck these capabilities fo
 - [Stream Load](https://docs.starrocks.io/docs/loading/StreamLoad/): FE redirects to a BE/CN coordinator; use an internal FE endpoint with validated redirect handling and suitable timeouts. A load is transactional; it is not free of transaction overhead.
 - [Load statuses and labels](https://docs.starrocks.io/docs/sql-reference/sql-statements/loading_unloading/STREAM_LOAD/): success, publish timeout and duplicate label are different outcomes; labels expire. HTTP success alone does not establish accepted row parity.
 - [Duplicate Key tables](https://docs.starrocks.io/docs/table_design/table_types/duplicate_key_table/): append-only storage does not replace a deduplication or mutable-enrichment contract.
+- [JDBC catalog](https://docs.starrocks.io/docs/data_source/catalog/jdbc_catalog/): PostgreSQL is a supported JDBC source in 3.5 (`type=jdbc`, `org.postgresql.Driver`). Pin `driver_url` to a vendored JAR. Do not copy sample `public` schema, superuser, or invented `nom_db` names into product config.
 - [Table capabilities](https://docs.starrocks.io/docs/table_design/table_types/table_capabilities/): Primary Key tables support asynchronous MVs, not synchronous MVs. The initial replay-safe table choice changes the rollup design.
 - [Synchronous views](https://docs.starrocks.io/docs/using_starrocks/Materialized_view-single_table/) and [asynchronous rewrite](https://docs.starrocks.io/docs/using_starrocks/async_mv/use_cases/query_rewrite_with_materialized_views/): rewrite depends on eligible expressions, dimensions and freshness. Listing raw timestamp/bytes columns in an ALTER ROLLUP is not a demonstrated minute-bucket sum/count view.
 
@@ -116,4 +144,4 @@ No compression ratio, subsecond billion-row result, guaranteed 100k-flow/s capac
 
 ## Remaining design gates
 
-Before foundation implementation, choose exact version/profile/resource bounds, operational owner and backup/RPO/RTO envelope. Before schema implementation, finalize stable record identities, attribution update ordering and historical overlap mapping. Before each dataset activates, approve its reader coverage, raw/rollup retention, query budget and measured acceptance results. These are explicit implementation gates, not reasons to delay the independent UI ports.
+Before foundation implementation, choose exact version/profile/resource bounds, operational owner and backup/RPO/RTO envelope. Before schema implementation, finalize stable record identities, attribution update ordering and historical overlap mapping. Before each dataset activates, approve its reader coverage, raw/rollup retention, query budget and measured acceptance results. Before enabling the JDBC catalog, pin the driver JAR, CNPG reader role, TLS, and the attribution/enrichment allowlist (process-correlation current-state, prefix tags, device identity), and prove synthetic join plus catalog-failure tests. These are explicit implementation gates, not reasons to delay the independent UI ports.

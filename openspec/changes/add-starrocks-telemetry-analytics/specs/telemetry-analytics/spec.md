@@ -57,6 +57,12 @@ The system SHALL retain flow attribution and enrichment semantics through versio
 - **WHEN** an attribution retraction is followed by an older update
 - **THEN** the current retracted state remains authoritative
 
+#### Scenario: Current-state attribution is queried on StarRocks history
+- **WHEN** an authorized caller requests live process correlation or prefix-tag enrichment on StarRocks-served flows
+- **THEN** the query joins local flow facts to allowlisted CNPG current-state tables through the JDBC catalog
+- **AND** the correlator does not write StarRocks
+- **AND** application code does not merge CNPG attribution rows with StarRocks flows itself
+
 ### Requirement: Dataset retention and coverage contracts
 The system SHALL expose configurable raw and aggregate retention by dataset, default hosted flows, logs, events and alert history to 365 days, allow longer configured retention, and distinguish durable retention from local cache residency.
 
@@ -93,3 +99,28 @@ The system SHALL validate analytics using synthetic, reproducible workloads with
 - **WHEN** a writer or CN restarts during ingestion or an FE/object-store failure occurs
 - **THEN** recovery tests compare final identities and totals against ground truth
 - **AND** report restore time, errors and data-loss boundaries against the approved RPO/RTO
+
+### Requirement: Read-only CNPG catalog for current-state joins
+The system SHALL provide an opt-in StarRocks JDBC catalog onto CNPG so authorized analytics can join local StarRocks telemetry with allowlisted `platform` current-state dimension tables for flow attribution and enrichment, and SHALL NOT use that catalog as a telemetry serving path or a write path into CNPG.
+
+#### Scenario: Authorized flow query needs current attribution or enrichment
+- **WHEN** an authorized caller requests StarRocks-served flows grouped or filtered by live process correlation, prefix tags or current device identity
+- **THEN** StarRocks scans the local flow table and joins the allowlisted CNPG current-state table through the JDBC catalog
+- **AND** the application does not query CNPG and StarRocks separately and merge rows itself
+
+#### Scenario: Catalog is unavailable
+- **WHEN** the JDBC catalog or CNPG reader path fails
+- **THEN** the query returns an explicit error
+- **AND** it does not silently serve cut-over telemetry from CNPG
+- **AND** it does not omit dimension columns without reporting the failure
+
+#### Scenario: Table is not on the allowlist
+- **WHEN** a query names a CNPG relation outside the current-state dimension allowlist
+- **THEN** compilation or execution rejects the query
+- **AND** auth, credential, Oban and telemetry hypertable names remain unreachable through the catalog
+
+#### Scenario: Catalog credentials
+- **WHEN** the catalog is provisioned
+- **THEN** it uses a least-privilege CNPG reader stored as ServiceRadar-to-self infrastructure secret material
+- **AND** the driver JAR is a pinned Bazel artifact rather than an unpinned network download
+- **AND** the catalog user cannot INSERT, UPDATE or DELETE CNPG rows

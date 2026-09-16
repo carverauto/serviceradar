@@ -3,6 +3,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Telemetry.Metrics do
 
   import Ecto.Query
 
+  alias ServiceRadar.Analytics.StarRocks.MetricConsumers
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Telemetry.Identity
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Utils
   alias ServiceRadar.Repo
@@ -88,35 +89,52 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Telemetry.Metrics do
     if accepted_metric_ids == [] or if_indexes == [] do
       %{}
     else
-      from(m in "timeseries_metrics",
-        where:
-          fragment(
-            "(? = ANY(?)) OR (? = ANY(?))",
-            m.device_id,
-            type(^accepted_metric_ids, {:array, :string}),
-            m.target_device_ip,
-            type(^accepted_metric_ips, {:array, :string})
-          ),
-        where: fragment("? = ANY(?)", m.if_index, type(^if_indexes, {:array, :integer})),
-        where:
-          fragment(
-            "split_part(?, '::', 1) = ANY(?)",
-            m.metric_name,
-            type(^metric_names, {:array, :string})
-          ),
-        where: m.timestamp > ago(@telemetry_window_minutes, "minute"),
-        distinct: [m.device_id, m.target_device_ip, m.if_index, m.metric_name],
-        order_by: [
-          asc: m.device_id,
-          asc: m.target_device_ip,
-          asc: m.if_index,
-          asc: m.metric_name,
-          desc: m.timestamp
-        ],
-        select: {m.device_id, m.target_device_ip, m.if_index, m.metric_name, m.value}
-      )
-      |> Repo.all()
-      |> Enum.reduce(%{}, fn row, acc ->
+      since = DateTime.add(DateTime.utc_now(), -@telemetry_window_minutes * 60, :second)
+
+      rows =
+        MetricConsumers.fetch(
+          cnpg: fn ->
+            Repo.all(
+              from(m in "timeseries_metrics",
+                where:
+                  fragment(
+                    "(? = ANY(?)) OR (? = ANY(?))",
+                    m.device_id,
+                    type(^accepted_metric_ids, {:array, :string}),
+                    m.target_device_ip,
+                    type(^accepted_metric_ips, {:array, :string})
+                  ),
+                where: fragment("? = ANY(?)", m.if_index, type(^if_indexes, {:array, :integer})),
+                where:
+                  fragment(
+                    "split_part(?, '::', 1) = ANY(?)",
+                    m.metric_name,
+                    type(^metric_names, {:array, :string})
+                  ),
+                where: m.timestamp > ago(@telemetry_window_minutes, "minute"),
+                distinct: [m.device_id, m.target_device_ip, m.if_index, m.metric_name],
+                order_by: [
+                  asc: m.device_id,
+                  asc: m.target_device_ip,
+                  asc: m.if_index,
+                  asc: m.metric_name,
+                  desc: m.timestamp
+                ],
+                select: {m.device_id, m.target_device_ip, m.if_index, m.metric_name, m.value}
+              )
+            )
+          end,
+          starrocks: fn ->
+            MetricConsumers.directional_rows(
+              accepted_metric_ids,
+              if_indexes,
+              metric_names,
+              since
+            )
+          end
+        )
+
+      Enum.reduce(rows, %{}, fn row, acc ->
         reduce_directional_metric_row(
           row,
           acc,

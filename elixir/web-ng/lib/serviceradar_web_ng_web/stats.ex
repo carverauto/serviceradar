@@ -34,6 +34,8 @@ defmodule ServiceRadarWebNGWeb.Stats do
   import Ecto.Query
 
   alias Ecto.Adapters.SQL
+  alias ServiceRadar.Analytics.StarRocks.LogEventConsumers
+  alias ServiceRadar.Analytics.StarRocks.Readers
   alias ServiceRadar.Repo, as: CoreRepo
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNGWeb.Stats.Compute
@@ -154,8 +156,42 @@ defmodule ServiceRadarWebNGWeb.Stats do
   @spec logs_rollup_status(keyword()) :: logs_rollup_status()
   def logs_rollup_status(opts \\ []) do
     case Application.get_env(:serviceradar_web_ng, :logs_rollup_status_fun) do
-      status_fun when is_function(status_fun, 0) -> status_fun.()
-      _ -> if(repo_started?(), do: do_logs_rollup_status(opts), else: empty_logs_rollup_status())
+      status_fun when is_function(status_fun, 0) ->
+        status_fun.()
+
+      _ ->
+        case Readers.backend(:logs) do
+          :starrocks ->
+            starrocks_logs_rollup_status(opts)
+
+          :cnpg ->
+            if(repo_started?(), do: do_logs_rollup_status(opts), else: empty_logs_rollup_status())
+        end
+    end
+  end
+
+  defp starrocks_logs_rollup_status(opts) do
+    stale_threshold_seconds =
+      Keyword.get(opts, :stale_threshold_seconds, logs_rollup_stale_threshold_seconds())
+
+    coverage_grace_seconds = Keyword.get(opts, :coverage_grace_seconds, 5 * 60)
+
+    case LogEventConsumers.logs_window_bounds(Keyword.take(opts, [:query])) do
+      {:ok, %{latest: latest, earliest: earliest}} ->
+        assess_logs_rollup_status(
+          rollup_present?: true,
+          raw_latest_timestamp: latest,
+          raw_window_start_timestamp: earliest,
+          rollup_latest_bucket: latest,
+          rollup_window_start_bucket: earliest,
+          stale_threshold_seconds: stale_threshold_seconds,
+          coverage_grace_seconds: coverage_grace_seconds
+        )
+
+      {:error, _reason} ->
+        empty_logs_rollup_status()
+        |> Map.put(:healthy?, false)
+        |> Map.put(:messages, ["Log severity rollup health could not be verified."])
     end
   end
 

@@ -8,8 +8,8 @@ use super::{
     interfaces, is_exhaustive_profile_query, logs, memory_metrics, mtr_traces, otel_metric_points,
     otel_metrics, process_metrics, public_endpoints, services, source_fact_disagreements,
     sweep_coverage, sweep_executions, sweep_groups, sweep_profiles, sweep_results,
-    threat_intel_matches, timeseries_metrics, trace_summaries, traces, translate_request,
-    virtualization, vulnerability_advisories, wifi_map,
+    starrocks, threat_intel_matches, timeseries_metrics, trace_summaries, traces,
+    translate_request, virtualization, vulnerability_advisories, wifi_map,
 };
 use crate::{
     config::AppConfig,
@@ -25,11 +25,18 @@ use tracing::error;
 pub struct QueryEngine {
     pool: PgPool,
     config: Arc<AppConfig>,
+    starrocks: Option<Arc<dyn starrocks::SqlExecutor>>,
 }
 
 impl QueryEngine {
     pub fn new(pool: PgPool, config: Arc<AppConfig>) -> Self {
-        Self { pool, config }
+        let starrocks = starrocks::HttpSqlExecutor::from_env()
+            .map(|executor| Arc::new(executor) as Arc<dyn starrocks::SqlExecutor>);
+        Self {
+            pool,
+            config,
+            starrocks,
+        }
     }
 
     pub fn config(&self) -> &AppConfig {
@@ -39,6 +46,11 @@ impl QueryEngine {
     pub async fn execute_query(&self, request: QueryRequest) -> Result<QueryResponse> {
         let ast = parser::parse(&request.query)?;
         let plan = build_query_plan(&self.config, &request, ast)?;
+
+        if request.mode.as_deref() == Some("starrocks") {
+            return starrocks::execute_plan(&plan, self.starrocks.as_deref());
+        }
+
         let mut conn = self.pool.get().await.map_err(|err| {
             error!(error = ?err, "failed to acquire database connection");
             ServiceError::Internal(anyhow::anyhow!("{err:?}"))

@@ -6,9 +6,10 @@ use super::{
     endpoint_package_catalog, endpoint_packages, endpoint_vulnerability_matches, events,
     field_survey, flows, gateways, graph_cypher, identity, interfaces, is_exhaustive_profile_query,
     logs, memory_metrics, mtr_traces, otel_metric_points, otel_metrics, process_metrics,
-    public_endpoints, services, source_fact_disagreements, sweep_coverage, sweep_executions,
-    sweep_groups, sweep_profiles, sweep_results, threat_intel_matches, timeseries_metrics,
-    trace_summaries, traces, virtualization, viz, vulnerability_advisories, wifi_map,
+    public_endpoints, services, source_fact_disagreements, starrocks, sweep_coverage,
+    sweep_executions, sweep_groups, sweep_profiles, sweep_results, threat_intel_matches,
+    timeseries_metrics, trace_summaries, traces, virtualization, viz, vulnerability_advisories,
+    wifi_map,
 };
 use crate::{
     config::AppConfig,
@@ -21,6 +22,10 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
     let ast = parser::parse(&request.query)?;
     let plan = build_query_plan(config, &request, ast)?;
     let viz = viz::meta_for_plan(&plan);
+
+    if request.mode.as_deref() == Some("starrocks") {
+        return starrocks::translate(&plan);
+    }
 
     // A `profile_hour_of_week[_peak]` stats query is a profile aggregation, never a
     // downsample — even though its `bucket:1h` clause sets `plan.downsample`. Without this

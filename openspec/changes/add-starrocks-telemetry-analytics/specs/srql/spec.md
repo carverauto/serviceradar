@@ -68,3 +68,16 @@ The system SHALL support StarRocks queries over configured retained history usin
 - **WHEN** the configured dataset retains a year of data
 - **THEN** an authorized caller can request a bounded aggregate over that year or paginated raw slices within it
 - **AND** exceeding a query budget returns a visible limit error rather than silently truncating coverage
+
+### Requirement: Authorized catalog joins stay in the StarRocks dialect
+The system SHALL compile authorized SRQL that combines a StarRocks-served telemetry entity with allowlisted CNPG current-state dimensions into StarRocks SQL that uses the JDBC catalog, and SHALL keep EntityAccess in front of that compilation.
+
+#### Scenario: Attribution- or enrichment-scoped flow aggregate
+- **WHEN** an authorized `in:flows` query requests grouping or filters that require live process correlation, prefix tags or current device identity from CNPG
+- **THEN** the StarRocks dialect emits a join from `serviceradar.ocsf_network_activity` to `cnpg_platform.platform` allowlisted tables
+- **AND** EntityAccess still authorizes the original SRQL before execution
+
+#### Scenario: Unsupported cross-engine shape
+- **WHEN** a query requires a CNPG dimension that is not allowlisted or a join the dialect does not implement
+- **THEN** preview returns an explicit capability error
+- **AND** the executor does not open a second CNPG query to paper over the gap

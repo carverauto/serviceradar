@@ -422,22 +422,29 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
         </.ui_button>
       </div>
 
-      <%!-- Metrics panels: viewport-filling responsive grid (auto-fit) --%>
+      <%!-- One full-width row per chart so traffic / in-pkt / out-pkt stay stacked. --%>
       <div
         :if={@metrics.panels != []}
-        class="p-4 grid gap-4 grid-cols-[repeat(auto-fit,minmax(22rem,1fr))]"
+        id="favorited-interface-metrics-stack"
+        class={favorited_metrics_stack_class()}
       >
         <%= for {panel, idx} <- Enum.with_index(@metrics.panels) do %>
-          <.live_component
-            module={panel.plugin}
-            id={"interface-metrics-#{@device_uid}-#{panel.id}-#{idx}"}
-            title={Map.get(panel.assigns, :interface_label, "Interface Metrics")}
-            panel_assigns={
-              panel.assigns
-              |> Map.put(:compact, false)
-              |> Map.put(:timezone, @timezone)
-            }
-          />
+          <div
+            id={"favorited-interface-metrics-row-#{panel.id}-#{idx}"}
+            class="w-full min-w-0"
+            data-interface-label={Map.get(panel.assigns, :interface_label, "Interface Metrics")}
+          >
+            <.live_component
+              module={panel.plugin}
+              id={"interface-metrics-#{@device_uid}-#{panel.id}-#{idx}"}
+              title={Map.get(panel.assigns, :interface_label, "Interface Metrics")}
+              panel_assigns={
+                panel.assigns
+                |> Map.put(:compact, false)
+                |> Map.put(:timezone, @timezone)
+              }
+            />
+          </div>
         <% end %>
       </div>
     </div>
@@ -816,4 +823,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
     |> String.replace(~r/[^a-zA-Z0-9_-]+/, "-")
     |> String.trim("-")
   end
+
+  def favorited_metrics_stack_class do
+    "flex w-full flex-col gap-4 p-4"
+  end
 end
+

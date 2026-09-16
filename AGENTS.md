@@ -146,8 +146,11 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 - **All metrics/telemetry flow through NATS JetStream first — never write metrics
   directly to the database.** Every metric source (interface/flow/OTEL metrics,
   SNMP counters, and sysmon cpu/mem/disk/process) MUST publish to a JetStream
-  subject and be persisted into CNPG by the `event_writer` consumer pipeline.
-  Collectors and agents MUST NOT write metrics straight to CNPG, and core MUST NOT
+  subject and be persisted by the `event_writer` consumer pipeline. CNPG remains
+  the control-plane/current-state store; EventWriter may also persist migrated
+  historical telemetry to opt-in StarRocks (see
+  `openspec/changes/add-starrocks-telemetry-analytics`). Collectors and agents
+  MUST NOT write metrics straight to CNPG or StarRocks, and core MUST NOT
   ingest a metric path that bypassed JetStream. The legacy agent→gateway→core gRPC
   `StreamStatus` path that writes sysmon metrics directly to the database is the
   one known exception, being migrated to JetStream (see

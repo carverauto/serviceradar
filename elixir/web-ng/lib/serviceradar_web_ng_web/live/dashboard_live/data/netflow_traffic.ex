@@ -2,8 +2,49 @@
 defmodule ServiceRadarWebNGWeb.DashboardLive.Data.NetflowTraffic do
   @moduledoc false
 
+  @spec srql_query(map()) :: String.t()
+  def srql_query(%{} = window) do
+    time = ServiceRadarWebNGWeb.DashboardLive.Window.query_time(window)
+
+    ~s|in:flows #{time} stats:"sum(bytes_total) as bytes_total, sum(packets_total) as packets_total, count(*) as flow_count by src_endpoint_ip,dst_endpoint_ip" sort:bytes_total:desc limit:120|
+  end
+
   defmacro __using__(_opts) do
     quote do
+      defp traffic_links(%{seconds: _seconds} = window, scope, srql_module) do
+        query = ServiceRadarWebNGWeb.DashboardLive.Data.NetflowTraffic.srql_query(window)
+
+        case srql_module.query(query, %{scope: scope}) do
+          {:ok, %{"results" => []}} ->
+            []
+
+          {:ok, %{"results" => rows}} when is_list(rows) ->
+            Enum.map(rows, fn row ->
+              %{
+                src_endpoint_ip: row["src_endpoint_ip"],
+                dst_endpoint_ip: row["dst_endpoint_ip"],
+                bytes_total: row["bytes_total"],
+                packets_total: row["packets_total"],
+                flow_count: row["flow_count"]
+              }
+            end)
+
+          _ ->
+            :error
+        end
+      end
+
+      defp traffic_links(value, scope, srql_module) when is_binary(value) do
+        case traffic_links(
+               ServiceRadarWebNGWeb.DashboardLive.Window.resolve(value, "netflow"),
+               scope,
+               srql_module
+             ) do
+          :error -> []
+          links -> links
+        end
+      end
+
       defp traffic_links(time_window) do
         cutoff = netflow_map_cutoff(time_window)
 

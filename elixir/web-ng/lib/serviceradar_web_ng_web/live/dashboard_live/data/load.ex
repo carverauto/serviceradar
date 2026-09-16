@@ -384,7 +384,76 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
       end
 
       @spec load_netflow_map(term(), keyword()) :: map()
-      def load_netflow_map(_scope, opts \\ []) do
+      def load_netflow_map(scope, opts \\ []) do
+        window = Keyword.get(opts, :window)
+        srql_module = Keyword.get(opts, :srql_module)
+
+        if is_map(window) and srql_module != nil do
+          load_netflow_map_window(scope, window, srql_module)
+        else
+          load_netflow_map_legacy(scope, opts)
+        end
+      end
+
+      defp load_netflow_map_window(scope, window, srql_module) do
+        time_window = window.value
+
+        wave1 =
+          run_concurrent(
+            collector_counts: {fn -> ServiceRadarWebNG.TenantUsage.collector_counts_by_type() end, %{}},
+            flow_summary:
+              {fn -> flow_summary(window, scope, srql_module) end, Map.put(empty_flow_summary(), :error, :query_failed)},
+            traffic_links: {fn -> traffic_links(window, scope, srql_module) end, :error},
+            topology_links: {fn -> topology_links(time_window) end, []},
+            mtr_overlays: {fn -> mtr_overlays() end, []}
+          )
+
+        %{
+          collector_counts: collector_counts,
+          flow_summary: flow_summary_raw,
+          traffic_links: traffic_links,
+          topology_links: topology_links,
+          mtr_overlays: mtr_overlays
+        } = wave1
+
+        if Map.has_key?(flow_summary_raw, :error) or traffic_links == :error do
+          raise "Dashboard NetFlow window query failed"
+        end
+
+        flow_summary =
+          Map.put(
+            flow_summary_raw,
+            :link_count,
+            max(length(traffic_links), length(topology_links))
+          )
+
+        mtr_summary = summarize_mtr_overlays(mtr_overlays)
+        netflow_state = netflow_source_state(collector_counts, flow_summary, traffic_links)
+
+        %{
+          netflow_window: time_window,
+          netflow_state: netflow_state,
+          collector_counts: collector_counts,
+          flow_summary: flow_summary,
+          map_stats: map_stats(flow_summary, mtr_summary, traffic_links),
+          traffic_links_window_label: window.label,
+          topology_links: topology_links,
+          topology_links_json: Jason.encode!(topology_links),
+          traffic_links: traffic_links,
+          traffic_links_json: Jason.encode!(traffic_links),
+          mtr_overlays: mtr_overlays,
+          mtr_overlays_json: Jason.encode!(mtr_overlays)
+        }
+      end
+
+      def load_event_window(window) do
+        case ServiceRadarWebNGWeb.DashboardLive.EventWindow.load(window) do
+          {:ok, slice} -> slice
+          {:error, _reason} -> raise "Dashboard event window query failed"
+        end
+      end
+
+      defp load_netflow_map_legacy(_scope, opts) do
         time_window = Keyword.get(opts, :time_window, "last_24h")
 
         wave1 =

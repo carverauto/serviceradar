@@ -96,7 +96,11 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
 
     maybe_evaluate_stateful_rules(rows)
     EventsPubSub.broadcast_event(%{count: count})
-    {:ok, count}
+
+    case ServiceRadar.Analytics.StarRocks.Destination.persist_after_cnpg(:events, rows) do
+      {:ok, _} -> {:ok, count}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   # DB connection's search_path determines the schema

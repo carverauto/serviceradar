@@ -2503,6 +2503,35 @@ sweep:
 # SPIFFE Configuration (shared by all Elixir components)
 # =============================================================================
 
+# Opt-in StarRocks analytics. Disabled by default so demo/serviceradar stay
+# on CNPG until a dataset is explicitly cut over. Lab clusters run the
+# shared-nothing profile from k8s/starrocks/, not this chart.
+analytics:
+  starrocks:
+    enabled: false
+    # sharedNothing (durable BE disks) or sharedData (object storage + CN cache)
+    profile: sharedNothing
+    operatorChartVersion: "1.11.7"
+    imageTag: "3.5.21"
+    database: serviceradar
+    fe:
+      service: lab-fe-service.starrocks.svc
+      queryPort: 9030
+      httpPort: 8030
+    sharedData:
+      objectStorageBucket: ""
+      objectStorageEndpoint: ""
+    streamLoad:
+      maxRows: 50000
+      maxBytes: 33554432
+      maxAgeMs: 2000
+      maxInFlight: 4
+    # Shadow writes are opt-in per dataset. Cutover stays empty until
+    # coverage inventory + synthetic shadow parity pass. Current alert
+    # state is never listed here.
+    shadowDatasets: []
+    cutoverDatasets: []
+
 spiffe:
   mode: "filesystem"
   trustDomain: "serviceradar.local"

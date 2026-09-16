@@ -4880,27 +4880,42 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     {device_ids, if_indexes} = Enum.unzip(pairs)
     cutoff = DateTime.add(DateTime.utc_now(), -24, :hour)
 
-    case Repo.query(
-           """
-           WITH wanted(device_id, if_index) AS (
-             SELECT * FROM unnest($2::text[], $3::int[])
-           )
-           SELECT
-             m.device_id,
-             m.if_index,
-             m.metric_name,
-             time_bucket('15 minutes'::interval, m.timestamp) AS bucket,
-             MAX(m.value)::float8 AS value
-           FROM platform.timeseries_metrics m
-           INNER JOIN wanted w ON w.device_id = m.device_id AND w.if_index = m.if_index
-           WHERE m.timestamp >= $1
-             AND m.metric_name = ANY($4::text[])
-           GROUP BY m.device_id, m.if_index, m.metric_name, bucket
-           ORDER BY m.device_id, m.if_index, m.metric_name, bucket
-           """,
-           [cutoff, device_ids, if_indexes, @edge_sparkline_metrics]
-         ) do
+    result =
+      ServiceRadar.Analytics.StarRocks.MetricConsumers.fetch(
+        cnpg: fn ->
+          Repo.query(
+            """
+            WITH wanted(device_id, if_index) AS (
+              SELECT * FROM unnest($2::text[], $3::int[])
+            )
+            SELECT
+              m.device_id,
+              m.if_index,
+              m.metric_name,
+              time_bucket('15 minutes'::interval, m.timestamp) AS bucket,
+              MAX(m.value)::float8 AS value
+            FROM platform.timeseries_metrics m
+            INNER JOIN wanted w ON w.device_id = m.device_id AND w.if_index = m.if_index
+            WHERE m.timestamp >= $1
+              AND m.metric_name = ANY($4::text[])
+            GROUP BY m.device_id, m.if_index, m.metric_name, bucket
+            ORDER BY m.device_id, m.if_index, m.metric_name, bucket
+            """,
+            [cutoff, device_ids, if_indexes, @edge_sparkline_metrics]
+          )
+        end,
+        starrocks: fn ->
+          ServiceRadar.Analytics.StarRocks.MetricConsumers.sparkline_rows(pairs, cutoff)
+        end
+      )
+
+    case result do
       {:ok, %{rows: rows}} ->
+        rows
+        |> Enum.group_by(fn [device_id, if_index, _metric, _bucket, _value] -> {device_id, if_index} end)
+        |> Map.new(fn {key, grouped_rows} -> {key, build_interface_sparkline(grouped_rows)} end)
+
+      {:ok, rows} when is_list(rows) ->
         rows
         |> Enum.group_by(fn [device_id, if_index, _metric, _bucket, _value] -> {device_id, if_index} end)
         |> Map.new(fn {key, grouped_rows} -> {key, build_interface_sparkline(grouped_rows)} end)

@@ -13,6 +13,8 @@ defmodule ServiceRadarWebNG.SRQL do
     exports: :all
 
   alias Ecto.Adapters.SQL
+  alias ServiceRadar.Analytics.StarRocks.Query, as: StarRocksQuery
+  alias ServiceRadar.Analytics.StarRocks.Readers
   alias ServiceRadar.Repo
   alias ServiceRadarWebNG.SRQL.EntityAccess
   alias ServiceRadarWebNG.SRQL.Native
@@ -44,17 +46,20 @@ defmodule ServiceRadarWebNG.SRQL do
     mode = Map.get(opts, :mode)
     scope = Map.get(opts, :scope)
 
-    with :ok <- EntityAccess.authorize(query, scope),
-         {:ok, translation} <- translate(query, limit, cursor, direction, mode),
-         {:ok, result} <- execute_translation_raw(translation),
-         {:ok, payload} <- encode_result_arrow(result) do
-      {:ok,
-       %{
-         payload: payload,
-         schema: %{"columns" => result.columns},
-         pagination: build_pagination(translation, result.rows),
-         viz: extract_viz(translation)
-       }}
+    with :ok <- EntityAccess.authorize(query, scope) do
+      mode = resolve_backend_mode(query, mode)
+
+      with {:ok, translation} <- translate(query, limit, cursor, direction, mode),
+           {:ok, result} <- execute_backend_raw(translation, mode),
+           {:ok, payload} <- encode_result_arrow(result) do
+        {:ok,
+         %{
+           payload: payload,
+           schema: %{"columns" => result.columns},
+           pagination: build_pagination(translation, result.rows),
+           viz: extract_viz(translation)
+         }}
+      end
     end
   end
 
@@ -86,6 +91,8 @@ defmodule ServiceRadarWebNG.SRQL do
           denied
 
         :ok ->
+          mode = resolve_backend_mode(query, mode)
+
           if entity == "dashboards" do
             {:ok,
              %{
@@ -96,7 +103,7 @@ defmodule ServiceRadarWebNG.SRQL do
              }}
           else
             with {:ok, translation} <- translate(query, limit, cursor, direction, mode) do
-              execute_translation(Map.put(translation, "_query", query))
+              execute_backend(Map.put(translation, "_query", query), mode)
             end
           end
       end
@@ -122,6 +129,29 @@ defmodule ServiceRadarWebNG.SRQL do
       %{entity: entity, status: status}
     )
   end
+
+  defp resolve_backend_mode(_query, mode) when is_binary(mode) and mode != "", do: mode
+
+  defp resolve_backend_mode(query, _mode) do
+    query
+    |> extract_entity()
+    |> Readers.mode_for()
+  end
+
+  defp execute_backend(%{"sql" => sql} = translation, "starrocks") when is_binary(sql) do
+    case StarRocksQuery.execute(sql) do
+      {:ok, result} -> {:ok, build_response(translation, result)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp execute_backend(translation, _mode), do: execute_translation(translation)
+
+  defp execute_backend_raw(%{"sql" => sql}, "starrocks") when is_binary(sql) do
+    StarRocksQuery.execute(sql)
+  end
+
+  defp execute_backend_raw(translation, _mode), do: execute_translation_raw(translation)
 
   defp extract_entity(query) when is_binary(query) do
     query = String.trim(query)
@@ -266,7 +296,8 @@ defmodule ServiceRadarWebNG.SRQL do
   @doc false
   def session_setup_sql do
     "SELECT set_config('statement_timeout', $1, true), " <>
-      "set_config('plan_cache_mode', 'force_custom_plan', true)"
+      "set_config('plan_cache_mode', 'force_custom_plan', true), " <>
+      "set_config('jit', 'off', true)"
   end
 
   defp srql_query_timeout_ms do

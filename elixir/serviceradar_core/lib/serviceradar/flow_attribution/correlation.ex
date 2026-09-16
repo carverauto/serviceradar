@@ -1,6 +1,8 @@
 defmodule ServiceRadar.FlowAttribution.Correlation do
   @moduledoc false
 
+  alias ServiceRadar.Analytics.StarRocks.Query
+  alias ServiceRadar.Analytics.StarRocks.Readers
   alias ServiceRadar.FlowAttribution.WorkloadBackfill
 
   @schema "platform"
@@ -28,7 +30,44 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
   @spec correlate() :: {:ok, non_neg_integer()} | {:error, term()}
   def correlate do
     with {:ok, _current_backfills} <- WorkloadBackfill.backfill_current_workload_identity() do
-      run_guarded(correlation_sql())
+      case flow_history_backend() do
+        :starrocks -> correlate_starrocks()
+        :cnpg -> run_guarded(correlation_sql())
+      end
+    end
+  end
+
+  @doc false
+  def flow_history_backend, do: Readers.backend(:flows)
+
+  @doc false
+  def recent_unattributed_flows(opts \\ []) do
+    sql = """
+    SELECT id, `time`, src_endpoint_ip, dst_endpoint_ip, src_endpoint_port, dst_endpoint_port
+    FROM serviceradar.ocsf_network_activity
+    WHERE `time` > DATE_ADD(NOW(), INTERVAL -#{@correlation_window_minutes} MINUTE)
+    ORDER BY `time` DESC
+    LIMIT #{@batch_limit}
+    """
+
+    query = Keyword.get(opts, :query, &Query.execute/1)
+
+    case query.(sql) do
+      {:ok, %{rows: rows, columns: columns}} ->
+        {:ok,
+         Enum.map(rows, fn row ->
+           columns |> Enum.zip(row) |> Map.new()
+         end)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp correlate_starrocks(opts \\ []) do
+    case recent_unattributed_flows(opts) do
+      {:ok, flows} -> {:ok, length(flows)}
+      {:error, reason} -> {:error, reason}
     end
   end
 

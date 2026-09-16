@@ -1,0 +1,9 @@
+filegroup(
+    name = "cluster_files",
+    srcs = [
+        "README.md",
+        "values-cluster.yaml",
+        "values.yaml",
+    ],
+    visibility = ["//visibility:public"],
+)

@@ -1,0 +1,25 @@
+-- StarRocks primary-key table for migrated event / alert history.
+-- Current alert state remains in CNPG and is not written here.
+-- Applied by the Bazel schema target, not Mix/Postgres migrations.
+CREATE DATABASE IF NOT EXISTS serviceradar;
+
+CREATE TABLE IF NOT EXISTS serviceradar.events (
+  id VARCHAR(64) NOT NULL,
+  `time` DATETIME NOT NULL,
+  class_uid INT,
+  category_uid INT,
+  type_uid INT,
+  activity_id INT,
+  severity_id INT,
+  severity VARCHAR(32),
+  source VARCHAR(256),
+  src_endpoint_ip VARCHAR(64),
+  firewall_rule_name VARCHAR(256),
+  source_type VARCHAR(64)
+)
+PRIMARY KEY (id)
+DISTRIBUTED BY HASH(id) BUCKETS 16
+PROPERTIES (
+  "replication_num" = "3",
+  "enable_persistent_index" = "true"
+);

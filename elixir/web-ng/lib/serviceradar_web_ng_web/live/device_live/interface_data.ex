@@ -687,19 +687,29 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
   end
 
   defp cheap_snmp_present?(device_uid) when is_binary(device_uid) and device_uid != "" do
-    interpret_exists(fn ->
-      Repo.query(
-        """
-        SELECT 1
-        FROM platform.timeseries_metrics
-        WHERE device_id = $1
-          AND metric_type = 'snmp'
-          AND timestamp > now() - interval '24 hours'
-        LIMIT 1
-        """,
-        [device_uid]
-      )
-    end)
+    ServiceRadar.Analytics.StarRocks.MetricConsumers.fetch(
+      cnpg: fn ->
+        interpret_exists(fn ->
+          Repo.query(
+            """
+            SELECT 1
+            FROM platform.timeseries_metrics
+            WHERE device_id = $1
+              AND metric_type = 'snmp'
+              AND timestamp > now() - interval '24 hours'
+            LIMIT 1
+            """,
+            [device_uid]
+          )
+        end)
+      end,
+      starrocks: fn ->
+        case ServiceRadar.Analytics.StarRocks.MetricConsumers.snmp_present?(device_uid) do
+          {:ok, present} -> {:ok, present}
+          {:error, _reason} -> :error
+        end
+      end
+    )
   end
 
   defp cheap_snmp_present?(_device_uid), do: {:ok, false}

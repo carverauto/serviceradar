@@ -118,7 +118,11 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
     if Enum.empty?(rows) do
       {:ok, 0}
     else
-      insert_netflow_rows(rows)
+      ServiceRadar.Analytics.StarRocks.Destination.ack_cnpg_batch(
+        :flows,
+        rows,
+        &insert_netflow_rows/1
+      )
     end
   end
 

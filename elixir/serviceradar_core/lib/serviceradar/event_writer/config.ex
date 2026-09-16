@@ -469,6 +469,14 @@ defmodule ServiceRadar.EventWriter.Config do
   def default_streams do
     [
       %{
+        name: "FLOW_ATTRIBUTION",
+        stream_name: "events",
+        subject: "events.flow.attribution",
+        processor: ServiceRadar.EventWriter.Processors.FlowAttributionUpdates,
+        batch_size: 100,
+        batch_timeout: 1_000
+      },
+      %{
         name: "EVENTS",
         stream_name: "events",
         subject: "events.>",

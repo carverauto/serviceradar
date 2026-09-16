@@ -35,6 +35,7 @@ defmodule ServiceRadarWebNG.SRQLPlanCacheModeTest do
       # the pooled connection. A `false` is_local here would be a leak.
       refute sql =~ ~r/set_config\([^)]*,\s*false\)/
       assert sql =~ ~r/set_config\('plan_cache_mode',\s*'force_custom_plan',\s*true\)/
+      assert sql =~ ~r/set_config\('jit',\s*'off',\s*true\)/
     end
   end
 

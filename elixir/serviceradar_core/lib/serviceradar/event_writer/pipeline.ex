@@ -491,6 +491,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
       {:otel_traces, &String.starts_with?(&1, "otel.traces")},
       {:metrics, &String.starts_with?(&1, "metrics.")},
       {:logs, &String.starts_with?(&1, "logs.")},
+      {:flow_attribution, &String.starts_with?(&1, "events.flow.attribution")},
       {:events, &String.starts_with?(&1, "events.")},
       {:telemetry, &String.starts_with?(&1, "telemetry.")},
       # Catch-all before specific prefixes are unnecessary: every raw-flow
@@ -552,6 +553,10 @@ defmodule ServiceRadar.EventWriter.Pipeline do
 
   defp get_processor(:otel_metrics), do: ServiceRadar.EventWriter.Processors.OtelMetrics
   defp get_processor(:otel_traces), do: ServiceRadar.EventWriter.Processors.OtelTraces
+
+  defp get_processor(:flow_attribution),
+    do: ServiceRadar.EventWriter.Processors.FlowAttributionUpdates
+
   defp get_processor(:events), do: Events
   defp get_processor(:pdns_ocsf), do: PowerDNS
   defp get_processor(:falco), do: ServiceRadar.EventWriter.Processors.FalcoEvents

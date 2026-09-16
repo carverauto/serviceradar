@@ -137,14 +137,26 @@ defmodule ServiceRadar.Observability.NetflowExporterCacheRefreshWorker do
   defp positive_integer_or(value, _default) when is_integer(value) and value > 0, do: value
   defp positive_integer_or(_value, default), do: default
 
-  defp discover_sampler_addresses(scan_window_seconds, limit)
-       when is_integer(scan_window_seconds) and scan_window_seconds > 0 and is_integer(limit) and
-              limit > 0 do
+  @doc false
+  def discover_sampler_addresses(scan_window_seconds, limit, opts \\ [])
+
+  def discover_sampler_addresses(scan_window_seconds, limit, opts)
+      when is_integer(scan_window_seconds) and scan_window_seconds > 0 and is_integer(limit) and
+             limit > 0 do
     since =
       DateTime.utc_now()
       |> DateTime.add(-scan_window_seconds, :second)
       |> DateTime.truncate(:second)
 
+    ServiceRadar.Analytics.StarRocks.Readers.fetch(:flows, %{
+      cnpg: fn -> cnpg_sampler_addresses(since, limit) end,
+      starrocks: fn -> starrocks_sampler_addresses(since, limit, opts) end
+    })
+  end
+
+  def discover_sampler_addresses(_scan_window_seconds, _limit, _opts), do: []
+
+  defp cnpg_sampler_addresses(since, limit) do
     query =
       from(f in "ocsf_network_activity",
         prefix: "platform",
@@ -164,7 +176,33 @@ defmodule ServiceRadar.Observability.NetflowExporterCacheRefreshWorker do
     |> Enum.uniq()
   end
 
-  defp discover_sampler_addresses(_scan_window_seconds, _limit), do: []
+  defp starrocks_sampler_addresses(since, limit, opts) do
+    iso = DateTime.to_iso8601(since)
+
+    sql =
+      "SELECT DISTINCT sampler_address FROM serviceradar.ocsf_network_activity " <>
+        "WHERE sampler_address IS NOT NULL AND sampler_address != '' " <>
+        "AND `time` >= '#{iso}' LIMIT #{limit}"
+
+    query = Keyword.get(opts, :query, &ServiceRadar.Analytics.StarRocks.Query.execute/1)
+
+    case query.(sql) do
+      {:ok, %{rows: rows}} ->
+        rows
+        |> Enum.map(fn
+          [address | _] -> address
+          address when is_binary(address) -> address
+          _ -> nil
+        end)
+        |> Enum.map(&to_string/1)
+        |> Enum.map(&String.trim/1)
+        |> Enum.reject(&(&1 == ""))
+        |> Enum.uniq()
+
+      _ ->
+        []
+    end
+  end
 
   defp load_devices_by_ip([], _actor), do: %{}
 
