@@ -143,6 +143,26 @@ class StarRocksAnalyticsPinsTest(unittest.TestCase):
         )
         self.assertIn("`partition` VARCHAR(128)", (SCHEMA_DIR / "0002_timeseries_metrics.sql").read_text())
 
+    def test_compose_keeps_collector_off_and_profiles_starrocks(self):
+        compose = (REPO_ROOT / "docker-compose.yml").read_text()
+        self.assertIn("container_name: serviceradar-starrocks", compose)
+        self.assertIn("starrocks/allin1-ubuntu:3.5.21", compose)
+        self.assertIn("SERVICERADAR_STARROCKS_ENABLED=${STARROCKS_ENABLED:-false}", compose)
+        self.assertIn("--profile starrocks", compose)
+        self.assertIn("--profile flows", compose)
+        flow_idx = compose.find("  flow-collector:")
+        star_idx = compose.find("  starrocks:")
+        self.assertGreater(flow_idx, 0)
+        self.assertGreater(star_idx, 0)
+        flow_block = compose[flow_idx : flow_idx + 1600]
+        self.assertIn("- flows", flow_block)
+        self.assertIn("- network-ingest", flow_block)
+        self.assertNotIn("- starrocks", flow_block)
+        self.assertIn("starrocks:", flow_block)
+        star_block = compose[star_idx : star_idx + 700]
+        self.assertIn("- starrocks", star_block)
+        self.assertIn("- flows", star_block)
+
     def test_demo_overlay_enables_catalog_not_cutover(self):
         self.assertIn("enabled: true", VALUES_DEMO)
         self.assertIn("secretName: serviceradar-starrocks-catalog", VALUES_DEMO)

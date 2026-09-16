@@ -69,6 +69,20 @@ Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) and en
 By default, Compose pulls `latest` tags. Set `APP_TAG` when you need a pinned release or commit.
 To default to the dev compose overlay (no `-f`), set `COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml` in `.env`.
 
+The default stack does **not** start StarRocks or the NetFlow collector. Logs
+stay on CNPG hypertables. Optional profiles:
+
+```bash
+# Warehouse only (metrics/logs/events shadow). No flow collector.
+STARROCKS_ENABLED=true docker compose --profile starrocks up -d
+
+# Warehouse + NetFlow/sFlow collector.
+STARROCKS_ENABLED=true docker compose --profile flows up -d
+```
+
+`flow-collector` stays off unless you pass `--profile flows` or
+`--profile network-ingest`. NetFlow requires the StarRocks warehouse.
+
 5. **Get your admin password**:
    ```bash
    docker compose logs config-updater | grep "Password:"

@@ -94,6 +94,7 @@ py_test(
         "templates/flow-collector.yaml",
         "values.yaml",
         "values-demo.yaml",
+        "//:docker-compose.yml",
         "//k8s/starrocks:cluster_files",
         "//elixir/serviceradar_core/priv/starrocks:schema_sql",
         "//third_party/jdbc:postgresql.pin",
