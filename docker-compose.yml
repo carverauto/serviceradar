@@ -440,6 +440,14 @@ services:
       - NATS_TLS=true
       - NATS_SERVER_NAME=nats.serviceradar
       - NATS_CREDS_FILE=/etc/serviceradar/creds/platform.creds
+      # StarRocks warehouse. Default off so Compose without --profile starrocks
+      # keeps logs on CNPG. Set STARROCKS_ENABLED=true with that profile.
+      - SERVICERADAR_STARROCKS_ENABLED=${STARROCKS_ENABLED:-false}
+      - SERVICERADAR_STARROCKS_FE_HTTP=${STARROCKS_FE_HTTP:-http://starrocks:8030}
+      - SERVICERADAR_STARROCKS_DATABASE=${STARROCKS_DATABASE:-serviceradar}
+      - SERVICERADAR_STARROCKS_SHADOW_DATASETS=${STARROCKS_SHADOW_DATASETS:-}
+      - SERVICERADAR_STARROCKS_CUTOVER_DATASETS=${STARROCKS_CUTOVER_DATASETS:-}
+      - SERVICERADAR_STARROCKS_CATALOG_ENABLED=${STARROCKS_CATALOG_ENABLED:-false}
       # OpenTelemetry
       - OTEL_EXPORTER_OTLP_ENDPOINT=https://log-collector:4317
       - OTEL_EXPORTER_OTLP_TIMEOUT_MS=${OTEL_EXPORTER_OTLP_TIMEOUT_MS:-30000}
@@ -718,10 +726,35 @@ services:
       - serviceradar-net
     restart: unless-stopped
 
+  # Optional StarRocks warehouse. Off in the default stack (logs/metrics stay
+  # on CNPG hypertables). `--profile starrocks` starts the warehouse without
+  # NetFlow. `--profile flows` and `--profile network-ingest` include it
+  # because NetFlow history is stored in StarRocks. Set
+  # STARROCKS_ENABLED=true in the environment when using those profiles.
+  starrocks:
+    image: starrocks/allin1-ubuntu:3.5.21
+    container_name: serviceradar-starrocks
+    hostname: starrocks
+    profiles:
+      - starrocks
+      - flows
+      - network-ingest
+    ports:
+      - "8030:8030"
+      - "9030:9030"
+      - "8040:8040"
+    volumes:
+      - starrocks-data:/data
+      - ./logs:/opt/starrocks/logs
+    networks:
+      - serviceradar-net
+    restart: unless-stopped
+
   # Optional network-ingest collectors are disabled in the default compose stack.
   # Enable all with `docker compose --profile network-ingest up -d`, or enable
   # individual collectors with `--profile snmp-traps`, `--profile flows`, or
-  # `--profile bmp`.
+  # `--profile bmp`. `--profile flows` also starts StarRocks. The collector
+  # itself stays off unless that profile is selected.
   trapd:
     image: registry.carverauto.dev/serviceradar/serviceradar-trapd:${APP_TAG:-latest}
     container_name: serviceradar-trapd-mtls
@@ -779,6 +812,8 @@ services:
       - NET_BIND_SERVICE
     depends_on:
       nats:
+        condition: service_started
+      starrocks:
         condition: service_started
     networks:
       - serviceradar-net
@@ -991,6 +1026,12 @@ services:
       - SERVICERADAR_GATEWAY_ADDR=${SERVICERADAR_GATEWAY_ADDR:-${SERVICERADAR_HOST:-localhost}:50052}
       - NATS_URL=${NATS_URL:-nats://nats:4222}
       - CORE_ADDRESS=${CORE_ADDRESS:-core-elx:50052}
+      - SERVICERADAR_STARROCKS_ENABLED=${STARROCKS_ENABLED:-false}
+      - SERVICERADAR_STARROCKS_FE_HTTP=${STARROCKS_FE_HTTP:-http://starrocks:8030}
+      - SERVICERADAR_STARROCKS_DATABASE=${STARROCKS_DATABASE:-serviceradar}
+      - SERVICERADAR_STARROCKS_SHADOW_DATASETS=${STARROCKS_SHADOW_DATASETS:-}
+      - SERVICERADAR_STARROCKS_CUTOVER_DATASETS=${STARROCKS_CUTOVER_DATASETS:-}
+      - SERVICERADAR_STARROCKS_CATALOG_ENABLED=${STARROCKS_CATALOG_ENABLED:-false}
       - CLUSTER_ENABLED=true
       - CLUSTER_STRATEGY=epmd
       - CLUSTER_HOSTS=serviceradar_agent_gateway@agent-gateway,serviceradar_core@core-elx,serviceradar_agent_gateway_t2@agent-gateway-t2
@@ -1130,6 +1171,8 @@ volumes:
   log-collector-data:
   trapd-data:
   flow-data:
+  starrocks-data:
+    name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_starrocks-data"
   bmp-data:
   coldtier-minio-data:
     name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_coldtier-minio-data"

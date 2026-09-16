@@ -75,8 +75,15 @@ Send NetFlow to `<FLOW_COLLECTOR_ADDRESS>:2055/UDP` and sFlow to `<FLOW_COLLECTO
 
 **Docker Compose:**
 
-The shipped Compose stack enables the flow, trap, and BMP collectors together
-with `docker compose --profile network-ingest up -d`. Its bounded JetStream
+The shipped Compose stack leaves the flow collector off unless you pass
+`--profile flows` or `--profile network-ingest`. Those profiles also start
+the StarRocks warehouse (`starrocks/allin1-ubuntu:3.5.21`); set
+`STARROCKS_ENABLED=true` so EventWriter shadows telemetry. `--profile starrocks`
+starts the warehouse without the collector. NetFlow without StarRocks is not
+supported.
+
+The trap, flow, and BMP collectors together start with
+`docker compose --profile network-ingest up -d`. Its bounded JetStream
 reservations are KV 2 GiB + objects 2 GiB + events 2 GiB + flows 1 GiB + BMP
 128 MiB = 7.125 GiB. That leaves 896 MiB of account headroom under the generated
 8 GiB platform-account quota, which itself stays below the NATS server's 10G
