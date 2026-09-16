@@ -5,6 +5,15 @@ defmodule ServiceRadar.Repo.Migrations.RepairFlowTrafficRefreshPolicies do
   @disable_ddl_transaction true
   @disable_migration_lock true
 
+  # serviceradar:allow-startup-maintenance
+  # Repair two invalid refresh-policy definitions and initialize their empty
+  # dependent views. This uses scalar traffic aggregates, not per-device or raw
+  # telemetry: less than 30 days contains at most 8,640 five-minute rows and 720
+  # hourly rows. Fresh installs have no source rows and skip initialization;
+  # existing operator schedules and history outside child coverage are retained.
+  # Skip operator-enabled real-time sources so startup never reads their raw
+  # branches, without changing the operator's materialization setting.
+
   def up do
     # The original one-bucket windows were rejected by Timescale. Their errors
     # were swallowed, leaving WITH NO DATA views without a refresh policy.
@@ -68,33 +77,43 @@ defmodule ServiceRadar.Repo.Migrations.RepairFlowTrafficRefreshPolicies do
         "platform." <> source
       ])
 
-    case relations.rows do
-      [[view_name, source_name]] when is_binary(view_name) and is_binary(source_name) ->
-        %{rows: [[start_at, end_at]]} =
-          repo().query!("""
-          SELECT CASE WHEN min(bucket) IS NOT NULL THEN GREATEST(
-                   date_trunc('day', now(), 'UTC') - INTERVAL '29 days',
-                   CASE WHEN min(bucket) = date_trunc('#{unit}', min(bucket), 'UTC')
-                     THEN min(bucket)
-                     ELSE date_trunc('#{unit}', min(bucket), 'UTC') + INTERVAL '1 #{unit}'
-                   END) END,
-                 LEAST(date_trunc('#{unit}', now(), 'UTC'),
-                   date_trunc('#{unit}', max(bucket) + INTERVAL '#{source_width}', 'UTC'))
-            FROM platform.#{source}
-          """)
+    with [[view_name, source_name]] when is_binary(view_name) and is_binary(source_name) <-
+           relations.rows,
+         %{rows: [[true]]} <-
+           repo().query!(
+             """
+             SELECT materialized_only
+               FROM timescaledb_information.continuous_aggregates
+              WHERE view_schema = 'platform' AND view_name = $1
+             """,
+             [source]
+           ) do
+      %{rows: [[start_at, end_at]]} =
+        repo().query!("""
+        SELECT CASE WHEN min(bucket) IS NOT NULL THEN GREATEST(
+                 date_trunc('day', now(), 'UTC') - INTERVAL '29 days',
+                 CASE WHEN min(bucket) = date_trunc('#{unit}', min(bucket), 'UTC')
+                   THEN min(bucket)
+                   ELSE date_trunc('#{unit}', min(bucket), 'UTC') + INTERVAL '1 #{unit}'
+                 END) END,
+               LEAST(date_trunc('#{unit}', now(), 'UTC'),
+                 date_trunc('#{unit}', max(bucket) + INTERVAL '#{source_width}', 'UTC'))
+          FROM platform.#{source}
+         WHERE bucket >= date_trunc('day', now(), 'UTC') - INTERVAL '29 days'
+           AND bucket < date_trunc('#{unit}', now(), 'UTC')
+        """)
 
-        if start_at && DateTime.before?(start_at, end_at) do
-          execute("""
-          CALL refresh_continuous_aggregate('platform.#{view}',
-            '#{DateTime.to_iso8601(start_at)}'::timestamptz,
-            '#{DateTime.to_iso8601(end_at)}'::timestamptz)
-          """)
+      if start_at && DateTime.before?(start_at, end_at) do
+        execute("""
+        CALL refresh_continuous_aggregate('platform.#{view}',
+          '#{DateTime.to_iso8601(start_at)}'::timestamptz,
+          '#{DateTime.to_iso8601(end_at)}'::timestamptz)
+        """)
 
-          flush()
-        end
-
-      _ ->
-        :ok
+        flush()
+      end
+    else
+      _ -> :ok
     end
   end
 

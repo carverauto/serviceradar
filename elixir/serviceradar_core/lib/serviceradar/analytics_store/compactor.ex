@@ -46,13 +46,47 @@ defmodule ServiceRadar.AnalyticsStore.Compactor do
 
   def run(_table, _opts), do: {:error, :unsupported_compaction_table}
 
+  @doc "Rewrite one unsorted legacy metric file without changing the scheduled compaction budget."
+  def rewrite_file(table, manifest_id, opts \\ [])
+
+  def rewrite_file(@table, manifest_id, _opts)
+      when not is_integer(manifest_id) or manifest_id <= 0,
+      do: {:error, :invalid_rewrite_manifest_id}
+
+  def rewrite_file(@table = table, manifest_id, opts) do
+    cfg = Keyword.get_lazy(opts, :config, &Config.load/0)
+    source = Keyword.get(opts, :source, &FileManifest.rewrite_source/3)
+    replace = Keyword.get(opts, :replace_rewrite, &FileManifest.replace_rewrite/3)
+
+    if Config.driver_for(cfg, table) == :hybrid do
+      with {:ok, source} <- source.(table, manifest_id, opts),
+           :ok <- ManifestCompaction.validate_rewrite_source(source, opts),
+           attrs = candidate_attrs([source], "rewrite"),
+           :ok <- ManifestCompaction.validate_rewrite(source, attrs, opts) do
+        rewrite_candidate(cfg, [source], attrs, opts, fn [source], attrs, opts ->
+          replace.(source, attrs, opts)
+        end)
+      end
+    else
+      {:error, :rewrite_requires_hybrid}
+    end
+  end
+
+  def rewrite_file(_table, _manifest_id, _opts), do: {:error, :unsupported_compaction_table}
+
   defp compact(cfg, sources, opts) do
-    attrs = candidate_attrs(sources)
-    session = Keyword.get(opts, :session, &Head.session/2)
+    attrs = candidate_attrs(sources, "compact")
     replace = Keyword.get(opts, :replace_sources, &FileManifest.replace_sources/3)
 
-    with :ok <- ManifestCompaction.validate_replacement(sources, attrs),
-         :ok <- validate_source_keys(sources),
+    with :ok <- ManifestCompaction.validate_replacement(sources, attrs) do
+      rewrite_candidate(cfg, sources, attrs, opts, replace)
+    end
+  end
+
+  defp rewrite_candidate(cfg, sources, attrs, opts, replace) do
+    session = Keyword.get(opts, :session, &Head.session/2)
+
+    with :ok <- validate_source_keys(sources),
          {:ok, urls} <- source_urls(cfg, sources),
          {:ok, target} <- Storage.copy_target(cfg, attrs.object_key),
          {:ok, {:ok, verification}} <-
@@ -66,8 +100,8 @@ defmodule ServiceRadar.AnalyticsStore.Compactor do
     end
   end
 
-  defp candidate_attrs([first | _] = sources) do
-    keys = Layout.candidate_keys(@table, first.partition_date, "compact", Ecto.UUID.generate())
+  defp candidate_attrs([first | _] = sources, purpose) do
+    keys = Layout.candidate_keys(@table, first.partition_date, purpose, Ecto.UUID.generate())
 
     %{
       table_name: @table,

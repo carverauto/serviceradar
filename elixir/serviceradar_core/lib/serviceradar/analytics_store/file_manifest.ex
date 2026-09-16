@@ -127,6 +127,12 @@ defmodule ServiceRadar.AnalyticsStore.FileManifest do
   @doc "Publish a verified compacted object and retire its unchanged source snapshot atomically."
   defdelegate replace_sources(sources, attrs, opts \\ []), to: ManifestCompaction
 
+  @doc "Read one eligible legacy metric file for an explicit sorted rewrite."
+  defdelegate rewrite_source(table, manifest_id, opts \\ []), to: ManifestCompaction
+
+  @doc "Publish a verified single-file rewrite and retain its original manifest lineage."
+  defdelegate replace_rewrite(source, attrs, opts \\ []), to: ManifestCompaction
+
   @doc "Bounded, same-day files eligible for compaction; excludes recently published objects."
   defdelegate compaction_candidates(table, opts \\ []), to: ManifestCompaction
 

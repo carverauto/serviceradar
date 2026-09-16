@@ -348,7 +348,7 @@ SERIAL_INTEGRATION_SELECTED_TEST_COUNTS = {
     "test/serviceradar/agent_config/dependency_catalog_test.exs": 19,
     "test/serviceradar/agent_tracker_test.exs": 1,
     "test/serviceradar/analytics_store/delivery_receipt_db_test.exs": 13,
-    "test/serviceradar/analytics_store/manifest_compaction_db_test.exs": 10,
+    "test/serviceradar/analytics_store/manifest_compaction_db_test.exs": 13,
     "test/serviceradar/automation/ansible/awx_inventory_observation_fence_db_test.exs": 6,
     "test/serviceradar/automation/ansible/awx_membership_reconciler_db_test.exs": 1,
     "test/serviceradar/automation/ansible/callback_launch_orchestrator_db_test.exs": 2,

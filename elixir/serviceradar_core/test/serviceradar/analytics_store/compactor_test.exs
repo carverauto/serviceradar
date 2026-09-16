@@ -28,6 +28,8 @@ defmodule ServiceRadar.AnalyticsStore.CompactorTest do
         row_count: 2,
         min_timestamp: @time,
         max_timestamp: DateTime.add(@time, 30),
+        inserted_at: @time,
+        content_checksum: "synthetic-legacy-checksum",
         status: :published
       },
       changes
@@ -203,6 +205,128 @@ defmodule ServiceRadar.AnalyticsStore.CompactorTest do
     changeset = CompactionWorker.new(%{table: @table})
     assert Ecto.Changeset.get_field(changeset, :queue) == "analytics_archive"
     assert Ecto.Changeset.get_field(changeset, :priority) == 3
+  end
+
+  test "explicit large-file rewrite preserves all rows with the same sorted and verified IO path" do
+    rows = 7_000_003
+    source = source(1, %{row_count: rows})
+    check = check(%{"row_count" => rows})
+
+    opts =
+      rewrite_options(source,
+        query: query(source_check: check, target_check: check),
+        replace_rewrite: fn ^source, attrs, _ ->
+          send(self(), {:rewritten, attrs})
+          :ok
+        end
+      )
+
+    assert {:ok, %{source_files: 1, row_count: ^rows}} = Compactor.rewrite_file(@table, 1, opts)
+    assert_received {:rewritten, attrs}
+    assert attrs.row_count == rows
+    assert attrs.object_key =~ "/rewrite-"
+    assert attrs.staging_key == attrs.object_key
+    assert attrs.content_checksum =~ ~r/\Arow-hash-v1:[0-9a-f]{64}\z/
+    assert attrs.archive_batch_id == nil
+    sql = drain_sql()
+    assert Enum.count(sql, &String.contains?(&1, "CREATE TEMP TABLE")) == 1
+    assert Enum.count(sql, &String.contains?(&1, "COPY (")) == 1
+    assert Enum.any?(sql, &String.contains?(&1, "statement_timeout = '120000'"))
+    assert Enum.any?(sql, &String.contains?(&1, "ORDER BY device_id, metric_name, timestamp"))
+    refute Enum.any?(sql, &String.contains?(&1, ["DISTINCT", "ROW_NUMBER", "date=*"]))
+  end
+
+  test "explicit rewrite rejects unsuitable snapshots before opening the head" do
+    for source <- [
+          nil,
+          source(1, %{status: :superseded}),
+          source(1, %{status: :expired}),
+          source(1, %{row_count: 10_000_001}),
+          source(1, %{min_timestamp: nil}),
+          source(1, %{max_timestamp: DateTime.add(@time, 86_400)}),
+          source(1, %{inserted_at: DateTime.add(@time, 3599)}),
+          source(1, %{content_checksum: "row-hash-v1:" <> String.duplicate("a", 64)}),
+          source(1, %{object_key: "analytics/v1/#{@table}/date=*/*.parquet"})
+        ] do
+      assert {:error, _} = Compactor.rewrite_file(@table, 1, rewrite_options(source))
+      refute_received :session
+    end
+  end
+
+  test "explicit rewrite requires hybrid and propagates missing or stale publication errors" do
+    opts = rewrite_options(source(1))
+
+    for driver <- [:timescale, :pg_duckdb] do
+      assert {:error, :rewrite_requires_hybrid} =
+               Compactor.rewrite_file(
+                 @table,
+                 1,
+                 Keyword.put(opts, :config, %{cfg() | driver: driver})
+               )
+    end
+
+    assert {:error, :invalid_rewrite_source} =
+             Compactor.rewrite_file(
+               @table,
+               1,
+               Keyword.put(opts, :source, fn _, _, _ -> {:error, :invalid_rewrite_source} end)
+             )
+
+    refute_received :session
+
+    two_rows = check(%{"row_count" => 2})
+
+    assert {:error, :compaction_sources_changed} =
+             Compactor.rewrite_file(
+               @table,
+               1,
+               rewrite_options(source(1),
+                 query: query(source_check: two_rows, target_check: two_rows),
+                 replace_rewrite: fn _, _, _ -> {:error, :compaction_sources_changed} end
+               )
+             )
+  end
+
+  test "invalid rewrite IDs fail before loading a source or opening the head" do
+    opts = options(source: fn _, _, _ -> flunk("invalid ID reached manifest lookup") end)
+
+    for id <- [nil, 0, -1, "1", 1.0] do
+      assert {:error, :invalid_rewrite_manifest_id} = Compactor.rewrite_file(@table, id, opts)
+    end
+
+    refute_received :session
+  end
+
+  test "explicit rewrite retains head-idle and full-row verification gates" do
+    source = source(1)
+
+    assert {:error, :analytics_head_busy} =
+             Compactor.rewrite_file(@table, 1, rewrite_options(source, query: query(active: 2)))
+
+    refute Enum.any?(drain_sql(), &String.contains?(&1, "read_parquet"))
+    two_rows = check(%{"row_count" => 2})
+
+    for changed <- [%{"hash_xor" => "1"}, %{"hash_sum" => "2"}, %{"row_count" => 1}] do
+      assert {:error, :compaction_verification_mismatch} =
+               Compactor.rewrite_file(
+                 @table,
+                 1,
+                 rewrite_options(source,
+                   query:
+                     query(source_check: two_rows, target_check: Map.merge(two_rows, changed)),
+                   replace_rewrite: fn _, _, _ -> flunk("unverified rewrite published") end
+                 )
+               )
+    end
+  end
+
+  defp rewrite_options(source, overrides \\ []) do
+    options(
+      Keyword.merge(
+        [now: DateTime.add(@time, 3600), source: fn @table, 1, _ -> {:ok, source} end],
+        overrides
+      )
+    )
   end
 
   defp drain_sql(acc \\ []) do

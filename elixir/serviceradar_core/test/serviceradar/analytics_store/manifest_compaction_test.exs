@@ -90,6 +90,88 @@ defmodule ServiceRadar.AnalyticsStore.ManifestCompactionTest do
     end
   end
 
+  test "single-file rewrite has an explicit ten-million-row budget without weakening compaction" do
+    source = source(1, 10_000_000)
+    target = %{target() | row_count: source.row_count}
+    opts = [now: ~U[2001-01-03 00:00:00Z]]
+
+    assert :ok = ManifestCompaction.validate_rewrite(source, target, opts)
+
+    assert {:error, :invalid_compaction_sources} =
+             ManifestCompaction.validate_replacement([source], target)
+
+    assert {:error, :compaction_candidate_mismatch} =
+             ManifestCompaction.validate_replacement([source, source(2, 1)], %{
+               target
+               | row_count: 10_000_001
+             })
+
+    assert {:error, :invalid_rewrite_source} =
+             ManifestCompaction.validate_rewrite(%{source | row_count: 10_000_001}, target, opts)
+
+    for changed <- [
+          %{target | row_count: source.row_count - 1},
+          %{target | min_timestamp: ~U[2001-01-02 00:00:01Z]},
+          %{target | staging_key: source.object_key}
+        ] do
+      assert {:error, :compaction_candidate_mismatch} =
+               ManifestCompaction.validate_rewrite(source, changed, opts)
+    end
+  end
+
+  test "single-file rewrite requires a closed known UTC day and excludes already sorted sources" do
+    source = source(1, 2)
+    opts = [now: ~U[2001-01-02 00:20:00Z]]
+    assert :ok = ManifestCompaction.validate_rewrite_source(source, opts)
+
+    boundary = %{
+      source
+      | max_timestamp: ~U[2001-01-02 00:10:00Z],
+        inserted_at: ~U[2001-01-02 00:10:00Z]
+    }
+
+    assert :ok = ManifestCompaction.validate_rewrite_source(boundary, opts)
+
+    for changed <- [
+          %{source | id: nil},
+          %{source | id: 0},
+          %{source | table_name: "logs"},
+          %{source | status: :superseded},
+          %{source | min_timestamp: nil},
+          %{source | min_timestamp: ~U[2001-01-02 00:02:00Z]},
+          %{source | max_timestamp: ~U[2001-01-03 00:00:00Z]},
+          %{source | max_timestamp: ~U[2001-01-02 00:10:01Z]},
+          %{source | inserted_at: ~U[2001-01-02 00:10:01Z]},
+          %{source | inserted_at: nil}
+        ] do
+      assert {:error, :invalid_rewrite_source} =
+               ManifestCompaction.validate_rewrite_source(changed, opts)
+    end
+
+    assert {:error, :rewrite_source_already_sorted} =
+             ManifestCompaction.validate_rewrite_source(
+               %{source | content_checksum: "row-hash-v1:synthetic"},
+               opts
+             )
+
+    assert {:error, :invalid_rewrite_source} =
+             ManifestCompaction.validate_rewrite_source(nil, opts)
+  end
+
+  test "single-file publication rejects an unverified target before reaching the database" do
+    source = source(1, 5)
+
+    assert {:error, :unverified_rewrite_candidate} =
+             ManifestCompaction.replace_rewrite(source, target(), now: ~U[2001-01-03 00:00:00Z])
+  end
+
+  test "invalid rewrite lookup IDs fail before querying the catalog" do
+    for id <- [nil, 0, -1, "1", 1.0] do
+      assert {:error, :invalid_rewrite_manifest_id} =
+               ManifestCompaction.rewrite_source("timeseries_metrics", id)
+    end
+  end
+
   defp source(id, rows) do
     %FileManifest{
       id: id,
@@ -101,6 +183,7 @@ defmodule ServiceRadar.AnalyticsStore.ManifestCompactionTest do
       row_count: rows,
       min_timestamp: ~U[2001-01-02 00:00:00Z],
       max_timestamp: ~U[2001-01-02 00:01:00Z],
+      inserted_at: ~U[2001-01-02 00:00:00Z],
       status: :published
     }
   end

@@ -1,6 +1,7 @@
 mod bind;
 mod fields;
 mod filters;
+mod flow_dimensions;
 mod row;
 mod sql;
 

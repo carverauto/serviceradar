@@ -31,6 +31,7 @@ defmodule ServiceRadar.AnalyticsStore.ManifestCompaction do
   ]
   @max_sources 256
   @max_rows 500_000
+  @max_rewrite_rows 10_000_000
   @reader_grace_seconds 86_400
 
   @doc "Minimum grace before deleting objects retired by a manifest replacement."
@@ -88,42 +89,124 @@ defmodule ServiceRadar.AnalyticsStore.ManifestCompaction do
 
   def replace_sources(sources, attrs, opts \\ []) do
     with :ok <- validate_replacement(sources, attrs) do
-      now = Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
-      ids = Enum.map(sources, & &1.id)
+      publish_replacement(sources, attrs, opts)
+    end
+  end
+
+  def rewrite_source(table, manifest_id, opts \\ [])
+
+  def rewrite_source(_table, manifest_id, _opts)
+      when not is_integer(manifest_id) or manifest_id <= 0,
+      do: {:error, :invalid_rewrite_manifest_id}
+
+  def rewrite_source(table, manifest_id, opts) do
+    with {:ok, source} <-
+           FileManifest
+           |> Ash.Query.for_read(:read)
+           |> Ash.Query.filter(table_name == ^table and id == ^manifest_id)
+           |> Ash.read_one(actor: actor()),
+         :ok <- validate_rewrite_source(source, opts) do
+      {:ok, source}
+    end
+  end
+
+  def replace_rewrite(source, attrs, opts \\ []) do
+    with :ok <- validate_rewrite(source, attrs, opts),
+         true <- verified_checksum?(attrs[:content_checksum]) do
+      publish_replacement([source], attrs, opts)
+    else
+      false -> {:error, :unverified_rewrite_candidate}
+      {:error, _} = error -> error
+    end
+  end
+
+  @doc "Validate the separate single-file rewrite budget before any object IO."
+  def validate_rewrite_source(source, opts \\ [])
+
+  def validate_rewrite_source(source, opts) when is_map(source) do
+    now = Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
+    before = DateTime.add(now, -600, :second)
+
+    cond do
+      not is_integer(Map.get(source, :id)) or Map.get(source, :id) <= 0 or
+        Map.get(source, :table_name) != "timeseries_metrics" or
+        Map.get(source, :status) != :published or
+        not is_integer(Map.get(source, :row_count)) or
+          Map.get(source, :row_count) not in 1..@max_rewrite_rows ->
+        {:error, :invalid_rewrite_source}
+
+      not rewrite_bounds_valid?(source, before) ->
+        {:error, :invalid_rewrite_source}
+
+      is_binary(Map.get(source, :content_checksum)) and
+          String.starts_with?(source.content_checksum, "row-hash-v1:") ->
+        {:error, :rewrite_source_already_sorted}
+
+      true ->
+        :ok
+    end
+  end
+
+  def validate_rewrite_source(_source, _opts), do: {:error, :invalid_rewrite_source}
+
+  def validate_rewrite(source, attrs, opts \\ []) do
+    with :ok <- validate_rewrite_source(source, opts) do
+      validate_target([source], attrs, @max_rewrite_rows)
+    end
+  end
+
+  defp rewrite_bounds_valid?(source, before) do
+    with %Date{} = day <- Map.get(source, :partition_date),
+         %DateTime{utc_offset: 0, std_offset: 0} = first <- Map.get(source, :min_timestamp),
+         %DateTime{utc_offset: 0, std_offset: 0} = last <- Map.get(source, :max_timestamp),
+         %DateTime{} = inserted <- Map.get(source, :inserted_at) do
+      DateTime.to_date(first) == day and DateTime.to_date(last) == day and
+        DateTime.compare(first, last) != :gt and DateTime.compare(last, before) != :gt and
+        DateTime.compare(inserted, before) != :gt
+    else
+      _ -> false
+    end
+  end
+
+  defp verified_checksum?(checksum),
+    do: is_binary(checksum) and Regex.match?(~r/\Arow-hash-v1:[0-9a-f]{64}\z/, checksum)
+
+  defp publish_replacement(sources, attrs, opts) do
+    now = Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
+    ids = Enum.map(sources, & &1.id)
+
+    FileManifest
+    |> Ash.transact(fn ->
+      locked =
+        FileManifest
+        |> Ash.Query.filter(id in ^ids)
+        |> Ash.Query.sort(id: :asc)
+        |> Ash.Query.lock(:for_update)
+        |> Ash.read!(actor: actor())
+
+      if snapshot(locked) != snapshot(sources),
+        do: Repo.rollback(:compaction_sources_changed)
+
+      attrs = Map.drop(attrs, [:status, :archive_batch_id])
 
       FileManifest
-      |> Ash.transact(fn ->
-        locked =
-          FileManifest
-          |> Ash.Query.filter(id in ^ids)
-          |> Ash.Query.sort(id: :asc)
-          |> Ash.Query.lock(:for_update)
-          |> Ash.read!(actor: actor())
+      |> Ash.Changeset.for_create(:compact, attrs)
+      |> Ash.create!(actor: actor())
 
-        if snapshot(locked) != snapshot(sources),
-          do: Repo.rollback(:compaction_sources_changed)
-
-        attrs = Map.drop(attrs, [:status, :archive_batch_id])
-
-        FileManifest
-        |> Ash.Changeset.for_create(:compact, attrs)
-        |> Ash.create!(actor: actor())
-
-        Enum.each(locked, fn source ->
-          source
-          |> Ash.Changeset.for_update(:supersede, %{
-            retired_at: now,
-            replacement_key: attrs.object_key
-          })
-          |> Ash.update!(actor: actor())
-        end)
-
-        :ok
+      Enum.each(locked, fn source ->
+        source
+        |> Ash.Changeset.for_update(:supersede, %{
+          retired_at: now,
+          replacement_key: attrs.object_key
+        })
+        |> Ash.update!(actor: actor())
       end)
-      |> case do
-        {:ok, :ok} -> :ok
-        {:error, _} = error -> error
-      end
+
+      :ok
+    end)
+    |> case do
+      {:ok, :ok} -> :ok
+      {:error, _} = error -> error
     end
   rescue
     error -> {:error, error}
@@ -132,7 +215,7 @@ defmodule ServiceRadar.AnalyticsStore.ManifestCompaction do
   @doc "Reject a target whose verified row count or bounds differ from its source envelope."
   def validate_replacement(sources, attrs) when is_list(sources) and is_map(attrs) do
     if length(sources) in 2..@max_sources and valid_sources?(sources) do
-      validate_target(sources, attrs)
+      validate_target(sources, attrs, @max_rows)
     else
       {:error, :invalid_compaction_sources}
     end
@@ -149,7 +232,7 @@ defmodule ServiceRadar.AnalyticsStore.ManifestCompaction do
       end)
   end
 
-  defp validate_target(sources, attrs) do
+  defp validate_target(sources, attrs, max_rows) do
     first = hd(sources)
     rows = Enum.sum(Enum.map(sources, & &1.row_count))
 
@@ -176,7 +259,7 @@ defmodule ServiceRadar.AnalyticsStore.ManifestCompaction do
 
     key_prefix = "analytics/v1/#{first.table_name}/_candidates/date=#{first.partition_date}/"
 
-    if same_partition? and rows <= @max_rows and Map.take(attrs, Map.keys(expected)) == expected and
+    if same_partition? and rows <= max_rows and Map.take(attrs, Map.keys(expected)) == expected and
          is_binary(key) and attrs[:staging_key] == key and String.starts_with?(key, key_prefix) and
          Regex.match?(~r/\A[A-Za-z0-9_-]+\.parquet\z/, String.replace_prefix(key, key_prefix, "")) and
          Enum.all?(sources, &(&1.object_key != key and &1.staging_key != key)) and

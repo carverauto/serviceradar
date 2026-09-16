@@ -56,9 +56,16 @@ allow at most 395 days per request.
 Longer NetFlow windows use the existing hourly and daily Timescale aggregates.
 The migration repairs missing refresh schedules and seeds up to 29 days from
 retained smaller aggregates, preserving operator schedules and older parent
-history. It cannot reconstruct data that has already expired. Summary cards
+history. Startup seeding skips sources with real-time aggregation enabled so it
+cannot scan raw telemetry during deployment. It cannot reconstruct data that
+has already expired. Summary cards
 report aggregate totals for the selected window; unavailable aggregates show an
 error instead of substituting the current page's record count.
+
+Stacked port and source-IP charts use hourly dimension aggregates for supported
+byte and packet sums. Partial boundary hours and unmaterialized history come
+from the raw hypertable. Filters that those aggregates cannot represent keep
+the raw query path.
 
 Changing a window clears the previous chart while the new results load. Device
 sysmon requests share a 15-second budget across their queries; a failed request
@@ -136,6 +143,22 @@ Readers select concrete published file keys from
 bounds. Interactive reads do not plan a `date=*` scan. A manifest lookup failure
 returns an error; an empty manifest selection returns no rows. Only verified,
 published objects are visible.
+
+Metric compaction sorts rows by device, metric name, and timestamp so Parquet
+row-group statistics can skip unrelated devices. Scheduled compaction combines
+at most 256 files and 500,000 rows from one day. For an existing unsorted daily
+file, operators can call
+`ServiceRadar.AnalyticsStore.Compactor.rewrite_file("timeseries_metrics", manifest_id)`
+from a release RPC. This explicit operation accepts one published file of at
+most 10 million rows, with known bounds within one UTC day and at least ten
+minutes since both its last sample and publication. It requires hybrid mode
+and an idle analytics head; already rewritten files are rejected.
+
+Both operations verify row count, timestamp bounds, and two order-independent
+row hashes before atomically replacing the manifest entry. Source objects stay
+available for at least 24 hours to protect readers that already selected them.
+Rewriting preserves duplicate rows and does not recover missing history. Measure
+one file and the corresponding query before scheduling further legacy rewrites.
 
 EventWriter commits hot rows, durable source receipts, and fixed archive batches
 in one primary transaction, then acknowledges JetStream. Its archive publisher

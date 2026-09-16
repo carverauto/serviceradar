@@ -54,6 +54,13 @@ pub(super) fn build_sql(plan: &QueryPlan) -> Result<String> {
         ServiceError::InvalidRequest("downsample requires bucket:<duration>".into())
     })?;
 
+    if let Some(table) = super::flow_dimensions::route(plan) {
+        return Ok(finalize_downsample_sql(
+            super::flow_dimensions::build_body(plan, table)?,
+            downsample_keeps_newest(plan),
+        ));
+    }
+
     // Flows route through a dedicated closed-vs-current UNION builder: materialized buckets
     // come from the pre-aggregated traffic CAGG and only the still-open bucket is read from
     // the raw hypertable. This keeps the sampling-rate-weighted throughput chart off the raw
@@ -485,6 +492,19 @@ pub(super) fn build_bind_values(plan: &QueryPlan) -> Result<Vec<SqlBindValue>> {
 
     binds.push(SqlBindValue::Timestamp(*start));
     binds.push(SqlBindValue::Timestamp(*end));
+
+    if super::flow_dimensions::route(plan).is_some() {
+        // The same dimension predicate occurs on both disjoint sides of the UNION.
+        for _side in 0..2 {
+            for filter in &plan.filters {
+                let (_, mut values) = filter_clause(&plan.entity, "unused", filter)?;
+                binds.append(&mut values);
+            }
+        }
+        binds.push(SqlBindValue::BigInt(plan.limit));
+        binds.push(SqlBindValue::BigInt(plan.offset));
+        return Ok(binds);
+    }
 
     // The flows CAGG-union SQL references `end` a second time (CAGG upper bound + raw-current
     // upper bound) and never carries filter/type binds (strict CAGG shape).

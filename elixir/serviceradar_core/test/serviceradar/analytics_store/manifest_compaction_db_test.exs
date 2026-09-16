@@ -209,6 +209,127 @@ defmodule ServiceRadar.AnalyticsStore.ManifestCompactionDbTest do
     assert retained.objects_deleted_at == later
   end
 
+  test "explicit single-file rewrite preserves its envelope and archive lineage", %{key: key} do
+    original = source(key, 1)
+    attrs = original |> Map.take(source_fields()) |> Map.put(:row_count, 700_001)
+    assert :ok = FileManifest.record(attrs)
+    original = fetch(original.object_key)
+    now = ~U[2040-01-01 00:00:00Z]
+    opts = [now: now]
+    assert {:ok, ^original} = FileManifest.rewrite_source(@table, original.id, opts)
+    target = rewrite_target(key, original)
+
+    assert :ok = FileManifest.replace_rewrite(original, target, opts)
+    assert visible(key) == [target.object_key]
+    replacement = fetch(target.object_key)
+    assert replacement.row_count == original.row_count
+    assert replacement.min_timestamp == original.min_timestamp
+    assert replacement.max_timestamp == original.max_timestamp
+    assert replacement.archive_batch_id == nil
+    retired = fetch(original.object_key)
+    assert retired.status == :superseded
+    assert retired.archive_batch_id == original.archive_batch_id
+    assert retired.replacement_key == target.object_key
+    assert DateTime.compare(retired.retired_at, now) == :eq
+
+    assert {:error, :compaction_reader_grace_active} =
+             FileManifest.mark_objects_deleted(original.id, now: now)
+
+    assert {:error, :invalid_rewrite_source} =
+             FileManifest.rewrite_source(@table, original.id, opts)
+
+    assert {:error, :rewrite_source_already_sorted} =
+             FileManifest.rewrite_source(@table, replacement.id, opts)
+
+    assert {:error, _} =
+             FileManifest.replace_rewrite(original, rewrite_target(key, original), opts)
+
+    assert visible(key) == [target.object_key]
+  end
+
+  test "competing single-file rewrites publish only one target under a real row lock", %{key: key} do
+    original = source(key, 1)
+    first_target = rewrite_target(key, original)
+    second_target = rewrite_target(key, original)
+    opts = [now: ~U[2040-01-01 00:00:00Z]]
+    parent = self()
+    supervisor = start_supervised!(Task.Supervisor)
+
+    first =
+      Task.Supervisor.async_nolink(supervisor, fn ->
+        Ash.transact(FileManifest, fn ->
+          Repo.query!(
+            "SELECT id FROM platform.analytics_file_manifest WHERE id = $1 FOR UPDATE",
+            [original.id]
+          )
+
+          send(parent, {:rewrite_locked, self()})
+
+          receive do
+            :publish -> FileManifest.replace_rewrite(original, first_target, opts)
+          after
+            10_000 -> raise "test did not release rewrite lock"
+          end
+        end)
+      end)
+
+    try do
+      assert_receive {:rewrite_locked, writer}, 5_000
+
+      second =
+        Task.Supervisor.async_nolink(supervisor, fn ->
+          Repo.checkout(fn ->
+            %{rows: [[backend]]} = Repo.query!("SELECT pg_backend_pid()")
+            send(parent, {:rewrite_backend, backend})
+            FileManifest.replace_rewrite(original, second_target, opts)
+          end)
+        end)
+
+      try do
+        assert_receive {:rewrite_backend, backend}, 5_000
+        assert_lock_wait(backend, System.monotonic_time(:millisecond) + 5_000)
+        send(writer, :publish)
+        assert {:ok, :ok} = Task.await(first, 10_000)
+        assert {:error, _} = Task.await(second, 10_000)
+        assert visible(key) == [first_target.object_key]
+        assert fetch(second_target.object_key) == nil
+      after
+        Task.shutdown(second, :brutal_kill)
+      end
+    after
+      Task.shutdown(first, :brutal_kill)
+    end
+  end
+
+  test "single-file publication rejects missing, changed, and mismatched sources", %{key: key} do
+    opts = [now: ~U[2040-01-01 00:00:00Z]]
+
+    assert {:error, :invalid_rewrite_source} =
+             FileManifest.rewrite_source(@table, 9_000_000_000_000_000_001, opts)
+
+    original = source(key, 1)
+    target = rewrite_target(key, original)
+
+    assert {:error, :compaction_candidate_mismatch} =
+             FileManifest.replace_rewrite(
+               original,
+               %{target | row_count: original.row_count + 1},
+               opts
+             )
+
+    assert visible(key) == [original.object_key]
+
+    changed =
+      original
+      |> Map.take(source_fields())
+      |> Map.put(:content_checksum, String.duplicate("b", 64))
+
+    assert :ok = FileManifest.record(changed)
+    assert {:error, _} = FileManifest.replace_rewrite(original, target, opts)
+    assert fetch(target.object_key) == nil
+    assert visible(key) == [original.object_key]
+  end
+
   test "candidate selection skips more than 1024 singleton partitions before applying its limit",
        %{key: key} do
     table = "synthetic_compaction_#{key}"
@@ -426,6 +547,12 @@ defmodule ServiceRadar.AnalyticsStore.ManifestCompactionDbTest do
       content_checksum: String.duplicate("c", 64),
       status: :published
     }
+  end
+
+  defp rewrite_target(key, source) do
+    key
+    |> target([source])
+    |> Map.put(:content_checksum, "row-hash-v1:" <> String.duplicate("c", 64))
   end
 
   defp plain_attrs(key, table, date) do
