@@ -22,8 +22,10 @@ expect the pinned PostgreSQL JDBC driver at
 alpine initContainer that mounts the 1Gi `jdbc` volume (the operator does
 not copy storageVolumes onto init containers) for the next starrocks-lab
 upgrade; do not enable Helm `analytics.starrocks.catalog.enabled` until
-CREATE EXTERNAL CATALOG is supplied via an infrastructure secret. Do not
-let the Frontend download Maven at catalog-create time.
+CREATE EXTERNAL CATALOG is supplied via an infrastructure secret. Demo
+CNPG NetworkPolicy currently admits only the demo namespace on 5432, so
+lab FE/BE cannot JDBC to CNPG until the gated catalog NetworkPolicy is
+applied. Do not let the Frontend download Maven at catalog-create time.
 
 The upstream `operator.yaml` is not restricted-PSS compatible. On carverauto an
 unlabeled namespace enforces `restricted:latest`, so a raw apply creates the

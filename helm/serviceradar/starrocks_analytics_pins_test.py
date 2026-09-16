@@ -26,6 +26,13 @@ LAB_README = (REPO_ROOT / "k8s" / "starrocks" / "README.md").read_text()
 CATALOG_JOB = (
     REPO_ROOT / "helm" / "serviceradar" / "templates" / "starrocks-catalog-job.yaml"
 ).read_text()
+CATALOG_NETPOL = (
+    REPO_ROOT
+    / "helm"
+    / "serviceradar"
+    / "templates"
+    / "starrocks-catalog-network-policy.yaml"
+).read_text()
 SCHEMA_DIR = (
     REPO_ROOT / "elixir" / "serviceradar_core" / "priv" / "starrocks"
 )
@@ -82,8 +89,17 @@ class StarRocksAnalyticsPinsTest(unittest.TestCase):
         self.assertIn("createSql", CATALOG_JOB)
         self.assertNotIn("repo1.maven.org", CATALOG_JOB)
         self.assertIn("automountServiceAccountToken: false", CATALOG_JOB)
+        self.assertIn("kind: NetworkPolicy", CATALOG_NETPOL)
+        self.assertLess(
+            CATALOG_NETPOL.find("catalog.enabled"),
+            CATALOG_NETPOL.find("kind: NetworkPolicy"),
+        )
+        self.assertIn("sourceNamespace", CATALOG_NETPOL)
+        self.assertIn("port: 5432", CATALOG_NETPOL)
+        self.assertIn("starrocks-catalog-cnpg", CATALOG_NETPOL)
         self.assertIn('secretName: ""', VALUES)
-        self.assertRegex(VALUES, r"catalog:\n(?:[ \t]+.+\n)*[ \t]+enabled: false")
+        self.assertIn("sourceNamespace: starrocks", VALUES)
+        self.assertIn("    catalog:\n      enabled: false\n", VALUES)
         self.assertIn("mountPath: /opt/starrocks/jdbc", LAB_CLUSTER)
         self.assertIn("name: jdbc", LAB_CLUSTER)
         self.assertIn("volumeMounts:", LAB_CLUSTER)

@@ -87,6 +87,7 @@ py_test(
     data = [
         "templates/starrocks-analytics-config.yaml",
         "templates/starrocks-catalog-job.yaml",
+        "templates/starrocks-catalog-network-policy.yaml",
         "values.yaml",
         "//k8s/starrocks:cluster_files",
         "//elixir/serviceradar_core/priv/starrocks:schema_sql",

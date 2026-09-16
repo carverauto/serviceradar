@@ -2542,7 +2542,12 @@ analytics:
       # Infrastructure secret with key createSql (CREATE EXTERNAL CATALOG ...).
       # Required only when catalog.enabled is true.
       secretName: ""
+      # JDBC URI baked into that secret. Lab FE/BE run in namespace starrocks,
+      # so the host must be reachable from there (cnpg-rw.<cnpg-ns>.svc), not
+      # the same-namespace short name.
       jdbcUri: "jdbc:postgresql://cnpg-rw:5432/serviceradar"
+      # Namespace that hosts the StarRocksCluster FE/BE (lab: starrocks).
+      sourceNamespace: starrocks
 
 spiffe:
   mode: "filesystem"
