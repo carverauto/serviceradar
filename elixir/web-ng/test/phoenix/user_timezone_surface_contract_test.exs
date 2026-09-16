@@ -797,7 +797,7 @@ defmodule ServiceRadarWebNGWeb.UserTimezoneSurfaceContractTest do
   defp axis_id_set(html) do
     html
     |> LazyHTML.from_fragment()
-    |> LazyHTML.query(".sr-ops-events-axis text[phx-hook='UserTime']")
+    |> LazyHTML.query(".sr-ops-events-axis text[data-time-axis-iso]")
     |> LazyHTML.attribute("id")
     |> MapSet.new()
   end
