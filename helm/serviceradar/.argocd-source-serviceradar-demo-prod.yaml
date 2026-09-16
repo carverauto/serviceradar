@@ -19,7 +19,7 @@ helm:
     value: "sha256:9c9e7da568ab38fd7c4207d0b2be67ec6968022824ede468dd49430f13dbff7f"
     forcestring: true
   - name: image.digests.webNg
-    value: "sha256:a43d2431c7410fe1fa4672e0633a09f63722b48be9dfb734d305de25f66af3f6"
+    value: "sha256:12152f8138f36499721fc72efb4a687d4c0ca489ccca9b3a7ba83f70574ae353"
     forcestring: true
   - name: image.digests.agent
     value: "sha256:ca0faf72dc9eb257367afd0e2449d694c820794c6c6c595c4e5f8578d8b76114"
