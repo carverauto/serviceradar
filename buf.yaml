@@ -6,6 +6,12 @@ lint:
     - STANDARD
   except:
     - PACKAGE_DIRECTORY_MATCH
+    # The edge record-ingest stream uses shared oneof envelopes
+    # (EdgeRecordClientMessage/ServerMessage: lane-open handshake + frames and
+    # dispositions), which are intentionally not per-rpc request/response wrappers.
+    - RPC_REQUEST_STANDARD_NAME
+    - RPC_RESPONSE_STANDARD_NAME
+    - RPC_REQUEST_RESPONSE_UNIQUE
 # Wire-compatibility gate. GitHub #4026.
 #
 # Without this, `buf lint` is the only proto check in CI, and lint has nothing

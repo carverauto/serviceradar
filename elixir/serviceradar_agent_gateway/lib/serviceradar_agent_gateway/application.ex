@@ -70,6 +70,7 @@ defmodule ServiceRadarAgentGateway.Application do
 
   use Application
 
+  alias ServiceRadar.Edge.PublisherSupervisor
   alias ServiceRadar.NATS.Connection
   alias ServiceRadar.Telemetry.OtelSetup
 
@@ -101,17 +102,7 @@ defmodule ServiceRadarAgentGateway.Application do
 
     # NOTE: Gateway does NOT start Repo - it has no database access.
     # All database-dependent operations are forwarded to core-elx via RPC.
-    core_children =
-      [
-        pubsub_child(),
-        nats_connection_child(),
-        process_registry_child(),
-        gateway_tracker_child(),
-        agent_tracker_child(),
-        cluster_supervisor_child()
-      ]
-      |> List.flatten()
-      |> Enum.reject(&is_nil/1)
+    core_children = core_children()
 
     registries_enabled = Application.get_env(:serviceradar_core, :registries_enabled, true)
 
@@ -154,6 +145,29 @@ defmodule ServiceRadarAgentGateway.Application do
 
     opts = [strategy: :one_for_one, name: ServiceRadarAgentGateway.Supervisor]
     Supervisor.start_link(children, opts)
+  end
+
+  @doc """
+  The core children this application composes, as a list.
+
+  Public so ROOT COMPOSITION can be asserted. That is not testable from the running tree in every
+  environment: under Bazel the gateway application is not started, so a test that inspected
+  `Supervisor.which_children/1` passed locally and failed there -- for the right reason, but only
+  by accident of where it ran. Deleting an entry from this list is invisible to every behavioural
+  test, so the list itself is what a test has to bind.
+  """
+  def core_children do
+    [
+      pubsub_child(),
+      nats_connection_child(),
+      edge_publisher_pools_child(),
+      process_registry_child(),
+      gateway_tracker_child(),
+      agent_tracker_child(),
+      cluster_supervisor_child()
+    ]
+    |> List.flatten()
+    |> Enum.reject(&is_nil/1)
   end
 
   defp get_grpc_port do
@@ -288,6 +302,19 @@ defmodule ServiceRadarAgentGateway.Application do
         nil
       else
         ServiceRadar.NATS.Supervisor
+      end
+    end
+  end
+
+  # The edge publisher pools: one window owner per lane. Gated on the same switch as the NATS
+  # connections, because a pool without a connection has nothing to bound, and started AFTER them
+  # so the connection a lane publishes on exists before its window admits anything.
+  defp edge_publisher_pools_child do
+    if gateway_publisher_enabled?() do
+      if Process.whereis(PublisherSupervisor) do
+        nil
+      else
+        PublisherSupervisor
       end
     end
   end

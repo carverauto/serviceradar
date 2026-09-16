@@ -1,0 +1,25 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "execstate",
+    srcs = ["tracker.go"],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/edge/execstate",
+    visibility = ["//visibility:public"],
+    deps = ["//proto/edge/v1:edgev1"],
+)
+
+go_test(
+    name = "execstate_test",
+    srcs = ["tracker_test.go"],
+    embed = [":execstate"],
+    deps = ["//proto/edge/v1:edgev1"],
+)
+
+# The test files and this BUILD file, as DECLARED INPUTS for //build:go_test_inventory_test.
+# That guard compares the go_test srcs list against the *_test.go files on disk; giving it the
+# glob means a newly added test file reaches it automatically, which is the whole point.
+filegroup(
+    name = "all_test_srcs",
+    srcs = glob(["*_test.go"]) + ["BUILD.bazel"],
+    visibility = ["//visibility:public"],
+)

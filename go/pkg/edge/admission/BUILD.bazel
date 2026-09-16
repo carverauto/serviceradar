@@ -1,0 +1,17 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "admission",
+    srcs = ["controller.go"],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/edge/admission",
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "admission_test",
+    srcs = [
+        "controller_test.go",
+        "sealed_test.go",
+    ],
+    embed = [":admission"],
+)

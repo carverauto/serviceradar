@@ -1560,7 +1560,20 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
     def test_bazel_ci_keeps_its_runner_trigger_and_measures_the_ordinary_suite(self):
         action = named_action("BazelCI")
         header = action[: action.index("    steps:")]
-        self.assertIn('pull_request:\n        branches:\n          - "staging"', header)
+        self.assertIn("pull_request:", header)
+        # Parsed, not matched as a formatted string. The previous exact-substring form pinned
+        # the comment-free, single-entry layout, so ADDING A BRANCH broke it -- and the branch
+        # list is exactly the part of this block that is meant to change. What the contract
+        # actually cares about is which branches trigger, so assert that.
+        branch_block = header[header.index("branches:") :]
+        branch_block = branch_block[: branch_block.index("\n\n")]
+        branches = re.findall(r'^\s*-\s*"([^"]+)"', branch_block, re.M)
+        self.assertIn("staging", branches)
+        # usp-01-proposal is the long-lived unify-sweep-results-proto integration branch: PRs
+        # land there first and reach staging much later, so a staging-only filter meant none of
+        # this ran on them. Anything BEYOND these two is still a failure -- the point of the
+        # gate is that heavy CI does not silently spread to other refs.
+        self.assertLessEqual(set(branches), {"staging", "usp-01-proposal"})
         self.assertNotIn("push:", header)
         self.assertNotIn("schedule:", header)
         for required in (
