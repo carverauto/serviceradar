@@ -306,7 +306,8 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     AgentCommandCleanupWorker,
     TopologyGraph,
     ServiceRadar.Observability.ThreatIntelRawPayloadStore,
-    ServiceRadar.WorkloadIdentity
+    ServiceRadar.WorkloadIdentity,
+    ServiceRadar.Analytics.StarRocks
   ]
 
   @topology_graph TopologyGraph
@@ -319,6 +320,24 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
              "config :serviceradar_core, #{inspect(module)} is missing from this release's " <>
                "runtime.exs, so its env vars are inert in production"
     end
+  end
+
+  test "prod config enables StarRocks shadow from Helm env" do
+    with_env("SERVICERADAR_STARROCKS_ENABLED", "true")
+    with_env("SERVICERADAR_STARROCKS_CATALOG_ENABLED", "true")
+    with_env("SERVICERADAR_STARROCKS_SHADOW_DATASETS", "flows,metrics,logs,events")
+    with_env("SERVICERADAR_STARROCKS_FE_HTTP", "http://lab-fe-service.starrocks.svc:8030")
+    with_env("SERVICERADAR_STARROCKS_DATABASE", "serviceradar")
+
+    starrocks =
+      read_prod_config()[:serviceradar_core][ServiceRadar.Analytics.StarRocks]
+
+    assert starrocks[:enabled] == true
+    assert starrocks[:catalog_enabled] == true
+    assert starrocks[:cutover_datasets] == []
+    assert starrocks[:shadow_datasets] == [:flows, :metrics, :logs, :events]
+    assert starrocks[:fe_http] == "http://lab-fe-service.starrocks.svc:8030"
+    assert starrocks[:database] == "serviceradar"
   end
 
   test "prod config wires the egress CONNECT proxy for external downloads" do

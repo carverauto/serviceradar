@@ -463,6 +463,13 @@ config :serviceradar_core, ServiceRadar.Edge.AgentCommandCleanupWorker,
 # Keep in sync with elixir/serviceradar_core/config/runtime.exs.
 # ---------------------------------------------------------------------------
 
+# EventWriter shadow/cutover destination. Helm injects SERVICERADAR_STARROCKS_*
+# on this release; without this block those env vars are inert and Destination
+# reads enabled: false.
+config :serviceradar_core,
+       ServiceRadar.Analytics.StarRocks,
+       ServiceRadar.Analytics.StarRocks.Env.config()
+
 # Canonical-topology rebuild + its mass-deletion guardrail. The guard refuses a
 # stale-prune pass deleting more than canonical_prune_max_fraction of the
 # canonical edges; canonical_prune_guard_override forces a legitimate large
