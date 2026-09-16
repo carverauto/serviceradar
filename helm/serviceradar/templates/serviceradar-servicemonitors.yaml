@@ -106,7 +106,7 @@ spec:
       interval: {{ $interval | quote }}
       scrapeTimeout: {{ $scrapeTimeout | quote }}
 {{- end }}
-{{- if and $obsEnabled $serviceMonitorsEnabled $flowTargetEnabled .Values.flowCollector.enabled .Values.flowCollector.service.ports.metrics.enabled }}
+{{- if and $obsEnabled $serviceMonitorsEnabled $flowTargetEnabled (eq (include "serviceradar.netFlowEnabled" .) "true") .Values.flowCollector.service.ports.metrics.enabled }}
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor

@@ -70,6 +70,7 @@ defmodule ServiceRadar.Analytics.StarRocks.CatalogAllowlistTest do
 
   test "env config stays off and mint-no atoms from unknown dataset names" do
     keys = [
+      "SERVICERADAR_STARROCKS_ENABLED",
       "SERVICERADAR_STARROCKS_CATALOG_ENABLED",
       "SERVICERADAR_STARROCKS_CUTOVER_DATASETS",
       "SERVICERADAR_STARROCKS_SHADOW_DATASETS",
@@ -87,10 +88,16 @@ defmodule ServiceRadar.Analytics.StarRocks.CatalogAllowlistTest do
 
     Enum.each(keys, &System.delete_env/1)
     cfg = Env.config()
+    refute cfg[:enabled]
     refute cfg[:catalog_enabled]
     assert cfg[:cutover_datasets] == []
     assert cfg[:shadow_datasets] == []
     assert cfg[:fe_http] == "http://127.0.0.1:8030"
+
+    System.put_env("SERVICERADAR_STARROCKS_ENABLED", "true")
+    cfg = Env.config()
+    assert cfg[:enabled]
+    assert cfg[:shadow_datasets] == [:flows, :flow_attribution, :metrics, :logs, :events]
 
     System.put_env("SERVICERADAR_STARROCKS_CATALOG_ENABLED", "true")
     System.put_env("SERVICERADAR_STARROCKS_CUTOVER_DATASETS", "flows,not_a_dataset,metrics")

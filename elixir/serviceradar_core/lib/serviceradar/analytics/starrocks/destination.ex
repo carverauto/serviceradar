@@ -227,8 +227,18 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
   end
 
   defp configured_shadow_datasets do
-    :serviceradar_core
-    |> Application.get_env(StarRocks, [])
-    |> Keyword.get(:shadow_datasets, [])
+    env = Application.get_env(:serviceradar_core, StarRocks, [])
+
+    case Keyword.get(env, :shadow_datasets, []) do
+      [] ->
+        if Keyword.get(env, :enabled, false) do
+          [:flows, :flow_attribution, :metrics, :logs, :events]
+        else
+          []
+        end
+
+      datasets ->
+        datasets
+    end
   end
 end

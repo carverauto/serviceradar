@@ -137,6 +137,33 @@ defmodule ServiceRadar.Analytics.StarRocks.DestinationTest do
     assert loaded_event["id"] == "evt-alpha-0001"
   end
 
+  test "enabling the warehouse shadows every telemetry dataset" do
+    prev = Application.get_env(:serviceradar_core, StarRocks, [])
+
+    Application.put_env(
+      :serviceradar_core,
+      StarRocks,
+      prev |> Keyword.put(:enabled, true) |> Keyword.put(:shadow_datasets, [])
+    )
+
+    try do
+      persist = fn table, _rows, _opts -> {:ok, %{loaded: 1, label: "sr-#{table}"}} end
+
+      log = %{
+        id: "log-alpha-0001",
+        timestamp: ~U[2026-01-15 10:00:01Z],
+        ingest_identity: "seq:1:0",
+        severity_text: "info",
+        body: "synthetic log line"
+      }
+
+      assert {:ok, %{missing: []}} =
+               Destination.maybe_shadow(:logs, [log], persist: persist)
+    after
+      Application.put_env(:serviceradar_core, StarRocks, prev)
+    end
+  end
+
   test "persist_after_cnpg stays best-effort while cutover_datasets is empty" do
     prev = Application.get_env(:serviceradar_core, StarRocks, [])
 

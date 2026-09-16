@@ -1,12 +1,17 @@
 ## ADDED Requirements
 
 ### Requirement: NetFlow collection requires StarRocks
-The system SHALL require StarRocks analytics whenever NetFlow collection is enabled, and SHALL NOT treat StarRocks as a NetFlow-only store.
+The system SHALL require StarRocks analytics whenever NetFlow collection is enabled, SHALL deploy NetFlow collection when StarRocks is enabled, and SHALL NOT treat StarRocks as a NetFlow-only store.
 
 #### Scenario: Collector enablement without the warehouse
 - **WHEN** `flowCollector.enabled` is true and `analytics.starrocks.enabled` is false
 - **THEN** installation fails closed before the collector starts
 - **AND** CNPG is not used as the NetFlow serving store
+
+#### Scenario: Warehouse enablement turns on NetFlow
+- **WHEN** `analytics.starrocks.enabled` is true
+- **THEN** the NetFlow collector is deployed even if `flowCollector.enabled` is false
+- **AND** flow history is persisted to StarRocks through EventWriter
 
 ### Requirement: Exact accelerated flow analytics
 The system SHALL preserve exact flow totals, sampling semantics, nullable ports, classification and filter semantics when using StarRocks aggregates, and SHALL use only covered, eligible aggregates with disjoint raw edges or an exact raw fallback.

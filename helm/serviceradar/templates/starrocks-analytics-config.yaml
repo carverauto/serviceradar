@@ -24,7 +24,8 @@ data:
   streamLoadMaxBytes: {{ $sr.streamLoad.maxBytes | quote }}
   streamLoadMaxAgeMs: {{ $sr.streamLoad.maxAgeMs | quote }}
   streamLoadMaxInFlight: {{ $sr.streamLoad.maxInFlight | quote }}
-  shadowDatasets: {{ $sr.shadowDatasets | default list | join "," | quote }}
+  enabled: "true"
+  shadowDatasets: {{ include "serviceradar.starrocksShadowDatasets" . | quote }}
   cutoverDatasets: {{ $sr.cutoverDatasets | default list | join "," | quote }}
   catalogEnabled: {{ dig "catalog" "enabled" false $sr | quote }}
   catalogName: {{ dig "catalog" "name" "cnpg_platform" $sr | quote }}

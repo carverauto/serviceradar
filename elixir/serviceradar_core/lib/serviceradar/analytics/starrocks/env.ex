@@ -13,17 +13,29 @@ defmodule ServiceRadar.Analytics.StarRocks.Env do
     "events" => :events
   }
 
+  @all_datasets [:flows, :flow_attribution, :metrics, :logs, :events]
+
   @spec config() :: keyword()
   def config do
+    enabled = truthy?("SERVICERADAR_STARROCKS_ENABLED")
+
     [
+      enabled: enabled,
       catalog_enabled: truthy?("SERVICERADAR_STARROCKS_CATALOG_ENABLED"),
       cutover_datasets: csv_datasets("SERVICERADAR_STARROCKS_CUTOVER_DATASETS"),
-      shadow_datasets: csv_datasets("SERVICERADAR_STARROCKS_SHADOW_DATASETS"),
+      shadow_datasets: shadow_datasets(enabled),
       fe_http: fe_http(),
       database: nonempty("SERVICERADAR_STARROCKS_DATABASE", "serviceradar"),
       user: nonempty("SERVICERADAR_STARROCKS_USER", "root"),
       password: System.get_env("SERVICERADAR_STARROCKS_PASSWORD", "")
     ]
+  end
+
+  defp shadow_datasets(enabled) do
+    case csv_datasets("SERVICERADAR_STARROCKS_SHADOW_DATASETS") do
+      [] when enabled -> @all_datasets
+      datasets -> datasets
+    end
   end
 
   defp fe_http do

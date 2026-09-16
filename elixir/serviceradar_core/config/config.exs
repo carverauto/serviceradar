@@ -277,6 +277,7 @@ config :serviceradar_core,
   run_startup_migrations: false
 
 config :serviceradar_core, ServiceRadar.Analytics.StarRocks,
+  enabled: false,
   catalog_enabled: false,
   cutover_datasets: [],
   shadow_datasets: []

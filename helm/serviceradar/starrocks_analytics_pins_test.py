@@ -129,6 +129,10 @@ class StarRocksAnalyticsPinsTest(unittest.TestCase):
         self.assertIn("serviceradar.starrocksAnalyticsEnv", CORE_TMPL)
         self.assertIn("serviceradar.starrocksAnalyticsEnv", WEB_TMPL)
         self.assertIn("requireStarRocksForNetFlow", HELPERS)
+        self.assertIn("serviceradar.netFlowEnabled", HELPERS)
+        self.assertIn("starrocksShadowDatasets", HELPERS)
+        self.assertIn('list "flows" "metrics" "logs" "events"', HELPERS)
+        self.assertIn("SERVICERADAR_STARROCKS_ENABLED", HELPERS)
         self.assertIn("flowCollector.enabled requires analytics.starrocks.enabled", HELPERS)
         flow_collector = (
             REPO_ROOT / "helm" / "serviceradar" / "templates" / "flow-collector.yaml"

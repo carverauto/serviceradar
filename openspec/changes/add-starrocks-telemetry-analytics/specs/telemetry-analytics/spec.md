@@ -1,11 +1,12 @@
 ## ADDED Requirements
 
-### Requirement: StarRocks is optional except for NetFlow
-The system SHALL treat StarRocks as an optional warehouse for all historical telemetry datasets (flows, scalar metrics, logs, and event history) and SHALL require StarRocks when NetFlow collection is enabled.
+### Requirement: StarRocks is the optional telemetry warehouse switch
+The system SHALL treat StarRocks as a single optional warehouse switch: when enabled, NetFlow collection is on and EventWriter persists flows, scalar metrics, logs and event history into StarRocks; when disabled, NetFlow is not collected and remaining telemetry stays on CNPG hypertables.
 
-#### Scenario: Install without NetFlow or StarRocks
-- **WHEN** an operator leaves NetFlow collection and StarRocks analytics disabled
-- **THEN** the installation remains on CNPG for remaining telemetry and control-plane state
+#### Scenario: Install without StarRocks
+- **WHEN** an operator leaves StarRocks analytics disabled
+- **THEN** NetFlow collection is not deployed
+- **AND** logs and other remaining telemetry persist to CNPG hypertables
 - **AND** Helm does not fail closed for the missing warehouse
 
 #### Scenario: NetFlow without StarRocks is refused
@@ -13,9 +14,10 @@ The system SHALL treat StarRocks as an optional warehouse for all historical tel
 - **THEN** chart rendering fails closed
 - **AND** the collector workload is not deployed
 
-#### Scenario: StarRocks warehouse accepts every telemetry dataset
-- **WHEN** StarRocks analytics is enabled
-- **THEN** EventWriter can persist flows, scalar metrics, logs and event history into StarRocks independently of whether NetFlow is on
+#### Scenario: Enabling StarRocks turns on NetFlow and all telemetry ingest
+- **WHEN** an operator enables StarRocks analytics
+- **THEN** the NetFlow collector is deployed
+- **AND** EventWriter shadows flows, scalar metrics, logs and event history into StarRocks
 - **AND** CNPG remains authoritative for inventory, configuration, credentials and current alert state
 - **AND** serving still follows per-dataset cutover rather than implying every dataset has switched
 

@@ -280,19 +280,39 @@ serviceradar.io/runtime-tls-revision: {{ default "initial" (default (dict) .Valu
 {{- end -}}
 
 {{/*
-StarRocks analytics env for core/web-ng. Empty unless analytics.starrocks.enabled.
-Cutover/shadow lists stay comma-separated; catalog_enabled is a boolean string.
+StarRocks warehouse switch. Enabling StarRocks turns on NetFlow collection
+and shadows all telemetry datasets. Without StarRocks, NetFlow is off and
+logs stay on CNPG hypertables.
 */}}
+{{- define "serviceradar.netFlowEnabled" -}}
+{{- $fc := default (dict) .Values.flowCollector -}}
+{{- $sr := default (dict) (default (dict) .Values.analytics).starrocks -}}
+{{- if or $fc.enabled $sr.enabled -}}
+true
+{{- end -}}
+{{- end -}}
+
 {{- define "serviceradar.requireStarRocksForNetFlow" -}}
 {{- $sr := default (dict) (default (dict) .Values.analytics).starrocks -}}
 {{- if not $sr.enabled }}
-{{- fail "flowCollector.enabled requires analytics.starrocks.enabled: NetFlow history is stored in StarRocks. StarRocks stays optional when NetFlow is off." }}
+{{- fail "flowCollector.enabled requires analytics.starrocks.enabled: NetFlow is part of the StarRocks warehouse. Without StarRocks, logs stay on CNPG hypertables and NetFlow is not collected." }}
 {{- end }}
+{{- end -}}
+
+{{- define "serviceradar.starrocksShadowDatasets" -}}
+{{- $sr := default (dict) (default (dict) .Values.analytics).starrocks -}}
+{{- $shadow := $sr.shadowDatasets | default list -}}
+{{- if eq (len $shadow) 0 -}}
+{{- $shadow = list "flows" "metrics" "logs" "events" -}}
+{{- end -}}
+{{- $shadow | join "," -}}
 {{- end -}}
 
 {{- define "serviceradar.starrocksAnalyticsEnv" -}}
 {{- $sr := default (dict) (default (dict) .Values.analytics).starrocks -}}
 {{- if $sr.enabled }}
+- name: SERVICERADAR_STARROCKS_ENABLED
+  value: "true"
 - name: SERVICERADAR_STARROCKS_CATALOG_ENABLED
   valueFrom:
     configMapKeyRef:
@@ -304,10 +324,7 @@ Cutover/shadow lists stay comma-separated; catalog_enabled is a boolean string.
       name: {{ include "serviceradar.fullname" . }}-starrocks-analytics
       key: cutoverDatasets
 - name: SERVICERADAR_STARROCKS_SHADOW_DATASETS
-  valueFrom:
-    configMapKeyRef:
-      name: {{ include "serviceradar.fullname" . }}-starrocks-analytics
-      key: shadowDatasets
+  value: {{ include "serviceradar.starrocksShadowDatasets" . | quote }}
 - name: SERVICERADAR_STARROCKS_DATABASE
   valueFrom:
     configMapKeyRef:
