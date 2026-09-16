@@ -19,7 +19,7 @@ require (
 	github.com/hashicorp/go-plugin v1.8.0
 	github.com/hashicorp/terraform-plugin-framework v1.19.0
 	github.com/hashicorp/terraform-plugin-go v0.31.0
-	github.com/jackc/pgx/v5 v5.10.0
+	github.com/jackc/pgx/v5 v5.11.0
 	github.com/klauspost/compress v1.20.0
 	github.com/nats-io/jwt/v2 v2.8.2
 	github.com/nats-io/nats.go v1.53.1
