@@ -5,7 +5,7 @@ go 1.26.3
 require (
 	github.com/atotto/clipboard v0.1.4
 	github.com/bazelbuild/rules_go v0.63.0
-	github.com/bluenviron/gortsplib/v5 v5.6.4
+	github.com/bluenviron/gortsplib/v5 v5.6.5
 	github.com/bluenviron/mediacommon/v2 v2.9.4
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
