@@ -114,4 +114,44 @@ defmodule ServiceRadar.Telemetry.OtelLogsExporterTest do
     {:message_queue_len, qlen} = Process.info(pid, :message_queue_len)
     assert qlen < 40
   end
+
+  test "prepare converts charlist bodies to bounded binaries before to_proto" do
+    charlist = String.duplicate("warning body ", 20_000) |> String.to_charlist()
+
+    batch = %{
+      undefined: [
+        %{level: :warning, msg: {:string, charlist}, meta: %{time: 1}},
+        %{level: :warning, msg: {"~s", [charlist]}, meta: %{time: 2}}
+      ]
+    }
+
+    prepared = :otel_exporter_logs_otlp.prepare_logs_for_export(batch)
+    assert %{undefined: [first, second]} = prepared
+    assert {:string, body1} = first.msg
+    assert {:string, body2} = second.msg
+    assert is_binary(body1) and byte_size(body1) <= 8_192 + byte_size("...[truncated]")
+    assert is_binary(body2) and byte_size(body2) <= 8_192 + byte_size("...[truncated]")
+
+    {usec, proto} =
+      :timer.tc(fn -> :otel_otlp_logs.to_proto(prepared, :otel_resource.create(%{}), %{}) end)
+
+    assert usec < 250_000
+    assert %{resource_logs: [_]} = proto
+  end
+
+  test "prepare drops extra events so a backed-up handler cannot encode tens of thousands" do
+    events =
+      for i <- 1..1_000 do
+        %{level: :warning, msg: {:string, "n=#{i}"}, meta: %{time: i}}
+      end
+
+    prepared = :otel_exporter_logs_otlp.prepare_logs_for_export(%{undefined: events})
+    assert length(prepared.undefined) == 256
+
+    {usec, proto} =
+      :timer.tc(fn -> :otel_otlp_logs.to_proto(prepared, :otel_resource.create(%{}), %{}) end)
+
+    assert usec < 250_000
+    assert %{resource_logs: [_]} = proto
+  end
 end
