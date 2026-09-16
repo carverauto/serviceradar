@@ -119,8 +119,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Points do
 
   # Find gaps before reducing display points, so decimation cannot invent
   # outages or erase them. Query buckets may be shorter than collection cadence.
-  # At least three observed intervals establish a median cadence; sparse series
-  # retain the known-bucket threshold so two distant samples cannot hide an outage.
+  # At least three similar short intervals establish a collection cadence;
+  # sparse series retain the known-bucket threshold so outages cannot define it.
   def time_gaps(points, bucket_seconds \\ nil) do
     threshold =
       if is_number(bucket_seconds) and bucket_seconds > 0 do
@@ -145,14 +145,18 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Points do
     end
   end
 
-  defp established_cadence_threshold([_, _, _, _ | _] = points) do
-    case median_delta_seconds(points) do
-      {:ok, seconds} -> seconds * 3
-      {:error, :no_deltas} -> 0
+  defp established_cadence_threshold(points) do
+    case sorted_delta_seconds(points) do
+      [shortest | _] = deltas ->
+        case Enum.take_while(deltas, &(&1 <= shortest * 1.5)) do
+          [_, _, _ | _] = cadence -> Enum.at(cadence, div(length(cadence), 2)) * 3
+          _ -> 0
+        end
+
+      [] ->
+        0
     end
   end
-
-  defp established_cadence_threshold(_points), do: 0
 
   def points_cap(points) when is_list(points) do
     width_cap = @max_points
@@ -353,20 +357,21 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Points do
   end
 
   defp median_delta_seconds(points) when is_list(points) do
-    deltas =
-      points
-      |> Enum.chunk_every(2, 1, :discard)
-      |> Enum.map(fn [{dt0, _}, {dt1, _}] -> DateTime.diff(dt1, dt0, :second) end)
-      |> Enum.filter(&(&1 > 0))
-
-    case deltas do
+    case sorted_delta_seconds(points) do
       [] ->
         {:error, :no_deltas}
 
-      _ ->
-        sorted = Enum.sort(deltas)
+      sorted ->
         mid = div(length(sorted), 2)
         {:ok, Enum.at(sorted, mid)}
     end
+  end
+
+  defp sorted_delta_seconds(points) do
+    points
+    |> Enum.chunk_every(2, 1, :discard)
+    |> Enum.map(fn [{dt0, _}, {dt1, _}] -> DateTime.diff(dt1, dt0, :second) end)
+    |> Enum.filter(&(&1 > 0))
+    |> Enum.sort()
   end
 end

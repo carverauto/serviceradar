@@ -141,6 +141,29 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.TimeseriesCounterGapTest do
     assert Enum.all?(combined.series, &(length(String.split(&1.paths.line, "M ")) == 3))
   end
 
+  test "sparse long outages cannot establish a slower collection cadence" do
+    start = ~U[2034-01-01 00:00:00Z]
+    points = for seconds <- [0, 60, 43_200, 86_400], do: {DateTime.add(start, seconds), 20.0}
+
+    gaps = Points.time_gaps(points, 15)
+    paths = Paths.chart_paths(points, nil, time_gaps: gaps)
+
+    assert gaps == points |> Enum.chunk_every(2, 1, :discard) |> Enum.map(fn [{a, _}, {b, _}] -> {a, b} end)
+    assert length(String.split(paths.line, "M ")) == 5
+    assert paths.avg == 20.0
+  end
+
+  test "three repeated short intervals establish cadence even when outages dominate the window" do
+    start = ~U[2034-01-01 00:00:00Z]
+    points = for seconds <- [0, 60, 120, 180, 43_200, 86_400, 129_600], do: {DateTime.add(start, seconds), 20.0}
+
+    gaps = Points.time_gaps(points, 15)
+    paths = Paths.chart_paths(points, nil, time_gaps: gaps)
+
+    assert length(gaps) == 3
+    assert length(String.split(paths.line, "M ")) == 5
+  end
+
   test "display decimation retains real gaps without mistaking omitted display points for outages" do
     start = ~U[2034-01-01 00:00:00Z]
     regular = for minute <- 0..999, do: {DateTime.add(start, minute, :minute), rem(minute, 7) * 1.0}
