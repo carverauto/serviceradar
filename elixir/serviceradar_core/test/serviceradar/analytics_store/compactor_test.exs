@@ -253,6 +253,52 @@ defmodule ServiceRadar.AnalyticsStore.CompactorTest do
     end
   end
 
+  test "operator session receives exact source and candidate paths before verified rewrite IO" do
+    source = source(1)
+    two_rows = check(%{"row_count" => 2})
+    config = %{cfg() | storage: :s3, s3_bucket_url: "s3://synthetic-archive"}
+
+    opts =
+      rewrite_options(source,
+        config: config,
+        query: query(source_check: two_rows, target_check: two_rows),
+        session: fn ^config, context, fun ->
+          refute_received {:query, _}
+          send(self(), {:session_context, context})
+          {:ok, fun.(:conn)}
+        end,
+        replace_rewrite: fn ^source, attrs, _ ->
+          send(self(), {:rewritten, attrs})
+          :ok
+        end
+      )
+
+    assert {:ok, %{source_files: 1, row_count: 2}} = Compactor.rewrite_file(@table, 1, opts)
+    assert_received {:session_context, %{source_urls: [source_url], target_url: target_url}}
+    assert_received {:rewritten, attrs}
+    assert source_url == config.s3_bucket_url <> "/" <> source.object_key
+    assert target_url == config.s3_bucket_url <> "/" <> attrs.object_key
+    assert attrs.content_checksum =~ ~r/\Arow-hash-v1:[0-9a-f]{64}\z/
+
+    sql = drain_sql()
+    assert Enum.any?(sql, &String.contains?(&1, source_url))
+    assert Enum.any?(sql, &String.contains?(&1, target_url))
+    assert Enum.count(sql, &String.contains?(&1, "duckdb.query(")) == 2
+  end
+
+  test "operator session preflight failure prevents IO and manifest publication" do
+    opts =
+      options(
+        session: fn _, %{source_urls: [_, _], target_url: _}, _ ->
+          {:error, :insufficient_scratch_space}
+        end,
+        query: fn _, _, _ -> flunk("failed session reached object IO") end,
+        replace_sources: fn _, _, _ -> flunk("failed session published a candidate") end
+      )
+
+    assert {:error, :insufficient_scratch_space} = Compactor.run(@table, opts)
+  end
+
   test "explicit rewrite requires hybrid and propagates missing or stale publication errors" do
     opts = rewrite_options(source(1))
 

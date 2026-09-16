@@ -154,6 +154,19 @@ most 10 million rows, with known bounds within one UTC day and at least ten
 minutes since both its last sample and publication. It requires hybrid mode
 and an idle analytics head; already rewritten files are rejected.
 
+The S3 analytics head blocks DuckDB's local filesystem for application
+connections. Large rewrites that need disk spill therefore require a separate,
+operator-controlled maintenance session; changing the head setting alone does
+not bypass pg_duckdb's file-role restrictions. Do not grant those roles to the
+application. The optional `:session` callback accepts `(config, context, fun)`,
+where `context.source_urls` and `context.target_url` identify the exact objects.
+Before calling `fun`, initialize the maintenance backend with a unique scratch
+directory and a spill cap below its measured free space, allow only that
+directory and those object paths, then disable external access and lock the
+DuckDB configuration. Close the backend and remove its owned scratch directory
+afterward. The two-argument session callback remains supported. A Kubernetes
+`emptyDir.sizeLimit` is a limit, not reserved disk capacity.
+
 Both operations verify row count, timestamp bounds, and two order-independent
 row hashes before atomically replacing the manifest entry. Source objects stay
 available for at least 24 hours to protect readers that already selected them.

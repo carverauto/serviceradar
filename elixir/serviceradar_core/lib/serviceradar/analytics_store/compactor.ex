@@ -10,6 +10,11 @@ defmodule ServiceRadar.AnalyticsStore.Compactor do
   No primary transaction remains open during object IO. Failed candidates stay
   invisible, and source objects remain available to readers that captured their
   keys before publication. Physical object cleanup is a separate operation.
+
+  An operator-supplied `:session` callback can accept `(config, context, fun)`.
+  The context contains `:source_urls` and `:target_url`, allowing the session to
+  restrict object access before invoking `fun`. The default and existing
+  two-argument callbacks continue to accept `(config, fun)`.
   """
 
   alias ServiceRadar.AnalyticsStore.Bindings
@@ -90,7 +95,9 @@ defmodule ServiceRadar.AnalyticsStore.Compactor do
          {:ok, urls} <- source_urls(cfg, sources),
          {:ok, target} <- Storage.copy_target(cfg, attrs.object_key),
          {:ok, {:ok, verification}} <-
-           session.(cfg, &rewrite(&1, urls, target, attrs, opts)),
+           open_session(session, cfg, %{source_urls: urls, target_url: target}, fn conn ->
+             rewrite(conn, urls, target, attrs, opts)
+           end),
          attrs = %{attrs | content_checksum: verification_digest(verification)},
          :ok <- replace.(sources, attrs, opts) do
       {:ok, %{source_files: length(sources), row_count: attrs.row_count}}
@@ -99,6 +106,12 @@ defmodule ServiceRadar.AnalyticsStore.Compactor do
       {:error, _} = error -> error
     end
   end
+
+  defp open_session(session, cfg, context, fun) when is_function(session, 3),
+    do: session.(cfg, context, fun)
+
+  defp open_session(session, cfg, _context, fun) when is_function(session, 2),
+    do: session.(cfg, fun)
 
   defp candidate_attrs([first | _] = sources, purpose) do
     keys = Layout.candidate_keys(@table, first.partition_date, purpose, Ecto.UUID.generate())
