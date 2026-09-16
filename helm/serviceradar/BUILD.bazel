@@ -86,6 +86,7 @@ py_test(
     srcs = ["starrocks_analytics_pins_test.py"],
     data = [
         "templates/starrocks-analytics-config.yaml",
+        "templates/starrocks-catalog-job.yaml",
         "values.yaml",
         "//k8s/starrocks:cluster_files",
         "//elixir/serviceradar_core/priv/starrocks:schema_sql",

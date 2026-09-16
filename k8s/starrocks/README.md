@@ -15,10 +15,15 @@ Cluster-scoped operator, pinned to chart/operator **1.11.7**. The lab
 StarRocks **3.5.21**. Hosted shared-data (CN + object storage) is not this
 directory.
 
-The CNPG JDBC catalog (`cnpg_platform`) is opt-in and off by default. When it
-is enabled, copy the pinned PostgreSQL JDBC driver to
-`file:///opt/starrocks/jdbc/postgresql.jar` on FE/BE (checksum in
-`third_party/jdbc/postgresql.pin`). Do not let the Frontend download Maven.
+The CNPG JDBC catalog (`cnpg_platform`) is opt-in and off by default. FE/BE
+expect the pinned PostgreSQL JDBC driver at
+`file:///opt/starrocks/jdbc/postgresql.jar` (checksum in
+`third_party/jdbc/postgresql.pin`). `values-cluster.yaml` has a checksummed
+alpine initContainer that mounts the 1Gi `jdbc` volume (the operator does
+not copy storageVolumes onto init containers) for the next starrocks-lab
+upgrade; do not enable Helm `analytics.starrocks.catalog.enabled` until
+CREATE EXTERNAL CATALOG is supplied via an infrastructure secret. Do not
+let the Frontend download Maven at catalog-create time.
 
 The upstream `operator.yaml` is not restricted-PSS compatible. On carverauto an
 unlabeled namespace enforces `restricted:latest`, so a raw apply creates the

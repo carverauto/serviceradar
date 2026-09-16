@@ -47,6 +47,33 @@ starrocksFESpec:
     storageClassName: local-path
     storageSize: 20Gi
     logStorageSize: 5Gi
+  # JDBC driver for cnpg_platform. Checksum is third_party/jdbc/postgresql.pin.
+  # Not applied until the next starrocks-lab helm upgrade. Catalog stays unused
+  # until CREATE EXTERNAL CATALOG runs with an infra secret. Init containers
+  # must mount storageVolumes themselves; the operator does not copy them.
+  storageVolumes:
+    - name: jdbc
+      storageClassName: local-path
+      storageSize: 1Gi
+      mountPath: /opt/starrocks/jdbc
+  initContainers:
+    - name: postgresql-jdbc
+      image: alpine:3.21.3
+      command:
+        - sh
+        - -c
+        - |
+          set -eu
+          dest=/opt/starrocks/jdbc/postgresql.jar
+          want=6e0e4cc2d8cae902084f8a2b18728b073a6fd9d1f87c9d8bff8f298c18185b93
+          if [ -f "$dest" ] && echo "$want  $dest" | sha256sum -c; then
+            exit 0
+          fi
+          wget -O "$dest" "https://repo1.maven.org/maven2/org/postgresql/postgresql/42.7.13/postgresql-42.7.13.jar"
+          echo "$want  $dest" | sha256sum -c
+      volumeMounts:
+        - name: jdbc
+          mountPath: /opt/starrocks/jdbc
   affinity:
     podAntiAffinity:
       preferredDuringSchedulingIgnoredDuringExecution:
@@ -89,6 +116,29 @@ starrocksBeSpec:
     storageClassName: local-path
     storageSize: 50Gi
     logStorageSize: 5Gi
+  storageVolumes:
+    - name: jdbc
+      storageClassName: local-path
+      storageSize: 1Gi
+      mountPath: /opt/starrocks/jdbc
+  initContainers:
+    - name: postgresql-jdbc
+      image: alpine:3.21.3
+      command:
+        - sh
+        - -c
+        - |
+          set -eu
+          dest=/opt/starrocks/jdbc/postgresql.jar
+          want=6e0e4cc2d8cae902084f8a2b18728b073a6fd9d1f87c9d8bff8f298c18185b93
+          if [ -f "$dest" ] && echo "$want  $dest" | sha256sum -c; then
+            exit 0
+          fi
+          wget -O "$dest" "https://repo1.maven.org/maven2/org/postgresql/postgresql/42.7.13/postgresql-42.7.13.jar"
+          echo "$want  $dest" | sha256sum -c
+      volumeMounts:
+        - name: jdbc
+          mountPath: /opt/starrocks/jdbc
   affinity:
     podAntiAffinity:
       preferredDuringSchedulingIgnoredDuringExecution:

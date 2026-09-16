@@ -2538,6 +2538,11 @@ analytics:
       name: cnpg_platform
       driverClass: org.postgresql.Driver
       driverUrl: "file:///opt/starrocks/jdbc/postgresql.jar"
+      user: serviceradar_starrocks_reader
+      # Infrastructure secret with key createSql (CREATE EXTERNAL CATALOG ...).
+      # Required only when catalog.enabled is true.
+      secretName: ""
+      jdbcUri: "jdbc:postgresql://cnpg-rw:5432/serviceradar"
 
 spiffe:
   mode: "filesystem"

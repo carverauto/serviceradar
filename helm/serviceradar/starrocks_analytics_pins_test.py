@@ -23,6 +23,9 @@ TEMPLATE = (
 ).read_text()
 LAB_CLUSTER = (REPO_ROOT / "k8s" / "starrocks" / "values-cluster.yaml").read_text()
 LAB_README = (REPO_ROOT / "k8s" / "starrocks" / "README.md").read_text()
+CATALOG_JOB = (
+    REPO_ROOT / "helm" / "serviceradar" / "templates" / "starrocks-catalog-job.yaml"
+).read_text()
 SCHEMA_DIR = (
     REPO_ROOT / "elixir" / "serviceradar_core" / "priv" / "starrocks"
 )
@@ -70,6 +73,25 @@ class StarRocksAnalyticsPinsTest(unittest.TestCase):
         self.assertIn("profile: sharedNothing", VALUES)
         self.assertIn('objectStorageBucket: ""', VALUES)
         self.assertIn("cutoverDatasets: []", VALUES)
+
+    def test_catalog_job_is_gated_off_and_uses_an_infra_secret(self):
+        self.assertIn("catalog.enabled", CATALOG_JOB)
+        self.assertIn("kind: Job", CATALOG_JOB)
+        self.assertLess(CATALOG_JOB.find("catalog.enabled"), CATALOG_JOB.find("kind: Job"))
+        self.assertIn("secretName is required when catalog.enabled is true", CATALOG_JOB)
+        self.assertIn("createSql", CATALOG_JOB)
+        self.assertNotIn("repo1.maven.org", CATALOG_JOB)
+        self.assertIn("automountServiceAccountToken: false", CATALOG_JOB)
+        self.assertIn('secretName: ""', VALUES)
+        self.assertRegex(VALUES, r"catalog:\n(?:[ \t]+.+\n)*[ \t]+enabled: false")
+        self.assertIn("mountPath: /opt/starrocks/jdbc", LAB_CLUSTER)
+        self.assertIn("name: jdbc", LAB_CLUSTER)
+        self.assertIn("volumeMounts:", LAB_CLUSTER)
+        self.assertIn("alpine:3.21.3", LAB_CLUSTER)
+        self.assertIn(
+            "6e0e4cc2d8cae902084f8a2b18728b073a6fd9d1f87c9d8bff8f298c18185b93",
+            LAB_CLUSTER,
+        )
 
     def test_schema_covers_flows_metrics_logs_events_and_hourly_mvs(self):
         names = sorted(path.name for path in SCHEMA_DIR.glob("*.sql"))
