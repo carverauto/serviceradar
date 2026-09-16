@@ -828,4 +828,3 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
     "flex w-full flex-col gap-4 p-4"
   end
 end
-

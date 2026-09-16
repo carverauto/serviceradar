@@ -1,6 +1,7 @@
 defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
   @moduledoc false
 
+  alias ServiceRadar.Analytics.StarRocks.MetricConsumers
   alias ServiceRadar.Inventory.InterfaceMetrics
   alias ServiceRadar.Inventory.InterfaceSettings
   alias ServiceRadar.Repo
@@ -687,7 +688,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
   end
 
   defp cheap_snmp_present?(device_uid) when is_binary(device_uid) and device_uid != "" do
-    ServiceRadar.Analytics.StarRocks.MetricConsumers.fetch(
+    MetricConsumers.fetch(
       cnpg: fn ->
         interpret_exists(fn ->
           Repo.query(
@@ -704,7 +705,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
         end)
       end,
       starrocks: fn ->
-        case ServiceRadar.Analytics.StarRocks.MetricConsumers.snmp_present?(device_uid) do
+        case MetricConsumers.snmp_present?(device_uid) do
           {:ok, present} -> {:ok, present}
           {:error, _reason} -> :error
         end

@@ -76,9 +76,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ICMPDataTest do
     respond_with([rows([]), rows([point(@host_alpha, 1)])])
 
     assert %{total_checks: 1, online_checks: 1, uptime_pct: 100.0} =
-             AvailabilityData.load_availability(__MODULE__, @host_alpha, @scope,
-               now: ~U[1999-06-16 00:00:00Z]
-             )
+             AvailabilityData.load_availability(__MODULE__, @host_alpha, @scope, now: ~U[1999-06-16 00:00:00Z])
 
     assert_receive {:icmp_query, dedicated, _}
     assert_receive {:icmp_query, sweep, _}

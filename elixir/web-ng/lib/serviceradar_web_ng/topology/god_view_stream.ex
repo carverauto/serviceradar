@@ -17,6 +17,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   import Ecto.Query
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Analytics.StarRocks.MetricConsumers
   alias ServiceRadar.Camera.Source, as: CameraSource
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Observability.BmpSettingsRuntime
@@ -4881,7 +4882,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     cutoff = DateTime.add(DateTime.utc_now(), -24, :hour)
 
     result =
-      ServiceRadar.Analytics.StarRocks.MetricConsumers.fetch(
+      MetricConsumers.fetch(
         cnpg: fn ->
           Repo.query(
             """
@@ -4905,7 +4906,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
           )
         end,
         starrocks: fn ->
-          ServiceRadar.Analytics.StarRocks.MetricConsumers.sparkline_rows(pairs, cutoff)
+          MetricConsumers.sparkline_rows(pairs, cutoff)
         end
       )
 

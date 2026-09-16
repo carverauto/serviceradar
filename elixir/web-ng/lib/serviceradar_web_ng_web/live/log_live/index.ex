@@ -26,6 +26,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNGWeb.Components.PrefixTagChips
+  alias ServiceRadarWebNGWeb.LogLive.NetflowRuntime
   alias ServiceRadarWebNGWeb.MetricSeries
   alias ServiceRadarWebNGWeb.NetFlow.EnrichmentExpiry
   alias ServiceRadarWebNGWeb.Netflow.PrefixTagQuery
@@ -37,7 +38,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   alias ServiceRadarWebNGWeb.NetflowVisualize.State, as: NFState
   alias ServiceRadarWebNGWeb.ObservabilityPaths
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
-  alias ServiceRadarWebNGWeb.LogLive.NetflowRuntime
   alias ServiceRadarWebNGWeb.Stats
   alias ServiceRadarWebNGWeb.Stats.Query, as: StatsQuery
 

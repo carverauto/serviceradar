@@ -6,6 +6,7 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
   # would (required env stubbed) and asserts the Oban crontab is complete.
   use ExUnit.Case, async: false
 
+  alias ServiceRadar.Analytics.StarRocks
   alias ServiceRadar.Automation.Ansible.FileCallbackResponsePolicyProvider
   alias ServiceRadar.Edge.AgentCommandCleanupWorker
   alias ServiceRadar.EventWriter.Config, as: EventWriterConfig
@@ -307,7 +308,7 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     TopologyGraph,
     ServiceRadar.Observability.ThreatIntelRawPayloadStore,
     ServiceRadar.WorkloadIdentity,
-    ServiceRadar.Analytics.StarRocks
+    StarRocks
   ]
 
   @topology_graph TopologyGraph
@@ -332,7 +333,7 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     with_env("SERVICERADAR_STARROCKS_DATABASE", "serviceradar")
 
     starrocks =
-      read_prod_config()[:serviceradar_core][ServiceRadar.Analytics.StarRocks]
+      read_prod_config()[:serviceradar_core][StarRocks]
 
     assert starrocks[:enabled] == true
     assert starrocks[:catalog_enabled] == true

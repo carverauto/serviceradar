@@ -158,8 +158,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
     Enum.join(tokens, " ")
   end
 
-  defp token_key(token),
-    do: token |> String.trim_leading("!") |> String.split(":", parts: 2) |> hd() |> String.downcase()
+  defp token_key(token), do: token |> String.trim_leading("!") |> String.split(":", parts: 2) |> hd() |> String.downcase()
 
   defp tokenize(""), do: []
 

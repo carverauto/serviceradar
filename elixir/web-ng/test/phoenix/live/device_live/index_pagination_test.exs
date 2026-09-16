@@ -1,10 +1,10 @@
 defmodule ServiceRadarWebNGWeb.DeviceLive.IndexPaginationTest do
   use ExUnit.Case, async: false
 
+  import Phoenix.LiveView, only: [start_async: 3, cancel_async: 2]
+
   alias Phoenix.LiveView.Socket
   alias ServiceRadarWebNGWeb.DeviceLive.Index
-
-  import Phoenix.LiveView, only: [start_async: 3, cancel_async: 2]
   alias ServiceRadarWebNGWeb.DeviceLive.IndexPath
   alias ServiceRadarWebNGWeb.DeviceLive.IndexRefresh
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage

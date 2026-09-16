@@ -186,7 +186,7 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
 
     Application.put_env(
       :serviceradar_core,
-      ServiceRadar.Analytics.StarRocks,
+      StarRocks,
       prev
       |> Keyword.put(:cutover_datasets, [:flows])
       |> Keyword.put(:query_http, http)
@@ -216,7 +216,7 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
 
     Application.put_env(
       :serviceradar_core,
-      ServiceRadar.Analytics.StarRocks,
+      StarRocks,
       prev
       |> Keyword.put(:cutover_datasets, [:flows])
       |> Keyword.put(:catalog_enabled, true)
