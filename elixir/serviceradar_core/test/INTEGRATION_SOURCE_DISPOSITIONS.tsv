@@ -779,6 +779,7 @@ test/serviceradar/observability/zen_rule_sync_test.exs	-	not_selected	load_only	
 test/serviceradar/observability/zen_rule_templates_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/observability/zen_rule_test.exs	ServiceRadar.Observability.ZenRuleTest	data_case	async	transaction_owner	Every create provides skip_zen_sync context at :28-40, :45-57, and :63-91, bypassing singleton sync.
 test/serviceradar/otel/log_id_filter_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
+test/serviceradar/otel/log_self_filter_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/otel/propagation_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/otel_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/outbound_mail/runtime_config_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.

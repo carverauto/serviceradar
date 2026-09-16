@@ -35,6 +35,12 @@
 -define(MAX_METADATA_BYTES, 2048).
 -define(MAX_REPORT_BYTES, 8192).
 -define(INSPECT_DEPTH, 6).
+%% Words, not bytes. `io_lib:format("~0P", ...)` walks the whole term before
+%% truncate_binary/2 can cap it; a multi-megabyte Logger report (protobuf
+%% structs, agent config JSON) pinned the handler in inspect_term/2 while
+%% 90k casts piled up in the mailbox.
+-define(MAX_TERM_WORDS, 4096).
+-define(MAX_CHARLIST_ANY_VALUES, 4096).
 
 -record(state, {channel :: term(),
                 httpc_profile :: atom() | undefined,
@@ -300,11 +306,18 @@ charlist_to_binary(Value) ->
     end.
 
 inspect_term(Value, MaxBytes) ->
-    try
-        truncate_binary(iolist_to_binary(io_lib:format("~0P", [Value, ?INSPECT_DEPTH])), MaxBytes)
-    catch
-        _:_ ->
-            <<"<uninspectable>">>
+    Size = try erts_debug:flat_size(Value) catch _:_ -> ?MAX_TERM_WORDS + 1 end,
+    case Size > ?MAX_TERM_WORDS of
+        true ->
+            <<"<truncated>">>;
+        false ->
+            try
+                Chars = io_lib:print(Value, 1, MaxBytes, ?INSPECT_DEPTH),
+                truncate_binary(iolist_to_binary(Chars), MaxBytes)
+            catch
+                _:_ ->
+                    <<"<uninspectable>">>
+            end
     end.
 
 truncate_binary(Binary, MaxBytes) when is_binary(Binary), byte_size(Binary) =< MaxBytes ->
@@ -406,6 +419,8 @@ normalize_any_value(#{value := {array_value, #{values := Values}}}=AnyValue) whe
 normalize_any_value(AnyValue) ->
     AnyValue.
 
+charlist_from_any_values(Values) when length(Values) > ?MAX_CHARLIST_ANY_VALUES ->
+    error;
 charlist_from_any_values(Values) ->
     try
         Chars = [I || #{value := {int_value, I}} <- Values],

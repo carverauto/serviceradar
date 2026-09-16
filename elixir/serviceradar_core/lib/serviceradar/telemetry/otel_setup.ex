@@ -172,14 +172,19 @@ defmodule ServiceRadar.Telemetry.OtelSetup do
       true ->
         exporter_opts = %{
           protocol: :grpc,
-          rpc_timeout_ms: positive_int_env("OTEL_EXPORTER_OTLP_TIMEOUT_MS", 30_000),
-          retry_max_attempts: positive_int_env("OTEL_EXPORTER_OTLP_RETRY_MAX_ATTEMPTS", 3),
+          # Keep this short. The handler used to run export in-process with a
+          # 30s timeout * 3 retries; a hung LogsService recv pinned the
+          # gen_statem while every warning cast piled into the mailbox.
+          rpc_timeout_ms: positive_int_env("OTEL_EXPORTER_OTLP_TIMEOUT_MS", 5_000),
+          retry_max_attempts: positive_int_env("OTEL_EXPORTER_OTLP_RETRY_MAX_ATTEMPTS", 1),
           retry_base_delay_ms: positive_int_env("OTEL_EXPORTER_OTLP_RETRY_BASE_DELAY_MS", 500),
-          retry_max_delay_ms: positive_int_env("OTEL_EXPORTER_OTLP_RETRY_MAX_DELAY_MS", 10_000)
+          retry_max_delay_ms: positive_int_env("OTEL_EXPORTER_OTLP_RETRY_MAX_DELAY_MS", 2_000)
         }
 
         handler_config = %{
           exporter: {:otel_exporter_logs_otlp, exporter_opts},
+          max_queue_size: 512,
+          exporting_timeout_ms: 10_000,
           # Only export :warning+ as OTLP log records. Routine info/debug app
           # logs are self-telemetry noise that gets re-ingested via the LOGS
           # stream into CNPG; keeping them out of the OTLP export breaks that
@@ -192,8 +197,15 @@ defmodule ServiceRadar.Telemetry.OtelSetup do
           # the human-readable hex metadata. See ServiceRadar.Otel.LogIdFilter.
           filter_default: :log,
           filters: [
+            drop_otel_self: {&ServiceRadar.Otel.LogSelfFilter.filter/2, :no_arg},
             otel_ids_to_bytes: {&ServiceRadar.Otel.LogIdFilter.filter/2, :no_arg}
-          ]
+          ],
+          # Logger proxy overload (separate from the gen_statem mailbox cap).
+          burst_limit_enable: true,
+          burst_limit_max_count: 200,
+          burst_limit_window_time: 1000,
+          drop_mode_qlen: 50,
+          flush_qlen: 200
         }
 
         # Use a local copy of the handler implementation. The upstream

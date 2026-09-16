@@ -51,4 +51,67 @@ defmodule ServiceRadar.Telemetry.OtelLogsExporterTest do
 
     assert %{resource_logs: [_]} = :otel_otlp_logs.to_proto(sanitized, resource, %{})
   end
+
+  test "sanitize of a huge logger report stays bounded and cheap" do
+    huge = Map.new(1..20_000, fn i -> {i, String.duplicate("z", 80)} end)
+
+    batch = %{
+      undefined: [
+        %{
+          level: :warning,
+          msg: {:report, %{payload: huge}},
+          meta: %{time: System.os_time(:microsecond), payload: huge}
+        }
+      ]
+    }
+
+    {usec, sanitized} = :timer.tc(fn -> :otel_exporter_logs_otlp.sanitize_logs_for_export(batch) end)
+
+    assert usec < 250_000
+    assert %{undefined: [%{meta: metadata, msg: {:report, report}}]} = sanitized
+    assert metadata.payload == "<truncated>"
+    assert report.payload == "<truncated>"
+  end
+
+  test "log handler drops events once the batch hits max_queue_size" do
+    reg = :"otel_log_handler_cap_#{System.unique_integer([:positive])}"
+
+    {:ok, pid} =
+      :serviceradar_otel_log_handler_v2.start(reg, %{
+        id: :otel_log_handler_cap,
+        module: :serviceradar_otel_log_handler_v2,
+        exporter: :none,
+        max_queue_size: 8,
+        scheduled_delay_ms: 60_000
+      })
+
+    on_exit(fn ->
+      if Process.alive?(pid) do
+        :gen_statem.stop(reg, :normal, 2_000)
+      end
+    end)
+
+    event = %{level: :warning, msg: {"overflow", []}, meta: %{time: 1}}
+    config = %{regname: reg}
+
+    Enum.each(1..40, fn _ -> :serviceradar_otel_log_handler_v2.log(event, config) end)
+
+    stats =
+      Enum.reduce_while(1..20, nil, fn _, _ ->
+        Process.sleep(10)
+        current = :serviceradar_otel_log_handler_v2.queue_stats(reg)
+
+        if current.batch_len >= 8 do
+          {:halt, current}
+        else
+          {:cont, current}
+        end
+      end)
+
+    assert stats.batch_len == 8
+    assert stats.max_queue_size == 8
+    assert stats.mailbox < 40
+    {:message_queue_len, qlen} = Process.info(pid, :message_queue_len)
+    assert qlen < 40
+  end
 end
