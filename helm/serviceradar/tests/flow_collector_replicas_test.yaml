@@ -5,6 +5,7 @@ tests:
   - it: rolls updates and spreads replicas once stateless
     set:
       flowCollector.enabled: true
+      analytics.starrocks.enabled: true
       flowCollector.replicaCount: 3
     documentSelector:
       path: kind

@@ -1,5 +1,24 @@
 ## ADDED Requirements
 
+### Requirement: StarRocks is optional except for NetFlow
+The system SHALL treat StarRocks as an optional warehouse for all historical telemetry datasets (flows, scalar metrics, logs, and event history) and SHALL require StarRocks when NetFlow collection is enabled.
+
+#### Scenario: Install without NetFlow or StarRocks
+- **WHEN** an operator leaves NetFlow collection and StarRocks analytics disabled
+- **THEN** the installation remains on CNPG for remaining telemetry and control-plane state
+- **AND** Helm does not fail closed for the missing warehouse
+
+#### Scenario: NetFlow without StarRocks is refused
+- **WHEN** an operator enables NetFlow collection without enabling StarRocks analytics
+- **THEN** chart rendering fails closed
+- **AND** the collector workload is not deployed
+
+#### Scenario: StarRocks warehouse accepts every telemetry dataset
+- **WHEN** StarRocks analytics is enabled
+- **THEN** EventWriter can persist flows, scalar metrics, logs and event history into StarRocks independently of whether NetFlow is on
+- **AND** CNPG remains authoritative for inventory, configuration, credentials and current alert state
+- **AND** serving still follows per-dataset cutover rather than implying every dataset has switched
+
 ### Requirement: Explicit analytics deployment profiles
 The system SHALL provide opt-in StarRocks shared-data analytics with dedicated object storage and a shared-nothing profile with durable local storage, while retaining CNPG for control-plane state and unmigrated datasets.
 

@@ -128,6 +128,16 @@ class StarRocksAnalyticsPinsTest(unittest.TestCase):
         )
         self.assertIn("serviceradar.starrocksAnalyticsEnv", CORE_TMPL)
         self.assertIn("serviceradar.starrocksAnalyticsEnv", WEB_TMPL)
+        self.assertIn("requireStarRocksForNetFlow", HELPERS)
+        self.assertIn("flowCollector.enabled requires analytics.starrocks.enabled", HELPERS)
+        flow_collector = (
+            REPO_ROOT / "helm" / "serviceradar" / "templates" / "flow-collector.yaml"
+        ).read_text()
+        self.assertIn("requireStarRocksForNetFlow", flow_collector)
+        self.assertLess(
+            flow_collector.find("flowCollector.enabled"),
+            flow_collector.find("requireStarRocksForNetFlow"),
+        )
         self.assertIn("`partition` VARCHAR(128)", (SCHEMA_DIR / "0002_timeseries_metrics.sql").read_text())
 
     def test_demo_overlay_enables_catalog_not_cutover(self):

@@ -91,6 +91,7 @@ py_test(
         "templates/starrocks-catalog-network-policy.yaml",
         "templates/core.yaml",
         "templates/web.yaml",
+        "templates/flow-collector.yaml",
         "values.yaml",
         "values-demo.yaml",
         "//k8s/starrocks:cluster_files",

@@ -283,6 +283,13 @@ serviceradar.io/runtime-tls-revision: {{ default "initial" (default (dict) .Valu
 StarRocks analytics env for core/web-ng. Empty unless analytics.starrocks.enabled.
 Cutover/shadow lists stay comma-separated; catalog_enabled is a boolean string.
 */}}
+{{- define "serviceradar.requireStarRocksForNetFlow" -}}
+{{- $sr := default (dict) (default (dict) .Values.analytics).starrocks -}}
+{{- if not $sr.enabled }}
+{{- fail "flowCollector.enabled requires analytics.starrocks.enabled: NetFlow history is stored in StarRocks. StarRocks stays optional when NetFlow is off." }}
+{{- end }}
+{{- end -}}
+
 {{- define "serviceradar.starrocksAnalyticsEnv" -}}
 {{- $sr := default (dict) (default (dict) .Values.analytics).starrocks -}}
 {{- if $sr.enabled }}

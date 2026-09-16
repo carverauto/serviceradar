@@ -1719,6 +1719,8 @@ trapd:
         port: 162
         targetPort: 162
         protocol: UDP
+# NetFlow/IPFIX collector. Requires analytics.starrocks.enabled: history
+# for flows is stored in StarRocks, not served from CNPG.
 flowCollector:
   enabled: false
   replicaCount: 1
@@ -2503,9 +2505,12 @@ sweep:
 # SPIFFE Configuration (shared by all Elixir components)
 # =============================================================================
 
-# Opt-in StarRocks analytics. Disabled by default so demo/serviceradar stay
-# on CNPG until a dataset is explicitly cut over. Lab clusters run the
-# shared-nothing profile from k8s/starrocks/, not this chart.
+# Optional telemetry warehouse for ALL historical datasets (flows, scalar
+# metrics, logs, event history) — not a NetFlow-only store. Disabled by
+# default so installs without NetFlow stay on CNPG. Enabling flowCollector
+# requires this flag: NetFlow volume is not a CNPG serving path. Lab
+# clusters run the shared-nothing profile from k8s/starrocks/, not this
+# chart. Cutover stays empty until a dataset is explicitly listed.
 analytics:
   starrocks:
     enabled: false

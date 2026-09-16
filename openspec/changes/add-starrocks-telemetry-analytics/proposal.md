@@ -9,7 +9,7 @@ This is a proposal only. No application code, migrations, deployment, data recov
 ## What Changes
 
 - Selectively recover storage-independent fixes and their synthetic tests from the preserved source; add the still-unimplemented full-width favorited-interface charts. See [extraction.md](extraction.md).
-- Introduce opt-in StarRocks analytics, beginning with flows and scalar metrics, then logs/events/alert history and other explicitly approved historical datasets. Keep CNPG as the control-plane/current-state database.
+- Introduce optional StarRocks analytics as the warehouse for ALL historical telemetry (flows, scalar metrics, logs, event history), not a NetFlow-only store. Keep CNPG as the control-plane/current-state database. StarRocks stays off by default; enabling NetFlow collection requires it because flow volume is not a CNPG serving path.
 - Use operator-managed shared-data StarRocks with dedicated object storage for hosted installations; provide a shared-nothing, durable-disk StarRocks profile for OSS installations without object storage. Existing CNPG installations remain supported until explicitly migrated.
 - Keep JetStream first and EventWriter as the single persistence owner. Add bounded Stream Load batching and crash-safe delivery semantics within that owner, preserving independent flow and metric demand domains.
 - Add a StarRocks SQL compiler/executor behind existing authorized SRQL entry points, with stable response contracts and explicit dataset routing. Dashboard callers do not issue database-specific SQL.
