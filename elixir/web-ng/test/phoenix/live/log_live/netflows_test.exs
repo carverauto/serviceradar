@@ -36,7 +36,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
     filtered =
       "in:flows time:[2026-08-28T17:38:00.000000Z,2026-08-28T17:41:59.999999Z] sort:time:desc"
 
-    {:ok, lv, html} = live(conn, ~p"/observability/netflows?#{%{q: filtered}}")
+    {:ok, lv, html} = live_with_analytics(conn, ~p"/observability/netflows?#{%{q: filtered}}")
     assert html =~ "time:[2026-08-28T17:38:00.000000Z,2026-08-28T17:41:59.999999Z]"
 
     lv
@@ -60,11 +60,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
   test "/flows redirects to the canonical NetFlow page with retained query bytes", %{conn: conn} do
     q = "in:flows time:last_24h"
 
-    assert {:error, {:redirect, %{to: to}}} = live(conn, ~p"/flows?#{%{q: q, limit: 50}}")
+    assert {:error, {:redirect, %{to: to}}} = live_with_analytics(conn, ~p"/flows?#{%{q: q, limit: 50}}")
     assert String.starts_with?(to, "/observability/netflows?")
     assert URI.decode_query(URI.parse(to).query || "") == %{"q" => q, "limit" => "50"}
 
-    {:ok, _lv, html} = live(conn, to)
+    {:ok, _lv, html} = live_with_analytics(conn, to)
     # Overview panels of the netflows tab.
     assert html =~ "Avg PPS"
     assert html =~ "Total Packets"
@@ -86,7 +86,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
 
     q = "in:flows time:last_24h"
 
-    {:ok, _lv, html} = live(conn, ~p"/observability/netflows?#{%{q: q, limit: 50}}")
+    {:ok, _lv, html} = live_with_analytics(conn, ~p"/observability/netflows?#{%{q: q, limit: 50}}")
 
     assert html =~ "Avg Bandwidth"
     assert html =~ "1.0 Kbps"
@@ -109,10 +109,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
 
     q = "in:flows time:last_24h"
 
-    assert {:error, {:redirect, %{to: _to}}} = live(conn, ~p"/flows?#{%{q: q, limit: 50}}")
+    assert {:error, {:redirect, %{to: _to}}} = live_with_analytics(conn, ~p"/flows?#{%{q: q, limit: 50}}")
 
     {:ok, lv, _html} =
-      live(conn, ~p"/observability/netflows?#{%{q: q, limit: 50, open_flow: "1"}}")
+      live_with_analytics(conn, ~p"/observability/netflows?#{%{q: q, limit: 50, open_flow: "1"}}")
 
     lv
     |> element(~s(button[phx-click="netflow_modal_filter"][phx-value-field="src_ip"]))
@@ -141,7 +141,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
       ~s(in:flows time:last_24h src_endpoint_ip:192.168.1.134 dst_endpoint_ip:13.217.9.183 src_endpoint_port:57196 dst_endpoint_port:443 protocol_num:6 sort:time:desc limit:1)
 
     {:ok, _lv, html} =
-      live(conn, ~p"/observability/netflows?#{%{q: q, limit: 50, open_flow: "1"}}")
+      live_with_analytics(conn, ~p"/observability/netflows?#{%{q: q, limit: 50, open_flow: "1"}}")
 
     assert html =~ "Flow details"
     # dst port 443 resolves to the HTTPS service label.
@@ -173,7 +173,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
     q = "in:flows time:last_24h sort:time:desc"
 
     {:ok, lv, _html} =
-      live(
+      live_with_analytics(
         conn,
         ~p"/observability/netflows?#{%{q: q, limit: 50, view: "explorer", open_flow: "1"}}"
       )
@@ -236,7 +236,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
       ~s(in:flows time:last_24h src_endpoint_ip:192.168.1.134 dst_endpoint_ip:13.217.9.183 src_endpoint_port:57196 dst_endpoint_port:443 protocol_num:6 sort:time:desc limit:1)
 
     {:ok, lv, _html} =
-      live(conn, ~p"/observability/netflows?#{%{q: q, limit: 50, open_flow: "1"}}")
+      live_with_analytics(conn, ~p"/observability/netflows?#{%{q: q, limit: 50, open_flow: "1"}}")
 
     map =
       lv
@@ -264,7 +264,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
     q = "in:flows time:last_24h"
 
     {:ok, lv, html} =
-      live(conn, ~p"/observability/netflows?#{%{q: q, limit: 50, view: "explorer"}}")
+      live_with_analytics(conn, ~p"/observability/netflows?#{%{q: q, limit: 50, view: "explorer"}}")
 
     assert html =~ "Prefix tag"
     assert has_element?(lv, ~s(form[phx-submit="netflow_prefix_tag_filter"] input[name="tag"]))
@@ -288,7 +288,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
     q = "in:flows time:last_24h"
 
     {:ok, lv, html} =
-      live(conn, ~p"/observability/netflows?#{%{q: q, limit: 50, view: "explorer"}}")
+      live_with_analytics(conn, ~p"/observability/netflows?#{%{q: q, limit: 50, view: "explorer"}}")
 
     assert html =~ "netbox:tag:corp"
     assert html =~ "provider:cloudflare"
@@ -296,7 +296,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
     assert has_element?(lv, ~s(form[phx-submit="netflow_prefix_tag_filter"]))
 
     {:ok, _lv, detail_html} =
-      live(
+      live_with_analytics(
         conn,
         ~p"/observability/netflows?#{%{q: q, limit: 50, view: "explorer", open_flow: "1"}}"
       )
@@ -318,7 +318,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
     q = "in:flows time:last_24h"
 
     {:ok, _lv, html} =
-      live(conn, ~p"/observability/netflows?#{%{q: q, limit: 50, view: "explorer"}}")
+      live_with_analytics(conn, ~p"/observability/netflows?#{%{q: q, limit: 50, view: "explorer"}}")
 
     refute html =~ "Filter flows with tag"
     refute html =~ "Prefix tag: "
@@ -331,6 +331,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
     after
       100 ->
         Enum.reverse(acc)
+    end
+  end
+
+  defp live_with_analytics(conn, path) do
+    case live(conn, path) do
+      {:ok, view, _html} -> {:ok, view, render_async(view)}
+      other -> other
     end
   end
 

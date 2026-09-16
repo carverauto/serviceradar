@@ -27,6 +27,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNGWeb.Components.PrefixTagChips
+  alias ServiceRadarWebNGWeb.LogLive.NetflowRuntime
+  alias ServiceRadarWebNGWeb.LogLive.NetflowSummary
   alias ServiceRadarWebNGWeb.MetricSeries
   alias ServiceRadarWebNGWeb.MetricWindowComponents
   alias ServiceRadarWebNGWeb.NetFlow.EnrichmentExpiry
@@ -105,8 +107,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
        colors: %{}
      })
      |> assign(:netflow_app_activity, %{bucket_seconds: 300, keys: [], points: [], colors: %{}})
-     |> assign(:netflow_frequent_talkers_packets, [])
-     |> assign(:netflow_frequent_talkers_bytes, [])
      |> assign(:netflow_rdns_map, %{})
      |> assign(:netflow_threat_map, %{})
      |> assign(:netflow_compact?, false)
@@ -126,6 +126,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
      |> assign(:event_summary, empty_event_summary())
      |> assign(:alert_summary, empty_alert_summary())
      |> assign(:netflow_summary, empty_netflow_summary())
+     |> assign(:netflow_loading, false)
+     |> assign(:netflow_load_error, nil)
      |> assign(:trace_stats, %{total: 0, error_traces: 0, slow_traces: 0})
      |> assign(:trace_latency, %{
        avg_duration_ms: 0.0,
@@ -281,8 +283,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           points: [],
           colors: %{}
         })
-        |> assign(:netflow_frequent_talkers_packets, [])
-        |> assign(:netflow_frequent_talkers_bytes, [])
         |> assign(:netflow_rdns_map, %{})
         |> assign(:netflow_threat_map, %{})
         |> assign(:netflow_compact?, netflow_compact?)
@@ -1461,6 +1461,26 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   @impl true
+  def handle_async({:netflow_analytics, ref}, {:ok, data}, socket) do
+    if NetflowRuntime.current?(socket, ref) do
+      {:noreply, socket |> assign(data) |> assign(:netflow_load_error, nil) |> NetflowRuntime.complete()}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_async({:netflow_analytics, ref}, {:exit, _reason}, socket) do
+    if NetflowRuntime.current?(socket, ref) do
+      {:noreply,
+       socket
+       |> NetflowRuntime.complete()
+       |> assign(:netflow_load_error, "Unable to load NetFlow analytics for this window. Select a window to retry.")}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  @impl true
   def handle_info({:load_tab_data, tab, params, uri}, socket) do
     if current_tab_load?(socket, tab, params) do
       {:noreply, load_tab(socket, tab, params, uri)}
@@ -1560,10 +1580,27 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             event="netflow_set_range"
             custom_event="netflow_custom_range"
           />
+          <div
+            :if={@active_tab == "netflows" and @netflow_loading}
+            id="netflow-analytics-loading"
+            role="status"
+            class="rounded-xl border border-sr-line p-6 text-sm text-sr-muted"
+          >
+            Loading NetFlow analytics for the selected window…
+          </div>
+          <div
+            :if={@active_tab == "netflows" and !@netflow_loading and @netflow_load_error}
+            id="netflow-analytics-error"
+            role="alert"
+            class="rounded-xl border border-sr-line p-4 text-sm text-sr-muted"
+          >
+            {@netflow_load_error}
+          </div>
           <.netflow_summary
-            :if={@active_tab == "netflows"}
+            :if={@active_tab == "netflows" and !@netflow_loading and is_nil(@netflow_load_error)}
             timezone={@current_scope.user.timezone}
             summary={@netflow_summary}
+            error={Map.get(@netflow_summary, :error)}
             top_talkers={@netflow_top_talkers}
             top_ports={@netflow_top_ports}
             rdns_map={@netflow_rdns_map}
@@ -1572,8 +1609,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             timeseries_stacked={@netflow_timeseries_stacked}
             protocol_activity={@netflow_protocol_activity}
             app_activity={@netflow_app_activity}
-            frequent_talkers_packets={@netflow_frequent_talkers_packets}
-            frequent_talkers_bytes={@netflow_frequent_talkers_bytes}
             geo_heatmap={@netflow_geo_heatmap}
             geo_side={@netflow_geo_side}
             compare_mode={@netflow_compare_mode}
@@ -2054,8 +2089,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr(:protocol_activity, :map, default: %{bucket_seconds: 300, keys: [], points: [], colors: %{}})
 
   attr(:app_activity, :map, default: %{bucket_seconds: 300, keys: [], points: [], colors: %{}})
-  attr(:frequent_talkers_packets, :list, default: [])
-  attr(:frequent_talkers_bytes, :list, default: [])
   attr(:compare_mode, :string, default: "off")
   attr(:geo_heatmap, :list, default: [])
   attr(:geo_side, :string, default: "dst")
@@ -2072,12 +2105,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr(:view, :string, default: "overview")
   attr(:timezone, :string, required: true)
 
+  attr(:error, :string, default: nil)
+
   defp netflow_summary(assigns) do
     # This function is sometimes called directly (not as a component) with a
     # manually-built assigns map. Guard against missing keys that would
     # otherwise crash rendering (e.g. sankey JSON edges).
     assigns =
       assigns
+      |> assign_new(:error, fn -> nil end)
       |> assign_new(:netflow_sankey_edges_json, fn -> "[]" end)
       |> assign_new(:sankey_prefix, fn -> 24 end)
       |> assign_new(:stack_mode, fn -> @default_netflow_stack_mode end)
@@ -2188,6 +2224,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         </div>
       </.ui_panel>
 
+      <div
+        :if={@error}
+        id="netflow-summary-error"
+        role="alert"
+        class="rounded-xl border border-sr-line p-4 text-sm text-sr-muted"
+      >
+        {@error}
+      </div>
       <.ui_panel :if={@view in ["overview", "traffic"]} class="p-0" body_class="p-0">
         <div class="p-3 border-b border-sr-line bg-sr-subtle/30 flex items-center justify-between">
           <div class="text-xs uppercase tracking-wider text-sr-muted">Traffic Over Time</div>
@@ -2601,7 +2645,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         </.ui_panel>
       </div>
 
-      <div :if={@view == "overview"} class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <div
+        :if={@view == "overview" and is_nil(Map.get(@summary, :error))}
+        class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5"
+      >
         <.ui_panel class="p-3">
           <div class="flex items-center justify-between">
             <div>
@@ -2653,7 +2700,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         </.ui_panel>
       </div>
 
-      <.ui_panel :if={@view == "overview"} class="p-3">
+      <.ui_panel :if={@view == "overview" and is_nil(Map.get(@summary, :error))} class="p-3">
         <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div class="min-w-0">
             <div class="text-xs uppercase tracking-wider text-sr-muted">
@@ -2816,7 +2863,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         </div>
       </.ui_panel>
 
-      <div :if={@view == "overview"} class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div
+        :if={@view == "overview" and is_nil(Map.get(@summary, :error))}
+        class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"
+      >
         <.ui_panel class="p-3">
           <div class="flex items-center justify-between">
             <div>
@@ -7981,25 +8031,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp numeric_to_float(value) when is_number(value), do: value * 1.0
   defp numeric_to_float(_), do: 0.0
 
-  defp extract_stats_count({:ok, %{"results" => [%{} | _]}} = result, key) when is_binary(key) do
-    result
-    |> extract_stats_row()
-    |> Map.get(key)
-    |> to_int()
-  end
-
-  defp extract_stats_count({:ok, %{"results" => [value | _]}}, _key), do: to_int(value)
-  defp extract_stats_count(_result, _key), do: 0
-
-  defp extract_stats_row({:ok, %{"results" => [%{} = raw | _]}}) do
-    case Map.get(raw, "payload") do
-      %{} = payload -> payload
-      _ -> raw
-    end
-  end
-
-  defp extract_stats_row(_), do: %{}
-
   defp srql_module do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
   end
@@ -8024,53 +8055,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp parse_timestamp(_), do: :error
-
-  defp compute_netflow_summary(flows) when is_list(flows) do
-    Enum.reduce(
-      flows,
-      %{
-        total: 0,
-        tcp: 0,
-        udp: 0,
-        other: 0,
-        total_bytes: 0,
-        total_packets: 0,
-        v5: 0,
-        v9: 0,
-        ipfix: 0,
-        sflow: 0
-      },
-      fn flow, acc ->
-        protocol = flow |> netflow_protocol_num() |> to_int()
-        bytes = flow |> netflow_bytes() |> to_int()
-        packets = flow |> netflow_packets() |> to_int()
-        flow_type = netflow_flow_type(flow)
-
-        updated =
-          case protocol do
-            6 -> Map.update!(acc, :tcp, &(&1 + 1))
-            17 -> Map.update!(acc, :udp, &(&1 + 1))
-            _ -> Map.update!(acc, :other, &(&1 + 1))
-          end
-
-        updated =
-          case flow_type do
-            "NETFLOW_V5" -> Map.update!(updated, :v5, &(&1 + 1))
-            "NETFLOW_V9" -> Map.update!(updated, :v9, &(&1 + 1))
-            "IPFIX" -> Map.update!(updated, :ipfix, &(&1 + 1))
-            "SFLOW_5" -> Map.update!(updated, :sflow, &(&1 + 1))
-            _ -> updated
-          end
-
-        updated
-        |> Map.update!(:total, &(&1 + 1))
-        |> Map.update!(:total_bytes, &(&1 + bytes))
-        |> Map.update!(:total_packets, &(&1 + packets))
-      end
-    )
-  end
-
-  defp compute_netflow_summary(_), do: empty_netflow_summary()
 
   defp panel_live?("logs", assigns), do: Map.get(assigns, :logs_live?, false)
   defp panel_live?("netflows", assigns), do: Map.get(assigns, :netflows_live?, false)
@@ -8200,127 +8184,30 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp apply_tab_assigns(socket, "netflows", srql_module) do
-    scope = Map.get(socket.assigns, :current_scope)
-    summary = maybe_load_netflow_summary(socket, srql_module, scope)
+    context =
+      Map.take(socket.assigns, [
+        :current_scope,
+        :srql,
+        :netflows,
+        :netflow_talker_cidr,
+        :netflow_compare_mode,
+        :netflow_stack_mode,
+        :netflow_geo_side,
+        :netflow_sankey_prefix,
+        :netflow_view,
+        :netflow_graph_mode
+      ])
 
-    top_talkers =
-      load_netflow_top_talkers(
-        srql_module,
-        Map.get(socket.assigns.srql, :query),
-        scope,
-        Map.get(socket.assigns, :netflow_talker_cidr)
-      )
-
-    rdns_map = load_netflow_rdns_map(socket.assigns.netflows, top_talkers, scope)
-    threat_map = load_netflow_threat_map(socket.assigns.netflows)
-
-    top_ports = load_netflow_top_ports(srql_module, Map.get(socket.assigns.srql, :query), scope)
-
-    timeseries =
-      load_netflow_timeseries(srql_module, Map.get(socket.assigns.srql, :query), scope)
-
-    compare_mode = Map.get(socket.assigns, :netflow_compare_mode, "off")
-
-    timeseries_compare =
-      load_netflow_timeseries_compare(
-        srql_module,
-        Map.get(socket.assigns.srql, :query),
-        scope,
-        compare_mode,
-        Map.get(timeseries, :bucket_seconds, 300)
-      )
-
-    timeseries_stacked =
-      load_netflow_timeseries_stacked(
-        srql_module,
-        Map.get(socket.assigns.srql, :query),
-        scope,
-        Map.get(timeseries, :bucket_seconds, 300),
-        Map.get(timeseries, :points, []),
-        Map.get(socket.assigns, :netflow_stack_mode, @default_netflow_stack_mode)
-      )
-
-    protocol_activity =
-      load_netflow_protocol_activity(
-        srql_module,
-        Map.get(socket.assigns.srql, :query),
-        scope,
-        Map.get(timeseries, :bucket_seconds, 300),
-        Map.get(timeseries, :points, [])
-      )
-
-    app_activity =
-      load_netflow_app_activity(
-        srql_module,
-        Map.get(socket.assigns.srql, :query),
-        scope,
-        Map.get(timeseries, :bucket_seconds, 300),
-        Map.get(timeseries, :points, [])
-      )
-
-    frequent_talkers_packets =
-      load_netflow_frequent_talkers_packets(
-        srql_module,
-        Map.get(socket.assigns.srql, :query),
-        scope
-      )
-
-    frequent_talkers_bytes =
-      load_netflow_frequent_talkers_bytes(
-        srql_module,
-        Map.get(socket.assigns.srql, :query),
-        scope
-      )
-
-    geo_side = Map.get(socket.assigns, :netflow_geo_side, "dst")
-
-    geo_heatmap =
-      load_netflow_geo_heatmap(
-        srql_module,
-        Map.get(socket.assigns.srql, :query),
-        scope,
-        geo_side
-      )
-
-    sankey_prefix = Map.get(socket.assigns, :netflow_sankey_prefix, 24)
-
-    sankey =
-      load_netflow_sankey(
-        srql_module,
-        Map.get(socket.assigns.srql, :query),
-        scope,
-        sankey_prefix
-      )
-
-    sankey_edges_json =
-      try do
-        Jason.encode!(Map.get(sankey, :edges, []))
-      rescue
-        _ -> "[]"
-      end
+    request = context |> Map.drop([:netflows, :srql]) |> Map.put(:query, context.srql.query)
 
     socket
-    |> assign(:netflow_summary, summary)
-    |> assign(:netflow_rdns_map, rdns_map)
-    |> assign(:netflow_threat_map, threat_map)
-    |> assign(:netflow_top_talkers, top_talkers)
-    |> assign(:netflow_top_ports, top_ports)
-    |> assign(:netflow_timeseries, timeseries)
-    |> assign(:netflow_timeseries_compare, timeseries_compare)
-    |> assign(:netflow_timeseries_stacked, timeseries_stacked)
-    |> assign(:netflow_protocol_activity, protocol_activity)
-    |> assign(:netflow_app_activity, app_activity)
-    |> assign(:netflow_frequent_talkers_packets, frequent_talkers_packets)
-    |> assign(:netflow_frequent_talkers_bytes, frequent_talkers_bytes)
-    |> assign(:netflow_geo_heatmap, geo_heatmap)
-    |> assign(:netflow_sankey, sankey)
-    |> assign(:netflow_sankey_edges_json, sankey_edges_json)
     |> assign(:event_summary, empty_event_summary())
     |> assign(:alert_summary, empty_alert_summary())
     |> assign(:trace_stats, empty_trace_stats())
     |> assign(:trace_latency, empty_trace_latency())
     |> assign(:metrics_stats, empty_metrics_stats())
-    |> maybe_auto_open_netflow(scope)
+    |> maybe_auto_open_netflow(context.current_scope)
+    |> NetflowRuntime.begin_refresh(request, fn -> load_netflow_assigns(context, srql_module) end)
   end
 
   defp apply_tab_assigns(socket, _tab, srql_module) do
@@ -8364,6 +8251,103 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
+  @doc false
+  def load_netflow_assigns(context, srql_module) do
+    scope = Map.get(context, :current_scope)
+    query = context.srql.query
+    panels = NetflowRuntime.panels(context)
+    empty_timeseries = %{bucket_seconds: 300, points: [], keys: [], colors: %{}}
+
+    summary =
+      load_netflow_panel(panels.summary, empty_netflow_summary(), fn ->
+        load_netflow_summary(srql_module, query, scope, context.netflows != [])
+      end)
+
+    top_talkers =
+      load_netflow_panel(panels.talkers, [], fn ->
+        load_netflow_top_talkers(srql_module, query, scope, Map.get(context, :netflow_talker_cidr))
+      end)
+
+    top_ports = load_netflow_panel(panels.talkers, [], fn -> load_netflow_top_ports(srql_module, query, scope) end)
+
+    rdns_map =
+      load_netflow_panel(panels.rows or panels.talkers, %{}, fn ->
+        load_netflow_rdns_map(if(panels.rows, do: context.netflows, else: []), top_talkers, scope)
+      end)
+
+    threat_map = load_netflow_panel(panels.rows, %{}, fn -> load_netflow_threat_map(context.netflows) end)
+
+    timeseries =
+      load_netflow_panel(panels.timeseries, empty_timeseries, fn ->
+        load_netflow_timeseries(srql_module, query, scope)
+      end)
+
+    bucket_seconds = timeseries.bucket_seconds
+    points = timeseries.points
+
+    timeseries_compare =
+      load_netflow_panel(panels.compare, empty_timeseries, fn ->
+        load_netflow_timeseries_compare(
+          srql_module,
+          query,
+          scope,
+          Map.get(context, :netflow_compare_mode, "off"),
+          bucket_seconds
+        )
+      end)
+
+    timeseries_stacked =
+      load_netflow_panel(panels.stacked, empty_timeseries, fn ->
+        load_netflow_timeseries_stacked(
+          srql_module,
+          query,
+          scope,
+          bucket_seconds,
+          points,
+          Map.get(context, :netflow_stack_mode, @default_netflow_stack_mode)
+        )
+      end)
+
+    protocol_activity =
+      load_netflow_panel(panels.activity, empty_timeseries, fn ->
+        load_netflow_protocol_activity(srql_module, query, scope, bucket_seconds, points)
+      end)
+
+    app_activity =
+      load_netflow_panel(panels.activity, empty_timeseries, fn ->
+        load_netflow_app_activity(srql_module, query, scope, bucket_seconds, points)
+      end)
+
+    geo_heatmap =
+      load_netflow_panel(panels.geo, [], fn ->
+        load_netflow_geo_heatmap(srql_module, query, scope, Map.get(context, :netflow_geo_side, "dst"))
+      end)
+
+    sankey =
+      load_netflow_panel(panels.sankey, empty_netflow_sankey(), fn ->
+        load_netflow_sankey(srql_module, query, scope, Map.get(context, :netflow_sankey_prefix, 24))
+      end)
+
+    %{
+      netflow_summary: summary,
+      netflow_rdns_map: rdns_map,
+      netflow_threat_map: threat_map,
+      netflow_top_talkers: top_talkers,
+      netflow_top_ports: top_ports,
+      netflow_timeseries: timeseries,
+      netflow_timeseries_compare: timeseries_compare,
+      netflow_timeseries_stacked: timeseries_stacked,
+      netflow_protocol_activity: protocol_activity,
+      netflow_app_activity: app_activity,
+      netflow_geo_heatmap: geo_heatmap,
+      netflow_sankey: sankey,
+      netflow_sankey_edges_json: Jason.encode!(Map.get(sankey, :edges, []))
+    }
+  end
+
+  defp load_netflow_panel(true, _empty, load), do: load.()
+  defp load_netflow_panel(false, empty, _load), do: empty
+
   defp maybe_auto_open_netflow(socket, scope) do
     if Map.get(socket.assigns, :netflow_auto_open, false) do
       case List.first(Map.get(socket.assigns, :netflows, [])) do
@@ -8383,6 +8367,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp dispatch_tab_load(socket, tab, params, uri) do
+    socket = if tab == "netflows", do: socket, else: NetflowRuntime.cancel_refresh(socket)
+
     cond do
       !socket.assigns[:_initial_load_done] ->
         # Initial connected mount — load synchronously so the first connected
@@ -8401,7 +8387,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         # Same-tab query change (e.g. stat card click) — load async so the UI
         # stays responsive. Current data remains visible until results arrive.
         send(self(), {:load_tab_data, tab, params, uri})
-        socket
+        if tab == "netflows", do: NetflowRuntime.prepare_refresh(socket), else: socket
     end
   end
 
@@ -8755,28 +8741,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
-  defp maybe_load_netflow_summary(socket, srql_module, scope) do
-    summary = load_netflow_summary(srql_module, Map.get(socket.assigns.srql, :query), scope)
-
-    case summary do
-      %{total: 0} when is_list(socket.assigns.netflows) and socket.assigns.netflows != [] ->
-        compute_netflow_summary(socket.assigns.netflows)
-
-      %{total_packets: 0, window_seconds: window_seconds}
-      when is_integer(window_seconds) and window_seconds > 0 and is_list(socket.assigns.netflows) and
-             socket.assigns.netflows != [] ->
-        fallback = compute_netflow_summary(socket.assigns.netflows)
-        packets = Map.get(fallback, :total_packets, 0)
-
-        summary
-        |> Map.put(:total_packets, packets)
-        |> Map.put(:avg_pps, packets * 1.0 / window_seconds)
-
-      other ->
-        other
-    end
-  end
-
   defp empty_trace_stats do
     %{total: 0, error_traces: 0, slow_traces: 0}
   end
@@ -8806,19 +8770,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     %{total: 0, pending: 0, acknowledged: 0, resolved: 0, escalated: 0, suppressed: 0}
   end
 
-  defp empty_netflow_summary do
-    %{
-      total: 0,
-      tcp: 0,
-      udp: 0,
-      other: 0,
-      total_bytes: 0,
-      total_packets: 0,
-      avg_bps: 0.0,
-      avg_pps: 0.0,
-      window_seconds: 0
-    }
-  end
+  defp empty_netflow_summary, do: NetflowSummary.empty()
 
   defp ensure_srql_entity(socket, entity, default_limit) when is_binary(entity) do
     current = socket.assigns |> Map.get(:srql, %{}) |> Map.get(:entity)
@@ -8854,96 +8806,26 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     {trace_stats, trace_latency}
   end
 
-  defp load_netflow_summary(srql_module, current_query, scope) do
-    base_query =
-      current_query
-      |> netflow_base_query()
-      |> sanitize_srql_for_stats()
-
-    time_token = extract_time_from_query(base_query) || @default_netflow_window
+  defp load_netflow_summary(srql_module, current_query, scope, observed_rows?) do
+    time_token = extract_time_from_query(current_query) || @default_netflow_window
 
     window_seconds =
       case resolve_srql_time(time_token) do
-        {:ok, %{start: start_dt, end: end_dt}} -> max(DateTime.diff(end_dt, start_dt, :second), 1)
-        _ -> 60 * 60
+        {:ok, %{start: start_at, end: end_at}} -> max(DateTime.diff(end_at, start_at, :second), 1)
+        _ -> nil
       end
 
-    total_query = ~s|#{base_query} stats:"count(*) as total" limit:1|
-    bytes_query = ~s|#{base_query} stats:"sum(bytes_total) as total_bytes" limit:1|
-    packets_total_query = ~s|#{base_query} stats:"sum(packets_total) as total_packets" limit:1|
-    packets_alt_query = ~s|#{base_query} stats:"sum(packets) as total_packets" limit:1|
-    packets_in_query = ~s|#{base_query} stats:"sum(packets_in) as total_packets_in" limit:1|
-    packets_out_query = ~s|#{base_query} stats:"sum(packets_out) as total_packets_out" limit:1|
+    case NetflowSummary.load(srql_module, current_query, scope, observed_rows?, window_seconds: window_seconds) do
+      {:ok, summary} ->
+        summary
 
-    proto_query =
-      ~s|#{base_query} stats:"count(*) as total by protocol_num" sort:total:desc limit:50|
-
-    total = extract_stats_count(srql_module.query(total_query, %{scope: scope}), "total")
-
-    total_bytes =
-      extract_stats_count(srql_module.query(bytes_query, %{scope: scope}), "total_bytes")
-
-    packets_total_primary =
-      extract_stats_count(
-        srql_module.query(packets_total_query, %{scope: scope}),
-        "total_packets"
-      )
-
-    packets_total_alt =
-      extract_stats_count(srql_module.query(packets_alt_query, %{scope: scope}), "total_packets")
-
-    packets_in =
-      extract_stats_count(
-        srql_module.query(packets_in_query, %{scope: scope}),
-        "total_packets_in"
-      )
-
-    packets_out =
-      extract_stats_count(
-        srql_module.query(packets_out_query, %{scope: scope}),
-        "total_packets_out"
-      )
-
-    total_packets =
-      cond do
-        packets_total_primary > 0 -> packets_total_primary
-        packets_total_alt > 0 -> packets_total_alt
-        packets_in + packets_out > 0 -> packets_in + packets_out
-        true -> 0
-      end
-
-    proto_rows = extract_stats_rows(srql_module.query(proto_query, %{scope: scope}))
-
-    tcp =
-      Enum.find_value(proto_rows, 0, fn row ->
-        if to_int(Map.get(row, "protocol_num")) == 6, do: to_int(row["total"])
-      end)
-
-    udp =
-      Enum.find_value(proto_rows, 0, fn row ->
-        if to_int(Map.get(row, "protocol_num")) == 17, do: to_int(row["total"])
-      end)
-
-    other = max(total - tcp - udp, 0)
-
-    avg_bps = total_bytes * 8.0 / window_seconds
-    avg_pps = total_packets * 1.0 / window_seconds
-
-    %{
-      total: total,
-      tcp: tcp,
-      udp: udp,
-      other: other,
-      total_bytes: total_bytes,
-      total_packets: total_packets,
-      avg_bps: avg_bps,
-      avg_pps: avg_pps,
-      window_seconds: window_seconds
-    }
-  rescue
-    e ->
-      Logger.warning("Failed to load netflow summary stats: #{inspect(e)}")
-      empty_netflow_summary()
+      {:error, _reason} ->
+        Map.put(
+          empty_netflow_summary(),
+          :error,
+          "NetFlow totals are unavailable for this window. Select a window to retry."
+        )
+    end
   end
 
   defp load_netflow_top_talkers(srql_module, current_query, scope, talker_cidr, limit \\ 10) do
@@ -9318,54 +9200,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp load_netflow_app_activity(_srql_module, _current_query, _scope, bucket_seconds, _points),
     do: %{bucket_seconds: bucket_seconds, keys: [], points: [], colors: %{}}
-
-  defp load_netflow_frequent_talkers_packets(srql_module, current_query, scope, limit \\ 10) do
-    base_query =
-      current_query
-      |> netflow_base_query()
-      |> sanitize_srql_for_stats()
-
-    query =
-      ~s|#{base_query} stats:"sum(packets_total) as total_packets by src_endpoint_ip" sort:total_packets:desc limit:#{limit}|
-
-    srql_module
-    |> apply(:query, [query, %{scope: scope}])
-    |> extract_stats_rows()
-    |> Enum.map(fn row ->
-      %{
-        ip: Map.get(row, "src_endpoint_ip"),
-        packets: to_int(Map.get(row, "total_packets"))
-      }
-    end)
-    |> Enum.reject(fn row -> not (is_binary(row.ip) and String.trim(row.ip) != "") end)
-  rescue
-    _ ->
-      []
-  end
-
-  defp load_netflow_frequent_talkers_bytes(srql_module, current_query, scope, limit \\ 10) do
-    base_query =
-      current_query
-      |> netflow_base_query()
-      |> sanitize_srql_for_stats()
-
-    query =
-      ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by src_endpoint_ip" sort:total_bytes:desc limit:#{limit}|
-
-    srql_module
-    |> apply(:query, [query, %{scope: scope}])
-    |> extract_stats_rows()
-    |> Enum.map(fn row ->
-      %{
-        ip: Map.get(row, "src_endpoint_ip"),
-        bytes: to_int(Map.get(row, "total_bytes"))
-      }
-    end)
-    |> Enum.reject(fn row -> not (is_binary(row.ip) and String.trim(row.ip) != "") end)
-  rescue
-    _ ->
-      []
-  end
 
   defp load_netflow_timeseries_series_maps(
          srql_module,

@@ -217,6 +217,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     {:noreply, CameraRelayRuntime.refresh_session(socket, relay_session_id)}
   end
 
+  def handle_info({:device_metrics_timeout, uid, request_ref}, socket) do
+    {:noreply, DeviceMetricsRuntime.timeout_refresh(socket, uid, request_ref)}
+  end
+
   def handle_info(msg, socket) do
     Logger.debug(fn ->
       "[DeviceLive.Show] unhandled message summary: " <> inspect(summarize_unhandled_msg(msg))
@@ -271,6 +275,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
        |> assign(:endpoint_inventory_loading, false)
        |> assign(:endpoint_inventory_request_ref, nil)
        |> assign(:endpoint_inventory_error, "Failed to load endpoint software inventory.")}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_async({:device_metrics, device_uid, request_ref}, {:ok, {:error, reason}}, socket) do
+    if DeviceMetricsRuntime.current_request?(socket, device_uid, request_ref) do
+      Logger.warning("Device metrics query failed: #{inspect(reason)}")
+      {:noreply, DeviceMetricsRuntime.fail_refresh(socket)}
     else
       {:noreply, socket}
     end
@@ -689,16 +702,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp maybe_leave_unavailable_tab(socket, _tab, _availability), do: socket
 
+  defp apply_device_metrics_assigns(socket, {:error, _reason}), do: DeviceMetricsRuntime.fail_refresh(socket)
+
   defp apply_device_metrics_assigns(socket, assigns) do
     assigns =
       assigns
       |> Map.put_new(:anomaly_capacity, Map.get(socket.assigns, :anomaly_capacity))
       |> annotate_metric_section_assigns(Map.get(socket.assigns, :anomaly_capacity_detail))
 
-    socket
-    |> assign(assigns)
-    |> DeviceMetricsRuntime.complete_refresh()
+    socket = assign(socket, assigns)
+
+    if metric_sections_failed?(assigns.metric_sections) do
+      DeviceMetricsRuntime.fail_refresh(socket)
+    else
+      DeviceMetricsRuntime.complete_refresh(socket)
+    end
   end
+
+  defp metric_sections_failed?(sections), do: Enum.any?(sections, &(is_map(&1) and not is_nil(Map.get(&1, :error))))
 
   defp annotate_metric_section_assigns(assigns, selected_detail) when is_map(assigns) do
     case {Map.get(assigns, :metric_sections), Map.get(assigns, :anomaly_capacity)} do
@@ -864,7 +885,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     can_view_anomaly_capacity? = RBAC.can?(scope, "observability.alerts.view")
     anomaly_filters = Map.get(socket.assigns, :anomaly_capacity_filters, %{})
     time_range = sysmon_time_range(socket)
-    metric_opts = [time_range: time_range]
+    deadline = System.monotonic_time(:millisecond) + DeviceMetricsRuntime.timeout_ms()
+    metric_opts = [time_range: time_range, deadline: deadline]
+    cached_filters = cached_sysmon_filters(socket, sysmon_identity, scope, range_only?)
 
     # Remember the resolved identity + range so the range selector can re-run
     # this async load without re-deriving the device identity.
@@ -884,29 +907,30 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     }
 
     load = fn ->
-      sysmon_filters =
-        SysmonMetrics.resolve_sysmon_filter_tokens(srql_module, sysmon_identity, scope)
+      with {:ok, sysmon_filters} <-
+             resolve_sysmon_filters(srql_module, sysmon_identity, scope, cached_filters, metric_opts) do
+        metric_assigns = %{
+          metric_sections: SysmonMetrics.load_metric_sections(srql_module, sysmon_filters, scope, metric_opts),
+          sysmon_presence: sysmon_filters != [],
+          sysmon_filter_cache: %{identity: sysmon_identity, scope: scope, filters: sysmon_filters}
+        }
 
-      metric_assigns = %{
-        metric_sections: SysmonMetrics.load_metric_sections(srql_module, sysmon_filters, scope, metric_opts),
-        sysmon_presence: sysmon_filters != []
-      }
-
-      if range_only? do
-        metric_assigns
-      else
-        Map.merge(metric_assigns, %{
-          process_metrics: SysmonMetrics.load_process_metrics(srql_module, sysmon_filters, scope),
-          can_view_anomaly_capacity: can_view_anomaly_capacity?,
-          anomaly_capacity:
-            maybe_load_anomaly_capacity(
-              can_view_anomaly_capacity?,
-              srql_module,
-              sysmon_identity,
-              scope,
-              anomaly_filters
-            )
-        })
+        if range_only? or metric_sections_failed?(metric_assigns.metric_sections) do
+          metric_assigns
+        else
+          Map.merge(metric_assigns, %{
+            process_metrics: SysmonMetrics.load_process_metrics(srql_module, sysmon_filters, scope),
+            can_view_anomaly_capacity: can_view_anomaly_capacity?,
+            anomaly_capacity:
+              maybe_load_anomaly_capacity(
+                can_view_anomaly_capacity?,
+                srql_module,
+                sysmon_identity,
+                scope,
+                anomaly_filters
+              )
+          })
+        end
       end
     end
 
@@ -918,6 +942,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       DeviceMetricsRuntime.begin_refresh(socket, request, load, clear_sections: range_only?)
     end
   end
+
+  defp cached_sysmon_filters(socket, identity, scope, true) do
+    case socket.assigns[:sysmon_filter_cache] do
+      %{identity: ^identity, scope: ^scope, filters: filters} when is_list(filters) -> filters
+      _ -> nil
+    end
+  end
+
+  defp cached_sysmon_filters(_socket, _identity, _scope, false), do: nil
+
+  defp resolve_sysmon_filters(_srql_module, _identity, _scope, filters, _opts) when is_list(filters), do: {:ok, filters}
+
+  defp resolve_sysmon_filters(srql_module, identity, scope, nil, opts),
+    do: SysmonMetrics.resolve_sysmon_filter_tokens(srql_module, identity, scope, opts)
 
   @sysmon_time_ranges ServiceRadarWebNGWeb.MetricWindowComponents.ranges()
 
@@ -1035,6 +1073,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> assign(:limit, limit)
     |> assign(:results, results)
     |> maybe_reset_supplemental_defaults(refresh?)
+    |> assign(:device_row, device_row)
     |> assign(:active_tab, requested_tab)
     |> assign(
       :panels,

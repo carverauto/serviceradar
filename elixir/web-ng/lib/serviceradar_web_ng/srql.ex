@@ -26,14 +26,17 @@ defmodule ServiceRadarWebNG.SRQL do
 
   @impl true
   def query(query, opts \\ %{}) when is_binary(query) do
-    query_request(%{
-      "query" => query,
-      "limit" => Map.get(opts, :limit),
-      "cursor" => Map.get(opts, :cursor),
-      "direction" => Map.get(opts, :direction),
-      "mode" => Map.get(opts, :mode),
-      "scope" => Map.get(opts, :scope)
-    })
+    query_request(
+      %{
+        "query" => query,
+        "limit" => Map.get(opts, :limit),
+        "cursor" => Map.get(opts, :cursor),
+        "direction" => Map.get(opts, :direction),
+        "mode" => Map.get(opts, :mode),
+        "scope" => Map.get(opts, :scope)
+      },
+      execution_opts(opts)
+    )
   end
 
   @impl true
@@ -43,10 +46,11 @@ defmodule ServiceRadarWebNG.SRQL do
     direction = Map.get(opts, :direction)
     mode = Map.get(opts, :mode)
     scope = Map.get(opts, :scope)
+    opts = execution_opts(opts)
 
     with :ok <- EntityAccess.authorize(query, scope),
          {:ok, translation} <- translate(query, limit, cursor, direction, mode),
-         {:ok, result} <- execute_translation_raw(translation),
+         {:ok, result} <- execute_translation_raw(translation, opts),
          {:ok, payload} <- encode_result_arrow(result) do
       {:ok,
        %{
@@ -59,7 +63,9 @@ defmodule ServiceRadarWebNG.SRQL do
   end
 
   @impl true
-  def query_request(%{} = request) do
+  def query_request(%{} = request), do: query_request(request, %{})
+
+  defp query_request(request, opts) do
     case normalize_request(request) do
       {:ok, query, limit, cursor, direction, mode} ->
         execute_query(
@@ -68,7 +74,8 @@ defmodule ServiceRadarWebNG.SRQL do
           cursor,
           direction,
           mode,
-          Map.get(request, "scope") || Map.get(request, :scope)
+          Map.get(request, "scope") || Map.get(request, :scope),
+          opts
         )
 
       {:error, reason} ->
@@ -76,7 +83,7 @@ defmodule ServiceRadarWebNG.SRQL do
     end
   end
 
-  defp execute_query(query, limit, cursor, direction, mode, scope) do
+  defp execute_query(query, limit, cursor, direction, mode, scope, opts) do
     entity = extract_entity(query)
     start_time = System.monotonic_time()
 
@@ -96,7 +103,7 @@ defmodule ServiceRadarWebNG.SRQL do
              }}
           else
             with {:ok, translation} <- translate(query, limit, cursor, direction, mode) do
-              execute_translation(Map.put(translation, "_query", query))
+              execute_translation(Map.put(translation, "_query", query), opts)
             end
           end
       end
@@ -156,13 +163,13 @@ defmodule ServiceRadarWebNG.SRQL do
     end
   end
 
-  defp execute_translation(%{"sql" => sql} = translation) when is_binary(sql) do
+  defp execute_translation(%{"sql" => sql} = translation, opts) when is_binary(sql) do
     translation
     |> Map.get("params", [])
     |> decode_params()
     |> case do
       {:ok, params} ->
-        with {:ok, result} <- run_sql(translation, sql, params) do
+        with {:ok, result} <- run_sql(translation, sql, params, opts) do
           {:ok, build_response(translation, result)}
         end
 
@@ -171,29 +178,31 @@ defmodule ServiceRadarWebNG.SRQL do
     end
   end
 
-  defp execute_translation(_translation) do
+  defp execute_translation(_translation, _opts) do
     {:error, :invalid_srql_translation}
   end
 
-  defp execute_translation_raw(%{"sql" => sql} = translation) when is_binary(sql) do
+  defp execute_translation_raw(%{"sql" => sql} = translation, opts) when is_binary(sql) do
     translation
     |> Map.get("params", [])
     |> decode_params()
     |> case do
-      {:ok, params} -> run_sql(translation, sql, params)
+      {:ok, params} -> run_sql(translation, sql, params, opts)
       {:error, reason} -> {:error, reason}
     end
   end
 
-  defp execute_translation_raw(_translation) do
+  defp execute_translation_raw(_translation, _opts) do
     {:error, :invalid_srql_translation}
   end
 
   @sobelow_skip ["SQL.Query"]
-  defp run_sql(translation, sql, params) do
+  defp run_sql(translation, sql, params, opts) do
     with :ok <- ensure_read_only_sql(sql),
-         {:ok, sql, params} <- AnalyticsStore.SQL.prepare_translation(translation, params) do
-      timeout_ms = srql_query_timeout_ms(translation)
+         {:ok, prepare_timeout} <- query_timeout_ms(translation, opts),
+         prepare_opts = [archive_wait_timeout: min(5_000, prepare_timeout)],
+         {:ok, sql, params} <- AnalyticsStore.SQL.prepare_translation(translation, params, prepare_opts),
+         {:ok, timeout_ms} <- query_timeout_ms(translation, opts) do
       repo = srql_repo(translation)
 
       case repo do
@@ -204,22 +213,56 @@ defmodule ServiceRadarWebNG.SRQL do
           run_transaction(
             repo,
             fn ->
-              statement_timeout = "#{timeout_ms}ms"
-              db_timeout_ms = timeout_ms + @db_timeout_margin_ms
-              query_opts = AnalyticsStore.SQL.query_options(translation["dialect"], db_timeout_ms)
+              case query_timeout_ms(translation, opts) do
+                {:ok, remaining} ->
+                  db_timeout_ms = remaining + @db_timeout_margin_ms
+                  query_opts = AnalyticsStore.SQL.query_options(translation["dialect"], db_timeout_ms)
 
-              with {:ok, _} <-
-                     SQL.query(repo, session_setup_sql(), [statement_timeout], timeout: db_timeout_ms),
-                   {:ok, result} <- SQL.query(repo, sql, params, query_opts) do
-                result
-              else
-                {:error, reason} -> repo.rollback(reason)
+                  with {:ok, _} <- SQL.query(repo, session_setup_sql(), ["#{remaining}ms"], timeout: db_timeout_ms),
+                       {:ok, result} <- SQL.query(repo, sql, params, query_opts) do
+                    result
+                  else
+                    {:error, reason} -> repo.rollback(reason)
+                  end
+
+                {:error, reason} ->
+                  repo.rollback(reason)
               end
             end,
             timeout_ms + @db_timeout_margin_ms
           )
       end
     end
+  end
+
+  # An internal caller may shorten the configured query budget. Capture timeout
+  # once so translation, archive readiness and SQL all spend the same budget.
+  defp execution_opts(opts) do
+    now = System.monotonic_time(:millisecond)
+
+    deadlines = [
+      Map.get(opts, :deadline),
+      case Map.get(opts, :timeout) do
+        timeout when is_integer(timeout) and timeout > 0 -> now + timeout
+        _ -> nil
+      end
+    ]
+
+    deadlines = Enum.filter(deadlines, &is_integer/1)
+    if deadlines == [], do: %{}, else: %{deadline: Enum.min(deadlines)}
+  end
+
+  @doc false
+  def query_timeout_ms(translation, opts, now \\ System.monotonic_time(:millisecond)) do
+    configured = srql_query_timeout_ms(translation)
+
+    timeout =
+      case Map.get(opts, :deadline) do
+        deadline when is_integer(deadline) -> min(configured, deadline - now)
+        _ -> configured
+      end
+
+    if timeout > 0, do: {:ok, timeout}, else: {:error, :timeout}
   end
 
   @doc false

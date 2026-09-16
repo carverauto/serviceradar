@@ -450,7 +450,7 @@ func TestSweepSummaryChangesHaveDistinctReportTimesWithoutNewSeriesDimensions(t 
 	observedAt := time.Date(2034, time.February, 3, 12, 1, 0, 0, time.UTC)
 	attrs := map[string]string{"network": "192.0.2.0/24"}
 	metadata := map[string]string{"last_sweep": strconv.FormatInt(observedAt.Add(-time.Minute).Unix(), 10)}
-	var points []*metricpb.MetricPoint
+	points := make([]*metricpb.MetricPoint, 0, 2)
 	for i, value := range []float64{3, 4} {
 		builder := newSweepMetricBuilder(metricEnvelopeContext{AgentID: "example-agent", GatewayID: "example-gateway"})
 		builder.batch.EmittedAtUnixNano = uint64(observedAt.Add(time.Duration(i) * time.Second).UnixNano())
@@ -487,7 +487,7 @@ func TestSweepChunkingEmitsOneSummaryPerReport(t *testing.T) {
 	for _, chunk := range chunks {
 		var status map[string]any
 		require.NoError(t, json.Unmarshal(chunk.Data, &status))
-		require.Equal(t, float64(101), status["total_hosts"])
+		require.InDelta(t, 101, status["total_hosts"], 0)
 		payload, err := marshalSweepMetricEnvelopeFromMap(chunk.MetricPayload, metricEnvelopeContext{})
 		require.NoError(t, err)
 		for _, metric := range decodeMetricBatch(t, payload).Metrics {

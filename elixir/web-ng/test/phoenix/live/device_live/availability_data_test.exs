@@ -35,16 +35,45 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityDataTest do
     assert_receive {:query, query, %{scope: @scope}}
     assert query =~ "time:[2000-01-01T12:15:00Z,2000-01-02T12:15:00Z]"
     assert query =~ "metric_name:icmp_available"
-    assert query =~ "agg:min"
+    assert query =~ "agg:max"
     assert_receive {:query, sweep, _}
     assert sweep =~ "metric_name:sweep.host.icmp_available"
     refute_receive {:query, _, _}
   end
 
-  test "an observed failure wins within its bucket and is not inferred from missing latency" do
+  test "a selected agent's observed failure wins within its bucket" do
     respond_with([rows([point("2000-01-02T01:00:00Z", 1), point("2000-01-02T01:00:00Z", 0)])])
-    assert %{total_checks: 1, offline_checks: 1, online_checks: 0, uptime_pct: percent} = load()
+    assert %{total_checks: 1, offline_checks: 1, online_checks: 0, uptime_pct: percent} = load(agent_id: "agent-selected")
     assert percent == 0.0
+    assert_receive {:query, query, _}
+    assert query =~ ~s(agent_id:"agent-selected")
+    assert query =~ "agg:min"
+  end
+
+  test "unselected availability uses successful observations and leaves absent buckets unknown" do
+    respond_with([rows([point("2000-01-02T01:00:00Z", 0), point("2000-01-02T01:00:00Z", 1)])])
+    assert %{total_checks: 1, online_checks: 1, offline_checks: 0, unknown_checks: 48, uptime_pct: 100.0} = load()
+  end
+
+  test "a selected source with no samples stays unknown without querying other agents" do
+    respond_with([rows([]), rows([])])
+    assert %{total_checks: 0, uptime_pct: nil, unknown_checks: 49} = load(agent_id: "agent-selected")
+
+    for _source <- 1..2 do
+      assert_receive {:query, query, _}
+      assert query =~ ~s(agent_id:"agent-selected")
+    end
+  end
+
+  test "source selection normalizes both device row representations without using the linked agent" do
+    assert AvailabilityData.source_agent_id(%{"availability_source_agent_id" => " agent-selected "}) == "agent-selected"
+    assert AvailabilityData.source_agent_id(%{availability_source_agent_id: "agent-selected"}) == "agent-selected"
+
+    assert is_nil(
+             AvailabilityData.source_agent_id(%{"availability_source_agent_id" => " ", "agent_id" => "agent-linked"})
+           )
+
+    assert is_nil(AvailabilityData.source_agent_id(nil))
   end
 
   test "missing dedicated observations fall back to sweep status with the same fixed window" do

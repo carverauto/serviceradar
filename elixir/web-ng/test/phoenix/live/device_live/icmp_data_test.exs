@@ -79,11 +79,40 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ICMPDataTest do
     assert_receive {:icmp_query, dedicated, _}
     assert_receive {:icmp_query, sweep, _}
     assert dedicated =~ "metric_name:icmp_available"
-    assert dedicated =~ "time:[2000-01-01T00:00:00Z,2000-01-02T00:00:00Z] bucket:30m agg:min"
+    assert dedicated =~ "time:[2000-01-01T00:00:00Z,2000-01-02T00:00:00Z] bucket:30m agg:max"
     assert sweep =~ "metric_name:sweep.host.icmp_available"
-    assert sweep =~ "bucket:30m agg:min"
+    assert sweep =~ "bucket:30m agg:max"
     assert sweep =~ "limit:100"
     refute_receive {:icmp_query, _, _}
+  end
+
+  test "selected canonical agent scopes both producers before aggregating failures" do
+    respond_with([rows([point("sr:device-a", 1)]), rows([point("sr:device-a", 0)])])
+
+    assert {:ok, [%{"value" => 1}]} =
+             ICMPData.load_availability(
+               __MODULE__,
+               ["sr:device-a"],
+               @scope,
+               Keyword.put(@opts, :agent_id, "agent-selected")
+             )
+
+    for _source <- 1..2 do
+      assert_receive {:icmp_query, query, _}
+      assert query =~ ~s(agent_id:"agent-selected")
+      assert query =~ "agg:min"
+    end
+  end
+
+  test "unselected observers use available-wins instead of poisoning a bucket with another agent's failure" do
+    respond_with([rows([point("sr:device-a", 0), point("sr:device-a", 1)]), rows([])])
+    assert {:ok, [%{"value" => 1}]} = ICMPData.load_availability(__MODULE__, ["sr:device-a"], @scope, @opts)
+
+    for _source <- 1..2 do
+      assert_receive {:icmp_query, query, _}
+      assert query =~ "agg:max"
+      refute query =~ "agent_id:"
+    end
   end
 
   test "query errors remain errors and do not trigger another metrics scan" do

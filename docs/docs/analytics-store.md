@@ -53,6 +53,17 @@ until that dataset is explicitly enabled; selecting a longer range does not
 create archive coverage or recover expired data. Native flow queries currently
 allow at most 395 days per request.
 
+Longer NetFlow windows use the existing hourly and daily Timescale aggregates.
+The migration repairs missing refresh schedules and seeds up to 29 days from
+retained smaller aggregates, preserving operator schedules and older parent
+history. It cannot reconstruct data that has already expired. Summary cards
+report aggregate totals for the selected window; unavailable aggregates show an
+error instead of substituting the current page's record count.
+
+Changing a window clears the previous chart while the new results load. Device
+sysmon requests share a 15-second budget across their queries; a failed request
+stops loading and can be retried by selecting a window again.
+
 To verify archive reads, choose a bounded range older than the configured hot
 window **that actually contains published archive data**. Recent dashboard
 queries test Timescale, and an empty historical result alone does not prove

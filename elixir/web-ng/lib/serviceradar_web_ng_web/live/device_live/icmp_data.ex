@@ -23,7 +23,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ICMPData do
   end
 
   def load_availability(srql_module, device_uids, scope, opts) when is_list(device_uids) do
-    load_sources(@availability_sources, srql_module, device_uids, scope, Keyword.put(opts, :aggregate, :min), :bucket)
+    # A selected observer owns the result. With no selection, availability wins
+    # across observers, matching the device's fallback availability policy.
+    aggregate = if is_binary(Keyword.get(opts, :agent_id)), do: :min, else: :max
+    opts = Keyword.put(opts, :aggregate, aggregate)
+    load_sources(@availability_sources, srql_module, device_uids, scope, opts, {:bucket, aggregate})
   end
 
   defp load_sources(sources, srql_module, device_uids, scope, opts, selection \\ :device) do
@@ -57,7 +61,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ICMPData do
     end
   end
 
-  defp remaining_devices(_rows, device_uids, :bucket), do: device_uids
+  defp remaining_devices(_rows, device_uids, {:bucket, _aggregate}), do: device_uids
 
   defp remaining_devices(rows, device_uids, :device) do
     found = MapSet.new(rows, & &1["series"])
@@ -66,14 +70,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ICMPData do
 
   defp select_rows(batches, :device), do: List.flatten(batches)
 
-  defp select_rows(batches, :bucket) do
+  defp select_rows(batches, {:bucket, aggregate}) do
     # Preferred observations, including failures, win only their own bucket.
     # A producer may have stopped mid-window while sweep observations continue.
     batches
     |> Enum.flat_map(fn rows ->
       rows
       |> Enum.group_by(&bucket_key/1)
-      |> Enum.map(fn {_key, observations} -> Enum.min_by(observations, & &1["value"]) end)
+      |> Enum.map(fn {_key, observations} ->
+        case aggregate do
+          :min -> Enum.min_by(observations, & &1["value"])
+          :max -> Enum.max_by(observations, & &1["value"])
+        end
+      end)
     end)
     |> Enum.uniq_by(&bucket_key/1)
   end
@@ -94,21 +103,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ICMPData do
   defp query(device_uids, filter, opts) do
     uids = Enum.map_join(device_uids, ",", &quote_uid/1)
 
-    Enum.join(
-      [
-        "in:timeseries_metrics",
-        filter,
-        "uid:(#{uids})",
-        "time:#{Keyword.fetch!(opts, :time_range)}",
-        "bucket:#{Keyword.fetch!(opts, :bucket)}",
-        "agg:#{Keyword.fetch!(opts, :aggregate)}",
-        "series:uid",
-        "sort:timestamp:asc",
-        "limit:#{Keyword.fetch!(opts, :limit)}"
-      ],
-      " "
-    )
+    [
+      "in:timeseries_metrics",
+      filter,
+      "uid:(#{uids})",
+      agent_filter(Keyword.get(opts, :agent_id)),
+      "time:#{Keyword.fetch!(opts, :time_range)}",
+      "bucket:#{Keyword.fetch!(opts, :bucket)}",
+      "agg:#{Keyword.fetch!(opts, :aggregate)}",
+      "series:uid",
+      "sort:timestamp:asc",
+      "limit:#{Keyword.fetch!(opts, :limit)}"
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" ")
   end
+
+  defp agent_filter(nil), do: nil
+  defp agent_filter(agent_id), do: "agent_id:#{quote_uid(agent_id)}"
 
   defp normalize_rows(rows, device_uids, unit, aggregate) do
     wanted = MapSet.new(device_uids)

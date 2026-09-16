@@ -17,17 +17,26 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Sections do
   def load_metric_sections(srql_module, filter_tokens, scope, opts) do
     reference_lines = ReferenceLines.sysmon_reference_lines(filter_tokens, scope, opts)
 
-    Enum.filter(
-      [
-        build_cpu_section(srql_module, filter_tokens, scope, Map.get(reference_lines, :cpu, []), opts),
-        build_memory_section(srql_module, filter_tokens, scope, Map.get(reference_lines, :memory, []), opts),
-        build_disk_section(srql_module, filter_tokens, scope, Map.get(reference_lines, :disk, []), opts)
-      ],
-      & &1
-    )
+    limit =
+      2 * Keyword.get(opts, :metrics_limit, @metrics_limit) + Keyword.get(opts, :disk_metrics_limit, @disk_metrics_limit)
+
+    query = Query.summary_query(filter_tokens, limit, metric_query_opts(opts))
+    summary = Query.run(srql_module, query, scope, opts)
+
+    [
+      build_cpu_section(srql_module, filter_tokens, scope, Map.get(reference_lines, :cpu, []), opts, summary),
+      build_memory_section(filter_tokens, Map.get(reference_lines, :memory, []), opts, summary),
+      build_disk_section(filter_tokens, Map.get(reference_lines, :disk, []), opts, summary)
+    ]
   end
 
-  defp build_cpu_section(srql_module, filter_tokens, scope, reference_lines, opts) do
+  defp metric_result({:ok, %{"results" => rows}}, name) when is_list(rows) do
+    {:ok, %{"results" => Enum.filter(rows, &(Map.get(&1, "series") == name or Map.get(&1, "metric_name") == name))}}
+  end
+
+  defp metric_result(other, _name), do: other
+
+  defp build_cpu_section(srql_module, filter_tokens, scope, reference_lines, opts, summary) do
     query_opts = metric_query_opts(opts)
 
     overall_query =
@@ -52,7 +61,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Sections do
 
     base = section_base("cpu", "CPU", "#{window_label(opts)} · overall utilization", overall_query)
 
-    case {srql_module.query(overall_query, %{scope: scope}), srql_module.query(per_core_query, %{scope: scope})} do
+    overall = metric_result(summary, "cpu.usage_percent")
+
+    cores =
+      case summary do
+        {:ok, %{"results" => rows}} when is_list(rows) -> Query.run(srql_module, per_core_query, scope, opts)
+        _ -> {:ok, %{"results" => []}}
+      end
+
+    case {overall, cores} do
       {{:ok, %{"results" => overall_results}}, {:ok, %{"results" => core_results}}}
       when is_list(overall_results) and is_list(core_results) and (overall_results != [] or core_results != []) ->
         overall_rows =
@@ -103,7 +120,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Sections do
     end
   end
 
-  defp build_memory_section(srql_module, filter_tokens, scope, reference_lines, opts) do
+  defp build_memory_section(filter_tokens, reference_lines, opts, summary) do
     query =
       Query.timeseries_metric_query(
         "sysmon.memory",
@@ -114,10 +131,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Sections do
         metric_query_opts(opts)
       )
 
-    build_single_series_section(srql_module, scope, query, "memory", "Memory", "used_percent", reference_lines, opts)
+    build_single_series_section(
+      metric_result(summary, "memory.used_percent"),
+      query,
+      "memory",
+      "Memory",
+      "used_percent",
+      reference_lines,
+      opts
+    )
   end
 
-  defp build_disk_section(srql_module, filter_tokens, scope, reference_lines, opts) do
+  defp build_disk_section(filter_tokens, reference_lines, opts, summary) do
     query =
       Query.timeseries_metric_query(
         "sysmon.disk",
@@ -128,13 +153,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Sections do
         metric_query_opts(opts)
       )
 
-    build_single_series_section(srql_module, scope, query, "disk", "Disk", "used_percent", reference_lines, opts)
+    build_single_series_section(
+      metric_result(summary, "disk.used_percent"),
+      query,
+      "disk",
+      "Disk",
+      "used_percent",
+      reference_lines,
+      opts
+    )
   end
 
-  defp build_single_series_section(srql_module, scope, query, key, title, value_field, reference_lines, opts) do
+  defp build_single_series_section(result, query, key, title, value_field, reference_lines, opts) do
     base = section_base(key, title, "#{window_label(opts)} · used percent", query)
 
-    case srql_module.query(query, %{scope: scope}) do
+    case result do
       {:ok, %{"results" => results}} when is_list(results) and results != [] ->
         normalized = Series.normalize_metric_results(results, value_field)
         viz = Series.timeseries_viz(value_field, nil)

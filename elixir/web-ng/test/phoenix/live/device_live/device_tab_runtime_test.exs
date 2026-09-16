@@ -65,7 +65,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntimeTest do
       pending = DeviceTabRuntime.reload_for_active_tab(socket, "details", "sr:synthetic-device", nil, __MODULE__, [])
       assert_receive {:availability_query, task, query}
       assert query =~ "metric_name:icmp_available"
-      assert query =~ "bucket:30m agg:min"
+      assert query =~ "bucket:30m agg:max"
       refute query =~ "icmp_response_time_ns"
       request_ref = pending.assigns.availability_request_ref
       assert is_reference(request_ref)
@@ -138,13 +138,130 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntimeTest do
       assert failed.assigns.availability == pending.assigns.availability
       assert is_nil(failed.assigns.availability_request_ref)
     end
+
+    test "changing canonical agent cancels the old request and rejects its result" do
+      original =
+        Phoenix.Component.assign(availability_socket(), :device_row, %{"availability_source_agent_id" => "agent-original"})
+
+      pending =
+        DeviceTabRuntime.maybe_reload_availability_for_active_tab(original, "details", "sr:synthetic-device", __MODULE__)
+
+      assert_receive {:availability_query, old_task, old_query}
+      assert old_query =~ ~s(agent_id:"agent-original")
+      assert old_query =~ "agg:min"
+      old_ref = pending.assigns.availability_request_ref
+      monitor = Process.monitor(old_task)
+
+      changed = Phoenix.Component.assign(pending, :device_row, %{"availability_source_agent_id" => "agent-selected"})
+
+      assert DeviceTabRuntime.finish_availability_refresh(
+               changed,
+               "sr:synthetic-device",
+               old_ref,
+               {:ok, %{uptime_pct: 0}}
+             ) == changed
+
+      restarted =
+        DeviceTabRuntime.maybe_reload_availability_for_active_tab(changed, "details", "sr:synthetic-device", __MODULE__)
+
+      assert_receive {:DOWN, ^monitor, :process, ^old_task, {:shutdown, :cancel}}
+      assert_receive {:availability_query, new_task, query}
+      assert query =~ ~s(agent_id:"agent-selected")
+      refute query =~ "agent-original"
+      assert is_nil(restarted.assigns.availability)
+      refute restarted.assigns.availability_request_ref == old_ref
+
+      assert DeviceTabRuntime.finish_availability_refresh(
+               restarted,
+               "sr:synthetic-device",
+               old_ref,
+               {:ok, %{uptime_pct: 0}}
+             ) == restarted
+
+      send(new_task, :finish)
+    end
+
+    test "explicit source invalidation cancels pending work before navigation reloads the device" do
+      pending =
+        DeviceTabRuntime.maybe_reload_availability_for_active_tab(
+          availability_socket(),
+          "details",
+          "sr:synthetic-device",
+          __MODULE__
+        )
+
+      assert_receive {:availability_query, task, _query}
+      monitor = Process.monitor(task)
+      ref = pending.assigns.availability_request_ref
+      invalidated = DeviceTabRuntime.availability_source_updated(pending, "agent-selected")
+      assert_receive {:DOWN, ^monitor, :process, ^task, {:shutdown, :cancel}}
+      assert is_nil(invalidated.assigns.availability)
+      assert is_nil(invalidated.assigns.availability_request_ref)
+      assert invalidated.assigns.device_row["availability_source_agent_id"] == "agent-selected"
+
+      assert DeviceTabRuntime.finish_availability_refresh(
+               invalidated,
+               "sr:synthetic-device",
+               ref,
+               {:ok, %{uptime_pct: 0}}
+             ) == invalidated
+    end
+
+    test "source changes update the displayed results row together with the query source" do
+      row = %{
+        "uid" => "sr:synthetic-device",
+        "hostname" => "host01.example.com",
+        availability_source_agent_id: "agent-original",
+        availability_source_profile_id: "synthetic-profile"
+      }
+
+      other = %{"uid" => "sr:other-device", "availability_source_agent_id" => "agent-unrelated"}
+      socket = Phoenix.Component.assign(availability_socket(), device_row: row, results: [row, other])
+
+      for agent_id <- ["agent-selected", nil] do
+        updated = DeviceTabRuntime.availability_source_updated(socket, agent_id)
+        [displayed, untouched] = updated.assigns.results
+        assert displayed == updated.assigns.device_row
+        assert displayed["availability_source_agent_id"] == agent_id
+        assert is_nil(displayed["availability_source_profile_id"])
+        refute Map.has_key?(displayed, :availability_source_agent_id)
+        refute Map.has_key?(displayed, :availability_source_profile_id)
+        assert displayed["hostname"] == "host01.example.com"
+        assert untouched == other
+      end
+    end
+
+    test "clearing the selected source removes stale atom keys and reloads fallback policy" do
+      socket =
+        Phoenix.Component.assign(availability_socket(), :device_row, %{
+          "hostname" => "host01.example.com",
+          availability_source_agent_id: "agent-selected",
+          availability_source_profile_id: "synthetic-profile"
+        })
+
+      cleared = DeviceTabRuntime.availability_source_updated(socket, nil)
+      assert is_nil(cleared.assigns.device_row["availability_source_agent_id"])
+      assert is_nil(cleared.assigns.device_row["availability_source_profile_id"])
+      refute Map.has_key?(cleared.assigns.device_row, :availability_source_agent_id)
+      assert cleared.assigns.device_row["hostname"] == "host01.example.com"
+
+      pending =
+        DeviceTabRuntime.maybe_reload_availability_for_active_tab(cleared, "details", "sr:synthetic-device", __MODULE__)
+
+      assert_receive {:availability_query, task, query}
+      assert query =~ "agg:max"
+      refute query =~ "agent_id:"
+      assert pending.assigns.availability_request_source == {"sr:synthetic-device", nil}
+      send(task, :finish)
+    end
   end
 
   defp availability_socket do
     Phoenix.Component.assign(metrics_socket(),
       current_scope: %{test_pid: self(), loader: :availability},
       availability: %{uptime_pct: 75.0},
-      availability_request_ref: nil
+      availability_request_ref: nil,
+      availability_request_source: {"sr:synthetic-device", nil}
     )
   end
 

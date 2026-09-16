@@ -38,6 +38,26 @@ defmodule ServiceRadarWebNG.SRQLPlanCacheModeTest do
     end
   end
 
+  describe "caller query deadline" do
+    @tag :db_free
+    test "shortens both backends and never extends configured budgets" do
+      for translation <- [%{}, %{"dialect" => "duckdb"}] do
+        assert SRQL.query_timeout_ms(translation, %{deadline: 1_125}, 1_000) == {:ok, 125}
+        assert SRQL.query_timeout_ms(translation, %{deadline: 1_000}, 1_000) == {:error, :timeout}
+        assert SRQL.query_timeout_ms(translation, %{deadline: 999}, 1_000) == {:error, :timeout}
+        configured = SRQL.query_timeout_ms(translation, %{}, 0)
+        assert SRQL.query_timeout_ms(translation, %{deadline: 1_000_000}, 0) == configured
+      end
+    end
+
+    @tag :db_free
+    test "query propagates an expired internal deadline without opening a database connection" do
+      scope = %ServiceRadarWebNG.Accounts.Scope{permissions: MapSet.new(["observability.metrics.view"])}
+      query = ~s(in:timeseries_metrics uid:"synthetic-deadline-device" time:last_1h bucket:5m agg:avg limit:10)
+      assert SRQL.query(query, %{scope: scope, deadline: System.monotonic_time(:millisecond) - 1}) == {:error, :timeout}
+    end
+  end
+
   describe "session_setup_sql/0 applied against the database" do
     setup do
       :ok = Sandbox.checkout(Repo)

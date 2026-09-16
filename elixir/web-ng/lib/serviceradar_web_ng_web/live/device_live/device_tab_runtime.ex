@@ -110,15 +110,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntime do
   end
 
   def maybe_reload_availability_for_active_tab(socket, "details", uid, srql_module) do
-    if connected?(socket) and is_nil(socket.assigns[:availability_request_ref]) do
-      scope = socket.assigns.current_scope
-      request_ref = make_ref()
+    agent_id = AvailabilityData.source_agent_id(socket.assigns[:device_row])
+    source = {uid, agent_id}
 
-      socket
-      |> assign(:availability_request_ref, request_ref)
-      |> start_async({:device_availability, uid, request_ref}, fn ->
-        AvailabilityData.load_availability(srql_module, uid, scope)
-      end)
+    if connected?(socket) do
+      socket =
+        if socket.assigns[:availability_request_source] == source do
+          socket
+        else
+          invalidate_availability(socket)
+        end
+
+      begin_availability_refresh(socket, uid, agent_id, source, srql_module)
     else
       socket
     end
@@ -126,8 +129,75 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntime do
 
   def maybe_reload_availability_for_active_tab(socket, _tab, _uid, _srql_module), do: socket
 
+  def availability_source_updated(socket, agent_id) do
+    # Same-device patches reuse results; the template derives its displayed row
+    # from that list while the availability loader reads :device_row.
+    device_row = put_availability_source(socket.assigns[:device_row] || %{}, agent_id)
+
+    results =
+      Enum.map(socket.assigns[:results] || [], fn
+        row when is_map(row) ->
+          if (Map.get(row, "uid") || Map.get(row, :uid)) == socket.assigns.device_uid do
+            put_availability_source(row, agent_id)
+          else
+            row
+          end
+
+        row ->
+          row
+      end)
+
+    socket
+    |> invalidate_availability()
+    |> assign(:device_row, device_row)
+    |> assign(:results, results)
+  end
+
+  defp put_availability_source(row, agent_id) do
+    row
+    |> Map.drop([:availability_source_agent_id, :availability_source_profile_id])
+    |> Map.put("availability_source_agent_id", agent_id)
+    |> Map.put("availability_source_profile_id", nil)
+  end
+
+  def invalidate_availability(socket) do
+    socket =
+      case socket.assigns[:availability_request_ref] do
+        ref when is_reference(ref) ->
+          {uid, _agent_id} = socket.assigns[:availability_request_source] || {socket.assigns.device_uid, nil}
+          cancel_async(socket, {:device_availability, uid, ref})
+
+        _ ->
+          socket
+      end
+
+    socket
+    |> assign(:availability, nil)
+    |> assign(:availability_request_ref, nil)
+    |> assign(:availability_request_source, nil)
+  end
+
+  defp begin_availability_refresh(socket, uid, agent_id, source, srql_module) do
+    if is_nil(socket.assigns[:availability_request_ref]) do
+      scope = socket.assigns.current_scope
+      request_ref = make_ref()
+
+      socket
+      |> assign(:availability_request_ref, request_ref)
+      |> assign(:availability_request_source, source)
+      |> start_async({:device_availability, uid, request_ref}, fn ->
+        AvailabilityData.load_availability(srql_module, uid, scope, agent_id: agent_id)
+      end)
+    else
+      socket
+    end
+  end
+
   def finish_availability_refresh(socket, uid, request_ref, result) do
-    if uid == socket.assigns.device_uid and request_ref == socket.assigns[:availability_request_ref] do
+    source = {uid, AvailabilityData.source_agent_id(socket.assigns[:device_row])}
+
+    if uid == socket.assigns.device_uid and request_ref == socket.assigns[:availability_request_ref] and
+         source == socket.assigns[:availability_request_source] do
       socket = assign(socket, :availability_request_ref, nil)
 
       case result do

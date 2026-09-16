@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
   defdelegate sysmon_identity(device_row, device_uid), to: Identity
 
   defdelegate resolve_sysmon_filter_tokens(srql_module, identity, scope), to: Identity
+  defdelegate resolve_sysmon_filter_tokens(srql_module, identity, scope, opts), to: Identity
 
   def annotate_metric_sections(sections, anomaly_overview, selected_row \\ nil)
 

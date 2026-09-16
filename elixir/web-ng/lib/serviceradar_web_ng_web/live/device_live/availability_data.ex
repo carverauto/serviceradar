@@ -16,12 +16,28 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityData do
     case ICMPData.load_availability(srql_module, [device_uid], scope,
            time_range: range,
            bucket: "30m",
+           agent_id: Keyword.get(opts, :agent_id),
            limit: 100
          ) do
       {:ok, rows} -> build_availability(rows, start_at, now)
       {:error, _reason} -> nil
     end
   end
+
+  def source_agent_id(device_row) when is_map(device_row) do
+    case Map.get(device_row, "availability_source_agent_id") || Map.get(device_row, :availability_source_agent_id) do
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> nil
+          agent_id -> agent_id
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  def source_agent_id(_device_row), do: nil
 
   defp build_availability(rows, start_at, end_at) do
     first_second = DateTime.to_unix(start_at)

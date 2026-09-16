@@ -1,6 +1,7 @@
 defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
   use ExUnit.Case, async: false
 
+  alias Phoenix.LiveView.Socket
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries, as: TimeseriesPlugin
   alias ServiceRadarWebNGWeb.DeviceLive.Show
   alias ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics
@@ -70,24 +71,28 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
              "pagination" => %{}
            }}
 
-        String.contains?(query, ~s|metric_type:"sysmon.cpu"|) ->
+        String.contains?(query, "series:metric_name") ->
           assert query =~ "bucket:5m"
           assert query =~ "agg:avg"
           refute query =~ "series:core_id"
           assert query =~ ~s|device_id:"sysmon-core-test"|
-          assert query =~ "limit:300"
+          assert query =~ "limit:900"
 
           {:ok,
            %{
              "results" => [
                %{
                  "timestamp" => DateTime.to_iso8601(older),
+                 "series" => "cpu.usage_percent",
                  "value" => 25.0
                },
                %{
                  "timestamp" => DateTime.to_iso8601(now),
+                 "series" => "cpu.usage_percent",
                  "value" => 33.3
-               }
+               },
+               %{"timestamp" => DateTime.to_iso8601(now), "series" => "memory.used_percent", "value" => 48.0},
+               %{"timestamp" => DateTime.to_iso8601(now), "series" => "disk.used_percent", "value" => 62.0}
              ],
              "pagination" => %{}
            }}
@@ -104,7 +109,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
       restore_env(:sysmon_metrics_test_responder, previous_responder)
     end)
 
-    [cpu | _] =
+    [cpu, memory, disk] =
       SysmonMetrics.load_metric_sections(
         RecordingSRQLStub,
         [~s|device_id:"sysmon-core-test"|],
@@ -117,6 +122,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
     assert cpu.query =~ "agg:avg"
     refute cpu.query =~ "series:core_id"
     assert cpu.query =~ "limit:300"
+    assert memory.header_value == 48.0
+    assert disk.header_value == 62.0
     assert cpu.header_value == 33.3
     assert cpu.header_stats == %{min: 25.0, max: 33.3, avg: 29.15}
 
@@ -161,26 +168,28 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
       assert query =~ ~s(uid:"synthetic-range-device")
       refute query =~ "sysmon.process"
 
-      if query =~ "bucket:" do
-        assert query =~ "time:last_7d"
-        assert query =~ "bucket:1h"
-        send(self(), {:history_query, query})
-        {:ok, %{"results" => []}}
-      else
-        {:ok, %{"results" => [%{"value" => 1}]}}
-      end
+      assert query =~ "bucket:"
+      assert query =~ "time:last_7d"
+      assert query =~ "bucket:1h"
+      send(self(), {:history_query, query})
+      {:ok, %{"results" => []}}
     end)
 
     process_metrics = [%{name: "synthetic-process"}]
     anomaly_capacity = %{anomaly_rows: [], cached: true}
 
-    socket = %Phoenix.LiveView.Socket{
+    socket = %Socket{
       assigns: %{
         __changed__: %{},
         device_uid: "synthetic-range-device",
         current_scope: nil,
         sysmon_time_range: "last_24h",
         sysmon_identity: %{device_uid: "synthetic-range-device"},
+        sysmon_filter_cache: %{
+          identity: %{device_uid: "synthetic-range-device"},
+          scope: nil,
+          filters: [~s(uid:"synthetic-range-device")]
+        },
         process_metrics: process_metrics,
         anomaly_capacity: anomaly_capacity,
         can_view_anomaly_capacity: true,
@@ -196,7 +205,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
     assert updated.assigns.metrics_error == nil
     assert length(updated.assigns.metric_sections) == 3
     assert Enum.all?(updated.assigns.metric_sections, &String.starts_with?(&1.subtitle, "last 7d · 1h buckets"))
-    for _ <- 1..4, do: assert_receive({:history_query, _})
+    for _ <- 1..2, do: assert_receive({:history_query, _})
     refute_receive {:history_query, _}
   end
 
@@ -242,7 +251,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
         String.contains?(query, ~s|metric_type:"sysmon.cpu"|) and String.contains?(query, "series:core_id") ->
           {:error, :statement_timeout}
 
-        String.contains?(query, ~s|metric_type:"sysmon.cpu"|) ->
+        String.contains?(query, "series:metric_name") ->
           {:ok, %{"results" => [%{"timestamp" => "2026-07-18T04:05:00Z", "value" => 12.5}]}}
 
         true ->
@@ -263,6 +272,126 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
 
     assert cpu.error == "CPU core SRQL error: :statement_timeout"
     refute cpu.error =~ "unexpected CPU overall"
+  end
+
+  test "summary failure stops before the per-core scan and reports every section" do
+    previous = Application.get_env(:serviceradar_web_ng, :sysmon_metrics_test_responder)
+    on_exit(fn -> restore_env(:sysmon_metrics_test_responder, previous) end)
+
+    Application.put_env(:serviceradar_web_ng, :sysmon_metrics_test_responder, fn query, opts ->
+      assert query =~ "series:metric_name"
+      assert opts.scope == :scope
+      assert is_integer(opts.deadline)
+      send(self(), :summary_attempted)
+      {:error, :timeout}
+    end)
+
+    sections =
+      SysmonMetrics.load_metric_sections(RecordingSRQLStub, [~s(uid:"synthetic-deadline")], :scope,
+        thresholds: %{},
+        time_range: "last_90d",
+        deadline: System.monotonic_time(:millisecond) + 1_000
+      )
+
+    assert length(sections) == 3
+    assert Enum.all?(sections, &(&1.error =~ ":timeout"))
+    assert_receive :summary_attempted
+    refute_receive :summary_attempted
+  end
+
+  test "expired overall budget prevents any further history query" do
+    previous = Application.get_env(:serviceradar_web_ng, :sysmon_metrics_test_responder)
+    on_exit(fn -> restore_env(:sysmon_metrics_test_responder, previous) end)
+
+    Application.put_env(:serviceradar_web_ng, :sysmon_metrics_test_responder, fn _, _ ->
+      flunk("expired request queried")
+    end)
+
+    sections =
+      SysmonMetrics.load_metric_sections(RecordingSRQLStub, [~s(uid:"synthetic-deadline")], nil,
+        thresholds: %{},
+        deadline: System.monotonic_time(:millisecond) - 1
+      )
+
+    assert Enum.all?(sections, &(&1.error =~ ":timeout"))
+  end
+
+  test "identity query errors fail immediately instead of probing more metrics or aliases" do
+    previous = Application.get_env(:serviceradar_web_ng, :sysmon_metrics_test_responder)
+    on_exit(fn -> restore_env(:sysmon_metrics_test_responder, previous) end)
+
+    Application.put_env(:serviceradar_web_ng, :sysmon_metrics_test_responder, fn query, _opts ->
+      send(self(), {:presence_attempt, query})
+      {:error, :timeout}
+    end)
+
+    assert {:error, :timeout} =
+             SysmonMetrics.resolve_sysmon_filter_tokens(
+               RecordingSRQLStub,
+               %{agent_id: "synthetic-agent", host_id: "host01.example.com"},
+               nil,
+               []
+             )
+
+    assert_receive {:presence_attempt, query}
+    assert query =~ ~s(agent_id:"synthetic-agent")
+    refute_receive {:presence_attempt, _}
+  end
+
+  test "a terminal section error clears loading and suppresses automatic retries" do
+    alias ServiceRadarWebNGWeb.DeviceLive.DeviceMetricsRuntime
+
+    ref = make_ref()
+    request = %{uid: "synthetic-range-device", time_range: "last_90d"}
+
+    socket =
+      Phoenix.Component.assign(%Socket{assigns: %{__changed__: %{}}},
+        device_uid: request.uid,
+        device_metrics_request: request,
+        device_metrics_request_ref: ref,
+        metrics_loading: true,
+        metric_sections: []
+      )
+
+    result = %{metric_sections: [%{key: "cpu", error: "SRQL error: :timeout", panels: []}]}
+    assert {:noreply, failed} = Show.handle_async({:device_metrics, request.uid, ref}, {:ok, result}, socket)
+    refute failed.assigns.metrics_loading
+    assert failed.assigns.metrics_error =~ "retry"
+    assert failed.assigns.device_metrics_failed_request == request
+    assert DeviceMetricsRuntime.begin_refresh(failed, request, fn -> flunk("automatic retry") end) == failed
+  end
+
+  test "batched averages retain separate series and per-core maxima for hot and archive windows" do
+    alias ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Query
+
+    for {range, bucket} <- [{"last_30d", "6h"}, {"last_90d", "12h"}], driver <- ["timescale", "pg_duckdb"] do
+      opts = [time_range: range, bucket: bucket]
+      filters = [~s(uid:"synthetic-history-device")]
+      summary = Query.summary_query(filters, 900, opts)
+
+      cores =
+        Query.timeseries_metric_query(
+          "sysmon.cpu",
+          "cpu.usage_percent",
+          filters,
+          "core_id",
+          20_000,
+          Keyword.put(opts, :agg, "max")
+        )
+
+      drivers = Jason.encode!(%{"timeseries_metrics" => driver})
+      {:ok, avg_json} = ServiceRadarSRQL.Native.translate(summary, 900, nil, "next", nil, drivers)
+      {:ok, max_json} = ServiceRadarSRQL.Native.translate(cores, 20_000, nil, "next", nil, drivers)
+      avg_sql = Jason.decode!(avg_json)["sql"]
+      max_sql = Jason.decode!(max_json)["sql"]
+      assert avg_sql =~ ~r/AVG\(/i
+      assert avg_sql =~ "coalesce(metric_name, '') AS series"
+      assert avg_sql =~ "GROUP BY 1, 2"
+      assert max_sql =~ ~r/MAX\(/i
+      assert max_sql =~ "core_id"
+      assert summary =~ "time:#{range}"
+      assert summary =~ "bucket:#{bucket}"
+    end
   end
 
   test "process metrics carry a per-process CPU history series for sparklines" do

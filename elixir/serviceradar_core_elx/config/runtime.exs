@@ -58,8 +58,7 @@ if is_map(callback_deployment) do
 
   config :serviceradar_core,
     automation_launch_envelope_key: envelope_key,
-    automation_launch_envelope_key_id:
-      System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_ENVELOPE_KEY_ID", "current")
+    automation_launch_envelope_key_id: System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_ENVELOPE_KEY_ID", "current")
 end
 
 parse_int_env = fn env_name, default ->
@@ -470,8 +469,7 @@ config :serviceradar_core, ServiceRadar.AnalyticsStore,
   tables: System.get_env("SERVICERADAR_ANALYTICS_STORE_TABLES") || "",
   hot_window_days: System.get_env("SERVICERADAR_ANALYTICS_STORE_HOT_WINDOW_DAYS") || "30",
   parquet_retention_days: System.get_env("SERVICERADAR_ANALYTICS_STORE_PARQUET_RETENTION_DAYS"),
-  archive_buffer_max_bytes:
-    System.get_env("SERVICERADAR_ANALYTICS_STORE_ARCHIVE_BUFFER_MAX_BYTES") || "268435456",
+  archive_buffer_max_bytes: System.get_env("SERVICERADAR_ANALYTICS_STORE_ARCHIVE_BUFFER_MAX_BYTES") || "268435456",
   dual_write: System.get_env("SERVICERADAR_ANALYTICS_STORE_DUAL_WRITE") || "",
   storage: System.get_env("SERVICERADAR_ANALYTICS_STORE_STORAGE"),
   s3_bucket_url: System.get_env("SERVICERADAR_ANALYTICS_STORE_S3_BUCKET_URL"),
@@ -508,8 +506,7 @@ config :serviceradar_core, ServiceRadar.Edge.AgentCommandCleanupWorker,
   reschedule_seconds: "AGENT_COMMAND_CLEANUP_INTERVAL_SECONDS" |> parse_int_env.(3_600) |> max(60)
 
 config :serviceradar_core, ServiceRadar.NetworkDiscovery.TopologyGraph,
-  canonical_rebuild_heartbeat_ms:
-    parse_int_env.("SERVICERADAR_TOPOLOGY_CANONICAL_REBUILD_HEARTBEAT_MS", 3_600_000),
+  canonical_rebuild_heartbeat_ms: parse_int_env.("SERVICERADAR_TOPOLOGY_CANONICAL_REBUILD_HEARTBEAT_MS", 3_600_000),
   canonical_rebuild_min_upsert_floor:
     "SERVICERADAR_TOPOLOGY_CANONICAL_REBUILD_MIN_UPSERT_FLOOR"
     |> parse_int_env.(0)
@@ -521,9 +518,7 @@ config :serviceradar_core, ServiceRadar.NetworkDiscovery.TopologyGraph,
     |> min(100)
     |> Kernel./(100),
   canonical_prune_guard_override:
-    String.downcase(
-      System.get_env("SERVICERADAR_TOPOLOGY_CANONICAL_PRUNE_GUARD_OVERRIDE", "false")
-    ) in [
+    String.downcase(System.get_env("SERVICERADAR_TOPOLOGY_CANONICAL_PRUNE_GUARD_OVERRIDE", "false")) in [
       "1",
       "true",
       "yes",
@@ -541,22 +536,19 @@ config :serviceradar_core, ServiceRadar.Observability.ThreatIntelRawPayloadStore
 # Workload-identity snapshot skip guard.
 config :serviceradar_core, ServiceRadar.WorkloadIdentity,
   skip_guard_enabled: System.get_env("SERVICERADAR_WORKLOAD_IDENTITY_SKIP_GUARD", "1") != "0",
-  skip_guard_heartbeat_ms:
-    parse_int_env.("SERVICERADAR_WORKLOAD_IDENTITY_SKIP_GUARD_HEARTBEAT_MS", 1_800_000)
+  skip_guard_heartbeat_ms: parse_int_env.("SERVICERADAR_WORKLOAD_IDENTITY_SKIP_GUARD_HEARTBEAT_MS", 1_800_000)
 
 config :serviceradar_core, :spiffe,
   mode: spiffe_mode,
   trust_domain: System.get_env("SPIFFE_TRUST_DOMAIN", "serviceradar.local"),
   cert_dir: System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs"),
-  workload_api_socket:
-    System.get_env("SPIFFE_WORKLOAD_API_SOCKET", "unix:///run/spire/sockets/agent.sock")
+  workload_api_socket: System.get_env("SPIFFE_WORKLOAD_API_SOCKET", "unix:///run/spire/sockets/agent.sock")
 
 config :serviceradar_core,
   egress_proxy: ServiceRadar.HTTP.EgressProxy.from_env()
 
 config :serviceradar_core,
-  mapper_topology_edge_stale_minutes:
-    parse_int_env.("SERVICERADAR_MAPPER_TOPOLOGY_EDGE_STALE_MINUTES", 180)
+  mapper_topology_edge_stale_minutes: parse_int_env.("SERVICERADAR_MAPPER_TOPOLOGY_EDGE_STALE_MINUTES", 180)
 
 # Keep authenticated desktop viewers and ingress actors bounded. These are
 # deliberately runtime-tunable so operators can size the media plane without
@@ -646,10 +638,8 @@ if config_env() == :prod do
     repo_enabled: System.get_env("SERVICERADAR_CORE_REPO_ENABLED", "true") in ~w(true 1 yes),
     control_repo_enabled: System.get_env("CONTROL_REPO_ENABLED", "true") in ~w(true 1 yes),
     vault_enabled: System.get_env("SERVICERADAR_CORE_VAULT_ENABLED", "true") in ~w(true 1 yes),
-    registries_enabled:
-      System.get_env("SERVICERADAR_CORE_REGISTRIES_ENABLED", "true") in ~w(true 1 yes),
-    run_startup_migrations:
-      System.get_env("SERVICERADAR_CORE_RUN_MIGRATIONS", "false") in ~w(true 1 yes),
+    registries_enabled: System.get_env("SERVICERADAR_CORE_REGISTRIES_ENABLED", "true") in ~w(true 1 yes),
+    run_startup_migrations: System.get_env("SERVICERADAR_CORE_RUN_MIGRATIONS", "false") in ~w(true 1 yes),
     cluster_enabled: cluster_enabled,
     cluster_coordinator: cluster_coordinator,
     # StatusHandler processes agent-gateway push results (sync ingestor, DIRE)
@@ -936,8 +926,7 @@ if config_env() == :prod do
   capacity_forecasting_crontab =
     if capacity_forecasting_enabled do
       [
-        {capacity_forecasting_cron, CapacityForecastingWorker,
-         args: %{"trigger" => "cron"}, queue: :maintenance}
+        {capacity_forecasting_cron, CapacityForecastingWorker, args: %{"trigger" => "cron"}, queue: :maintenance}
       ]
     else
       []
@@ -961,10 +950,9 @@ if config_env() == :prod do
   analytics_archive_crontab =
     if analytics_archive_enabled do
       [
-        {"* * * * *", ServiceRadar.EventWriter.ArchivePublisher,
-         args: %{"reconcile" => true}, queue: :analytics_archive},
-        {"*/5 * * * *", ServiceRadar.AnalyticsStore.CompactionWorker,
-         args: %{"table" => "timeseries_metrics"}, queue: :analytics_archive, priority: 3},
+        {"* * * * *", ServiceRadar.EventWriter.ArchivePublisher, args: %{"reconcile" => true}, queue: :analytics_archive},
+        {"*/5 * * * *", ServiceRadar.AnalyticsStore.CompactionWorker, args: %{"table" => "timeseries_metrics"},
+         queue: :analytics_archive, priority: 3},
         {"* * * * *", ServiceRadar.EventWriter.ArchiveCompactionCleanup, queue: :maintenance}
       ]
     else
@@ -997,8 +985,7 @@ if config_env() == :prod do
           # ansible job sat `available` forever and runs never advanced.
           ansible_catalog: String.to_integer(System.get_env("OBAN_QUEUE_ANSIBLE_CATALOG") || "4"),
           ansible_pulse: String.to_integer(System.get_env("OBAN_QUEUE_ANSIBLE_PULSE") || "4"),
-          ansible_retention:
-            String.to_integer(System.get_env("OBAN_QUEUE_ANSIBLE_RETENTION") || "1")
+          ansible_retention: String.to_integer(System.get_env("OBAN_QUEUE_ANSIBLE_RETENTION") || "1")
         ],
     plugins: [
       Oban.Plugins.Pruner,
@@ -1054,8 +1041,8 @@ if config_env() == :prod do
   object_store_retention_crontab =
     if object_store_retention_enabled do
       [
-        {object_store_retention_cron, ServiceRadar.ObjectStore.RetentionWorker,
-         args: %{"enabled" => true}, queue: :maintenance}
+        {object_store_retention_cron, ServiceRadar.ObjectStore.RetentionWorker, args: %{"enabled" => true},
+         queue: :maintenance}
       ]
     else
       []
@@ -1064,13 +1051,11 @@ if config_env() == :prod do
   extra_cron_entries =
     [
       {"*/2 * * * *", ServiceRadar.Jobs.ReapStalePeriodicJobsWorker, queue: :maintenance},
-      {System.get_env("TRACE_SUMMARIES_REFRESH_CRON") || "*/2 * * * *",
-       RefreshTraceSummariesWorker, queue: :maintenance},
+      {System.get_env("TRACE_SUMMARIES_REFRESH_CRON") || "*/2 * * * *", RefreshTraceSummariesWorker, queue: :maintenance},
       {"*/2 * * * *", ServiceRadar.Jobs.RefreshLogsSeverityStatsWorker, queue: :maintenance},
-      {System.get_env("SERVICERADAR_OBSERVABILITY_RETENTION_CRON") || "17 3 * * *",
-       DataRetentionWorker, queue: :maintenance},
-      {System.get_env("ALERT_RETENTION_CRON") || "15 * * * *", AlertsRetentionWorker,
+      {System.get_env("SERVICERADAR_OBSERVABILITY_RETENTION_CRON") || "17 3 * * *", DataRetentionWorker,
        queue: :maintenance},
+      {System.get_env("ALERT_RETENTION_CRON") || "15 * * * *", AlertsRetentionWorker, queue: :maintenance},
       # Credential broker grants and secret resolution audits had no retention at
       # all: nothing destroys a grant and nothing calls its :expire transition, so
       # they and their paper_trail versions grew unbounded (~1.9 GB / 460k rows
@@ -1122,8 +1107,7 @@ if config_env() == :prod do
     warning_horizon_seconds: capacity_forecasting_warning_horizon_seconds,
     emit_verdicts?: capacity_forecasting_emit_verdicts,
     min_points: "SERVICERADAR_CAPACITY_FORECASTING_MIN_POINTS" |> parse_int_env.(24) |> max(1),
-    seasonal_period:
-      "SERVICERADAR_CAPACITY_FORECASTING_SEASONAL_PERIOD" |> parse_int_env.(24) |> max(1),
+    seasonal_period: "SERVICERADAR_CAPACITY_FORECASTING_SEASONAL_PERIOD" |> parse_int_env.(24) |> max(1),
     # Comma-separated source names; the worker validates against the known
     # source list at run time. A non-empty Settings value overrides this.
     default_source_opt_ins: ProductionSchedule.capacity_source_opt_ins()
@@ -1134,24 +1118,17 @@ if config_env() == :prod do
     otel_traces_retention_days: otel_traces_retention_days,
     logs_retention_days: logs_retention_days,
     ocsf_network_activity_retention_days: ocsf_network_activity_retention_days,
-    timeseries_metrics_retention_days:
-      "SERVICERADAR_TIMESERIES_METRICS_RETENTION_DAYS" |> parse_int_env.(7) |> max(1),
+    timeseries_metrics_retention_days: "SERVICERADAR_TIMESERIES_METRICS_RETENTION_DAYS" |> parse_int_env.(7) |> max(1),
     otel_traces_chunk_interval_hours: otel_traces_chunk_interval_hours,
     logs_chunk_interval_hours: logs_chunk_interval_hours,
     ocsf_network_activity_chunk_interval_hours: ocsf_network_activity_chunk_interval_hours,
-    sweep_host_result_retention_days:
-      "SERVICERADAR_SWEEP_HOST_RESULT_RETENTION_DAYS" |> parse_int_env.(7) |> max(1),
-    sweep_execution_retention_days:
-      "SERVICERADAR_SWEEP_EXECUTION_RETENTION_DAYS" |> parse_int_env.(30) |> max(1),
+    sweep_host_result_retention_days: "SERVICERADAR_SWEEP_HOST_RESULT_RETENTION_DAYS" |> parse_int_env.(7) |> max(1),
+    sweep_execution_retention_days: "SERVICERADAR_SWEEP_EXECUTION_RETENTION_DAYS" |> parse_int_env.(30) |> max(1),
     trivy_retention_days: "SERVICERADAR_TRIVY_RETENTION_DAYS" |> parse_int_env.(30) |> max(1),
-    endpoint_inventory_retention_days:
-      "SERVICERADAR_ENDPOINT_INVENTORY_RETENTION_DAYS" |> parse_int_env.(30) |> max(1),
-    dataset_snapshot_retention_days:
-      "SERVICERADAR_DATASET_SNAPSHOT_RETENTION_DAYS" |> parse_int_env.(2) |> max(1),
-    dataset_snapshot_keep_last:
-      "SERVICERADAR_DATASET_SNAPSHOT_KEEP_LAST" |> parse_int_env.(1) |> max(0),
-    topology_link_retention_days:
-      "SERVICERADAR_TOPOLOGY_LINK_RETENTION_DAYS" |> parse_int_env.(30) |> max(1)
+    endpoint_inventory_retention_days: "SERVICERADAR_ENDPOINT_INVENTORY_RETENTION_DAYS" |> parse_int_env.(30) |> max(1),
+    dataset_snapshot_retention_days: "SERVICERADAR_DATASET_SNAPSHOT_RETENTION_DAYS" |> parse_int_env.(2) |> max(1),
+    dataset_snapshot_keep_last: "SERVICERADAR_DATASET_SNAPSHOT_KEEP_LAST" |> parse_int_env.(1) |> max(0),
+    topology_link_retention_days: "SERVICERADAR_TOPOLOGY_LINK_RETENTION_DAYS" |> parse_int_env.(30) |> max(1)
 
   # Notification continuation, silence expiry, and delivery retention. Kept in
   # step with serviceradar_core's own runtime.exs through
@@ -1169,8 +1146,7 @@ if config_env() == :prod do
   config :serviceradar_core,
          NotificationPluginTarget,
          platform_agent_uid: System.get_env("SERVICERADAR_NOTIFICATION_PLATFORM_AGENT_ID"),
-         platform_agent_partition_id:
-           System.get_env("SERVICERADAR_NOTIFICATION_PLATFORM_AGENT_PARTITION")
+         platform_agent_partition_id: System.get_env("SERVICERADAR_NOTIFICATION_PLATFORM_AGENT_PARTITION")
 
   config :serviceradar_core,
          NotificationReceiptWorker,
@@ -1185,19 +1161,14 @@ if config_env() == :prod do
          DispatchSchedule.silence_expiry_worker_config()
 
   config :serviceradar_core, Oban, if(oban_enabled, do: oban_config, else: false)
-
-  config :serviceradar_core, RefreshTraceSummariesWorker,
-    retention_days: trace_summary_retention_days
+  config :serviceradar_core, RefreshTraceSummariesWorker, retention_days: trace_summary_retention_days
 
   config :serviceradar_core,
          SeasonalDispositionWorker,
          ProductionSchedule.seasonal_disposition_worker_config()
 
   config :serviceradar_core, ServiceRadar.ControlRepo, control_repo_opts
-
-  config :serviceradar_core, ServiceRadar.FlowAttribution,
-    retention_minutes: flow_attribution_retention_minutes
-
+  config :serviceradar_core, ServiceRadar.FlowAttribution, retention_minutes: flow_attribution_retention_minutes
   config :serviceradar_core, ServiceRadar.Repo, repo_opts
   config :serviceradar_core, :age_graph_name, age_graph_name
   config :serviceradar_core, :oban_enabled, oban_enabled
@@ -1208,11 +1179,8 @@ if config_env() == :prod do
     agent_release_keep_latest:
       String.to_integer(System.get_env("OBJECT_STORE_RETENTION_AGENT_RELEASE_KEEP_LATEST") || "1"),
     native_addon_orphan_grace_seconds:
-      String.to_integer(
-        System.get_env("OBJECT_STORE_RETENTION_NATIVE_ADDON_ORPHAN_GRACE_SECONDS") || "604800"
-      ),
-    datasvc_timeout_ms:
-      String.to_integer(System.get_env("OBJECT_STORE_RETENTION_DATASVC_TIMEOUT_MS") || "30000")
+      String.to_integer(System.get_env("OBJECT_STORE_RETENTION_NATIVE_ADDON_ORPHAN_GRACE_SECONDS") || "604800"),
+    datasvc_timeout_ms: String.to_integer(System.get_env("OBJECT_STORE_RETENTION_DATASVC_TIMEOUT_MS") || "30000")
 
   config :serviceradar_core,
          :periodic_job_stale_threshold_minutes,
@@ -1326,8 +1294,7 @@ if config_env() == :prod do
       batch_size: String.to_integer(System.get_env("EVENT_WRITER_BATCH_SIZE") || "100"),
       batch_timeout: String.to_integer(System.get_env("EVENT_WRITER_BATCH_TIMEOUT") || "1000"),
       consumer_name: System.get_env("EVENT_WRITER_CONSUMER_NAME", "serviceradar-event-writer"),
-      consumer_pull_batch_size:
-        String.to_integer(System.get_env("EVENT_WRITER_CONSUMER_PULL_BATCH_SIZE") || "16"),
+      consumer_pull_batch_size: String.to_integer(System.get_env("EVENT_WRITER_CONSUMER_PULL_BATCH_SIZE") || "16"),
       streams: [
         %{
           name: "EVENTS",
@@ -1465,18 +1432,15 @@ if config_env() == :prod do
 
     # Optional flow pipeline overrides (env only — never inject hard-coded defaults).
     if v = System.get_env("EVENT_WRITER_FLOW_CONSUMER_PULL_BATCH_SIZE") do
-      config :serviceradar_core, ServiceRadar.EventWriter,
-        flow_consumer_pull_batch_size: String.to_integer(v)
+      config :serviceradar_core, ServiceRadar.EventWriter, flow_consumer_pull_batch_size: String.to_integer(v)
     end
 
     if v = System.get_env("EVENT_WRITER_FLOW_MAX_ACK_PENDING") do
-      config :serviceradar_core, ServiceRadar.EventWriter,
-        flow_max_ack_pending: String.to_integer(v)
+      config :serviceradar_core, ServiceRadar.EventWriter, flow_max_ack_pending: String.to_integer(v)
     end
 
     if v = System.get_env("EVENT_WRITER_FLOW_PULL_EXPIRES_NS") do
-      config :serviceradar_core, ServiceRadar.EventWriter,
-        flow_pull_expires_ns: String.to_integer(v)
+      config :serviceradar_core, ServiceRadar.EventWriter, flow_pull_expires_ns: String.to_integer(v)
     end
 
     config :serviceradar_core, :event_writer_enabled, true

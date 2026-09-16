@@ -81,6 +81,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceMetricsRuntimeTest do
     send(retry_task, {:finish, %{}})
   end
 
+  test "overall timeout cancels a stuck scan and does not automatically restart the same failed range" do
+    pending = DeviceMetricsRuntime.begin_refresh(socket(), request(), loader(), timeout: 10)
+    assert_receive {:metrics_started, task}
+    monitor = Process.monitor(task)
+    assert_receive {:device_metrics_timeout, uid, ref}
+    failed = DeviceMetricsRuntime.timeout_refresh(pending, uid, ref)
+    assert_receive {:DOWN, ^monitor, :process, ^task, {:shutdown, :cancel}}
+    refute failed.assigns.metrics_loading
+    assert failed.assigns.metrics_error =~ "retry"
+    assert DeviceMetricsRuntime.begin_refresh(failed, request(), loader()) == failed
+    refute_receive {:metrics_started, _}
+
+    retried = DeviceMetricsRuntime.begin_refresh(failed, request(), loader(), clear_sections: true)
+    assert_receive {:metrics_started, retry_task}
+    assert retried.assigns.metrics_loading
+    assert DeviceMetricsRuntime.timeout_refresh(retried, uid, ref) == retried
+    send(retry_task, {:finish, %{}})
+  end
+
   test "a changed resolved identity replaces the pending request at the same range" do
     pending = DeviceMetricsRuntime.begin_refresh(socket(), request(), loader())
     assert_receive {:metrics_started, old_task}

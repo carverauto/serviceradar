@@ -46,9 +46,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Identity do
     |> maybe_put_identity(:host_id, host_id)
   end
 
-  def resolve_sysmon_filter_tokens(_srql_module, identity, _scope) when identity == %{} or identity == nil, do: []
-
   def resolve_sysmon_filter_tokens(srql_module, identity, scope) do
+    case resolve_sysmon_filter_tokens(srql_module, identity, scope, []) do
+      {:ok, tokens} -> tokens
+      {:error, _reason} -> []
+    end
+  end
+
+  def resolve_sysmon_filter_tokens(_srql_module, identity, _scope, _opts) when identity == %{} or identity == nil,
+    do: {:ok, []}
+
+  def resolve_sysmon_filter_tokens(srql_module, identity, scope, opts) do
     # Widen the device dimension across every UID this device has been keyed by
     # (current canonical UID + all pre-merge UIDs recorded in merge_audit) so a
     # merged device's detail page shows the full metric history instead of only
@@ -63,19 +71,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Identity do
     agent_tokens = sysmon_filter_tokens(identity, :agent_id, "agent_id")
     host_tokens = sysmon_filter_tokens(identity, :host_id, "agent_id")
 
-    cond do
-      device_tokens != [] and sysmon_filter_has_data?(srql_module, device_tokens, scope) ->
-        device_tokens
-
-      agent_tokens != [] and sysmon_filter_has_data?(srql_module, agent_tokens, scope) ->
-        agent_tokens
-
-      host_tokens != [] and sysmon_filter_has_data?(srql_module, host_tokens, scope) ->
-        host_tokens
-
-      true ->
-        []
-    end
+    [device_tokens, agent_tokens, host_tokens]
+    |> Enum.reject(&(&1 == []))
+    |> Enum.reduce_while({:ok, []}, fn tokens, _acc ->
+      case sysmon_filter_has_data?(srql_module, tokens, scope, opts) do
+        {:ok, true} -> {:halt, {:ok, tokens}}
+        {:ok, false} -> {:cont, {:ok, []}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
   end
 
   @doc """
@@ -154,8 +158,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Identity do
     end
   end
 
-  defp sysmon_filter_has_data?(srql_module, filter_tokens, scope) do
-    Enum.any?(
+  defp sysmon_filter_has_data?(srql_module, filter_tokens, scope, opts) do
+    Enum.reduce_while(
       [
         {"sysmon.cpu", "cpu.usage_percent"},
         {"sysmon.memory", "memory.used_percent"},
@@ -163,42 +167,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Identity do
         {"sysmon.process", "process.cpu_usage"},
         {"sysmon.process", "process.count"}
       ],
-      fn {metric_type, metric_name} ->
-        sysmon_timeseries_has_data?(srql_module, metric_type, metric_name, filter_tokens, scope)
+      {:ok, false},
+      fn {metric_type, metric_name}, _acc ->
+        query =
+          timeseries_metric_query(metric_type, metric_name, filter_tokens, nil, 1, time_range: "last_24h", bucket?: false)
+
+        case run(srql_module, query, scope, opts) do
+          {:ok, %{"results" => []}} -> {:cont, {:ok, false}}
+          {:ok, %{"results" => rows}} when is_list(rows) -> {:halt, {:ok, true}}
+          {:ok, _other} -> {:halt, {:error, :invalid_sysmon_presence_response}}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
       end
     )
-  end
-
-  defp sysmon_timeseries_has_data?(srql_module, metric_type, metric_name, filter_tokens, scope) do
-    query =
-      timeseries_metric_query(
-        metric_type,
-        metric_name,
-        filter_tokens,
-        nil,
-        1,
-        time_range: "last_24h",
-        bucket?: false
-      )
-
-    case srql_module.query(query, %{scope: scope}) do
-      {:ok, %{"results" => rows}} when is_list(rows) ->
-        rows != []
-
-      {:ok, other} ->
-        Logger.warning(
-          "Unexpected sysmon #{metric_type}/#{metric_name} presence probe response for filters #{inspect(filter_tokens)}: #{inspect(other)}"
-        )
-
-        false
-
-      {:error, reason} ->
-        Logger.warning(
-          "Failed sysmon #{metric_type}/#{metric_name} presence probe for filters #{inspect(filter_tokens)}: #{format_error(reason)}"
-        )
-
-        false
-    end
   end
 
   defp sysmon_filter_tokens(identity, key, field) do

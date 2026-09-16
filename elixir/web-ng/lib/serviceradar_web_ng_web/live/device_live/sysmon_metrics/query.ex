@@ -176,6 +176,31 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Query do
     Enum.join(tokens, " ")
   end
 
+  def summary_query(filter_tokens, limit, opts) do
+    [
+      "in:timeseries_metrics",
+      ~s|metric_type:("sysmon.cpu","sysmon.memory","sysmon.disk")|,
+      ~s|metric_name:("cpu.usage_percent","memory.used_percent","disk.used_percent")|,
+      "time:#{Keyword.get(opts, :time_range, "last_24h")}",
+      "bucket:#{Keyword.get(opts, :bucket, "5m")}",
+      "agg:avg",
+      "series:metric_name"
+    ]
+    |> Kernel.++(filter_tokens)
+    |> Kernel.++(["sort:timestamp:desc", "limit:#{limit}"])
+    |> Enum.join(" ")
+  end
+
+  def run(srql_module, query, scope, opts) do
+    deadline = Keyword.get(opts, :deadline)
+
+    if is_integer(deadline) and deadline <= System.monotonic_time(:millisecond) do
+      {:error, :timeout}
+    else
+      srql_module.query(query, %{scope: scope, deadline: deadline})
+    end
+  end
+
   defp maybe_add_limit(tokens, nil), do: tokens
   defp maybe_add_limit(tokens, ""), do: tokens
   defp maybe_add_limit(tokens, limit), do: tokens ++ ["limit:#{limit}"]
