@@ -109,8 +109,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.DbTimeHelpers do
 
       defp netflow_map_cutoff(time_window), do: cutoff_for_time_window(time_window)
 
-      defp netflow_map_window_label, do: ServiceRadarWebNGWeb.DashboardLive.Window.label("last_15m")
-
       defp sparkline_bucket_for("last_1h"), do: "1 minute"
       defp sparkline_bucket_for("last_6h"), do: "5 minutes"
       defp sparkline_bucket_for("last_24h"), do: "15 minutes"

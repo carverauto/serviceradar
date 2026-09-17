@@ -2,8 +2,10 @@
 # Apply with the StarRocks SQL console (mysql protocol on FE:9030).
 # 0001–0005 are CREATE for a new warehouse; 0006+ are one-shot migrations for
 # already-deployed tables. Re-running an ADD COLUMN fails if the column exists.
-# 0014 rebuilds the telemetry tables, because StarRocks cannot add partitioning
-# or change a primary key with ALTER.
+# 0014 documents, but does not execute, the rebuild an unpartitioned warehouse
+# needs, because StarRocks cannot add partitioning or change a primary key with
+# ALTER. Like 0009, its statements are commented out so an in-order apply is a
+# no-op.
 filegroup(
     name = "schema_sql",
     srcs = glob(["*.sql"]),

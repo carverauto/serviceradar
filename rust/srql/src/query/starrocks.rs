@@ -1,10 +1,9 @@
-use super::{PaginationMeta, QueryPlan, QueryResponse, TranslateResponse, types::BindParam};
+use super::{PaginationMeta, QueryPlan, TranslateResponse, types::BindParam};
 use crate::{
     error::{Result, ServiceError},
     parser::{Entity, Filter},
 };
 use chrono::{SecondsFormat, Utc};
-use serde_json::Value;
 
 /// Compile an authorized SRQL plan to StarRocks SQL.
 ///
@@ -18,116 +17,6 @@ pub fn translate(plan: &QueryPlan) -> Result<TranslateResponse> {
             plan.entity
         ))),
     }
-}
-
-/// Execute a compiled StarRocks plan. Missing executors and unsupported
-/// entities are capability errors — never a silent PostgreSQL fallback.
-pub fn execute_plan(plan: &QueryPlan, executor: Option<&dyn SqlExecutor>) -> Result<QueryResponse> {
-    let compiled = translate(plan)?;
-    let executor = executor
-        .ok_or_else(|| ServiceError::NotImplemented("starrocks_not_configured".to_string()))?;
-    let results = executor.execute_sql(&compiled.sql)?;
-    Ok(QueryResponse {
-        results,
-        pagination: compiled.pagination,
-        error: None,
-    })
-}
-
-pub trait SqlExecutor: Send + Sync {
-    fn execute_sql(&self, sql: &str) -> Result<Vec<Value>>;
-}
-
-pub struct HttpSqlExecutor {
-    fe_http: String,
-    database: String,
-    user: String,
-    password: String,
-}
-
-impl HttpSqlExecutor {
-    pub fn from_env() -> Option<Self> {
-        let fe_http = std::env::var("STARROCKS_FE_HTTP").ok()?;
-        Some(Self {
-            fe_http,
-            database: std::env::var("STARROCKS_DATABASE")
-                .unwrap_or_else(|_| "serviceradar".to_string()),
-            user: std::env::var("STARROCKS_USER").unwrap_or_else(|_| "root".to_string()),
-            password: std::env::var("STARROCKS_PASSWORD").unwrap_or_default(),
-        })
-    }
-}
-
-impl SqlExecutor for HttpSqlExecutor {
-    fn execute_sql(&self, sql: &str) -> Result<Vec<Value>> {
-        let url = format!(
-            "{}/api/v1/catalogs/default_catalog/databases/{}/sql",
-            self.fe_http.trim_end_matches('/'),
-            self.database
-        );
-        let body = serde_json::to_vec(&serde_json::json!({ "query": sql })).map_err(|err| {
-            ServiceError::Internal(anyhow::anyhow!("starrocks_http_encode: {err}"))
-        })?;
-        let response = ureq::post(&url)
-            .header(
-                "authorization",
-                format!(
-                    "Basic {}",
-                    base64::Engine::encode(
-                        &base64::engine::general_purpose::STANDARD,
-                        format!("{}:{}", self.user, self.password)
-                    )
-                ),
-            )
-            .header("content-type", "application/json")
-            .send(body)
-            .map_err(|err| ServiceError::Internal(anyhow::anyhow!("starrocks_http: {err}")))?;
-        let text = response
-            .into_body()
-            .read_to_string()
-            .map_err(|err| ServiceError::Internal(anyhow::anyhow!("starrocks_http_body: {err}")))?;
-        let payload: Value = serde_json::from_str(&text)
-            .map_err(|err| ServiceError::Internal(anyhow::anyhow!("starrocks_http_json: {err}")))?;
-        Ok(rows_from_http_payload(payload))
-    }
-}
-
-fn rows_from_http_payload(payload: Value) -> Vec<Value> {
-    let meta = payload
-        .get("meta")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    let names: Vec<String> = meta
-        .iter()
-        .map(|col| {
-            col.get("name")
-                .and_then(Value::as_str)
-                .unwrap_or("col")
-                .to_string()
-        })
-        .collect();
-    payload
-        .get("data")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .map(|row| match row {
-            Value::Array(cells) => {
-                let mut object = serde_json::Map::new();
-                for (idx, cell) in cells.into_iter().enumerate() {
-                    let key = names
-                        .get(idx)
-                        .cloned()
-                        .unwrap_or_else(|| format!("col{idx}"));
-                    object.insert(key, cell);
-                }
-                Value::Object(object)
-            }
-            other => other,
-        })
-        .collect()
 }
 
 #[derive(Clone, Copy)]
@@ -1035,10 +924,6 @@ mod tests {
 
     #[test]
     fn rejects_untrusted_sql_before_execution() {
-        let executor = RecordingExecutor {
-            sql: std::sync::Mutex::new(None),
-            rows: vec![],
-        };
         for query in [
             r#"in:flows time:last_1h stats:"(SELECT body FROM serviceradar.logs LIMIT 1) AS leaked" limit:1"#,
             r#"in:flows time:last_1h stats:"sum(body) as leaked""#,
@@ -1047,12 +932,8 @@ mod tests {
             "in:flows time:last_1h bucket:1m series:body",
             "in:flows time:last_1h unknown_field:value",
         ] {
-            assert!(
-                execute_plan(&plan(query), Some(&executor)).is_err(),
-                "{query}"
-            );
+            assert!(translate(&plan(query)).is_err(), "{query}");
         }
-        assert!(executor.sql.lock().unwrap().is_none());
     }
 
     #[test]
@@ -1339,67 +1220,6 @@ mod tests {
     fn unsupported_entities_return_a_capability_error() {
         let err = translate(&plan("in:devices time:last_1h limit:5")).expect_err("devices");
         assert!(err.to_string().contains("starrocks_unsupported_entity"));
-    }
-
-    struct RecordingExecutor {
-        sql: std::sync::Mutex<Option<String>>,
-        rows: Vec<Value>,
-    }
-
-    impl SqlExecutor for RecordingExecutor {
-        fn execute_sql(&self, sql: &str) -> Result<Vec<Value>> {
-            *self.sql.lock().expect("sql lock") = Some(sql.to_string());
-            Ok(self.rows.clone())
-        }
-    }
-
-    #[test]
-    fn execute_plan_runs_compiled_starrocks_sql_not_postgres() {
-        let executor = RecordingExecutor {
-            sql: std::sync::Mutex::new(None),
-            rows: vec![serde_json::json!({"bytes_in": 1200, "id": "flow-alpha-0001"})],
-        };
-        let response = execute_plan(
-            &plan(r#"in:flows time:last_1h stats:"sum(bytes_in) as bytes_in" limit:10"#),
-            Some(&executor),
-        )
-        .expect("execute");
-        let sql = executor.sql.lock().expect("sql").clone().expect("captured");
-        assert!(sql.contains("FROM serviceradar.ocsf_network_activity"));
-        refute_postgres(&sql);
-        assert_eq!(response.results.len(), 1);
-        assert_eq!(response.results[0]["id"], "flow-alpha-0001");
-        assert_eq!(response.pagination.limit, Some(10));
-    }
-
-    #[test]
-    fn execute_plan_without_executor_is_a_capability_error() {
-        let err =
-            execute_plan(&plan("in:flows time:last_1h limit:5"), None).expect_err("unconfigured");
-        assert!(err.to_string().contains("starrocks_not_configured"));
-    }
-
-    #[test]
-    fn execute_plan_does_not_fall_back_to_postgres_for_devices() {
-        let executor = RecordingExecutor {
-            sql: std::sync::Mutex::new(None),
-            rows: vec![serde_json::json!({"leaked": true})],
-        };
-        let err = execute_plan(&plan("in:devices time:last_1h limit:5"), Some(&executor))
-            .expect_err("devices");
-        assert!(err.to_string().contains("starrocks_unsupported_entity"));
-        assert!(executor.sql.lock().expect("sql").is_none());
-    }
-
-    #[test]
-    fn http_payload_rows_preserve_column_names() {
-        let payload = serde_json::json!({
-            "meta": [{"name": "id"}, {"name": "bytes_in"}],
-            "data": [["flow-alpha-0001", 1200]]
-        });
-        let rows = rows_from_http_payload(payload);
-        assert_eq!(rows[0]["id"], "flow-alpha-0001");
-        assert_eq!(rows[0]["bytes_in"], 1200);
     }
 
     fn refute_postgres(sql: &str) {

@@ -3,7 +3,8 @@
 -- `time` is part of the primary key because StarRocks requires the partition
 -- column to be a primary-key column. partition_live_number is the retention
 -- default; SERVICERADAR_STARROCKS_RETENTION_DAYS_FLOWS is applied on top at
--- boot. A warehouse created before partitioning is rebuilt by 0014.
+-- boot. 0014 documents the rebuild a warehouse created before partitioning
+-- needs; it is not applied automatically.
 CREATE DATABASE IF NOT EXISTS serviceradar;
 
 CREATE TABLE IF NOT EXISTS serviceradar.ocsf_network_activity (

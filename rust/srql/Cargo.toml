@@ -42,7 +42,6 @@ tower = { workspace = true }
 tower-http = { workspace = true, features = ["trace"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
-ureq = { workspace = true }
 uuid = { workspace = true, features = ["serde", "v4"] }
 
 [dev-dependencies]
