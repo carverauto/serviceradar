@@ -60,9 +60,9 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
       "src_prefix_tags" => json_text(field(row, :src_prefix_tags)),
       "dst_prefix_tags" => json_text(field(row, :dst_prefix_tags)),
       "bytes_in" => field(row, :bytes_in),
-      "bytes_out" => field(row, :bytes_out) || field(row, :bytes_total),
+      "bytes_out" => field(row, :bytes_out),
       "packets_in" => field(row, :packets_in),
-      "packets_out" => field(row, :packets_out) || field(row, :packets_total),
+      "packets_out" => field(row, :packets_out),
       "sampling_rate" => field(row, :sampling_rate) || 1,
       "attribution_version" => field(row, :attribution_version) || 0,
       "sampler_address" => stringify(field(row, :sampler_address))

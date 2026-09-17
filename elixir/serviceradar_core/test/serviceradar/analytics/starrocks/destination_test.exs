@@ -103,22 +103,28 @@ defmodule ServiceRadar.Analytics.StarRocks.DestinationTest do
     assert encoded["direction_label"] == "egress"
   end
 
-  test "flow encode falls back to bytes_total when directional counters are missing" do
-    [encoded] =
-      Rows.encode(:flows, [
-        %{
-          time: ~U[2026-01-15 10:00:00Z],
-          src_endpoint_ip: "192.0.2.10",
-          dst_endpoint_ip: "198.51.100.20",
-          bytes_total: 4096,
-          packets_total: 12
-        }
-      ])
+  @tag :flow_counter_regression
+  test "flow encoding preserves canonical totals and missing directional counters" do
+    for {counters, expected_bytes, expected_packets} <- [
+          {%{bytes_total: 1200, packets_total: 12}, 1200, 12},
+          {%{bytes_total: 1200, bytes_in: 1200, packets_total: 12, packets_in: 12}, 1200, 12},
+          {%{bytes_total: 1200, bytes_out: 1200, packets_total: 12, packets_out: 12}, 1200, 12},
+          {%{bytes_in: 1000, bytes_out: 200, packets_in: 10, packets_out: 2}, 1200, 12},
+          {%{bytes_in: 1200, packets_in: 12}, 1200, 12},
+          {%{bytes_total: 0, bytes_in: 1200, packets_total: 0, packets_in: 12}, 0, 0}
+        ] do
+      row = Map.put(counters, :id, "synthetic-flow-counter")
 
-    assert encoded["bytes_out"] == 4096
-    assert encoded["packets_out"] == 12
-    assert encoded["bytes_total"] == 4096
-    assert encoded["packets_total"] == 12
+      for input <- [row, Map.new(row, fn {key, value} -> {Atom.to_string(key), value} end)] do
+        [encoded] = Rows.encode(:flows, [input])
+        assert encoded["bytes_total"] == expected_bytes
+        assert encoded["packets_total"] == expected_packets
+
+        for field <- [:bytes_in, :bytes_out, :packets_in, :packets_out] do
+          assert encoded[Atom.to_string(field)] == Map.get(counters, field)
+        end
+      end
+    end
   end
 
   test "tables are dataset-specific and not the demo namespace" do

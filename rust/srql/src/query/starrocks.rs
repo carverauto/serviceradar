@@ -168,8 +168,10 @@ fn dataset_for(entity: &Entity) -> Option<Dataset> {
 
 const FLOW_PROTOCOL_GROUP_SQL: &str =
     "CASE WHEN protocol_num = 6 THEN 'tcp' WHEN protocol_num = 17 THEN 'udp' ELSE 'other' END";
-const FLOW_BYTES_TOTAL_SQL: &str = "(COALESCE(bytes_in, 0) + COALESCE(bytes_out, 0))";
-const FLOW_PACKETS_TOTAL_SQL: &str = "(COALESCE(packets_in, 0) + COALESCE(packets_out, 0))";
+const FLOW_BYTES_TOTAL_SQL: &str =
+    "COALESCE(bytes_total, COALESCE(bytes_in, 0) + COALESCE(bytes_out, 0))";
+const FLOW_PACKETS_TOTAL_SQL: &str =
+    "COALESCE(packets_total, COALESCE(packets_in, 0) + COALESCE(packets_out, 0))";
 const FLOW_ROW_SELECT: &str = "id, time, device_uid, src_endpoint_ip, dst_endpoint_ip, src_endpoint_port, dst_endpoint_port, protocol_num, protocol_name, CASE WHEN protocol_num = 6 THEN 'tcp' WHEN protocol_num = 17 THEN 'udp' ELSE 'other' END AS protocol_group, COALESCE(bytes_total, COALESCE(bytes_in, 0) + COALESCE(bytes_out, 0)) AS bytes_total, COALESCE(packets_total, COALESCE(packets_in, 0) + COALESCE(packets_out, 0)) AS packets_total, bytes_in, bytes_out, packets_in, packets_out, sampling_rate, direction_label, sampler_address, dst_service_label, src_as_number, dst_as_number, tcp_flags, input_snmp, output_snmp, start_time, end_time, pid, comm, cmdline, CASE WHEN pid IS NULL THEN 'unmatched' ELSE 'attributed' END AS attribution_status";
 
 fn dataset_sql(plan: &QueryPlan, dataset: Dataset) -> Result<TranslateResponse> {
@@ -531,11 +533,13 @@ fn field_sql(plan: &QueryPlan, field: &str) -> Result<String> {
             }
             "bytes_total" => {
                 return Ok(FLOW_BYTES_TOTAL_SQL
+                    .replace("bytes_total", &column("bytes_total"))
                     .replace("bytes_in", &column("bytes_in"))
                     .replace("bytes_out", &column("bytes_out")));
             }
             "packets_total" => {
                 return Ok(FLOW_PACKETS_TOTAL_SQL
+                    .replace("packets_total", &column("packets_total"))
                     .replace("packets_in", &column("packets_in"))
                     .replace("packets_out", &column("packets_out")));
             }
@@ -828,6 +832,34 @@ mod tests {
         ] {
             let query = format!("in:flows time:last_1h stats:\"{expression}\"");
             assert!(translate(&plan(&query)).is_err(), "{query}");
+        }
+    }
+
+    #[test]
+    fn aggregate_totals_prefer_stored_counters_before_directional_fallback() {
+        for (field, inbound, outbound) in [
+            ("bytes_total", "bytes_in", "bytes_out"),
+            ("packets_total", "packets_in", "packets_out"),
+        ] {
+            for (filter, prefix) in [("", ""), ("hostname:host01.example.com", "f.")] {
+                let total = format!(
+                    "COALESCE({prefix}{field}, COALESCE({prefix}{inbound}, 0) + COALESCE({prefix}{outbound}, 0))"
+                );
+                let stats = translate(&plan(&format!(
+                    "in:flows {filter} time:last_1h stats:\"sum({field}) as volume\""
+                )))
+                .unwrap();
+                assert!(stats.sql.starts_with(&format!("SELECT SUM((CAST(COALESCE({total}, 0) AS DOUBLE) * GREATEST(COALESCE({prefix}sampling_rate, 1), 1))) AS volume")));
+                let chart = translate(&plan(&format!(
+                    "in:flows {filter} time:last_1h bucket:1m agg:sum value_field:{field}"
+                )))
+                .unwrap();
+                assert!(
+                    chart
+                        .sql
+                        .contains(&format!("SUM((CAST(COALESCE({total}, 0) AS DOUBLE)"))
+                );
+            }
         }
     }
 
