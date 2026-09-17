@@ -753,6 +753,44 @@ services:
       - serviceradar-net
     restart: unless-stopped
 
+  # Creates the warehouse schema the `starrocks` profile needs. Compose runs the
+  # single-BE allin1 image, which cannot satisfy the `replication_num = 3` the
+  # shipped DDL pins for a real cluster, so the copies are rewritten to 1 on the
+  # way in. Only 0001-0005 are applied: 0006-0013 add columns already declared
+  # in 0001-0004, and 0009/0014 are documentation. Every statement is
+  # CREATE ... IF NOT EXISTS, so re-running the profile is a no-op.
+  starrocks-init:
+    image: mysql:8.4
+    container_name: serviceradar-starrocks-init
+    profiles:
+      - starrocks
+    restart: "no"
+    volumes:
+      - ./elixir/serviceradar_core/priv/starrocks:/schema:ro
+    depends_on:
+      starrocks:
+        condition: service_started
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        until mysql -h starrocks -P 9030 -u root --protocol=TCP -e 'SELECT 1' >/dev/null 2>&1; do
+          echo 'waiting for the StarRocks frontend'
+          sleep 5
+        done
+        until mysql -h starrocks -P 9030 -u root --protocol=TCP -N -e 'SHOW BACKENDS' 2>/dev/null | grep -q true; do
+          echo 'waiting for a live StarRocks backend'
+          sleep 5
+        done
+        for schema_file in /schema/0001_*.sql /schema/0002_*.sql /schema/0003_*.sql /schema/0004_*.sql /schema/0005_*.sql; do
+          echo "applying $$(basename "$$schema_file")"
+          sed 's/"replication_num" = "3"/"replication_num" = "1"/' "$$schema_file" \
+            | mysql -h starrocks -P 9030 -u root --protocol=TCP
+        done
+        echo 'starrocks schema ready'
+    networks:
+      - serviceradar-net
+
   # Optional network-ingest collectors are disabled in the default compose stack.
   # Enable all with `docker compose --profile network-ingest up -d`, or enable
   # individual collectors with `--profile snmp-traps`, `--profile flows`, or

@@ -330,13 +330,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
         _ -> %{alert_summary: empty_alert_summary()}
       end
 
-      @spec load_events_summary(String.t()) :: map()
-      def load_events_summary(time_window) do
-        %{event_summary: ServiceRadarWebNGWeb.Stats.events_summary(time: time_window)}
-      rescue
-        _ -> %{event_summary: empty_event_summary()}
-      end
-
       @spec load_mtr(String.t()) :: map()
       def load_mtr(time_window) do
         %{mtr_timeseries: mtr_timeseries_summary(time_window)}
@@ -350,13 +343,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
         %{trace_summary: trace_summary(srql_module, scope, time_window)}
       rescue
         _ -> %{trace_summary: empty_trace_summary()}
-      end
-
-      @spec load_security_trend(String.t()) :: map()
-      def load_security_trend(time_window) do
-        %{security_trend: security_trend(time_window)}
-      rescue
-        _ -> %{security_trend: []}
       end
 
       @spec load_sparklines(String.t()) :: map()

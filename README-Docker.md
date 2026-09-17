@@ -87,6 +87,12 @@ STARROCKS_ENABLED=true docker compose --profile starrocks --profile flows up -d
 `--profile network-ingest`. The two profiles are independent: NetFlow works
 without the warehouse, and flows are then stored on CNPG hypertables.
 
+`--profile starrocks` also runs a one-shot `starrocks-init` container that
+creates the warehouse database and tables once the frontend and backend are up.
+Compose runs a single backend, so it rewrites the replica count the clustered
+DDL pins. It is idempotent; bringing the profile up again re-runs it as a
+no-op.
+
 StarRocks telemetry retention is set per dataset. The warehouse tables are
 partitioned by day, so each `STARROCKS_RETENTION_DAYS_*` value is the number of
 daily partitions kept; anything older is dropped.
