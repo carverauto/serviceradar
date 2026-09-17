@@ -23,7 +23,7 @@ expect the pinned PostgreSQL JDBC driver at
 alpine initContainer that mounts an emptyDir `jdbc` volume (chart 1.11.7
 ignores extra storageVolumes; emptyDir is the extra-volume API) so FE/BE
 share `file:///opt/starrocks/jdbc/postgresql.jar`. The initContainer
-re-fetches the pinned jar (IPv4 wget) when the checksum is missing.
+re-fetches the pinned jar (BusyBox wget) when the checksum is missing.
 Nodes that cannot resolve repo1.maven.org will CrashLoop the init
 container; do not roll those until the jar is available in-cluster.
 Demo CNPG now has an additive NetworkPolicy allowing namespace

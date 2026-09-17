@@ -139,7 +139,7 @@ class StarRocksAnalyticsPinsTest(unittest.TestCase):
         self.assertIn("emptyDirs:", LAB_CLUSTER)
         self.assertIn("volumeMounts:", LAB_CLUSTER)
         self.assertIn("alpine:3.21.3", LAB_CLUSTER)
-        self.assertIn("wget -4", LAB_CLUSTER)
+        self.assertIn("wget -T 30", LAB_CLUSTER)
         self.assertNotIn("storageSize: 1Gi", LAB_CLUSTER)
         self.assertIn(
             "6e0e4cc2d8cae902084f8a2b18728b073a6fd9d1f87c9d8bff8f298c18185b93",

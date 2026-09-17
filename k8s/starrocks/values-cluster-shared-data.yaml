@@ -79,7 +79,7 @@ starrocksCnSpec:
           url="https://repo1.maven.org/maven2/org/postgresql/postgresql/42.7.13/postgresql-42.7.13.jar"
           i=0
           while [ "$i" -lt 5 ]; do
-            if wget -4 -T 30 -O "$dest" "$url"; then
+            if wget -T 30 -O "$dest" "$url"; then
               break
             fi
             i=$((i + 1))
