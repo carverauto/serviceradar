@@ -451,14 +451,16 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
           netflow_state: netflow_state,
           collector_counts: collector_counts,
           flow_summary: flow_summary,
-          map_stats: map_stats(flow_summary, mtr_summary, traffic_links),
+          map_stats: map_stats(flow_summary, mtr_summary, traffic_links, time_window),
           traffic_links_window_label: window.label,
           topology_links: topology_links,
           topology_links_json: Jason.encode!(topology_links),
           traffic_links: traffic_links,
           traffic_links_json: Jason.encode!(traffic_links),
           mtr_overlays: mtr_overlays,
-          mtr_overlays_json: Jason.encode!(mtr_overlays)
+          mtr_overlays_json: Jason.encode!(mtr_overlays),
+          map_empty_title: map_empty_title(netflow_state),
+          map_empty_detail: map_empty_detail(netflow_state)
         }
       end
 

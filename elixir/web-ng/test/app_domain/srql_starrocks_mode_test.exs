@@ -285,16 +285,25 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
     assert [link] = slice.traffic_links
     assert link.src_endpoint_ip == "192.0.2.10"
     assert link.dst_endpoint_ip == "198.51.100.20"
+    assert link.bytes == 1200
     assert link.geo_mapped == false
     assert link.geo_from == nil
     assert link.geo_to == nil
     assert slice.flow_summary.flow_count == 7
     assert slice.netflow_state == :active
+    assert slice.map_empty_title == "No observed flow data"
+    assert slice.map_empty_detail == "No synthetic traffic animation is shown."
+
+    window_stat = Enum.find(slice.map_stats, &(&1.label == "Window"))
+    assert window_stat.value == "Last hour"
+    assert window_stat.href =~ "time%3Alast_1h"
 
     conversations = Enum.find(slice.map_stats, &(&1.label == "Conversations"))
     assert conversations.value == "1"
     flow_records = Enum.find(slice.map_stats, &(&1.label == "Flow Records"))
     assert flow_records.value == "7"
+    traffic = Enum.find(slice.map_stats, &(&1.label == "Traffic"))
+    assert traffic.value == "1.2 KiB"
 
     assert_received {:map_slice_query, flows_query}
     assert flows_query =~ "in:flows"

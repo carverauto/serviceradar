@@ -24,6 +24,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.NetflowTraffic do
                 src_endpoint_ip: row["src_endpoint_ip"],
                 dst_endpoint_ip: row["dst_endpoint_ip"],
                 bytes_total: row["bytes_total"],
+                bytes: row["bytes_total"],
                 packets_total: row["packets_total"],
                 flow_count: row["flow_count"],
                 # StarRocks carries no geo enrichment; explicit nils keep the
