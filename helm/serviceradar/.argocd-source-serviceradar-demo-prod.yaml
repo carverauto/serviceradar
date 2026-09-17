@@ -11,6 +11,6 @@ helm:
     forcestring: true
 
   - name: image.digests.webNg
-    value: sha256:e04df794540525f9ed44e5b4811839a24a33d5f95491ccc1a9545f709037a6e3
+    value: sha256:eccfe2f9a5d7e6c282f274f82ad13b87727837c13b3cebd30a971e386cce5d24
     forcestring: true
 
