@@ -222,6 +222,10 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
     |> Keyword.put(:columns, Attribution.load_columns())
   end
 
+  defp attribution_load_opts(opts, :flows) do
+    Keyword.put(opts, :merge_condition, "attribution_version")
+  end
+
   defp attribution_load_opts(opts, _dataset), do: opts
 
   defp shadow_enabled?(dataset, opts) do

@@ -312,4 +312,36 @@ defmodule ServiceRadar.Analytics.StarRocks.DestinationTest do
       Application.put_env(:serviceradar_core, StarRocks, prev)
     end
   end
+
+  test "raw flow loads protect attribution across regrouped deliveries" do
+    http = fn %{headers: headers, body: body} ->
+      assert {"merge_condition", "attribution_version"} in headers
+      refute {"partial_update", "true"} in headers
+      rows = Jason.decode!(body)
+      assert Enum.all?(rows, &(&1["attribution_version"] == 0))
+      send(self(), {:load_label, List.keyfind(headers, "label", 0)})
+
+      {:ok,
+       %{
+         status: 200,
+         body: %{
+           "Status" => "Success",
+           "NumberLoadedRows" => length(rows),
+           "NumberFilteredRows" => 0
+         }
+       }}
+    end
+
+    assert {:ok, %{missing: []}} =
+             Destination.persist_shadow(:flows, @flow_rows, completed: [:cnpg], http: http)
+
+    assert_received {:load_label, first_label}
+    regrouped = @flow_rows ++ [%{hd(@flow_rows) | id: "flow-beta-0002"}]
+
+    assert {:ok, %{missing: []}} =
+             Destination.persist_shadow(:flows, regrouped, completed: [:cnpg], http: http)
+
+    assert_received {:load_label, replay_label}
+    refute first_label == replay_label
+  end
 end

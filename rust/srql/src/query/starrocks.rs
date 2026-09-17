@@ -172,7 +172,7 @@ const FLOW_BYTES_TOTAL_SQL: &str =
     "COALESCE(bytes_total, COALESCE(bytes_in, 0) + COALESCE(bytes_out, 0))";
 const FLOW_PACKETS_TOTAL_SQL: &str =
     "COALESCE(packets_total, COALESCE(packets_in, 0) + COALESCE(packets_out, 0))";
-const FLOW_ROW_SELECT: &str = "id, time, device_uid, src_endpoint_ip, dst_endpoint_ip, src_endpoint_port, dst_endpoint_port, protocol_num, protocol_name, CASE WHEN protocol_num = 6 THEN 'tcp' WHEN protocol_num = 17 THEN 'udp' ELSE 'other' END AS protocol_group, COALESCE(bytes_total, COALESCE(bytes_in, 0) + COALESCE(bytes_out, 0)) AS bytes_total, COALESCE(packets_total, COALESCE(packets_in, 0) + COALESCE(packets_out, 0)) AS packets_total, bytes_in, bytes_out, packets_in, packets_out, sampling_rate, direction_label, sampler_address, dst_service_label, src_as_number, dst_as_number, tcp_flags, input_snmp, output_snmp, start_time, end_time, pid, comm, cmdline, CASE WHEN pid IS NULL THEN 'unmatched' ELSE 'attributed' END AS attribution_status";
+const FLOW_ROW_SELECT: &str = "id, time, device_uid, src_endpoint_ip, dst_endpoint_ip, src_endpoint_port, dst_endpoint_port, protocol_num, protocol_name, CASE WHEN protocol_num = 6 THEN 'tcp' WHEN protocol_num = 17 THEN 'udp' ELSE 'other' END AS protocol_group, COALESCE(bytes_total, COALESCE(bytes_in, 0) + COALESCE(bytes_out, 0)) AS bytes_total, COALESCE(packets_total, COALESCE(packets_in, 0) + COALESCE(packets_out, 0)) AS packets_total, bytes_in, bytes_out, packets_in, packets_out, sampling_rate, direction_label, sampler_address, dst_service_label, src_as_number, dst_as_number, tcp_flags, input_snmp, output_snmp, start_time, end_time, pid, comm, cmdline, workload_identity, CASE WHEN pid IS NULL THEN 'unmatched' ELSE 'attributed' END AS attribution_status";
 
 fn dataset_sql(plan: &QueryPlan, dataset: Dataset) -> Result<TranslateResponse> {
     let joins = catalog_joins(plan, dataset)?;
@@ -1142,6 +1142,22 @@ mod tests {
         );
         assert!(!compiled.sql.contains("SELECT *"), "{}", compiled.sql);
         refute_postgres(&compiled.sql);
+    }
+
+    #[test]
+    fn flow_rows_project_stored_workload_identity() {
+        for query in [
+            "in:flows time:last_1h limit:5",
+            "in:attributed_flows time:last_1h limit:5",
+        ] {
+            let compiled = translate(&plan(query)).expect("compile");
+            let projection = compiled.sql.split(" FROM ").next().unwrap();
+            assert!(
+                projection
+                    .split(", ")
+                    .any(|field| field == "workload_identity")
+            );
+        }
     }
 
     #[test]

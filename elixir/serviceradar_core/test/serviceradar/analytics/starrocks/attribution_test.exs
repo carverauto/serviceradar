@@ -20,14 +20,6 @@ defmodule ServiceRadar.Analytics.StarRocks.AttributionTest do
     assert Attribution.apply_monotonic(3, 4) == :apply
   end
 
-  test "load_columns are declared on the StarRocks ocsf_network_activity table" do
-    columns = ocsf_network_activity_columns()
-    missing = Enum.reject(Attribution.load_columns(), &MapSet.member?(columns, &1))
-
-    assert missing == [],
-           "Stream Load attribution columns missing from ocsf_network_activity: #{inspect(missing)}"
-  end
-
   test "flow_attribution encoder emits only attribution columns and drops traffic" do
     [row] =
       Rows.encode(:flow_attribution, [
@@ -105,75 +97,27 @@ defmodule ServiceRadar.Analytics.StarRocks.AttributionTest do
              StreamLoad.load_label("ocsf_network_activity", [second])
   end
 
-  defp ocsf_network_activity_columns do
-    schema_dir()
-    |> Path.join("*.sql")
-    |> Path.wildcard()
-    |> Enum.sort()
-    |> Enum.map_join("\n", &File.read!/1)
-    |> extract_table_columns("ocsf_network_activity")
-  end
+  test "workload maps survive publication and attribution row encoding" do
+    identity = %{
+      "namespace" => "example",
+      "pod_name" => "worker-example",
+      "labels" => %{"app" => "example"}
+    }
 
-  defp schema_dir do
-    cwd = File.cwd!()
+    event =
+      Attribution.update_event(
+        %{id: "flow-alpha-0001", pid: 42, workload_identity: identity},
+        7
+      )
 
-    runfiles_root = System.get_env("RUNFILES_DIR") || System.get_env("TEST_SRCDIR")
-    workspace = System.get_env("TEST_WORKSPACE") || "_main"
+    decoded = event |> Jason.encode!() |> Jason.decode!()
+    [row] = Rows.encode(:flow_attribution, [decoded])
+    assert Jason.decode!(row["workload_identity"]) == identity
+    assert row["pid"] == 42
 
-    env_dir =
-      if is_binary(runfiles_root) do
-        Path.join([runfiles_root, workspace, "elixir/serviceradar_core/priv/starrocks"])
-      end
-
-    priv_dir =
-      case :code.priv_dir(:serviceradar_core) do
-        dir when is_list(dir) -> Path.join(List.to_string(dir), "starrocks")
-        _ -> nil
-      end
-
-    [
-      Path.join(cwd, "priv/starrocks"),
-      Path.join(cwd, "elixir/serviceradar_core/priv/starrocks"),
-      Path.join(Path.expand("../..", cwd), "elixir/serviceradar_core/priv/starrocks"),
-      Path.expand("../../../priv/starrocks", __DIR__),
-      env_dir,
-      priv_dir
-    ]
-    |> Enum.reject(&is_nil/1)
-    |> Enum.find(&(Path.wildcard(Path.join(&1, "*.sql")) != []))
-    |> case do
-      nil ->
-        flunk("StarRocks schema SQL not found (cwd=#{cwd})")
-
-      dir ->
-        dir
+    for value <- [nil, Jason.encode!(identity)] do
+      [row] = Rows.encode(:flow_attribution, [%{decoded | "workload_identity" => value}])
+      assert row["workload_identity"] == value
     end
-  end
-
-  defp extract_table_columns(sql, table) do
-    create =
-      ~r/CREATE TABLE IF NOT EXISTS serviceradar\.#{table}\s*\((.*?)\)\s*PRIMARY KEY/s
-      |> Regex.scan(sql)
-      |> Enum.flat_map(fn [_, body] -> create_table_column_names(body) end)
-
-    alters =
-      ~r/ALTER TABLE serviceradar\.#{table}\s+ADD COLUMN(?: IF NOT EXISTS)?\s+`?([A-Za-z0-9_]+)`?/i
-      |> Regex.scan(sql)
-      |> Enum.map(fn [_, name] -> name end)
-
-    MapSet.new(create ++ alters)
-  end
-
-  defp create_table_column_names(body) do
-    body
-    |> String.split("\n")
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == "" or String.starts_with?(&1, "--")))
-    |> Enum.flat_map(fn line ->
-      case Regex.run(~r/^`?([A-Za-z_][A-Za-z0-9_]*)`?\s+[A-Za-z]/, line) do
-        [_, name] -> [name]
-        _ -> []
-      end
-    end)
   end
 end

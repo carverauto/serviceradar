@@ -19,7 +19,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
       "pid" => field(row, :pid),
       "comm" => stringify(field(row, :comm)),
       "cmdline" => stringify(field(row, :cmdline)),
-      "workload_identity" => stringify(field(row, :workload_identity))
+      "workload_identity" => json_text(field(row, :workload_identity))
     }
   end
 
