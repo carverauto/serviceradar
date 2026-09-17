@@ -23,37 +23,55 @@ pub fn translate(plan: &QueryPlan) -> Result<TranslateResponse> {
 struct Dataset {
     raw_table: &'static str,
     time_column: &'static str,
+    metric_type: Option<&'static str>,
 }
 
+/// `timeseries_metrics` is one physical table holding several metric families,
+/// exactly as it is on CNPG, so an entity scoped to one family must carry that
+/// family's `metric_type` predicate. The sysmon entities are deliberately
+/// absent: CNPG serves them from their own `cpu_metrics`/`memory_metrics`/
+/// `disk_metrics`/`process_metrics` tables, which EventWriter never mirrors
+/// into the warehouse.
 fn dataset_for(entity: &Entity) -> Option<Dataset> {
     match entity {
         Entity::Flows | Entity::AttributedFlows => Some(Dataset {
             raw_table: "serviceradar.ocsf_network_activity",
             time_column: "time",
+            metric_type: None,
         }),
-        Entity::TimeseriesMetrics
-        | Entity::SnmpMetrics
-        | Entity::RperfMetrics
-        | Entity::CpuMetrics
-        | Entity::MemoryMetrics
-        | Entity::DiskMetrics
-        | Entity::ProcessMetrics => Some(Dataset {
+        Entity::TimeseriesMetrics => Some(Dataset {
             raw_table: "serviceradar.timeseries_metrics",
             time_column: "timestamp",
+            metric_type: None,
+        }),
+        Entity::SnmpMetrics => Some(Dataset {
+            raw_table: "serviceradar.timeseries_metrics",
+            time_column: "timestamp",
+            metric_type: Some(SNMP_METRIC_TYPE),
+        }),
+        Entity::RperfMetrics => Some(Dataset {
+            raw_table: "serviceradar.timeseries_metrics",
+            time_column: "timestamp",
+            metric_type: Some(RPERF_METRIC_TYPE),
         }),
         Entity::Logs => Some(Dataset {
             raw_table: "serviceradar.logs",
             time_column: "timestamp",
+            metric_type: None,
         }),
         Entity::Events | Entity::SecurityFindings | Entity::ScanActivity | Entity::DnsActivity => {
             Some(Dataset {
                 raw_table: "serviceradar.events",
                 time_column: "time",
+                metric_type: None,
             })
         }
         _ => None,
     }
 }
+
+const SNMP_METRIC_TYPE: &str = "snmp";
+const RPERF_METRIC_TYPE: &str = "rperf";
 
 const FLOW_PROTOCOL_GROUP_SQL: &str =
     "CASE WHEN protocol_num = 6 THEN 'tcp' WHEN protocol_num = 17 THEN 'udp' ELSE 'other' END";
@@ -78,6 +96,9 @@ fn dataset_sql(plan: &QueryPlan, dataset: Dataset) -> Result<TranslateResponse> 
         from_with_catalog_joins(dataset.raw_table, &joins)
     };
     let (mut where_sql, params) = time_predicate(plan, time_column, direction || !joins.is_empty());
+    if let Some(metric_type) = dataset.metric_type {
+        where_sql.push_str(&format!(" AND metric_type = '{metric_type}'"));
+    }
     for filter in &plan.filters {
         where_sql.push_str(" AND ");
         where_sql.push_str(&filter_sql(plan, filter)?);
@@ -261,6 +282,8 @@ fn group_alias(col: &str) -> String {
         "dst_port" => "dst_endpoint_port".to_string(),
         "src_port" => "src_endpoint_port".to_string(),
         "app" => "app".to_string(),
+        // `partition` is reserved in StarRocks and cannot stand as a bare alias.
+        "partition" => "flow_partition".to_string(),
         other => other.to_string(),
     }
 }
@@ -495,6 +518,9 @@ fn field_sql(plan: &QueryPlan, field: &str) -> Result<String> {
         _ => "",
     };
     if fields.split_whitespace().any(|name| name == field) {
+        if field == "partition" {
+            return Ok(column("`partition`"));
+        }
         Ok(column(field))
     } else {
         Err(ServiceError::InvalidRequest(format!(
@@ -1129,9 +1155,9 @@ mod tests {
     }
 
     #[test]
-    fn long_window_cpu_metrics_preserve_raw_window() {
+    fn long_window_metrics_preserve_raw_window() {
         let compiled = translate(&plan(
-            r#"in:cpu_metrics time:last_7d stats:"avg(usage_percent) as avg_usage" limit:20"#,
+            r#"in:snmp_metrics time:last_7d stats:"avg(value) as avg_value" limit:20"#,
         ))
         .expect("compile");
         assert!(
@@ -1139,6 +1165,7 @@ mod tests {
                 .sql
                 .contains("FROM serviceradar.timeseries_metrics WHERE")
         );
+        assert!(compiled.sql.contains("metric_type = 'snmp'"));
         refute_postgres(&compiled.sql);
     }
 
@@ -1214,6 +1241,50 @@ mod tests {
     fn current_alert_state_stays_a_capability_error() {
         let err = translate(&plan("in:alerts time:last_1h limit:5")).expect_err("alerts");
         assert!(err.to_string().contains("starrocks_unsupported_entity"));
+    }
+
+    #[test]
+    fn metric_entities_carry_their_metric_type_discriminator() {
+        let snmp = translate(&plan("in:snmp_metrics time:last_1h limit:5")).expect("snmp");
+        assert!(snmp.sql.contains("FROM serviceradar.timeseries_metrics"));
+        assert!(snmp.sql.contains("metric_type = 'snmp'"));
+
+        let rperf = translate(&plan("in:rperf_metrics time:last_1h limit:5")).expect("rperf");
+        assert!(rperf.sql.contains("metric_type = 'rperf'"));
+
+        // The unscoped entity spans every family, exactly as it does on CNPG.
+        let all = translate(&plan("in:timeseries_metrics time:last_1h limit:5")).expect("all");
+        assert!(!all.sql.contains("metric_type ="));
+    }
+
+    #[test]
+    fn sysmon_entities_are_not_served_from_the_metrics_table() {
+        // CNPG keeps these in their own tables with their own columns, and
+        // EventWriter never mirrors them, so answering from timeseries_metrics
+        // would return interface counters labelled as CPU.
+        for query in [
+            "in:cpu_metrics time:last_1h limit:5",
+            "in:memory_metrics time:last_1h limit:5",
+            "in:disk_metrics time:last_1h limit:5",
+            "in:process_metrics time:last_1h limit:5",
+        ] {
+            let err = translate(&plan(query)).expect_err(query);
+            assert!(err.to_string().contains("starrocks_unsupported_entity"));
+        }
+    }
+
+    #[test]
+    fn flow_grouping_quotes_the_reserved_partition_column() {
+        let compiled = translate(&plan(
+            r#"in:flows time:last_1h stats:"sum(bytes_total) as bytes_total by src_endpoint_ip,dst_endpoint_ip,partition" limit:10"#,
+        ))
+        .expect("partition grouping");
+        assert!(compiled.sql.contains("`partition` AS flow_partition"));
+        assert!(
+            compiled
+                .sql
+                .contains("GROUP BY src_endpoint_ip, dst_endpoint_ip, `partition`")
+        );
     }
 
     #[test]

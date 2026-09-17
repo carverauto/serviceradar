@@ -19,13 +19,19 @@ defmodule ServiceRadar.Analytics.StarRocks.ReadersTest do
     assert Readers.remaining_readers(:flows) == []
     assert Readers.backend(:flows) == :cnpg
     assert Readers.backend(:metrics) == :cnpg
-    assert "srql timeseries/cpu/memory/disk/process/snmp" in Readers.switched_readers(:metrics)
+    assert "srql timeseries/snmp/rperf" in Readers.switched_readers(:metrics)
     assert "device charts" in Readers.switched_readers(:metrics)
     assert "ICMP sparklines" in Readers.switched_readers(:metrics)
     assert "thresholds" in Readers.switched_readers(:metrics)
     assert "anomaly/capacity" in Readers.switched_readers(:metrics)
     assert "topology nonnumeric facts" in Readers.switched_readers(:metrics)
-    assert Readers.remaining_readers(:metrics) == []
+
+    assert Readers.remaining_readers(:metrics) == [
+             "srql in:cpu_metrics",
+             "srql in:memory_metrics",
+             "srql in:disk_metrics",
+             "srql in:process_metrics"
+           ]
     assert "srql in:logs" in Readers.switched_readers(:logs)
     assert "logs rollup status" in Readers.switched_readers(:logs)
     assert Readers.remaining_readers(:logs) == []
@@ -79,10 +85,17 @@ defmodule ServiceRadar.Analytics.StarRocks.ReadersTest do
 
     try do
       assert Readers.mode_for("timeseries_metrics") == "starrocks"
-      assert Readers.mode_for("cpu_metrics") == "starrocks"
       assert Readers.mode_for("snmp") == "starrocks"
+      assert Readers.mode_for("rperf_metrics") == "starrocks"
       assert Readers.backend(:metrics) == :starrocks
       assert Readers.mode_for("flows") == nil
+
+      # EventWriter mirrors CNPG timeseries_metrics only; the sysmon families
+      # have their own CNPG tables, so a metrics cutover must not divert them.
+      for sysmon <- ~w(cpu_metrics memory_metrics disk_metrics process_metrics) do
+        assert Readers.mode_for(sysmon) == nil
+        assert Readers.backend(sysmon) == :cnpg
+      end
     after
       Application.put_env(:serviceradar_core, StarRocks, prev)
     end

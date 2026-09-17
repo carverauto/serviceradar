@@ -6,7 +6,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.NetflowTraffic do
   def srql_query(%{} = window) do
     time = ServiceRadarWebNGWeb.DashboardLive.Window.query_time(window)
 
-    ~s|in:flows #{time} stats:"sum(bytes_total) as bytes_total, sum(packets_total) as packets_total, count(*) as flow_count by src_endpoint_ip,dst_endpoint_ip" sort:bytes_total:desc limit:120|
+    ~s|in:flows #{time} stats:"sum(bytes_total) as bytes_total, sum(packets_total) as packets_total, count(*) as flow_count by src_endpoint_ip,dst_endpoint_ip,partition" sort:bytes_total:desc limit:120|
   end
 
   defmacro __using__(_opts) do
@@ -19,7 +19,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.NetflowTraffic do
             []
 
           {:ok, %{"results" => rows}} when is_list(rows) ->
-            geo = netflow_geo_points(netflow_endpoint_ips(rows))
+            geo = netflow_geo_points(netflow_endpoint_keys(rows))
 
             rows
             |> Enum.with_index()
@@ -30,18 +30,22 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.NetflowTraffic do
         end
       end
 
-      defp netflow_endpoint_ips(rows) do
+      defp netflow_endpoint_keys(rows) do
         rows
-        |> Enum.flat_map(fn row -> [row["src_endpoint_ip"], row["dst_endpoint_ip"]] end)
-        |> Enum.filter(&(is_binary(&1) and &1 != ""))
+        |> Enum.flat_map(fn row ->
+          partition = row["flow_partition"]
+          [{row["src_endpoint_ip"], partition}, {row["dst_endpoint_ip"], partition}]
+        end)
+        |> Enum.filter(fn {ip, _partition} -> is_binary(ip) and ip != "" end)
         |> Enum.uniq()
       end
 
       defp srql_traffic_link(row, idx, geo) do
         src = row["src_endpoint_ip"] || "Unknown"
         dst = row["dst_endpoint_ip"] || "Unknown"
-        src_geo = Map.get(geo, src, %{})
-        dst_geo = Map.get(geo, dst, %{})
+        partition = row["flow_partition"]
+        src_geo = Map.get(geo, {src, partition}, %{})
+        dst_geo = Map.get(geo, {dst, partition}, %{})
         magnitude = to_int(row["bytes_total"])
         topology_from = point_for(src)
         topology_to = point_for(dst)
@@ -82,13 +86,13 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.NetflowTraffic do
 
       defp netflow_geo_points([]), do: %{}
 
-      defp netflow_geo_points(ips) do
+      defp netflow_geo_points(keys) do
         has_geo? = relation_exists?("platform.ip_geo_enrichment_cache")
         has_ipinfo? = relation_exists?("platform.ip_ipinfo_cache")
         has_anchor? = netflow_location_anchors_available?()
 
         if has_geo? or has_ipinfo? or has_anchor? do
-          netflow_geo_points_rows(ips, has_geo?, has_ipinfo?, has_anchor?)
+          netflow_geo_points_rows(keys, has_geo?, has_ipinfo?, has_anchor?)
         else
           %{}
         end
@@ -97,7 +101,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.NetflowTraffic do
       end
 
       @sobelow_skip ["SQL.Query"]
-      defp netflow_geo_points_rows(ips, has_geo?, has_ipinfo?, has_anchor?) do
+      defp netflow_geo_points_rows(keys, has_geo?, has_ipinfo?, has_anchor?) do
         geo_lat = if has_geo?, do: "g.latitude", else: "NULL::float8"
         geo_lon = if has_geo?, do: "g.longitude", else: "NULL::float8"
         geo_city = if has_geo?, do: "g.city", else: "NULL::text"
@@ -134,6 +138,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.NetflowTraffic do
                 AND c.latitude IS NOT NULL
                 AND c.longitude IS NOT NULL
                 AND #{endpoint_inet_expr("e.ip")} <<= c.cidr
+                AND (c.partition IS NULL OR c.partition = e.partition)
               ORDER BY masklen(c.cidr) DESC, c.updated_at DESC NULLS LAST
               LIMIT 1
             ) a ON true
@@ -145,22 +150,35 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.NetflowTraffic do
         sql = """
         SELECT
           e.ip,
+          e.partition,
           #{lat} AS latitude,
           #{lon} AS longitude,
           #{city} AS city,
           #{country} AS country,
           #{anchor_label_select_expr(has_anchor?, "a")} AS anchor_label,
           #{local_anchor_select_expr(has_anchor?, "a")} AS local_anchor
-        FROM unnest($1::text[]) AS e(ip)
+        FROM unnest($1::text[], $2::text[]) AS e(ip, partition)
         #{geo_join}
         #{ipinfo_join}
         #{anchor_join}
         """
 
-        case ServiceRadarWebNG.Repo.query(sql, [ips]) do
+        ips = Enum.map(keys, &elem(&1, 0))
+        partitions = Enum.map(keys, &elem(&1, 1))
+
+        case ServiceRadarWebNG.Repo.query(sql, [ips, partitions]) do
           {:ok, %{rows: rows}} ->
-            Map.new(rows, fn [ip, latitude, longitude, city, country, anchor_label, local_anchor] ->
-              {ip,
+            Map.new(rows, fn [
+                               ip,
+                               partition,
+                               latitude,
+                               longitude,
+                               city,
+                               country,
+                               anchor_label,
+                               local_anchor
+                             ] ->
+              {{ip, partition},
                %{
                  latitude: latitude,
                  longitude: longitude,

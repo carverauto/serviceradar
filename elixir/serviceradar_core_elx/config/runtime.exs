@@ -1243,14 +1243,6 @@ if config_env() == :prod do
       consumer_pull_batch_size: String.to_integer(System.get_env("EVENT_WRITER_CONSUMER_PULL_BATCH_SIZE") || "16"),
       streams: [
         %{
-          name: "FLOW_ATTRIBUTION",
-          stream_name: "events",
-          subject: "events.flow.attribution",
-          processor: ServiceRadar.EventWriter.Processors.FlowAttributionUpdates,
-          batch_size: 100,
-          batch_timeout: 1_000
-        },
-        %{
           name: "EVENTS",
           stream_name: "events",
           subject: "events.>",

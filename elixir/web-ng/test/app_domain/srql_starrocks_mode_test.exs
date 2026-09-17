@@ -100,7 +100,7 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
     assert row["bytes_total"] == 1200
     assert_received {:starrocks_query, body}
     assert body =~ "ocsf_network_activity"
-    assert body =~ "GROUP BY src_endpoint_ip,dst_endpoint_ip"
+    assert body =~ "GROUP BY src_endpoint_ip, dst_endpoint_ip, `partition`"
     refute body =~ "time_bucket"
   end
 

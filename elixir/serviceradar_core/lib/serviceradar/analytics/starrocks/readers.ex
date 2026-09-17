@@ -4,6 +4,8 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
 
   Ordinary installations stay on CNPG until a dataset is listed in
   `cutover_datasets`. Unknown consumers remain in the coverage inventory.
+
+  An entity only maps to a dataset when the warehouse actually holds its rows.
   """
 
   @flow_switched [
@@ -20,7 +22,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
   @flow_remaining []
 
   @metric_switched [
-    "srql timeseries/cpu/memory/disk/process/snmp",
+    "srql timeseries/snmp/rperf",
     "device charts",
     "ICMP sparklines",
     "thresholds",
@@ -28,7 +30,15 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
     "topology nonnumeric facts"
   ]
 
-  @metric_readers []
+  # EventWriter mirrors CNPG `timeseries_metrics` only. The sysmon families live
+  # in their own CNPG tables with their own columns, so they are not part of the
+  # metrics cutover and keep reading CNPG.
+  @metric_readers [
+    "srql in:cpu_metrics",
+    "srql in:memory_metrics",
+    "srql in:disk_metrics",
+    "srql in:process_metrics"
+  ]
 
   @log_switched [
     "srql in:logs",
@@ -54,11 +64,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
       when e in ~w(flows flow network_activity attributed_flows attributed_flow flow_attributions flow_attribution) ->
         :flows
 
-      e
-      when e in ~w(
-             timeseries_metrics timeseries snmp_metrics snmp rperf_metrics rperf
-             cpu_metrics cpu memory_metrics memory disk_metrics disk process_metrics processes
-           ) ->
+      e when e in ~w(timeseries_metrics timeseries snmp_metrics snmp rperf_metrics rperf) ->
         :metrics
 
       "logs" ->

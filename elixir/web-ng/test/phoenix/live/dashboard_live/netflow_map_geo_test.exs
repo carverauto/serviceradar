@@ -18,9 +18,18 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.NetflowMapGeoTest do
               %{
                 "src_endpoint_ip" => "192.0.2.10",
                 "dst_endpoint_ip" => "198.51.100.20",
+                "flow_partition" => "SITE01",
                 "bytes_total" => 1200,
                 "packets_total" => 15,
                 "flow_count" => 7
+              },
+              %{
+                "src_endpoint_ip" => "192.0.2.10",
+                "dst_endpoint_ip" => "198.51.100.20",
+                "flow_partition" => "SITE02",
+                "bytes_total" => 900,
+                "packets_total" => 9,
+                "flow_count" => 3
               }
             ]
           else
@@ -76,6 +85,20 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.NetflowMapGeoTest do
     )
   end
 
+  defp seed_anchor!(partition, cidr, latitude, longitude, label) do
+    now = DateTime.utc_now()
+
+    ServiceRadarWebNG.Repo.query!(
+      """
+      INSERT INTO platform.netflow_local_cidrs
+        (id, partition, label, location_label, cidr, latitude, longitude, enabled,
+         inserted_at, updated_at)
+      VALUES (gen_random_uuid(), $1, $5, $5, $2::cidr, $3, $4, true, $6, $6)
+      """,
+      [partition, cidr, latitude, longitude, label, now]
+    )
+  end
+
   test "flows served from the warehouse draw geographic arcs from CNPG enrichment" do
     seed_geo!("192.0.2.10", 47.6062, -122.3321, "Example City", "US")
     seed_geo!("198.51.100.20", 35.6762, 139.6503, "Sample City", "JP")
@@ -85,7 +108,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.NetflowMapGeoTest do
 
     slice = Data.load_netflow_map(scope, window: window)
 
-    assert [link] = slice.traffic_links
+    assert [link | _] = slice.traffic_links
 
     # The map hook drops every netflow link that lacks either endpoint, so these
     # two points are what makes an arc render at all.
@@ -100,5 +123,31 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.NetflowMapGeoTest do
     assert link.flow_count == 7
 
     refute slice.map_empty_title == "Flows are not mapped yet"
+  end
+
+  test "each site's conversation anchors to that site's local CIDR, not the newest one" do
+    seed_geo!("198.51.100.20", 35.6762, 139.6503, "Sample City", "JP")
+
+    # Both sites claim the same private range. Without partition scoping the
+    # newest row wins for every endpoint and both arcs start at SITE02.
+    seed_anchor!("SITE01", "192.0.2.0/24", 47.6062, -122.3321, "Site One")
+    seed_anchor!("SITE02", "192.0.2.0/24", 51.5072, -0.1276, "Site Two")
+
+    scope = %{permissions: MapSet.new(["observability.netflow.view"])}
+    window = Window.resolve("last_1h", "netflow")
+
+    slice = Data.load_netflow_map(scope, window: window)
+
+    assert [site01, site02] = Enum.sort_by(slice.traffic_links, & &1.bytes, :desc)
+
+    assert site01.bytes == 1200
+    assert site01.geo_from == [-122.3321, 47.6062]
+    assert site01.source_anchor_label == "Site One"
+    assert site01.source_local_anchor == true
+
+    assert site02.bytes == 900
+    assert site02.geo_from == [-0.1276, 51.5072]
+    assert site02.source_anchor_label == "Site Two"
+    assert site02.source_local_anchor == true
   end
 end
