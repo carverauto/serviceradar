@@ -23,6 +23,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
         %{
           time_window: time_window,
           time_window_label: time_window_label(time_window),
+          netflow_window: "last_15m",
+          events_window: "last_24h",
+          window_errors: %{},
           device_summary: empty_device_summary(),
           services_summary: empty_services_summary(),
           flow_summary: empty_flow_summary(),
@@ -92,6 +95,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
             if(Map.get(sources, :vulnerable_assets, []) == [], do: :configured_empty, else: :active)
           )
           |> overlay_loading_states(loaded)
+          |> overlay_netflow_error(Map.get(sources, :window_errors, %{}))
+
+        netflow_window = Map.get(sources, :netflow_window, "last_15m")
 
         %{
           dashboard_modules: enabled_modules(module_states),
@@ -110,8 +116,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
               ),
               kpi_loading
             ),
-          map_stats: map_stats(flow_summary, mtr_summary, traffic_links),
-          traffic_links_window_label: netflow_map_window_label(),
+          map_stats: map_stats(flow_summary, mtr_summary, traffic_links, netflow_window),
+          traffic_links_window_label: ServiceRadarWebNGWeb.DashboardLive.Window.label(netflow_window),
           map_empty_title: map_empty_title(Map.get(module_states, :netflow)),
           map_empty_detail: map_empty_detail(Map.get(module_states, :netflow)),
           observability_metrics:
@@ -122,6 +128,11 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
           flow_summary: flow_summary
         }
       end
+
+      defp overlay_netflow_error(states, %{"netflow" => error}) when is_binary(error),
+        do: Map.put(states, :netflow, :error)
+
+      defp overlay_netflow_error(states, _errors), do: states
 
       defp overlay_loading_states(states, loaded) when is_map(states) and is_map(loaded) do
         Enum.reduce(
@@ -388,10 +399,15 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
         window = Keyword.get(opts, :window)
         srql_module = Keyword.get(opts, :srql_module)
 
-        if is_map(window) and srql_module != nil do
-          load_netflow_map_window(scope, window, srql_module)
-        else
-          load_netflow_map_legacy(scope, opts)
+        cond do
+          is_map(window) and srql_module != nil ->
+            load_netflow_map_window(scope, window, srql_module)
+
+          is_map(window) ->
+            load_netflow_map_legacy(scope, Keyword.put(opts, :time_window, window.value))
+
+          true ->
+            load_netflow_map_legacy(scope, opts)
         end
       end
 
@@ -454,7 +470,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
       end
 
       defp load_netflow_map_legacy(_scope, opts) do
-        time_window = Keyword.get(opts, :time_window, "last_24h")
+        time_window = Keyword.get(opts, :time_window, "last_15m")
 
         wave1 =
           run_concurrent(
@@ -486,11 +502,12 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
         %{
           time_window: time_window,
           time_window_label: time_window_label(time_window),
+          netflow_window: time_window,
           netflow_state: netflow_state,
           collector_counts: collector_counts,
           flow_summary: flow_summary,
-          map_stats: map_stats(flow_summary, mtr_summary, traffic_links),
-          traffic_links_window_label: netflow_map_window_label(),
+          map_stats: map_stats(flow_summary, mtr_summary, traffic_links, time_window),
+          traffic_links_window_label: ServiceRadarWebNGWeb.DashboardLive.Window.label(time_window),
           topology_links: topology_links,
           topology_links_json: Jason.encode!(topology_links),
           traffic_links: traffic_links,

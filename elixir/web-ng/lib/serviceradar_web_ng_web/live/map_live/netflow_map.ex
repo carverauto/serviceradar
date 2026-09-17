@@ -3,15 +3,19 @@ defmodule ServiceRadarWebNGWeb.MapLive.NetflowMap do
   use ServiceRadarWebNGWeb, :live_view
 
   alias ServiceRadarWebNGWeb.DashboardLive.Data
+  alias ServiceRadarWebNGWeb.DashboardLive.Window
 
   @netflow_map_path "/netflow-map"
 
   @impl true
-  def mount(_params, _session, socket) do
+  def mount(params, _session, socket) do
+    window = Window.resolve(params["window"], "netflow")
+
     socket =
       socket
       |> assign(:page_title, "NetFlow Map")
       |> assign(:current_path, @netflow_map_path)
+      |> assign(:netflow_window, window.value)
       |> assign_netflow_map(empty_netflow_map())
 
     socket =
@@ -19,7 +23,7 @@ defmodule ServiceRadarWebNGWeb.MapLive.NetflowMap do
         scope = socket.assigns.current_scope
 
         start_async(socket, :netflow_map_load, fn ->
-          Data.load_netflow_map(scope)
+          Data.load_netflow_map(scope, window: window)
         end)
       else
         socket

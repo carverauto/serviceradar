@@ -2,15 +2,18 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
+  import ServiceRadarWebNGWeb.MetricWindowComponents, only: [metric_window_controls: 1]
+
   alias ServiceRadar.Observability.IpRdnsCache
+  alias ServiceRadarWebNGWeb.MetricWindowComponents
   alias ServiceRadarWebNGWeb.NetFlow.EnrichmentExpiry
+  alias ServiceRadarWebNGWeb.SRQL.Builder
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
   require Ash.Query
   require Logger
 
   @refresh_interval_ms 5_000
-  @time_window_hours 24
   @default_filter "attributed"
   @filters ~w(attributed unmatched all)
   @default_page_size 50
@@ -22,7 +25,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
       socket
       |> assign(:page_title, "Attributed Flows")
       |> assign(:current_path, "/observability/flows/attributed")
-      |> assign(:time_window_hours, @time_window_hours)
+      |> assign(:time_window, "last_24h")
       |> assign(:filter, @default_filter)
       |> assign(:page, 1)
       |> assign(:page_size, @default_page_size)
@@ -96,7 +99,22 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   end
 
   def handle_event("set_filter", %{"filter" => filter}, socket) do
-    {:noreply, push_patch(socket, to: patch_path(filter, 1, socket.assigns.page_size))}
+    {:noreply, push_patch(socket, to: attributed_patch_path(socket, filter, 1))}
+  end
+
+  def handle_event("attributed_set_range", %{"range" => range}, socket) do
+    if range in MetricWindowComponents.ranges() do
+      {:noreply, patch_attributed_window(socket, range)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("attributed_custom_range", %{"window" => params}, socket) do
+    case MetricWindowComponents.custom_range(params) do
+      {:ok, range} -> {:noreply, patch_attributed_window(socket, range)}
+      {:error, message} -> {:noreply, put_flash(socket, :error, message)}
+    end
   end
 
   def handle_event("goto_page", %{"page" => page}, socket) do
@@ -105,7 +123,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
     {:noreply,
      socket
      |> assign(:live?, false)
-     |> push_patch(to: patch_path(socket.assigns.filter, page, socket.assigns.page_size))}
+     |> push_patch(to: attributed_patch_path(socket, socket.assigns.filter, page))}
   end
 
   def handle_event("toggle_live", _params, socket) do
@@ -119,7 +137,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
         {:noreply,
          socket
          |> assign(:live?, true)
-         |> push_patch(to: patch_path(socket.assigns.filter, 1, socket.assigns.page_size))}
+         |> push_patch(to: attributed_patch_path(socket, socket.assigns.filter, 1))}
 
       true ->
         schedule_refresh()
@@ -191,15 +209,15 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
       |> assign(:loading?, true)
       |> assign(:load_request, request_id)
       |> start_async({:attributed_flows_load, request_id}, fn ->
-        load_flows_data(srql_module, scope, query, page, page_size, filter)
+        load_flows_data(srql_module, scope, query, page, page_size, filter, time_from_query(query))
       end)
     else
       socket
     end
   end
 
-  defp load_flows_data(srql_module, scope, query, page, page_size, filter) do
-    summary = fetch_summary(srql_module, scope)
+  defp load_flows_data(srql_module, scope, query, page, page_size, filter, time) do
+    summary = fetch_summary(srql_module, scope, time)
     total_for_filter = summary_count(summary, filter)
     page_count = page_count(total_for_filter, page_size)
     page = min(page, page_count)
@@ -232,12 +250,14 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
         loading: false
       })
 
-    assign(socket, :srql, srql)
+    socket
+    |> assign(:srql, srql)
+    |> assign(:time_window, time_from_query(query))
   end
 
-  defp fetch_summary(srql_module, scope) do
+  defp fetch_summary(srql_module, scope, time) do
     query =
-      ~s|in:attributed_flows time:last_24h stats:"count(*) as total, sum(bytes_total) as total_bytes by attribution_status" sort:total:desc limit:10|
+      ~s|in:attributed_flows time:#{time} stats:"count(*) as total, sum(bytes_total) as total_bytes by attribution_status" sort:total:desc limit:10|
 
     case srql_module.query(query, %{scope: scope}) do
       {:ok, %{"results" => rows}} when is_list(rows) ->
@@ -466,9 +486,51 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
     end
   end
 
-  defp patch_path(filter, page, page_size) do
-    ~p"/observability/flows/attributed?#{%{filter: filter, page: page, per_page: page_size}}"
+  defp patch_path(filter, page, page_size, query) do
+    params = %{filter: filter, page: page, per_page: page_size}
+
+    params =
+      if is_binary(query) and query != "" and query != query_for_filter(filter, page_size) do
+        Map.put(params, :q, query)
+      else
+        params
+      end
+
+    ~p"/observability/flows/attributed?#{params}"
   end
+
+  defp attributed_patch_path(socket, filter, page) do
+    page_size = socket.assigns.page_size
+    time = time_from_query(socket.assigns.srql.query)
+    patch_path(filter, page, page_size, query_for_filter(filter, page_size, time))
+  end
+
+  defp patch_attributed_window(socket, range) do
+    query =
+      Builder.with_time_range(
+        socket.assigns.srql.query || query_for_filter(socket.assigns.filter, socket.assigns.page_size),
+        range
+      )
+
+    push_patch(socket, to: patch_path(socket.assigns.filter, 1, socket.assigns.page_size, query))
+  end
+
+  defp time_from_query(query) when is_binary(query) do
+    case Regex.run(~r/(?:^|\s)time:(\S+)/, query) do
+      [_, time] -> time
+      _ -> "last_24h"
+    end
+  end
+
+  defp time_from_query(_), do: "last_24h"
+
+  defp window_label("last_1h"), do: "Last hour"
+  defp window_label("last_6h"), do: "Last 6 hours"
+  defp window_label("last_24h"), do: "Last 24 hours"
+  defp window_label("last_7d"), do: "Last 7 days"
+  defp window_label("last_30d"), do: "Last 30 days"
+  defp window_label("last_90d"), do: "Last 90 days"
+  defp window_label(_), do: "Selected range"
 
   defp normalize_query(query, filter, page_size) when is_binary(query) do
     case String.trim(query) do
@@ -492,7 +554,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
     end
   end
 
-  defp query_for_filter(filter, page_size) do
+  defp query_for_filter(filter, page_size, time \\ "last_24h") do
     filter_token =
       case filter do
         "attributed" -> " attribution_status:attributed"
@@ -500,7 +562,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
         _ -> ""
       end
 
-    "in:attributed_flows time:last_24h#{filter_token} sort:time:desc limit:#{page_size}"
+    "in:attributed_flows time:#{time}#{filter_token} sort:time:desc limit:#{page_size}"
   end
 
   defp schedule_refresh, do: Process.send_after(self(), :refresh, @refresh_interval_ms)
@@ -581,10 +643,16 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
                   {filter_title(@filter)}
                 </div>
                 <div class="text-xs leading-relaxed text-sr-muted">
-                  Last {@time_window_hours} hours. Page {@page} of {@page_count}.
+                  {window_label(@time_window)}. Page {@page} of {@page_count}.
                 </div>
               </div>
-              <div class="flex items-center gap-2">
+              <div class="flex flex-wrap items-center justify-end gap-2">
+                <.metric_window_controls
+                  id="attributed-window"
+                  range={@time_window}
+                  event="attributed_set_range"
+                  custom_event="attributed_custom_range"
+                />
                 <.ui_button
                   type="button"
                   variant={if @live?, do: "primary", else: "ghost"}
@@ -688,7 +756,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
 
           <div :if={@rows == []} class="px-4 py-12 text-center">
             <div class="text-sm font-medium">
-              No {filter_empty_label(@filter)} flows in the last {@time_window_hours} hours.
+              No {filter_empty_label(@filter)} flows in {String.downcase(window_label(@time_window))}.
             </div>
             <div class="mt-1 text-xs text-sr-muted">
               Toggle to all rows or wait for the next flow-correlation cycle.

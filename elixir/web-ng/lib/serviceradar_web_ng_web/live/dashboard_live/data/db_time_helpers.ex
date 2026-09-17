@@ -98,16 +98,18 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.DbTimeHelpers do
       defp flow_count_expr("ocsf_network_activity"), do: "COUNT(*)"
       defp flow_count_expr(_relation), do: "SUM(flow_count)"
 
+      defp cutoff_for_time_window("last_15m"), do: DateTime.add(DateTime.utc_now(), -15, :minute)
       defp cutoff_for_time_window("last_1h"), do: DateTime.add(DateTime.utc_now(), -1, :hour)
       defp cutoff_for_time_window("last_6h"), do: DateTime.add(DateTime.utc_now(), -6, :hour)
       defp cutoff_for_time_window("last_24h"), do: DateTime.add(DateTime.utc_now(), -24, :hour)
       defp cutoff_for_time_window("last_7d"), do: DateTime.add(DateTime.utc_now(), -7, :day)
       defp cutoff_for_time_window("last_30d"), do: DateTime.add(DateTime.utc_now(), -30, :day)
+      defp cutoff_for_time_window("last_90d"), do: DateTime.add(DateTime.utc_now(), -90, :day)
       defp cutoff_for_time_window(_), do: cutoff_for_time_window("last_24h")
 
-      defp netflow_map_cutoff(_time_window), do: DateTime.add(DateTime.utc_now(), -15, :minute)
+      defp netflow_map_cutoff(time_window), do: cutoff_for_time_window(time_window)
 
-      defp netflow_map_window_label, do: "Last #{15} min"
+      defp netflow_map_window_label, do: ServiceRadarWebNGWeb.DashboardLive.Window.label("last_15m")
 
       defp sparkline_bucket_for("last_1h"), do: "1 minute"
       defp sparkline_bucket_for("last_6h"), do: "5 minutes"
@@ -137,12 +139,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.DbTimeHelpers do
       defp bucket_interval_literal("6 hours"), do: "'6 hours'::interval"
       defp bucket_interval_literal(_), do: bucket_interval_literal(sparkline_bucket_for("last_24h"))
 
-      defp time_window_label("last_1h"), do: "Last hour"
-      defp time_window_label("last_6h"), do: "Last 6 hours"
-      defp time_window_label("last_24h"), do: "Last 24 hours"
-      defp time_window_label("last_7d"), do: "Last 7 days"
-      defp time_window_label("last_30d"), do: "Last 30 days"
-      defp time_window_label(_), do: time_window_label("last_24h")
+      defp time_window_label(value) do
+        ServiceRadarWebNGWeb.DashboardLive.Window.label(value) ||
+          ServiceRadarWebNGWeb.DashboardLive.Window.label("last_24h")
+      end
     end
   end
 end

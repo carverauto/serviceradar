@@ -283,6 +283,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   defp start_dashboard_slices(socket) do
     scope = socket.assigns.current_scope
     time_window = socket.assigns.time_window
+    netflow_window = Window.resolve(socket.assigns.netflow_window, "netflow")
 
     socket
     |> start_async(:inventory_load, fn -> Data.load_inventory(scope) end)
@@ -290,7 +291,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
     |> start_async(:camera_summary_load, fn -> Data.load_camera_summary(scope) end)
     |> start_async(:alerts_summary_load, fn -> Data.load_alerts_summary(scope) end)
     |> start_async(:events_summary_load, fn -> Data.load_events_summary(time_window) end)
-    |> start_async(:netflow_load, fn -> Data.load_netflow_map(scope, time_window: time_window) end)
+    |> start_async(:netflow_load, fn -> Data.load_netflow_map(scope, window: netflow_window) end)
     |> start_async(:mtr_load, fn -> Data.load_mtr(time_window) end)
     |> start_async(:traces_load, fn -> Data.load_traces(scope, time_window) end)
     |> start_async(:security_trend_load, fn -> Data.load_security_trend(time_window) end)

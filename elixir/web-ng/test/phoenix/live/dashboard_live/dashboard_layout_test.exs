@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.DashboardLayoutTest do
   import Phoenix.LiveViewTest
 
   alias ServiceRadarWebNGWeb.DashboardLive.Data
+  alias ServiceRadarWebNGWeb.DashboardLive.Index.MapPanel
   alias ServiceRadarWebNGWeb.DashboardLive.Index.ObservabilityPanel
   alias ServiceRadarWebNGWeb.DashboardLive.Index.VirtualizationPanel
 
@@ -16,7 +17,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.DashboardLayoutTest do
           observability_metrics: [],
           security_trend: [],
           security_trend_max: 0,
-          time_window_label: "24h"
+          events_window: "last_24h"
         }
       )
 
@@ -24,7 +25,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.DashboardLayoutTest do
     metrics_at = :binary.match(html, "Metrics")
 
     assert html =~ "Events Over Time"
-    assert html =~ "24h"
+    assert html =~ "dashboard-events-window"
+    assert html =~ "Last 24 hours"
     assert html =~ "sr-ops-observability-split"
     assert html =~ "sr-ops-observability-panel"
     refute html =~ ">Observability</h2>"
@@ -33,6 +35,38 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.DashboardLayoutTest do
     assert html =~ "No event trend data"
     refute html =~ "Observability Metrics"
     assert events_at < metrics_at
+  end
+
+  test "NetFlow map exposes the dashboard window select and Full Screen window param" do
+    html =
+      render_component(&MapPanel.render/1,
+        dashboard:
+          Data.empty()
+          |> Map.put(:dashboard_package_instances, [])
+          |> Map.put(:map_view, "netflow")
+          |> Map.put(:netflow_window, "last_6h")
+      )
+
+    assert html =~ "dashboard-netflow-window"
+    assert html =~ "Last 6 hours"
+    assert html =~ "netflow-map?window=last_6h"
+  end
+
+  test "map query failures are not reported as unconfigured collectors" do
+    sources =
+      Data.empty()
+      |> Map.put(:loaded, %{netflow: true})
+      |> Map.put(:window_errors, %{"netflow" => "Unable to load this window."})
+      |> Map.put(:dashboard_package_instances, [])
+
+    dashboard = Map.merge(sources, Data.derive(sources))
+    assert dashboard.module_states.netflow == :error
+    assert dashboard.map_empty_title == "Unable to load NetFlow map"
+    html = render_component(&MapPanel.render/1, dashboard: dashboard)
+    assert html =~ "Unable to load NetFlow map"
+    assert html =~ "Select a time window to retry"
+    refute html =~ "collector not configured"
+    refute html =~ "Configure a NetFlow"
   end
 
   test "empty KPI cards start loading independently of NetFlow" do

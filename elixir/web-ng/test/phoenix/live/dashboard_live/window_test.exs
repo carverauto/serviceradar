@@ -51,6 +51,13 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.WindowTest do
     end
   end
 
+  test "derived map labels follow the selected NetFlow window" do
+    derived = Data.derive(%{netflow_window: "last_7d", window_errors: %{}})
+    assert derived.traffic_links_window_label == "Last 7 days"
+    assert Enum.any?(derived.map_stats, &(&1.label == "Window" and &1.value == "Last 7 days"))
+    assert Enum.any?(derived.map_stats, &String.contains?(&1.href, "last_7d"))
+  end
+
   test "independent defaults reject unknown windows and pin exact request bounds" do
     assert Window.normalize("unbounded", "netflow") == "last_15m"
     assert Window.normalize(nil, "events") == "last_24h"
