@@ -49,14 +49,21 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
       |> Keyword.put(:mysql, mysql)
     )
 
-    assert {:ok, %{"results" => [row], "error" => nil}} =
-             SRQL.query(@flows_query, %{scope: @scope})
+    for query <- [
+          @flows_query,
+          "IN:flows time:last_1h limit:1",
+          "time:last_1h in:flows limit:1",
+          "in:logs time:last_1h IN:flows limit:1"
+        ] do
+      assert {:ok, %{"results" => [row], "error" => nil}} =
+               SRQL.query(query, %{scope: @scope})
 
-    assert row["id"] == "flow-alpha-0001"
-    assert row["bytes_in"] == 1200
-    assert_received {:starrocks_query, body}
-    assert body =~ "ocsf_network_activity"
-    refute body =~ "time_bucket"
+      assert row["id"] == "flow-alpha-0001"
+      assert row["bytes_in"] == 1200
+      assert_received {:starrocks_query, body}
+      assert body =~ "ocsf_network_activity"
+      refute body =~ "time_bucket"
+    end
 
     assert {:error, :forbidden} =
              SRQL.query(@flows_query, %{scope: %{permissions: MapSet.new()}})

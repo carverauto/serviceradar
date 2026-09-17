@@ -83,7 +83,7 @@ defmodule ServiceRadarWebNG.SRQL do
   end
 
   defp execute_query(query, limit, cursor, direction, mode, scope) do
-    entity = extract_entity(query)
+    entity = EntityAccess.extract_entity(query)
     start_time = System.monotonic_time()
 
     result =
@@ -135,7 +135,7 @@ defmodule ServiceRadarWebNG.SRQL do
 
   defp resolve_backend_mode(query, _mode) do
     query
-    |> extract_entity()
+    |> EntityAccess.extract_entity()
     |> Readers.mode_for()
   end
 
@@ -157,21 +157,6 @@ defmodule ServiceRadarWebNG.SRQL do
   end
 
   defp execute_backend_raw(translation, _mode), do: execute_translation_raw(translation)
-
-  defp extract_entity(query) when is_binary(query) do
-    query = String.trim(query)
-
-    case Regex.run(~r/^in:(\S+)/, query) do
-      [_, entity] ->
-        String.downcase(entity)
-
-      nil ->
-        query
-        |> String.split(~r/[\s|]/, parts: 2)
-        |> List.first()
-        |> String.downcase()
-    end
-  end
 
   defp translate(query, limit, cursor, direction, mode) do
     case Native.translate(query, limit, cursor, direction, mode) do
