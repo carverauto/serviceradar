@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS serviceradar.ocsf_network_activity (
   protocol_num INT,
   protocol_name VARCHAR(32),
   direction_label VARCHAR(32),
+  dst_service_label VARCHAR(128),
   bytes_in BIGINT,
   bytes_out BIGINT,
   packets_in BIGINT,

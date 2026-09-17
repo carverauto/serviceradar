@@ -35,10 +35,11 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
       "protocol_num" => field(row, :protocol_num),
       "protocol_name" => stringify(field(row, :protocol_name)),
       "direction_label" => stringify(field(row, :direction_label)),
+      "dst_service_label" => stringify(field(row, :dst_service_label)),
       "bytes_in" => field(row, :bytes_in),
-      "bytes_out" => field(row, :bytes_out),
+      "bytes_out" => field(row, :bytes_out) || field(row, :bytes_total),
       "packets_in" => field(row, :packets_in),
-      "packets_out" => field(row, :packets_out),
+      "packets_out" => field(row, :packets_out) || field(row, :packets_total),
       "sampling_rate" => field(row, :sampling_rate) || 1,
       "attribution_version" => field(row, :attribution_version) || 0,
       "sampler_address" => stringify(field(row, :sampler_address))

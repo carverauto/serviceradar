@@ -103,6 +103,22 @@ defmodule ServiceRadar.Analytics.StarRocks.DestinationTest do
     assert encoded["direction_label"] == "egress"
   end
 
+  test "flow encode falls back to bytes_total when directional counters are missing" do
+    [encoded] =
+      Rows.encode(:flows, [
+        %{
+          time: ~U[2026-01-15 10:00:00Z],
+          src_endpoint_ip: "192.0.2.10",
+          dst_endpoint_ip: "198.51.100.20",
+          bytes_total: 4096,
+          packets_total: 12
+        }
+      ])
+
+    assert encoded["bytes_out"] == 4096
+    assert encoded["packets_out"] == 12
+  end
+
   test "tables are dataset-specific and not the demo namespace" do
     assert Destination.table_for(:flows) == "ocsf_network_activity"
     assert Destination.table_for(:flow_attribution) == "ocsf_network_activity"

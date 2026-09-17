@@ -23,6 +23,7 @@ defmodule ServiceRadar.Analytics.StarRocks.BenchmarkMatrixTest do
                    "protocol_num" => nil,
                    "protocol_name" => nil,
                    "direction_label" => nil,
+                   "dst_service_label" => nil,
                    "bytes_in" => 1200,
                    "bytes_out" => 80,
                    "packets_in" => 10,

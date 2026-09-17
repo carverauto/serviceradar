@@ -173,6 +173,12 @@ fn dataset_for(entity: &Entity) -> Option<Dataset> {
     }
 }
 
+const FLOW_PROTOCOL_GROUP_SQL: &str =
+    "CASE WHEN protocol_num = 6 THEN 'tcp' WHEN protocol_num = 17 THEN 'udp' ELSE 'other' END";
+const FLOW_BYTES_TOTAL_SQL: &str = "(COALESCE(bytes_in, 0) + COALESCE(bytes_out, 0))";
+const FLOW_PACKETS_TOTAL_SQL: &str = "(COALESCE(packets_in, 0) + COALESCE(packets_out, 0))";
+const FLOW_ROW_SELECT: &str = "id, time, device_uid, src_endpoint_ip, dst_endpoint_ip, src_endpoint_port, dst_endpoint_port, protocol_num, protocol_name, CASE WHEN protocol_num = 6 THEN 'tcp' WHEN protocol_num = 17 THEN 'udp' ELSE 'other' END AS protocol_group, (COALESCE(bytes_in, 0) + COALESCE(bytes_out, 0)) AS bytes_total, (COALESCE(packets_in, 0) + COALESCE(packets_out, 0)) AS packets_total, bytes_in, bytes_out, packets_in, packets_out, sampling_rate, direction_label, sampler_address, dst_service_label";
+
 fn dataset_sql(plan: &QueryPlan, dataset: Dataset) -> Result<TranslateResponse> {
     let joins = catalog_joins(plan, dataset)?;
     let use_hourly = joins.is_empty() && should_use_hourly_mv(plan, dataset);
@@ -186,11 +192,29 @@ fn dataset_sql(plan: &QueryPlan, dataset: Dataset) -> Result<TranslateResponse> 
     } else {
         dataset.time_column
     };
-    let (select, group) = stats_select(plan, use_hourly)?;
     let from = from_with_catalog_joins(table, &joins);
     let (where_sql, params) = time_predicate(plan, time_column, !joins.is_empty());
+    if let Some(downsample) = plan.downsample.as_ref() {
+        let sql = downsample_sql(plan, downsample, &from, &where_sql)?;
+        return Ok(TranslateResponse {
+            sql,
+            params,
+            pagination: PaginationMeta {
+                next_cursor: None,
+                prev_cursor: None,
+                limit: Some(plan.limit),
+            },
+            viz: None,
+        });
+    }
+    let (select, group) = stats_select(plan, use_hourly, dataset)?;
+    let order = if plan.stats.is_none() {
+        format!(" ORDER BY {time_column} DESC")
+    } else {
+        String::new()
+    };
     let sql = format!(
-        "SELECT {select} FROM {from}{where_sql}{group} LIMIT {limit}",
+        "SELECT {select} FROM {from}{where_sql}{group}{order} LIMIT {limit}",
         limit = plan.limit.max(1)
     );
 
@@ -330,9 +354,14 @@ fn has_unsupported_mv_filter(filters: &[Filter]) -> bool {
     })
 }
 
-fn stats_select(plan: &QueryPlan, use_hourly: bool) -> Result<(String, String)> {
+fn stats_select(plan: &QueryPlan, use_hourly: bool, dataset: Dataset) -> Result<(String, String)> {
     let Some(stats) = plan.stats.as_ref() else {
-        return Ok(("*".to_string(), String::new()));
+        let select = if dataset.raw_table.contains("ocsf_network_activity") {
+            FLOW_ROW_SELECT.to_string()
+        } else {
+            "*".to_string()
+        };
+        return Ok((select, String::new()));
     };
 
     if stats.aggregations.is_empty() {
@@ -344,15 +373,112 @@ fn stats_select(plan: &QueryPlan, use_hourly: bool) -> Result<(String, String)> 
         select.push(starrocks_agg(agg, use_hourly)?);
     }
     if let Some(group_cols) = stats_group_by(Some(stats)) {
+        let mut rewritten = Vec::new();
         for col in group_cols.split(',') {
             let col = col.trim();
-            if !col.is_empty() {
-                select.push(col.to_string());
+            if col.is_empty() {
+                continue;
             }
+            let expr = rewrite_group_col(col);
+            select.push(format!("{expr} AS {alias}", alias = group_alias(col)));
+            rewritten.push(expr);
         }
-        Ok((select.join(", "), format!(" GROUP BY {group_cols}")))
+        Ok((
+            select.join(", "),
+            format!(" GROUP BY {}", rewritten.join(", ")),
+        ))
     } else {
         Ok((select.join(", "), String::new()))
+    }
+}
+
+fn group_alias(col: &str) -> String {
+    let trimmed = col.trim();
+    if let Some(rest) = trimmed.strip_prefix("src_cidr:") {
+        return format!("src_cidr_{rest}");
+    }
+    if let Some(rest) = trimmed.strip_prefix("dst_cidr:") {
+        return format!("dst_cidr_{rest}");
+    }
+    match trimmed {
+        "dst_port" => "dst_endpoint_port".to_string(),
+        "src_port" => "src_endpoint_port".to_string(),
+        "app" => "app".to_string(),
+        other => other.to_string(),
+    }
+}
+
+fn rewrite_group_col(col: &str) -> String {
+    let trimmed = col.trim();
+    if let Some(prefix) = trimmed.strip_prefix("src_cidr:") {
+        return ipv4_prefix_sql("src_endpoint_ip", prefix);
+    }
+    if let Some(prefix) = trimmed.strip_prefix("dst_cidr:") {
+        return ipv4_prefix_sql("dst_endpoint_ip", prefix);
+    }
+    match trimmed {
+        "protocol_group" | "proto_group" => FLOW_PROTOCOL_GROUP_SQL.to_string(),
+        "dst_port" => "dst_endpoint_port".to_string(),
+        "src_port" => "src_endpoint_port".to_string(),
+        "app" => "COALESCE(dst_service_label, 'unknown')".to_string(),
+        "bytes_total" => FLOW_BYTES_TOTAL_SQL.to_string(),
+        "packets_total" => FLOW_PACKETS_TOTAL_SQL.to_string(),
+        other => other.to_string(),
+    }
+}
+
+fn ipv4_prefix_sql(column: &str, prefix: &str) -> String {
+    match prefix {
+        "8" => format!("CONCAT(SPLIT_PART({column}, '.', 1), '.0.0.0')"),
+        "16" => {
+            format!(
+                "CONCAT(SPLIT_PART({column}, '.', 1), '.', SPLIT_PART({column}, '.', 2), '.0.0')"
+            )
+        }
+        "24" => format!(
+            "CONCAT(SPLIT_PART({column}, '.', 1), '.', SPLIT_PART({column}, '.', 2), '.', SPLIT_PART({column}, '.', 3), '.0')"
+        ),
+        _ => column.to_string(),
+    }
+}
+
+fn downsample_sql(
+    plan: &QueryPlan,
+    downsample: &crate::parser::DownsampleSpec,
+    from: &str,
+    where_sql: &str,
+) -> Result<String> {
+    let bucket = downsample.bucket_seconds.max(1);
+    let value = starrocks_flow_field(downsample.value_field.as_deref().unwrap_or("bytes_total"));
+    let agg = match downsample.agg {
+        crate::parser::DownsampleAgg::Sum => format!("SUM({value})"),
+        crate::parser::DownsampleAgg::Avg => format!("AVG({value})"),
+        crate::parser::DownsampleAgg::Min => format!("MIN({value})"),
+        crate::parser::DownsampleAgg::Max => format!("MAX({value})"),
+        crate::parser::DownsampleAgg::Count => "COUNT(*)".to_string(),
+        crate::parser::DownsampleAgg::Rate | crate::parser::DownsampleAgg::RateSum => {
+            format!("SUM({value})")
+        }
+    };
+    let series = series_sql(downsample.series.as_deref());
+    Ok(format!(
+        "SELECT time_slice(time, INTERVAL {bucket} SECOND) AS timestamp, {series} AS series, {agg} AS value FROM {from}{where_sql} GROUP BY 1, 2 ORDER BY 1 LIMIT {limit}",
+        limit = plan.limit.max(1)
+    ))
+}
+
+fn series_sql(series: Option<&str>) -> String {
+    match series {
+        Some("protocol_group") | Some("proto_group") => FLOW_PROTOCOL_GROUP_SQL.to_string(),
+        Some("protocol_name") => "protocol_name".to_string(),
+        Some("dst_port") => "CAST(dst_endpoint_port AS STRING)".to_string(),
+        Some("src_port") => "CAST(src_endpoint_port AS STRING)".to_string(),
+        Some("src_ip") => "src_endpoint_ip".to_string(),
+        Some("dst_ip") => "dst_endpoint_ip".to_string(),
+        Some("app") => "COALESCE(dst_service_label, 'unknown')".to_string(),
+        Some("sampler_address") => "COALESCE(sampler_address, 'unknown')".to_string(),
+        Some(other) => other.to_string(),
+        None => "'all'".to_string(),
     }
 }
 
@@ -392,8 +518,8 @@ fn starrocks_agg(agg: &StatsAggregation, use_hourly: bool) -> Result<String> {
 
 fn starrocks_flow_field(field: &str) -> String {
     match field {
-        "bytes_total" => "(COALESCE(bytes_in, 0) + COALESCE(bytes_out, 0))".to_string(),
-        "packets_total" => "(COALESCE(packets_in, 0) + COALESCE(packets_out, 0))".to_string(),
+        "bytes_total" => FLOW_BYTES_TOTAL_SQL.to_string(),
+        "packets_total" => FLOW_PACKETS_TOTAL_SQL.to_string(),
         other => other.to_string(),
     }
 }
@@ -521,11 +647,54 @@ mod tests {
                 .contains("COALESCE(bytes_in, 0) + COALESCE(bytes_out, 0)")
         );
         assert!(
+            compiled.sql.contains("GROUP BY src_endpoint_ip"),
+            "{}",
+            compiled.sql
+        );
+        assert!(compiled.sql.contains("dst_endpoint_ip"), "{}", compiled.sql);
+        assert!(!compiled.sql.contains("ocsf_network_activity_hourly"));
+        refute_postgres(&compiled.sql);
+    }
+
+    #[test]
+    fn flow_row_select_projects_protocol_group_and_bytes_total() {
+        let compiled = translate(&plan("in:flows time:last_1h limit:5")).expect("compile");
+        assert!(
+            compiled.sql.contains("AS protocol_group"),
+            "{}",
+            compiled.sql
+        );
+        assert!(compiled.sql.contains("AS bytes_total"), "{}", compiled.sql);
+        assert!(
+            compiled.sql.contains("ORDER BY time DESC"),
+            "{}",
+            compiled.sql
+        );
+        assert!(!compiled.sql.contains("SELECT *"), "{}", compiled.sql);
+        refute_postgres(&compiled.sql);
+    }
+
+    #[test]
+    fn flow_downsample_emits_timestamp_series_value() {
+        let compiled = translate(&plan(
+            "in:flows time:last_1h bucket:1m agg:sum value_field:bytes_total series:protocol_group limit:2000",
+        ))
+        .expect("compile");
+        assert!(
             compiled
                 .sql
-                .contains("GROUP BY src_endpoint_ip,dst_endpoint_ip")
+                .contains("time_slice(time, INTERVAL 60 SECOND) AS timestamp"),
+            "{}",
+            compiled.sql
         );
-        assert!(!compiled.sql.contains("ocsf_network_activity_hourly"));
+        assert!(compiled.sql.contains("AS series"), "{}", compiled.sql);
+        assert!(compiled.sql.contains("AS value"), "{}", compiled.sql);
+        assert!(
+            compiled.sql.contains("protocol_num = 6"),
+            "{}",
+            compiled.sql
+        );
+        assert!(compiled.sql.contains("GROUP BY 1, 2"), "{}", compiled.sql);
         refute_postgres(&compiled.sql);
     }
 
