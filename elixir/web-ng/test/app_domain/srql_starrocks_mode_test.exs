@@ -311,6 +311,40 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
     assert flows_query =~ "in:flows"
   end
 
+  test "fullscreen map overlay becomes an error when the SRQL load exits" do
+    empty = ServiceRadarWebNGWeb.DashboardLive.Data.empty()
+
+    socket =
+      Phoenix.Component.assign(%Phoenix.LiveView.Socket{}, %{
+        netflow_state: :loading,
+        map_stats: empty.map_stats,
+        traffic_links_window_label: empty.traffic_links_window_label,
+        topology_links: empty.topology_links,
+        topology_links_json: empty.topology_links_json,
+        traffic_links: empty.traffic_links,
+        traffic_links_json: empty.traffic_links_json,
+        mtr_overlays: empty.mtr_overlays,
+        mtr_overlays_json: empty.mtr_overlays_json,
+        map_empty_title: empty.map_empty_title,
+        map_empty_detail: empty.map_empty_detail
+      })
+
+    assert socket.assigns.map_empty_title == "Checking traffic sources"
+
+    {:noreply, socket} =
+      ServiceRadarWebNGWeb.MapLive.NetflowMap.handle_async(
+        :netflow_map_load,
+        {:exit, {:timeout, :starrocks}},
+        socket
+      )
+
+    assert socket.assigns.netflow_state == :error
+    assert socket.assigns.traffic_links == []
+    assert socket.assigns.traffic_links_json == "[]"
+    assert socket.assigns.map_empty_title == "Unable to load NetFlow map"
+    assert socket.assigns.map_empty_detail == "Select a time window to retry the query."
+  end
+
   defp postgrex_result(columns, rows) do
     %Postgrex.Result{
       command: :select,

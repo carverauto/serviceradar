@@ -37,7 +37,9 @@ defmodule ServiceRadarWebNGWeb.MapLive.NetflowMap do
     {:noreply, assign_netflow_map(socket, map_assigns)}
   end
 
-  def handle_async(:netflow_map_load, {:exit, _reason}, socket), do: {:noreply, socket}
+  def handle_async(:netflow_map_load, {:exit, _reason}, socket) do
+    {:noreply, assign_netflow_map(socket, failed_netflow_map())}
+  end
 
   @impl true
   def render(assigns) do
@@ -156,6 +158,21 @@ defmodule ServiceRadarWebNGWeb.MapLive.NetflowMap do
       map_empty_title: empty.map_empty_title,
       map_empty_detail: empty.map_empty_detail
     }
+  end
+
+  defp failed_netflow_map do
+    empty_netflow_map()
+    |> Map.merge(%{
+      netflow_state: :error,
+      traffic_links: [],
+      traffic_links_json: "[]",
+      topology_links: [],
+      topology_links_json: "[]",
+      mtr_overlays: [],
+      mtr_overlays_json: "[]",
+      map_empty_title: "Unable to load NetFlow map",
+      map_empty_detail: "Select a time window to retry the query."
+    })
   end
 
   defp netflow_map_empty?(traffic_links) do
