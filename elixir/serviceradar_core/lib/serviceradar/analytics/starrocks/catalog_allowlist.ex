@@ -14,6 +14,8 @@ defmodule ServiceRadar.Analytics.StarRocks.CatalogAllowlist do
     flow_process_attribution_current
     prefix_tags_catalog
     ocsf_devices
+    device_alias_states
+    netflow_exporter_cache
   )
 
   @forbidden_tables ~w(

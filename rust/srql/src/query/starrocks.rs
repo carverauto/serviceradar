@@ -1,7 +1,7 @@
 use super::{PaginationMeta, QueryPlan, QueryResponse, TranslateResponse, types::BindParam};
 use crate::{
     error::{Result, ServiceError},
-    parser::{Entity, Filter, StatsAggType, StatsAggregation},
+    parser::{Entity, Filter},
 };
 use chrono::{SecondsFormat, Utc};
 use serde_json::Value;
@@ -316,15 +316,9 @@ fn stats_select(plan: &QueryPlan, dataset: Dataset) -> Result<(String, String)> 
         return Ok((select, String::new()));
     };
 
-    if stats.aggregations.is_empty() {
-        return Err(ServiceError::InvalidRequest(
-            "starrocks_raw_stats_unsupported".into(),
-        ));
-    }
-
     let mut select = Vec::new();
-    for agg in &stats.aggregations {
-        select.push(starrocks_agg(plan, agg)?);
+    for (function, field, alias) in parse_aggregations(stats)? {
+        select.push(starrocks_agg(plan, function, field, alias)?);
     }
     if let Some(group_cols) = stats_group_by(Some(stats)) {
         let mut rewritten = Vec::new();
@@ -384,7 +378,7 @@ fn downsample_sql(
     where_sql: &str,
 ) -> Result<String> {
     let bucket = downsample.bucket_seconds.max(1);
-    let value = field_sql(
+    let value = aggregate_field_sql(
         plan,
         downsample.value_field.as_deref().unwrap_or("bytes_total"),
     )?;
@@ -422,30 +416,81 @@ fn stats_group_by(stats: Option<&crate::parser::StatsSpec>) -> Option<String> {
     }
 }
 
-fn starrocks_agg(plan: &QueryPlan, agg: &StatsAggregation) -> Result<String> {
-    let field = match agg.field.as_deref() {
-        None | Some("*") if matches!(agg.agg_type, StatsAggType::Count) => "*".to_string(),
-        Some(field) => field_sql(plan, field)?,
-        None => {
-            return Err(ServiceError::InvalidRequest(
-                "aggregate requires a field".into(),
-            ));
-        }
+fn parse_aggregations(stats: &crate::parser::StatsSpec) -> Result<Vec<(&str, &str, &str)>> {
+    let raw = stats.as_raw();
+    let lowered = raw.to_ascii_lowercase();
+    let aggregates = &raw[..lowered.find(" by ").unwrap_or(raw.len())];
+    aggregates
+        .split(',')
+        .map(|term| {
+            let term = term.trim();
+            let lowered = term.to_ascii_lowercase();
+            let (call, alias) = lowered
+                .find(" as ")
+                .map(|idx| (term[..idx].trim(), term[idx + 4..].trim()))
+                .ok_or_else(|| {
+                    ServiceError::InvalidRequest("aggregation requires an alias".into())
+                })?;
+            validate_identifier(alias)?;
+            let (function, argument) = call
+                .split_once('(')
+                .and_then(|(function, rest)| {
+                    rest.strip_suffix(')')
+                        .map(|arg| (function.trim(), arg.trim()))
+                })
+                .ok_or_else(|| ServiceError::InvalidRequest("invalid aggregation".into()))?;
+            if !matches!(
+                function.to_ascii_lowercase().as_str(),
+                "count" | "count_distinct" | "sum" | "avg" | "min" | "max"
+            ) {
+                return Err(ServiceError::InvalidRequest(
+                    "unsupported aggregation".into(),
+                ));
+            }
+            let argument = if argument.is_empty() && function.eq_ignore_ascii_case("count") {
+                "*"
+            } else {
+                argument
+            };
+            Ok((function, argument, alias))
+        })
+        .collect()
+}
+
+fn starrocks_agg(plan: &QueryPlan, function: &str, field: &str, alias: &str) -> Result<String> {
+    let function = function.to_ascii_uppercase();
+    let value = match (function.as_str(), field) {
+        ("COUNT", "*") => "*".to_string(),
+        ("COUNT" | "COUNT_DISTINCT", _) => field_sql(plan, field)?,
+        _ => aggregate_field_sql(plan, field)?,
     };
-    let function = match agg.agg_type {
-        StatsAggType::Sum => "SUM",
-        StatsAggType::Count => "COUNT",
-        StatsAggType::Avg => "AVG",
-        StatsAggType::Min => "MIN",
-        StatsAggType::Max => "MAX",
-    };
-    let alias = if agg.alias.is_empty() {
-        String::new()
+    if function == "COUNT_DISTINCT" {
+        Ok(format!("COUNT(DISTINCT {value}) AS {alias}"))
     } else {
-        validate_identifier(&agg.alias)?;
-        format!(" AS {}", agg.alias)
-    };
-    Ok(format!("{function}({field}){alias}"))
+        Ok(format!("{function}({value}) AS {alias}"))
+    }
+}
+
+fn aggregate_field_sql(plan: &QueryPlan, field: &str) -> Result<String> {
+    let value = field_sql(plan, field)?;
+    if matches!(plan.entity, Entity::Flows | Entity::AttributedFlows)
+        && matches!(
+            field,
+            "bytes_total"
+                | "packets_total"
+                | "bytes_in"
+                | "bytes_out"
+                | "packets_in"
+                | "packets_out"
+        )
+    {
+        let rate = field_sql(plan, "sampling_rate")?;
+        Ok(format!(
+            "(CAST(COALESCE({value}, 0) AS DOUBLE) * GREATEST(COALESCE({rate}, 1), 1))"
+        ))
+    } else {
+        Ok(value)
+    }
 }
 
 fn validate_identifier(value: &str) -> Result<()> {
@@ -547,8 +592,33 @@ fn field_sql(plan: &QueryPlan, field: &str) -> Result<String> {
 
 fn filter_sql(plan: &QueryPlan, filter: &Filter) -> Result<String> {
     use crate::parser::FilterOp;
+    if matches!(plan.entity, Entity::Flows | Entity::AttributedFlows) {
+        match filter.field.as_str() {
+            "device_id" => return device_scope_sql(plan, filter),
+            "device_addr" | "device_address" => {
+                if !matches!(filter.op, FilterOp::Eq | FilterOp::In) {
+                    return Err(ServiceError::InvalidRequest(
+                        "device_addr supports equality and lists".into(),
+                    ));
+                }
+                let predicates = ["src_endpoint_ip", "dst_endpoint_ip", "sampler_address"]
+                    .iter()
+                    .map(|field| {
+                        filter_sql(
+                            plan,
+                            &Filter {
+                                field: (*field).into(),
+                                ..filter.clone()
+                            },
+                        )
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                return Ok(format!("({})", predicates.join(" OR ")));
+            }
+            _ => {}
+        }
+    }
     let field = field_sql(plan, &filter.field)?;
-    let literal = |value: &str| format!("'{}'", value.replace('\\', "\\\\").replace('\'', "''"));
     let op = match filter.op {
         FilterOp::Eq => "=",
         FilterOp::NotEq => "!=",
@@ -572,7 +642,7 @@ fn filter_sql(plan: &QueryPlan, filter: &Filter) -> Result<String> {
                 "{field} {op} ({})",
                 values
                     .iter()
-                    .map(|v| literal(v))
+                    .map(|v| sql_literal(v))
                     .collect::<Vec<_>>()
                     .join(", ")
             ));
@@ -580,14 +650,51 @@ fn filter_sql(plan: &QueryPlan, filter: &Filter) -> Result<String> {
     };
     Ok(format!(
         "{field} {op} {}",
-        literal(filter.value.as_scalar()?)
+        sql_literal(filter.value.as_scalar()?)
     ))
+}
+
+fn sql_literal(value: &str) -> String {
+    format!("'{}'", value.replace('\\', "\\\\").replace('\'', "''"))
+}
+
+fn device_scope_sql(plan: &QueryPlan, filter: &Filter) -> Result<String> {
+    use crate::parser::FilterOp;
+    if !matches!(filter.op, FilterOp::Eq | FilterOp::NotEq) {
+        return Err(ServiceError::InvalidRequest(
+            "device_id only supports equality".into(),
+        ));
+    }
+    let uid = sql_literal(filter.value.as_scalar()?);
+    let addresses = format!(
+        "SELECT d.ip FROM {CNPG_CATALOG}.ocsf_devices d WHERE d.uid = {uid} AND d.ip IS NOT NULL AND d.ip <> '' UNION SELECT das.alias_value FROM {CNPG_CATALOG}.device_alias_states das WHERE das.device_id = {uid} AND das.alias_type = 'ip' AND das.state IN ('detected', 'confirmed', 'updated')"
+    );
+    let samplers = format!(
+        "SELECT ec.sampler_address FROM {CNPG_CATALOG}.netflow_exporter_cache ec WHERE ec.device_uid = {uid}"
+    );
+    let src = field_sql(plan, "src_endpoint_ip")?;
+    let dst = field_sql(plan, "dst_endpoint_ip")?;
+    let sampler = field_sql(plan, "sampler_address")?;
+    let predicate =
+        format!("({src} IN ({addresses}) OR {dst} IN ({addresses}) OR {sampler} IN ({samplers}))");
+    Ok(if matches!(filter.op, FilterOp::NotEq) {
+        format!("NOT {predicate}")
+    } else {
+        predicate
+    })
 }
 
 fn order_sql(plan: &QueryPlan, time_column: &str) -> Result<String> {
     if plan.order.is_empty() {
         return Ok(if plan.stats.is_none() {
-            format!(" ORDER BY {time_column} DESC")
+            if matches!(plan.entity, Entity::Flows | Entity::AttributedFlows) {
+                format!(
+                    " ORDER BY {time_column} DESC, {} DESC",
+                    field_sql(plan, "id")?
+                )
+            } else {
+                format!(" ORDER BY {time_column} DESC")
+            }
         } else {
             String::new()
         });
@@ -596,10 +703,9 @@ fn order_sql(plan: &QueryPlan, time_column: &str) -> Result<String> {
     let mut terms = Vec::new();
     for order in &plan.order {
         let field = if let Some(stats) = &plan.stats {
-            if !stats
-                .aggregations
+            if !parse_aggregations(stats)?
                 .iter()
-                .any(|agg| agg.alias == order.field)
+                .any(|(_, _, alias)| *alias == order.field)
                 && !groups.split(',').any(|col| group_alias(col) == order.field)
             {
                 return Err(ServiceError::InvalidRequest(
@@ -616,6 +722,12 @@ fn order_sql(plan: &QueryPlan, time_column: &str) -> Result<String> {
             crate::parser::OrderDirection::Desc => "DESC",
         };
         terms.push(format!("{field} {direction}"));
+    }
+    if plan.stats.is_none()
+        && matches!(plan.entity, Entity::Flows | Entity::AttributedFlows)
+        && !plan.order.iter().any(|order| order.field == "id")
+    {
+        terms.push(format!("{} DESC", field_sql(plan, "id")?));
     }
     Ok(format!(" ORDER BY {}", terms.join(", ")))
 }
@@ -699,6 +811,97 @@ mod tests {
             mode: Some("starrocks".into()),
         };
         build_query_plan(&config(), &request, ast).expect("plan")
+    }
+
+    #[test]
+    fn stats_preserve_count_fields_distinct_and_reject_partial_expressions() {
+        let compiled = translate(&plan(r#"in:flows time:last_1h stats:"count(src_endpoint_port) as ports, count_distinct(src_endpoint_ip) as talkers" sort:talkers:desc"#)).unwrap();
+        assert!(compiled.sql.starts_with("SELECT COUNT(src_endpoint_port) AS ports, COUNT(DISTINCT src_endpoint_ip) AS talkers FROM "));
+        assert!(compiled.sql.contains("ORDER BY talkers DESC"));
+        for expression in [
+            "count(*) as total, unsupported(bytes_in) as bad",
+            "count(*) as total,",
+            "count(src_endpoint_port) ignored as ports",
+            "count_distinct(*) as bad",
+            "sum() as bad",
+            "count(body) as bad",
+        ] {
+            let query = format!("in:flows time:last_1h stats:\"{expression}\"");
+            assert!(translate(&plan(&query)).is_err(), "{query}");
+        }
+    }
+
+    #[test]
+    fn volume_aggregates_and_charts_apply_sampling_without_weighting_counts() {
+        for field in [
+            "bytes_in",
+            "bytes_out",
+            "packets_in",
+            "packets_out",
+            "bytes_total",
+            "packets_total",
+        ] {
+            let query = format!("in:flows time:last_1h stats:\"sum({field}) as volume\"");
+            let compiled = translate(&plan(&query)).unwrap();
+            let value = field_sql(&plan(&query), field).unwrap();
+            let sampled = format!(
+                "(CAST(COALESCE({value}, 0) AS DOUBLE) * GREATEST(COALESCE(sampling_rate, 1), 1))"
+            );
+            assert!(
+                compiled
+                    .sql
+                    .starts_with(&format!("SELECT SUM({sampled}) AS volume"))
+            );
+            let chart = translate(&plan(&format!(
+                "in:flows time:last_1h bucket:1m agg:sum value_field:{field}"
+            )))
+            .unwrap();
+            assert!(chart.sql.contains(&format!("SUM({sampled}) AS value")));
+        }
+        let count = translate(&plan(
+            r#"in:flows time:last_1h stats:"count(bytes_in) as observations""#,
+        ))
+        .unwrap();
+        assert!(
+            count
+                .sql
+                .starts_with("SELECT COUNT(bytes_in) AS observations")
+        );
+    }
+
+    #[test]
+    fn device_scope_uses_endpoints_active_aliases_and_exporter_samplers() {
+        let compiled = translate(&plan("in:flows time:last_1h device_id:device-example")).unwrap();
+        assert!(compiled.sql.contains("src_endpoint_ip IN (SELECT d.ip"));
+        assert!(compiled.sql.contains("OR dst_endpoint_ip IN (SELECT d.ip"));
+        assert!(compiled.sql.contains("das.device_id = 'device-example' AND das.alias_type = 'ip' AND das.state IN ('detected', 'confirmed', 'updated')"));
+        assert!(compiled.sql.contains("OR sampler_address IN (SELECT ec.sampler_address FROM cnpg_platform.platform.netflow_exporter_cache ec WHERE ec.device_uid = 'device-example')"));
+        let addresses = translate(&plan(
+            r#"in:flows time:last_1h device_addr:[192.0.2.1,192.0.2.2] stats:"count(*) as total""#,
+        ))
+        .unwrap();
+        assert!(addresses.sql.contains("(src_endpoint_ip IN ('192.0.2.1', '192.0.2.2') OR dst_endpoint_ip IN ('192.0.2.1', '192.0.2.2') OR sampler_address IN ('192.0.2.1', '192.0.2.2'))"));
+        let mut invalid = plan("in:flows time:last_1h");
+        invalid.filters.push(Filter {
+            field: "device_addr".into(),
+            op: crate::parser::FilterOp::In,
+            value: crate::parser::FilterValue::List(vec![]),
+        });
+        assert!(translate(&invalid).is_err());
+    }
+
+    #[test]
+    fn row_pagination_has_a_unique_tie_breaker() {
+        for query in [
+            "in:flows time:last_1h",
+            "in:flows time:last_1h sort:time:desc",
+            "in:attributed_flows time:last_1h sort:time:desc",
+        ] {
+            let compiled = translate(&plan(query)).unwrap();
+            assert!(compiled.sql.contains("ORDER BY time DESC, id DESC LIMIT"));
+        }
+        let explicit = translate(&plan("in:flows time:last_1h sort:id:asc")).unwrap();
+        assert!(explicit.sql.contains("ORDER BY id ASC LIMIT"));
     }
 
     #[test]
@@ -847,7 +1050,7 @@ mod tests {
                 .sql
                 .contains("FROM serviceradar.ocsf_network_activity")
         );
-        assert!(compiled.sql.contains("SUM(bytes_in) AS bytes_in"));
+        assert!(compiled.sql.contains("SUM((CAST(COALESCE(bytes_in, 0) AS DOUBLE) * GREATEST(COALESCE(sampling_rate, 1), 1))) AS bytes_in"));
         assert!(compiled.sql.contains("LIMIT 10"));
         refute_postgres(&compiled.sql);
     }
@@ -863,7 +1066,7 @@ mod tests {
                 .sql
                 .contains("FROM serviceradar.ocsf_network_activity WHERE")
         );
-        assert!(compiled.sql.contains("SUM(bytes_in) AS bytes_in"));
+        assert!(compiled.sql.contains("SUM((CAST(COALESCE(bytes_in, 0) AS DOUBLE) * GREATEST(COALESCE(sampling_rate, 1), 1))) AS bytes_in"));
         refute_postgres(&compiled.sql);
     }
 

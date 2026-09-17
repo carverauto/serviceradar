@@ -20,6 +20,12 @@ defmodule ServiceRadar.Analytics.StarRocks.CatalogAllowlistTest do
     refute "prefix_tags" in CatalogAllowlist.allowed_tables()
     assert "ocsf_devices" in CatalogAllowlist.allowed_tables()
 
+    assert {:ok, "cnpg_platform.platform.device_alias_states"} =
+             CatalogAllowlist.qualify("device_alias_states")
+
+    assert {:ok, "cnpg_platform.platform.netflow_exporter_cache"} =
+             CatalogAllowlist.qualify("netflow_exporter_cache")
+
     assert {:ok, "cnpg_platform.platform.flow_process_attribution_current"} ==
              CatalogAllowlist.qualify("flow_process_attribution_current")
   end

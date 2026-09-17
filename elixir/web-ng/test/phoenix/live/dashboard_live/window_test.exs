@@ -40,7 +40,12 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.WindowTest do
     assert slice.netflow_state == :active
     assert_receive {:map_query, first, ^scope}
     assert_receive {:map_query, second, ^scope}
-    assert Enum.any?([first, second], &String.contains?(&1, " by src_endpoint_ip,dst_endpoint_ip"))
+
+    assert Enum.any?(
+             [first, second],
+             &String.contains?(&1, " by src_endpoint_ip,dst_endpoint_ip")
+           )
+
     assert Enum.all?([first, second], &String.contains?(&1, Window.query_time(window)))
 
     assert_raise RuntimeError, "Dashboard NetFlow window query failed", fn ->
@@ -54,6 +59,16 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.WindowTest do
   test "derived map labels follow the selected NetFlow window" do
     derived = Data.derive(%{netflow_window: "last_7d", window_errors: %{}})
     assert derived.traffic_links_window_label == "Last 7 days"
+    flow_records = Enum.find(derived.map_stats, &(&1.label == "Flow Records"))
+
+    query =
+      flow_records.href
+      |> URI.parse()
+      |> Map.fetch!(:query)
+      |> URI.decode_query()
+      |> Map.fetch!("q")
+
+    assert query == "in:flows time:last_7d sort:time:desc limit:100"
     assert Enum.any?(derived.map_stats, &(&1.label == "Window" and &1.value == "Last 7 days"))
     assert Enum.any?(derived.map_stats, &String.contains?(&1.href, "last_7d"))
   end
@@ -103,9 +118,14 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.WindowTest do
       }
     }
 
-    for kind <- ["events", "netflow"], result <- [{:ok, %{events_window: "last_15m"}}, {:exit, :timeout}] do
+    for kind <- ["events", "netflow"],
+        result <- [{:ok, %{events_window: "last_15m"}}, {:exit, :timeout}] do
       assert {:noreply, ^socket} =
-               ServiceRadarWebNGWeb.DashboardLive.Index.handle_async({:dashboard_window, kind, stale}, result, socket)
+               ServiceRadarWebNGWeb.DashboardLive.Index.handle_async(
+                 {:dashboard_window, kind, stale},
+                 result,
+                 socket
+               )
     end
   end
 

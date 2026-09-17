@@ -200,7 +200,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.StatesCards do
 
         params =
           Map.merge(
-            %{"view" => view, "q" => "in:flows time:#{time_window} sort:timestamp:desc limit:100"},
+            %{"view" => view, "q" => "in:flows time:#{time_window} sort:time:desc limit:100"},
             extra_params
           )
 
