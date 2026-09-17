@@ -25,23 +25,13 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumers do
              is_integer(bucket_seconds) and
              bucket_seconds > 0 do
     sql =
-      if bucket_seconds >= 3_600 do
-        """
-        SELECT FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP(bucket) / #{bucket_seconds}) * #{bucket_seconds}), \
-        severity_id, SUM(total_count) \
-        FROM serviceradar.events_hourly \
-        WHERE bucket >= '#{iso(start_at)}' AND bucket < '#{iso(end_at)}' \
-        GROUP BY 1, 2 ORDER BY 1, 2
-        """
-      else
-        """
-        SELECT FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP(`time`) / #{bucket_seconds}) * #{bucket_seconds}), \
-        COALESCE(severity_id, 0), COUNT(*) \
-        FROM serviceradar.events \
-        WHERE `time` >= '#{iso(start_at)}' AND `time` < '#{iso(end_at)}' \
-        GROUP BY 1, 2 ORDER BY 1, 2
-        """
-      end
+      """
+      SELECT FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP(`time`) / #{bucket_seconds}) * #{bucket_seconds}), \
+      COALESCE(severity_id, 0), COUNT(*) \
+      FROM serviceradar.events \
+      WHERE `time` >= '#{iso(start_at)}' AND `time` < '#{iso(end_at)}' \
+      GROUP BY 1, 2 ORDER BY 1, 2
+      """
 
     case query(opts).(sql) do
       {:ok, %{rows: rows}} -> {:ok, %{rows: Enum.flat_map(rows, &normalize_window_row/1)}}

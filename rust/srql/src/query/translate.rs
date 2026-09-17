@@ -23,10 +23,6 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
     let plan = build_query_plan(config, &request, ast)?;
     let viz = viz::meta_for_plan(&plan);
 
-    if request.mode.as_deref() == Some("starrocks") {
-        return starrocks::translate(&plan);
-    }
-
     // A `profile_hour_of_week[_peak]` stats query is a profile aggregation, never a
     // downsample — even though its `bucket:1h` clause sets `plan.downsample`. Without this
     // guard it dispatches to the downsample builder (which rejects the `timezone` filter
@@ -44,7 +40,10 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
         })
         .unwrap_or(false);
 
-    let (sql, params) = if plan.downsample.is_some() && !is_profile_stats {
+    let (sql, params) = if request.mode.as_deref() == Some("starrocks") {
+        let compiled = starrocks::translate(&plan)?;
+        (compiled.sql, compiled.params)
+    } else if plan.downsample.is_some() && !is_profile_stats {
         downsample::to_sql_and_params(&plan)?
     } else {
         match plan.entity {

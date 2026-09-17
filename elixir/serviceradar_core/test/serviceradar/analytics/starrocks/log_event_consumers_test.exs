@@ -66,10 +66,11 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumersTest do
 
     query = fn sql ->
       refute sql =~ "platform.ocsf_events"
+      refute sql =~ "events_hourly"
       send(self(), {:event_sql, sql})
 
       cond do
-        sql =~ "events_hourly" or (sql =~ "serviceradar.events" and sql =~ "COUNT(*)") ->
+        sql =~ "serviceradar.events" and sql =~ "COUNT(*)" ->
           {:ok, %{rows: [["1999-06-15 12:00:00", 6, 11]]}}
 
         sql =~ "class_uid = 4003" ->
@@ -114,6 +115,7 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumersTest do
     query = fn sql ->
       assert sql =~ "serviceradar.events"
       refute sql =~ "platform.ocsf_events"
+      refute sql =~ "events_hourly"
       send(self(), {:dns_sql, sql})
       {:ok, %{rows: [["192.0.2.10", "hagezi-pro", ~U[1999-06-15 12:00:00Z]]]}}
     end
@@ -138,6 +140,7 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumersTest do
     query = fn sql ->
       assert sql =~ "serviceradar.events"
       refute sql =~ "platform.ocsf_events"
+      refute sql =~ "events_hourly"
       send(self(), {:silence_event_sql, sql})
       {:ok, %{rows: [[1]], num_rows: 1}}
     end

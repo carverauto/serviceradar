@@ -54,10 +54,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
     {:noreply, put_sources(socket, slice, loaded: [siem: true], kpi_loading: [alerts: false, threat: false])}
   end
 
-  def handle_async(:events_summary_load, {:ok, slice}, socket) do
-    {:noreply, put_sources(socket, slice, loaded: [security_events: true], kpi_loading: [events: false, threat: false])}
-  end
-
   def handle_async({:dashboard_window, kind, ref}, {:ok, slice}, socket) do
     if socket.assigns.window_requests[kind] == ref do
       loaded = if kind == "netflow", do: [netflow: true], else: [security_events: true]
@@ -89,19 +85,11 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
     end
   end
 
-  def handle_async(:netflow_load, {:ok, slice}, socket) do
-    {:noreply, put_sources(socket, slice, loaded: [netflow: true])}
-  end
-
   def handle_async(:mtr_load, {:ok, slice}, socket) do
     {:noreply, put_sources(socket, slice, loaded: [mtr: true])}
   end
 
   def handle_async(:traces_load, {:ok, slice}, socket) do
-    {:noreply, put_sources(socket, slice)}
-  end
-
-  def handle_async(:security_trend_load, {:ok, slice}, socket) do
     {:noreply, put_sources(socket, slice)}
   end
 
@@ -283,18 +271,14 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   defp start_dashboard_slices(socket) do
     scope = socket.assigns.current_scope
     time_window = socket.assigns.time_window
-    netflow_window = Window.resolve(socket.assigns.netflow_window, "netflow")
 
     socket
     |> start_async(:inventory_load, fn -> Data.load_inventory(scope) end)
     |> start_async(:health_load, fn -> Data.load_health(scope, time_window) end)
     |> start_async(:camera_summary_load, fn -> Data.load_camera_summary(scope) end)
     |> start_async(:alerts_summary_load, fn -> Data.load_alerts_summary(scope) end)
-    |> start_async(:events_summary_load, fn -> Data.load_events_summary(time_window) end)
-    |> start_async(:netflow_load, fn -> Data.load_netflow_map(scope, window: netflow_window) end)
     |> start_async(:mtr_load, fn -> Data.load_mtr(time_window) end)
     |> start_async(:traces_load, fn -> Data.load_traces(scope, time_window) end)
-    |> start_async(:security_trend_load, fn -> Data.load_security_trend(time_window) end)
     |> start_async(:sparklines_load, fn -> Data.load_sparklines(time_window) end)
     |> start_async(:alert_feed_load, fn -> Data.load_alert_feed(time_window) end)
     |> start_async(:threat_intel_load, fn -> Data.load_threat_intel() end)
@@ -370,8 +354,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   defp slice_failure_flags(:health_load), do: {[health: true], [network_health: false]}
   defp slice_failure_flags(:camera_summary_load), do: {[camera: true], [camera: false]}
   defp slice_failure_flags(:alerts_summary_load), do: {[siem: true], [alerts: false, threat: false]}
-  defp slice_failure_flags(:events_summary_load), do: {[security_events: true], [events: false, threat: false]}
-  defp slice_failure_flags(:netflow_load), do: {[netflow: true], []}
   defp slice_failure_flags(:mtr_load), do: {[mtr: true], []}
   defp slice_failure_flags(:vulnerable_assets_load), do: {[vulnerable_assets: true], []}
   defp slice_failure_flags(:fieldsurvey_summary_load), do: {[fieldsurvey: true], [survey: false]}

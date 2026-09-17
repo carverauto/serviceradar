@@ -1,12 +1,10 @@
-use super::{types::BindParam, PaginationMeta, QueryPlan, QueryResponse, TranslateResponse};
+use super::{PaginationMeta, QueryPlan, QueryResponse, TranslateResponse, types::BindParam};
 use crate::{
     error::{Result, ServiceError},
     parser::{Entity, Filter, StatsAggType, StatsAggregation},
 };
-use chrono::{Duration as ChronoDuration, SecondsFormat, Utc};
+use chrono::{SecondsFormat, Utc};
 use serde_json::Value;
-
-const HOURLY_MV_THRESHOLD_HOURS: i64 = 6;
 
 /// Compile an authorized SRQL plan to StarRocks SQL.
 ///
@@ -135,7 +133,6 @@ fn rows_from_http_payload(payload: Value) -> Vec<Value> {
 #[derive(Clone, Copy)]
 struct Dataset {
     raw_table: &'static str,
-    hourly_table: Option<&'static str>,
     time_column: &'static str,
 }
 
@@ -143,7 +140,6 @@ fn dataset_for(entity: &Entity) -> Option<Dataset> {
     match entity {
         Entity::Flows | Entity::AttributedFlows => Some(Dataset {
             raw_table: "serviceradar.ocsf_network_activity",
-            hourly_table: Some("serviceradar.ocsf_network_activity_hourly"),
             time_column: "time",
         }),
         Entity::TimeseriesMetrics
@@ -154,18 +150,15 @@ fn dataset_for(entity: &Entity) -> Option<Dataset> {
         | Entity::DiskMetrics
         | Entity::ProcessMetrics => Some(Dataset {
             raw_table: "serviceradar.timeseries_metrics",
-            hourly_table: Some("serviceradar.timeseries_metrics_hourly"),
             time_column: "timestamp",
         }),
         Entity::Logs => Some(Dataset {
             raw_table: "serviceradar.logs",
-            hourly_table: None,
             time_column: "timestamp",
         }),
         Entity::Events | Entity::SecurityFindings | Entity::ScanActivity | Entity::DnsActivity => {
             Some(Dataset {
                 raw_table: "serviceradar.events",
-                hourly_table: None,
                 time_column: "time",
             })
         }
@@ -181,22 +174,12 @@ const FLOW_ROW_SELECT: &str = "id, time, device_uid, src_endpoint_ip, dst_endpoi
 
 fn dataset_sql(plan: &QueryPlan, dataset: Dataset) -> Result<TranslateResponse> {
     let joins = catalog_joins(plan, dataset)?;
-    let use_hourly = joins.is_empty() && should_use_hourly_mv(plan, dataset);
-    let table = if use_hourly {
-        dataset.hourly_table.unwrap_or(dataset.raw_table)
-    } else {
-        dataset.raw_table
-    };
-    let time_column = if use_hourly {
-        "bucket"
-    } else {
-        dataset.time_column
-    };
-    let from = from_with_catalog_joins(table, &joins);
+    let time_column = dataset.time_column;
+    let from = from_with_catalog_joins(dataset.raw_table, &joins);
     let (mut where_sql, params) = time_predicate(plan, time_column, !joins.is_empty());
-    if matches!(plan.entity, Entity::AttributedFlows) {
-        let pid_col = if joins.is_empty() { "pid" } else { "f.pid" };
-        where_sql = format!("{where_sql} AND {pid_col} IS NOT NULL");
+    for filter in &plan.filters {
+        where_sql.push_str(" AND ");
+        where_sql.push_str(&filter_sql(plan, filter)?);
     }
     if let Some(downsample) = plan.downsample.as_ref() {
         let sql = downsample_sql(plan, downsample, &from, &where_sql)?;
@@ -211,15 +194,12 @@ fn dataset_sql(plan: &QueryPlan, dataset: Dataset) -> Result<TranslateResponse> 
             viz: None,
         });
     }
-    let (select, group) = stats_select(plan, use_hourly, dataset)?;
-    let order = if plan.stats.is_none() {
-        format!(" ORDER BY {time_column} DESC")
-    } else {
-        String::new()
-    };
+    let (select, group) = stats_select(plan, dataset)?;
+    let order = order_sql(plan, time_column)?;
     let sql = format!(
-        "SELECT {select} FROM {from}{where_sql}{group}{order} LIMIT {limit}",
-        limit = plan.limit.max(1)
+        "SELECT {select} FROM {from}{where_sql}{group}{order} LIMIT {limit} OFFSET {offset}",
+        limit = plan.limit.max(1),
+        offset = plan.offset.max(0)
     );
 
     Ok(TranslateResponse {
@@ -326,39 +306,7 @@ fn from_with_catalog_joins(table: &str, joins: &[CatalogJoin]) -> String {
     from
 }
 
-fn should_use_hourly_mv(plan: &QueryPlan, dataset: Dataset) -> bool {
-    if dataset.hourly_table.is_none() {
-        return false;
-    }
-    if plan.stats.is_none() && plan.downsample.is_none() {
-        return false;
-    }
-    if has_unsupported_mv_filter(&plan.filters) {
-        return false;
-    }
-    if stats_group_by(plan.stats.as_ref()).is_some() {
-        return false;
-    }
-    let Some(range) = plan.time_range.as_ref() else {
-        return false;
-    };
-    range
-        .end
-        .signed_duration_since(range.start)
-        .ge(&ChronoDuration::hours(HOURLY_MV_THRESHOLD_HOURS))
-}
-
-fn has_unsupported_mv_filter(filters: &[Filter]) -> bool {
-    filters.iter().any(|filter| {
-        let field = filter.field.to_ascii_lowercase();
-        !matches!(
-            field.as_str(),
-            "time" | "timestamp" | "device_id" | "metric_name" | "metric_type"
-        )
-    })
-}
-
-fn stats_select(plan: &QueryPlan, use_hourly: bool, dataset: Dataset) -> Result<(String, String)> {
+fn stats_select(plan: &QueryPlan, dataset: Dataset) -> Result<(String, String)> {
     let Some(stats) = plan.stats.as_ref() else {
         let select = if dataset.raw_table.contains("ocsf_network_activity") {
             FLOW_ROW_SELECT.to_string()
@@ -369,12 +317,14 @@ fn stats_select(plan: &QueryPlan, use_hourly: bool, dataset: Dataset) -> Result<
     };
 
     if stats.aggregations.is_empty() {
-        return Ok((stats.as_raw().to_string(), String::new()));
+        return Err(ServiceError::InvalidRequest(
+            "starrocks_raw_stats_unsupported".into(),
+        ));
     }
 
     let mut select = Vec::new();
     for agg in &stats.aggregations {
-        select.push(starrocks_agg(agg, use_hourly)?);
+        select.push(starrocks_agg(plan, agg)?);
     }
     if let Some(group_cols) = stats_group_by(Some(stats)) {
         let mut rewritten = Vec::new();
@@ -383,7 +333,7 @@ fn stats_select(plan: &QueryPlan, use_hourly: bool, dataset: Dataset) -> Result<
             if col.is_empty() {
                 continue;
             }
-            let expr = rewrite_group_col(col);
+            let expr = field_sql(plan, col)?;
             select.push(format!("{expr} AS {alias}", alias = group_alias(col)));
             rewritten.push(expr);
         }
@@ -412,25 +362,6 @@ fn group_alias(col: &str) -> String {
     }
 }
 
-fn rewrite_group_col(col: &str) -> String {
-    let trimmed = col.trim();
-    if let Some(prefix) = trimmed.strip_prefix("src_cidr:") {
-        return ipv4_prefix_sql("src_endpoint_ip", prefix);
-    }
-    if let Some(prefix) = trimmed.strip_prefix("dst_cidr:") {
-        return ipv4_prefix_sql("dst_endpoint_ip", prefix);
-    }
-    match trimmed {
-        "protocol_group" | "proto_group" => FLOW_PROTOCOL_GROUP_SQL.to_string(),
-        "dst_port" => "dst_endpoint_port".to_string(),
-        "src_port" => "src_endpoint_port".to_string(),
-        "app" => "COALESCE(dst_service_label, 'unknown')".to_string(),
-        "bytes_total" => FLOW_BYTES_TOTAL_SQL.to_string(),
-        "packets_total" => FLOW_PACKETS_TOTAL_SQL.to_string(),
-        other => other.to_string(),
-    }
-}
-
 fn ipv4_prefix_sql(column: &str, prefix: &str) -> String {
     match prefix {
         "8" => format!("CONCAT(SPLIT_PART({column}, '.', 1), '.0.0.0')"),
@@ -453,7 +384,10 @@ fn downsample_sql(
     where_sql: &str,
 ) -> Result<String> {
     let bucket = downsample.bucket_seconds.max(1);
-    let value = starrocks_flow_field(downsample.value_field.as_deref().unwrap_or("bytes_total"));
+    let value = field_sql(
+        plan,
+        downsample.value_field.as_deref().unwrap_or("bytes_total"),
+    )?;
     let agg = match downsample.agg {
         crate::parser::DownsampleAgg::Sum => format!("SUM({value})"),
         crate::parser::DownsampleAgg::Avg => format!("AVG({value})"),
@@ -464,26 +398,16 @@ fn downsample_sql(
             format!("SUM({value})")
         }
     };
-    let series = series_sql(downsample.series.as_deref());
-    Ok(format!(
-        "SELECT time_slice(time, INTERVAL {bucket} SECOND) AS timestamp, {series} AS series, {agg} AS value FROM {from}{where_sql} GROUP BY 1, 2 ORDER BY 1 LIMIT {limit}",
-        limit = plan.limit.max(1)
-    ))
-}
-
-fn series_sql(series: Option<&str>) -> String {
-    match series {
-        Some("protocol_group") | Some("proto_group") => FLOW_PROTOCOL_GROUP_SQL.to_string(),
-        Some("protocol_name") => "protocol_name".to_string(),
-        Some("dst_port") => "CAST(dst_endpoint_port AS STRING)".to_string(),
-        Some("src_port") => "CAST(src_endpoint_port AS STRING)".to_string(),
-        Some("src_ip") => "src_endpoint_ip".to_string(),
-        Some("dst_ip") => "dst_endpoint_ip".to_string(),
-        Some("app") => "COALESCE(dst_service_label, 'unknown')".to_string(),
-        Some("sampler_address") => "COALESCE(sampler_address, 'unknown')".to_string(),
-        Some(other) => other.to_string(),
+    let series = match downsample.series.as_deref() {
+        Some(field) => format!("CAST({} AS STRING)", field_sql(plan, field)?),
         None => "'all'".to_string(),
-    }
+    };
+    let time = dataset_for(&plan.entity).unwrap().time_column;
+    Ok(format!(
+        "SELECT time_slice({time}, INTERVAL {bucket} SECOND) AS timestamp, {series} AS series, {agg} AS value FROM {from}{where_sql} GROUP BY 1, 2 ORDER BY 1 LIMIT {limit} OFFSET {offset}",
+        limit = plan.limit.max(1),
+        offset = plan.offset.max(0)
+    ))
 }
 
 fn stats_group_by(stats: Option<&crate::parser::StatsSpec>) -> Option<String> {
@@ -498,59 +422,202 @@ fn stats_group_by(stats: Option<&crate::parser::StatsSpec>) -> Option<String> {
     }
 }
 
-fn starrocks_agg(agg: &StatsAggregation, use_hourly: bool) -> Result<String> {
+fn starrocks_agg(plan: &QueryPlan, agg: &StatsAggregation) -> Result<String> {
+    let field = match agg.field.as_deref() {
+        None | Some("*") if matches!(agg.agg_type, StatsAggType::Count) => "*".to_string(),
+        Some(field) => field_sql(plan, field)?,
+        None => {
+            return Err(ServiceError::InvalidRequest(
+                "aggregate requires a field".into(),
+            ));
+        }
+    };
+    let function = match agg.agg_type {
+        StatsAggType::Sum => "SUM",
+        StatsAggType::Count => "COUNT",
+        StatsAggType::Avg => "AVG",
+        StatsAggType::Min => "MIN",
+        StatsAggType::Max => "MAX",
+    };
     let alias = if agg.alias.is_empty() {
         String::new()
     } else {
+        validate_identifier(&agg.alias)?;
         format!(" AS {}", agg.alias)
     };
-    let field = agg.field.as_deref().unwrap_or("*");
-    let expr = if use_hourly {
-        hourly_agg(&agg.agg_type, field)?
-    } else {
-        let field = starrocks_flow_field(field);
-        match agg.agg_type {
-            StatsAggType::Sum => format!("SUM({field})"),
-            StatsAggType::Count => format!("COUNT({field})"),
-            StatsAggType::Avg => format!("AVG({field})"),
-            StatsAggType::Min => format!("MIN({field})"),
-            StatsAggType::Max => format!("MAX({field})"),
+    Ok(format!("{function}({field}){alias}"))
+}
+
+fn validate_identifier(value: &str) -> Result<()> {
+    if value.is_empty()
+        || !value
+            .bytes()
+            .enumerate()
+            .all(|(i, c)| c == b'_' || c.is_ascii_alphabetic() || (i > 0 && c.is_ascii_digit()))
+    {
+        return Err(ServiceError::InvalidRequest(
+            "invalid StarRocks identifier".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn field_sql(plan: &QueryPlan, field: &str) -> Result<String> {
+    let dataset = dataset_for(&plan.entity).unwrap();
+    let flow = matches!(plan.entity, Entity::Flows | Entity::AttributedFlows);
+    let qualified = flow && !catalog_joins(plan, dataset)?.is_empty();
+    let column = |name: &str| {
+        if qualified {
+            format!("f.{name}")
+        } else {
+            name.to_string()
         }
     };
-    Ok(expr + &alias)
-}
-
-fn starrocks_flow_field(field: &str) -> String {
-    match field {
-        "bytes_total" => FLOW_BYTES_TOTAL_SQL.to_string(),
-        "packets_total" => FLOW_PACKETS_TOTAL_SQL.to_string(),
-        other => other.to_string(),
+    if flow {
+        match field {
+            "attribution_status" => {
+                return Ok(format!(
+                    "CASE WHEN {} IS NULL THEN 'unmatched' ELSE 'attributed' END",
+                    column("pid")
+                ));
+            }
+            "protocol_group" | "proto_group" => {
+                return Ok(FLOW_PROTOCOL_GROUP_SQL.replace("protocol_num", &column("protocol_num")));
+            }
+            "bytes_total" => {
+                return Ok(FLOW_BYTES_TOTAL_SQL
+                    .replace("bytes_in", &column("bytes_in"))
+                    .replace("bytes_out", &column("bytes_out")));
+            }
+            "packets_total" => {
+                return Ok(FLOW_PACKETS_TOTAL_SQL
+                    .replace("packets_in", &column("packets_in"))
+                    .replace("packets_out", &column("packets_out")));
+            }
+            "src_ip" => return Ok(column("src_endpoint_ip")),
+            "dst_ip" => return Ok(column("dst_endpoint_ip")),
+            "src_port" => return Ok(column("src_endpoint_port")),
+            "dst_port" => return Ok(column("dst_endpoint_port")),
+            "app" => {
+                return Ok(format!(
+                    "COALESCE({}, 'unknown')",
+                    column("dst_service_label")
+                ));
+            }
+            "hostname" | "device_name" => return Ok("dev.hostname".into()),
+            _ => {}
+        }
+        for (prefix, name) in [
+            ("src_cidr:", "src_endpoint_ip"),
+            ("dst_cidr:", "dst_endpoint_ip"),
+        ] {
+            if let Some(bits) = field.strip_prefix(prefix) {
+                if matches!(bits, "8" | "16" | "24") {
+                    return Ok(ipv4_prefix_sql(&column(name), bits));
+                }
+                return Err(ServiceError::InvalidRequest(
+                    "unsupported CIDR grouping".into(),
+                ));
+            }
+        }
+    }
+    let fields = match dataset.raw_table {
+        "serviceradar.ocsf_network_activity" => {
+            "id device_uid time src_endpoint_ip dst_endpoint_ip src_endpoint_port dst_endpoint_port protocol_num protocol_name direction_label dst_service_label start_time end_time src_as_number dst_as_number tcp_flags partition input_snmp output_snmp src_mac dst_mac src_mac_vendor dst_mac_vendor src_hosting_provider dst_hosting_provider protocol_source direction_source dst_service_source src_prefix_tags dst_prefix_tags bytes_in bytes_out packets_in packets_out sampling_rate attribution_version sampler_address pid comm cmdline workload_identity"
+        }
+        "serviceradar.timeseries_metrics" => {
+            "timestamp gateway_id series_key agent_id metric_name metric_type device_id value unit if_index partition scale is_delta counter_width target_device_ip tags usage_percent"
+        }
+        "serviceradar.logs" => {
+            "id timestamp ingest_identity severity_text severity_number body service_name source ingest_agent_id ingest_partition trace_id span_id event_name source_ip service_version observed_timestamp"
+        }
+        "serviceradar.events" => {
+            "id time class_uid category_uid type_uid activity_id severity_id severity source src_endpoint_ip firewall_rule_name source_type message activity_name status status_id log_name log_provider trace_id span_id"
+        }
+        _ => "",
+    };
+    if fields.split_whitespace().any(|name| name == field) {
+        Ok(column(field))
+    } else {
+        Err(ServiceError::InvalidRequest(format!(
+            "unsupported StarRocks field: {field}"
+        )))
     }
 }
 
-fn hourly_agg(agg_type: &StatsAggType, field: &str) -> Result<String> {
-    match (agg_type, field) {
-        (StatsAggType::Sum, "bytes_in") => Ok("SUM(bytes_in)".to_string()),
-        (StatsAggType::Sum, "bytes_out") => Ok("SUM(bytes_out)".to_string()),
-        (StatsAggType::Sum, "bytes_total") => Ok("SUM(bytes_in) + SUM(bytes_out)".to_string()),
-        (StatsAggType::Sum, "packets_total") => {
-            Ok("SUM(packets_in) + SUM(packets_out)".to_string())
+fn filter_sql(plan: &QueryPlan, filter: &Filter) -> Result<String> {
+    use crate::parser::FilterOp;
+    let field = field_sql(plan, &filter.field)?;
+    let literal = |value: &str| format!("'{}'", value.replace('\\', "\\\\").replace('\'', "''"));
+    let op = match filter.op {
+        FilterOp::Eq => "=",
+        FilterOp::NotEq => "!=",
+        FilterOp::Gt => ">",
+        FilterOp::Gte => ">=",
+        FilterOp::Lt => "<",
+        FilterOp::Lte => "<=",
+        FilterOp::Like => "LIKE",
+        FilterOp::NotLike => "NOT LIKE",
+        FilterOp::In | FilterOp::NotIn => {
+            let values = filter.value.as_list()?;
+            if values.is_empty() {
+                return Err(ServiceError::InvalidRequest("empty filter list".into()));
+            }
+            let op = if matches!(filter.op, FilterOp::In) {
+                "IN"
+            } else {
+                "NOT IN"
+            };
+            return Ok(format!(
+                "{field} {op} ({})",
+                values
+                    .iter()
+                    .map(|v| literal(v))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
         }
-        (StatsAggType::Sum, "packets_in") => Ok("SUM(packets_in)".to_string()),
-        (StatsAggType::Sum, "packets_out") => Ok("SUM(packets_out)".to_string()),
-        (StatsAggType::Count, "*") | (StatsAggType::Count, "id") => {
-            Ok("SUM(flow_count)".to_string())
-        }
-        (StatsAggType::Avg, "value") | (StatsAggType::Avg, "usage_percent") => {
-            Ok("AVG(avg_value)".to_string())
-        }
-        (StatsAggType::Min, "value") => Ok("MIN(min_value)".to_string()),
-        (StatsAggType::Max, "value") => Ok("MAX(max_value)".to_string()),
-        (StatsAggType::Count, "value") => Ok("SUM(sample_count)".to_string()),
-        _ => Err(ServiceError::NotImplemented(format!(
-            "starrocks_unsupported_mv_aggregation: {agg_type:?}({field})"
-        ))),
+    };
+    Ok(format!(
+        "{field} {op} {}",
+        literal(filter.value.as_scalar()?)
+    ))
+}
+
+fn order_sql(plan: &QueryPlan, time_column: &str) -> Result<String> {
+    if plan.order.is_empty() {
+        return Ok(if plan.stats.is_none() {
+            format!(" ORDER BY {time_column} DESC")
+        } else {
+            String::new()
+        });
     }
+    let groups = stats_group_by(plan.stats.as_ref()).unwrap_or_default();
+    let mut terms = Vec::new();
+    for order in &plan.order {
+        let field = if let Some(stats) = &plan.stats {
+            if !stats
+                .aggregations
+                .iter()
+                .any(|agg| agg.alias == order.field)
+                && !groups.split(',').any(|col| group_alias(col) == order.field)
+            {
+                return Err(ServiceError::InvalidRequest(
+                    "stats ordering requires a selected field".into(),
+                ));
+            }
+            validate_identifier(&order.field)?;
+            order.field.clone()
+        } else {
+            field_sql(plan, &order.field)?
+        };
+        let direction = match order.direction {
+            crate::parser::OrderDirection::Asc => "ASC",
+            crate::parser::OrderDirection::Desc => "DESC",
+        };
+        terms.push(format!("{field} {direction}"));
+    }
+    Ok(format!(" ORDER BY {}", terms.join(", ")))
 }
 
 fn time_predicate(
@@ -595,7 +662,7 @@ mod tests {
     use super::*;
     use crate::config::AppConfig;
     use crate::parser;
-    use crate::query::{build_query_plan, QueryDirection, QueryRequest};
+    use crate::query::{QueryDirection, QueryRequest, build_query_plan};
     use std::time::Duration as StdDuration;
 
     fn config() -> AppConfig {
@@ -635,17 +702,88 @@ mod tests {
     }
 
     #[test]
+    fn rejects_untrusted_sql_before_execution() {
+        let executor = RecordingExecutor {
+            sql: std::sync::Mutex::new(None),
+            rows: vec![],
+        };
+        for query in [
+            r#"in:flows time:last_1h stats:"(SELECT body FROM serviceradar.logs LIMIT 1) AS leaked" limit:1"#,
+            r#"in:flows time:last_1h stats:"sum(body) as leaked""#,
+            r#"in:flows time:last_1h stats:"sum(bytes_in) as total by body""#,
+            r#"in:flows time:last_1h stats:"sum(bytes_in) as total;drop""#,
+            "in:flows time:last_1h bucket:1m series:body",
+            "in:flows time:last_1h unknown_field:value",
+        ] {
+            assert!(
+                execute_plan(&plan(query), Some(&executor)).is_err(),
+                "{query}"
+            );
+        }
+        assert!(executor.sql.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn filtered_stats_preserve_order_and_cursor_offset() {
+        let mut request = QueryRequest {
+            query: r#"in:flows time:last_1h device_uid:device-example protocol_num:6 stats:"sum(bytes_total) as volume by src_endpoint_ip" sort:volume:desc limit:2"#.into(),
+            limit: None,
+            cursor: Some(crate::pagination::encode_cursor(2, &config().cursor_secret).unwrap()),
+            direction: QueryDirection::Next,
+            mode: Some("starrocks".into()),
+        };
+        let compiled = crate::query::translate_request(&config(), request.clone()).unwrap();
+        assert!(
+            compiled.sql.contains("AND device_uid = 'device-example'"),
+            "{}",
+            compiled.sql
+        );
+        assert!(compiled.sql.contains("AND protocol_num = '6'"));
+        assert!(
+            compiled
+                .sql
+                .ends_with("ORDER BY volume DESC LIMIT 2 OFFSET 2")
+        );
+        let next = compiled.pagination.next_cursor.unwrap();
+        assert_eq!(
+            crate::pagination::decode_cursor(&next, &config().cursor_secret, 100).unwrap(),
+            4
+        );
+        request.cursor = Some(next);
+        let next_page = crate::query::translate_request(&config(), request).unwrap();
+        assert!(next_page.sql.ends_with("OFFSET 4"));
+    }
+
+    #[test]
+    fn unmatched_attribution_and_long_downsample_use_raw_rows() {
+        let compiled = translate(&plan(r#"in:attributed_flows time:last_7d attribution_status:unmatched stats:"count(*) as total by attribution_status""#)).unwrap();
+        assert!(compiled.sql.contains("END = 'unmatched'"));
+        assert!(compiled.sql.contains("GROUP BY CASE WHEN pid IS NULL"));
+        assert!(!compiled.sql.contains("AND pid IS NOT NULL"));
+        let chart = translate(&plan(
+            "in:flows time:last_7d bucket:1h agg:sum value_field:bytes_total",
+        ))
+        .unwrap();
+        assert!(chart.sql.contains("time_slice(time, INTERVAL 3600 SECOND)"));
+        assert!(!chart.sql.contains("_hourly"));
+    }
+
+    #[test]
     fn flow_map_stats_group_by_endpoints_and_rewrite_bytes_total() {
         let compiled = translate(&plan(
             r#"in:flows time:last_1h stats:"sum(bytes_total) as bytes_total, sum(packets_total) as packets_total, count(*) as flow_count by src_endpoint_ip,dst_endpoint_ip" limit:120"#,
         ))
         .expect("compile");
-        assert!(compiled
-            .sql
-            .contains("FROM serviceradar.ocsf_network_activity"));
-        assert!(compiled
-            .sql
-            .contains("COALESCE(bytes_in, 0) + COALESCE(bytes_out, 0)"));
+        assert!(
+            compiled
+                .sql
+                .contains("FROM serviceradar.ocsf_network_activity")
+        );
+        assert!(
+            compiled
+                .sql
+                .contains("COALESCE(bytes_in, 0) + COALESCE(bytes_out, 0)")
+        );
         assert!(
             compiled.sql.contains("GROUP BY src_endpoint_ip"),
             "{}",
@@ -704,23 +842,27 @@ mod tests {
             r#"in:flows time:last_1h stats:"sum(bytes_in) as bytes_in" limit:10"#,
         ))
         .expect("compile");
-        assert!(compiled
-            .sql
-            .contains("FROM serviceradar.ocsf_network_activity"));
+        assert!(
+            compiled
+                .sql
+                .contains("FROM serviceradar.ocsf_network_activity")
+        );
         assert!(compiled.sql.contains("SUM(bytes_in) AS bytes_in"));
         assert!(compiled.sql.contains("LIMIT 10"));
         refute_postgres(&compiled.sql);
     }
 
     #[test]
-    fn long_window_flow_stats_select_the_hourly_mv() {
+    fn long_window_flow_stats_preserve_raw_window() {
         let compiled = translate(&plan(
             r#"in:flows time:last_7d stats:"sum(bytes_in) as bytes_in" limit:10"#,
         ))
         .expect("compile");
-        assert!(compiled
-            .sql
-            .contains("FROM serviceradar.ocsf_network_activity_hourly"));
+        assert!(
+            compiled
+                .sql
+                .contains("FROM serviceradar.ocsf_network_activity WHERE")
+        );
         assert!(compiled.sql.contains("SUM(bytes_in) AS bytes_in"));
         refute_postgres(&compiled.sql);
     }
@@ -748,22 +890,26 @@ mod tests {
             r#"in:timeseries_metrics time:last_1h stats:"avg(value) as avg_value" limit:20"#,
         ))
         .expect("compile");
-        assert!(compiled
-            .sql
-            .contains("FROM serviceradar.timeseries_metrics"));
+        assert!(
+            compiled
+                .sql
+                .contains("FROM serviceradar.timeseries_metrics")
+        );
         assert!(compiled.sql.contains("AVG(value) AS avg_value"));
         refute_postgres(&compiled.sql);
     }
 
     #[test]
-    fn long_window_cpu_metrics_select_the_hourly_mv() {
+    fn long_window_cpu_metrics_preserve_raw_window() {
         let compiled = translate(&plan(
             r#"in:cpu_metrics time:last_7d stats:"avg(usage_percent) as avg_usage" limit:20"#,
         ))
         .expect("compile");
-        assert!(compiled
-            .sql
-            .contains("FROM serviceradar.timeseries_metrics_hourly"));
+        assert!(
+            compiled
+                .sql
+                .contains("FROM serviceradar.timeseries_metrics WHERE")
+        );
         refute_postgres(&compiled.sql);
     }
 
@@ -784,10 +930,16 @@ mod tests {
     fn attributed_flows_filter_persisted_pid_not_live_catalog_join() {
         let compiled =
             translate(&plan("in:attributed_flows time:last_1h limit:5")).expect("compile");
-        assert!(compiled
-            .sql
-            .contains("FROM serviceradar.ocsf_network_activity"));
-        assert!(compiled.sql.contains("pid IS NOT NULL"), "{}", compiled.sql);
+        assert!(
+            compiled
+                .sql
+                .contains("FROM serviceradar.ocsf_network_activity")
+        );
+        assert!(
+            !compiled.sql.contains("AND pid IS NOT NULL"),
+            "{}",
+            compiled.sql
+        );
         assert!(
             compiled.sql.contains("AS attribution_status"),
             "{}",
@@ -804,33 +956,29 @@ mod tests {
             r#"in:flows hostname:host-alpha time:last_1h stats:"sum(bytes_in) as bytes_in" limit:10"#,
         ))
         .expect("compile");
-        assert!(compiled
-            .sql
-            .contains("cnpg_platform.platform.ocsf_devices AS dev"));
+        assert!(
+            compiled
+                .sql
+                .contains("cnpg_platform.platform.ocsf_devices AS dev")
+        );
         assert!(compiled.sql.contains("dev.uid = f.device_uid"));
         refute_postgres(&compiled.sql);
     }
 
     #[test]
-    fn flow_prefix_tag_join_cnpg_prefix_tags() {
-        let compiled = translate(&plan(
-            r#"in:flows prefix_tag:dns-policy:hit time:last_1h limit:10"#,
-        ))
-        .expect("compile");
-        assert!(compiled
-            .sql
-            .contains("cnpg_platform.platform.prefix_tags_catalog AS tags"));
-        assert!(!compiled.sql.contains("cnpg_platform.platform.logs"));
-        refute_postgres(&compiled.sql);
+    fn unsupported_prefix_tag_filter_returns_capability_error() {
+        assert!(translate(&plan("in:flows prefix_tag:example time:last_1h limit:10")).is_err());
     }
 
     #[test]
     fn plain_flows_do_not_join_the_cnpg_catalog() {
         let compiled = translate(&plan("in:flows time:last_1h limit:5")).expect("compile");
         assert!(!compiled.sql.contains("cnpg_platform"));
-        assert!(compiled
-            .sql
-            .contains("FROM serviceradar.ocsf_network_activity"));
+        assert!(
+            compiled
+                .sql
+                .contains("FROM serviceradar.ocsf_network_activity")
+        );
     }
 
     #[test]

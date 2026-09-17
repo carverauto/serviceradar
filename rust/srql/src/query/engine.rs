@@ -7,9 +7,9 @@ use super::{
     endpoint_vulnerability_matches, events, field_survey, flows, gateways, graph_cypher, identity,
     interfaces, is_exhaustive_profile_query, logs, memory_metrics, mtr_traces, otel_metric_points,
     otel_metrics, process_metrics, public_endpoints, services, source_fact_disagreements,
-    sweep_coverage, sweep_executions, sweep_groups, sweep_profiles, sweep_results,
-    starrocks, threat_intel_matches, timeseries_metrics, trace_summaries, traces,
-    translate_request, virtualization, vulnerability_advisories, wifi_map,
+    starrocks, sweep_coverage, sweep_executions, sweep_groups, sweep_profiles, sweep_results,
+    threat_intel_matches, timeseries_metrics, trace_summaries, traces, translate_request,
+    virtualization, vulnerability_advisories, wifi_map,
 };
 use crate::{
     config::AppConfig,
@@ -48,7 +48,9 @@ impl QueryEngine {
         let plan = build_query_plan(&self.config, &request, ast)?;
 
         if request.mode.as_deref() == Some("starrocks") {
-            return starrocks::execute_plan(&plan, self.starrocks.as_deref());
+            let mut response = starrocks::execute_plan(&plan, self.starrocks.as_deref())?;
+            response.pagination = self.build_pagination(&plan, response.results.len() as i64)?;
+            return Ok(response);
         }
 
         let mut conn = self.pool.get().await.map_err(|err| {
