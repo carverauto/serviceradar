@@ -394,13 +394,25 @@ defmodule ServiceRadar.EventWriter.Pipeline do
         end
       end)
 
+    # handle_message routes by subject via batcher_rules/0. Stream names do
+    # not always match those atoms (EVENTS covers events.flow.attribution,
+    # which is :flow_attribution). Idle extra batchers are cheap; a missing
+    # one crashes every matching message.
+    batcher_opts = [batch_size: config.batch_size, batch_timeout: config.batch_timeout]
+
+    stream_batchers =
+      Enum.reduce(batcher_rules(), stream_batchers, fn {batcher, _matcher}, acc ->
+        if Keyword.has_key?(acc, batcher) do
+          acc
+        else
+          Keyword.put(acc, batcher, batcher_opts)
+        end
+      end)
+
     if Keyword.has_key?(stream_batchers, :default) do
       stream_batchers
     else
-      Keyword.put(stream_batchers, :default,
-        batch_size: config.batch_size,
-        batch_timeout: config.batch_timeout
-      )
+      Keyword.put(stream_batchers, :default, batcher_opts)
     end
   end
 

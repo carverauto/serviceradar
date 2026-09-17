@@ -1703,6 +1703,14 @@ if config_env() == :prod do
       max_deliver: String.to_integer(System.get_env("EVENT_WRITER_MAX_DELIVER") || "5"),
       streams: [
         %{
+          name: "FLOW_ATTRIBUTION",
+          stream_name: "events",
+          subject: "events.flow.attribution",
+          processor: ServiceRadar.EventWriter.Processors.FlowAttributionUpdates,
+          batch_size: 100,
+          batch_timeout: 1_000
+        },
+        %{
           name: "EVENTS",
           subject: "events.>",
           processor: ServiceRadar.EventWriter.Processors.Events,
