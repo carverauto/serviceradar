@@ -2513,7 +2513,9 @@ sweep:
 analytics:
   starrocks:
     enabled: false
-    # sharedNothing (durable BE disks) or sharedData (object storage + CN cache)
+    # sharedNothing (durable BE disks) or sharedData (object storage + CN cache).
+    # sharedData requires objectStorageBucket + secretName; that bucket is the
+    # analytics object store (DuckDB/StarRocks), never the CNPG Barman destination.
     profile: sharedNothing
     operatorChartVersion: "1.11.7"
     imageTag: "3.5.21"
@@ -2525,6 +2527,15 @@ analytics:
     sharedData:
       objectStorageBucket: ""
       objectStorageEndpoint: ""
+      objectStorageRegion: ""
+      objectStoragePrefix: starrocks
+      urlStyle: path
+      # Opaque secret with access_key_id / secret_access_key. Demo uses
+      # serviceradar-analytics-object-store (same keys as DuckDB). Not
+      # cnpg-backup-s3-creds (Barman / SeaweedFS).
+      secretName: ""
+      accessKeyKey: access_key_id
+      secretKeyKey: secret_access_key
     streamLoad:
       maxRows: 50000
       maxBytes: 33554432

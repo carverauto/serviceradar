@@ -35,13 +35,21 @@ argocdImageUpdater:
 tools:
   enabled: true
 
-# Opt-in StarRocks analytics for the demo lab FE/BE in namespace starrocks.
-# Cutover stays empty; catalog is the CNPG current-state join path only.
+# Opt-in StarRocks analytics for the demo lab FE/CN in namespace starrocks.
+# Object table data uses the DuckDB Linode analytics bucket, not Barman.
 analytics:
   starrocks:
     enabled: true
+    profile: sharedData
     shadowDatasets: []
     cutoverDatasets: []
+    sharedData:
+      objectStorageBucket: serviceradar-demo-analytics
+      objectStorageEndpoint: https://us-ord-10.linodeobjects.com
+      objectStorageRegion: us-ord
+      objectStoragePrefix: starrocks
+      urlStyle: path
+      secretName: serviceradar-analytics-object-store
     catalog:
       enabled: true
       secretName: serviceradar-starrocks-catalog

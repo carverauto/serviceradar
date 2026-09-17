@@ -28,7 +28,13 @@ HELPERS = (
 CORE_TMPL = (REPO_ROOT / "helm" / "serviceradar" / "templates" / "core.yaml").read_text()
 WEB_TMPL = (REPO_ROOT / "helm" / "serviceradar" / "templates" / "web.yaml").read_text()
 LAB_CLUSTER = (REPO_ROOT / "k8s" / "starrocks" / "values-cluster.yaml").read_text()
+LAB_SHARED_DATA = (
+    REPO_ROOT / "k8s" / "starrocks" / "values-cluster-shared-data.yaml"
+).read_text()
 LAB_README = (REPO_ROOT / "k8s" / "starrocks" / "README.md").read_text()
+STORAGE_VOLUME_JOB = (
+    REPO_ROOT / "helm" / "serviceradar" / "templates" / "starrocks-storage-volume-job.yaml"
+).read_text()
 CATALOG_JOB = (
     REPO_ROOT / "helm" / "serviceradar" / "templates" / "starrocks-catalog-job.yaml"
 ).read_text()
@@ -76,7 +82,8 @@ class StarRocksAnalyticsPinsTest(unittest.TestCase):
         self.assertNotIn("namespace: serviceradar", LAB_CLUSTER)
         self.assertIn("namespace starrocks", LAB_README)
         self.assertIn("Do not copy lab node procedures", LAB_README)
-        self.assertIn("Hosted shared-data (CN + object storage) is not this", LAB_README)
+        self.assertIn("values-cluster-shared-data.yaml", LAB_README)
+        self.assertIn("stays on the shared-nothing file", LAB_README)
 
     def test_lab_shared_nothing_cannot_prove_hosted_restore_drills(self):
         """3.4 CN-cache / object-outage / full restore are hosted shared-data drills."""
@@ -86,6 +93,27 @@ class StarRocksAnalyticsPinsTest(unittest.TestCase):
         self.assertIn("profile: sharedNothing", VALUES)
         self.assertIn('objectStorageBucket: ""', VALUES)
         self.assertIn("cutoverDatasets: []", VALUES)
+
+    def test_carverauto_shared_data_overlay_uses_cn_and_not_barman(self):
+        self.assertIn("enabledBe: false", LAB_SHARED_DATA)
+        self.assertIn("enabledCn: true", LAB_SHARED_DATA)
+        self.assertIn("run_mode = shared_data", LAB_SHARED_DATA)
+        self.assertIn("enable_load_volume_from_conf = false", LAB_SHARED_DATA)
+        self.assertIn("starrocks/cn-ubuntu", LAB_SHARED_DATA)
+        self.assertNotIn("aws_s3_access_key", LAB_SHARED_DATA)
+        self.assertNotIn("cnpg-backup-s3-creds", LAB_SHARED_DATA)
+        self.assertIn("serviceradar-demo-analytics", LAB_SHARED_DATA)
+        self.assertIn("secretName: serviceradar-analytics-object-store", VALUES_DEMO)
+        self.assertIn("objectStorageBucket: serviceradar-demo-analytics", VALUES_DEMO)
+        self.assertIn("profile: sharedData", VALUES_DEMO)
+        self.assertIn("starrocks-storage-volume", STORAGE_VOLUME_JOB)
+        self.assertIn("secretKeyRef", STORAGE_VOLUME_JOB)
+        self.assertIn("access_key_id", STORAGE_VOLUME_JOB)
+        self.assertNotIn("cnpg-backup-s3-creds", STORAGE_VOLUME_JOB)
+        self.assertLess(
+            STORAGE_VOLUME_JOB.find("profile is sharedData"),
+            STORAGE_VOLUME_JOB.find("kind: Job"),
+        )
 
     def test_catalog_job_is_gated_off_and_uses_an_infra_secret(self):
         self.assertIn("catalog.enabled", CATALOG_JOB)
@@ -193,10 +221,11 @@ class StarRocksAnalyticsPinsTest(unittest.TestCase):
         self.assertIn("cmdline VARCHAR(65533)", flows)
         self.assertIn("workload_identity VARCHAR(65533)", flows)
         attr = (SCHEMA_DIR / "0008_ocsf_network_activity_attribution.sql").read_text()
-        self.assertIn("ADD COLUMN IF NOT EXISTS pid", attr)
-        self.assertIn("ADD COLUMN IF NOT EXISTS comm", attr)
-        self.assertIn("ADD COLUMN IF NOT EXISTS cmdline", attr)
-        self.assertIn("ADD COLUMN IF NOT EXISTS workload_identity", attr)
+        self.assertIn("ADD COLUMN pid", attr)
+        self.assertIn("ADD COLUMN comm", attr)
+        self.assertIn("ADD COLUMN cmdline", attr)
+        self.assertIn("ADD COLUMN workload_identity", attr)
+        self.assertNotIn("IF NOT EXISTS", attr)
         metrics = (SCHEMA_DIR / "0002_timeseries_metrics.sql").read_text()
         self.assertIn("CREATE TABLE IF NOT EXISTS serviceradar.timeseries_metrics", metrics)
         self.assertNotIn("demo", metrics)
@@ -206,7 +235,8 @@ class StarRocksAnalyticsPinsTest(unittest.TestCase):
         self.assertIn("firewall_rule_name VARCHAR(256)", events)
         self.assertIn("source_type VARCHAR(64)", events)
         alter = (SCHEMA_DIR / "0007_events_reader_columns.sql").read_text()
-        self.assertIn("ADD COLUMN IF NOT EXISTS src_endpoint_ip", alter)
+        self.assertIn("ADD COLUMN src_endpoint_ip", alter)
+        self.assertNotIn("IF NOT EXISTS", alter)
         mvs = (SCHEMA_DIR / "0005_hourly_materialized_views.sql").read_text()
         self.assertIn(
             "CREATE MATERIALIZED VIEW IF NOT EXISTS serviceradar.ocsf_network_activity_hourly",

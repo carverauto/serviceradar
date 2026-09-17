@@ -31,4 +31,8 @@ data:
   catalogName: {{ dig "catalog" "name" "cnpg_platform" $sr | quote }}
   catalogDriverClass: {{ dig "catalog" "driverClass" "org.postgresql.Driver" $sr | quote }}
   catalogDriverUrl: {{ dig "catalog" "driverUrl" "file:///opt/starrocks/jdbc/postgresql.jar" $sr | quote }}
+  objectStorageBucket: {{ dig "sharedData" "objectStorageBucket" "" $sr | quote }}
+  objectStorageEndpoint: {{ dig "sharedData" "objectStorageEndpoint" "" $sr | quote }}
+  objectStorageRegion: {{ dig "sharedData" "objectStorageRegion" "" $sr | quote }}
+  objectStoragePrefix: {{ dig "sharedData" "objectStoragePrefix" "starrocks" $sr | quote }}
 {{- end }}

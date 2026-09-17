@@ -8,12 +8,13 @@ The cloud/SaaS product runs on **Akamai LKE**. Do not copy lab node procedures
 (SSH, `/etc/sysctl.d`, `gitops/VMs/setup-new-VM.sh`) onto LKE workers. Hosted
 StarRocks is the shared-data profile from
 `openspec/changes/add-starrocks-telemetry-analytics` (object storage + CN
-cache); that chart/DaemonSet work belongs with the SaaS cluster, not here.
+cache); LKE node sysctl still belongs with the SaaS cluster, not here.
 
-Cluster-scoped operator, pinned to chart/operator **1.11.7**. The lab
+Cluster-scoped operator, pinned to chart/operator **1.11.7**. The default lab
 `StarRocksCluster` is shared-nothing FE+BE (`values-cluster.yaml`), pinned to
-StarRocks **3.5.21**. Hosted shared-data (CN + object storage) is not this
-directory.
+StarRocks **3.5.21**. Carverauto demo uses the shared-data overlay
+`values-cluster-shared-data.yaml` (CN + Linode analytics bucket). Farm01
+stays on the shared-nothing file.
 
 The CNPG JDBC catalog (`cnpg_platform`) is opt-in and off by default. FE/BE
 expect the pinned PostgreSQL JDBC driver at
@@ -65,13 +66,22 @@ for ctx in carverauto farm01; do
     --namespace starrocks \
     --version 1.11.7 \
     -f k8s/starrocks/values.yaml
+  helm_files="-f k8s/starrocks/values-cluster.yaml"
+  if [ "$ctx" = carverauto ]; then
+    helm_files="$helm_files -f k8s/starrocks/values-cluster-shared-data.yaml"
+  fi
   helm upgrade --install starrocks-lab starrocks/starrocks \
     --kube-context "$ctx" \
     --namespace starrocks \
     --version 1.11.7 \
-    -f k8s/starrocks/values-cluster.yaml
+    $helm_files
 done
 ```
+
+`run_mode` is fixed at first FE start. Switching carverauto from shared-nothing
+to shared-data requires uninstalling `starrocks-lab` and deleting FE/BE PVCs
+before the overlay install. Warehouse rows are rebuilt from JetStream/EventWriter;
+do not point this overlay at the CNPG Barman bucket.
 
 If the operator was already created with `kubectl apply -f .../operator.yaml`,
 the first Helm install has to steal server-side field ownership from kubectl
@@ -96,8 +106,9 @@ for ctx in carverauto farm01; do
 done
 ```
 
-Expect `kube-starrocks-operator` `1/1 Running` and FE/BE pods
-`lab-fe-0..2`, `lab-be-0..2` Ready. An empty operator pod list with a
+Expect `kube-starrocks-operator` `1/1 Running`. Shared-nothing (farm01):
+`lab-fe-0..2`, `lab-be-0..2` Ready. Shared-data (carverauto overlay):
+`lab-fe-0..2`, `lab-cn-0..2` Ready. An empty operator pod list with a
 Deployment present is the restricted-PSS failure above; check ReplicaSet events.
 
 ```bash
@@ -158,7 +169,7 @@ seccomp) or farm01 `serviceradar`.
 | Operator chart | `starrocks/operator` `1.11.7` |
 | Cluster chart | `starrocks/starrocks` `1.11.7` |
 | Operator image | `starrocks/operator:v1.11.7` |
-| FE/BE image | `starrocks/fe-ubuntu:3.5.21`, `starrocks/be-ubuntu:3.5.21` |
+| FE/BE/CN image | `starrocks/fe-ubuntu:3.5.21`, `starrocks/be-ubuntu:3.5.21`, `starrocks/cn-ubuntu:3.5.21` |
 | CRD | `starrocksclusters.starrocks.com` from operator tag `v1.11.7` |
 | Namespace | `starrocks`, PSS `baseline` (audit/warn `restricted`) |
-| Profile | 3 FE + 3 BE, ClusterIP, `local-path` PVCs |
+| Profile | farm01: 3 FE + 3 BE shared-nothing; carverauto: 3 FE + 3 CN shared-data |

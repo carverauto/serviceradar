@@ -3,6 +3,7 @@ filegroup(
     srcs = [
         "README.md",
         "values-cluster.yaml",
+        "values-cluster-shared-data.yaml",
         "values.yaml",
     ],
     visibility = ["//visibility:public"],

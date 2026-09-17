@@ -1,0 +1,119 @@
+{{- /* CREATE STORAGE VOLUME on a shared-data FE. Credentials come from the
+     DuckDB analytics object-store secret, not values.yaml and not Barman. */ -}}
+{{- $sr := default (dict) (default (dict) .Values.analytics).starrocks -}}
+{{- $sd := default (dict) $sr.sharedData -}}
+{{- if and $sr.enabled (eq (default "sharedNothing" $sr.profile) "sharedData") }}
+{{- if or (not $sd.secretName) (not $sd.objectStorageBucket) }}
+{{- fail "analytics.starrocks.sharedData.secretName and objectStorageBucket are required when profile is sharedData" }}
+{{- end }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-starrocks-storage-volume
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: serviceradar
+    app.kubernetes.io/component: starrocks-storage-volume
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: serviceradar
+        app.kubernetes.io/component: starrocks-storage-volume
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      containers:
+        - name: create-storage-volume
+          image: mysql:8.4
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              i=0
+              while [ "$i" -lt 36 ]; do
+                if mysql -h "$FE_HOST" -P "$FE_PORT" -u root \
+                  ${FE_PASSWORD:+-p"$FE_PASSWORD"} \
+                  --protocol=TCP -e "SELECT 1" >/dev/null 2>&1; then
+                  break
+                fi
+                i=$((i + 1))
+                sleep 5
+              done
+              ak=$(printf '%s' "$ACCESS_KEY_ID" | sed 's/"/\\"/g')
+              sk=$(printf '%s' "$SECRET_ACCESS_KEY" | sed 's/"/\\"/g')
+              loc="s3://${BUCKET}"
+              if [ -n "${PREFIX}" ]; then
+                loc="${loc}/${PREFIX}"
+              fi
+              endpoint="$ENDPOINT"
+              case "$endpoint" in
+                http://*|https://*) ;;
+                *) endpoint="https://${endpoint}" ;;
+              esac
+              path_style=false
+              if [ "${URL_STYLE}" = "path" ]; then
+                path_style=true
+              fi
+              {
+                echo "CREATE STORAGE VOLUME IF NOT EXISTS linode_analytics"
+                echo "TYPE = S3"
+                echo "LOCATIONS = (\"${loc}\")"
+                echo "PROPERTIES ("
+                echo "  \"enabled\" = \"true\","
+                echo "  \"aws.s3.region\" = \"${REGION}\","
+                echo "  \"aws.s3.endpoint\" = \"${endpoint}\","
+                echo "  \"aws.s3.use_aws_sdk_default_behavior\" = \"false\","
+                echo "  \"aws.s3.use_instance_profile\" = \"false\","
+                echo "  \"aws.s3.enable_ssl\" = \"true\","
+                echo "  \"aws.s3.enable_path_style_access\" = \"${path_style}\","
+                echo "  \"aws.s3.access_key\" = \"${ak}\","
+                echo "  \"aws.s3.secret_key\" = \"${sk}\""
+                echo ");"
+                echo "SET linode_analytics AS DEFAULT STORAGE VOLUME;"
+              } > /tmp/sv.sql
+              mysql -h "$FE_HOST" -P "$FE_PORT" -u root \
+                ${FE_PASSWORD:+-p"$FE_PASSWORD"} \
+                --protocol=TCP \
+                < /tmp/sv.sql
+          env:
+            - name: FE_HOST
+              value: {{ $sr.fe.service | quote }}
+            - name: FE_PORT
+              value: {{ $sr.fe.queryPort | quote }}
+            - name: BUCKET
+              value: {{ $sd.objectStorageBucket | quote }}
+            - name: PREFIX
+              value: {{ default "starrocks" $sd.objectStoragePrefix | quote }}
+            - name: ENDPOINT
+              value: {{ $sd.objectStorageEndpoint | quote }}
+            - name: REGION
+              value: {{ $sd.objectStorageRegion | quote }}
+            - name: URL_STYLE
+              value: {{ default "path" $sd.urlStyle | quote }}
+            - name: ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $sd.secretName | quote }}
+                  key: {{ default "access_key_id" $sd.accessKeyKey | quote }}
+            - name: SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $sd.secretName | quote }}
+                  key: {{ default "secret_access_key" $sd.secretKeyKey | quote }}
+            {{- $cat := default (dict) $sr.catalog -}}
+            {{- if $cat.fePasswordSecretName }}
+            - name: FE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $cat.fePasswordSecretName | quote }}
+                  key: {{ $cat.fePasswordSecretKey | default "password" | quote }}
+            {{- end }}
+{{- end }}

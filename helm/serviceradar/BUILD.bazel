@@ -89,6 +89,7 @@ py_test(
         "templates/starrocks-analytics-config.yaml",
         "templates/starrocks-catalog-job.yaml",
         "templates/starrocks-catalog-network-policy.yaml",
+        "templates/starrocks-storage-volume-job.yaml",
         "templates/core.yaml",
         "templates/web.yaml",
         "templates/flow-collector.yaml",
