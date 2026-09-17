@@ -4,6 +4,7 @@ defmodule ServiceRadar.Analytics.StarRocks.DestinationTest do
   alias ServiceRadar.Analytics.StarRocks
   alias ServiceRadar.Analytics.StarRocks.Destination
   alias ServiceRadar.Analytics.StarRocks.Identity
+  alias ServiceRadar.Analytics.StarRocks.Rows
 
   @moduletag :db_free
 
@@ -29,7 +30,7 @@ defmodule ServiceRadar.Analytics.StarRocks.DestinationTest do
              "550e8400-e29b-41d4-a716-446655440000"
 
     encoded =
-      ServiceRadar.Analytics.StarRocks.Rows.encode(:logs, [
+      Rows.encode(:logs, [
         %{id: bin, timestamp: ~U[2026-01-15 10:00:01Z], body: "synthetic uuid log"}
       ])
 
@@ -77,6 +78,29 @@ defmodule ServiceRadar.Analytics.StarRocks.DestinationTest do
     second = Map.merge(shared, %{time: ~U[2026-01-15 10:01:00Z], bytes_in: 44, packets_in: 1})
 
     refute Identity.record_id(:flows, first) == Identity.record_id(:flows, second)
+  end
+
+  test "flow Stream Load documents carry protocol and ports for the Flows UI" do
+    [encoded] =
+      Rows.encode(:flows, [
+        %{
+          time: ~U[2026-01-15 10:00:00Z],
+          src_endpoint_ip: "192.0.2.10",
+          src_endpoint_port: 443,
+          dst_endpoint_ip: "198.51.100.20",
+          dst_endpoint_port: 51_200,
+          protocol_num: 6,
+          protocol_name: "tcp",
+          direction_label: "egress",
+          bytes_in: 1200
+        }
+      ])
+
+    assert encoded["protocol_num"] == 6
+    assert encoded["protocol_name"] == "tcp"
+    assert encoded["src_endpoint_port"] == 443
+    assert encoded["dst_endpoint_port"] == 51_200
+    assert encoded["direction_label"] == "egress"
   end
 
   test "tables are dataset-specific and not the demo namespace" do
