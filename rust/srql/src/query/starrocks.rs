@@ -1,4 +1,4 @@
-use super::{PaginationMeta, QueryPlan, QueryResponse, TranslateResponse, types::BindParam};
+use super::{types::BindParam, PaginationMeta, QueryPlan, QueryResponse, TranslateResponse};
 use crate::{
     error::{Result, ServiceError},
     parser::{Entity, Filter, StatsAggType, StatsAggregation},
@@ -177,7 +177,7 @@ const FLOW_PROTOCOL_GROUP_SQL: &str =
     "CASE WHEN protocol_num = 6 THEN 'tcp' WHEN protocol_num = 17 THEN 'udp' ELSE 'other' END";
 const FLOW_BYTES_TOTAL_SQL: &str = "(COALESCE(bytes_in, 0) + COALESCE(bytes_out, 0))";
 const FLOW_PACKETS_TOTAL_SQL: &str = "(COALESCE(packets_in, 0) + COALESCE(packets_out, 0))";
-const FLOW_ROW_SELECT: &str = "id, time, device_uid, src_endpoint_ip, dst_endpoint_ip, src_endpoint_port, dst_endpoint_port, protocol_num, protocol_name, CASE WHEN protocol_num = 6 THEN 'tcp' WHEN protocol_num = 17 THEN 'udp' ELSE 'other' END AS protocol_group, (COALESCE(bytes_in, 0) + COALESCE(bytes_out, 0)) AS bytes_total, (COALESCE(packets_in, 0) + COALESCE(packets_out, 0)) AS packets_total, bytes_in, bytes_out, packets_in, packets_out, sampling_rate, direction_label, sampler_address, dst_service_label";
+const FLOW_ROW_SELECT: &str = "id, time, device_uid, src_endpoint_ip, dst_endpoint_ip, src_endpoint_port, dst_endpoint_port, protocol_num, protocol_name, CASE WHEN protocol_num = 6 THEN 'tcp' WHEN protocol_num = 17 THEN 'udp' ELSE 'other' END AS protocol_group, (COALESCE(bytes_in, 0) + COALESCE(bytes_out, 0)) AS bytes_total, (COALESCE(packets_in, 0) + COALESCE(packets_out, 0)) AS packets_total, bytes_in, bytes_out, packets_in, packets_out, sampling_rate, direction_label, sampler_address, dst_service_label, pid, comm, cmdline, CASE WHEN pid IS NULL THEN 'unmatched' ELSE 'attributed' END AS attribution_status";
 
 fn dataset_sql(plan: &QueryPlan, dataset: Dataset) -> Result<TranslateResponse> {
     let joins = catalog_joins(plan, dataset)?;
@@ -193,7 +193,11 @@ fn dataset_sql(plan: &QueryPlan, dataset: Dataset) -> Result<TranslateResponse> 
         dataset.time_column
     };
     let from = from_with_catalog_joins(table, &joins);
-    let (where_sql, params) = time_predicate(plan, time_column, !joins.is_empty());
+    let (mut where_sql, params) = time_predicate(plan, time_column, !joins.is_empty());
+    if matches!(plan.entity, Entity::AttributedFlows) {
+        let pid_col = if joins.is_empty() { "pid" } else { "f.pid" };
+        where_sql = format!("{where_sql} AND {pid_col} IS NOT NULL");
+    }
     if let Some(downsample) = plan.downsample.as_ref() {
         let sql = downsample_sql(plan, downsample, &from, &where_sql)?;
         return Ok(TranslateResponse {
@@ -234,6 +238,7 @@ const CNPG_CATALOG: &str = "cnpg_platform.platform";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum CatalogJoin {
+    #[allow(dead_code)]
     Attribution,
     PrefixTags,
     Devices,
@@ -264,10 +269,12 @@ impl CatalogJoin {
 }
 
 fn catalog_joins(plan: &QueryPlan, dataset: Dataset) -> Result<Vec<CatalogJoin>> {
-    let wants_attribution = matches!(plan.entity, Entity::AttributedFlows);
+    // Historical attributed_flows filter pid/comm on the observation row
+    // (same snapshot semantics as CNPG ocsf_payload attribution). The JDBC
+    // catalog is for live hostname/prefix enrichment, not this page.
     let wants_prefix = plan_mentions(plan, &["prefix_tag", "live_prefix_tag"]);
     let wants_device = plan_mentions(plan, &["hostname", "device_name"]);
-    if !(wants_attribution || wants_prefix || wants_device) {
+    if !(wants_prefix || wants_device) {
         return Ok(Vec::new());
     }
     if dataset.raw_table != "serviceradar.ocsf_network_activity" {
@@ -276,9 +283,6 @@ fn catalog_joins(plan: &QueryPlan, dataset: Dataset) -> Result<Vec<CatalogJoin>>
         ));
     }
     let mut joins = Vec::new();
-    if wants_attribution {
-        joins.push(CatalogJoin::Attribution);
-    }
     if wants_prefix {
         joins.push(CatalogJoin::PrefixTags);
     }
@@ -591,7 +595,7 @@ mod tests {
     use super::*;
     use crate::config::AppConfig;
     use crate::parser;
-    use crate::query::{QueryDirection, QueryRequest, build_query_plan};
+    use crate::query::{build_query_plan, QueryDirection, QueryRequest};
     use std::time::Duration as StdDuration;
 
     fn config() -> AppConfig {
@@ -636,16 +640,12 @@ mod tests {
             r#"in:flows time:last_1h stats:"sum(bytes_total) as bytes_total, sum(packets_total) as packets_total, count(*) as flow_count by src_endpoint_ip,dst_endpoint_ip" limit:120"#,
         ))
         .expect("compile");
-        assert!(
-            compiled
-                .sql
-                .contains("FROM serviceradar.ocsf_network_activity")
-        );
-        assert!(
-            compiled
-                .sql
-                .contains("COALESCE(bytes_in, 0) + COALESCE(bytes_out, 0)")
-        );
+        assert!(compiled
+            .sql
+            .contains("FROM serviceradar.ocsf_network_activity"));
+        assert!(compiled
+            .sql
+            .contains("COALESCE(bytes_in, 0) + COALESCE(bytes_out, 0)"));
         assert!(
             compiled.sql.contains("GROUP BY src_endpoint_ip"),
             "{}",
@@ -704,11 +704,9 @@ mod tests {
             r#"in:flows time:last_1h stats:"sum(bytes_in) as bytes_in" limit:10"#,
         ))
         .expect("compile");
-        assert!(
-            compiled
-                .sql
-                .contains("FROM serviceradar.ocsf_network_activity")
-        );
+        assert!(compiled
+            .sql
+            .contains("FROM serviceradar.ocsf_network_activity"));
         assert!(compiled.sql.contains("SUM(bytes_in) AS bytes_in"));
         assert!(compiled.sql.contains("LIMIT 10"));
         refute_postgres(&compiled.sql);
@@ -720,11 +718,9 @@ mod tests {
             r#"in:flows time:last_7d stats:"sum(bytes_in) as bytes_in" limit:10"#,
         ))
         .expect("compile");
-        assert!(
-            compiled
-                .sql
-                .contains("FROM serviceradar.ocsf_network_activity_hourly")
-        );
+        assert!(compiled
+            .sql
+            .contains("FROM serviceradar.ocsf_network_activity_hourly"));
         assert!(compiled.sql.contains("SUM(bytes_in) AS bytes_in"));
         refute_postgres(&compiled.sql);
     }
@@ -752,11 +748,9 @@ mod tests {
             r#"in:timeseries_metrics time:last_1h stats:"avg(value) as avg_value" limit:20"#,
         ))
         .expect("compile");
-        assert!(
-            compiled
-                .sql
-                .contains("FROM serviceradar.timeseries_metrics")
-        );
+        assert!(compiled
+            .sql
+            .contains("FROM serviceradar.timeseries_metrics"));
         assert!(compiled.sql.contains("AVG(value) AS avg_value"));
         refute_postgres(&compiled.sql);
     }
@@ -767,11 +761,9 @@ mod tests {
             r#"in:cpu_metrics time:last_7d stats:"avg(usage_percent) as avg_usage" limit:20"#,
         ))
         .expect("compile");
-        assert!(
-            compiled
-                .sql
-                .contains("FROM serviceradar.timeseries_metrics_hourly")
-        );
+        assert!(compiled
+            .sql
+            .contains("FROM serviceradar.timeseries_metrics_hourly"));
         refute_postgres(&compiled.sql);
     }
 
@@ -789,23 +781,20 @@ mod tests {
     }
 
     #[test]
-    fn attributed_flows_join_cnpg_attribution_current_state() {
+    fn attributed_flows_filter_persisted_pid_not_live_catalog_join() {
         let compiled =
             translate(&plan("in:attributed_flows time:last_1h limit:5")).expect("compile");
+        assert!(compiled
+            .sql
+            .contains("FROM serviceradar.ocsf_network_activity"));
+        assert!(compiled.sql.contains("pid IS NOT NULL"), "{}", compiled.sql);
         assert!(
-            compiled
-                .sql
-                .contains("FROM serviceradar.ocsf_network_activity AS f")
+            compiled.sql.contains("AS attribution_status"),
+            "{}",
+            compiled.sql
         );
-        assert!(
-            compiled
-                .sql
-                .contains("cnpg_platform.platform.flow_process_attribution_current AS attr")
-        );
-        assert!(compiled.sql.contains("attr.local_ip = f.src_endpoint_ip"));
+        assert!(!compiled.sql.contains("flow_process_attribution_current"));
         assert!(!compiled.sql.contains("ocsf_network_activity_hourly"));
-        assert!(!compiled.sql.contains("network_credential_secrets"));
-        assert!(!compiled.sql.contains("platform.logs"));
         refute_postgres(&compiled.sql);
     }
 
@@ -815,11 +804,9 @@ mod tests {
             r#"in:flows hostname:host-alpha time:last_1h stats:"sum(bytes_in) as bytes_in" limit:10"#,
         ))
         .expect("compile");
-        assert!(
-            compiled
-                .sql
-                .contains("cnpg_platform.platform.ocsf_devices AS dev")
-        );
+        assert!(compiled
+            .sql
+            .contains("cnpg_platform.platform.ocsf_devices AS dev"));
         assert!(compiled.sql.contains("dev.uid = f.device_uid"));
         refute_postgres(&compiled.sql);
     }
@@ -830,11 +817,9 @@ mod tests {
             r#"in:flows prefix_tag:dns-policy:hit time:last_1h limit:10"#,
         ))
         .expect("compile");
-        assert!(
-            compiled
-                .sql
-                .contains("cnpg_platform.platform.prefix_tags_catalog AS tags")
-        );
+        assert!(compiled
+            .sql
+            .contains("cnpg_platform.platform.prefix_tags_catalog AS tags"));
         assert!(!compiled.sql.contains("cnpg_platform.platform.logs"));
         refute_postgres(&compiled.sql);
     }
@@ -843,11 +828,9 @@ mod tests {
     fn plain_flows_do_not_join_the_cnpg_catalog() {
         let compiled = translate(&plan("in:flows time:last_1h limit:5")).expect("compile");
         assert!(!compiled.sql.contains("cnpg_platform"));
-        assert!(
-            compiled
-                .sql
-                .contains("FROM serviceradar.ocsf_network_activity")
-        );
+        assert!(compiled
+            .sql
+            .contains("FROM serviceradar.ocsf_network_activity"));
     }
 
     #[test]
