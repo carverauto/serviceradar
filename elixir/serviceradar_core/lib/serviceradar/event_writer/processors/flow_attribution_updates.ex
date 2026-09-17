@@ -26,9 +26,20 @@ defmodule ServiceRadar.EventWriter.Processors.FlowAttributionUpdates do
       |> Enum.map(&parse_message/1)
       |> Enum.reject(&is_nil/1)
 
-    applicable = select_monotonic(parsed, opts)
-    _ = Destination.maybe_shadow(:flow_attribution, applicable, opts)
-    {:ok, length(parsed)}
+    with {:ok, applicable} <- select_monotonic(parsed, opts),
+         {:ok, _} <- persist_updates(applicable, opts) do
+      {:ok, length(parsed)}
+    end
+  end
+
+  defp persist_updates([], _opts), do: {:ok, :empty}
+
+  defp persist_updates(rows, opts) do
+    Destination.persist_shadow(
+      :flow_attribution,
+      rows,
+      opts |> Keyword.put(:completed, [:cnpg]) |> Keyword.put(:require_all, true)
+    )
   end
 
   @impl true
@@ -51,8 +62,14 @@ defmodule ServiceRadar.EventWriter.Processors.FlowAttributionUpdates do
 
   defp select_monotonic(rows, opts) do
     lookup = Keyword.get(opts, :version_lookup, &default_stored_versions/1)
-    stored = lookup.(Enum.map(rows, & &1["id"]))
 
+    case lookup.(Enum.map(rows, & &1["id"])) do
+      {:error, _} = error -> error
+      stored when is_map(stored) -> {:ok, monotonic_rows(rows, stored)}
+    end
+  end
+
+  defp monotonic_rows(rows, stored) do
     rows
     |> Enum.group_by(& &1["id"])
     |> Enum.flat_map(fn {id, group} ->
@@ -98,8 +115,8 @@ defmodule ServiceRadar.EventWriter.Processors.FlowAttributionUpdates do
             {Enum.at(row, id_idx), to_int(Enum.at(row, ver_idx))}
           end)
 
-        _ ->
-          %{}
+        {:error, reason} ->
+          {:error, reason}
       end
     end
   end

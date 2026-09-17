@@ -55,6 +55,7 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
 
     http = fn %{method: :put, headers: headers, body: body} ->
       assert {"partial_update", "true"} in headers
+      assert {"merge_condition", "attribution_version"} in headers
       assert {"columns", Enum.join(Attribution.load_columns(), ",")} in headers
       [payload] = Jason.decode!(body)
       refute Map.has_key?(payload, "bytes_in")
@@ -77,6 +78,7 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
                http: http,
                config: %{},
                partial_update: true,
+               merge_condition: "attribution_version",
                columns: Attribution.load_columns()
              )
   end

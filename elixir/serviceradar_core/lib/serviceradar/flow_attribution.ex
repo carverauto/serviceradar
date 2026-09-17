@@ -10,7 +10,6 @@ defmodule ServiceRadar.FlowAttribution do
   """
 
   alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEvent
-  alias ServiceRadar.Analytics.StarRocks.Attribution
   alias ServiceRadar.FlowAttribution.Correlation
   alias ServiceRadar.FlowAttribution.EventRows
   alias ServiceRadar.FlowAttribution.Persistence
@@ -43,19 +42,16 @@ defmodule ServiceRadar.FlowAttribution do
 
         case persistence.(rows) do
           :ok ->
-            publish_starrocks_updates(rows, opts)
-            :ok
+            publish_starrocks_updates(opts)
 
           {:ok, _result} ->
-            publish_starrocks_updates(rows, opts)
-            :ok
+            publish_starrocks_updates(opts)
 
           {:error, reason} ->
             persistence_error(reason)
 
           %Postgrex.Result{} ->
-            publish_starrocks_updates(rows, opts)
-            :ok
+            publish_starrocks_updates(opts)
 
           other ->
             persistence_error({:unexpected_persistence_result, other})
@@ -104,8 +100,17 @@ defmodule ServiceRadar.FlowAttribution do
   @spec retention_minutes() :: pos_integer()
   defdelegate retention_minutes, to: Retention
 
-  defp publish_starrocks_updates(rows, opts) do
-    Attribution.publish_updates(rows, Keyword.take(opts, [:publish]))
+  defp publish_starrocks_updates(opts) do
+    case Correlation.flow_history_backend() do
+      :starrocks ->
+        case Correlation.correlate_starrocks(opts) do
+          {:ok, _count} -> :ok
+          {:error, reason} -> persistence_error(reason)
+        end
+
+      :cnpg ->
+        :ok
+    end
   end
 
   defp persistence_error(reason) do

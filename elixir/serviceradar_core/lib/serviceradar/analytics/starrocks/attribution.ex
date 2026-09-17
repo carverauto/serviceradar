@@ -6,10 +6,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Attribution do
   not overwrite a higher one on redelivery.
   """
 
-  alias ServiceRadar.Analytics.StarRocks.Identity
   alias ServiceRadar.NATS.Connection
-
-  require Logger
 
   @subject "events.flow.attribution"
   @load_columns ["id", "attribution_version", "pid", "comm", "cmdline", "workload_identity"]
@@ -23,7 +20,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Attribution do
   @spec update_event(map(), pos_integer()) :: map()
   def update_event(row, version) when is_map(row) and is_integer(version) and version > 0 do
     %{
-      "id" => Identity.record_id(:flows, row),
+      "id" => field(row, :id),
       "attribution_version" => version,
       "pid" => field(row, :pid),
       "comm" => field(row, :comm),
@@ -38,37 +35,36 @@ defmodule ServiceRadar.Analytics.StarRocks.Attribution do
     if incoming_version > existing_version, do: :apply, else: :ignore
   end
 
-  @spec publish_updates([map()], keyword()) :: :ok
+  @spec publish_updates([map()], keyword()) :: :ok | {:error, term()}
   def publish_updates(rows, opts \\ []) when is_list(rows) do
     publisher = Keyword.get(opts, :publish, &default_publish/1)
 
-    Enum.reduce_while(Enum.with_index(rows, 1), :ok, fn {row, version}, _acc ->
-      case publisher.(%{subject: @subject, payload: update_event(row, version)}) do
-        :ok -> {:cont, :ok}
-        {:error, _reason} = error -> {:halt, error}
-        _other -> {:cont, :ok}
+    Enum.reduce_while(rows, :ok, fn row, _acc ->
+      id = field(row, :id)
+      version = field(row, :attribution_version)
+
+      if is_binary(id) and id != "" and is_integer(version) and version > 0 do
+        case publisher.(%{subject: @subject, payload: update_event(row, version)}) do
+          :ok -> {:cont, :ok}
+          {:error, _reason} = error -> {:halt, error}
+          other -> {:halt, {:error, {:unexpected_publish_result, other}}}
+        end
+      else
+        {:halt, {:error, :unresolved_flow_attribution}}
       end
     end)
   end
 
   defp default_publish(%{subject: subject, payload: payload}) do
-    case Jason.encode(payload) do
-      {:ok, body} ->
-        case Connection.publish(subject, body) do
-          :ok ->
-            :ok
-
-          {:error, reason} = error ->
-            Logger.warning("StarRocks attribution JetStream publish failed",
-              subject: subject,
-              reason: inspect(reason)
-            )
-
-            error
-        end
-
-      {:error, reason} ->
-        {:error, {:envelope_not_encodable, reason}}
+    with {:ok, body} <- Jason.encode(payload),
+         {:ok, conn} <- Connection.get(),
+         {:ok, %{body: ack}} <- Gnat.request(conn, subject, body, receive_timeout: 5_000),
+         {:ok, %{"stream" => stream, "seq" => seq}} when is_binary(stream) and is_integer(seq) <-
+           Jason.decode(ack) do
+      :ok
+    else
+      {:error, reason} -> {:error, reason}
+      other -> {:error, {:invalid_jetstream_ack, other}}
     end
   end
 

@@ -16,10 +16,13 @@ defmodule ServiceRadar.EventWriter.Processors.FlowAttributionUpdatesTest do
     assert FlowAttributionUpdates.parse_message(%{data: stale}) == nil
   end
 
-  test "process_batch does not fail when StarRocks shadow is disabled" do
+  test "process_batch propagates warehouse lookup failures" do
     body = Jason.encode!(%{"id" => "flow-alpha-0001", "attribution_version" => 1})
 
-    assert {:ok, 1} = FlowAttributionUpdates.process_batch([%{data: body}])
+    assert {:error, :timeout} =
+             FlowAttributionUpdates.process_batch([%{data: body}],
+               version_lookup: fn _ -> {:error, :timeout} end
+             )
   end
 
   test "process_batch shadows attribution columns only and ignores stored-or-equal versions" do
@@ -59,6 +62,7 @@ defmodule ServiceRadar.EventWriter.Processors.FlowAttributionUpdatesTest do
 
     assert_received {:persist, "ocsf_network_activity", [row], opts}
     assert opts[:partial_update] == true
+    assert opts[:merge_condition] == "attribution_version"
     assert opts[:columns] == Attribution.load_columns()
     assert row["id"] == "flow-alpha-0001"
     assert row["attribution_version"] == 4
@@ -91,5 +95,17 @@ defmodule ServiceRadar.EventWriter.Processors.FlowAttributionUpdatesTest do
              )
 
     refute_received {:persist, _, _, _}
+  end
+
+  test "failed and filtered loads are not acknowledged" do
+    body = Jason.encode!(%{"id" => "flow-alpha-0001", "attribution_version" => 4, "pid" => 9})
+
+    for result <- [{:error, :timeout}, {:quarantine, :filtered_rows}] do
+      assert {:error, {:missing_destinations, %{missing: [:starrocks]}}} =
+               FlowAttributionUpdates.process_batch([%{data: body}],
+                 version_lookup: fn _ -> %{} end,
+                 persist: fn _, _, _ -> result end
+               )
+    end
   end
 end

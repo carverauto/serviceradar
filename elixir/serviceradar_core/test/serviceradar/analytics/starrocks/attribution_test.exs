@@ -54,13 +54,15 @@ defmodule ServiceRadar.Analytics.StarRocks.AttributionTest do
   end
 
   test "default publisher uses NATS.Connection rather than a no-op" do
-    assert {:error, {:nats_not_connected, :not_connected}} =
-             Attribution.publish_updates([%{id: "flow-alpha-0001", pid: 9}])
+    assert {:error, :not_connected} =
+             Attribution.publish_updates([
+               %{id: "flow-alpha-0001", pid: 9, attribution_version: 1}
+             ])
   end
 
   test "publish_updates emit JetStream payloads without clobbering traffic totals" do
     parent = self()
-    row = %{id: "flow-alpha-0001", pid: 9, comm: "nginx", bytes_in: 1200}
+    row = %{id: "flow-alpha-0001", pid: 9, comm: "nginx", bytes_in: 1200, attribution_version: 41}
 
     assert :ok =
              Attribution.publish_updates([row],
@@ -72,8 +74,35 @@ defmodule ServiceRadar.Analytics.StarRocks.AttributionTest do
 
     assert_received {:published, %{subject: "events.flow.attribution", payload: payload}}
     assert payload["id"] == "flow-alpha-0001"
-    assert payload["attribution_version"] == 1
+    assert payload["attribution_version"] == 41
     refute Map.has_key?(payload, "bytes_in")
+  end
+
+  test "unresolved events cannot become flow updates" do
+    assert {:error, :unresolved_flow_attribution} =
+             Attribution.publish_updates([%{observed_at: ~U[1999-06-15 12:00:00Z], pid: 9}],
+               publish: fn _ -> flunk("unresolved event published") end
+             )
+  end
+
+  test "publish failure is returned to the caller" do
+    assert {:error, :timeout} =
+             Attribution.publish_updates(
+               [%{id: "flow-alpha-0001", pid: 9, attribution_version: 42}],
+               publish: fn _ -> {:error, :timeout} end
+             )
+  end
+
+  test "load labels distinguish versions and remain stable on retry" do
+    alias ServiceRadar.Analytics.StarRocks.StreamLoad
+    first = %{"id" => "flow-alpha-0001", "attribution_version" => 41}
+    second = %{first | "attribution_version" => 42}
+
+    assert StreamLoad.load_label("ocsf_network_activity", [first]) ==
+             StreamLoad.load_label("ocsf_network_activity", [first])
+
+    refute StreamLoad.load_label("ocsf_network_activity", [first]) ==
+             StreamLoad.load_label("ocsf_network_activity", [second])
   end
 
   defp ocsf_network_activity_columns do

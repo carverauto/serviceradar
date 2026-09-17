@@ -177,8 +177,18 @@ const FLOW_ROW_SELECT: &str = "id, time, device_uid, src_endpoint_ip, dst_endpoi
 fn dataset_sql(plan: &QueryPlan, dataset: Dataset) -> Result<TranslateResponse> {
     let joins = catalog_joins(plan, dataset)?;
     let time_column = dataset.time_column;
-    let from = from_with_catalog_joins(dataset.raw_table, &joins);
-    let (mut where_sql, params) = time_predicate(plan, time_column, !joins.is_empty());
+    let direction = plan_mentions(plan, &["direction"]);
+    let from = if direction {
+        let base = direction_source(dataset.raw_table);
+        if joins.is_empty() {
+            format!("{base} AS f")
+        } else {
+            from_with_catalog_joins(&base, &joins)
+        }
+    } else {
+        from_with_catalog_joins(dataset.raw_table, &joins)
+    };
+    let (mut where_sql, params) = time_predicate(plan, time_column, direction || !joins.is_empty());
     for filter in &plan.filters {
         where_sql.push_str(" AND ");
         where_sql.push_str(&filter_sql(plan, filter)?);
@@ -280,6 +290,14 @@ fn plan_mentions(plan: &QueryPlan, fields: &[&str]) -> bool {
         let name = name.to_ascii_lowercase();
         fields.iter().any(|field| name == *field)
     };
+    if plan.order.iter().any(|order| hit(&order.field))
+        || plan
+            .downsample
+            .as_ref()
+            .is_some_and(|d| d.series.as_deref().is_some_and(hit))
+    {
+        return true;
+    }
     if plan.filters.iter().any(|filter| hit(&filter.field)) {
         return true;
     }
@@ -512,7 +530,8 @@ fn validate_identifier(value: &str) -> Result<()> {
 fn field_sql(plan: &QueryPlan, field: &str) -> Result<String> {
     let dataset = dataset_for(&plan.entity).unwrap();
     let flow = matches!(plan.entity, Entity::Flows | Entity::AttributedFlows);
-    let qualified = flow && !catalog_joins(plan, dataset)?.is_empty();
+    let qualified =
+        flow && (plan_mentions(plan, &["direction"]) || !catalog_joins(plan, dataset)?.is_empty());
     let column = |name: &str| {
         if qualified {
             format!("f.{name}")
@@ -522,6 +541,7 @@ fn field_sql(plan: &QueryPlan, field: &str) -> Result<String> {
     };
     if flow {
         match field {
+            "direction" => return Ok(column("direction")),
             "attribution_status" => {
                 return Ok(format!(
                     "CASE WHEN {} IS NULL THEN 'unmatched' ELSE 'attributed' END",
@@ -592,6 +612,51 @@ fn field_sql(plan: &QueryPlan, field: &str) -> Result<String> {
             "unsupported StarRocks field: {field}"
         )))
     }
+}
+
+fn direction_sql() -> String {
+    let local = |endpoint: &str| {
+        format!(
+            "EXISTS (SELECT 1 FROM {CNPG_CATALOG}.netflow_local_cidrs_catalog c WHERE c.enabled AND (c.partition IS NULL OR c.partition = f.`partition`) AND LENGTH(f.{endpoint}_ip_hex) = LENGTH(c.first_ip_hex) AND f.{endpoint}_ip_hex BETWEEN c.first_ip_hex AND c.last_ip_hex)"
+        )
+    };
+    let src = local("src");
+    let dst = local("dst");
+    format!(
+        "CASE WHEN {src} AND {dst} THEN 'bidirectional' WHEN {dst} THEN 'ingress' WHEN {src} THEN 'egress' ELSE COALESCE(f.direction_label, 'unknown') END"
+    )
+}
+
+fn direction_source(table: &str) -> String {
+    let normalized = |col: &str| {
+        format!(
+            "LOWER(CASE WHEN LOCATE(':', {col}) > 0 AND LOCATE('.', {col}) > 0 THEN CONCAT(REGEXP_REPLACE({col}, '[^:]+$', ''), SUBSTRING(LPAD(HEX(INET_ATON(SUBSTRING_INDEX({col}, ':', -1))), 8, '0'), 1, 4), ':', SUBSTRING(LPAD(HEX(INET_ATON(SUBSTRING_INDEX({col}, ':', -1))), 8, '0'), 5, 4)) ELSE {col} END)"
+        )
+    };
+    format!(
+        "(SELECT f.*, {} AS direction FROM (SELECT normalized.*, {} AS src_ip_hex, {} AS dst_ip_hex FROM (SELECT *, {} AS src_ip_normalized, {} AS dst_ip_normalized FROM {table}) normalized) f)",
+        direction_sql(),
+        ip_hex_sql("src_ip_normalized"),
+        ip_hex_sql("dst_ip_normalized"),
+        normalized("src_endpoint_ip"),
+        normalized("dst_endpoint_ip")
+    )
+}
+
+fn ip_hex_sql(ip: &str) -> String {
+    let left = format!("SPLIT_PART({ip}, '::', 1)");
+    let right = format!("SPLIT_PART({ip}, '::', 2)");
+    let left_count = format!("IF({left} = '', 0, ARRAY_LENGTH(SPLIT({left}, ':')))");
+    let right_count = format!("IF({right} = '', 0, ARRAY_LENGTH(SPLIT({right}, ':')))");
+    let mut groups = Vec::new();
+    for i in 1..=8 {
+        groups.push(format!("CASE WHEN LOCATE('::', {ip}) = 0 THEN LPAD(SPLIT_PART({ip}, ':', {i}), 4, '0') WHEN {i} <= {left_count} THEN LPAD(SPLIT_PART({left}, ':', {i}), 4, '0') WHEN {i} > 8 - {right_count} THEN LPAD(SPLIT_PART({right}, ':', {i} - 8 + {right_count}), 4, '0') ELSE '0000' END"));
+    }
+    let group_pattern = "^([0-9a-f]{1,4}(:[0-9a-f]{1,4})*)?$";
+    format!(
+        "CASE WHEN LOCATE(':', {ip}) = 0 THEN LOWER(LPAD(HEX(INET_ATON({ip})), 8, '0')) WHEN {ip} REGEXP '^[0-9a-f]{{1,4}}(:[0-9a-f]{{1,4}}){{7}}$' OR (LOCATE('::', {ip}) > 0 AND {left} REGEXP '{group_pattern}' AND {right} REGEXP '{group_pattern}' AND LOCATE('::', SUBSTRING({ip}, LOCATE('::', {ip}) + 2)) = 0 AND {left_count} + {right_count} < 8) THEN CONCAT({}) ELSE NULL END",
+        groups.join(", ")
+    )
 }
 
 fn filter_sql(plan: &QueryPlan, filter: &Filter) -> Result<String> {
@@ -815,6 +880,38 @@ mod tests {
             mode: Some("starrocks".into()),
         };
         build_query_plan(&config(), &request, ast).expect("plan")
+    }
+
+    #[test]
+    fn direction_queries_use_partition_scoped_cidr_classification() {
+        for query in [
+            r#"in:flows time:last_1h stats:"sum(bytes_total) as total by direction""#,
+            "in:flows time:last_1h direction:ingress",
+            "in:flows time:last_1h sort:direction:asc",
+        ] {
+            let compiled = translate(&plan(query)).unwrap();
+            assert!(
+                compiled
+                    .sql
+                    .contains("cnpg_platform.platform.netflow_local_cidrs_catalog")
+            );
+            assert!(compiled.sql.contains("c.enabled"));
+            assert!(
+                compiled
+                    .sql
+                    .contains("c.partition IS NULL OR c.partition = f.`partition`")
+            );
+            assert!(compiled.sql.contains("THEN 'bidirectional'"));
+            assert!(compiled.sql.contains("THEN 'ingress'"));
+            assert!(compiled.sql.contains("THEN 'egress'"));
+            assert!(
+                compiled
+                    .sql
+                    .contains("COALESCE(f.direction_label, 'unknown')")
+            );
+            assert!(compiled.sql.contains("AS src_ip_hex"));
+            assert!(compiled.sql.contains("AS dst_ip_hex"));
+        }
     }
 
     #[test]

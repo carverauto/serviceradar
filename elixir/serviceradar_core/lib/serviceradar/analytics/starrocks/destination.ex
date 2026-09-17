@@ -168,6 +168,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
         |> attribution_load_opts(dataset)
 
       case persist.(table, encoded, persist_opts) do
+        {:quarantine, reason} when dataset == :flow_attribution -> {:error, reason}
         {:quarantine, reason} -> {:ok, %{quarantine: true, reason: reason}}
         other -> other
       end
@@ -217,6 +218,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
   defp attribution_load_opts(opts, :flow_attribution) do
     opts
     |> Keyword.put(:partial_update, true)
+    |> Keyword.put(:merge_condition, "attribution_version")
     |> Keyword.put(:columns, Attribution.load_columns())
   end
 

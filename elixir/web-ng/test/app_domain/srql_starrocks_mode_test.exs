@@ -238,6 +238,24 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
              SRQL.query("in:logs time:last_1h limit:1", %{scope: %{permissions: MapSet.new()}})
   end
 
+  test "single warehouse aggregates retain their column names", %{prev: prev} do
+    mysql = fn _sql ->
+      {:ok, postgrex_result(["unique_talkers"], [[2]])}
+    end
+
+    Application.put_env(
+      :serviceradar_core,
+      StarRocks,
+      prev |> Keyword.put(:cutover_datasets, [:flows]) |> Keyword.put(:mysql, mysql)
+    )
+
+    assert {:ok, %{"results" => [%{"unique_talkers" => 2}]}} =
+             SRQL.query(
+               ~s|in:flows time:last_1h stats:"count_distinct(src_endpoint_ip) as unique_talkers"|,
+               %{scope: @scope}
+             )
+  end
+
   defmodule MapSliceStub do
     @moduledoc false
 

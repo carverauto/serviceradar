@@ -248,12 +248,23 @@ defmodule ServiceRadar.Observability.ThreatIntelRetrohuntWorker do
     iso_end = datetime_sql(window_end)
 
     sql = """
-    SELECT src_endpoint_ip, dst_endpoint_ip,
-           COALESCE(bytes_in, 0) + COALESCE(bytes_out, 0) AS bytes_total,
-           COALESCE(packets_in, 0) + COALESCE(packets_out, 0) AS packets_total,
-           `time`
-    FROM serviceradar.ocsf_network_activity
-    WHERE `time` >= '#{iso_start}' AND `time` <= '#{iso_end}'
+    SELECT observed_ip, direction, MIN(`time`) AS first_seen_at, MAX(`time`) AS last_seen_at,
+           COUNT(*) AS evidence_count, SUM(bytes_total) AS bytes_total, SUM(packets_total) AS packets_total
+    FROM (
+      SELECT src_endpoint_ip AS observed_ip, 'source' AS direction, `time`,
+             COALESCE(bytes_total, COALESCE(bytes_in, 0) + COALESCE(bytes_out, 0)) AS bytes_total,
+             COALESCE(packets_total, COALESCE(packets_in, 0) + COALESCE(packets_out, 0)) AS packets_total
+      FROM serviceradar.ocsf_network_activity
+      WHERE `time` >= '#{iso_start}' AND `time` <= '#{iso_end}'
+      UNION ALL
+      SELECT dst_endpoint_ip AS observed_ip, 'destination' AS direction, `time`,
+             COALESCE(bytes_total, COALESCE(bytes_in, 0) + COALESCE(bytes_out, 0)),
+             COALESCE(packets_total, COALESCE(packets_in, 0) + COALESCE(packets_out, 0))
+      FROM serviceradar.ocsf_network_activity
+      WHERE `time` >= '#{iso_start}' AND `time` <= '#{iso_end}'
+    ) observed
+    WHERE observed_ip IS NOT NULL AND observed_ip <> ''
+    GROUP BY observed_ip, direction
     """
 
     query = Keyword.get(opts, :query, &Query.execute/1)
@@ -279,28 +290,23 @@ defmodule ServiceRadar.Observability.ThreatIntelRetrohuntWorker do
   defp run_netflow_match_batch(state, batch_size) do
     case flow_history_backend() do
       :starrocks ->
-        case observed_flow_aggregates(state.window_start, state.window_end) do
-          {:ok, aggregates} ->
-            {:ok,
-             %{
-               indicators_evaluated: 0,
-               findings_count: 0,
-               next_cursor: state.cursor,
-               complete?: true,
-               flow_backend: :starrocks,
-               observed_count: length(aggregates)
-             }}
-
-          {:error, reason} ->
-            {:error, %{run_id: state.run_id, reason: reason}}
-        end
+        run_netflow_match_batch_starrocks(state, batch_size)
 
       :cnpg ->
         run_netflow_match_batch_cnpg(state, batch_size)
     end
   end
 
-  defp run_netflow_match_batch_cnpg(state, batch_size) do
+  def run_netflow_match_batch_starrocks(state, batch_size, opts \\ []) do
+    with {:ok, observations} <-
+           observed_flow_aggregates(state.window_start, state.window_end, opts) do
+      run_netflow_match_batch_cnpg(state, batch_size, observations, opts)
+    else
+      {:error, reason} -> {:error, %{run_id: state.run_id, reason: reason}}
+    end
+  end
+
+  defp run_netflow_match_batch_cnpg(state, batch_size, observations \\ nil, opts \\ []) do
     sql = """
     WITH indicator_candidates AS (
       SELECT
@@ -325,41 +331,7 @@ defmodule ServiceRadar.Observability.ThreatIntelRetrohuntWorker do
       ORDER BY id ASC
       LIMIT $5
     ),
-    observed_source_ips AS (
-      SELECT
-        NULLIF(m.src_endpoint_ip, '')::inet AS observed_ip,
-        'source'::text AS direction,
-        MIN(m.time) AS first_seen_at,
-        MAX(m.time) AS last_seen_at,
-        COUNT(*)::int AS evidence_count,
-        COALESCE(SUM(m.bytes_total), 0)::bigint AS bytes_total,
-        COALESCE(SUM(m.packets_total), 0)::bigint AS packets_total
-      FROM platform.ocsf_network_activity m
-      WHERE m.time >= $1
-        AND m.time <= $2
-        AND NULLIF(m.src_endpoint_ip, '') IS NOT NULL
-      GROUP BY NULLIF(m.src_endpoint_ip, '')::inet
-    ),
-    observed_destination_ips AS (
-      SELECT
-        NULLIF(m.dst_endpoint_ip, '')::inet AS observed_ip,
-        'destination'::text AS direction,
-        MIN(m.time) AS first_seen_at,
-        MAX(m.time) AS last_seen_at,
-        COUNT(*)::int AS evidence_count,
-        COALESCE(SUM(m.bytes_total), 0)::bigint AS bytes_total,
-        COALESCE(SUM(m.packets_total), 0)::bigint AS packets_total
-      FROM platform.ocsf_network_activity m
-      WHERE m.time >= $1
-        AND m.time <= $2
-        AND NULLIF(m.dst_endpoint_ip, '') IS NOT NULL
-      GROUP BY NULLIF(m.dst_endpoint_ip, '')::inet
-    ),
-    observed_ips AS (
-      SELECT * FROM observed_source_ips
-      UNION ALL
-      SELECT * FROM observed_destination_ips
-    ),
+    #{observed_ips_ctes(observations)},
     matches AS (
       SELECT
         i.id AS indicator_id,
@@ -417,8 +389,8 @@ defmodule ServiceRadar.Observability.ThreatIntelRetrohuntWorker do
         bytes_total,
         packets_total,
         jsonb_build_object(
-          'window_start', $1::text,
-          'window_end', $2::text,
+          'window_start', $1::timestamptz::text,
+          'window_end', $2::timestamptz::text,
           'matcher', 'ocsf_network_activity'
         ),
         now(),
@@ -446,19 +418,19 @@ defmodule ServiceRadar.Observability.ThreatIntelRetrohuntWorker do
       EXISTS(SELECT 1 FROM indicator_candidates OFFSET $5 LIMIT 1) AS has_more
     """
 
-    case SQL.query(
-           Repo,
-           sql,
-           [
-             state.window_start,
-             state.window_end,
-             state.source,
-             state.cursor,
-             batch_size,
-             state.run_id
-           ],
-           timeout: 120_000
-         ) do
+    params = [
+      state.window_start,
+      state.window_end,
+      state.source,
+      state.cursor,
+      batch_size,
+      state.run_id
+    ]
+
+    params = if is_nil(observations), do: params, else: params ++ [observations]
+    query = Keyword.get(opts, :repo_query, &SQL.query(Repo, &1, &2, timeout: 120_000))
+
+    case query.(sql, params) do
       {:ok,
        %Postgrex.Result{
          rows: [[indicators_evaluated, findings_count, next_cursor, has_more]]
@@ -474,6 +446,57 @@ defmodule ServiceRadar.Observability.ThreatIntelRetrohuntWorker do
       {:error, reason} ->
         {:error, %{run_id: state.run_id, reason: reason}}
     end
+  end
+
+  defp observed_ips_ctes(nil) do
+    """
+    observed_source_ips AS (
+      SELECT
+        NULLIF(m.src_endpoint_ip, '')::inet AS observed_ip,
+        'source'::text AS direction,
+        MIN(m.time) AS first_seen_at,
+        MAX(m.time) AS last_seen_at,
+        COUNT(*)::int AS evidence_count,
+        COALESCE(SUM(m.bytes_total), 0)::bigint AS bytes_total,
+        COALESCE(SUM(m.packets_total), 0)::bigint AS packets_total
+      FROM platform.ocsf_network_activity m
+      WHERE m.time >= $1
+        AND m.time <= $2
+        AND NULLIF(m.src_endpoint_ip, '') IS NOT NULL
+      GROUP BY NULLIF(m.src_endpoint_ip, '')::inet
+    ),
+    observed_destination_ips AS (
+      SELECT
+        NULLIF(m.dst_endpoint_ip, '')::inet AS observed_ip,
+        'destination'::text AS direction,
+        MIN(m.time) AS first_seen_at,
+        MAX(m.time) AS last_seen_at,
+        COUNT(*)::int AS evidence_count,
+        COALESCE(SUM(m.bytes_total), 0)::bigint AS bytes_total,
+        COALESCE(SUM(m.packets_total), 0)::bigint AS packets_total
+      FROM platform.ocsf_network_activity m
+      WHERE m.time >= $1
+        AND m.time <= $2
+        AND NULLIF(m.dst_endpoint_ip, '') IS NOT NULL
+      GROUP BY NULLIF(m.dst_endpoint_ip, '')::inet
+    ),
+    observed_ips AS (
+      SELECT * FROM observed_source_ips
+      UNION ALL
+      SELECT * FROM observed_destination_ips
+    )
+    """
+  end
+
+  defp observed_ips_ctes(_observations) do
+    """
+    observed_ips AS (
+      SELECT * FROM jsonb_to_recordset($7::jsonb) AS observed(
+        observed_ip inet, direction text, first_seen_at timestamptz, last_seen_at timestamptz,
+        evidence_count int, bytes_total bigint, packets_total bigint
+      )
+    )
+    """
   end
 
   defp persist_run_progress(state, batch, batch_size) do

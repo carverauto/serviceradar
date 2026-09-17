@@ -142,7 +142,7 @@ defmodule ServiceRadarWebNG.SRQL do
   defp execute_backend(%{"sql" => sql} = translation, "starrocks") when is_binary(sql) do
     with :ok <- CatalogAllowlist.assert_sql_executable(sql) do
       case StarRocksQuery.execute(sql) do
-        {:ok, result} -> {:ok, build_response(translation, result)}
+        {:ok, result} -> {:ok, build_response(translation, result, &build_arrow_rows/2)}
         {:error, reason} -> {:error, reason}
       end
     end
@@ -217,7 +217,8 @@ defmodule ServiceRadarWebNG.SRQL do
           statement_timeout = "#{timeout_ms}ms"
           db_timeout_ms = timeout_ms + @db_timeout_margin_ms
 
-          with {:ok, _} <- SQL.query(Repo, session_setup_sql(), [statement_timeout], timeout: db_timeout_ms),
+          with {:ok, _} <-
+                 SQL.query(Repo, session_setup_sql(), [statement_timeout], timeout: db_timeout_ms),
                {:ok, result} <- SQL.query(Repo, sql, params, timeout: db_timeout_ms) do
             result
           else
@@ -245,7 +246,9 @@ defmodule ServiceRadarWebNG.SRQL do
     end
   rescue
     error in DBConnection.ConnectionError ->
-      Logger.warning("SRQL query could not obtain a database connection: #{Exception.message(error)}")
+      Logger.warning(
+        "SRQL query could not obtain a database connection: #{Exception.message(error)}"
+      )
 
       {:error, error}
   catch
@@ -328,10 +331,14 @@ defmodule ServiceRadarWebNG.SRQL do
     end
   end
 
-  defp build_response(translation, %Postgrex.Result{columns: columns, rows: rows}) do
+  defp build_response(
+         translation,
+         %Postgrex.Result{columns: columns, rows: rows},
+         row_builder \\ &build_results/2
+       ) do
     results =
       columns
-      |> build_results(rows)
+      |> row_builder.(rows)
       |> enrich_downsample_aliases(translation)
 
     viz = extract_viz(translation)
@@ -426,7 +433,8 @@ defmodule ServiceRadarWebNG.SRQL do
     end
   end
 
-  defp enrich_downsample_aliases(results, translation) when is_list(results) and is_map(translation) do
+  defp enrich_downsample_aliases(results, translation)
+       when is_list(results) and is_map(translation) do
     query = Map.get(translation, "_query")
     series_field = extract_query_token(query, "series")
 
@@ -565,7 +573,8 @@ defmodule ServiceRadarWebNG.SRQL do
     end
   end
 
-  def decode_param(%{"t" => type, "v" => value}) when type in ["inet", "cidr"] and is_binary(value) do
+  def decode_param(%{"t" => type, "v" => value})
+      when type in ["inet", "cidr"] and is_binary(value) do
     case ServiceRadar.Types.Cidr.dump_to_native(value, []) do
       {:ok, inet} -> {:ok, inet}
       _ -> {:error, :invalid_inet_param}

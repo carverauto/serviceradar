@@ -165,6 +165,7 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
     []
     |> maybe_header("partial_update", if(Keyword.get(opts, :partial_update) == true, do: "true"))
     |> maybe_header("columns", columns_header(Keyword.get(opts, :columns)))
+    |> maybe_header("merge_condition", Keyword.get(opts, :merge_condition))
   end
 
   defp maybe_header(headers, _name, nil), do: headers
@@ -192,7 +193,12 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
   defp encode_json_rows(rows), do: Jason.encode!(rows)
 
   defp row_identity(row) when is_map(row) do
-    ServiceRadar.Analytics.StarRocks.Identity.record_id(:flows, row)
+    id = ServiceRadar.Analytics.StarRocks.Identity.record_id(:flows, row)
+
+    case Map.get(row, "attribution_version") || Map.get(row, :attribution_version) do
+      version when is_integer(version) and version > 0 -> "#{id}:attribution:#{version}"
+      _ -> id
+    end
   end
 
   defp int_field(payload, key) do
