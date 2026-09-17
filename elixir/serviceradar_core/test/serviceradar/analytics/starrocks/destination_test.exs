@@ -117,6 +117,8 @@ defmodule ServiceRadar.Analytics.StarRocks.DestinationTest do
 
     assert encoded["bytes_out"] == 4096
     assert encoded["packets_out"] == 12
+    assert encoded["bytes_total"] == 4096
+    assert encoded["packets_total"] == 12
   end
 
   test "tables are dataset-specific and not the demo namespace" do

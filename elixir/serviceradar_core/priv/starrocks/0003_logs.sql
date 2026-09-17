@@ -12,7 +12,13 @@ CREATE TABLE IF NOT EXISTS serviceradar.logs (
   service_name VARCHAR(256),
   source VARCHAR(256),
   ingest_agent_id VARCHAR(256),
-  ingest_partition VARCHAR(128)
+  ingest_partition VARCHAR(128),
+  trace_id VARCHAR(64),
+  span_id VARCHAR(64),
+  event_name VARCHAR(256),
+  source_ip VARCHAR(64),
+  service_version VARCHAR(64),
+  observed_timestamp DATETIME
 )
 PRIMARY KEY (id)
 DISTRIBUTED BY HASH(id) BUCKETS 16

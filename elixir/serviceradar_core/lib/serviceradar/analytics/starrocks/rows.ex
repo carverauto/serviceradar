@@ -36,6 +36,29 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
       "protocol_name" => stringify(field(row, :protocol_name)),
       "direction_label" => stringify(field(row, :direction_label)),
       "dst_service_label" => stringify(field(row, :dst_service_label)),
+      "bytes_total" =>
+        field(row, :bytes_total) || sum_pair(field(row, :bytes_in), field(row, :bytes_out)),
+      "packets_total" =>
+        field(row, :packets_total) || sum_pair(field(row, :packets_in), field(row, :packets_out)),
+      "start_time" => datetime(field(row, :start_time)),
+      "end_time" => datetime(field(row, :end_time)),
+      "src_as_number" => field(row, :src_as_number),
+      "dst_as_number" => field(row, :dst_as_number),
+      "tcp_flags" => field(row, :tcp_flags),
+      "partition" => stringify(field(row, :partition)),
+      "input_snmp" => field(row, :input_snmp) || payload_int(row, "input_snmp"),
+      "output_snmp" => field(row, :output_snmp) || payload_int(row, "output_snmp"),
+      "src_mac" => stringify(field(row, :src_mac)),
+      "dst_mac" => stringify(field(row, :dst_mac)),
+      "src_mac_vendor" => stringify(field(row, :src_mac_vendor)),
+      "dst_mac_vendor" => stringify(field(row, :dst_mac_vendor)),
+      "src_hosting_provider" => stringify(field(row, :src_hosting_provider)),
+      "dst_hosting_provider" => stringify(field(row, :dst_hosting_provider)),
+      "protocol_source" => stringify(field(row, :protocol_source)),
+      "direction_source" => stringify(field(row, :direction_source)),
+      "dst_service_source" => stringify(field(row, :dst_service_source)),
+      "src_prefix_tags" => json_text(field(row, :src_prefix_tags)),
+      "dst_prefix_tags" => json_text(field(row, :dst_prefix_tags)),
       "bytes_in" => field(row, :bytes_in),
       "bytes_out" => field(row, :bytes_out) || field(row, :bytes_total),
       "packets_in" => field(row, :packets_in),
@@ -61,7 +84,9 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
       "partition" => stringify(field(row, :partition)),
       "scale" => field(row, :scale),
       "is_delta" => field(row, :is_delta),
-      "counter_width" => field(row, :counter_width)
+      "counter_width" => field(row, :counter_width),
+      "target_device_ip" => stringify(field(row, :target_device_ip)),
+      "tags" => json_text(field(row, :tags))
     }
   end
 
@@ -76,7 +101,13 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
       "service_name" => stringify(field(row, :service_name)),
       "source" => stringify(field(row, :source)),
       "ingest_agent_id" => stringify(field(row, :ingest_agent_id)),
-      "ingest_partition" => stringify(field(row, :ingest_partition))
+      "ingest_partition" => stringify(field(row, :ingest_partition)),
+      "trace_id" => stringify(field(row, :trace_id)),
+      "span_id" => stringify(field(row, :span_id)),
+      "event_name" => stringify(field(row, :event_name)),
+      "source_ip" => stringify(field(row, :source_ip)),
+      "service_version" => stringify(field(row, :service_version)),
+      "observed_timestamp" => datetime(field(row, :observed_timestamp))
     }
   end
 
@@ -93,7 +124,15 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
       "source" => stringify(field(row, :source)),
       "src_endpoint_ip" => stringify(src_endpoint_ip(row)),
       "firewall_rule_name" => stringify(firewall_rule_name(row)),
-      "source_type" => stringify(source_type(row))
+      "source_type" => stringify(source_type(row)),
+      "message" => stringify(field(row, :message)),
+      "activity_name" => stringify(field(row, :activity_name)),
+      "status" => stringify(field(row, :status)),
+      "status_id" => field(row, :status_id),
+      "log_name" => stringify(field(row, :log_name)),
+      "log_provider" => stringify(field(row, :log_provider)),
+      "trace_id" => stringify(field(row, :trace_id)),
+      "span_id" => stringify(field(row, :span_id))
     }
   end
 
@@ -151,6 +190,30 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
   defp atom_key("source_type"), do: :source_type
   defp atom_key("firewall_rule"), do: :firewall_rule
   defp atom_key(_), do: nil
+
+  defp payload_int(row, key) do
+    case map_get(field(row, :ocsf_payload), key) do
+      n when is_integer(n) -> n
+      _ -> nil
+    end
+  end
+
+  defp json_text(nil), do: nil
+  defp json_text(value) when is_binary(value), do: value
+
+  defp json_text(value) when is_map(value) or is_list(value) do
+    case Jason.encode(value) do
+      {:ok, json} -> json
+      _ -> nil
+    end
+  end
+
+  defp json_text(_), do: nil
+
+  defp sum_pair(a, b) when is_integer(a) and is_integer(b), do: a + b
+  defp sum_pair(a, nil) when is_integer(a), do: a
+  defp sum_pair(nil, b) when is_integer(b), do: b
+  defp sum_pair(_, _), do: nil
 
   defp stringify(nil), do: nil
   defp stringify(value) when is_binary(value), do: value

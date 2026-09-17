@@ -17,7 +17,9 @@ CREATE TABLE IF NOT EXISTS serviceradar.timeseries_metrics (
   `partition` VARCHAR(128),
   scale DOUBLE,
   is_delta BOOLEAN,
-  counter_width INT
+  counter_width INT,
+  target_device_ip VARCHAR(64),
+  tags VARCHAR(65533)
 )
 PRIMARY KEY (`timestamp`, gateway_id, series_key)
 DISTRIBUTED BY HASH(series_key) BUCKETS 16

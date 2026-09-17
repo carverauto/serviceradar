@@ -15,7 +15,15 @@ CREATE TABLE IF NOT EXISTS serviceradar.events (
   source VARCHAR(256),
   src_endpoint_ip VARCHAR(64),
   firewall_rule_name VARCHAR(256),
-  source_type VARCHAR(64)
+  source_type VARCHAR(64),
+  message VARCHAR(65533),
+  activity_name VARCHAR(128),
+  status VARCHAR(64),
+  status_id INT,
+  log_name VARCHAR(256),
+  log_provider VARCHAR(128),
+  trace_id VARCHAR(64),
+  span_id VARCHAR(64)
 )
 PRIMARY KEY (id)
 DISTRIBUTED BY HASH(id) BUCKETS 16
