@@ -397,7 +397,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
       @spec load_netflow_map(term(), keyword()) :: map()
       def load_netflow_map(scope, opts \\ []) do
         window = Keyword.get(opts, :window)
-        srql_module = Keyword.get(opts, :srql_module)
+        srql_module = Keyword.get(opts, :srql_module, default_srql_module_for_flows())
 
         cond do
           is_map(window) and srql_module != nil ->

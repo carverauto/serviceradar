@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
 
   alias ServiceRadar.Analytics.StarRocks
   alias ServiceRadarWebNG.SRQL
+  alias ServiceRadarWebNGWeb.DashboardLive.Window
 
   @moduletag :db_free
 
@@ -83,7 +84,7 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
       |> Keyword.put(:mysql, mysql)
     )
 
-    window = ServiceRadarWebNGWeb.DashboardLive.Window.resolve("last_1h", "netflow")
+    window = Window.resolve("last_1h", "netflow")
     query = ServiceRadarWebNGWeb.DashboardLive.Data.NetflowTraffic.srql_query(window)
 
     assert {:ok, %{"results" => [row], "error" => nil}} =
@@ -228,6 +229,75 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
 
     assert {:error, :forbidden} =
              SRQL.query("in:logs time:last_1h limit:1", %{scope: %{permissions: MapSet.new()}})
+  end
+
+  defmodule MapSliceStub do
+    @moduledoc false
+
+    def query(query, %{scope: scope}) do
+      with :ok <- ServiceRadarWebNG.SRQL.EntityAccess.authorize(query, scope) do
+        send(scope.test_pid, {:map_slice_query, query})
+
+        rows =
+          if String.contains?(query, " by src_endpoint_ip,dst_endpoint_ip") do
+            [
+              %{
+                "src_endpoint_ip" => "192.0.2.10",
+                "dst_endpoint_ip" => "198.51.100.20",
+                "bytes_total" => 1200,
+                "packets_total" => 15,
+                "flow_count" => 7
+              }
+            ]
+          else
+            [%{"bytes_total" => 1200, "packets_total" => 15, "flow_count" => 7}]
+          end
+
+        {:ok, %{"results" => rows}}
+      end
+    end
+  end
+
+  test "dashboard map follows the flows cutover without an explicit srql_module",
+       %{prev: prev} do
+    Application.put_env(
+      :serviceradar_core,
+      StarRocks,
+      Keyword.put(prev, :cutover_datasets, [:flows])
+    )
+
+    prev_srql = Application.get_env(:serviceradar_web_ng, :srql_module)
+    Application.put_env(:serviceradar_web_ng, :srql_module, MapSliceStub)
+
+    on_exit(fn ->
+      if is_nil(prev_srql) do
+        Application.delete_env(:serviceradar_web_ng, :srql_module)
+      else
+        Application.put_env(:serviceradar_web_ng, :srql_module, prev_srql)
+      end
+    end)
+
+    scope = %{permissions: MapSet.new(["observability.netflow.view"]), test_pid: self()}
+    window = Window.resolve("last_1h", "netflow")
+
+    slice = ServiceRadarWebNGWeb.DashboardLive.Data.load_netflow_map(scope, window: window)
+
+    assert [link] = slice.traffic_links
+    assert link.src_endpoint_ip == "192.0.2.10"
+    assert link.dst_endpoint_ip == "198.51.100.20"
+    assert link.geo_mapped == false
+    assert link.geo_from == nil
+    assert link.geo_to == nil
+    assert slice.flow_summary.flow_count == 7
+    assert slice.netflow_state == :active
+
+    conversations = Enum.find(slice.map_stats, &(&1.label == "Conversations"))
+    assert conversations.value == "1"
+    flow_records = Enum.find(slice.map_stats, &(&1.label == "Flow Records"))
+    assert flow_records.value == "7"
+
+    assert_received {:map_slice_query, flows_query}
+    assert flows_query =~ "in:flows"
   end
 
   defp postgrex_result(columns, rows) do
