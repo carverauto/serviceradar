@@ -395,17 +395,38 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
       %{}
   end
 
+  @doc false
+  def map_srql_row(row), do: row_from_srql(row)
+
   defp row_from_srql(%{} = row) do
-    payload = map_value(row, "ocsf_payload") || %{}
-    attribution = map_value(payload, "attribution") || %{}
-    workload = map_value(attribution, "workload_identity") || %{}
-    public_endpoint = map_value(attribution, "public_endpoint") || %{}
-    pid = attribution |> map_value("pid") |> parse_int()
-    uid = attribution |> map_value("uid") |> parse_int()
+    payload = as_map(map_value(row, "ocsf_payload"))
+    attribution = as_map(map_value(payload, "attribution"))
+
+    workload =
+      as_map(
+        first_value([
+          map_value(row, "workload_identity"),
+          map_value(attribution, "workload_identity")
+        ])
+      )
+
+    public_endpoint = as_map(map_value(attribution, "public_endpoint"))
+
+    pid =
+      [map_value(row, "pid"), map_value(attribution, "pid")]
+      |> first_value()
+      |> parse_int()
+
+    uid =
+      [map_value(row, "uid"), map_value(attribution, "uid")]
+      |> first_value()
+      |> parse_int()
+
     protocol_num = row |> map_value("protocol_num") |> parse_int()
+    status = row |> map_value("attribution_status") |> clean_string()
 
     %{
-      id: flow_id(row, attribution),
+      id: flow_id(row, attribution, pid),
       timestamp: map_value(row, "time"),
       source: row |> map_value("src_endpoint_ip") |> clean_string(),
       source_port: row |> map_value("src_endpoint_port") |> parse_int(),
@@ -416,13 +437,26 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
       protocol_num: protocol_num,
       protocol: protocol_name(map_value(row, "protocol_name"), protocol_num),
       pid: pid,
-      comm: attribution |> map_value("comm") |> clean_string(),
-      cmdline: attribution |> map_value("redacted_cmdline") |> clean_string(),
+      comm:
+        [map_value(row, "comm"), map_value(attribution, "comm")]
+        |> first_value()
+        |> clean_string(),
+      cmdline:
+        [
+          map_value(row, "cmdline"),
+          map_value(attribution, "redacted_cmdline"),
+          map_value(attribution, "cmdline")
+        ]
+        |> first_value()
+        |> clean_string(),
       uid: uid,
-      container_id: attribution |> map_value("container_id") |> clean_string(),
-      agent_id: attribution_agent_id(payload),
+      container_id:
+        [map_value(row, "container_id"), map_value(attribution, "container_id")]
+        |> first_value()
+        |> clean_string(),
+      agent_id: [map_value(row, "agent_id"), attribution_agent_id(payload)] |> first_value() |> clean_string(),
       partition: clean_string(map_value(row, "partition") || map_value(payload, "partition")),
-      attributed?: not is_nil(pid),
+      attributed?: not is_nil(pid) or status == "attributed",
       source_hostname: nil,
       destination_hostname: nil,
       threat: nil,
@@ -1154,6 +1188,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
 
   defp known_atom_key("agent_id"), do: :agent_id
   defp known_atom_key("attribution"), do: :attribution
+  defp known_atom_key("attribution_status"), do: :attribution_status
   defp known_atom_key("bytes_total"), do: :bytes_total
   defp known_atom_key("cmdline"), do: :cmdline
   defp known_atom_key("comm"), do: :comm
@@ -1187,7 +1222,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
     clean_string(map_value(payload, "agent_id") || map_value(map_value(payload, "metadata"), "agent_id"))
   end
 
-  defp flow_id(row, attribution) do
+  defp flow_id(row, attribution, pid) do
     [
       map_value(row, "time"),
       map_value(row, "src_endpoint_ip"),
@@ -1195,12 +1230,31 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
       map_value(row, "dst_endpoint_ip"),
       map_value(row, "dst_endpoint_port"),
       map_value(row, "protocol_num"),
-      attribution_agent_id(map_value(row, "ocsf_payload") || %{}),
-      map_value(attribution, "pid")
+      attribution_agent_id(as_map(map_value(row, "ocsf_payload"))),
+      pid || map_value(attribution, "pid")
     ]
     |> Enum.map_join("|", &to_string(&1 || ""))
     |> then(&:crypto.hash(:md5, &1))
     |> Base.encode16(case: :lower)
+  end
+
+  defp as_map(%{} = map), do: map
+
+  defp as_map(value) when is_binary(value) do
+    case Jason.decode(value) do
+      {:ok, %{} = map} -> map
+      _ -> %{}
+    end
+  end
+
+  defp as_map(_), do: %{}
+
+  defp first_value(values) when is_list(values) do
+    Enum.find_value(values, fn
+      nil -> nil
+      "" -> nil
+      value -> value
+    end)
   end
 
   defp clean_string(nil), do: nil
