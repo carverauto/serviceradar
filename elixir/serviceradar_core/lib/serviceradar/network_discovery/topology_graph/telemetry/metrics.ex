@@ -127,6 +127,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Telemetry.Metrics do
           starrocks: fn ->
             MetricConsumers.directional_rows(
               accepted_metric_ids,
+              accepted_metric_ips,
               if_indexes,
               metric_names,
               since

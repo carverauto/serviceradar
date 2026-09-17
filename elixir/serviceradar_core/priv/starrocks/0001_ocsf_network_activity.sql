@@ -2,7 +2,8 @@
 -- Applied by the Bazel schema target, not Mix/Postgres migrations.
 -- `time` is part of the primary key because StarRocks requires the partition
 -- column to be a primary-key column. partition_live_number is the retention
--- default; SERVICERADAR_STARROCKS_RETENTION_DAYS is applied on top at boot.
+-- default; SERVICERADAR_STARROCKS_RETENTION_DAYS_FLOWS is applied on top at
+-- boot. A warehouse created before partitioning is rebuilt by 0014.
 CREATE DATABASE IF NOT EXISTS serviceradar;
 
 CREATE TABLE IF NOT EXISTS serviceradar.ocsf_network_activity (

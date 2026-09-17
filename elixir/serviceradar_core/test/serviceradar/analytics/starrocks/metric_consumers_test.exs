@@ -59,15 +59,16 @@ defmodule ServiceRadar.Analytics.StarRocks.MetricConsumersTest do
           {:ok, %{rows: [["sr:host-alpha", 1, "ifHCInOctets", "1999-06-15 12:00:00", 1200]]}}
 
         true ->
-          {:ok, %{rows: [["sr:host-alpha", 1, "ifHCInOctets", 1200]]}}
+          {:ok, %{rows: [["sr:host-alpha", "192.0.2.10", 1, "ifHCInOctets", 1200]]}}
       end
     end
 
     assert {:ok, true} = MetricConsumers.snmp_present?("sr:host-alpha", query: query)
 
-    assert [{"sr:host-alpha", nil, 1, "ifHCInOctets", 1200}] ==
+    assert [{"sr:host-alpha", "192.0.2.10", 1, "ifHCInOctets", 1200}] ==
              MetricConsumers.directional_rows(
                ["sr:host-alpha"],
+               ["192.0.2.10"],
                [1],
                ["ifHCInOctets"],
                ~U[1999-06-15 12:00:00Z],
@@ -82,6 +83,79 @@ defmodule ServiceRadar.Analytics.StarRocks.MetricConsumersTest do
              )
 
     assert_received {:metric_sql, _}
+  end
+
+  test "directional rows carry the same scope and latest-sample semantics as CNPG" do
+    parent = self()
+
+    query = fn sql ->
+      send(parent, {:directional_sql, sql})
+
+      {:ok,
+       %{
+         rows: [
+           ["sr:host-alpha", nil, 1, "ifHCInOctets::ifIndex", 4_000],
+           [nil, "192.0.2.10", 2, "ifHCOutOctets", 9_000]
+         ]
+       }}
+    end
+
+    rows =
+      MetricConsumers.directional_rows(
+        ["sr:host-alpha"],
+        ["192.0.2.10"],
+        [1, 2],
+        ["ifHCInOctets", "ifHCOutOctets"],
+        ~U[1999-06-15 12:00:00Z],
+        query: query
+      )
+
+    # A device reachable only by target IP still resolves, because the IP now
+    # reaches both the scope and the tuple the topology reducer keys on.
+    assert rows == [
+             {"sr:host-alpha", nil, 1, "ifHCInOctets::ifIndex", 4_000},
+             {nil, "192.0.2.10", 2, "ifHCOutOctets", 9_000}
+           ]
+
+    assert_received {:directional_sql, sql}
+
+    # The statement the warehouse runs must reduce each
+    # (device, target IP, if_index, metric) to its newest sample. Without this
+    # the topology reducer's max/2 fold renders the window's peak utilization
+    # as the link's current value.
+    assert sql =~
+             "ROW_NUMBER() OVER (PARTITION BY device_id, target_device_ip, if_index, " <>
+               "metric_name ORDER BY `timestamp` DESC)"
+
+    assert sql =~ "sample_rank = 1"
+
+    # Suffixed series such as ifHCInOctets::ifIndex must still match.
+    assert sql =~ "split_part(metric_name, '::', 1) IN ('ifHCInOctets','ifHCOutOctets')"
+
+    assert sql =~ "(device_id IN ('sr:host-alpha') OR target_device_ip IN ('192.0.2.10'))"
+  end
+
+  test "directional rows scope on device id alone when no target IPs are known" do
+    parent = self()
+
+    query = fn sql ->
+      send(parent, {:directional_sql, sql})
+      {:ok, %{rows: []}}
+    end
+
+    assert [] ==
+             MetricConsumers.directional_rows(
+               ["sr:host-alpha"],
+               [],
+               [1],
+               ["ifHCInOctets"],
+               ~U[1999-06-15 12:00:00Z],
+               query: query
+             )
+
+    assert_received {:directional_sql, sql}
+    assert sql =~ "device_id IN ('sr:host-alpha')"
+    refute sql =~ "target_device_ip IN ()"
   end
 
   test "anomaly ingest silence uses StarRocks for the metrics-alive probe", %{prev: prev} do

@@ -32,5 +32,5 @@ ORDER BY (`time`, id)
 PROPERTIES (
   "replication_num" = "3",
   "enable_persistent_index" = "true",
-  "partition_live_number" = "90"
+  "partition_live_number" = "365"
 );

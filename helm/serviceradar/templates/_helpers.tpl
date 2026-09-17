@@ -310,8 +310,15 @@ serviceradar.io/runtime-tls-revision: {{ default "initial" (default (dict) .Valu
     configMapKeyRef:
       name: {{ include "serviceradar.fullname" . }}-starrocks-analytics
       key: database
-- name: SERVICERADAR_STARROCKS_RETENTION_DAYS
-  value: {{ $sr.retentionDays | default 90 | quote }}
+{{- $retention := default (dict) $sr.retentionDays }}
+- name: SERVICERADAR_STARROCKS_RETENTION_DAYS_FLOWS
+  value: {{ $retention.flows | default 90 | quote }}
+- name: SERVICERADAR_STARROCKS_RETENTION_DAYS_METRICS
+  value: {{ $retention.metrics | default 90 | quote }}
+- name: SERVICERADAR_STARROCKS_RETENTION_DAYS_LOGS
+  value: {{ $retention.logs | default 365 | quote }}
+- name: SERVICERADAR_STARROCKS_RETENTION_DAYS_EVENTS
+  value: {{ $retention.events | default 365 | quote }}
 - name: SERVICERADAR_STARROCKS_FE_HTTP
   value: {{ printf "http://%s:%v" $sr.fe.service $sr.fe.httpPort | quote }}
 - name: SERVICERADAR_STARROCKS_FE_HOST

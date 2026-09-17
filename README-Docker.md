@@ -87,9 +87,14 @@ STARROCKS_ENABLED=true docker compose --profile starrocks --profile flows up -d
 `--profile network-ingest`. The two profiles are independent: NetFlow works
 without the warehouse, and flows are then stored on CNPG hypertables.
 
-StarRocks telemetry retention defaults to 90 days. The warehouse tables are
-partitioned by day, so `STARROCKS_RETENTION_DAYS` is the number of daily
-partitions kept; anything older is dropped. It is re-applied on every start.
+StarRocks telemetry retention is set per dataset. The warehouse tables are
+partitioned by day, so each `STARROCKS_RETENTION_DAYS_*` value is the number of
+daily partitions kept; anything older is dropped.
+`STARROCKS_RETENTION_DAYS_FLOWS` and `STARROCKS_RETENTION_DAYS_METRICS` default
+to 90, `STARROCKS_RETENTION_DAYS_LOGS` and `STARROCKS_RETENTION_DAYS_EVENTS` to
+365. Core applies them at start and retries with backoff until the warehouse
+accepts them, so a slow Frontend does not leave the tables on their DDL
+default.
 
 5. **Get your admin password**:
    ```bash

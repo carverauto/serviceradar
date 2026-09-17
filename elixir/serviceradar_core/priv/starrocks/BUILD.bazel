@@ -1,7 +1,9 @@
 # StarRocks DDL. Not Ecto, not mix ecto.migrate.
 # Apply with the StarRocks SQL console (mysql protocol on FE:9030).
-# 0001–0005 are CREATE for a new warehouse; 0006+ are one-shot ALTERs for
+# 0001–0005 are CREATE for a new warehouse; 0006+ are one-shot migrations for
 # already-deployed tables. Re-running an ADD COLUMN fails if the column exists.
+# 0014 rebuilds the telemetry tables, because StarRocks cannot add partitioning
+# or change a primary key with ALTER.
 filegroup(
     name = "schema_sql",
     srcs = glob(["*.sql"]),

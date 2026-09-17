@@ -43,10 +43,17 @@ defmodule ServiceRadar.Analytics.StarRocks.MetricConsumers do
     end
   end
 
-  @spec directional_rows([String.t()], [integer()], [String.t()], DateTime.t(), keyword()) ::
-          [{term(), nil, integer(), String.t(), term()}]
-  def directional_rows(device_ids, if_indexes, metric_names, since, opts \\ []) do
+  @spec directional_rows(
+          [String.t()],
+          [String.t()],
+          [integer()],
+          [String.t()],
+          DateTime.t(),
+          keyword()
+        ) :: [{term(), term(), integer(), String.t(), term()}]
+  def directional_rows(device_ids, device_ips, if_indexes, metric_names, since, opts \\ []) do
     devices = Enum.flat_map(device_ids, fn id -> List.wrap(quote_id(id)) end)
+    ips = Enum.flat_map(device_ips, fn ip -> List.wrap(quote_id(ip)) end)
     indexes = Enum.filter(if_indexes, &is_integer/1)
     names = Enum.flat_map(metric_names, fn name -> List.wrap(quote_id(name)) end)
 
@@ -54,17 +61,22 @@ defmodule ServiceRadar.Analytics.StarRocks.MetricConsumers do
       []
     else
       sql =
-        "SELECT device_id, if_index, metric_name, value FROM serviceradar.timeseries_metrics " <>
-          "WHERE device_id IN (#{Enum.join(devices, ",")}) " <>
+        "SELECT device_id, target_device_ip, if_index, metric_name, value FROM (" <>
+          "SELECT device_id, target_device_ip, if_index, metric_name, value, " <>
+          "ROW_NUMBER() OVER (PARTITION BY device_id, target_device_ip, if_index, metric_name " <>
+          "ORDER BY `timestamp` DESC) AS sample_rank " <>
+          "FROM serviceradar.timeseries_metrics " <>
+          "WHERE #{scope_predicate(devices, ips)} " <>
           "AND if_index IN (#{Enum.join(indexes, ",")}) " <>
-          "AND metric_name IN (#{Enum.join(names, ",")}) " <>
-          "AND `timestamp` > '#{iso(since)}'"
+          "AND split_part(metric_name, '::', 1) IN (#{Enum.join(names, ",")}) " <>
+          "AND `timestamp` > '#{iso(since)}'" <>
+          ") latest WHERE sample_rank = 1"
 
       case query(opts).(sql) do
         {:ok, %{rows: rows}} ->
           Enum.flat_map(rows, fn
-            [device_id, if_index, metric_name, value] ->
-              [{device_id, nil, if_index, metric_name, value}]
+            [device_id, target_device_ip, if_index, metric_name, value] ->
+              [{device_id, target_device_ip, if_index, metric_name, value}]
 
             _ ->
               []
@@ -74,6 +86,13 @@ defmodule ServiceRadar.Analytics.StarRocks.MetricConsumers do
           []
       end
     end
+  end
+
+  defp scope_predicate(devices, []), do: "device_id IN (#{Enum.join(devices, ",")})"
+
+  defp scope_predicate(devices, ips) do
+    "(device_id IN (#{Enum.join(devices, ",")}) OR " <>
+      "target_device_ip IN (#{Enum.join(ips, ",")}))"
   end
 
   @spec sparkline_rows([{String.t(), integer()}], DateTime.t(), keyword()) ::

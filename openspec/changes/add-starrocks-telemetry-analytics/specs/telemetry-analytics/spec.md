@@ -90,7 +90,7 @@ The system SHALL retain flow attribution and enrichment semantics through versio
 - **AND** application code does not merge CNPG attribution rows with StarRocks flows itself
 
 ### Requirement: Dataset retention and coverage contracts
-The system SHALL expose configurable raw and aggregate retention by dataset, default hosted flows, logs, events and alert history to 365 days, allow longer configured retention, and distinguish durable retention from local cache residency.
+The system SHALL expose configurable raw and aggregate retention by dataset, default hosted logs, events and alert history to 365 days and raw flows and metrics to 90 days, allow longer configured retention per dataset, and distinguish durable retention from local cache residency.
 
 #### Scenario: History exceeds local cache
 - **WHEN** retained history is absent from local shared-data cache

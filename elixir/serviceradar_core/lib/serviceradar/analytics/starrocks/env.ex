@@ -15,9 +15,10 @@ defmodule ServiceRadar.Analytics.StarRocks.Env do
 
   @all_datasets [:flows, :flow_attribution, :metrics, :logs, :events]
 
-  # Daily partitions, so retention is a partition count. Mirrors the 90-day
-  # CNPG raw-flow policy and the value baked into the shipped DDL.
-  @default_retention_days 90
+  # Daily partitions, so retention is a partition count. Per dataset: flows and
+  # metrics mirror the 90-day CNPG raw policy, logs and event history carry the
+  # hosted one-year retention. These are the values baked into the shipped DDL.
+  @default_retention_days [flows: 90, metrics: 90, logs: 365, events: 365]
 
   @spec config() :: keyword()
   def config do
@@ -39,15 +40,22 @@ defmodule ServiceRadar.Analytics.StarRocks.Env do
     ]
   end
 
-  @spec default_retention_days() :: pos_integer()
+  @spec default_retention_days() :: keyword(pos_integer())
   def default_retention_days, do: @default_retention_days
 
   defp retention_days do
-    raw = nonempty("SERVICERADAR_STARROCKS_RETENTION_DAYS", "")
+    Enum.map(@default_retention_days, fn {dataset, default} ->
+      {dataset, retention_days_for(dataset, default)}
+    end)
+  end
 
-    case Integer.parse(raw) do
+  defp retention_days_for(dataset, default) do
+    name =
+      "SERVICERADAR_STARROCKS_RETENTION_DAYS_" <> String.upcase(Atom.to_string(dataset))
+
+    case Integer.parse(nonempty(name, "")) do
       {days, _} when days > 0 -> days
-      _ -> @default_retention_days
+      _ -> default
     end
   end
 

@@ -5,10 +5,16 @@ defmodule ServiceRadar.Analytics.StarRocks.Retention do
 
   The telemetry tables are partitioned by day, so retention is enforced by
   StarRocks itself: keeping the most recent N daily partitions drops anything
-  older without a delete job. The DDL ships a 90-day default;
-  `SERVICERADAR_STARROCKS_RETENTION_DAYS` (Helm `analytics.starrocks.retentionDays`,
-  Compose `STARROCKS_RETENTION_DAYS`) is re-applied on every boot so a changed
-  value takes effect on rollout.
+  older without a delete job. Retention is per dataset -- flows and metrics
+  default to 90 days, logs and event history to the hosted one year -- and each
+  is configurable through `SERVICERADAR_STARROCKS_RETENTION_DAYS_<DATASET>`
+  (Helm `analytics.starrocks.retentionDays.<dataset>`, Compose
+  `STARROCKS_RETENTION_DAYS_<DATASET>`).
+
+  A warehouse Frontend is routinely slower to answer than core is to boot, and
+  a value that never lands means partitions are dropped on the DDL default
+  instead, which cannot be undone. The applier therefore retries with capped
+  backoff until the statements succeed rather than giving up.
   """
 
   require Logger
@@ -16,19 +22,31 @@ defmodule ServiceRadar.Analytics.StarRocks.Retention do
   alias ServiceRadar.Analytics.StarRocks.Env
   alias ServiceRadar.Analytics.StarRocks.MySQL
 
-  @tables ~w(ocsf_network_activity timeseries_metrics logs events)
+  @tables [
+    flows: "ocsf_network_activity",
+    metrics: "timeseries_metrics",
+    logs: "logs",
+    events: "events"
+  ]
 
-  @attempts 5
-  @retry_delay_ms 5_000
+  @initial_delay_ms 5_000
+  @max_delay_ms 300_000
 
-  @spec tables() :: [String.t()]
+  @spec tables() :: keyword(String.t())
   def tables, do: @tables
 
   @spec statements(keyword()) :: [String.t()]
   def statements(config) when is_list(config) do
-    days = Keyword.get(config, :retention_days, Env.default_retention_days())
+    retention = Keyword.get(config, :retention_days, [])
 
-    Enum.map(@tables, fn table ->
+    Enum.map(@tables, fn {dataset, table} ->
+      days =
+        Keyword.get(
+          retention,
+          dataset,
+          Keyword.fetch!(Env.default_retention_days(), dataset)
+        )
+
       "ALTER TABLE `#{table}` SET (\"partition_live_number\" = \"#{days}\")"
     end)
   end
@@ -63,11 +81,10 @@ defmodule ServiceRadar.Analytics.StarRocks.Retention do
   @doc false
   @spec run(keyword()) :: :ok
   def run(opts) when is_list(opts) do
-    attempts = Keyword.get(opts, :attempts, @attempts)
-    delay = Keyword.get(opts, :retry_delay_ms, @retry_delay_ms)
+    attempts = Keyword.get(opts, :attempts, :infinity)
     sleep = Keyword.get(opts, :sleep, &Process.sleep/1)
 
-    run_attempt(opts, attempts, delay, sleep)
+    run_attempt(opts, attempts, @initial_delay_ms, sleep)
   end
 
   defp run_attempt(opts, attempts_left, delay, sleep) do
@@ -75,10 +92,13 @@ defmodule ServiceRadar.Analytics.StarRocks.Retention do
       :ok ->
         :ok
 
-      {:error, reason} when attempts_left > 1 ->
-        Logger.debug("StarRocks retention not applied yet: #{inspect(reason)}")
+      {:error, reason} when attempts_left == :infinity or attempts_left > 1 ->
+        Logger.warning(
+          "StarRocks retention not applied, retrying in #{delay}ms: #{inspect(reason)}"
+        )
+
         sleep.(delay)
-        run_attempt(opts, attempts_left - 1, delay, sleep)
+        run_attempt(opts, remaining(attempts_left), min(delay * 2, @max_delay_ms), sleep)
 
       {:error, reason} ->
         Logger.warning(
@@ -88,4 +108,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Retention do
         :ok
     end
   end
+
+  defp remaining(:infinity), do: :infinity
+  defp remaining(attempts_left), do: attempts_left - 1
 end

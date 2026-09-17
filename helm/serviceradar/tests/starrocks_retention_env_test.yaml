@@ -3,10 +3,10 @@ templates:
   - templates/core.yaml
 tests:
   # The warehouse tables are partitioned by day and keep the most recent N
-  # partitions, so this value is the telemetry TTL. Core re-applies it on every
-  # rollout; without it in the env the DDL default would be the only setting an
-  # operator ever gets.
-  - it: publishes the default 90-day retention when starrocks is enabled
+  # partitions, so these values are the telemetry TTLs. Core re-applies them on
+  # every rollout; without them in the env the DDL defaults would be the only
+  # setting an operator ever gets.
+  - it: publishes the shipped per-dataset retention policy when starrocks is enabled
     set:
       analytics.starrocks.enabled: true
     documentSelector:
@@ -16,14 +16,33 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].env
           content:
-            name: SERVICERADAR_STARROCKS_RETENTION_DAYS
+            name: SERVICERADAR_STARROCKS_RETENTION_DAYS_FLOWS
             value: "90"
           count: 1
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_STARROCKS_RETENTION_DAYS_METRICS
+            value: "90"
+          count: 1
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_STARROCKS_RETENTION_DAYS_LOGS
+            value: "365"
+          count: 1
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_STARROCKS_RETENTION_DAYS_EVENTS
+            value: "365"
+          count: 1
 
-  - it: honours an operator-selected retention
+  # Bounding raw NetFlow must not also shorten log history.
+  - it: lets one dataset be retuned without moving the others
     set:
       analytics.starrocks.enabled: true
-      analytics.starrocks.retentionDays: 365
+      analytics.starrocks.retentionDays.flows: 30
     documentSelector:
       path: kind
       value: Deployment
@@ -31,7 +50,13 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].env
           content:
-            name: SERVICERADAR_STARROCKS_RETENTION_DAYS
+            name: SERVICERADAR_STARROCKS_RETENTION_DAYS_FLOWS
+            value: "30"
+          count: 1
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_STARROCKS_RETENTION_DAYS_LOGS
             value: "365"
           count: 1
 
@@ -45,5 +70,5 @@ tests:
       - notContains:
           path: spec.template.spec.containers[0].env
           content:
-            name: SERVICERADAR_STARROCKS_RETENTION_DAYS
+            name: SERVICERADAR_STARROCKS_RETENTION_DAYS_FLOWS
             value: "90"
