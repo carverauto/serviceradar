@@ -36,7 +36,8 @@ analytics:
   starrocks:
     enabled: true
     shadowDatasets: []
-    cutoverDatasets: []
+    cutoverDatasets:
+      - flows
     catalog:
       enabled: true
       secretName: serviceradar-starrocks-catalog
