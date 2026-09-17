@@ -1,3 +1,7 @@
+# StarRocks DDL. Not Ecto, not mix ecto.migrate.
+# Apply with the StarRocks SQL console (mysql protocol on FE:9030).
+# 0001–0005 are CREATE for a new warehouse; 0006+ are one-shot ALTERs for
+# already-deployed tables. Re-running an ADD COLUMN fails if the column exists.
 filegroup(
     name = "schema_sql",
     srcs = glob(["*.sql"]),
