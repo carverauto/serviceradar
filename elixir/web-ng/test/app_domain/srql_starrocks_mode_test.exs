@@ -291,8 +291,10 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
     assert link.geo_to == nil
     assert slice.flow_summary.flow_count == 7
     assert slice.netflow_state == :active
-    assert slice.map_empty_title == "No observed flow data"
-    assert slice.map_empty_detail == "No synthetic traffic animation is shown."
+    assert slice.map_empty_title == "Flows are not mapped yet"
+
+    assert slice.map_empty_detail ==
+             "Recent conversations need coordinates on both ends. Enable GeoIP, add Local CIDR map anchors, or wait for ipinfo/GeoLite enrichment."
 
     window_stat = Enum.find(slice.map_stats, &(&1.label == "Window"))
     assert window_stat.value == "Last hour"

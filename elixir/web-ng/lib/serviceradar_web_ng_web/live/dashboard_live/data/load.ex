@@ -118,8 +118,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
             ),
           map_stats: map_stats(flow_summary, mtr_summary, traffic_links, netflow_window),
           traffic_links_window_label: ServiceRadarWebNGWeb.DashboardLive.Window.label(netflow_window),
-          map_empty_title: map_empty_title(Map.get(module_states, :netflow)),
-          map_empty_detail: map_empty_detail(Map.get(module_states, :netflow)),
+          map_empty_title: map_empty_title(Map.get(module_states, :netflow), traffic_links),
+          map_empty_detail: map_empty_detail(Map.get(module_states, :netflow), traffic_links),
           observability_metrics:
             observability_metrics(flow_summary, mtr_summary, trace_summary, services_summary, sparklines),
           security_trend_max: max_trend_total(security_trend),
@@ -459,8 +459,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
           traffic_links_json: Jason.encode!(traffic_links),
           mtr_overlays: mtr_overlays,
           mtr_overlays_json: Jason.encode!(mtr_overlays),
-          map_empty_title: map_empty_title(netflow_state),
-          map_empty_detail: map_empty_detail(netflow_state)
+          map_empty_title: map_empty_title(netflow_state, traffic_links),
+          map_empty_detail: map_empty_detail(netflow_state, traffic_links)
         }
       end
 
@@ -516,8 +516,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
           traffic_links_json: Jason.encode!(traffic_links),
           mtr_overlays: mtr_overlays,
           mtr_overlays_json: Jason.encode!(mtr_overlays),
-          map_empty_title: map_empty_title(netflow_state),
-          map_empty_detail: map_empty_detail(netflow_state)
+          map_empty_title: map_empty_title(netflow_state, traffic_links),
+          map_empty_detail: map_empty_detail(netflow_state, traffic_links)
         }
       end
 

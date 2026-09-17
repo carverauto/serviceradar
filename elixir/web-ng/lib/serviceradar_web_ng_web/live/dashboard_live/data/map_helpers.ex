@@ -112,20 +112,47 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.MapHelpers do
         }
       end
 
-      defp map_empty_title(:error), do: "Unable to load NetFlow map"
-      defp map_empty_title(:loading), do: "Checking traffic sources"
-      defp map_empty_title(:configured_empty), do: "Awaiting observed NetFlow summaries"
-      defp map_empty_title(:unconfigured), do: "NetFlow collector not configured"
-      defp map_empty_title(_), do: "No observed flow data"
+      defp map_empty_title(state, traffic_links \\ [])
+      defp map_empty_title(:error, _), do: "Unable to load NetFlow map"
+      defp map_empty_title(:loading, _), do: "Checking traffic sources"
+      defp map_empty_title(:configured_empty, _), do: "Awaiting observed NetFlow summaries"
+      defp map_empty_title(:unconfigured, _), do: "NetFlow collector not configured"
 
-      defp map_empty_detail(:error), do: "Select a time window to retry the query."
-      defp map_empty_detail(:loading), do: "Dashboard data will load after the LiveView connects."
+      defp map_empty_title(_state, traffic_links) do
+        if unmapped_netflow_links?(traffic_links) do
+          "Flows are not mapped yet"
+        else
+          "No observed flow data"
+        end
+      end
 
-      defp map_empty_detail(:configured_empty),
+      defp map_empty_detail(state, traffic_links \\ [])
+      defp map_empty_detail(:error, _), do: "Select a time window to retry the query."
+      defp map_empty_detail(:loading, _), do: "Dashboard data will load after the LiveView connects."
+
+      defp map_empty_detail(:configured_empty, _),
         do: "Collector configuration exists, but no recent flow summaries were found."
 
-      defp map_empty_detail(:unconfigured), do: "Install a NetFlow, IPFIX, or sFlow collector to animate traffic."
-      defp map_empty_detail(_), do: "No synthetic traffic animation is shown."
+      defp map_empty_detail(:unconfigured, _), do: "Install a NetFlow, IPFIX, or sFlow collector to animate traffic."
+
+      defp map_empty_detail(_state, traffic_links) do
+        if unmapped_netflow_links?(traffic_links) do
+          "Recent conversations need coordinates on both ends. Enable GeoIP, add Local CIDR map anchors, or wait for ipinfo/GeoLite enrichment."
+        else
+          "No synthetic traffic animation is shown."
+        end
+      end
+
+      defp unmapped_netflow_links?(traffic_links) do
+        links = List.wrap(traffic_links)
+        links != [] and not Enum.any?(links, &geo_mapped_netflow_link?/1)
+      end
+
+      defp geo_mapped_netflow_link?(link) when is_map(link) do
+        Map.get(link, :geo_mapped, Map.get(link, "geo_mapped", false)) == true
+      end
+
+      defp geo_mapped_netflow_link?(_), do: false
 
       defp threat_level(%{pending: pending, escalated: escalated}, %{critical: critical, fatal: fatal, high: high}) do
         cond do
