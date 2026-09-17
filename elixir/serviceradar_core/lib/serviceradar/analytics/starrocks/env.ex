@@ -15,6 +15,10 @@ defmodule ServiceRadar.Analytics.StarRocks.Env do
 
   @all_datasets [:flows, :flow_attribution, :metrics, :logs, :events]
 
+  # Daily partitions, so retention is a partition count. Mirrors the 90-day
+  # CNPG raw-flow policy and the value baked into the shipped DDL.
+  @default_retention_days 90
+
   @spec config() :: keyword()
   def config do
     enabled = truthy?("SERVICERADAR_STARROCKS_ENABLED")
@@ -30,8 +34,21 @@ defmodule ServiceRadar.Analytics.StarRocks.Env do
       mysql_pool_size: mysql_pool_size(),
       database: nonempty("SERVICERADAR_STARROCKS_DATABASE", "serviceradar"),
       user: nonempty("SERVICERADAR_STARROCKS_USER", "root"),
-      password: System.get_env("SERVICERADAR_STARROCKS_PASSWORD", "")
+      password: System.get_env("SERVICERADAR_STARROCKS_PASSWORD", ""),
+      retention_days: retention_days()
     ]
+  end
+
+  @spec default_retention_days() :: pos_integer()
+  def default_retention_days, do: @default_retention_days
+
+  defp retention_days do
+    raw = nonempty("SERVICERADAR_STARROCKS_RETENTION_DAYS", "")
+
+    case Integer.parse(raw) do
+      {days, _} when days > 0 -> days
+      _ -> @default_retention_days
+    end
   end
 
   defp shadow_datasets(enabled) do

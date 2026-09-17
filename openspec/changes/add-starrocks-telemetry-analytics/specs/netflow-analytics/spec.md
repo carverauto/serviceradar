@@ -1,12 +1,12 @@
 ## ADDED Requirements
 
-### Requirement: NetFlow collection requires StarRocks
-The system SHALL require StarRocks analytics whenever NetFlow collection is enabled, SHALL leave NetFlow collection independently gated by Helm and Compose, and SHALL NOT treat StarRocks as a NetFlow-only store.
+### Requirement: NetFlow collection is independent of StarRocks
+The system SHALL leave NetFlow collection independently gated by Helm and Compose, SHALL keep NetFlow collection and serving working when StarRocks analytics is disabled, and SHALL NOT treat StarRocks as a NetFlow-only store.
 
 #### Scenario: Collector enablement without the warehouse
 - **WHEN** `flowCollector.enabled` is true and `analytics.starrocks.enabled` is false
-- **THEN** installation fails closed before the collector starts
-- **AND** CNPG is not used as the NetFlow serving store
+- **THEN** the collector is deployed and installation does not fail
+- **AND** CNPG hypertables remain the NetFlow store and serving path
 
 #### Scenario: Warehouse without NetFlow
 - **WHEN** `analytics.starrocks.enabled` is true and `flowCollector.enabled` is false

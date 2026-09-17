@@ -7,17 +7,47 @@ defmodule ServiceRadar.EventWriter.Processors.FlowAttributionUpdatesTest do
   @moduletag :db_free
 
   test "parses versioned attribution payloads and drops stale versions" do
-    body = Jason.encode!(%{"id" => "flow-alpha-0001", "attribution_version" => 2, "pid" => 9})
+    body =
+      Jason.encode!(%{
+        "id" => "flow-alpha-0001",
+        "time" => "1999-06-15 12:00:00",
+        "attribution_version" => 2,
+        "pid" => 9
+      })
 
     assert %{"id" => "flow-alpha-0001", "attribution_version" => 2} =
              FlowAttributionUpdates.parse_message(%{data: body})
 
-    stale = Jason.encode!(%{"id" => "flow-alpha-0001", "attribution_version" => 0})
+    stale =
+      Jason.encode!(%{
+        "id" => "flow-alpha-0001",
+        "time" => "1999-06-15 12:00:00",
+        "attribution_version" => 0
+      })
+
     assert FlowAttributionUpdates.parse_message(%{data: stale}) == nil
   end
 
+  test "a payload without the flow time is dropped rather than loaded keyless" do
+    keyless = Jason.encode!(%{"id" => "flow-alpha-0001", "attribution_version" => 2, "pid" => 9})
+
+    assert FlowAttributionUpdates.parse_message(%{data: keyless}) == nil
+
+    assert {:ok, 0} =
+             FlowAttributionUpdates.process_batch([%{data: keyless}],
+               enabled: true,
+               persist: fn _, _, _ -> flunk("keyless partial update loaded") end,
+               version_lookup: fn _ -> %{} end
+             )
+  end
+
   test "process_batch propagates warehouse lookup failures" do
-    body = Jason.encode!(%{"id" => "flow-alpha-0001", "attribution_version" => 1})
+    body =
+      Jason.encode!(%{
+        "id" => "flow-alpha-0001",
+        "time" => "1999-06-15 12:00:00",
+        "attribution_version" => 1
+      })
 
     assert {:error, :timeout} =
              FlowAttributionUpdates.process_batch([%{data: body}],
@@ -44,6 +74,7 @@ defmodule ServiceRadar.EventWriter.Processors.FlowAttributionUpdatesTest do
     stale =
       Jason.encode!(%{
         "id" => "flow-alpha-0001",
+        "time" => "1999-06-15 12:00:00",
         "attribution_version" => 2,
         "pid" => 8,
         "bytes_in" => 99
@@ -67,9 +98,8 @@ defmodule ServiceRadar.EventWriter.Processors.FlowAttributionUpdatesTest do
     assert row["id"] == "flow-alpha-0001"
     assert row["attribution_version"] == 4
     assert row["pid"] == 9
+    assert row["time"] == "1999-06-15 12:00:00"
     refute Map.has_key?(row, "bytes_in")
-    refute Map.has_key?(row, "time")
-    assert Map.get(row, "bytes_in", :absent)
     refute_received {:persist, _, _, _}
   end
 
@@ -82,6 +112,7 @@ defmodule ServiceRadar.EventWriter.Processors.FlowAttributionUpdatesTest do
     body =
       Jason.encode!(%{
         "id" => "flow-alpha-0001",
+        "time" => "1999-06-15 12:00:00",
         "attribution_version" => 3,
         "pid" => 9,
         "bytes_in" => 1200
@@ -98,7 +129,13 @@ defmodule ServiceRadar.EventWriter.Processors.FlowAttributionUpdatesTest do
   end
 
   test "failed and filtered loads are not acknowledged" do
-    body = Jason.encode!(%{"id" => "flow-alpha-0001", "attribution_version" => 4, "pid" => 9})
+    body =
+      Jason.encode!(%{
+        "id" => "flow-alpha-0001",
+        "time" => "1999-06-15 12:00:00",
+        "attribution_version" => 4,
+        "pid" => 9
+      })
 
     for result <- [{:error, :timeout}, {:quarantine, :filtered_rows}] do
       assert {:error, {:missing_destinations, %{missing: [:starrocks]}}} =

@@ -4,12 +4,24 @@ defmodule ServiceRadar.Analytics.StarRocks.Attribution do
 
   Traffic totals are not part of the payload. A lower attribution_version must
   not overwrite a higher one on redelivery.
+
+  `time` travels with every update because it is part of the warehouse table's
+  primary key (the partition column must be), and a StarRocks partial update
+  has to carry the whole key.
   """
 
   alias ServiceRadar.NATS.Connection
 
   @subject "events.flow.attribution"
-  @load_columns ["id", "attribution_version", "pid", "comm", "cmdline", "workload_identity"]
+  @load_columns [
+    "id",
+    "time",
+    "attribution_version",
+    "pid",
+    "comm",
+    "cmdline",
+    "workload_identity"
+  ]
 
   @spec jetstream_subject() :: String.t()
   def jetstream_subject, do: @subject
@@ -21,6 +33,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Attribution do
   def update_event(row, version) when is_map(row) and is_integer(version) and version > 0 do
     %{
       "id" => field(row, :id),
+      "time" => field(row, :time),
       "attribution_version" => version,
       "pid" => field(row, :pid),
       "comm" => field(row, :comm),
@@ -43,7 +56,8 @@ defmodule ServiceRadar.Analytics.StarRocks.Attribution do
       id = field(row, :id)
       version = field(row, :attribution_version)
 
-      if is_binary(id) and id != "" and is_integer(version) and version > 0 do
+      if is_binary(id) and id != "" and is_integer(version) and version > 0 and
+           field(row, :time) != nil do
         case publisher.(%{subject: @subject, payload: update_event(row, version)}) do
           :ok -> {:cont, :ok}
           {:error, _reason} = error -> {:halt, error}

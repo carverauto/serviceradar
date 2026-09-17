@@ -20,9 +20,12 @@ CREATE TABLE IF NOT EXISTS serviceradar.logs (
   service_version VARCHAR(64),
   observed_timestamp DATETIME
 )
-PRIMARY KEY (id)
+PRIMARY KEY (id, `timestamp`)
+PARTITION BY date_trunc('day', `timestamp`)
 DISTRIBUTED BY HASH(id) BUCKETS 16
+ORDER BY (`timestamp`, id)
 PROPERTIES (
   "replication_num" = "3",
-  "enable_persistent_index" = "true"
+  "enable_persistent_index" = "true",
+  "partition_live_number" = "90"
 );

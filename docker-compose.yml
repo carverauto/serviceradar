@@ -447,6 +447,7 @@ services:
       - SERVICERADAR_STARROCKS_FE_HOST=${STARROCKS_FE_HOST:-starrocks}
       - SERVICERADAR_STARROCKS_FE_QUERY_PORT=${STARROCKS_FE_QUERY_PORT:-9030}
       - SERVICERADAR_STARROCKS_DATABASE=${STARROCKS_DATABASE:-serviceradar}
+      - SERVICERADAR_STARROCKS_RETENTION_DAYS=${STARROCKS_RETENTION_DAYS:-90}
       - SERVICERADAR_STARROCKS_SHADOW_DATASETS=${STARROCKS_SHADOW_DATASETS:-}
       - SERVICERADAR_STARROCKS_CUTOVER_DATASETS=${STARROCKS_CUTOVER_DATASETS:-}
       - SERVICERADAR_STARROCKS_CATALOG_ENABLED=${STARROCKS_CATALOG_ENABLED:-false}
@@ -728,19 +729,16 @@ services:
       - serviceradar-net
     restart: unless-stopped
 
-  # Optional StarRocks warehouse. Off in the default stack (logs/metrics stay
-  # on CNPG hypertables). `--profile starrocks` starts the warehouse without
-  # NetFlow. `--profile flows` and `--profile network-ingest` include it
-  # because NetFlow history is stored in StarRocks. Set
-  # STARROCKS_ENABLED=true in the environment when using those profiles.
+  # Optional StarRocks warehouse. Off in the default stack (all telemetry,
+  # NetFlow included, stays on CNPG hypertables). `--profile starrocks` starts
+  # the warehouse; it is independent of the collector profiles. Set
+  # STARROCKS_ENABLED=true in the environment when using it.
   starrocks:
     image: starrocks/allin1-ubuntu:3.5.21
     container_name: serviceradar-starrocks
     hostname: starrocks
     profiles:
       - starrocks
-      - flows
-      - network-ingest
     ports:
       - "8030:8030"
       - "9030:9030"
@@ -755,8 +753,7 @@ services:
   # Optional network-ingest collectors are disabled in the default compose stack.
   # Enable all with `docker compose --profile network-ingest up -d`, or enable
   # individual collectors with `--profile snmp-traps`, `--profile flows`, or
-  # `--profile bmp`. `--profile flows` also starts StarRocks. The collector
-  # itself stays off unless that profile is selected.
+  # `--profile bmp`. The collector stays off unless that profile is selected.
   trapd:
     image: registry.carverauto.dev/serviceradar/serviceradar-trapd:${APP_TAG:-latest}
     container_name: serviceradar-trapd-mtls
@@ -814,8 +811,6 @@ services:
       - NET_BIND_SERVICE
     depends_on:
       nats:
-        condition: service_started
-      starrocks:
         condition: service_started
     networks:
       - serviceradar-net
@@ -1033,6 +1028,7 @@ services:
       - SERVICERADAR_STARROCKS_FE_HOST=${STARROCKS_FE_HOST:-starrocks}
       - SERVICERADAR_STARROCKS_FE_QUERY_PORT=${STARROCKS_FE_QUERY_PORT:-9030}
       - SERVICERADAR_STARROCKS_DATABASE=${STARROCKS_DATABASE:-serviceradar}
+      - SERVICERADAR_STARROCKS_RETENTION_DAYS=${STARROCKS_RETENTION_DAYS:-90}
       - SERVICERADAR_STARROCKS_SHADOW_DATASETS=${STARROCKS_SHADOW_DATASETS:-}
       - SERVICERADAR_STARROCKS_CUTOVER_DATASETS=${STARROCKS_CUTOVER_DATASETS:-}
       - SERVICERADAR_STARROCKS_CATALOG_ENABLED=${STARROCKS_CATALOG_ENABLED:-false}

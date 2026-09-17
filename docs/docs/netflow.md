@@ -76,11 +76,11 @@ Send NetFlow to `<FLOW_COLLECTOR_ADDRESS>:2055/UDP` and sFlow to `<FLOW_COLLECTO
 **Docker Compose:**
 
 The shipped Compose stack leaves the flow collector off unless you pass
-`--profile flows` or `--profile network-ingest`. Those profiles also start
-the StarRocks warehouse (`starrocks/allin1-ubuntu:3.5.21`); set
-`STARROCKS_ENABLED=true` so EventWriter shadows telemetry. `--profile starrocks`
-starts the warehouse without the collector. NetFlow without StarRocks is not
-supported.
+`--profile flows` or `--profile network-ingest`. `--profile starrocks` starts
+the StarRocks warehouse (`starrocks/allin1-ubuntu:3.5.21`) independently; set
+`STARROCKS_ENABLED=true` alongside it so EventWriter shadows telemetry. The
+profiles are independent: NetFlow collection without StarRocks is supported and
+stores flows on CNPG hypertables.
 
 The trap, flow, and BMP collectors together start with
 `docker compose --profile network-ingest up -d`. Its bounded JetStream

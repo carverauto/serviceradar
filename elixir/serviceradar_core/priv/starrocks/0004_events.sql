@@ -25,9 +25,12 @@ CREATE TABLE IF NOT EXISTS serviceradar.events (
   trace_id VARCHAR(64),
   span_id VARCHAR(64)
 )
-PRIMARY KEY (id)
+PRIMARY KEY (id, `time`)
+PARTITION BY date_trunc('day', `time`)
 DISTRIBUTED BY HASH(id) BUCKETS 16
+ORDER BY (`time`, id)
 PROPERTIES (
   "replication_num" = "3",
-  "enable_persistent_index" = "true"
+  "enable_persistent_index" = "true",
+  "partition_live_number" = "90"
 );

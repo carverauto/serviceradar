@@ -47,6 +47,7 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
     rows = [
       %{
         "id" => "flow-alpha-0001",
+        "time" => "1999-06-15 12:00:00",
         "attribution_version" => 3,
         "pid" => 9,
         "comm" => "sshd"
@@ -59,7 +60,7 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
       assert {"columns", Enum.join(Attribution.load_columns(), ",")} in headers
       [payload] = Jason.decode!(body)
       refute Map.has_key?(payload, "bytes_in")
-      refute Map.has_key?(payload, "time")
+      assert payload["time"] == "1999-06-15 12:00:00"
 
       {:ok,
        %{

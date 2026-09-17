@@ -1,11 +1,14 @@
 -- StarRocks primary-key table for migrated OCSF flows.
 -- Applied by the Bazel schema target, not Mix/Postgres migrations.
+-- `time` is part of the primary key because StarRocks requires the partition
+-- column to be a primary-key column. partition_live_number is the retention
+-- default; SERVICERADAR_STARROCKS_RETENTION_DAYS is applied on top at boot.
 CREATE DATABASE IF NOT EXISTS serviceradar;
 
 CREATE TABLE IF NOT EXISTS serviceradar.ocsf_network_activity (
   id VARCHAR(64) NOT NULL,
+  `time` DATETIME NOT NULL,
   device_uid VARCHAR(256) NOT NULL,
-  time DATETIME NOT NULL,
   src_endpoint_ip VARCHAR(64),
   dst_endpoint_ip VARCHAR(64),
   src_endpoint_port INT,
@@ -47,9 +50,12 @@ CREATE TABLE IF NOT EXISTS serviceradar.ocsf_network_activity (
   cmdline VARCHAR(65533),
   workload_identity VARCHAR(65533)
 )
-PRIMARY KEY (id)
+PRIMARY KEY (id, `time`)
+PARTITION BY date_trunc('day', `time`)
 DISTRIBUTED BY HASH(id) BUCKETS 16
+ORDER BY (`time`, id)
 PROPERTIES (
   "replication_num" = "3",
-  "enable_persistent_index" = "true"
+  "enable_persistent_index" = "true",
+  "partition_live_number" = "90"
 );

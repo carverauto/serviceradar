@@ -1,14 +1,24 @@
-suite: netflow requires starrocks
+suite: netflow renders without starrocks
 templates:
   - flow-collector.yaml
 tests:
-  - it: fails closed when netflow is on without starrocks
+  # NetFlow collection must stay deployable on a CNPG-only install: the
+  # collector publishes to JetStream and EventWriter persists to CNPG
+  # hypertables whether or not the warehouse is present.
+  - it: renders the collector when starrocks is disabled
     set:
       flowCollector.enabled: true
       analytics.starrocks.enabled: false
+    documentSelector:
+      path: kind
+      value: Deployment
     asserts:
-      - failedTemplate:
-          errorMessage: "flowCollector.enabled requires analytics.starrocks.enabled: NetFlow history is stored in StarRocks. Without StarRocks, logs stay on CNPG hypertables and NetFlow is not collected."
+      - equal:
+          path: kind
+          value: Deployment
+      - equal:
+          path: metadata.name
+          value: serviceradar-flow-collector
   - it: does not deploy the collector when flowCollector.enabled is false
     set:
       analytics.starrocks.enabled: true

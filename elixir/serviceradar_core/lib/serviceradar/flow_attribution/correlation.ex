@@ -80,12 +80,27 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
 
         with {:ok, %{columns: columns, rows: rows}} <-
                query.(warehouse_correlation_sql(), [flows]),
-             updates = Enum.map(rows, &Map.new(Enum.zip(columns, &1))),
+             updates =
+               rows
+               |> Enum.map(&Map.new(Enum.zip(columns, &1)))
+               |> with_flow_time(flows),
              :ok <- Attribution.publish_updates(updates, opts) do
           {:ok, length(updates)}
         end
       end
     end
+  end
+
+  # `time` is part of the StarRocks primary key, so a partial update has to carry
+  # it. Take it from the row StarRocks returned rather than round-tripping it
+  # through the CNPG correlation query, where a timestamptz cast would
+  # reinterpret a naive timestamp in the session time zone and miss the key.
+  defp with_flow_time(updates, flows) do
+    times = Map.new(flows, fn flow -> {flow["id"], flow["time"]} end)
+
+    Enum.map(updates, fn update ->
+      Map.put(update, "time", Map.get(times, update["id"]))
+    end)
   end
 
   def warehouse_correlation_sql do

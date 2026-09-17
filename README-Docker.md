@@ -76,12 +76,20 @@ stay on CNPG hypertables. Optional profiles:
 # Warehouse only (metrics/logs/events shadow). No flow collector.
 STARROCKS_ENABLED=true docker compose --profile starrocks up -d
 
+# NetFlow/sFlow collector on CNPG only.
+docker compose --profile flows up -d
+
 # Warehouse + NetFlow/sFlow collector.
-STARROCKS_ENABLED=true docker compose --profile flows up -d
+STARROCKS_ENABLED=true docker compose --profile starrocks --profile flows up -d
 ```
 
 `flow-collector` stays off unless you pass `--profile flows` or
-`--profile network-ingest`. NetFlow requires the StarRocks warehouse.
+`--profile network-ingest`. The two profiles are independent: NetFlow works
+without the warehouse, and flows are then stored on CNPG hypertables.
+
+StarRocks telemetry retention defaults to 90 days. The warehouse tables are
+partitioned by day, so `STARROCKS_RETENTION_DAYS` is the number of daily
+partitions kept; anything older is dropped. It is re-applied on every start.
 
 5. **Get your admin password**:
    ```bash

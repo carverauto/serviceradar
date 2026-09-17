@@ -1719,8 +1719,9 @@ trapd:
         port: 162
         targetPort: 162
         protocol: UDP
-# NetFlow/IPFIX collector. Independent of StarRocks except that enabling
-# this without analytics.starrocks.enabled fails closed.
+# NetFlow/IPFIX collector. Independent of StarRocks: the collector publishes
+# to JetStream and EventWriter persists flows to CNPG hypertables when
+# analytics.starrocks.enabled is false.
 flowCollector:
   enabled: false
   replicaCount: 1
@@ -2506,8 +2507,8 @@ sweep:
 # =============================================================================
 
 # Optional telemetry warehouse for flows, scalar metrics, logs and events.
-# Disabled means remaining telemetry stays on CNPG hypertables. Enabling
-# flowCollector requires this flag. Empty shadowDatasets means all four
+# Disabled means all telemetry, NetFlow included, stays on CNPG hypertables.
+# flowCollector is gated independently. Empty shadowDatasets means all four
 # datasets. Cutover stays empty until a dataset is explicitly listed. Lab
 # clusters run the shared-nothing profile from k8s/starrocks/, not this chart.
 analytics:
@@ -2520,6 +2521,11 @@ analytics:
     operatorChartVersion: "1.11.7"
     imageTag: "3.5.21"
     database: serviceradar
+    # Telemetry retention in days. The warehouse tables are partitioned by day,
+    # so this is the number of daily partitions StarRocks keeps; anything older
+    # is dropped. Default mirrors the 90-day CNPG raw-flow policy. Re-applied on
+    # every core rollout, so changing it here is enough.
+    retentionDays: 90
     fe:
       service: lab-fe-service.starrocks.svc
       queryPort: 9030

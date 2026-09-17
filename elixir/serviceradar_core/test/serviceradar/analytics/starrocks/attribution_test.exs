@@ -8,9 +8,19 @@ defmodule ServiceRadar.Analytics.StarRocks.AttributionTest do
 
   test "attribution updates omit traffic totals and are monotonic" do
     event =
-      Attribution.update_event(%{id: "flow-alpha-0001", bytes_in: 1200, pid: 42, comm: "sshd"}, 3)
+      Attribution.update_event(
+        %{
+          id: "flow-alpha-0001",
+          time: ~N[1999-06-15 12:00:00],
+          bytes_in: 1200,
+          pid: 42,
+          comm: "sshd"
+        },
+        3
+      )
 
     assert event["id"] == "flow-alpha-0001"
+    assert event["time"] == ~N[1999-06-15 12:00:00]
     assert event["attribution_version"] == 3
     assert event["pid"] == 42
     refute Map.has_key?(event, "bytes_in")
@@ -39,22 +49,36 @@ defmodule ServiceRadar.Analytics.StarRocks.AttributionTest do
     assert row["id"] == "flow-alpha-0001"
     assert row["attribution_version"] == 3
     assert row["pid"] == 9
+    # `time` is part of the warehouse primary key, so the partial update carries
+    # it unchanged; every non-key column outside the attribution set stays out.
+    assert row["time"] == "1999-06-15 12:00:00"
     refute Map.has_key?(row, "bytes_in")
     refute Map.has_key?(row, "bytes_out")
-    refute Map.has_key?(row, "time")
     refute Map.has_key?(row, "device_uid")
   end
 
   test "default publisher uses NATS.Connection rather than a no-op" do
     assert {:error, :not_connected} =
              Attribution.publish_updates([
-               %{id: "flow-alpha-0001", pid: 9, attribution_version: 1}
+               %{
+                 id: "flow-alpha-0001",
+                 time: ~N[1999-06-15 12:00:00],
+                 pid: 9,
+                 attribution_version: 1
+               }
              ])
   end
 
   test "publish_updates emit JetStream payloads without clobbering traffic totals" do
     parent = self()
-    row = %{id: "flow-alpha-0001", pid: 9, comm: "nginx", bytes_in: 1200, attribution_version: 41}
+    row = %{
+      id: "flow-alpha-0001",
+      time: ~N[1999-06-15 12:00:00],
+      pid: 9,
+      comm: "nginx",
+      bytes_in: 1200,
+      attribution_version: 41
+    }
 
     assert :ok =
              Attribution.publish_updates([row],
@@ -66,8 +90,17 @@ defmodule ServiceRadar.Analytics.StarRocks.AttributionTest do
 
     assert_received {:published, %{subject: "events.flow.attribution", payload: payload}}
     assert payload["id"] == "flow-alpha-0001"
+    assert payload["time"] == ~N[1999-06-15 12:00:00]
     assert payload["attribution_version"] == 41
     refute Map.has_key?(payload, "bytes_in")
+  end
+
+  test "an update without the flow time cannot be published" do
+    assert {:error, :unresolved_flow_attribution} =
+             Attribution.publish_updates(
+               [%{id: "flow-alpha-0001", pid: 9, attribution_version: 41}],
+               publish: fn _ -> flunk("keyless update published") end
+             )
   end
 
   test "unresolved events cannot become flow updates" do
@@ -80,7 +113,14 @@ defmodule ServiceRadar.Analytics.StarRocks.AttributionTest do
   test "publish failure is returned to the caller" do
     assert {:error, :timeout} =
              Attribution.publish_updates(
-               [%{id: "flow-alpha-0001", pid: 9, attribution_version: 42}],
+               [
+                 %{
+                   id: "flow-alpha-0001",
+                   time: ~N[1999-06-15 12:00:00],
+                   pid: 9,
+                   attribution_version: 42
+                 }
+               ],
                publish: fn _ -> {:error, :timeout} end
              )
   end
@@ -106,7 +146,12 @@ defmodule ServiceRadar.Analytics.StarRocks.AttributionTest do
 
     event =
       Attribution.update_event(
-        %{id: "flow-alpha-0001", pid: 42, workload_identity: identity},
+        %{
+          id: "flow-alpha-0001",
+          time: ~N[1999-06-15 12:00:00],
+          pid: 42,
+          workload_identity: identity
+        },
         7
       )
 

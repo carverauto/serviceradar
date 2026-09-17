@@ -1,0 +1,49 @@
+suite: starrocks telemetry retention
+templates:
+  - templates/core.yaml
+tests:
+  # The warehouse tables are partitioned by day and keep the most recent N
+  # partitions, so this value is the telemetry TTL. Core re-applies it on every
+  # rollout; without it in the env the DDL default would be the only setting an
+  # operator ever gets.
+  - it: publishes the default 90-day retention when starrocks is enabled
+    set:
+      analytics.starrocks.enabled: true
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_STARROCKS_RETENTION_DAYS
+            value: "90"
+          count: 1
+
+  - it: honours an operator-selected retention
+    set:
+      analytics.starrocks.enabled: true
+      analytics.starrocks.retentionDays: 365
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_STARROCKS_RETENTION_DAYS
+            value: "365"
+          count: 1
+
+  - it: emits no starrocks env when the warehouse is disabled
+    set:
+      analytics.starrocks.enabled: false
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_STARROCKS_RETENTION_DAYS
+            value: "90"

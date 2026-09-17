@@ -102,11 +102,21 @@ defmodule ServiceRadar.Analytics.StarRocks.FlowConsumersTest do
 
   test "warehouse correlation publishes resolved flow IDs and assigned versions" do
     query = fn _ ->
-      {:ok, %{columns: ["id"], rows: [["flow-alpha-0001"], ["flow-beta-0002"]]}}
+      {:ok,
+       %{
+         columns: ["id", "time"],
+         rows: [
+           ["flow-alpha-0001", ~N[1999-06-15 12:00:00]],
+           ["flow-beta-0002", ~N[1999-06-15 12:00:01]]
+         ]
+       }}
     end
 
     repo_query = fn _sql, [flows] ->
-      assert flows == [%{"id" => "flow-alpha-0001"}, %{"id" => "flow-beta-0002"}]
+      assert flows == [
+               %{"id" => "flow-alpha-0001", "time" => ~N[1999-06-15 12:00:00]},
+               %{"id" => "flow-beta-0002", "time" => ~N[1999-06-15 12:00:01]}
+             ]
 
       {:ok,
        %{
@@ -125,11 +135,23 @@ defmodule ServiceRadar.Analytics.StarRocks.FlowConsumersTest do
                end
              )
 
+    # `time` completes the warehouse primary key and must be the value StarRocks
+    # returned, not one re-derived by the CNPG matching query.
     assert_received {:update,
-                     %{"id" => "flow-alpha-0001", "pid" => 42, "attribution_version" => 101}}
+                     %{
+                       "id" => "flow-alpha-0001",
+                       "time" => ~N[1999-06-15 12:00:00],
+                       "pid" => 42,
+                       "attribution_version" => 101
+                     }}
 
     assert_received {:update,
-                     %{"id" => "flow-beta-0002", "pid" => 43, "attribution_version" => 102}}
+                     %{
+                       "id" => "flow-beta-0002",
+                       "time" => ~N[1999-06-15 12:00:01],
+                       "pid" => 43,
+                       "attribution_version" => 102
+                     }}
 
     assert {:error, :timeout} =
              Correlation.correlate_starrocks(
@@ -148,7 +170,13 @@ defmodule ServiceRadar.Analytics.StarRocks.FlowConsumersTest do
 
     assert {:error, :unavailable} =
              Correlation.correlate_starrocks(
-               query: fn _ -> {:ok, %{columns: ["id"], rows: [["flow-alpha-0001"]]}} end,
+               query: fn _ ->
+                 {:ok,
+                  %{
+                    columns: ["id", "time"],
+                    rows: [["flow-alpha-0001", ~N[1999-06-15 12:00:00]]]
+                  }}
+               end,
                repo_query: fn _, _ -> {:error, :unavailable} end,
                publish: fn _ -> flunk("failed matches published") end
              )

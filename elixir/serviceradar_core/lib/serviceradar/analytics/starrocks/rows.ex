@@ -15,6 +15,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
   defp encode_row(:flow_attribution, row) do
     %{
       "id" => Identity.record_id(:flow_attribution, row),
+      "time" => datetime(field(row, :time)),
       "attribution_version" => field(row, :attribution_version),
       "pid" => field(row, :pid),
       "comm" => stringify(field(row, :comm)),

@@ -1,5 +1,4 @@
 {{- if .Values.flowCollector.enabled }}
-{{- include "serviceradar.requireStarRocksForNetFlow" . }}
 apiVersion: v1
 kind: ConfigMap
 metadata:

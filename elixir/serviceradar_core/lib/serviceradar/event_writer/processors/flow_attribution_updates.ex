@@ -49,7 +49,8 @@ defmodule ServiceRadar.EventWriter.Processors.FlowAttributionUpdates do
         version = payload["attribution_version"]
         id = payload["id"]
 
-        if is_binary(id) and id != "" and is_integer(version) and version > 0 do
+        if is_binary(id) and id != "" and is_integer(version) and version > 0 and
+             payload["time"] != nil do
           payload
         end
 

@@ -279,13 +279,6 @@ serviceradar.io/runtime-tls-revision: {{ default "initial" (default (dict) .Valu
   value: "{{ default "/etc/serviceradar/certs" $vals.coreClient.certDir }}"
 {{- end -}}
 
-{{- define "serviceradar.requireStarRocksForNetFlow" -}}
-{{- $sr := default (dict) (default (dict) .Values.analytics).starrocks -}}
-{{- if not $sr.enabled }}
-{{- fail "flowCollector.enabled requires analytics.starrocks.enabled: NetFlow history is stored in StarRocks. Without StarRocks, logs stay on CNPG hypertables and NetFlow is not collected." }}
-{{- end }}
-{{- end -}}
-
 {{- define "serviceradar.starrocksShadowDatasets" -}}
 {{- $sr := default (dict) (default (dict) .Values.analytics).starrocks -}}
 {{- $shadow := $sr.shadowDatasets | default list -}}
@@ -317,6 +310,8 @@ serviceradar.io/runtime-tls-revision: {{ default "initial" (default (dict) .Valu
     configMapKeyRef:
       name: {{ include "serviceradar.fullname" . }}-starrocks-analytics
       key: database
+- name: SERVICERADAR_STARROCKS_RETENTION_DAYS
+  value: {{ $sr.retentionDays | default 90 | quote }}
 - name: SERVICERADAR_STARROCKS_FE_HTTP
   value: {{ printf "http://%s:%v" $sr.fe.service $sr.fe.httpPort | quote }}
 - name: SERVICERADAR_STARROCKS_FE_HOST
