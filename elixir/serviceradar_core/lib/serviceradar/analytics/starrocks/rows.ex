@@ -28,6 +28,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
     %{
       "id" => Identity.record_id(:flows, row),
       "device_uid" => stringify(field(row, :device_uid) || field(row, :device_id) || "unknown"),
+      "event_type" => stringify(field(row, :event_type) || payload_text(row, "event_type")),
       "time" => datetime(field(row, :time)),
       "src_endpoint_ip" => stringify(field(row, :src_endpoint_ip)),
       "dst_endpoint_ip" => stringify(field(row, :dst_endpoint_ip)),
@@ -191,6 +192,13 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
   defp atom_key("source_type"), do: :source_type
   defp atom_key("firewall_rule"), do: :firewall_rule
   defp atom_key(_), do: nil
+
+  defp payload_text(row, key) do
+    case map_get(field(row, :ocsf_payload), key) do
+      value when is_binary(value) and value != "" -> value
+      _ -> nil
+    end
+  end
 
   defp payload_int(row, key) do
     case map_get(field(row, :ocsf_payload), key) do

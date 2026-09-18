@@ -4,8 +4,8 @@ defmodule ServiceRadar.Repo.Migrations.CreateStarrocksCatalogReaderRole do
 
   The StarRocks Frontend reads CNPG current-state through the `cnpg_platform`
   JDBC catalog as this role and nothing else does, so it is scoped to SELECT on
-  the six allowlisted objects, column-scoped to exactly what the compiled
-  catalog subqueries read.
+  the allowlisted objects, column-scoped to exactly what the compiled catalog
+  subqueries read.
 
   Grants live here (schema concerns); the credential lives in the deployment.
   In Kubernetes the reliable owner is CNPG `managed.roles` + a password Secret,
@@ -34,7 +34,6 @@ defmodule ServiceRadar.Repo.Migrations.CreateStarrocksCatalogReaderRole do
   # lists match what rust/srql compiles into catalog joins and subqueries;
   # `nil` means the whole relation.
   @grants [
-    {"prefix_tags_catalog", nil},
     {"netflow_local_cidrs_catalog", nil},
     {"ocsf_devices", "uid, hostname, ip"},
     {"device_alias_states", "device_id, alias_type, state, alias_value"},

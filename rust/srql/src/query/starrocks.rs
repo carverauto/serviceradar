@@ -9,9 +9,9 @@ use chrono::{SecondsFormat, Utc};
 ///
 /// Unsupported shapes return a capability error instead of silently falling
 /// back to PostgreSQL.
-pub fn translate(plan: &QueryPlan) -> Result<TranslateResponse> {
+pub fn translate(plan: &QueryPlan, database: &str) -> Result<TranslateResponse> {
     match dataset_for(&plan.entity) {
-        Some(dataset) => dataset_sql(plan, dataset),
+        Some(dataset) => dataset_sql(plan, dataset, database),
         None => Err(ServiceError::NotImplemented(format!(
             "starrocks_unsupported_entity: {:?}",
             plan.entity
@@ -34,54 +34,63 @@ struct Dataset {
 /// never mirrors into the warehouse.
 fn dataset_for(entity: &Entity) -> Option<Dataset> {
     match entity {
-        Entity::Flows | Entity::AttributedFlows => Some(Dataset {
-            raw_table: "serviceradar.ocsf_network_activity",
+        Entity::Flows => Some(Dataset {
+            raw_table: "ocsf_network_activity",
             time_column: "time",
             scope: None,
         }),
+        Entity::AttributedFlows => Some(Dataset {
+            raw_table: "ocsf_network_activity",
+            time_column: "time",
+            scope: Some(ATTRIBUTED_FLOW_SCOPE),
+        }),
         Entity::TimeseriesMetrics => Some(Dataset {
-            raw_table: "serviceradar.timeseries_metrics",
+            raw_table: "timeseries_metrics",
             time_column: "timestamp",
             scope: None,
         }),
         Entity::SnmpMetrics => Some(Dataset {
-            raw_table: "serviceradar.timeseries_metrics",
+            raw_table: "timeseries_metrics",
             time_column: "timestamp",
             scope: Some(SNMP_METRIC_SCOPE),
         }),
         Entity::RperfMetrics => Some(Dataset {
-            raw_table: "serviceradar.timeseries_metrics",
+            raw_table: "timeseries_metrics",
             time_column: "timestamp",
             scope: Some(RPERF_METRIC_SCOPE),
         }),
         Entity::Logs => Some(Dataset {
-            raw_table: "serviceradar.logs",
+            raw_table: "logs",
             time_column: "timestamp",
             scope: None,
         }),
         Entity::Events => Some(Dataset {
-            raw_table: "serviceradar.events",
+            raw_table: "events",
             time_column: "time",
             scope: None,
         }),
         Entity::SecurityFindings => Some(Dataset {
-            raw_table: "serviceradar.events",
+            raw_table: "events",
             time_column: "time",
             scope: Some(SECURITY_FINDINGS_SCOPE),
         }),
         Entity::ScanActivity => Some(Dataset {
-            raw_table: "serviceradar.events",
+            raw_table: "events",
             time_column: "time",
             scope: Some(SCAN_ACTIVITY_SCOPE),
         }),
         Entity::DnsActivity => Some(Dataset {
-            raw_table: "serviceradar.events",
+            raw_table: "events",
             time_column: "time",
             scope: Some(DNS_ACTIVITY_SCOPE),
         }),
         _ => None,
     }
 }
+
+// Mirrors the CNPG ocsf_payload discriminator in query/flows/expressions.rs:
+// attributed_flows is a strict SUBSET of flows, not a projection of it.
+const ATTRIBUTED_FLOW_SCOPE: &str = "event_type = 'attributed_flow'";
 
 const SNMP_METRIC_SCOPE: &str = "metric_type = 'snmp'";
 const RPERF_METRIC_SCOPE: &str = "metric_type = 'rperf'";
@@ -99,19 +108,20 @@ const FLOW_PACKETS_TOTAL_SQL: &str =
     "COALESCE(packets_total, COALESCE(packets_in, 0) + COALESCE(packets_out, 0))";
 const FLOW_ROW_SELECT: &str = "id, time, device_uid, src_endpoint_ip, dst_endpoint_ip, src_endpoint_port, dst_endpoint_port, protocol_num, protocol_name, CASE WHEN protocol_num = 6 THEN 'tcp' WHEN protocol_num = 17 THEN 'udp' ELSE 'other' END AS protocol_group, COALESCE(bytes_total, COALESCE(bytes_in, 0) + COALESCE(bytes_out, 0)) AS bytes_total, COALESCE(packets_total, COALESCE(packets_in, 0) + COALESCE(packets_out, 0)) AS packets_total, bytes_in, bytes_out, packets_in, packets_out, sampling_rate, direction_label, sampler_address, dst_service_label, src_as_number, dst_as_number, tcp_flags, input_snmp, output_snmp, start_time, end_time, pid, comm, cmdline, workload_identity, CASE WHEN pid IS NULL THEN 'unmatched' ELSE 'attributed' END AS attribution_status";
 
-fn dataset_sql(plan: &QueryPlan, dataset: Dataset) -> Result<TranslateResponse> {
+fn dataset_sql(plan: &QueryPlan, dataset: Dataset, database: &str) -> Result<TranslateResponse> {
     let joins = catalog_joins(plan, dataset)?;
     let time_column = dataset.time_column;
+    let qualified = format!("{database}.{}", dataset.raw_table);
     let direction = plan_mentions(plan, &["direction"]);
     let from = if direction {
-        let base = direction_source(dataset.raw_table);
+        let base = direction_source(&qualified);
         if joins.is_empty() {
             format!("{base} AS f")
         } else {
             from_with_catalog_joins(&base, &joins)
         }
     } else {
-        from_with_catalog_joins(dataset.raw_table, &joins)
+        from_with_catalog_joins(&qualified, &joins)
     };
     let (mut where_sql, params) = time_predicate(plan, time_column, direction || !joins.is_empty());
     if let Some(scope) = dataset.scope {
@@ -158,23 +168,18 @@ const CNPG_CATALOG: &str = "cnpg_platform.platform";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum CatalogJoin {
-    PrefixTags,
     Devices,
 }
 
 impl CatalogJoin {
     fn table(self) -> &'static str {
         match self {
-            Self::PrefixTags => "prefix_tags_catalog",
             Self::Devices => "ocsf_devices",
         }
     }
 
     fn sql(self) -> &'static str {
         match self {
-            Self::PrefixTags => {
-                "LEFT JOIN cnpg_platform.platform.prefix_tags_catalog AS tags ON tags.prefix = concat(f.src_endpoint_ip, '/32')"
-            }
             Self::Devices => {
                 "LEFT JOIN cnpg_platform.platform.ocsf_devices AS dev ON dev.uid = f.device_uid"
             }
@@ -183,27 +188,18 @@ impl CatalogJoin {
 }
 
 fn catalog_joins(plan: &QueryPlan, dataset: Dataset) -> Result<Vec<CatalogJoin>> {
-    // Historical attributed_flows filter pid/comm on the observation row
-    // (same snapshot semantics as CNPG ocsf_payload attribution). The JDBC
-    // catalog is for live hostname/prefix enrichment, not this page.
-    let wants_prefix = plan_mentions(plan, &["prefix_tag", "live_prefix_tag"]);
+    // pid/comm and prefix tags are persisted warehouse columns, read off the
+    // observation row. The JDBC catalog exists only for live device identity.
     let wants_device = plan_mentions(plan, &["hostname", "device_name"]);
-    if !(wants_prefix || wants_device) {
+    if !wants_device {
         return Ok(Vec::new());
     }
-    if dataset.raw_table != "serviceradar.ocsf_network_activity" {
+    if dataset.raw_table != "ocsf_network_activity" {
         return Err(ServiceError::NotImplemented(
             "starrocks_catalog_unsupported_entity".to_string(),
         ));
     }
-    let mut joins = Vec::new();
-    if wants_prefix {
-        joins.push(CatalogJoin::PrefixTags);
-    }
-    if wants_device {
-        joins.push(CatalogJoin::Devices);
-    }
-    Ok(joins)
+    Ok(vec![CatalogJoin::Devices])
 }
 
 fn plan_mentions(plan: &QueryPlan, fields: &[&str]) -> bool {
@@ -514,16 +510,16 @@ fn field_sql(plan: &QueryPlan, field: &str) -> Result<String> {
         }
     }
     let fields = match dataset.raw_table {
-        "serviceradar.ocsf_network_activity" => {
-            "id device_uid time src_endpoint_ip dst_endpoint_ip src_endpoint_port dst_endpoint_port protocol_num protocol_name direction_label dst_service_label start_time end_time src_as_number dst_as_number tcp_flags partition input_snmp output_snmp src_mac dst_mac src_mac_vendor dst_mac_vendor src_hosting_provider dst_hosting_provider protocol_source direction_source dst_service_source src_prefix_tags dst_prefix_tags bytes_in bytes_out packets_in packets_out sampling_rate attribution_version sampler_address pid comm cmdline workload_identity"
+        "ocsf_network_activity" => {
+            "id device_uid time event_type src_endpoint_ip dst_endpoint_ip src_endpoint_port dst_endpoint_port protocol_num protocol_name direction_label dst_service_label start_time end_time src_as_number dst_as_number tcp_flags partition input_snmp output_snmp src_mac dst_mac src_mac_vendor dst_mac_vendor src_hosting_provider dst_hosting_provider protocol_source direction_source dst_service_source src_prefix_tags dst_prefix_tags bytes_in bytes_out packets_in packets_out sampling_rate attribution_version sampler_address pid comm cmdline workload_identity"
         }
-        "serviceradar.timeseries_metrics" => {
+        "timeseries_metrics" => {
             "timestamp gateway_id series_key agent_id metric_name metric_type device_id value unit if_index partition scale is_delta counter_width target_device_ip tags usage_percent"
         }
-        "serviceradar.logs" => {
+        "logs" => {
             "id timestamp ingest_identity severity_text severity_number body service_name source ingest_agent_id ingest_partition trace_id span_id event_name source_ip service_version observed_timestamp"
         }
-        "serviceradar.events" => {
+        "events" => {
             "id time class_uid category_uid type_uid activity_id severity_id severity source src_endpoint_ip firewall_rule_name source_type message activity_name status status_id log_name log_provider trace_id span_id"
         }
         _ => "",
@@ -777,6 +773,7 @@ mod tests {
             listen_addr: "127.0.0.1:0".parse().unwrap(),
             database_url: "postgres://example/db".to_string(),
             age_graph_name: "platform_graph".to_string(),
+            starrocks_database: "serviceradar".to_string(),
             max_pool_size: 1,
             database_ca_pem: None,
             database_client_cert_pem: None,
@@ -815,7 +812,7 @@ mod tests {
             "in:flows time:last_1h direction:ingress",
             "in:flows time:last_1h sort:direction:asc",
         ] {
-            let compiled = translate(&plan(query)).unwrap();
+            let compiled = translate(&plan(query), "serviceradar").unwrap();
             assert!(
                 compiled
                     .sql
@@ -842,7 +839,7 @@ mod tests {
 
     #[test]
     fn stats_preserve_count_fields_distinct_and_reject_partial_expressions() {
-        let compiled = translate(&plan(r#"in:flows time:last_1h stats:"count(src_endpoint_port) as ports, count_distinct(src_endpoint_ip) as talkers" sort:talkers:desc"#)).unwrap();
+        let compiled = translate(&plan(r#"in:flows time:last_1h stats:"count(src_endpoint_port) as ports, count_distinct(src_endpoint_ip) as talkers" sort:talkers:desc"#), "serviceradar").unwrap();
         assert!(compiled.sql.starts_with("SELECT COUNT(src_endpoint_port) AS ports, COUNT(DISTINCT src_endpoint_ip) AS talkers FROM "));
         assert!(compiled.sql.contains("ORDER BY talkers DESC"));
         for expression in [
@@ -854,7 +851,7 @@ mod tests {
             "count(body) as bad",
         ] {
             let query = format!("in:flows time:last_1h stats:\"{expression}\"");
-            assert!(translate(&plan(&query)).is_err(), "{query}");
+            assert!(translate(&plan(&query), "serviceradar").is_err(), "{query}");
         }
     }
 
@@ -868,14 +865,20 @@ mod tests {
                 let total = format!(
                     "COALESCE({prefix}{field}, COALESCE({prefix}{inbound}, 0) + COALESCE({prefix}{outbound}, 0))"
                 );
-                let stats = translate(&plan(&format!(
-                    "in:flows {filter} time:last_1h stats:\"sum({field}) as volume\""
-                )))
+                let stats = translate(
+                    &plan(&format!(
+                        "in:flows {filter} time:last_1h stats:\"sum({field}) as volume\""
+                    )),
+                    "serviceradar",
+                )
                 .unwrap();
                 assert!(stats.sql.starts_with(&format!("SELECT SUM((CAST(COALESCE({total}, 0) AS DOUBLE) * GREATEST(COALESCE({prefix}sampling_rate, 1), 1))) AS volume")));
-                let chart = translate(&plan(&format!(
-                    "in:flows {filter} time:last_1h bucket:1m agg:sum value_field:{field}"
-                )))
+                let chart = translate(
+                    &plan(&format!(
+                        "in:flows {filter} time:last_1h bucket:1m agg:sum value_field:{field}"
+                    )),
+                    "serviceradar",
+                )
                 .unwrap();
                 assert!(
                     chart
@@ -897,7 +900,7 @@ mod tests {
             "packets_total",
         ] {
             let query = format!("in:flows time:last_1h stats:\"sum({field}) as volume\"");
-            let compiled = translate(&plan(&query)).unwrap();
+            let compiled = translate(&plan(&query), "serviceradar").unwrap();
             let value = field_sql(&plan(&query), field).unwrap();
             let sampled = format!(
                 "(CAST(COALESCE({value}, 0) AS DOUBLE) * GREATEST(COALESCE(sampling_rate, 1), 1))"
@@ -907,15 +910,19 @@ mod tests {
                     .sql
                     .starts_with(&format!("SELECT SUM({sampled}) AS volume"))
             );
-            let chart = translate(&plan(&format!(
-                "in:flows time:last_1h bucket:1m agg:sum value_field:{field}"
-            )))
+            let chart = translate(
+                &plan(&format!(
+                    "in:flows time:last_1h bucket:1m agg:sum value_field:{field}"
+                )),
+                "serviceradar",
+            )
             .unwrap();
             assert!(chart.sql.contains(&format!("SUM({sampled}) AS value")));
         }
-        let count = translate(&plan(
-            r#"in:flows time:last_1h stats:"count(bytes_in) as observations""#,
-        ))
+        let count = translate(
+            &plan(r#"in:flows time:last_1h stats:"count(bytes_in) as observations""#),
+            "serviceradar",
+        )
         .unwrap();
         assert!(
             count
@@ -926,14 +933,18 @@ mod tests {
 
     #[test]
     fn device_scope_uses_endpoints_active_aliases_and_exporter_samplers() {
-        let compiled = translate(&plan("in:flows time:last_1h device_id:device-example")).unwrap();
+        let compiled = translate(
+            &plan("in:flows time:last_1h device_id:device-example"),
+            "serviceradar",
+        )
+        .unwrap();
         assert!(compiled.sql.contains("src_endpoint_ip IN (SELECT d.ip"));
         assert!(compiled.sql.contains("OR dst_endpoint_ip IN (SELECT d.ip"));
         assert!(compiled.sql.contains("das.device_id = 'device-example' AND das.alias_type = 'ip' AND das.state IN ('detected', 'confirmed', 'updated')"));
         assert!(compiled.sql.contains("OR sampler_address IN (SELECT ec.sampler_address FROM cnpg_platform.platform.netflow_exporter_cache ec WHERE ec.device_uid = 'device-example')"));
         let addresses = translate(&plan(
             r#"in:flows time:last_1h device_addr:[192.0.2.1,192.0.2.2] stats:"count(*) as total""#,
-        ))
+        ), "serviceradar")
         .unwrap();
         assert!(addresses.sql.contains("(src_endpoint_ip IN ('192.0.2.1', '192.0.2.2') OR dst_endpoint_ip IN ('192.0.2.1', '192.0.2.2') OR sampler_address IN ('192.0.2.1', '192.0.2.2'))"));
         let mut invalid = plan("in:flows time:last_1h");
@@ -942,7 +953,7 @@ mod tests {
             op: crate::parser::FilterOp::In,
             value: crate::parser::FilterValue::List(vec![]),
         });
-        assert!(translate(&invalid).is_err());
+        assert!(translate(&invalid, "serviceradar").is_err());
     }
 
     #[test]
@@ -952,10 +963,11 @@ mod tests {
             "in:flows time:last_1h sort:time:desc",
             "in:attributed_flows time:last_1h sort:time:desc",
         ] {
-            let compiled = translate(&plan(query)).unwrap();
+            let compiled = translate(&plan(query), "serviceradar").unwrap();
             assert!(compiled.sql.contains("ORDER BY time DESC, id DESC LIMIT"));
         }
-        let explicit = translate(&plan("in:flows time:last_1h sort:id:asc")).unwrap();
+        let explicit =
+            translate(&plan("in:flows time:last_1h sort:id:asc"), "serviceradar").unwrap();
         assert!(explicit.sql.contains("ORDER BY id ASC LIMIT"));
     }
 
@@ -969,7 +981,7 @@ mod tests {
             "in:flows time:last_1h bucket:1m series:body",
             "in:flows time:last_1h unknown_field:value",
         ] {
-            assert!(translate(&plan(query)).is_err(), "{query}");
+            assert!(translate(&plan(query), "serviceradar").is_err(), "{query}");
         }
     }
 
@@ -1006,13 +1018,14 @@ mod tests {
 
     #[test]
     fn unmatched_attribution_and_long_downsample_use_raw_rows() {
-        let compiled = translate(&plan(r#"in:attributed_flows time:last_7d attribution_status:unmatched stats:"count(*) as total by attribution_status""#)).unwrap();
+        let compiled = translate(&plan(r#"in:attributed_flows time:last_7d attribution_status:unmatched stats:"count(*) as total by attribution_status""#), "serviceradar").unwrap();
         assert!(compiled.sql.contains("END = 'unmatched'"));
         assert!(compiled.sql.contains("GROUP BY CASE WHEN pid IS NULL"));
         assert!(!compiled.sql.contains("AND pid IS NOT NULL"));
-        let chart = translate(&plan(
-            "in:flows time:last_7d bucket:1h agg:sum value_field:bytes_total",
-        ))
+        let chart = translate(
+            &plan("in:flows time:last_7d bucket:1h agg:sum value_field:bytes_total"),
+            "serviceradar",
+        )
         .unwrap();
         assert!(chart.sql.contains("time_slice(time, INTERVAL 3600 SECOND)"));
         assert!(!chart.sql.contains("_hourly"));
@@ -1022,7 +1035,7 @@ mod tests {
     fn flow_map_stats_group_by_endpoints_and_rewrite_bytes_total() {
         let compiled = translate(&plan(
             r#"in:flows time:last_1h stats:"sum(bytes_total) as bytes_total, sum(packets_total) as packets_total, count(*) as flow_count by src_endpoint_ip,dst_endpoint_ip" limit:120"#,
-        ))
+        ), "serviceradar")
         .expect("compile");
         assert!(
             compiled
@@ -1046,7 +1059,8 @@ mod tests {
 
     #[test]
     fn flow_row_select_projects_protocol_group_and_bytes_total() {
-        let compiled = translate(&plan("in:flows time:last_1h limit:5")).expect("compile");
+        let compiled =
+            translate(&plan("in:flows time:last_1h limit:5"), "serviceradar").expect("compile");
         assert!(
             compiled.sql.contains("AS protocol_group"),
             "{}",
@@ -1068,7 +1082,7 @@ mod tests {
             "in:flows time:last_1h limit:5",
             "in:attributed_flows time:last_1h limit:5",
         ] {
-            let compiled = translate(&plan(query)).expect("compile");
+            let compiled = translate(&plan(query), "serviceradar").expect("compile");
             let projection = compiled.sql.split(" FROM ").next().unwrap();
             assert!(
                 projection
@@ -1082,7 +1096,7 @@ mod tests {
     fn flow_downsample_emits_timestamp_series_value() {
         let compiled = translate(&plan(
             "in:flows time:last_1h bucket:1m agg:sum value_field:bytes_total series:protocol_group limit:2000",
-        ))
+        ), "serviceradar")
         .expect("compile");
         assert!(
             compiled
@@ -1104,9 +1118,10 @@ mod tests {
 
     #[test]
     fn flow_stats_compile_to_starrocks_sql_without_postgres_functions() {
-        let compiled = translate(&plan(
-            r#"in:flows time:last_1h stats:"sum(bytes_in) as bytes_in" limit:10"#,
-        ))
+        let compiled = translate(
+            &plan(r#"in:flows time:last_1h stats:"sum(bytes_in) as bytes_in" limit:10"#),
+            "serviceradar",
+        )
         .expect("compile");
         assert!(
             compiled
@@ -1120,9 +1135,10 @@ mod tests {
 
     #[test]
     fn long_window_flow_stats_preserve_raw_window() {
-        let compiled = translate(&plan(
-            r#"in:flows time:last_7d stats:"sum(bytes_in) as bytes_in" limit:10"#,
-        ))
+        let compiled = translate(
+            &plan(r#"in:flows time:last_7d stats:"sum(bytes_in) as bytes_in" limit:10"#),
+            "serviceradar",
+        )
         .expect("compile");
         assert!(
             compiled
@@ -1137,7 +1153,7 @@ mod tests {
     fn unsupported_mv_filters_fall_back_to_raw_flows() {
         let compiled = translate(&plan(
             r#"in:flows time:last_7d src_endpoint_ip:192.0.2.10 stats:"sum(bytes_in) as bytes_in" limit:10"#,
-        ))
+        ), "serviceradar")
         .expect("compile");
         assert!(
             compiled
@@ -1152,9 +1168,10 @@ mod tests {
 
     #[test]
     fn timeseries_metrics_compile_to_starrocks_sql() {
-        let compiled = translate(&plan(
-            r#"in:timeseries_metrics time:last_1h stats:"avg(value) as avg_value" limit:20"#,
-        ))
+        let compiled = translate(
+            &plan(r#"in:timeseries_metrics time:last_1h stats:"avg(value) as avg_value" limit:20"#),
+            "serviceradar",
+        )
         .expect("compile");
         assert!(
             compiled
@@ -1167,9 +1184,10 @@ mod tests {
 
     #[test]
     fn long_window_metrics_preserve_raw_window() {
-        let compiled = translate(&plan(
-            r#"in:snmp_metrics time:last_7d stats:"avg(value) as avg_value" limit:20"#,
-        ))
+        let compiled = translate(
+            &plan(r#"in:snmp_metrics time:last_7d stats:"avg(value) as avg_value" limit:20"#),
+            "serviceradar",
+        )
         .expect("compile");
         assert!(
             compiled
@@ -1182,11 +1200,12 @@ mod tests {
 
     #[test]
     fn logs_and_events_compile_to_starrocks_sql() {
-        let logs = translate(&plan("in:logs time:last_1h limit:5")).expect("logs");
+        let logs = translate(&plan("in:logs time:last_1h limit:5"), "serviceradar").expect("logs");
         assert!(logs.sql.contains("FROM serviceradar.logs"));
         assert!(logs.sql.contains("`timestamp`"));
 
-        let events = translate(&plan("in:events time:last_1h limit:5")).expect("events");
+        let events =
+            translate(&plan("in:events time:last_1h limit:5"), "serviceradar").expect("events");
         assert!(events.sql.contains("FROM serviceradar.events"));
         assert!(events.sql.contains("`time`"));
         refute_postgres(&logs.sql);
@@ -1195,8 +1214,11 @@ mod tests {
 
     #[test]
     fn attributed_flows_filter_persisted_pid_not_live_catalog_join() {
-        let compiled =
-            translate(&plan("in:attributed_flows time:last_1h limit:5")).expect("compile");
+        let compiled = translate(
+            &plan("in:attributed_flows time:last_1h limit:5"),
+            "serviceradar",
+        )
+        .expect("compile");
         assert!(
             compiled
                 .sql
@@ -1221,7 +1243,7 @@ mod tests {
     fn flow_hostname_join_cnpg_devices() {
         let compiled = translate(&plan(
             r#"in:flows hostname:host-alpha time:last_1h stats:"sum(bytes_in) as bytes_in" limit:10"#,
-        ))
+        ), "serviceradar")
         .expect("compile");
         assert!(
             compiled
@@ -1234,12 +1256,19 @@ mod tests {
 
     #[test]
     fn unsupported_prefix_tag_filter_returns_capability_error() {
-        assert!(translate(&plan("in:flows prefix_tag:example time:last_1h limit:10")).is_err());
+        assert!(
+            translate(
+                &plan("in:flows prefix_tag:example time:last_1h limit:10"),
+                "serviceradar"
+            )
+            .is_err()
+        );
     }
 
     #[test]
     fn plain_flows_do_not_join_the_cnpg_catalog() {
-        let compiled = translate(&plan("in:flows time:last_1h limit:5")).expect("compile");
+        let compiled =
+            translate(&plan("in:flows time:last_1h limit:5"), "serviceradar").expect("compile");
         assert!(!compiled.sql.contains("cnpg_platform"));
         assert!(
             compiled
@@ -1250,8 +1279,76 @@ mod tests {
 
     #[test]
     fn current_alert_state_stays_a_capability_error() {
-        let err = translate(&plan("in:alerts time:last_1h limit:5")).expect_err("alerts");
+        let err =
+            translate(&plan("in:alerts time:last_1h limit:5"), "serviceradar").expect_err("alerts");
         assert!(err.to_string().contains("starrocks_unsupported_entity"));
+    }
+
+    #[test]
+    fn flow_summary_stats_carry_observed_coverage_bounds() {
+        // The dashboard divides bytes/packets by MAX(time) - MIN(time), the same
+        // observed-coverage denominator CNPG uses, so those two bounds have to
+        // survive compilation.
+        let compiled = translate(
+            &plan(
+                r#"in:flows time:last_1h stats:"sum(bytes_total) as bytes_total, sum(packets_total) as packets_total, count(*) as flow_count, min(time) as first_seen, max(time) as last_seen" limit:1"#,
+            ),
+            "serviceradar",
+        )
+        .expect("flow summary");
+        assert!(compiled.sql.contains("AS first_seen"));
+        assert!(compiled.sql.contains("AS last_seen"));
+    }
+
+    #[test]
+    fn attributed_flows_are_a_subset_of_flows_not_a_projection() {
+        // CNPG filters ocsf_payload ->> 'event_type' = 'attributed_flow'; without
+        // the same predicate the Attributed Flows page aggregates every NetFlow
+        // record in the window and labels it all unmatched.
+        let attributed = translate(
+            &plan("in:attributed_flows time:last_1h limit:5"),
+            "serviceradar",
+        )
+        .expect("attributed");
+        assert!(attributed.sql.contains("event_type = 'attributed_flow'"));
+
+        let flows =
+            translate(&plan("in:flows time:last_1h limit:5"), "serviceradar").expect("flows");
+        assert!(!flows.sql.contains("event_type ="));
+    }
+
+    #[test]
+    fn every_dataset_is_qualified_with_the_configured_database() {
+        for query in [
+            "in:flows time:last_1h limit:5",
+            "in:attributed_flows time:last_1h limit:5",
+            "in:timeseries_metrics time:last_1h limit:5",
+            "in:logs time:last_1h limit:5",
+            "in:events time:last_1h limit:5",
+        ] {
+            let compiled = translate(&plan(query), "warehouse").expect(query);
+            assert!(
+                compiled.sql.contains("warehouse."),
+                "{query} did not use the configured database: {}",
+                compiled.sql
+            );
+            assert!(
+                !compiled.sql.contains("serviceradar."),
+                "{query} still names the default database: {}",
+                compiled.sql
+            );
+        }
+    }
+
+    #[test]
+    fn prefix_tags_are_read_from_the_warehouse_row_not_the_catalog() {
+        let compiled = translate(
+            &plan("in:flows time:last_1h src_prefix_tags:example limit:5"),
+            "serviceradar",
+        )
+        .expect("prefix tags");
+        assert!(!compiled.sql.contains("cnpg_platform"));
+        assert!(!compiled.sql.contains("prefix_tags_catalog"));
     }
 
     #[test]
@@ -1259,19 +1356,31 @@ mod tests {
         // The warehouse `events` table holds every shadowed family, so an
         // entity scoped to one of them must filter the same way CNPG does or
         // it returns firewall/Falco/Trivy rows labelled as that family.
-        let findings =
-            translate(&plan("in:security_findings time:last_1h limit:5")).expect("findings");
+        let findings = translate(
+            &plan("in:security_findings time:last_1h limit:5"),
+            "serviceradar",
+        )
+        .expect("findings");
         assert!(findings.sql.contains("FROM serviceradar.events"));
         assert!(findings.sql.contains("category_uid = 2"));
 
-        let scans = translate(&plan("in:scan_activity time:last_1h limit:5")).expect("scans");
+        let scans = translate(
+            &plan("in:scan_activity time:last_1h limit:5"),
+            "serviceradar",
+        )
+        .expect("scans");
         assert!(scans.sql.contains("class_uid = 6007 AND category_uid = 6"));
 
-        let dns = translate(&plan("in:dns_activity time:last_1h limit:5")).expect("dns");
+        let dns = translate(
+            &plan("in:dns_activity time:last_1h limit:5"),
+            "serviceradar",
+        )
+        .expect("dns");
         assert!(dns.sql.contains("class_uid = 4003 AND category_uid = 4"));
 
         // The unscoped entity spans every family, exactly as it does on CNPG.
-        let all = translate(&plan("in:events time:last_1h limit:5")).expect("events");
+        let all =
+            translate(&plan("in:events time:last_1h limit:5"), "serviceradar").expect("events");
         assert!(!all.sql.contains("class_uid"));
         assert!(!all.sql.contains("category_uid"));
     }
@@ -1293,22 +1402,34 @@ mod tests {
                 "class_uid = 4003 AND category_uid = 4",
             ),
         ] {
-            let compiled = translate(&plan(query)).expect(query);
+            let compiled = translate(&plan(query), "serviceradar").expect(query);
             assert!(compiled.sql.contains(expected), "{query}: {}", compiled.sql);
         }
     }
 
     #[test]
     fn metric_entities_carry_their_metric_type_discriminator() {
-        let snmp = translate(&plan("in:snmp_metrics time:last_1h limit:5")).expect("snmp");
+        let snmp = translate(
+            &plan("in:snmp_metrics time:last_1h limit:5"),
+            "serviceradar",
+        )
+        .expect("snmp");
         assert!(snmp.sql.contains("FROM serviceradar.timeseries_metrics"));
         assert!(snmp.sql.contains("metric_type = 'snmp'"));
 
-        let rperf = translate(&plan("in:rperf_metrics time:last_1h limit:5")).expect("rperf");
+        let rperf = translate(
+            &plan("in:rperf_metrics time:last_1h limit:5"),
+            "serviceradar",
+        )
+        .expect("rperf");
         assert!(rperf.sql.contains("metric_type = 'rperf'"));
 
         // The unscoped entity spans every family, exactly as it does on CNPG.
-        let all = translate(&plan("in:timeseries_metrics time:last_1h limit:5")).expect("all");
+        let all = translate(
+            &plan("in:timeseries_metrics time:last_1h limit:5"),
+            "serviceradar",
+        )
+        .expect("all");
         assert!(!all.sql.contains("metric_type ="));
     }
 
@@ -1323,7 +1444,7 @@ mod tests {
             "in:disk_metrics time:last_1h limit:5",
             "in:process_metrics time:last_1h limit:5",
         ] {
-            let err = translate(&plan(query)).expect_err(query);
+            let err = translate(&plan(query), "serviceradar").expect_err(query);
             assert!(err.to_string().contains("starrocks_unsupported_entity"));
         }
     }
@@ -1332,7 +1453,7 @@ mod tests {
     fn flow_grouping_quotes_the_reserved_partition_column() {
         let compiled = translate(&plan(
             r#"in:flows time:last_1h stats:"sum(bytes_total) as bytes_total by src_endpoint_ip,dst_endpoint_ip,partition" limit:10"#,
-        ))
+        ), "serviceradar")
         .expect("partition grouping");
         assert!(compiled.sql.contains("`partition` AS flow_partition"));
         assert!(
@@ -1344,7 +1465,8 @@ mod tests {
 
     #[test]
     fn unsupported_entities_return_a_capability_error() {
-        let err = translate(&plan("in:devices time:last_1h limit:5")).expect_err("devices");
+        let err = translate(&plan("in:devices time:last_1h limit:5"), "serviceradar")
+            .expect_err("devices");
         assert!(err.to_string().contains("starrocks_unsupported_entity"));
     }
 

@@ -145,7 +145,6 @@ data:
     GRANT CONNECT ON DATABASE {{ $database }} TO {{ $reader }};
     GRANT USAGE ON SCHEMA platform TO {{ $reader }};
 
-    GRANT SELECT ON platform.prefix_tags_catalog TO {{ $reader }};
     GRANT SELECT ON platform.netflow_local_cidrs_catalog TO {{ $reader }};
     GRANT SELECT (uid, hostname, ip) ON platform.ocsf_devices TO {{ $reader }};
     GRANT SELECT (device_id, alias_type, state, alias_value)

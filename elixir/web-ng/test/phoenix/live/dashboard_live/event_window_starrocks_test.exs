@@ -28,9 +28,18 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.EventWindowStarRocksTest do
     window = Window.resolve("last_90d", "events", ~U[1999-06-16 00:00:00Z])
 
     starrocks_query = fn sql ->
-      assert sql =~ "serviceradar.events_hourly"
+      assert sql =~ "serviceradar.events"
       refute sql =~ "platform.ocsf_events"
       refute sql =~ "time_bucket"
+
+      # Buckets must be epoch-aligned. FROM_UNIXTIME/UNIX_TIMESTAMP round-trip
+      # through the Frontend's session time zone, so on a non-UTC FE every
+      # bucket key lands off the UTC multiples build_slice/3 generates and the
+      # trend renders all zeros while the summary total stays non-zero.
+      assert sql =~ "time_slice(`time`, INTERVAL 86400 SECOND)"
+      refute sql =~ "UNIX_TIMESTAMP"
+      refute sql =~ "FROM_UNIXTIME"
+
       send(self(), {:window_sql, sql})
       {:ok, %{rows: [["1999-03-18 00:00:00", 6, 11], ["1999-06-16 00:00:00", 2, 7]]}}
     end

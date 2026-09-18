@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS serviceradar.ocsf_network_activity (
   id VARCHAR(64) NOT NULL,
   `time` DATETIME NOT NULL,
   device_uid VARCHAR(256) NOT NULL,
+  event_type VARCHAR(64),
   src_endpoint_ip VARCHAR(64),
   dst_endpoint_ip VARCHAR(64),
   src_endpoint_port INT,

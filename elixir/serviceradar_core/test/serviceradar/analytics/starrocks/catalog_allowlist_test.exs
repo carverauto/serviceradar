@@ -15,7 +15,6 @@ defmodule ServiceRadar.Analytics.StarRocks.CatalogAllowlistTest do
   end
 
   test "allowlist is enrichment current-state only" do
-    assert "prefix_tags_catalog" in CatalogAllowlist.allowed_tables()
     refute "prefix_tags" in CatalogAllowlist.allowed_tables()
     assert "ocsf_devices" in CatalogAllowlist.allowed_tables()
 
@@ -29,10 +28,10 @@ defmodule ServiceRadar.Analytics.StarRocks.CatalogAllowlistTest do
     # compiler never joins current-state attribution and the reader is granted
     # nothing on it. Allowlisting it would let a re-enable reach the Frontend
     # and fail there with permission denied instead of failing here.
-    refute CatalogAllowlist.allowed?("flow_process_attribution_current")
-
-    assert {:error, :not_allowlisted} ==
-             CatalogAllowlist.qualify("flow_process_attribution_current")
+    for table <- ~w(flow_process_attribution_current prefix_tags_catalog) do
+      refute CatalogAllowlist.allowed?(table)
+      assert {:error, :not_allowlisted} == CatalogAllowlist.qualify(table)
+    end
   end
 
   test "secrets, jobs, and telemetry hypertables are not join targets" do

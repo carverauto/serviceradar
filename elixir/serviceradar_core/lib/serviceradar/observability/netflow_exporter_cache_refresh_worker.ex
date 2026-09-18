@@ -16,6 +16,7 @@ defmodule ServiceRadar.Observability.NetflowExporterCacheRefreshWorker do
   import Ash.Expr
   import Ecto.Query, only: [from: 2]
 
+  alias ServiceRadar.Analytics.StarRocks.Env
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
@@ -180,7 +181,7 @@ defmodule ServiceRadar.Observability.NetflowExporterCacheRefreshWorker do
     iso = DateTime.to_iso8601(since)
 
     sql =
-      "SELECT DISTINCT sampler_address FROM serviceradar.ocsf_network_activity " <>
+      "SELECT DISTINCT sampler_address FROM #{Env.table("ocsf_network_activity")} " <>
         "WHERE sampler_address IS NOT NULL AND sampler_address != '' " <>
         "AND `time` >= '#{iso}' LIMIT #{limit}"
 

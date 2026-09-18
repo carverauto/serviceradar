@@ -6,6 +6,7 @@ defmodule ServiceRadar.Analytics.StarRocks.MetricConsumers do
   run when `Readers.mode_for(:metrics)` is `starrocks`.
   """
 
+  alias ServiceRadar.Analytics.StarRocks.Env
   alias ServiceRadar.Analytics.StarRocks.Query
   alias ServiceRadar.Analytics.StarRocks.Readers
 
@@ -14,7 +15,7 @@ defmodule ServiceRadar.Analytics.StarRocks.MetricConsumers do
   @spec metrics_alive?(DateTime.t(), keyword()) :: {:ok, boolean()} | {:error, term()}
   def metrics_alive?(since, opts \\ []) when is_struct(since, DateTime) do
     sql =
-      "SELECT 1 FROM serviceradar.timeseries_metrics WHERE `timestamp` >= '#{iso(since)}' LIMIT 1"
+      "SELECT 1 FROM #{Env.table("timeseries_metrics")} WHERE `timestamp` >= '#{iso(since)}' LIMIT 1"
 
     case query(opts).(sql) do
       {:ok, %{num_rows: n}} when is_integer(n) -> {:ok, n > 0}
@@ -31,7 +32,7 @@ defmodule ServiceRadar.Analytics.StarRocks.MetricConsumers do
 
       quoted ->
         sql =
-          "SELECT 1 FROM serviceradar.timeseries_metrics " <>
+          "SELECT 1 FROM #{Env.table("timeseries_metrics")} " <>
             "WHERE device_id = #{quoted} AND metric_type = 'snmp' " <>
             "AND `timestamp` > DATE_ADD(NOW(), INTERVAL -24 HOUR) LIMIT 1"
 
@@ -65,7 +66,7 @@ defmodule ServiceRadar.Analytics.StarRocks.MetricConsumers do
           "SELECT device_id, target_device_ip, if_index, metric_name, value, " <>
           "ROW_NUMBER() OVER (PARTITION BY device_id, target_device_ip, if_index, metric_name " <>
           "ORDER BY `timestamp` DESC) AS sample_rank " <>
-          "FROM serviceradar.timeseries_metrics " <>
+          "FROM #{Env.table("timeseries_metrics")} " <>
           "WHERE #{scope_predicate(devices, ips)} " <>
           "AND if_index IN (#{Enum.join(indexes, ",")}) " <>
           "AND split_part(metric_name, '::', 1) IN (#{Enum.join(names, ",")}) " <>
@@ -107,7 +108,7 @@ defmodule ServiceRadar.Analytics.StarRocks.MetricConsumers do
     else
       sql =
         "SELECT device_id, if_index, metric_name, date_trunc('minute', `timestamp`) AS bucket, MAX(value) AS value " <>
-          "FROM serviceradar.timeseries_metrics " <>
+          "FROM #{Env.table("timeseries_metrics")} " <>
           "WHERE device_id IN (#{Enum.join(devices, ",")}) " <>
           "AND if_index IN (#{Enum.join(indexes, ",")}) " <>
           "AND metric_name IN (#{Enum.join(names, ",")}) " <>

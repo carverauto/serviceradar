@@ -7,6 +7,7 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumers do
   `starrocks` for `:logs` or `:events`.
   """
 
+  alias ServiceRadar.Analytics.StarRocks.Env
   alias ServiceRadar.Analytics.StarRocks.Query
   alias ServiceRadar.Analytics.StarRocks.Readers
 
@@ -26,9 +27,9 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumers do
              bucket_seconds > 0 do
     sql =
       """
-      SELECT FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP(`time`) / #{bucket_seconds}) * #{bucket_seconds}), \
+      SELECT time_slice(`time`, INTERVAL #{bucket_seconds} SECOND), \
       COALESCE(severity_id, 0), COUNT(*) \
-      FROM serviceradar.events \
+      FROM #{Env.table("events")} \
       WHERE `time` >= '#{iso(start_at)}' AND `time` < '#{iso(end_at)}' \
       GROUP BY 1, 2 ORDER BY 1, 2
       """
@@ -47,7 +48,7 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumers do
     sql =
       """
       SELECT src_endpoint_ip, firewall_rule_name, MAX(`time`) \
-      FROM serviceradar.events \
+      FROM #{Env.table("events")} \
       WHERE class_uid = 4003 \
         AND `time` > DATE_ADD(NOW(), INTERVAL -#{lookback_hours} HOUR) \
         AND firewall_rule_name IS NOT NULL AND firewall_rule_name != '' \
@@ -66,7 +67,7 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumers do
   @spec anomaly_detection_present?(DateTime.t(), keyword()) :: {:ok, boolean()} | {:error, term()}
   def anomaly_detection_present?(since, opts \\ []) when is_struct(since, DateTime) do
     sql =
-      "SELECT 1 FROM serviceradar.events WHERE `time` >= '#{iso(since)}' " <>
+      "SELECT 1 FROM #{Env.table("events")} WHERE `time` >= '#{iso(since)}' " <>
         "AND class_uid = 2004 AND source_type = 'anomaly_detection' LIMIT 1"
 
     case query(opts).(sql) do
@@ -80,7 +81,7 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumers do
           {:ok, %{latest: DateTime.t() | nil, earliest: DateTime.t() | nil}} | {:error, term()}
   def logs_window_bounds(opts \\ []) do
     sql =
-      "SELECT MAX(`timestamp`), MIN(`timestamp`) FROM serviceradar.logs " <>
+      "SELECT MAX(`timestamp`), MIN(`timestamp`) FROM #{Env.table("logs")} " <>
         "WHERE `timestamp` >= DATE_ADD(NOW(), INTERVAL -24 HOUR)"
 
     case query(opts).(sql) do

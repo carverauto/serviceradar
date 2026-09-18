@@ -65,6 +65,7 @@ fn test_config() -> AppConfig {
         listen_addr: "127.0.0.1:0".parse().unwrap(),
         database_url: "postgres://example/db".to_string(),
         age_graph_name: "platform_graph".to_string(),
+        starrocks_database: "serviceradar".to_string(),
         max_pool_size: 1,
         database_ca_pem: None,
         database_client_cert_pem: None,

@@ -1,6 +1,7 @@
 defmodule ServiceRadar.FlowAttribution.Correlation do
   @moduledoc false
 
+  alias ServiceRadar.Analytics.StarRocks.Env
   alias ServiceRadar.Analytics.StarRocks.Attribution
   alias ServiceRadar.Analytics.StarRocks.Query
   alias ServiceRadar.Analytics.StarRocks.Readers
@@ -45,7 +46,7 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
   def recent_unattributed_flows(opts \\ []) do
     sql = """
     SELECT id, `time`, `partition`, protocol_num, attribution_version, src_endpoint_ip, dst_endpoint_ip, src_endpoint_port, dst_endpoint_port
-    FROM serviceradar.ocsf_network_activity
+    FROM #{Env.table("ocsf_network_activity")}
     WHERE `time` > DATE_ADD(NOW(), INTERVAL -#{@correlation_window_minutes} MINUTE)
       AND pid IS NULL
     ORDER BY `time` DESC, id DESC

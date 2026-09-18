@@ -10,6 +10,7 @@ defmodule ServiceRadar.EventWriter.Processors.FlowAttributionUpdates do
 
   @behaviour ServiceRadar.EventWriter.Processor
 
+  alias ServiceRadar.Analytics.StarRocks.Env
   alias ServiceRadar.Analytics.StarRocks.Attribution
   alias ServiceRadar.Analytics.StarRocks.Destination
   alias ServiceRadar.Analytics.StarRocks.Query
@@ -105,7 +106,7 @@ defmodule ServiceRadar.EventWriter.Processors.FlowAttributionUpdates do
       %{}
     else
       sql =
-        "SELECT id, attribution_version FROM serviceradar.ocsf_network_activity WHERE id IN (#{quoted})"
+        "SELECT id, attribution_version FROM #{Env.table("ocsf_network_activity")} WHERE id IN (#{quoted})"
 
       case Query.execute(sql) do
         {:ok, %{columns: columns, rows: rows}} ->

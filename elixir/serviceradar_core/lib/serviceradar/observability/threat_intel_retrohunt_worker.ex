@@ -16,6 +16,7 @@ defmodule ServiceRadar.Observability.ThreatIntelRetrohuntWorker do
       states: :incomplete
     ]
 
+  alias ServiceRadar.Analytics.StarRocks.Env
   alias Ecto.Adapters.SQL
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Analytics.StarRocks.Query
@@ -254,13 +255,13 @@ defmodule ServiceRadar.Observability.ThreatIntelRetrohuntWorker do
       SELECT src_endpoint_ip AS observed_ip, 'source' AS direction, `time`,
              COALESCE(bytes_total, COALESCE(bytes_in, 0) + COALESCE(bytes_out, 0)) AS bytes_total,
              COALESCE(packets_total, COALESCE(packets_in, 0) + COALESCE(packets_out, 0)) AS packets_total
-      FROM serviceradar.ocsf_network_activity
+      FROM #{Env.table("ocsf_network_activity")}
       WHERE `time` >= '#{iso_start}' AND `time` <= '#{iso_end}'
       UNION ALL
       SELECT dst_endpoint_ip AS observed_ip, 'destination' AS direction, `time`,
              COALESCE(bytes_total, COALESCE(bytes_in, 0) + COALESCE(bytes_out, 0)),
              COALESCE(packets_total, COALESCE(packets_in, 0) + COALESCE(packets_out, 0))
-      FROM serviceradar.ocsf_network_activity
+      FROM #{Env.table("ocsf_network_activity")}
       WHERE `time` >= '#{iso_start}' AND `time` <= '#{iso_end}'
     ) observed
     WHERE observed_ip IS NOT NULL AND observed_ip <> ''

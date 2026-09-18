@@ -40,6 +40,12 @@ defmodule ServiceRadar.Analytics.StarRocks.Env do
     ]
   end
 
+  @spec table(String.t()) :: String.t()
+  def table(name) when is_binary(name) do
+    database = nonempty("SERVICERADAR_STARROCKS_DATABASE", "serviceradar")
+    "#{database}.#{name}"
+  end
+
   @spec default_retention_days() :: keyword(pos_integer())
   def default_retention_days, do: @default_retention_days
 

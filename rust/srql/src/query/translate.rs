@@ -41,7 +41,7 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
         .unwrap_or(false);
 
     let (sql, params) = if request.mode.as_deref() == Some("starrocks") {
-        let compiled = starrocks::translate(&plan)?;
+        let compiled = starrocks::translate(&plan, &config.starrocks_database)?;
         (compiled.sql, compiled.params)
     } else if plan.downsample.is_some() && !is_profile_stats {
         downsample::to_sql_and_params(&plan)?

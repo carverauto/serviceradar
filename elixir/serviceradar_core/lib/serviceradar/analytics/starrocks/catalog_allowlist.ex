@@ -7,16 +7,16 @@ defmodule ServiceRadar.Analytics.StarRocks.CatalogAllowlist do
   hypertables and secrets are never join targets.
 
   A table belongs here only while the compiler can actually join it and the
-  reader is granted SELECT on it. Attributed flows read persisted pid/comm off
-  the observation row rather than joining current-state attribution, so
-  `flow_process_attribution_current` is not a catalog target.
+  reader is granted SELECT on it. Attributed flows read persisted pid/comm and
+  prefix tags off the observation row rather than joining current-state, so
+  neither `flow_process_attribution_current` nor `prefix_tags_catalog` is a
+  catalog target.
   """
 
   @catalog "cnpg_platform"
   @schema "platform"
 
   @allowed_tables ~w(
-    prefix_tags_catalog
     ocsf_devices
     device_alias_states
     netflow_exporter_cache

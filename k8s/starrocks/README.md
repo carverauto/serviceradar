@@ -38,7 +38,6 @@ converge that role, so there is nothing to grant by hand:
 | Object | Granted |
 | --- | --- |
 | schema `platform` | `USAGE` |
-| `platform.prefix_tags_catalog` | `SELECT` |
 | `platform.netflow_local_cidrs_catalog` | `SELECT` |
 | `platform.ocsf_devices` | `SELECT (uid, hostname, ip)` |
 | `platform.device_alias_states` | `SELECT (device_id, alias_type, state, alias_value)` |

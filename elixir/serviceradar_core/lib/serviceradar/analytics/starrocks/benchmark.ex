@@ -6,6 +6,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Benchmark do
   supported-capacity claim. Cells that are not executed are failed.
   """
 
+  alias ServiceRadar.Analytics.StarRocks.Env
   alias ServiceRadar.Analytics.StarRocks.Query
   alias ServiceRadar.Analytics.StarRocks.Rows
   alias ServiceRadar.Analytics.StarRocks.StreamLoad
@@ -200,7 +201,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Benchmark do
   defp visibility_sql(run_id) do
     prefix = "flow-bench-#{run_id}-"
 
-    "SELECT COUNT(*) AS c, SUM(bytes_in) AS b FROM serviceradar.ocsf_network_activity " <>
+    "SELECT COUNT(*) AS c, SUM(bytes_in) AS b FROM #{Env.table("ocsf_network_activity")} " <>
       "WHERE id LIKE '#{prefix}%'"
   end
 
