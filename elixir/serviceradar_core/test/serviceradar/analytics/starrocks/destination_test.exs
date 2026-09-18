@@ -80,6 +80,40 @@ defmodule ServiceRadar.Analytics.StarRocks.DestinationTest do
     refute Identity.record_id(:flows, first) == Identity.record_id(:flows, second)
   end
 
+  test "flow identity separates records that differ outside the five-tuple" do
+    sample = %{
+      time: ~U[2026-01-15 10:00:00Z],
+      src_endpoint_ip: "192.0.2.10",
+      src_endpoint_port: 44_321,
+      dst_endpoint_ip: "192.0.2.20",
+      dst_endpoint_port: 443,
+      protocol_num: 6,
+      sampler_address: "198.51.100.1",
+      bytes_total: 1514,
+      packets_total: 1,
+      partition: "SITE01",
+      tcp_flags: 24,
+      ocsf_payload: %{
+        "connection_info" => %{"input_snmp" => 10, "output_snmp" => 20},
+        "observed_timestamp" => 1_705_363_200_100_000_000
+      }
+    }
+
+    variants = [
+      %{sample | partition: "SITE02"},
+      %{sample | tcp_flags: 2},
+      put_in(sample.ocsf_payload["connection_info"]["input_snmp"], 11),
+      put_in(sample.ocsf_payload["connection_info"]["output_snmp"], 21),
+      put_in(sample.ocsf_payload["observed_timestamp"], 1_705_363_200_900_000_000),
+      Map.put(sample, :device_uid, "sr:exporter-a")
+    ]
+
+    ids = Enum.map([sample | variants], &Identity.record_id(:flows, &1))
+
+    assert Enum.uniq(ids) == ids
+    assert Identity.record_id(:flows, sample) == hd(ids)
+  end
+
   test "flow Stream Load documents carry protocol and ports for the Flows UI" do
     [encoded] =
       Rows.encode(:flows, [

@@ -107,8 +107,21 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
   def warehouse_correlation_sql do
     """
     WITH recent_flows AS (
-      SELECT * FROM jsonb_to_recordset($1::jsonb) AS f(
-        id text, time timestamptz, partition text, protocol_num integer, attribution_version bigint,
+      SELECT
+        f.id,
+        -- StarRocks returns a zone-less DATETIME that is always UTC. Declaring
+        -- the column timestamptz would resolve it against the session TimeZone
+        -- and shift the whole match window off `observed_at`.
+        (f.time AT TIME ZONE 'UTC') AS time,
+        f.partition,
+        f.protocol_num,
+        f.attribution_version,
+        f.src_endpoint_ip,
+        f.dst_endpoint_ip,
+        f.src_endpoint_port,
+        f.dst_endpoint_port
+      FROM jsonb_to_recordset($1::jsonb) AS f(
+        id text, time timestamp, partition text, protocol_num integer, attribution_version bigint,
         src_endpoint_ip text, dst_endpoint_ip text, src_endpoint_port integer, dst_endpoint_port integer
       )
     ),

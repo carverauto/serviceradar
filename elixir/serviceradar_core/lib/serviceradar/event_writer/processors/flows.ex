@@ -381,6 +381,10 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
       "protocol_name" => protocol_name,
       "protocol_num" => protocol_num,
       "flow_source" => flow_source,
+      # `time` is truncated to whole seconds by FieldParser.parse_timestamp/1,
+      # so the exporter's own sub-second observation instant is the only thing
+      # separating two samples of the same conversation in the same second.
+      "observed_timestamp" => json["timestamp"],
       "enrichment" =>
         maybe_put_prefix_tags(
           %{

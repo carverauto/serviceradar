@@ -1,8 +1,8 @@
 -- Rebuild for a warehouse created before daily partitioning.
 -- This file DOCUMENTS a destructive recovery procedure. It does not run it.
 -- Applying 0001-0014 in order on a fresh warehouse must be a no-op here, so
--- the DROP statements below are commented out exactly like the privileged
--- CREATE in 0009. Run them by hand, deliberately, only after reading this.
+-- the DROP statements below are commented out. Run them by hand,
+-- deliberately, only after reading this.
 --
 -- When it applies: 0001-0004 previously created these tables with
 -- PRIMARY KEY (id) and no PARTITION BY. StarRocks can neither add

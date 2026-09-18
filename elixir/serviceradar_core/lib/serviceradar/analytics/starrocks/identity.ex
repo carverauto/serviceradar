@@ -42,6 +42,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Identity do
       Enum.map_join(
         [
           field(row, :time) || field(row, :timestamp) || field(row, :event_timestamp),
+          payload_field(row, "observed_timestamp", :observed_timestamp),
           field(row, :src_endpoint_ip),
           field(row, :src_endpoint_port),
           field(row, :dst_endpoint_ip),
@@ -50,7 +51,17 @@ defmodule ServiceRadar.Analytics.StarRocks.Identity do
           field(row, :sampler_address),
           field(row, :bytes_total) || field(row, :bytes_in),
           field(row, :packets_total) || field(row, :packets_in),
+          field(row, :bytes_out),
+          field(row, :packets_out),
           field(row, :start_time),
+          field(row, :end_time),
+          field(row, :device_uid) || field(row, :device_id),
+          field(row, :partition),
+          field(row, :tcp_flags),
+          connection_info(row, "input_snmp", :input_snmp),
+          connection_info(row, "output_snmp", :output_snmp),
+          field(row, :src_as_number),
+          field(row, :dst_as_number),
           field(row, :gateway_id),
           field(row, :series_key),
           field(row, :ingest_identity)
@@ -66,6 +77,20 @@ defmodule ServiceRadar.Analytics.StarRocks.Identity do
       |> String.slice(0, 32)
 
     "obs-" <> digest
+  end
+
+  defp connection_info(row, string_key, atom_key) do
+    case payload_field(row, "connection_info", :connection_info) do
+      %{} = info -> Map.get(info, string_key) || Map.get(info, atom_key)
+      _ -> nil
+    end
+  end
+
+  defp payload_field(row, string_key, atom_key) do
+    case field(row, :ocsf_payload) do
+      %{} = payload -> Map.get(payload, string_key) || Map.get(payload, atom_key)
+      _ -> nil
+    end
   end
 
   defp field(row, key) when is_atom(key) do
