@@ -16,6 +16,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
     %{
       "id" => Identity.record_id(:flow_attribution, row),
       "time" => datetime(field(row, :time)),
+      "event_type" => "attributed_flow",
       "attribution_version" => field(row, :attribution_version),
       "pid" => field(row, :pid),
       "comm" => stringify(field(row, :comm)),

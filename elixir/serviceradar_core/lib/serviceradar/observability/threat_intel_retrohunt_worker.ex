@@ -165,8 +165,15 @@ defmodule ServiceRadar.Observability.ThreatIntelRetrohuntWorker do
     end
   end
 
-  defp run_batches(state, batch_size, remaining_batches) when remaining_batches > 0 do
-    with {:ok, batch} <- run_netflow_match_batch(state, batch_size),
+  defp run_batches(state, batch_size, remaining_batches) do
+    with {:ok, observations} <- observations_for_run(state) do
+      run_batches(state, batch_size, remaining_batches, observations)
+    end
+  end
+
+  defp run_batches(state, batch_size, remaining_batches, observations)
+       when remaining_batches > 0 do
+    with {:ok, batch} <- run_netflow_match_batch(state, batch_size, observations),
          next_state = advance_state(state, batch),
          :ok <- persist_run_progress(next_state, batch, batch_size) do
       emit_batch_event(next_state, batch, batch_size)
@@ -176,7 +183,7 @@ defmodule ServiceRadar.Observability.ThreatIntelRetrohuntWorker do
           {:ok, :complete, next_state}
 
         remaining_batches > 1 ->
-          run_batches(next_state, batch_size, remaining_batches - 1)
+          run_batches(next_state, batch_size, remaining_batches - 1, observations)
 
         true ->
           case enqueue_continuation(next_state) do
@@ -288,26 +295,29 @@ defmodule ServiceRadar.Observability.ThreatIntelRetrohuntWorker do
     |> Map.new()
   end
 
-  defp run_netflow_match_batch(state, batch_size) do
+  @doc """
+  Aggregates every observed flow endpoint for the run window.
+
+  The window is the whole run, not a batch, so this is resolved once per job and
+  threaded through every indicator batch. On CNPG the aggregation stays inside
+  the matching statement and there is nothing to resolve.
+  """
+  @spec observations_for_run(map(), keyword()) :: {:ok, [map()] | nil} | {:error, map()}
+  def observations_for_run(state, opts \\ []) do
     case flow_history_backend() do
       :starrocks ->
-        run_netflow_match_batch_starrocks(state, batch_size)
+        case observed_flow_aggregates(state.window_start, state.window_end, opts) do
+          {:ok, observations} -> {:ok, observations}
+          {:error, reason} -> {:error, %{run_id: state.run_id, reason: reason}}
+        end
 
       :cnpg ->
-        run_netflow_match_batch_cnpg(state, batch_size)
+        {:ok, nil}
     end
   end
 
-  def run_netflow_match_batch_starrocks(state, batch_size, opts \\ []) do
-    with {:ok, observations} <-
-           observed_flow_aggregates(state.window_start, state.window_end, opts) do
-      run_netflow_match_batch_cnpg(state, batch_size, observations, opts)
-    else
-      {:error, reason} -> {:error, %{run_id: state.run_id, reason: reason}}
-    end
-  end
-
-  defp run_netflow_match_batch_cnpg(state, batch_size, observations \\ nil, opts \\ []) do
+  @doc false
+  def run_netflow_match_batch(state, batch_size, observations \\ nil, opts \\ []) do
     sql = """
     WITH indicator_candidates AS (
       SELECT

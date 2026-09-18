@@ -47,6 +47,10 @@ defmodule ServiceRadar.Analytics.StarRocks.AttributionTest do
 
     assert Map.keys(row) -- Attribution.load_columns() == []
     assert row["id"] == "flow-alpha-0001"
+    # `in:attributed_flows` is served off this discriminator, so the partial
+    # update is the writer that has to stamp it.
+    assert row["event_type"] == "attributed_flow"
+    assert "event_type" in Attribution.load_columns()
     assert row["attribution_version"] == 3
     assert row["pid"] == 9
     # `time` is part of the warehouse primary key, so the partial update carries

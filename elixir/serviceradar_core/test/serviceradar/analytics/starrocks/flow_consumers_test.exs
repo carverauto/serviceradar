@@ -182,7 +182,14 @@ defmodule ServiceRadar.Analytics.StarRocks.FlowConsumersTest do
              )
   end
 
-  test "warehouse retrohunt passes observations to matching and preserves batch progress" do
+  test "warehouse observations are aggregated once per run and reused by every batch",
+       %{prev: prev} do
+    Application.put_env(
+      :serviceradar_core,
+      StarRocks,
+      Keyword.put(prev, :cutover_datasets, [:flows])
+    )
+
     state = %{
       window_start: ~U[1999-06-15 12:00:00Z],
       window_end: ~U[1999-06-15 13:00:00Z],
@@ -191,7 +198,10 @@ defmodule ServiceRadar.Analytics.StarRocks.FlowConsumersTest do
       run_id: "00000000-0000-0000-0000-000000000001"
     }
 
+    aggregations = :counters.new(1, [])
+
     query = fn _ ->
+      :counters.add(aggregations, 1, 1)
       {:ok, %{columns: ["observed_ip", "direction"], rows: [["192.0.2.10", "source"]]}}
     end
 
@@ -209,16 +219,26 @@ defmodule ServiceRadar.Analytics.StarRocks.FlowConsumersTest do
       {:ok, %Postgrex.Result{rows: [[1, 1, "00000000-0000-0000-0000-000000000002", true]]}}
     end
 
-    assert {:ok, %{findings_count: 1, indicators_evaluated: 1, complete?: false}} =
-             ThreatIntelRetrohuntWorker.run_netflow_match_batch_starrocks(state, 1,
-               query: query,
-               repo_query: repo_query
-             )
+    assert {:ok, observations} =
+             ThreatIntelRetrohuntWorker.observations_for_run(state, query: query)
+
+    for _batch <- 1..3 do
+      assert {:ok, %{findings_count: 1, indicators_evaluated: 1, complete?: false}} =
+               ThreatIntelRetrohuntWorker.run_netflow_match_batch(state, 1, observations,
+                 repo_query: repo_query
+               )
+    end
+
+    assert :counters.get(aggregations, 1) == 1
 
     assert {:error, %{reason: :unavailable}} =
-             ThreatIntelRetrohuntWorker.run_netflow_match_batch_starrocks(state, 1,
-               query: query,
+             ThreatIntelRetrohuntWorker.run_netflow_match_batch(state, 1, observations,
                repo_query: fn _, _ -> {:error, :unavailable} end
+             )
+
+    assert {:error, %{run_id: "00000000-0000-0000-0000-000000000001", reason: :unavailable}} =
+             ThreatIntelRetrohuntWorker.observations_for_run(state,
+               query: fn _ -> {:error, :unavailable} end
              )
   end
 end

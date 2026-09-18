@@ -45,6 +45,12 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.EventWindowStarRocksTest do
     end
 
     assert {:ok, slice} = EventWindow.load(window, starrocks_query: starrocks_query)
+
+    # The window starts exactly on 1999-03-18 00:00:00, so an epoch-aligned
+    # bucket key lands on the first trend point; a key offset by the FE's time
+    # zone leaves the trend at zero while the summary total stays 18.
+    assert hd(slice.security_trend).total == 11
+    assert hd(slice.security_trend).critical == 11
     assert slice.event_summary.total == 18
     assert slice.event_summary.fatal == 11
     assert slice.event_summary.low == 7

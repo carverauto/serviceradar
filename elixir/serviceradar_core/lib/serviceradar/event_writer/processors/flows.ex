@@ -27,6 +27,7 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
   alias Flowpb.AttributedFlowMessage
   alias Flowpb.FlowAttribution
   alias Flowpb.FlowMessage
+  alias ServiceRadar.Analytics.StarRocks.Identity
   alias ServiceRadar.BGP.Ingestor
   alias ServiceRadar.EventWriter.BulkInsert
   alias ServiceRadar.EventWriter.FieldParser
@@ -289,7 +290,7 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
     {count, _} =
       BulkInsert.insert_all(
         table_name(),
-        rows,
+        Enum.map(rows, &Map.put(&1, :flow_uid, Identity.record_id(:flows, &1))),
         on_conflict: :nothing,
         returning: false
       )

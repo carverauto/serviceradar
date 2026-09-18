@@ -16,6 +16,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Attribution do
   @load_columns [
     "id",
     "time",
+    "event_type",
     "attribution_version",
     "pid",
     "comm",

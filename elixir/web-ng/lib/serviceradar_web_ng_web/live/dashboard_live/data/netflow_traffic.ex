@@ -19,6 +19,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.NetflowTraffic do
             []
 
           {:ok, %{"results" => rows}} when is_list(rows) ->
+            rows = Enum.filter(rows, &distinct_endpoints?/1)
             geo = netflow_geo_points(netflow_endpoint_keys(rows))
 
             rows
@@ -28,6 +29,13 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.NetflowTraffic do
           _ ->
             :error
         end
+      end
+
+      defp distinct_endpoints?(row) do
+        src = row["src_endpoint_ip"]
+        dst = row["dst_endpoint_ip"]
+
+        is_binary(src) and src != "" and is_binary(dst) and dst != "" and src != dst
       end
 
       defp netflow_endpoint_keys(rows) do
@@ -41,8 +49,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.NetflowTraffic do
       end
 
       defp srql_traffic_link(row, idx, geo) do
-        src = row["src_endpoint_ip"] || "Unknown"
-        dst = row["dst_endpoint_ip"] || "Unknown"
+        src = row["src_endpoint_ip"]
+        dst = row["dst_endpoint_ip"]
         partition = row["flow_partition"]
         src_geo = Map.get(geo, {src, partition}, %{})
         dst_geo = Map.get(geo, {dst, partition}, %{})
@@ -222,7 +230,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.NetflowTraffic do
         _ -> []
       end
 
-      defp traffic_link_sources(time_window) when time_window in ["last_1h", "last_6h"] do
+      defp traffic_link_sources(time_window)
+           when time_window in ["last_15m", "last_1h", "last_6h"] do
         [
           {"platform.ocsf_network_activity", "ocsf_network_activity", "time"},
           {"platform.ocsf_network_activity_hourly_conversations", "ocsf_network_activity_hourly_conversations", "bucket"}
@@ -231,8 +240,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.NetflowTraffic do
 
       defp traffic_link_sources(_time_window) do
         [
-          {"platform.ocsf_network_activity", "ocsf_network_activity", "time"},
-          {"platform.ocsf_network_activity_hourly_conversations", "ocsf_network_activity_hourly_conversations", "bucket"}
+          {"platform.ocsf_network_activity_hourly_conversations", "ocsf_network_activity_hourly_conversations", "bucket"},
+          {"platform.ocsf_network_activity", "ocsf_network_activity", "time"}
         ]
       end
 

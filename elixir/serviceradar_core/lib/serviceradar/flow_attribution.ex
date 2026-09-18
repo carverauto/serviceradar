@@ -42,16 +42,16 @@ defmodule ServiceRadar.FlowAttribution do
 
         case persistence.(rows) do
           :ok ->
-            publish_starrocks_updates(opts)
+            :ok
 
           {:ok, _result} ->
-            publish_starrocks_updates(opts)
+            :ok
 
           {:error, reason} ->
             persistence_error(reason)
 
           %Postgrex.Result{} ->
-            publish_starrocks_updates(opts)
+            :ok
 
           other ->
             persistence_error({:unexpected_persistence_result, other})
@@ -99,19 +99,6 @@ defmodule ServiceRadar.FlowAttribution do
   """
   @spec retention_minutes() :: pos_integer()
   defdelegate retention_minutes, to: Retention
-
-  defp publish_starrocks_updates(opts) do
-    case Correlation.flow_history_backend() do
-      :starrocks ->
-        case Correlation.correlate_starrocks(opts) do
-          {:ok, _count} -> :ok
-          {:error, reason} -> persistence_error(reason)
-        end
-
-      :cnpg ->
-        :ok
-    end
-  end
 
   defp persistence_error(reason) do
     Logger.warning("FlowAttribution.persist failed: #{inspect(reason)}")
