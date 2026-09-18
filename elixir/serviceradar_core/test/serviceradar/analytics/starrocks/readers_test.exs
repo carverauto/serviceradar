@@ -112,13 +112,32 @@ defmodule ServiceRadar.Analytics.StarRocks.ReadersTest do
 
     try do
       assert Readers.mode_for("logs") == "starrocks"
-      assert Readers.mode_for("events") == "starrocks"
-      assert Readers.mode_for("security_findings") == "starrocks"
-      assert Readers.mode_for("dns_activity") == "starrocks"
       assert Readers.backend(:logs) == :starrocks
       assert Readers.backend(:events) == :starrocks
       assert Readers.mode_for("alerts") == nil
       assert Readers.backend(:alerts) == :cnpg
+
+      # Backend routing happens on the raw entity string, so every spelling the
+      # SRQL parser accepts for a warehouse-served event entity has to reach the
+      # same backend. A missing alias serves one spelling from StarRocks and
+      # another from CNPG, over different retention windows, with no error.
+      event_aliases = ~w(
+        events activity
+        security_findings security_finding findings finding
+        scan_activity scan_activities security_scans scanner_activity
+        dns_activity dns_activities dns_security_activity powerdns pdns
+      )
+
+      for spelling <- event_aliases do
+        assert Readers.mode_for(spelling) == "starrocks",
+               "#{spelling} did not route to the warehouse"
+      end
+
+      # BMP events share the events permission but not the warehouse table.
+      for spelling <- ~w(bmp_events bmp_event bmp_routing_events) do
+        assert Readers.mode_for(spelling) == nil
+        assert Readers.backend(spelling) == :cnpg
+      end
     after
       Application.put_env(:serviceradar_core, StarRocks, prev)
     end

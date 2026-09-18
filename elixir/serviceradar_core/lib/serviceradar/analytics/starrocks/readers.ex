@@ -6,6 +6,9 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
   `cutover_datasets`. Unknown consumers remain in the coverage inventory.
 
   An entity only maps to a dataset when the warehouse actually holds its rows.
+  Every spelling the SRQL parser accepts for such an entity must be listed:
+  routing happens on the raw entity string, so a missing alias silently serves
+  one spelling from the warehouse and another from CNPG.
   """
 
   @flow_switched [
@@ -70,7 +73,13 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
       "logs" ->
         :logs
 
-      e when e in ~w(events activity security_findings scan_activity dns_activity) ->
+      e
+      when e in ~w(
+             events activity
+             security_findings security_finding findings finding
+             scan_activity scan_activities security_scans scanner_activity
+             dns_activity dns_activities dns_security_activity powerdns pdns
+           ) ->
         :events
 
       _ ->
