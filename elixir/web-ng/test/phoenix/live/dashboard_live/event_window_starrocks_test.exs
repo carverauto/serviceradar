@@ -28,7 +28,11 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.EventWindowStarRocksTest do
     window = Window.resolve("last_90d", "events", ~U[1999-06-16 00:00:00Z])
 
     starrocks_query = fn sql ->
-      assert sql =~ "serviceradar.events"
+      # events_hourly already groups by hour and severity, so a whole-day
+      # bucket re-aggregates from it with SUM(total_count).
+      assert sql =~ "serviceradar.events_hourly"
+      assert sql =~ "SUM(total_count)"
+      refute sql =~ "COUNT(*)"
       refute sql =~ "platform.ocsf_events"
       refute sql =~ "time_bucket"
 
@@ -36,7 +40,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.EventWindowStarRocksTest do
       # through the Frontend's session time zone, so on a non-UTC FE every
       # bucket key lands off the UTC multiples build_slice/3 generates and the
       # trend renders all zeros while the summary total stays non-zero.
-      assert sql =~ "time_slice(`time`, INTERVAL 86400 SECOND)"
+      assert sql =~ "time_slice(`bucket`, INTERVAL 86400 SECOND)"
       refute sql =~ "UNIX_TIMESTAMP"
       refute sql =~ "FROM_UNIXTIME"
 
@@ -55,6 +59,29 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.EventWindowStarRocksTest do
     assert slice.event_summary.fatal == 11
     assert slice.event_summary.low == 7
     assert_received {:window_sql, _sql}
+  end
+
+  test "a sub-hour event bucket stays on the raw warehouse table", %{prev: prev} do
+    Application.put_env(
+      :serviceradar_core,
+      StarRocks,
+      Keyword.put(prev, :cutover_datasets, [:events])
+    )
+
+    window = Window.resolve("last_1h", "events", ~U[1999-06-16 00:00:00Z])
+    assert Window.event_bucket_seconds(window) == 60
+
+    starrocks_query = fn sql ->
+      assert sql =~ "time_slice(`time`, INTERVAL 60 SECOND)"
+      assert sql =~ "COUNT(*)"
+      refute sql =~ "events_hourly"
+      send(self(), {:raw_window_sql, sql})
+      {:ok, %{rows: [["1999-06-15 23:59:00", 6, 4]]}}
+    end
+
+    assert {:ok, slice} = EventWindow.load(window, starrocks_query: starrocks_query)
+    assert slice.event_summary.total == 4
+    assert_received {:raw_window_sql, _sql}
   end
 
   test "logs rollup status uses StarRocks raw bounds when logs are cut over", %{prev: prev} do

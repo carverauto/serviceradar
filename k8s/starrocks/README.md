@@ -174,9 +174,17 @@ Stream Load, so when it is not the default, rewrite the DDL the same way the
 Compose `starrocks-init` service does before applying it:
 
 ```bash
+db=$(helm get values serviceradar -n "$ns" -o json |
+  jq -r '.analytics.starrocks.database // "serviceradar"')
 sed -e "s/EXISTS serviceradar;/EXISTS $db;/" -e "s/serviceradar\./$db./g" \
   elixir/serviceradar_core/priv/starrocks/000[1-5]_*.sql | mysql -h ... -P 9030 -uroot
 ```
+
+The chart has no schema-apply Job, so nothing creates these tables for you.
+Core's MyXQL pool opens `analytics.starrocks.database` directly, and Stream
+Load PUTs to `/api/<database>/...`, so a mismatch between the applied DDL and
+that value leaves the warehouse empty while the deployment looks healthy --
+`cutoverDatasets` defaults to empty, so the UI stays on CNPG throughout.
 
 ## Host sysctl
 

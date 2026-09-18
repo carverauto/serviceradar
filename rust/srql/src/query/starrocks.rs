@@ -24,7 +24,27 @@ struct Dataset {
     raw_table: &'static str,
     time_column: &'static str,
     scope: Option<&'static str>,
+    hourly: Option<HourlyRollup>,
 }
+
+/// An hourly materialized view (priv/starrocks/0005) a bucketed query may read
+/// instead of the raw table. `dimensions` is every column the view groups by,
+/// so a filter or series outside that list has no equivalent there.
+#[derive(Clone, Copy)]
+struct HourlyRollup {
+    table: &'static str,
+    dimensions: &'static [&'static str],
+}
+
+const FLOW_HOURLY: HourlyRollup = HourlyRollup {
+    table: "ocsf_network_activity_hourly",
+    dimensions: &[],
+};
+
+const METRIC_HOURLY: HourlyRollup = HourlyRollup {
+    table: "timeseries_metrics_hourly",
+    dimensions: &["device_id", "metric_type", "metric_name"],
+};
 
 /// `timeseries_metrics` and `events` are each one physical table holding
 /// several families, exactly as they are on CNPG, so an entity scoped to one
@@ -38,51 +58,63 @@ fn dataset_for(entity: &Entity) -> Option<Dataset> {
             raw_table: "ocsf_network_activity",
             time_column: "time",
             scope: None,
+            hourly: Some(FLOW_HOURLY),
         }),
+        // The flow rollup groups by bucket alone, so it cannot carry the
+        // attributed-flow discriminator and never serves this entity.
         Entity::AttributedFlows => Some(Dataset {
             raw_table: "ocsf_network_activity",
             time_column: "time",
             scope: Some(ATTRIBUTED_FLOW_SCOPE),
+            hourly: None,
         }),
         Entity::TimeseriesMetrics => Some(Dataset {
             raw_table: "timeseries_metrics",
             time_column: "timestamp",
             scope: None,
+            hourly: Some(METRIC_HOURLY),
         }),
         Entity::SnmpMetrics => Some(Dataset {
             raw_table: "timeseries_metrics",
             time_column: "timestamp",
             scope: Some(SNMP_METRIC_SCOPE),
+            hourly: Some(METRIC_HOURLY),
         }),
         Entity::RperfMetrics => Some(Dataset {
             raw_table: "timeseries_metrics",
             time_column: "timestamp",
             scope: Some(RPERF_METRIC_SCOPE),
+            hourly: Some(METRIC_HOURLY),
         }),
         Entity::Logs => Some(Dataset {
             raw_table: "logs",
             time_column: "timestamp",
             scope: None,
+            hourly: None,
         }),
         Entity::Events => Some(Dataset {
             raw_table: "events",
             time_column: "time",
             scope: None,
+            hourly: None,
         }),
         Entity::SecurityFindings => Some(Dataset {
             raw_table: "events",
             time_column: "time",
             scope: Some(SECURITY_FINDINGS_SCOPE),
+            hourly: None,
         }),
         Entity::ScanActivity => Some(Dataset {
             raw_table: "events",
             time_column: "time",
             scope: Some(SCAN_ACTIVITY_SCOPE),
+            hourly: None,
         }),
         Entity::DnsActivity => Some(Dataset {
             raw_table: "events",
             time_column: "time",
             scope: Some(DNS_ACTIVITY_SCOPE),
+            hourly: None,
         }),
         _ => None,
     }
@@ -158,9 +190,20 @@ fn flow_row_select(plan: &QueryPlan) -> Result<String> {
 
 fn dataset_sql(plan: &QueryPlan, dataset: Dataset, database: &str) -> Result<TranslateResponse> {
     let joins = catalog_joins(plan, dataset)?;
-    let time_column = dataset.time_column;
-    let qualified = format!("{database}.{}", dataset.raw_table);
     let direction = plan_mentions(plan, &["direction"]);
+    let rollup = if joins.is_empty() && !direction {
+        hourly_rollup(plan, dataset)
+    } else {
+        None
+    };
+    let time_column = match rollup {
+        Some(_) => "bucket",
+        None => dataset.time_column,
+    };
+    let qualified = format!(
+        "{database}.{}",
+        rollup.map_or(dataset.raw_table, |rollup| rollup.table)
+    );
     let from = if direction {
         let base = direction_source(&qualified);
         if joins.is_empty() {
@@ -180,7 +223,7 @@ fn dataset_sql(plan: &QueryPlan, dataset: Dataset, database: &str) -> Result<Tra
         where_sql.push_str(&filter_sql(plan, filter)?);
     }
     if let Some(downsample) = plan.downsample.as_ref() {
-        let sql = downsample_sql(plan, downsample, &from, &where_sql)?;
+        let sql = downsample_sql(plan, downsample, &from, &where_sql, time_column, rollup)?;
         return Ok(TranslateResponse {
             sql,
             params,
@@ -372,32 +415,98 @@ fn ipv4_prefix_sql(column: &str, prefix: &str) -> String {
     }
 }
 
+/// The rollup a bucketed query may read instead of the raw table.
+///
+/// Only the downsample path qualifies: a bucket is already a coarsening, so an
+/// hour-grained source changes nothing a caller can observe, while a scalar
+/// `stats` total would silently gain or lose the partial hours at the window
+/// edges. Every other condition here exists so the rollup answers with the same
+/// number the raw table would.
+fn hourly_rollup(plan: &QueryPlan, dataset: Dataset) -> Option<HourlyRollup> {
+    let rollup = dataset.hourly?;
+    let downsample = plan.downsample.as_ref()?;
+    if plan.stats.is_some() {
+        return None;
+    }
+    if downsample.bucket_seconds < 3600 || downsample.bucket_seconds % 3600 != 0 {
+        return None;
+    }
+    let dimension = |field: &str| {
+        let field = field.to_ascii_lowercase();
+        rollup.dimensions.iter().any(|name| *name == field)
+    };
+    if plan.filters.iter().any(|filter| !dimension(&filter.field)) {
+        return None;
+    }
+    if downsample.series.as_deref().is_some_and(|s| !dimension(s)) {
+        return None;
+    }
+    rollup_agg(rollup, downsample).map(|_| rollup)
+}
+
+/// Re-aggregates a stored hourly aggregate into the requested bucket. `None`
+/// means the rollup cannot reproduce the raw answer, so the caller stays on the
+/// raw table.
+fn rollup_agg(rollup: HourlyRollup, downsample: &crate::parser::DownsampleSpec) -> Option<String> {
+    use crate::parser::DownsampleAgg::{Avg, Count, Max, Min, Rate, RateSum, Sum};
+
+    let field = downsample.value_field.as_deref().unwrap_or("bytes_total");
+    match rollup.table {
+        "ocsf_network_activity_hourly" => match (downsample.agg, field) {
+            (
+                Sum | Rate | RateSum,
+                "bytes_total" | "packets_total" | "bytes_in" | "bytes_out" | "packets_in"
+                | "packets_out",
+            ) => Some(format!("SUM({field})")),
+            (Count, _) => Some("SUM(flow_count)".to_string()),
+            _ => None,
+        },
+        "timeseries_metrics_hourly" => match (downsample.agg, field) {
+            (Sum | Rate | RateSum, "value") => Some("SUM(avg_value * sample_count)".to_string()),
+            (Avg, "value") => {
+                Some("SUM(avg_value * sample_count) / NULLIF(SUM(sample_count), 0)".to_string())
+            }
+            (Min, "value") => Some("MIN(min_value)".to_string()),
+            (Max, "value") => Some("MAX(max_value)".to_string()),
+            (Count, _) => Some("SUM(sample_count)".to_string()),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 fn downsample_sql(
     plan: &QueryPlan,
     downsample: &crate::parser::DownsampleSpec,
     from: &str,
     where_sql: &str,
+    time: &str,
+    rollup: Option<HourlyRollup>,
 ) -> Result<String> {
     let bucket = downsample.bucket_seconds.max(1);
-    let value = aggregate_field_sql(
-        plan,
-        downsample.value_field.as_deref().unwrap_or("bytes_total"),
-    )?;
-    let agg = match downsample.agg {
-        crate::parser::DownsampleAgg::Sum => format!("SUM({value})"),
-        crate::parser::DownsampleAgg::Avg => format!("AVG({value})"),
-        crate::parser::DownsampleAgg::Min => format!("MIN({value})"),
-        crate::parser::DownsampleAgg::Max => format!("MAX({value})"),
-        crate::parser::DownsampleAgg::Count => "COUNT(*)".to_string(),
-        crate::parser::DownsampleAgg::Rate | crate::parser::DownsampleAgg::RateSum => {
-            format!("SUM({value})")
+    let agg = match rollup.and_then(|rollup| rollup_agg(rollup, downsample)) {
+        Some(agg) => agg,
+        None => {
+            let value = aggregate_field_sql(
+                plan,
+                downsample.value_field.as_deref().unwrap_or("bytes_total"),
+            )?;
+            match downsample.agg {
+                crate::parser::DownsampleAgg::Sum => format!("SUM({value})"),
+                crate::parser::DownsampleAgg::Avg => format!("AVG({value})"),
+                crate::parser::DownsampleAgg::Min => format!("MIN({value})"),
+                crate::parser::DownsampleAgg::Max => format!("MAX({value})"),
+                crate::parser::DownsampleAgg::Count => "COUNT(*)".to_string(),
+                crate::parser::DownsampleAgg::Rate | crate::parser::DownsampleAgg::RateSum => {
+                    format!("SUM({value})")
+                }
+            }
         }
     };
     let series = match downsample.series.as_deref() {
         Some(field) => format!("CAST({} AS STRING)", field_sql(plan, field)?),
         None => "'all'".to_string(),
     };
-    let time = dataset_for(&plan.entity).unwrap().time_column;
     Ok(format!(
         "SELECT time_slice({time}, INTERVAL {bucket} SECOND) AS timestamp, {series} AS series, {agg} AS value FROM {from}{where_sql} GROUP BY 1, 2 ORDER BY 1 LIMIT {limit} OFFSET {offset}",
         limit = plan.limit.max(1),
@@ -1093,12 +1202,96 @@ mod tests {
         assert!(compiled.sql.contains("GROUP BY CASE WHEN pid IS NULL"));
         assert!(!compiled.sql.contains("AND pid IS NOT NULL"));
         let chart = translate(
-            &plan("in:flows time:last_7d bucket:1h agg:sum value_field:bytes_total"),
+            &plan("in:attributed_flows time:last_7d bucket:1h agg:sum value_field:bytes_total"),
             "serviceradar",
         )
         .unwrap();
         assert!(chart.sql.contains("time_slice(time, INTERVAL 3600 SECOND)"));
         assert!(!chart.sql.contains("_hourly"));
+    }
+
+    #[test]
+    fn whole_hour_flow_charts_read_the_hourly_rollup() {
+        let chart = translate(
+            &plan("in:flows time:last_7d bucket:1h agg:sum value_field:bytes_total"),
+            "serviceradar",
+        )
+        .expect("rollup chart");
+        assert!(
+            chart
+                .sql
+                .contains("FROM serviceradar.ocsf_network_activity_hourly"),
+            "{}",
+            chart.sql
+        );
+        assert!(
+            chart
+                .sql
+                .contains("time_slice(bucket, INTERVAL 3600 SECOND)")
+        );
+        assert!(chart.sql.contains("SUM(bytes_total) AS value"));
+        assert!(chart.sql.contains("`bucket` >="), "{}", chart.sql);
+        refute_postgres(&chart.sql);
+    }
+
+    #[test]
+    fn rollups_are_skipped_whenever_they_cannot_reproduce_the_raw_answer() {
+        // Sub-hour bucket: the rollup has no finer grain than an hour.
+        let fine = translate(
+            &plan("in:flows time:last_7d bucket:15m agg:sum value_field:bytes_total"),
+            "serviceradar",
+        )
+        .expect("fine chart");
+        assert!(!fine.sql.contains("_hourly"), "{}", fine.sql);
+
+        // Filter on a column the flow rollup does not group by.
+        let filtered = translate(
+            &plan("in:flows time:last_7d src_endpoint_ip:192.0.2.10 bucket:1h agg:sum value_field:bytes_total"),
+            "serviceradar",
+        )
+        .expect("filtered chart");
+        assert!(!filtered.sql.contains("_hourly"), "{}", filtered.sql);
+
+        // Series on a column the flow rollup does not group by.
+        let series = translate(
+            &plan("in:flows time:last_7d bucket:1h agg:sum value_field:bytes_total series:protocol_group"),
+            "serviceradar",
+        )
+        .expect("series chart");
+        assert!(!series.sql.contains("_hourly"), "{}", series.sql);
+
+        // Scalar totals would gain or lose the partial hours at the edges.
+        let totals = translate(
+            &plan(r#"in:flows time:last_7d stats:"sum(bytes_total) as bytes_total""#),
+            "serviceradar",
+        )
+        .expect("totals");
+        assert!(!totals.sql.contains("_hourly"), "{}", totals.sql);
+    }
+
+    #[test]
+    fn metric_rollup_reaggregates_average_by_sample_count() {
+        let chart = translate(
+            &plan("in:snmp_metrics time:last_30d bucket:6h agg:avg value_field:value series:device_id"),
+            "serviceradar",
+        )
+        .expect("metric rollup chart");
+        assert!(
+            chart
+                .sql
+                .contains("FROM serviceradar.timeseries_metrics_hourly"),
+            "{}",
+            chart.sql
+        );
+        assert!(
+            chart
+                .sql
+                .contains("SUM(avg_value * sample_count) / NULLIF(SUM(sample_count), 0) AS value"),
+            "{}",
+            chart.sql
+        );
+        assert!(chart.sql.contains("metric_type = 'snmp'"), "{}", chart.sql);
+        refute_postgres(&chart.sql);
     }
 
     #[test]

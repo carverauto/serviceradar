@@ -25,12 +25,14 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumers do
       when is_struct(start_at, DateTime) and is_struct(end_at, DateTime) and
              is_integer(bucket_seconds) and
              bucket_seconds > 0 do
+    {table, column, total} = event_window_source(bucket_seconds)
+
     sql =
       """
-      SELECT time_slice(`time`, INTERVAL #{bucket_seconds} SECOND), \
-      COALESCE(severity_id, 0), COUNT(*) \
-      FROM #{Env.table("events")} \
-      WHERE `time` >= '#{iso(start_at)}' AND `time` < '#{iso(end_at)}' \
+      SELECT time_slice(`#{column}`, INTERVAL #{bucket_seconds} SECOND), \
+      COALESCE(severity_id, 0), #{total} \
+      FROM #{table} \
+      WHERE `#{column}` >= '#{iso(start_at)}' AND `#{column}` < '#{iso(end_at)}' \
       GROUP BY 1, 2 ORDER BY 1, 2
       """
 
@@ -38,6 +40,17 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumers do
       {:ok, %{rows: rows}} -> {:ok, %{rows: Enum.flat_map(rows, &normalize_window_row/1)}}
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  # events_hourly (priv/starrocks/0005) already groups by hour and severity, so
+  # a whole-hour bucket re-aggregates from it to the same counts the raw table
+  # produces. A sub-hour bucket cannot, and stays on the raw table.
+  defp event_window_source(bucket_seconds) when rem(bucket_seconds, 3600) == 0 do
+    {Env.table("events_hourly"), "bucket", "SUM(total_count)"}
+  end
+
+  defp event_window_source(_bucket_seconds) do
+    {Env.table("events"), "time", "COUNT(*)"}
   end
 
   @spec dns_rpz_clients(pos_integer(), pos_integer(), keyword()) ::

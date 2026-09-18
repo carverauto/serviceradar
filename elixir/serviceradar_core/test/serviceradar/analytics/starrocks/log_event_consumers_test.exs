@@ -56,7 +56,7 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumersTest do
     refute Map.has_key?(hd(encoded), "bytes_in")
   end
 
-  test "event window and dns/anomaly helpers query StarRocks events not platform.ocsf_events",
+  test "whole-hour event windows read the rollup while row helpers stay on raw events",
        %{prev: prev} do
     Application.put_env(
       :serviceradar_core,
@@ -66,19 +66,21 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumersTest do
 
     query = fn sql ->
       refute sql =~ "platform.ocsf_events"
-      refute sql =~ "events_hourly"
       send(self(), {:event_sql, sql})
 
       cond do
-        sql =~ "serviceradar.events" and sql =~ "COUNT(*)" ->
+        sql =~ "SUM(total_count)" ->
+          assert sql =~ "serviceradar.events_hourly"
           {:ok, %{rows: [["1999-06-15 12:00:00", 6, 11]]}}
 
         sql =~ "class_uid = 4003" ->
           assert sql =~ "serviceradar.events"
+          refute sql =~ "events_hourly"
           {:ok, %{rows: [["192.0.2.10", "hagezi-pro", "1999-06-15 12:00:00"]]}}
 
         sql =~ "class_uid = 2004" ->
           assert sql =~ "source_type = 'anomaly_detection'"
+          refute sql =~ "events_hourly"
           {:ok, %{rows: [[1]], num_rows: 1}}
 
         true ->
@@ -101,6 +103,18 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumersTest do
 
     assert {:ok, true} =
              LogEventConsumers.anomaly_detection_present?(~U[1999-06-15 12:00:00Z], query: query)
+
+    assert {:ok, %{rows: [[_, 6, 11]]}} =
+             LogEventConsumers.event_window_rows(
+               ~U[1999-06-15 00:00:00Z],
+               ~U[1999-06-15 01:00:00Z],
+               60,
+               query: fn sql ->
+                 refute sql =~ "events_hourly"
+                 assert sql =~ "COUNT(*)"
+                 {:ok, %{rows: [["1999-06-15 00:30:00", 6, 11]]}}
+               end
+             )
 
     assert_received {:event_sql, _}
   end
