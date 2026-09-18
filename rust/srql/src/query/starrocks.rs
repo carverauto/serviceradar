@@ -169,12 +169,15 @@ const CNPG_CATALOG: &str = "cnpg_platform.platform";
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum CatalogJoin {
     Devices,
+    InputInterface,
+    OutputInterface,
 }
 
 impl CatalogJoin {
     fn table(self) -> &'static str {
         match self {
             Self::Devices => "ocsf_devices",
+            Self::InputInterface | Self::OutputInterface => "netflow_interface_cache",
         }
     }
 
@@ -183,15 +186,24 @@ impl CatalogJoin {
             Self::Devices => {
                 "LEFT JOIN cnpg_platform.platform.ocsf_devices AS dev ON dev.uid = f.device_uid"
             }
+            Self::InputInterface => {
+                "LEFT JOIN cnpg_platform.platform.netflow_interface_cache AS in_if ON in_if.sampler_address = f.sampler_address AND in_if.if_index = f.input_snmp"
+            }
+            Self::OutputInterface => {
+                "LEFT JOIN cnpg_platform.platform.netflow_interface_cache AS out_if ON out_if.sampler_address = f.sampler_address AND out_if.if_index = f.output_snmp"
+            }
         }
     }
 }
 
 fn catalog_joins(plan: &QueryPlan, dataset: Dataset) -> Result<Vec<CatalogJoin>> {
     // pid/comm and prefix tags are persisted warehouse columns, read off the
-    // observation row. The JDBC catalog exists only for live device identity.
+    // observation row. The JDBC catalog carries live device identity and the
+    // exporter interface names/speeds the warehouse row does not store.
     let wants_device = plan_mentions(plan, &["hostname", "device_name"]);
-    if !wants_device {
+    let wants_input_interface = plan_mentions(plan, &["in_if_name", "in_if_speed_bps"]);
+    let wants_output_interface = plan_mentions(plan, &["out_if_name", "out_if_speed_bps"]);
+    if !wants_device && !wants_input_interface && !wants_output_interface {
         return Ok(Vec::new());
     }
     if dataset.raw_table != "ocsf_network_activity" {
@@ -199,7 +211,17 @@ fn catalog_joins(plan: &QueryPlan, dataset: Dataset) -> Result<Vec<CatalogJoin>>
             "starrocks_catalog_unsupported_entity".to_string(),
         ));
     }
-    Ok(vec![CatalogJoin::Devices])
+    let mut joins = Vec::new();
+    if wants_device {
+        joins.push(CatalogJoin::Devices);
+    }
+    if wants_input_interface {
+        joins.push(CatalogJoin::InputInterface);
+    }
+    if wants_output_interface {
+        joins.push(CatalogJoin::OutputInterface);
+    }
+    Ok(joins)
 }
 
 fn plan_mentions(plan: &QueryPlan, fields: &[&str]) -> bool {
@@ -493,6 +515,14 @@ fn field_sql(plan: &QueryPlan, field: &str) -> Result<String> {
                 ));
             }
             "hostname" | "device_name" => return Ok("dev.hostname".into()),
+            "in_if_name" => return Ok("COALESCE(in_if.if_name, 'Unknown')".into()),
+            "out_if_name" => return Ok("COALESCE(out_if.if_name, 'Unknown')".into()),
+            "in_if_speed_bps" => {
+                return Ok("COALESCE(CAST(in_if.if_speed_bps AS STRING), 'Unknown')".into());
+            }
+            "out_if_speed_bps" => {
+                return Ok("COALESCE(CAST(out_if.if_speed_bps AS STRING), 'Unknown')".into());
+            }
             _ => {}
         }
         for (prefix, name) in [
@@ -1252,6 +1282,62 @@ mod tests {
         );
         assert!(compiled.sql.contains("dev.uid = f.device_uid"));
         refute_postgres(&compiled.sql);
+    }
+
+    #[test]
+    fn top_interfaces_resolve_names_and_speeds_from_the_cnpg_interface_cache() {
+        // The warehouse row stores only the ifIndex; the name and speed live in
+        // netflow_interface_cache, which CNPG reaches with a lateral subquery.
+        let base = "in:flows time:last_1h";
+        let ingress = translate(
+            &plan(&format!(
+                "{base} stats:sum(bytes_total) as bytes_total by sampler_address,input_snmp,in_if_name,in_if_speed_bps sort:bytes_total:desc limit:5"
+            )),
+            "serviceradar",
+        )
+        .expect("ingress top interfaces");
+        assert!(
+            ingress.sql.contains(
+                "LEFT JOIN cnpg_platform.platform.netflow_interface_cache AS in_if ON in_if.sampler_address = f.sampler_address AND in_if.if_index = f.input_snmp"
+            ),
+            "{}",
+            ingress.sql
+        );
+        assert!(ingress.sql.contains("COALESCE(in_if.if_name, 'Unknown')"));
+        assert!(
+            ingress
+                .sql
+                .contains("COALESCE(CAST(in_if.if_speed_bps AS STRING), 'Unknown')")
+        );
+        assert!(!ingress.sql.contains("out_if"));
+        refute_postgres(&ingress.sql);
+
+        let egress = translate(
+            &plan(&format!(
+                "{base} stats:sum(bytes_total) as bytes_total by sampler_address,output_snmp,out_if_name,out_if_speed_bps sort:bytes_total:desc limit:5"
+            )),
+            "serviceradar",
+        )
+        .expect("egress top interfaces");
+        assert!(
+            egress.sql.contains(
+                "LEFT JOIN cnpg_platform.platform.netflow_interface_cache AS out_if ON out_if.sampler_address = f.sampler_address AND out_if.if_index = f.output_snmp"
+            ),
+            "{}",
+            egress.sql
+        );
+        assert!(egress.sql.contains("COALESCE(out_if.if_name, 'Unknown')"));
+        assert!(!egress.sql.contains("in_if"));
+    }
+
+    #[test]
+    fn flows_without_interface_fields_do_not_join_the_interface_cache() {
+        let compiled = translate(
+            &plan("in:flows time:last_1h stats:sum(bytes_total) as bytes_total by sampler_address limit:5"),
+            "serviceradar",
+        )
+        .expect("compile");
+        assert!(!compiled.sql.contains("netflow_interface_cache"));
     }
 
     #[test]

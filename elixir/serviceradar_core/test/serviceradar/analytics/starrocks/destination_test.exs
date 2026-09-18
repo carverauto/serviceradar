@@ -138,6 +138,53 @@ defmodule ServiceRadar.Analytics.StarRocks.DestinationTest do
   end
 
   @tag :flow_counter_regression
+  test "flow Stream Load documents carry the exporter interface indexes" do
+    [encoded] =
+      Rows.encode(:flows, [
+        %{
+          time: ~U[2026-01-15 10:00:00Z],
+          src_endpoint_ip: "192.0.2.10",
+          dst_endpoint_ip: "198.51.100.20",
+          protocol_num: 6,
+          sampler_address: "198.51.100.1",
+          bytes_total: 1514,
+          ocsf_payload: %{
+            "connection_info" => %{"input_snmp" => 10, "output_snmp" => 20}
+          }
+        }
+      ])
+
+    assert encoded["input_snmp"] == 10
+    assert encoded["output_snmp"] == 20
+  end
+
+  test "a quarantined Stream Load is reported rather than silently accepted" do
+    handler = {__MODULE__, :quarantine_telemetry, System.unique_integer()}
+    event = [:serviceradar, :starrocks, :stream_load, :quarantine]
+    parent = self()
+
+    :telemetry.attach(
+      handler,
+      event,
+      fn ^event, measurements, metadata, _ ->
+        send(parent, {:quarantined, measurements, metadata})
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+
+    persist = fn _table, _rows, _opts -> {:quarantine, {:filtered_rows, 3, "label-alpha"}} end
+
+    assert {:ok, %{missing: [], completed: [:cnpg, :starrocks]}} =
+             Destination.persist_shadow(:flows, @flow_rows,
+               completed: [:cnpg],
+               persist: persist
+             )
+
+    assert_received {:quarantined, %{rows: 3}, %{dataset: :flows, table: "ocsf_network_activity"}}
+  end
+
   test "flow encoding preserves canonical totals and missing directional counters" do
     for {counters, expected_bytes, expected_packets} <- [
           {%{bytes_total: 1200, packets_total: 12}, 1200, 12},

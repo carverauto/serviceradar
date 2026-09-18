@@ -151,4 +151,6 @@ data:
       ON platform.device_alias_states TO {{ $reader }};
     GRANT SELECT (device_uid, sampler_address)
       ON platform.netflow_exporter_cache TO {{ $reader }};
+    GRANT SELECT (sampler_address, if_index, if_name, if_speed_bps)
+      ON platform.netflow_interface_cache TO {{ $reader }};
 {{- end }}

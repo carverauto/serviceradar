@@ -49,8 +49,8 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
       "dst_as_number" => field(row, :dst_as_number),
       "tcp_flags" => field(row, :tcp_flags),
       "partition" => stringify(field(row, :partition)),
-      "input_snmp" => field(row, :input_snmp) || payload_int(row, "input_snmp"),
-      "output_snmp" => field(row, :output_snmp) || payload_int(row, "output_snmp"),
+      "input_snmp" => connection_info_int(row, "input_snmp", :input_snmp),
+      "output_snmp" => connection_info_int(row, "output_snmp", :output_snmp),
       "src_mac" => stringify(field(row, :src_mac)),
       "dst_mac" => stringify(field(row, :dst_mac)),
       "src_mac_vendor" => stringify(field(row, :src_mac_vendor)),
@@ -201,9 +201,22 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
     end
   end
 
-  defp payload_int(row, key) do
-    case map_get(field(row, :ocsf_payload), key) do
-      n when is_integer(n) -> n
+  defp connection_info_int(row, string_key, atom_alias) do
+    with %{} = payload <- field(row, :ocsf_payload),
+         %{} = info <- Map.get(payload, "connection_info") || Map.get(payload, :connection_info) do
+      case Map.get(info, string_key) || Map.get(info, atom_alias) do
+        n when is_integer(n) -> n
+        n when is_binary(n) -> parse_int(n)
+        _ -> nil
+      end
+    else
+      _ -> nil
+    end
+  end
+
+  defp parse_int(value) do
+    case Integer.parse(value) do
+      {n, ""} -> n
       _ -> nil
     end
   end

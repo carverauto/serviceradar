@@ -33,8 +33,8 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
   def correlate do
     with {:ok, _current_backfills} <- WorkloadBackfill.backfill_current_workload_identity() do
       case flow_history_backend() do
-        :starrocks -> correlate_starrocks()
-        :cnpg -> run_guarded(correlation_sql())
+        :starrocks -> run_guarded(&correlate_starrocks/0)
+        :cnpg -> run_guarded(&run_correlation_sql/0)
       end
     end
   end
@@ -806,15 +806,22 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
   # automatically at transaction end (commit/rollback/disconnect), so a crashed
   # node never strands the lock. If another node already holds it, this pass is a
   # no-op (returns 0) rather than blocking.
-  defp run_guarded(sql) do
+  defp run_correlation_sql do
+    case ServiceRadar.Repo.query(correlation_sql(), [], timeout: @correlation_timeout_ms) do
+      {:ok, %{rows: [[num_rows]]}} -> {:ok, num_rows}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp run_guarded(pass) when is_function(pass, 0) do
     ServiceRadar.Repo.transaction(
       fn ->
         case ServiceRadar.Repo.query("SELECT pg_try_advisory_xact_lock($1)", [
                @correlator_lock_key
              ]) do
           {:ok, %{rows: [[true]]}} ->
-            case ServiceRadar.Repo.query(sql, [], timeout: @correlation_timeout_ms) do
-              {:ok, %{rows: [[num_rows]]}} -> num_rows
+            case pass.() do
+              {:ok, count} -> count
               {:error, reason} -> ServiceRadar.Repo.rollback(reason)
             end
 

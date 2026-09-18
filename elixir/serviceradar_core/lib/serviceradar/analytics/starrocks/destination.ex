@@ -122,13 +122,12 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
     completed = MapSet.new(Keyword.get(opts, :completed, []))
     encoded = Rows.encode(dataset, rows)
 
-    cnpg_result = persist_cnpg(dataset, rows, completed, opts)
     starrocks_result = persist_starrocks(dataset, encoded, completed, opts)
 
     progress = %{
       dataset: dataset,
-      completed: completed_dests(cnpg_result, starrocks_result, completed),
-      missing: missing_dests(cnpg_result, starrocks_result, completed)
+      completed: completed_dests(starrocks_result, completed),
+      missing: missing_dests(starrocks_result, completed)
     }
 
     cond do
@@ -140,17 +139,6 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
 
       true ->
         {:ok, Map.put(progress, :partial, true)}
-    end
-  end
-
-  defp persist_cnpg(_dataset, _rows, completed, _opts) do
-    if MapSet.member?(completed, :cnpg) do
-      :already
-    else
-      # CNPG write is owned by the EventWriter processor. Shadow tracking only
-      # records that the processor already succeeded when `:completed` includes
-      # `:cnpg`. A missing CNPG dest is a retry of the processor, not a second write.
-      :skipped
     end
   end
 
@@ -168,9 +156,15 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
         |> attribution_load_opts(dataset)
 
       case persist.(table, encoded, persist_opts) do
-        {:quarantine, reason} when dataset == :flow_attribution -> {:error, reason}
-        {:quarantine, reason} -> {:ok, %{quarantine: true, reason: reason}}
-        other -> other
+        {:quarantine, reason} when dataset == :flow_attribution ->
+          {:error, reason}
+
+        {:quarantine, reason} ->
+          report_quarantine(dataset, table, reason)
+          {:ok, %{quarantine: true, reason: reason}}
+
+        other ->
+          other
       end
     end
   end
@@ -186,17 +180,36 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
     }
   end
 
-  defp completed_dests(cnpg_result, starrocks_result, completed) do
+  defp report_quarantine(dataset, table, reason) do
+    rows =
+      case reason do
+        {:filtered_rows, count, _label} when is_integer(count) -> count
+        _ -> 0
+      end
+
+    Logger.warning("StarRocks Stream Load quarantined rows",
+      dataset: dataset,
+      table: table,
+      rows: rows,
+      reason: inspect(reason)
+    )
+
+    :telemetry.execute(
+      [:serviceradar, :starrocks, :stream_load, :quarantine],
+      %{rows: rows},
+      %{dataset: dataset, table: table, reason: reason}
+    )
+  end
+
+  defp completed_dests(starrocks_result, completed) do
     completed
-    |> maybe_put(:cnpg, cnpg_result)
     |> maybe_put(:starrocks, starrocks_result)
     |> MapSet.to_list()
     |> Enum.sort()
   end
 
-  defp missing_dests(cnpg_result, starrocks_result, completed) do
+  defp missing_dests(starrocks_result, completed) do
     []
-    |> maybe_missing(:cnpg, cnpg_result, completed)
     |> maybe_missing(:starrocks, starrocks_result, completed)
     |> Enum.sort()
   end
@@ -210,7 +223,6 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
       MapSet.member?(completed, dest) -> missing
       match?({:ok, _}, result) -> missing
       result == :already -> missing
-      dest == :cnpg and result == :skipped -> missing
       true -> [dest | missing]
     end
   end

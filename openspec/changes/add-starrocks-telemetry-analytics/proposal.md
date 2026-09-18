@@ -2,7 +2,7 @@
 
 ## Why
 
-The pg_duckdb design in [PR #488](https://github.com/carverauto/serviceradar/pull/488) was withdrawn. [Issue #495](https://github.com/carverauto/serviceradar/issues/495) preserves useful dashboard and telemetry fixes, but long-window analytics still need a new storage and query architecture. The user's subsequent direction selects StarRocks as the proposed replacement; the older handoff's statement that no replacement was selected is historical.
+The pg_duckdb design was withdrawn; it predates the move to GitHub and has no pull request there. [Issue #4484](https://github.com/carverauto/serviceradar/issues/4484) preserves useful dashboard and telemetry fixes, but long-window analytics still need a new storage and query architecture. The user's subsequent direction selects StarRocks as the proposed replacement; the older handoff's statement that no replacement was selected is historical.
 
 This is a proposal only. No application code, migrations, deployment, data recovery, branch merge, or production configuration change is authorized by this document. Implementation follows proposal approval in later agents/PRs.
 

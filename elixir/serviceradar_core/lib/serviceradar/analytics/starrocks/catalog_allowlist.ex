@@ -20,6 +20,7 @@ defmodule ServiceRadar.Analytics.StarRocks.CatalogAllowlist do
     ocsf_devices
     device_alias_states
     netflow_exporter_cache
+    netflow_interface_cache
     netflow_local_cidrs_catalog
   )
 

@@ -37,7 +37,8 @@ defmodule ServiceRadar.Repo.Migrations.CreateStarrocksCatalogReaderRole do
     {"netflow_local_cidrs_catalog", nil},
     {"ocsf_devices", "uid, hostname, ip"},
     {"device_alias_states", "device_id, alias_type, state, alias_value"},
-    {"netflow_exporter_cache", "device_uid, sampler_address"}
+    {"netflow_exporter_cache", "device_uid, sampler_address"},
+    {"netflow_interface_cache", "sampler_address, if_index, if_name, if_speed_bps"}
   ]
 
   def up do
