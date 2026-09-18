@@ -140,7 +140,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
       _ = insert_rows(@routing_table, routing_rows)
       bulk_ocsf_count = insert_rows(table_name(), bulk_ocsf_rows)
       {persisted_ocsf_rows, recorded_ocsf_events} = record_ocsf_events(ash_ocsf_rows)
-      _ = Destination.persist_after_cnpg(:events, bulk_ocsf_rows ++ persisted_ocsf_rows)
+      warehouse = Destination.persist_after_cnpg(:events, bulk_ocsf_rows ++ persisted_ocsf_rows)
 
       dispatch_northbound_inventory_transitions(recorded_ocsf_events)
       enqueue_alert_evaluation(bulk_ocsf_rows, bulk_ocsf_count)
@@ -150,7 +150,11 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
 
       ocsf_count = bulk_ocsf_count + length(recorded_ocsf_events)
       CausalPubSub.broadcast_ingest(%{count: ocsf_count})
-      {:ok, length(parsed_rows)}
+
+      case warehouse do
+        {:ok, _} -> {:ok, length(parsed_rows)}
+        {:error, reason} -> {:error, reason}
+      end
     end
   rescue
     e ->

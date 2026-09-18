@@ -168,6 +168,16 @@ kubectl --context "$ctx" -n starrocks get svc lab-fe-service
 # in-cluster: mysql -h lab-fe-service.starrocks.svc -P 9030 -uroot
 ```
 
+`elixir/serviceradar_core/priv/starrocks/0001-0005` pin the database name to
+`serviceradar`. Helm `analytics.starrocks.database` retargets every reader and
+Stream Load, so when it is not the default, rewrite the DDL the same way the
+Compose `starrocks-init` service does before applying it:
+
+```bash
+sed -e "s/EXISTS serviceradar;/EXISTS $db;/" -e "s/serviceradar\./$db./g" \
+  elixir/serviceradar_core/priv/starrocks/000[1-5]_*.sql | mysql -h ... -P 9030 -uroot
+```
+
 ## Host sysctl
 
 `vm.max_map_count` and `vm.overcommit_memory` are not namespaced. They cannot

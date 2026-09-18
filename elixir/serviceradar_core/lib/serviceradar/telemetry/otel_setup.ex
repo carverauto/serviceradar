@@ -199,13 +199,7 @@ defmodule ServiceRadar.Telemetry.OtelSetup do
           filters: [
             drop_otel_self: {&ServiceRadar.Otel.LogSelfFilter.filter/2, :no_arg},
             otel_ids_to_bytes: {&ServiceRadar.Otel.LogIdFilter.filter/2, :no_arg}
-          ],
-          # Logger proxy overload (separate from the gen_statem mailbox cap).
-          burst_limit_enable: true,
-          burst_limit_max_count: 200,
-          burst_limit_window_time: 1000,
-          drop_mode_qlen: 50,
-          flush_qlen: 200
+          ]
         }
 
         # Use a local copy of the handler implementation. The upstream

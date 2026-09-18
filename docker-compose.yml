@@ -756,7 +756,9 @@ services:
   # Creates the warehouse schema the `starrocks` profile needs. Compose runs the
   # single-BE allin1 image, which cannot satisfy the `replication_num = 3` the
   # shipped DDL pins for a real cluster, so the copies are rewritten to 1 on the
-  # way in. Only 0001-0005 are applied: 0006-0013 add columns already declared
+  # way in. The DDL also pins the database name, which STARROCKS_DATABASE
+  # overrides for every reader and Stream Load, so it is retargeted the same
+  # way. Only 0001-0005 are applied: 0006-0013 add columns already declared
   # in 0001-0004, and 0014 is documentation. Every statement is
   # CREATE ... IF NOT EXISTS, so re-running the profile is a no-op.
   starrocks-init:
@@ -765,6 +767,8 @@ services:
     profiles:
       - starrocks
     restart: "no"
+    environment:
+      - STARROCKS_DATABASE=${STARROCKS_DATABASE:-serviceradar}
     volumes:
       - ./elixir/serviceradar_core/priv/starrocks:/schema:ro
     depends_on:
@@ -784,7 +788,9 @@ services:
         done
         for schema_file in /schema/0001_*.sql /schema/0002_*.sql /schema/0003_*.sql /schema/0004_*.sql /schema/0005_*.sql; do
           echo "applying $$(basename "$$schema_file")"
-          sed 's/"replication_num" = "3"/"replication_num" = "1"/' "$$schema_file" \
+          sed -e 's/"replication_num" = "3"/"replication_num" = "1"/' \
+              -e "s/EXISTS serviceradar;/EXISTS $$STARROCKS_DATABASE;/" \
+              -e "s/serviceradar\./$$STARROCKS_DATABASE./g" "$$schema_file" \
             | mysql -h starrocks -P 9030 -u root --protocol=TCP
         done
         echo 'starrocks schema ready'

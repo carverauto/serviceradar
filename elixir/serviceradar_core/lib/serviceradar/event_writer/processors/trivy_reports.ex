@@ -152,8 +152,13 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
            |> Enum.map(& &1.event_row))
 
       {event_count, inserted_events} = insert_event_rows(promoted_rows)
-      _ = Destination.persist_after_cnpg(:logs, log_rows)
-      _ = Destination.persist_after_cnpg(:events, inserted_events)
+
+      warehouse =
+        with {:ok, _} <- Destination.persist_after_cnpg(:logs, log_rows),
+             {:ok, _} <- Destination.persist_after_cnpg(:events, inserted_events) do
+          :ok
+        end
+
       alert_count = maybe_create_priority_alerts(inserted_events)
 
       maybe_broadcast_logs(log_count)
@@ -172,7 +177,10 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
         %{}
       )
 
-      {:ok, log_count}
+      case warehouse do
+        :ok -> {:ok, log_count}
+        {:error, reason} -> {:error, reason}
+      end
     end
   rescue
     e ->
