@@ -10,40 +10,8 @@ defmodule ServiceRadar.Analytics.StarRocks.ReadersTest do
     assert Readers.mode_for(:flows) == nil
     assert Readers.mode_for("flows") == nil
     assert Readers.mode_for(:metrics) == nil
-    assert "srql in:flows" in Readers.switched_readers(:flows)
-    assert "dashboard NetFlow map" in Readers.switched_readers(:flows)
-    assert "exporter cache" in Readers.switched_readers(:flows)
-    assert "topology" in Readers.switched_readers(:flows)
-    assert "attribution" in Readers.switched_readers(:flows)
-    assert "threat queries" in Readers.switched_readers(:flows)
-    assert Readers.remaining_readers(:flows) == []
     assert Readers.backend(:flows) == :cnpg
     assert Readers.backend(:metrics) == :cnpg
-    assert "srql timeseries/snmp/rperf" in Readers.switched_readers(:metrics)
-    assert "device charts" in Readers.switched_readers(:metrics)
-    assert "ICMP sparklines" in Readers.switched_readers(:metrics)
-    assert "thresholds" in Readers.switched_readers(:metrics)
-    assert "anomaly/capacity" in Readers.switched_readers(:metrics)
-    assert "topology nonnumeric facts" in Readers.switched_readers(:metrics)
-
-    assert Readers.remaining_readers(:metrics) == [
-             "srql in:cpu_metrics",
-             "srql in:memory_metrics",
-             "srql in:disk_metrics",
-             "srql in:process_metrics"
-           ]
-    assert "srql in:logs" in Readers.switched_readers(:logs)
-    assert "logs rollup status" in Readers.switched_readers(:logs)
-    assert Readers.remaining_readers(:logs) == []
-
-    assert "srql in:events / security_findings / scan / dns activity" in Readers.switched_readers(
-             :events
-           )
-
-    assert "dashboard event window" in Readers.switched_readers(:events)
-    assert "dns-policy prefix tags" in Readers.switched_readers(:events)
-    assert "anomaly ingest silence (2004 rows)" in Readers.switched_readers(:events)
-    assert Readers.remaining_readers(:events) == []
     assert Readers.backend(:logs) == :cnpg
     assert Readers.backend(:events) == :cnpg
   end

@@ -23,55 +23,73 @@ pub fn translate(plan: &QueryPlan) -> Result<TranslateResponse> {
 struct Dataset {
     raw_table: &'static str,
     time_column: &'static str,
-    metric_type: Option<&'static str>,
+    scope: Option<&'static str>,
 }
 
-/// `timeseries_metrics` is one physical table holding several metric families,
-/// exactly as it is on CNPG, so an entity scoped to one family must carry that
-/// family's `metric_type` predicate. The sysmon entities are deliberately
-/// absent: CNPG serves them from their own `cpu_metrics`/`memory_metrics`/
-/// `disk_metrics`/`process_metrics` tables, which EventWriter never mirrors
-/// into the warehouse.
+/// `timeseries_metrics` and `events` are each one physical table holding
+/// several families, exactly as they are on CNPG, so an entity scoped to one
+/// family carries that family's `scope` predicate. The sysmon entities are
+/// deliberately absent: CNPG serves them from their own `cpu_metrics`/
+/// `memory_metrics`/`disk_metrics`/`process_metrics` tables, which EventWriter
+/// never mirrors into the warehouse.
 fn dataset_for(entity: &Entity) -> Option<Dataset> {
     match entity {
         Entity::Flows | Entity::AttributedFlows => Some(Dataset {
             raw_table: "serviceradar.ocsf_network_activity",
             time_column: "time",
-            metric_type: None,
+            scope: None,
         }),
         Entity::TimeseriesMetrics => Some(Dataset {
             raw_table: "serviceradar.timeseries_metrics",
             time_column: "timestamp",
-            metric_type: None,
+            scope: None,
         }),
         Entity::SnmpMetrics => Some(Dataset {
             raw_table: "serviceradar.timeseries_metrics",
             time_column: "timestamp",
-            metric_type: Some(SNMP_METRIC_TYPE),
+            scope: Some(SNMP_METRIC_SCOPE),
         }),
         Entity::RperfMetrics => Some(Dataset {
             raw_table: "serviceradar.timeseries_metrics",
             time_column: "timestamp",
-            metric_type: Some(RPERF_METRIC_TYPE),
+            scope: Some(RPERF_METRIC_SCOPE),
         }),
         Entity::Logs => Some(Dataset {
             raw_table: "serviceradar.logs",
             time_column: "timestamp",
-            metric_type: None,
+            scope: None,
         }),
-        Entity::Events | Entity::SecurityFindings | Entity::ScanActivity | Entity::DnsActivity => {
-            Some(Dataset {
-                raw_table: "serviceradar.events",
-                time_column: "time",
-                metric_type: None,
-            })
-        }
+        Entity::Events => Some(Dataset {
+            raw_table: "serviceradar.events",
+            time_column: "time",
+            scope: None,
+        }),
+        Entity::SecurityFindings => Some(Dataset {
+            raw_table: "serviceradar.events",
+            time_column: "time",
+            scope: Some(SECURITY_FINDINGS_SCOPE),
+        }),
+        Entity::ScanActivity => Some(Dataset {
+            raw_table: "serviceradar.events",
+            time_column: "time",
+            scope: Some(SCAN_ACTIVITY_SCOPE),
+        }),
+        Entity::DnsActivity => Some(Dataset {
+            raw_table: "serviceradar.events",
+            time_column: "time",
+            scope: Some(DNS_ACTIVITY_SCOPE),
+        }),
         _ => None,
     }
 }
 
-const SNMP_METRIC_TYPE: &str = "snmp";
-const RPERF_METRIC_TYPE: &str = "rperf";
+const SNMP_METRIC_SCOPE: &str = "metric_type = 'snmp'";
+const RPERF_METRIC_SCOPE: &str = "metric_type = 'rperf'";
+
+// Mirrors the CNPG ocsf_events discriminators in query/events/query.rs.
+const SECURITY_FINDINGS_SCOPE: &str = "category_uid = 2";
+const SCAN_ACTIVITY_SCOPE: &str = "class_uid = 6007 AND category_uid = 6";
+const DNS_ACTIVITY_SCOPE: &str = "class_uid = 4003 AND category_uid = 4";
 
 const FLOW_PROTOCOL_GROUP_SQL: &str =
     "CASE WHEN protocol_num = 6 THEN 'tcp' WHEN protocol_num = 17 THEN 'udp' ELSE 'other' END";
@@ -96,8 +114,8 @@ fn dataset_sql(plan: &QueryPlan, dataset: Dataset) -> Result<TranslateResponse> 
         from_with_catalog_joins(dataset.raw_table, &joins)
     };
     let (mut where_sql, params) = time_predicate(plan, time_column, direction || !joins.is_empty());
-    if let Some(metric_type) = dataset.metric_type {
-        where_sql.push_str(&format!(" AND metric_type = '{metric_type}'"));
+    if let Some(scope) = dataset.scope {
+        where_sql.push_str(&format!(" AND ({scope})"));
     }
     for filter in &plan.filters {
         where_sql.push_str(" AND ");
@@ -1241,6 +1259,50 @@ mod tests {
     fn current_alert_state_stays_a_capability_error() {
         let err = translate(&plan("in:alerts time:last_1h limit:5")).expect_err("alerts");
         assert!(err.to_string().contains("starrocks_unsupported_entity"));
+    }
+
+    #[test]
+    fn event_entities_carry_their_class_and_category_discriminators() {
+        // The warehouse `events` table holds every shadowed family, so an
+        // entity scoped to one of them must filter the same way CNPG does or
+        // it returns firewall/Falco/Trivy rows labelled as that family.
+        let findings =
+            translate(&plan("in:security_findings time:last_1h limit:5")).expect("findings");
+        assert!(findings.sql.contains("FROM serviceradar.events"));
+        assert!(findings.sql.contains("category_uid = 2"));
+
+        let scans = translate(&plan("in:scan_activity time:last_1h limit:5")).expect("scans");
+        assert!(scans.sql.contains("class_uid = 6007 AND category_uid = 6"));
+
+        let dns = translate(&plan("in:dns_activity time:last_1h limit:5")).expect("dns");
+        assert!(dns.sql.contains("class_uid = 4003 AND category_uid = 4"));
+
+        // The unscoped entity spans every family, exactly as it does on CNPG.
+        let all = translate(&plan("in:events time:last_1h limit:5")).expect("events");
+        assert!(!all.sql.contains("class_uid"));
+        assert!(!all.sql.contains("category_uid"));
+    }
+
+    #[test]
+    fn event_entity_aliases_resolve_to_the_same_scope() {
+        for (query, expected) in [
+            ("in:findings time:last_1h limit:5", "category_uid = 2"),
+            (
+                "in:security_finding time:last_1h limit:5",
+                "category_uid = 2",
+            ),
+            (
+                "in:security_scans time:last_1h limit:5",
+                "class_uid = 6007 AND category_uid = 6",
+            ),
+            (
+                "in:pdns time:last_1h limit:5",
+                "class_uid = 4003 AND category_uid = 4",
+            ),
+        ] {
+            let compiled = translate(&plan(query)).expect(query);
+            assert!(compiled.sql.contains(expected), "{query}: {}", compiled.sql);
+        }
     }
 
     #[test]

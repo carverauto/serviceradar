@@ -3,62 +3,13 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
   Dataset reader routing for StarRocks cutover.
 
   Ordinary installations stay on CNPG until a dataset is listed in
-  `cutover_datasets`. Unknown consumers remain in the coverage inventory.
+  `cutover_datasets`.
 
   An entity only maps to a dataset when the warehouse actually holds its rows.
   Every spelling the SRQL parser accepts for such an entity must be listed:
   routing happens on the raw entity string, so a missing alias silently serves
   one spelling from the warehouse and another from CNPG.
   """
-
-  @flow_switched [
-    "srql in:flows",
-    "dashboard NetFlow map",
-    "device flow tab",
-    "observability netflow loaders",
-    "exporter cache",
-    "topology",
-    "attribution",
-    "threat queries"
-  ]
-
-  @flow_remaining []
-
-  @metric_switched [
-    "srql timeseries/snmp/rperf",
-    "device charts",
-    "ICMP sparklines",
-    "thresholds",
-    "anomaly/capacity",
-    "topology nonnumeric facts"
-  ]
-
-  # EventWriter mirrors CNPG `timeseries_metrics` only. The sysmon families live
-  # in their own CNPG tables with their own columns, so they are not part of the
-  # metrics cutover and keep reading CNPG.
-  @metric_readers [
-    "srql in:cpu_metrics",
-    "srql in:memory_metrics",
-    "srql in:disk_metrics",
-    "srql in:process_metrics"
-  ]
-
-  @log_switched [
-    "srql in:logs",
-    "dashboard logs severity (SRQL)",
-    "logs rollup status"
-  ]
-
-  @log_remaining []
-
-  @event_switched [
-    "srql in:events / security_findings / scan / dns activity",
-    "dashboard event window",
-    "dns-policy prefix tags",
-    "anomaly ingest silence (2004 rows)"
-  ]
-
-  @event_remaining []
 
   @spec dataset_for_entity(String.t()) :: atom() | nil
   def dataset_for_entity(entity) when is_binary(entity) do
@@ -113,20 +64,6 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
       :cnpg -> cnpg.()
     end
   end
-
-  @spec switched_readers(atom()) :: [String.t()]
-  def switched_readers(:flows), do: @flow_switched
-  def switched_readers(:metrics), do: @metric_switched
-  def switched_readers(:logs), do: @log_switched
-  def switched_readers(:events), do: @event_switched
-  def switched_readers(_dataset), do: []
-
-  @spec remaining_readers(atom()) :: [String.t()]
-  def remaining_readers(:flows), do: @flow_remaining
-  def remaining_readers(:metrics), do: @metric_readers
-  def remaining_readers(:logs), do: @log_remaining
-  def remaining_readers(:events), do: @event_remaining
-  def remaining_readers(_dataset), do: []
 
   defp cutover_datasets do
     :serviceradar_core

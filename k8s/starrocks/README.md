@@ -32,6 +32,34 @@ Demo CNPG now has an additive NetworkPolicy allowing namespace
 off; `values-demo.yaml` enables it with empty cutover. Do not let the
 Frontend download Maven at catalog-create time.
 
+The catalog connects to CNPG as `serviceradar_starrocks_reader`. Core
+migration `20260918120000_create_starrocks_catalog_reader_role` creates that
+role and issues its complete grant set, so there is nothing to grant by hand:
+
+| Object | Granted |
+| --- | --- |
+| schema `platform` | `USAGE` |
+| `platform.prefix_tags_catalog` | `SELECT` |
+| `platform.netflow_local_cidrs_catalog` | `SELECT` |
+| `platform.ocsf_devices` | `SELECT (uid, hostname, ip)` |
+| `platform.device_alias_states` | `SELECT (device_id, alias_type, state, alias_value)` |
+| `platform.netflow_exporter_cache` | `SELECT (device_uid, sampler_address)` |
+
+Nothing else is reachable: `CatalogAllowlist` rejects any other table before
+the SQL leaves core, and the grants above are column-scoped to exactly what the
+compiled subqueries read. Telemetry hypertables and
+`network_credential_secrets` are never granted.
+
+The migration deliberately leaves the role's password unset -- `LOGIN` with a
+NULL password cannot authenticate under scram-sha-256 -- so before enabling the
+catalog, run once against CNPG:
+
+```sql
+ALTER ROLE serviceradar_starrocks_reader PASSWORD '<password>';
+```
+
+and use the same password in the `jdbcUri` inside the catalog secret.
+
 The upstream `operator.yaml` is not restricted-PSS compatible. On carverauto an
 unlabeled namespace enforces `restricted:latest`, so a raw apply creates the
 Deployment and then ReplicaSet `FailedCreate` with no pods:

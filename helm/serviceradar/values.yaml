@@ -622,7 +622,7 @@ core:
     #
     # Set to "" to fall back to the old existence-only check (for operators
     # running the chart against a deliberately pinned schema).
-    expectedVersion: "20260917130000"
+    expectedVersion: "20260918120000"
   # Stale device reaper settings - controls cleanup of IP-only "ghost" devices
   reaper:
     # How often to run the reaper job
@@ -2567,6 +2567,12 @@ analytics:
       name: cnpg_platform
       driverClass: org.postgresql.Driver
       driverUrl: "file:///opt/starrocks/jdbc/postgresql.jar"
+      # Created with its complete grant set by core migration
+      # 20260918120000_create_starrocks_catalog_reader_role. That migration
+      # leaves the password unset on purpose, so before enabling the catalog an
+      # operator must run, once, against the CNPG database:
+      #   ALTER ROLE serviceradar_starrocks_reader PASSWORD '<password>';
+      # and put the same password in the jdbcUri inside catalog.secretName.
       user: serviceradar_starrocks_reader
       # Infrastructure secret with key createSql (CREATE EXTERNAL CATALOG ...).
       # Required only when catalog.enabled is true.
