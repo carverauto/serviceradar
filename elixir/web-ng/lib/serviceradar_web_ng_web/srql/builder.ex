@@ -163,37 +163,28 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
   defp tokenize(""), do: []
 
   defp tokenize(query) when is_binary(query) do
-    {tokens_rev, current, _in_quotes, _escaped, _depth} =
+    {tokens_rev, current, _in_quotes, _escaped} =
       query
       |> String.graphemes()
-      |> Enum.reduce({[], "", nil, false, 0}, fn ch, {tokens_rev, current, in_quotes, escaped, depth} ->
+      |> Enum.reduce({[], "", false, false}, fn ch, {tokens_rev, current, in_quotes, escaped} ->
         cond do
           escaped ->
-            {tokens_rev, current <> ch, in_quotes, false, depth}
+            {tokens_rev, current <> ch, in_quotes, false}
 
           ch == "\\" ->
-            {tokens_rev, current <> ch, in_quotes, true, depth}
+            {tokens_rev, current <> ch, in_quotes, true}
 
-          ch == in_quotes ->
-            {tokens_rev, current <> ch, nil, false, depth}
+          ch == "\"" ->
+            {tokens_rev, current <> ch, not in_quotes, false}
 
-          ch in ["\"", "'"] and is_nil(in_quotes) ->
-            {tokens_rev, current <> ch, ch, false, depth}
-
-          is_nil(in_quotes) and ch in ["[", "("] ->
-            {tokens_rev, current <> ch, in_quotes, false, depth + 1}
-
-          is_nil(in_quotes) and ch in ["]", ")"] ->
-            {tokens_rev, current <> ch, in_quotes, false, max(depth - 1, 0)}
-
-          String.match?(ch, ~r/\s/) and is_nil(in_quotes) and depth == 0 ->
+          String.match?(ch, ~r/\s/) and not in_quotes ->
             {updated_tokens, updated_current, updated_quotes} =
               push_token(tokens_rev, current, in_quotes)
 
-            {updated_tokens, updated_current, updated_quotes, false, depth}
+            {updated_tokens, updated_current, updated_quotes, false}
 
           true ->
-            {tokens_rev, current <> ch, in_quotes, false, depth}
+            {tokens_rev, current <> ch, in_quotes, false}
         end
       end)
 

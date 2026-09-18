@@ -33,8 +33,8 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
   def correlate do
     with {:ok, _current_backfills} <- WorkloadBackfill.backfill_current_workload_identity() do
       case flow_history_backend() do
-        :starrocks -> run_guarded(&correlate_starrocks/0)
-        :cnpg -> run_guarded(&run_correlation_sql/0)
+        :starrocks -> correlate_starrocks()
+        :cnpg -> guarded_correlation_sql()
       end
     end
   end
@@ -68,27 +68,27 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
   end
 
   def correlate_starrocks(opts \\ []) do
-    with {:ok, flows} <- recent_unattributed_flows(opts) do
-      if flows == [] do
-        {:ok, 0}
-      else
-        query =
-          Keyword.get(
-            opts,
-            :repo_query,
-            &ServiceRadar.Repo.query(&1, &2, timeout: @correlation_timeout_ms)
-          )
+    with {:ok, flows} <- recent_unattributed_flows(opts),
+         {:ok, updates} <- warehouse_matches(flows, opts),
+         :ok <- Attribution.publish_updates(updates, opts) do
+      {:ok, length(updates)}
+    end
+  end
 
-        with {:ok, %{columns: columns, rows: rows}} <-
-               query.(warehouse_correlation_sql(), [flows]),
-             updates =
-               rows
-               |> Enum.map(&Map.new(Enum.zip(columns, &1)))
-               |> with_flow_time(flows),
-             :ok <- Attribution.publish_updates(updates, opts) do
-          {:ok, length(updates)}
-        end
-      end
+  defp warehouse_matches([], _opts), do: {:ok, []}
+
+  defp warehouse_matches(flows, opts) do
+    query = Keyword.get(opts, :repo_query, &guarded_warehouse_query/2)
+
+    case query.(warehouse_correlation_sql(), [flows]) do
+      {:ok, %{columns: columns, rows: rows}} ->
+        {:ok,
+         rows
+         |> Enum.map(&Map.new(Enum.zip(columns, &1)))
+         |> with_flow_time(flows)}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -806,27 +806,44 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
   # automatically at transaction end (commit/rollback/disconnect), so a crashed
   # node never strands the lock. If another node already holds it, this pass is a
   # no-op (returns 0) rather than blocking.
-  defp run_correlation_sql do
-    case ServiceRadar.Repo.query(correlation_sql(), [], timeout: @correlation_timeout_ms) do
-      {:ok, %{rows: [[num_rows]]}} -> {:ok, num_rows}
-      {:error, reason} -> {:error, reason}
+  defp guarded_correlation_sql do
+    case with_correlator_lock(fn ->
+           case ServiceRadar.Repo.query(correlation_sql(), [], timeout: @correlation_timeout_ms) do
+             {:ok, %{rows: [[num_rows]]}} -> {:ok, num_rows}
+             {:error, reason} -> {:error, reason}
+           end
+         end) do
+      {:ok, :contended} -> {:ok, 0}
+      other -> other
     end
   end
 
-  defp run_guarded(pass) when is_function(pass, 0) do
+  # The warehouse pass reaches StarRocks and JetStream, so only the CNPG
+  # matching statement runs inside the lock's transaction: everything else
+  # would hold a pooled connection open across another system's network I/O.
+  defp guarded_warehouse_query(sql, params) do
+    case with_correlator_lock(fn ->
+           ServiceRadar.Repo.query(sql, params, timeout: @correlation_timeout_ms)
+         end) do
+      {:ok, :contended} -> {:ok, %{columns: [], rows: []}}
+      other -> other
+    end
+  end
+
+  defp with_correlator_lock(statement) when is_function(statement, 0) do
     ServiceRadar.Repo.transaction(
       fn ->
         case ServiceRadar.Repo.query("SELECT pg_try_advisory_xact_lock($1)", [
                @correlator_lock_key
              ]) do
           {:ok, %{rows: [[true]]}} ->
-            case pass.() do
-              {:ok, count} -> count
+            case statement.() do
+              {:ok, value} -> value
               {:error, reason} -> ServiceRadar.Repo.rollback(reason)
             end
 
           {:ok, %{rows: [[false]]}} ->
-            0
+            :contended
 
           {:error, reason} ->
             ServiceRadar.Repo.rollback(reason)

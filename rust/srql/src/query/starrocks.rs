@@ -174,13 +174,6 @@ enum CatalogJoin {
 }
 
 impl CatalogJoin {
-    fn table(self) -> &'static str {
-        match self {
-            Self::Devices => "ocsf_devices",
-            Self::InputInterface | Self::OutputInterface => "netflow_interface_cache",
-        }
-    }
-
     fn sql(self) -> &'static str {
         match self {
             Self::Devices => {
@@ -260,7 +253,6 @@ fn from_with_catalog_joins(table: &str, joins: &[CatalogJoin]) -> String {
     for join in joins {
         from.push(' ');
         from.push_str(join.sql());
-        let _ = join.table();
     }
     from
 }

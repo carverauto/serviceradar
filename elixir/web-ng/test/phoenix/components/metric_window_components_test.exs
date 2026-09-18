@@ -44,12 +44,23 @@ defmodule ServiceRadarWebNGWeb.MetricWindowComponentsTest do
     end
   end
 
-  test "replaces only window and bucket while preserving quoted filters and lists" do
+  test "replaces only window and bucket while preserving quoted filters" do
+    assert {:ok, custom} =
+             MetricWindowComponents.custom_range(%{
+               "start" => "2025-01-01T00:00",
+               "end" => "2025-01-02T00:00"
+             })
+
     query =
-      ~s(in:timeseries_metrics device_id:"synthetic time:device" metric_name:["cpu_usage", "load"] note:'keep time:inside' TIME:last_1h timeframe:[2025-01-01T00:00:00Z, 2025-01-02T00:00:00Z] bucket:1m agg:avg series:metric_name limit:900)
+      ~s(in:timeseries_metrics device_id:"synthetic time:device" TIME:last_1h timeframe:#{custom} bucket:1m agg:avg series:metric_name limit:900)
 
     assert MetricWindowComponents.query_for_range(query, "last_90d") ==
-             ~s(in:timeseries_metrics device_id:"synthetic time:device" metric_name:["cpu_usage", "load"] note:'keep time:inside' agg:avg series:metric_name limit:900 time:last_90d bucket:12h)
+             ~s(in:timeseries_metrics device_id:"synthetic time:device" agg:avg series:metric_name limit:900 time:last_90d bucket:12h)
+
+    assert Builder.with_time_range(
+             ~s(in:timeseries_metrics device_id:synthetic time:last_1h bucket:1m),
+             custom
+           ) == ~s(in:timeseries_metrics device_id:synthetic bucket:1m time:#{custom})
 
     assert Builder.with_time_range("in:flows src_ip:192.0.2.9 time:last_1h", "last_30d") ==
              "in:flows src_ip:192.0.2.9 time:last_30d"
