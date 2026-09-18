@@ -37,6 +37,9 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].env[?(@.name=="ACCESS_KEY_ID")].valueFrom.secretKeyRef.key
           value: access_key_id
-      - notContains:
+      # notEqual, not notContains: the path resolves to a scalar, and
+      # helm-unittest's notContains errors on a non-array value instead of
+      # asserting anything.
+      - notEqual:
           path: spec.template.spec.containers[0].env[?(@.name=="ACCESS_KEY_ID")].valueFrom.secretKeyRef.name
-          content: cnpg-backup-s3-creds
+          value: cnpg-backup-s3-creds

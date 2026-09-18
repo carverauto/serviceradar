@@ -188,8 +188,13 @@ retarget() {
 
 # Fresh warehouse: the CREATEs, plus the flow-rollup rebuild.
 retarget "$schema"/000[1-5]_*.sql "$schema"/0016_*.sql |
-  mysql -h ... -P 9030 -uroot
+  mysql -h ... -P 9030 -uroot --skip-comments
 ```
+
+`--skip-comments` is not optional. A client from MySQL 8.0.16 or newer keeps
+comments by default and forwards each file's leading `-- ...` header to the
+Frontend as its own statement, which StarRocks rejects with
+`Unexpected input '<EOF>'` before any DDL runs.
 
 `0006`-`0015` are one-shot `ALTER`s for warehouses created before those columns
 existed; apply them individually through `retarget`, and expect a failure if

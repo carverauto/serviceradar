@@ -763,6 +763,10 @@ services:
   # rollup, which 0005 cannot correct on a warehouse that already has it, so it
   # drops and recreates that one view; every other statement is
   # CREATE ... IF NOT EXISTS, so re-running the profile is otherwise a no-op.
+  # `--skip-comments` is required: the client preserves comments by default
+  # since MySQL 8.0.16, so each file's leading `-- ...` header is forwarded to
+  # the Frontend as a statement of its own and StarRocks rejects it with
+  # "Unexpected input '<EOF>'", aborting the loop on the first file.
   starrocks-init:
     image: mysql:8.4
     container_name: serviceradar-starrocks-init
@@ -793,7 +797,7 @@ services:
           sed -e 's/"replication_num" = "3"/"replication_num" = "1"/' \
               -e "s/EXISTS serviceradar;/EXISTS $$STARROCKS_DATABASE;/" \
               -e "s/serviceradar\./$$STARROCKS_DATABASE./g" "$$schema_file" \
-            | mysql -h starrocks -P 9030 -u root --protocol=TCP
+            | mysql -h starrocks -P 9030 -u root --protocol=TCP --skip-comments
         done
         echo 'starrocks schema ready'
     networks:

@@ -112,19 +112,71 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
       %{method: :get, url: url} ->
         assert url =~ "get_load_state?label=#{label}"
 
+        {:ok, %{status: 200, body: load_state_body("VISIBLE")}}
+    end
+
+    assert {:ok, %{loaded: 2, reconciled: true, label: ^label}} =
+             StreamLoad.persist("ocsf_network_activity", @rows, http: http, label: label)
+  end
+
+  test "redelivery of an already-loaded batch reconciles instead of failing the ACK" do
+    label = StreamLoad.load_label("ocsf_network_activity", @rows)
+
+    http = fn
+      %{method: :put} ->
         {:ok,
          %{
            status: 200,
            body:
              Jason.encode!(%{
-               "state" => "FINISHED",
-               "preparedData" => %{"NumberLoadedRows" => 2}
+               "TxnId" => -1,
+               "Label" => label,
+               "Status" => "Label Already Exists",
+               "ExistingJobStatus" => "FINISHED",
+               "Message" => "Label [#{label}] has already been used.",
+               "NumberTotalRows" => 0,
+               "NumberLoadedRows" => 0,
+               "NumberFilteredRows" => 0
              })
          }}
+
+      %{method: :get} ->
+        {:ok, %{status: 200, body: load_state_body("VISIBLE")}}
     end
 
     assert {:ok, %{loaded: 2, reconciled: true, label: ^label}} =
-             StreamLoad.persist("ocsf_network_activity", @rows, http: http, label: label)
+             StreamLoad.persist("ocsf_network_activity", @rows, http: http)
+  end
+
+  test "a committed but not yet visible transaction is a durable load" do
+    http = fn
+      %{method: :put} -> {:error, :timeout}
+      %{method: :get} -> {:ok, %{status: 200, body: load_state_body("COMMITTED")}}
+    end
+
+    assert {:ok, %{loaded: 2, reconciled: true}} =
+             StreamLoad.persist("ocsf_network_activity", @rows, http: http)
+  end
+
+  test "an aborted label is never acknowledged as persisted" do
+    http = fn
+      %{method: :put} ->
+        {:ok,
+         %{
+           status: 200,
+           body:
+             Jason.encode!(%{
+               "Status" => "Label Already Exists",
+               "ExistingJobStatus" => "FINISHED"
+             })
+         }}
+
+      %{method: :get} ->
+        {:ok, %{status: 200, body: load_state_body("ABORTED", "too many filtered rows")}}
+    end
+
+    assert {:error, {:label_aborted, _label}} =
+             StreamLoad.persist("ocsf_network_activity", @rows, http: http)
   end
 
   test "follows FE 307 redirect to the Stream Load coordinator" do
@@ -184,13 +236,26 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
     assert String.starts_with?(label, "sr-")
   end
 
-  test "lost HTTP response after timeout does not ACK until state is finished" do
+  test "lost HTTP response after timeout does not ACK until the transaction commits" do
     http = fn
       %{method: :put} -> {:error, :timeout}
-      %{method: :get} -> {:ok, %{status: 200, body: Jason.encode!(%{"state" => "UNKNOWN"})}}
+      %{method: :get} -> {:ok, %{status: 200, body: load_state_body("UNKNOWN")}}
     end
 
     assert {:error, {:unresolved_label, _label, "ocsf_network_activity"}} =
              StreamLoad.persist("ocsf_network_activity", @rows, http: http)
+  end
+
+  # Shape of a real `/api/<db>/get_load_state` answer, as returned by the
+  # StarRocks release this change targets.
+  defp load_state_body(state, reason \\ "") do
+    Jason.encode!(%{
+      "state" => state,
+      "reason" => reason,
+      "status" => "OK",
+      "code" => "0",
+      "msg" => "Success",
+      "message" => "OK"
+    })
   end
 end

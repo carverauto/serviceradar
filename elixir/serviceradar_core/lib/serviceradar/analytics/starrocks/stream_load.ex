@@ -106,18 +106,17 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
     case http.(request) do
       {:ok, %{body: body}} ->
         case Jason.decode(body) do
-          {:ok, %{"state" => "FINISHED", "preparedData" => data}} ->
-            loaded = int_field(data, "NumberLoadedRows")
+          # `get_load_state` answers with the label's transaction state, and
+          # carries no row counts. COMMITTED is already durable and becomes
+          # VISIBLE on its own; the label is a content hash of this batch, so a
+          # committed transaction under it holds these rows.
+          {:ok, %{"state" => state}} when state in ["COMMITTED", "VISIBLE"] ->
+            {:ok, %{label: label, loaded: expected_count, reconciled: true}}
 
-            if loaded == expected_count do
-              {:ok, %{label: label, loaded: loaded, reconciled: true}}
-            else
-              {:error, {:row_count_mismatch, loaded, expected_count, label}}
-            end
+          {:ok, %{"state" => "ABORTED"}} ->
+            {:error, {:label_aborted, label}}
 
-          {:ok, %{"state" => "CANCELLED"}} ->
-            {:error, {:label_cancelled, label}}
-
+          # PREPARE, PREPARED and UNKNOWN are not persistence: retry later.
           _ ->
             {:error, {:unresolved_label, label, table}}
         end
