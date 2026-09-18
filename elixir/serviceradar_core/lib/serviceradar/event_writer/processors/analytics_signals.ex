@@ -139,8 +139,8 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
 
       _ = insert_rows(@routing_table, routing_rows)
       bulk_ocsf_count = insert_rows(table_name(), bulk_ocsf_rows)
-      recorded_ocsf_events = record_ocsf_events(ash_ocsf_rows)
-      _ = Destination.persist_after_cnpg(:events, bulk_ocsf_rows ++ recorded_ocsf_events)
+      {persisted_ocsf_rows, recorded_ocsf_events} = record_ocsf_events(ash_ocsf_rows)
+      _ = Destination.persist_after_cnpg(:events, bulk_ocsf_rows ++ persisted_ocsf_rows)
 
       dispatch_northbound_inventory_transitions(recorded_ocsf_events)
       enqueue_alert_evaluation(bulk_ocsf_rows, bulk_ocsf_count)
@@ -230,7 +230,11 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     count
   end
 
-  defp record_ocsf_events([]), do: []
+  # Returns `{persisted_rows, transition_rows}`. The warehouse copy has to mirror
+  # everything CNPG actually holds, while downstream notification only wants the
+  # rows whose state changed -- an upsert that replaces a row's fields without
+  # changing its status is in the first set and not the second.
+  defp record_ocsf_events([]), do: {[], []}
 
   defp record_ocsf_events(rows) when is_list(rows) do
     {valid_rows, invalid_rows} = Enum.split_with(rows, &recordable_ocsf_row?/1)
@@ -247,17 +251,18 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
 
     {causal_rows, insert_only_rows} = Enum.split_with(other_rows, &causal_prediction_row?/1)
 
-    insert_only_rows = record_insert_only_ocsf_events(insert_only_rows)
+    {persisted_insert_only, insert_only_rows} = record_insert_only_ocsf_events(insert_only_rows)
 
-    inventory_vulnerability_rows =
+    {persisted_inventory_vulnerability, inventory_vulnerability_rows} =
       record_inventory_vulnerability_ocsf_events(inventory_vulnerability_rows)
 
-    causal_rows = record_causal_prediction_ocsf_events(causal_rows)
+    {persisted_causal, causal_rows} = record_causal_prediction_ocsf_events(causal_rows)
 
-    insert_only_rows ++ inventory_vulnerability_rows ++ causal_rows
+    {persisted_insert_only ++ persisted_inventory_vulnerability ++ persisted_causal,
+     insert_only_rows ++ inventory_vulnerability_rows ++ causal_rows}
   end
 
-  defp record_insert_only_ocsf_events([]), do: []
+  defp record_insert_only_ocsf_events([]), do: {[], []}
 
   defp record_insert_only_ocsf_events(rows) when is_list(rows) do
     # Raw insert is intentional: build_ocsf_event_row/4 creates DB-complete rows,
@@ -272,12 +277,15 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
 
     inserted_keys = MapSet.new(Enum.map(inserted_rows, &ocsf_event_conflict_key/1))
 
-    rows
-    |> Enum.filter(&MapSet.member?(inserted_keys, ocsf_event_conflict_key(&1)))
-    |> dedupe_rows_by_conflict_key(&ocsf_event_conflict_key/1)
+    persisted =
+      rows
+      |> Enum.filter(&MapSet.member?(inserted_keys, ocsf_event_conflict_key(&1)))
+      |> dedupe_rows_by_conflict_key(&ocsf_event_conflict_key/1)
+
+    {persisted, persisted}
   end
 
-  defp record_inventory_vulnerability_ocsf_events([]), do: []
+  defp record_inventory_vulnerability_ocsf_events([]), do: {[], []}
 
   defp record_inventory_vulnerability_ocsf_events(rows) when is_list(rows) do
     rows = dedupe_rows_by_conflict_key(rows, &ocsf_event_id_key/1)
@@ -285,13 +293,13 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     # Transition detection reads the prior row before replacing it. Serialize that
     # read/write pair by stable event identity so concurrent redeliveries cannot
     # both observe the same prior state and publish the same transition.
-    {:ok, transition_rows} =
+    {:ok, recorded} =
       ServiceRadar.Repo.transaction(fn ->
         acquire_inventory_vulnerability_lifecycle_locks(rows)
         record_inventory_vulnerability_ocsf_events_locked(rows)
       end)
 
-    transition_rows
+    recorded
   end
 
   defp record_inventory_vulnerability_ocsf_events_locked(rows) do
@@ -316,12 +324,15 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
 
     upserted_keys = MapSet.new(Enum.map(upserted_rows, &ocsf_event_conflict_key/1))
 
-    aligned_rows
-    |> Enum.filter(fn row ->
-      key = ocsf_event_conflict_key(row)
-      MapSet.member?(transition_keys, key) and MapSet.member?(upserted_keys, key)
-    end)
-    |> dedupe_rows_by_conflict_key(&ocsf_event_conflict_key/1)
+    persisted =
+      aligned_rows
+      |> Enum.filter(&MapSet.member?(upserted_keys, ocsf_event_conflict_key(&1)))
+      |> dedupe_rows_by_conflict_key(&ocsf_event_conflict_key/1)
+
+    transitions =
+      Enum.filter(persisted, &MapSet.member?(transition_keys, ocsf_event_conflict_key(&1)))
+
+    {persisted, transitions}
   end
 
   defp acquire_inventory_vulnerability_lifecycle_locks(rows) do
@@ -444,7 +455,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
 
   defp normalize_existing_time(time), do: time
 
-  defp record_causal_prediction_ocsf_events([]), do: []
+  defp record_causal_prediction_ocsf_events([]), do: {[], []}
 
   defp record_causal_prediction_ocsf_events(rows) when is_list(rows) do
     {rows, existing_id_keys} = align_existing_ocsf_event_times_with_existing_ids(rows)
@@ -460,12 +471,15 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
 
     upserted_keys = MapSet.new(Enum.map(upserted_rows, &ocsf_event_conflict_key/1))
 
-    rows
-    |> Enum.filter(fn row ->
-      MapSet.member?(upserted_keys, ocsf_event_conflict_key(row)) and
-        not MapSet.member?(existing_id_keys, ocsf_event_id_key(row))
-    end)
-    |> dedupe_rows_by_conflict_key(&ocsf_event_conflict_key/1)
+    persisted =
+      rows
+      |> Enum.filter(&MapSet.member?(upserted_keys, ocsf_event_conflict_key(&1)))
+      |> dedupe_rows_by_conflict_key(&ocsf_event_conflict_key/1)
+
+    transitions =
+      Enum.reject(persisted, &MapSet.member?(existing_id_keys, ocsf_event_id_key(&1)))
+
+    {persisted, transitions}
   end
 
   @doc false

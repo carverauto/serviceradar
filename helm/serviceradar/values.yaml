@@ -2562,13 +2562,6 @@ analytics:
     # JDBC catalog onto CNPG current-state tables for attribution/enrichment
     # joins. Default chart stays off; values-demo.yaml enables it with an
     # infra secret. Cutover stays empty.
-    # Credentials the application uses for Stream Load and the MyXQL reader.
-    # Leave feUser empty to connect as root; set fePasswordSecret when the
-    # Frontend has a password, or every load and read fails authentication
-    # while the provisioning Jobs still succeed.
-    feUser: ""
-    fePasswordSecret: ""
-    fePasswordSecretKey: password
     catalog:
       enabled: false
       name: cnpg_platform
@@ -2593,6 +2586,12 @@ analytics:
       jdbcUri: "jdbc:postgresql://cnpg-rw:5432/serviceradar?ssl=true&sslmode=require"
       # Namespace that hosts the StarRocksCluster FE/BE (lab: starrocks).
       sourceNamespace: starrocks
+      # Secret holding the StarRocks Frontend password. Both provisioning Jobs
+      # and the application (Stream Load + the MyXQL reader) authenticate as
+      # that same `root` account, so this is the single source of truth for it.
+      # Leave empty for a passwordless Frontend.
+      fePasswordSecretName: ""
+      fePasswordSecretKey: password
 
 spiffe:
   mode: "filesystem"

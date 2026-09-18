@@ -1,0 +1,113 @@
+{{- /* Converges the CNPG JDBC catalog reader role.
+
+     Migration 20260918120000 owns the same role and grant set, but it runs as
+     the CNPG application user, which holds neither SUPERUSER nor CREATEROLE on
+     a default cluster -- so there it creates nothing and, because every grant
+     is role-existence guarded, issues nothing either. That is deliberate: a
+     migration that attempts role DDL without the privilege aborts the whole
+     run. It does mean the migration alone never converges on the workflow the
+     chart documents (install with the catalog off, enable it later): by the
+     time CNPG's managed.roles creates the role, the migration is already
+     recorded in schema_migrations and never replays.
+
+     This Job closes that gap. It runs on every install/upgrade where the
+     catalog is enabled, connects as the CNPG superuser, and is idempotent, so
+     enabling the catalog after install converges on the next helm upgrade.
+     Login and password stay owned by managed.roles; this Job never sets them. */ -}}
+{{- $sr := default (dict) (default (dict) .Values.analytics).starrocks -}}
+{{- $cat := default (dict) $sr.catalog -}}
+{{- if and $sr.enabled $cat.enabled }}
+{{- $cnpg := default (dict) .Values.cnpg -}}
+{{- $reader := default "serviceradar_starrocks_reader" $cat.user -}}
+{{- $superSecretName := default "cnpg-superuser" $cnpg.superuserSecret -}}
+{{- $database := default "serviceradar" $cnpg.database -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-starrocks-catalog-reader
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: serviceradar
+    app.kubernetes.io/component: starrocks-catalog-reader
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    # After core migrations (which create the catalog views this grants on) and
+    # before the catalog Job, which is the first thing to read as this role.
+    "helm.sh/hook-weight": "15"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: serviceradar
+        app.kubernetes.io/component: starrocks-catalog-reader
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      containers:
+        - name: grant-reader
+          image: {{ printf "%s/postgres:16-alpine" (default "docker.io/library" $cnpg.utilityImageRegistry) | quote }}
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              exec psql -v ON_ERROR_STOP=1 -d "$DATABASE_URL" -f /sql/reader.sql
+          env:
+            - name: PGHOST
+              value: {{ include "serviceradar.cnpgDirectHost" . | quote }}
+            - name: DATABASE_URL
+              value: "postgresql://$(PGUSER):$(PGPASSWORD)@$(PGHOST):5432/{{ $database }}"
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $superSecretName | quote }}
+                  key: username
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $superSecretName | quote }}
+                  key: password
+          volumeMounts:
+            - name: sql
+              mountPath: /sql
+              readOnly: true
+      volumes:
+        - name: sql
+          configMap:
+            name: {{ include "serviceradar.fullname" . }}-starrocks-catalog-reader
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-starrocks-catalog-reader
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: serviceradar
+    app.kubernetes.io/component: starrocks-catalog-reader
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "14"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+data:
+  reader.sql: |
+    DO $$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{{ $reader }}') THEN
+        CREATE ROLE {{ $reader }} NOLOGIN;
+      END IF;
+    END $$;
+
+    GRANT CONNECT ON DATABASE {{ $database }} TO {{ $reader }};
+    GRANT USAGE ON SCHEMA platform TO {{ $reader }};
+
+    GRANT SELECT ON platform.prefix_tags_catalog TO {{ $reader }};
+    GRANT SELECT ON platform.netflow_local_cidrs_catalog TO {{ $reader }};
+    GRANT SELECT (uid, hostname, ip) ON platform.ocsf_devices TO {{ $reader }};
+    GRANT SELECT (device_id, alias_type, state, alias_value)
+      ON platform.device_alias_states TO {{ $reader }};
+    GRANT SELECT (device_uid, sampler_address)
+      ON platform.netflow_exporter_cache TO {{ $reader }};
+{{- end }}

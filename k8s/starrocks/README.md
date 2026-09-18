@@ -32,9 +32,8 @@ Demo CNPG now has an additive NetworkPolicy allowing namespace
 off; `values-demo.yaml` enables it with empty cutover. Do not let the
 Frontend download Maven at catalog-create time.
 
-The catalog connects to CNPG as `serviceradar_starrocks_reader`. Core
-migration `20260918120000_create_starrocks_catalog_reader_role` owns that
-role's complete grant set, so there is nothing to grant by hand:
+The catalog connects to CNPG as `serviceradar_starrocks_reader`. Two things
+converge that role, so there is nothing to grant by hand:
 
 | Object | Granted |
 | --- | --- |
@@ -50,30 +49,40 @@ the SQL leaves core, and the grants above are column-scoped to exactly what the
 compiled subqueries read. Telemetry hypertables and
 `network_credential_secrets` are never granted.
 
-The role is created `NOLOGIN`, and the migration creates it only where the
-migrating connection actually holds `CREATEROLE`. On a default CNPG cluster the
-application user is the database owner and holds neither `SUPERUSER` nor
-`CREATEROLE`, so the create is skipped with a `NOTICE` rather than aborting the
-migration run -- see `20260716220000_create_cold_tier_export_role` for the same
-hazard and the same guard.
+Core migration `20260918120000_create_starrocks_catalog_reader_role` creates the
+role and issues the grants, but only where the migrating connection holds
+`SUPERUSER` or `CREATEROLE`. On a default CNPG cluster the application user is
+the database owner and holds neither, so there it skips the create with a
+`NOTICE` and, because every grant is role-existence guarded, issues nothing --
+deliberately, since role DDL without the privilege aborts the whole migration
+run (see `20260716220000_create_cold_tier_export_role` for the same hazard and
+guard).
 
-The owner that *is* entitled is CNPG `managed.roles`: setting
-`analytics.starrocks.catalog.enabled` renders the role into the cluster
-manifest with `login: true` and the password from
+That alone would never converge on the documented workflow: install with the
+catalog off, enable it later. By the time CNPG creates the role the migration is
+already recorded in `schema_migrations` and does not replay. So setting
+`analytics.starrocks.catalog.enabled` also renders
+`serviceradar-starrocks-catalog-reader`, a post-install/post-upgrade Job that
+connects as the CNPG superuser and idempotently applies the same create and
+grants. Enabling the catalog after install therefore converges on the next
+`helm upgrade`, and no operator has to issue a GRANT by hand.
+
+Login and password stay with CNPG `managed.roles`: enabling the catalog renders
+the role into the cluster manifest with `login: true` and the password from
 `analytics.starrocks.catalog.readerPasswordSecret`, reconciled continuously so
-it survives migration ordering and failover. Use that same password in the
-`jdbcUri` baked into the catalog secret. Re-run migrations afterwards so the
-grants attach.
+it survives failover. Use that same password in the `jdbcUri` baked into the
+catalog secret. Neither the migration nor the Job ever sets login or password.
 
 `NOLOGIN` rather than a `LOGIN` role with no password is deliberate: an empty
 password is an absence of a credential, not of capability, and a `trust`/`peer`
 line or a later `ALTER ROLE` reaches straight through it. Compose and developer
 databases are not covered by the chart's `pg_hba`.
 
-The Frontend's own credentials are separate: set `analytics.starrocks.feUser`
-and `analytics.starrocks.fePasswordSecret` when the FE is password-protected, or
-EventWriter Stream Load and the MyXQL reader connect as `root` with an empty
-password and fail authentication while the provisioning Jobs still succeed.
+The Frontend's own credential is separate and has one setting:
+`analytics.starrocks.catalog.fePasswordSecretName`. Both provisioning Jobs and
+the application (EventWriter Stream Load and the MyXQL reader) authenticate as
+that same `root` account, so setting it once covers all three. Leave it empty
+only for a passwordless Frontend.
 
 The upstream `operator.yaml` is not restricted-PSS compatible. On carverauto an
 unlabeled namespace enforces `restricted:latest`, so a raw apply creates the

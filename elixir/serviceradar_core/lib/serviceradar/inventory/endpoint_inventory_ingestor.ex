@@ -7,6 +7,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
   import Ecto.Query
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Analytics.StarRocks.Destination
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.EndpointInventoryArtifactPersistence
@@ -770,6 +771,8 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
       conflict_target: [:time, :id],
       returning: false
     )
+
+    _ = Destination.persist_after_cnpg(:events, [row])
 
     :ok
   end
