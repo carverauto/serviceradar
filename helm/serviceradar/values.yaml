@@ -2562,18 +2562,28 @@ analytics:
     # JDBC catalog onto CNPG current-state tables for attribution/enrichment
     # joins. Default chart stays off; values-demo.yaml enables it with an
     # infra secret. Cutover stays empty.
+    # Credentials the application uses for Stream Load and the MyXQL reader.
+    # Leave feUser empty to connect as root; set fePasswordSecret when the
+    # Frontend has a password, or every load and read fails authentication
+    # while the provisioning Jobs still succeed.
+    feUser: ""
+    fePasswordSecret: ""
+    fePasswordSecretKey: password
     catalog:
       enabled: false
       name: cnpg_platform
       driverClass: org.postgresql.Driver
       driverUrl: "file:///opt/starrocks/jdbc/postgresql.jar"
-      # Created with its complete grant set by core migration
-      # 20260918120000_create_starrocks_catalog_reader_role. That migration
-      # leaves the password unset on purpose, so before enabling the catalog an
-      # operator must run, once, against the CNPG database:
-      #   ALTER ROLE serviceradar_starrocks_reader PASSWORD '<password>';
-      # and put the same password in the jdbcUri inside catalog.secretName.
+      # Core migration 20260918120000 creates this role NOLOGIN with its
+      # complete grant set. CNPG owns login + password from readerPasswordSecret
+      # below, rendered into the cluster's managed.roles only while the catalog
+      # is enabled, so on a deployment that never turns it on the role cannot
+      # connect at all.
       user: serviceradar_starrocks_reader
+      # Secret with a `password` key for the reader role above. CNPG reconciles
+      # login + password from it. Required when catalog.enabled is true; use the
+      # same password in the jdbcUri baked into secretName.
+      readerPasswordSecret: ""
       # Infrastructure secret with key createSql (CREATE EXTERNAL CATALOG ...).
       # Required only when catalog.enabled is true.
       secretName: ""

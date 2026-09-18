@@ -325,6 +325,17 @@ serviceradar.io/runtime-tls-revision: {{ default "initial" (default (dict) .Valu
   value: {{ $sr.fe.service | quote }}
 - name: SERVICERADAR_STARROCKS_FE_QUERY_PORT
   value: {{ $sr.fe.queryPort | quote }}
+{{- if $sr.feUser }}
+- name: SERVICERADAR_STARROCKS_USER
+  value: {{ $sr.feUser | quote }}
+{{- end }}
+{{- if $sr.fePasswordSecret }}
+- name: SERVICERADAR_STARROCKS_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ $sr.fePasswordSecret | quote }}
+      key: {{ $sr.fePasswordSecretKey | default "password" | quote }}
+{{- end }}
 {{- end }}
 {{- end -}}
 

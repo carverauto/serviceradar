@@ -19,15 +19,6 @@ defmodule ServiceRadar.Repo.Migrations.CreatePrefixTagsCatalogView do
       partition
     FROM platform.prefix_tags
     """)
-
-    execute("""
-    DO $$
-    BEGIN
-      IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'serviceradar_starrocks_reader') THEN
-        GRANT SELECT ON platform.prefix_tags_catalog TO serviceradar_starrocks_reader;
-      END IF;
-    END$$
-    """)
   end
 
   def down do

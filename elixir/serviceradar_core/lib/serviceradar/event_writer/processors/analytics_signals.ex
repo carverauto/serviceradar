@@ -14,6 +14,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
 
   @behaviour ServiceRadar.EventWriter.Processor
 
+  alias ServiceRadar.Analytics.StarRocks.Destination
   alias ServiceRadar.Automation.Northbound.EventHandlerRunner
   alias ServiceRadar.EventWriter.BulkInsert
   alias ServiceRadar.EventWriter.DeviceCorrelation
@@ -139,6 +140,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
       _ = insert_rows(@routing_table, routing_rows)
       bulk_ocsf_count = insert_rows(table_name(), bulk_ocsf_rows)
       recorded_ocsf_events = record_ocsf_events(ash_ocsf_rows)
+      _ = Destination.persist_after_cnpg(:events, bulk_ocsf_rows ++ recorded_ocsf_events)
 
       dispatch_northbound_inventory_transitions(recorded_ocsf_events)
       enqueue_alert_evaluation(bulk_ocsf_rows, bulk_ocsf_count)

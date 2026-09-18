@@ -11,15 +11,6 @@ defmodule ServiceRadar.Repo.Migrations.AddWarehouseMatchingSupport do
            substring(encode(inet_send(broadcast(cidr)), 'hex') from 9) AS last_ip_hex
     FROM platform.netflow_local_cidrs
     """)
-
-    execute("""
-    DO $$
-    BEGIN
-      IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'serviceradar_starrocks_reader') THEN
-        GRANT SELECT ON platform.netflow_local_cidrs_catalog TO serviceradar_starrocks_reader;
-      END IF;
-    END$$
-    """)
   end
 
   def down do

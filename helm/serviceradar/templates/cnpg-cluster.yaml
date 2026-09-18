@@ -2,6 +2,8 @@
 {{- $coldTier := default (dict) .Values.coldTier -}}
 {{- $coldExportRole := default (dict) $coldTier.exportRole -}}
 {{- $coldExportRoleName := default "cold_reader" $coldExportRole.name -}}
+{{- $starrocksCatalog := default (dict) (default (dict) (default (dict) .Values.analytics).starrocks).catalog -}}
+{{- $starrocksReaderName := default "serviceradar_starrocks_reader" $starrocksCatalog.user -}}
 {{- $spire := default (dict) .Values.spire -}}
 {{- $spirePg := default (dict) $spire.postgres -}}
 {{- $spiffeCnpgManaged := and (default false $spire.enabled) (default false $spirePg.enabled) -}}
@@ -305,6 +307,20 @@ spec:
         connectionLimit: {{ default 10 $coldExportRole.connectionLimit }}
         passwordSecret:
           name: {{ required "coldTier.exportRole.passwordSecret is required when coldTier.exportRole.enabled is true" $coldExportRole.passwordSecret | quote }}
+      {{- end }}
+      {{- if $starrocksCatalog.enabled }}
+      {{- /* StarRocks JDBC catalog reader. The Frontend reads CNPG
+             current-state as this role and nothing else does, so it exists as
+             a connectable identity ONLY while the catalog is switched on.
+             Migration 20260918120000 creates it NOLOGIN with its SELECT-only
+             grants; CNPG owns login + password from here, reconciled
+             continuously so it survives migration ordering and failover.
+             Leaving this block out (the default) leaves the role NOLOGIN. */}}
+      - name: {{ $starrocksReaderName | quote }}
+        ensure: present
+        login: true
+        passwordSecret:
+          name: {{ required "analytics.starrocks.catalog.readerPasswordSecret is required when analytics.starrocks.catalog.enabled is true" $starrocksCatalog.readerPasswordSecret | quote }}
       {{- end }}
   monitoring:
     enablePodMonitor: true

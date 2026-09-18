@@ -32,6 +32,7 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
     unique: [period: :infinity, states: :incomplete]
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Analytics.StarRocks.Destination
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Inventory.InterfaceSettings
   alias ServiceRadar.Jobs.SelfScheduling
@@ -502,7 +503,12 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
         returning: false
       )
 
-    if count == 0, do: {:ok, :skipped}, else: {:ok, event}
+    if count == 0 do
+      {:ok, :skipped}
+    else
+      _ = Destination.persist_after_cnpg(:events, [event])
+      {:ok, event}
+    end
   rescue
     error -> {:error, error}
   end
