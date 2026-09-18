@@ -71,6 +71,10 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumersTest do
       cond do
         sql =~ "SUM(total_count)" ->
           assert sql =~ "serviceradar.events_hourly"
+          # The rollup row labelled 23:00 covers 23:00-00:00 and does not
+          # overlap a window that starts at 00:00, so the bound is strict.
+          assert sql =~ "`bucket` > '1999-06-14T23:00:00Z'"
+          assert sql =~ "`bucket` < '1999-06-16T00:00:00Z'"
           {:ok, %{rows: [["1999-06-15 12:00:00", 6, 11]]}}
 
         sql =~ "class_uid = 4003" ->
@@ -112,6 +116,7 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumersTest do
                query: fn sql ->
                  refute sql =~ "events_hourly"
                  assert sql =~ "COUNT(*)"
+                 assert sql =~ "`time` >= '1999-06-15T00:00:00Z'"
                  {:ok, %{rows: [["1999-06-15 00:30:00", 6, 11]]}}
                end
              )

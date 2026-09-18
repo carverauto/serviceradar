@@ -168,17 +168,36 @@ kubectl --context "$ctx" -n starrocks get svc lab-fe-service
 # in-cluster: mysql -h lab-fe-service.starrocks.svc -P 9030 -uroot
 ```
 
-`elixir/serviceradar_core/priv/starrocks/0001-0005` pin the database name to
-`serviceradar`. Helm `analytics.starrocks.database` retargets every reader and
-Stream Load, so when it is not the default, rewrite the DDL the same way the
-Compose `starrocks-init` service does before applying it:
+Every file under `elixir/serviceradar_core/priv/starrocks/` qualifies its
+statements with the database name `serviceradar`. Helm
+`analytics.starrocks.database` retargets every reader and Stream Load, so when
+it is not the default, rewrite the DDL the same way the Compose
+`starrocks-init` service does before applying it -- `retarget` below is the
+same pair of substitutions that service runs, and applies to ANY of these
+files, not just the ones in the fresh-warehouse apply:
 
 ```bash
+ns=demo   # the release namespace
 db=$(helm get values serviceradar -n "$ns" -o json |
   jq -r '.analytics.starrocks.database // "serviceradar"')
-sed -e "s/EXISTS serviceradar;/EXISTS $db;/" -e "s/serviceradar\./$db./g" \
-  elixir/serviceradar_core/priv/starrocks/000[1-5]_*.sql | mysql -h ... -P 9030 -uroot
+schema=elixir/serviceradar_core/priv/starrocks
+
+retarget() {
+  sed -e "s/EXISTS serviceradar;/EXISTS $db;/" -e "s/serviceradar\./$db./g" "$@"
+}
+
+# Fresh warehouse: the CREATEs, plus the flow-rollup rebuild.
+retarget "$schema"/000[1-5]_*.sql "$schema"/0016_*.sql |
+  mysql -h ... -P 9030 -uroot
 ```
+
+`0006`-`0015` are one-shot `ALTER`s for warehouses created before those columns
+existed; apply them individually through `retarget`, and expect a failure if
+the column is already there. `0016` is different: it DROPs and recreates
+`ocsf_network_activity_hourly`, so it is safe to re-run and is REQUIRED on any
+warehouse whose rollup predates sampling-weighted totals -- the SRQL compiler
+now reads that view for whole-hour flow charts, and the old column set has no
+`bytes_total` at all.
 
 The chart has no schema-apply Job, so nothing creates these tables for you.
 Core's MyXQL pool opens `analytics.starrocks.database` directly, and Stream

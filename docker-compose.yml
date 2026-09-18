@@ -758,9 +758,11 @@ services:
   # shipped DDL pins for a real cluster, so the copies are rewritten to 1 on the
   # way in. The DDL also pins the database name, which STARROCKS_DATABASE
   # overrides for every reader and Stream Load, so it is retargeted the same
-  # way. Only 0001-0005 are applied: 0006-0013 add columns already declared
-  # in 0001-0004, and 0014 is documentation. Every statement is
-  # CREATE ... IF NOT EXISTS, so re-running the profile is a no-op.
+  # way. Only 0001-0005 and 0016 are applied: 0006-0015 add columns already
+  # declared in 0001-0005, and 0014 is documentation. 0016 rebuilds the flow
+  # rollup, which 0005 cannot correct on a warehouse that already has it, so it
+  # drops and recreates that one view; every other statement is
+  # CREATE ... IF NOT EXISTS, so re-running the profile is otherwise a no-op.
   starrocks-init:
     image: mysql:8.4
     container_name: serviceradar-starrocks-init
@@ -786,7 +788,7 @@ services:
           echo 'waiting for a live StarRocks backend'
           sleep 5
         done
-        for schema_file in /schema/0001_*.sql /schema/0002_*.sql /schema/0003_*.sql /schema/0004_*.sql /schema/0005_*.sql; do
+        for schema_file in /schema/0001_*.sql /schema/0002_*.sql /schema/0003_*.sql /schema/0004_*.sql /schema/0005_*.sql /schema/0016_*.sql; do
           echo "applying $$(basename "$$schema_file")"
           sed -e 's/"replication_num" = "3"/"replication_num" = "1"/' \
               -e "s/EXISTS serviceradar;/EXISTS $$STARROCKS_DATABASE;/" \

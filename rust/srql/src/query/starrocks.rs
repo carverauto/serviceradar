@@ -36,6 +36,8 @@ struct HourlyRollup {
     dimensions: &'static [&'static str],
 }
 
+const HOURLY_ROLLUP_GRAIN_SECONDS: i64 = 3600;
+
 const FLOW_HOURLY: HourlyRollup = HourlyRollup {
     table: "ocsf_network_activity_hourly",
     dimensions: &[],
@@ -214,7 +216,12 @@ fn dataset_sql(plan: &QueryPlan, dataset: Dataset, database: &str) -> Result<Tra
     } else {
         from_with_catalog_joins(&qualified, &joins)
     };
-    let (mut where_sql, params) = time_predicate(plan, time_column, direction || !joins.is_empty());
+    let (mut where_sql, params) = time_predicate(
+        plan,
+        time_column,
+        direction || !joins.is_empty(),
+        rollup.map(|_| HOURLY_ROLLUP_GRAIN_SECONDS),
+    );
     if let Some(scope) = dataset.scope {
         where_sql.push_str(&format!(" AND ({scope})"));
     }
@@ -418,10 +425,14 @@ fn ipv4_prefix_sql(column: &str, prefix: &str) -> String {
 /// The rollup a bucketed query may read instead of the raw table.
 ///
 /// Only the downsample path qualifies: a bucket is already a coarsening, so an
-/// hour-grained source changes nothing a caller can observe, while a scalar
-/// `stats` total would silently gain or lose the partial hours at the window
-/// edges. Every other condition here exists so the rollup answers with the same
-/// number the raw table would.
+/// hour-grained source is a difference of degree, while a scalar `stats` total
+/// has no bucket to absorb it. The remaining conditions keep every stored
+/// aggregate exactly re-aggregatable into the requested bucket.
+///
+/// The window bounds are not hour-aligned, so `time_predicate` admits every
+/// hour that OVERLAPS the window and the two edge buckets therefore carry the
+/// whole hour they fall in, including traffic just outside the request. That is
+/// the rollup's grain; the edges are never backfilled from another store.
 fn hourly_rollup(plan: &QueryPlan, dataset: Dataset) -> Option<HourlyRollup> {
     let rollup = dataset.hourly?;
     let downsample = plan.downsample.as_ref()?;
@@ -445,8 +456,8 @@ fn hourly_rollup(plan: &QueryPlan, dataset: Dataset) -> Option<HourlyRollup> {
 }
 
 /// Re-aggregates a stored hourly aggregate into the requested bucket. `None`
-/// means the rollup cannot reproduce the raw answer, so the caller stays on the
-/// raw table.
+/// means the stored aggregate cannot reproduce the requested one, so the caller
+/// stays on the raw table.
 fn rollup_agg(rollup: HourlyRollup, downsample: &crate::parser::DownsampleSpec) -> Option<String> {
     use crate::parser::DownsampleAgg::{Avg, Count, Max, Min, Rate, RateSum, Sum};
 
@@ -902,41 +913,40 @@ fn order_sql(plan: &QueryPlan, time_column: &str) -> Result<String> {
     Ok(format!(" ORDER BY {}", terms.join(", ")))
 }
 
+/// `rollup_grain` is the width of one pre-aggregated row. A row labelled
+/// `bucket` covers `[bucket, bucket + grain)`, so it belongs in the answer when
+/// that span overlaps the window: `bucket < end AND bucket + grain > start`,
+/// which is `bucket > start - grain` in a form StarRocks can still prune on.
 fn time_predicate(
     plan: &QueryPlan,
     time_column: &str,
     qualify_flow: bool,
+    rollup_grain: Option<i64>,
 ) -> (String, Vec<BindParam>) {
     let column = if qualify_flow {
         format!("f.`{time_column}`")
     } else {
         format!("`{time_column}`")
     };
-    match &plan.time_range {
-        Some(range) => (
-            format!(
-                " WHERE {column} >= '{}' AND {column} < '{}'",
-                range.start.to_rfc3339_opts(SecondsFormat::Secs, true),
-                range.end.to_rfc3339_opts(SecondsFormat::Secs, true)
-            ),
-            vec![
-                BindParam::timestamptz(range.start),
-                BindParam::timestamptz(range.end),
-            ],
-        ),
+    let (start, end) = match &plan.time_range {
+        Some(range) => (range.start, range.end),
         None => {
             let end = Utc::now();
-            let start = end - chrono::Duration::hours(1);
-            (
-                format!(
-                    " WHERE {column} >= '{}' AND {column} < '{}'",
-                    start.to_rfc3339_opts(SecondsFormat::Secs, true),
-                    end.to_rfc3339_opts(SecondsFormat::Secs, true)
-                ),
-                vec![BindParam::timestamptz(start), BindParam::timestamptz(end)],
-            )
+            (end - chrono::Duration::hours(1), end)
         }
-    }
+    };
+    let (lower_op, lower) = match rollup_grain {
+        Some(grain) => (">", start - chrono::Duration::seconds(grain)),
+        None => (">=", start),
+    };
+    (
+        format!(
+            " WHERE {column} {lower_op} '{}' AND {column} < '{}'",
+            lower.to_rfc3339_opts(SecondsFormat::Secs, true),
+            end.to_rfc3339_opts(SecondsFormat::Secs, true)
+        ),
+        vec![BindParam::timestamptz(lower), BindParam::timestamptz(end)],
+    )
 }
 
 #[cfg(test)]
@@ -1230,8 +1240,48 @@ mod tests {
                 .contains("time_slice(bucket, INTERVAL 3600 SECOND)")
         );
         assert!(chart.sql.contains("SUM(bytes_total) AS value"));
-        assert!(chart.sql.contains("`bucket` >="), "{}", chart.sql);
         refute_postgres(&chart.sql);
+    }
+
+    #[test]
+    fn rollup_windows_keep_every_hour_that_overlaps_them() {
+        // 15:37 falls inside the 15:00 rollup row, which covers 15:00-16:00 and
+        // therefore overlaps the window; a `bucket >= 15:37` predicate would
+        // drop it whole and the first chart point would lose 23 minutes.
+        let rollup = translate(
+            &plan(
+                "in:flows time:[2026-09-11T15:37:12Z,2026-09-11T18:30:00Z] bucket:1h agg:sum value_field:bytes_total",
+            ),
+            "serviceradar",
+        )
+        .expect("overlap window");
+        assert!(rollup.sql.contains("ocsf_network_activity_hourly"));
+        assert!(
+            rollup.sql.contains("`bucket` > '2026-09-11T14:37:12Z'"),
+            "{}",
+            rollup.sql
+        );
+        assert!(
+            rollup.sql.contains("`bucket` < '2026-09-11T18:30:00Z'"),
+            "{}",
+            rollup.sql
+        );
+
+        // The raw table stores one row per observation, so its window is the
+        // window: no grain to overlap, and the bound stays inclusive.
+        let raw = translate(
+            &plan(
+                "in:flows time:[2026-09-11T15:37:12Z,2026-09-11T18:30:00Z] bucket:15m agg:sum value_field:bytes_total",
+            ),
+            "serviceradar",
+        )
+        .expect("raw window");
+        assert!(!raw.sql.contains("_hourly"), "{}", raw.sql);
+        assert!(
+            raw.sql.contains("`time` >= '2026-09-11T15:37:12Z'"),
+            "{}",
+            raw.sql
+        );
     }
 
     #[test]

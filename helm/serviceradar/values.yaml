@@ -2521,9 +2521,10 @@ analytics:
     operatorChartVersion: "1.11.7"
     imageTag: "3.5.21"
     # The warehouse database core and web read, load and retain through. The
-    # chart does not create the schema: priv/starrocks/0001-0005 pin the name
-    # `serviceradar`, so changing this requires rewriting the DDL to match
-    # before applying it; k8s/starrocks/README.md carries the exact command.
+    # chart does not create the schema: every file under priv/starrocks pins
+    # the name `serviceradar`, so changing this requires rewriting the DDL to
+    # match before applying it; k8s/starrocks/README.md carries the exact
+    # command and the list of files a fresh warehouse needs.
     database: serviceradar
     # Telemetry retention in days, per dataset. The warehouse tables are
     # partitioned by day, so each value is the number of daily partitions
