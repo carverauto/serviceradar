@@ -152,9 +152,9 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
     refute body =~ "platform.timeseries_metrics"
   end
 
-  test "attributed flow queries error when the JDBC catalog is disabled", %{prev: prev} do
+  test "enrichment queries error when the JDBC catalog is disabled", %{prev: prev} do
     mysql = fn _sql ->
-      flunk("catalog-disabled attributed_flows must not call StarRocks")
+      flunk("catalog-disabled enrichment must not call StarRocks")
     end
 
     Application.put_env(
@@ -165,12 +165,13 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
       |> Keyword.put(:mysql, mysql)
     )
 
+    # `hostname` is what pulls in the CNPG catalog join; the catalog flag gates
+    # it before any SQL reaches the Frontend.
     assert {:error, {:starrocks_catalog_disabled, "cnpg_platform"}} =
-             SRQL.query("in:attributed_flows time:last_1h limit:1", %{scope: @scope})
+             SRQL.query("in:flows time:last_1h hostname:host01 limit:1", %{scope: @scope})
   end
 
-  test "attributed flow queries execute catalog joins when the catalog is enabled",
-       %{prev: prev} do
+  test "attributed flows read persisted attribution, never a catalog join", %{prev: prev} do
     parent = self()
 
     mysql = fn sql ->
@@ -183,7 +184,6 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
       StarRocks,
       prev
       |> Keyword.put(:cutover_datasets, [:flows])
-      |> Keyword.put(:catalog_enabled, true)
       |> Keyword.put(:mysql, mysql)
     )
 
@@ -192,8 +192,41 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
 
     assert row["id"] == "flow-alpha-0001"
     assert_received {:starrocks_query, body}
-    assert body =~ "cnpg_platform.platform.flow_process_attribution_current"
-    refute body =~ "platform.ocsf_network_activity"
+
+    # pid/comm come off the observation row, so this page compiles and runs with
+    # the catalog switched off -- it must not reach cnpg_platform at all.
+    assert body =~ "serviceradar.ocsf_network_activity"
+    assert body =~ "pid"
+    assert body =~ "comm"
+    refute body =~ "cnpg_platform"
+    refute body =~ "flow_process_attribution_current"
+  end
+
+  test "enrichment queries compile the CNPG catalog join when the catalog is enabled",
+       %{prev: prev} do
+    parent = self()
+
+    mysql = fn sql ->
+      send(parent, {:starrocks_query, sql})
+      {:ok, postgrex_result(["id", "hostname"], [["flow-alpha-0001", "host01"]])}
+    end
+
+    Application.put_env(
+      :serviceradar_core,
+      StarRocks,
+      prev
+      |> Keyword.put(:cutover_datasets, [:flows])
+      |> Keyword.put(:catalog_enabled, true)
+      |> Keyword.put(:mysql, mysql)
+    )
+
+    assert {:ok, %{"results" => [row], "error" => nil}} =
+             SRQL.query("in:flows time:last_1h hostname:host01 limit:1", %{scope: @scope})
+
+    assert row["id"] == "flow-alpha-0001"
+    assert_received {:starrocks_query, body}
+    assert body =~ "cnpg_platform.platform.ocsf_devices"
+    refute body =~ "flow_process_attribution_current"
     refute body =~ "network_credential_secrets"
   end
 

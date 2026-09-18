@@ -53,6 +53,10 @@ analytics:
     catalog:
       enabled: true
       secretName: serviceradar-starrocks-catalog
+      # CNPG managed.roles reconciles login + password for
+      # serviceradar_starrocks_reader from this secret. Same password goes in
+      # the jdbcUri baked into secretName above.
+      readerPasswordSecret: serviceradar-starrocks-reader
       jdbcUri: "jdbc:postgresql://cnpg-rw.demo.svc:5432/serviceradar?ssl=true&sslmode=require"
       sourceNamespace: starrocks
 

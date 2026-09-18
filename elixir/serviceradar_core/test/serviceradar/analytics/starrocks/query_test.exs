@@ -33,8 +33,8 @@ defmodule ServiceRadar.Analytics.StarRocks.QueryTest do
   test "catalog join SQL is a MySQL error, never a PostgreSQL fallback" do
     sql =
       "SELECT f.id FROM serviceradar.ocsf_network_activity AS f " <>
-        "INNER JOIN cnpg_platform.platform.flow_process_attribution_current AS attr " <>
-        "ON attr.local_ip = f.src_endpoint_ip LIMIT 1"
+        "LEFT JOIN cnpg_platform.platform.ocsf_devices AS dev " <>
+        "ON dev.uid = f.device_uid LIMIT 1"
 
     mysql = fn submitted ->
       assert submitted == sql

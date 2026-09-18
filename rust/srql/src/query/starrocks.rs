@@ -158,8 +158,6 @@ const CNPG_CATALOG: &str = "cnpg_platform.platform";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum CatalogJoin {
-    #[allow(dead_code)]
-    Attribution,
     PrefixTags,
     Devices,
 }
@@ -167,7 +165,6 @@ enum CatalogJoin {
 impl CatalogJoin {
     fn table(self) -> &'static str {
         match self {
-            Self::Attribution => "flow_process_attribution_current",
             Self::PrefixTags => "prefix_tags_catalog",
             Self::Devices => "ocsf_devices",
         }
@@ -175,9 +172,6 @@ impl CatalogJoin {
 
     fn sql(self) -> &'static str {
         match self {
-            Self::Attribution => {
-                "INNER JOIN cnpg_platform.platform.flow_process_attribution_current AS attr ON attr.local_ip = f.src_endpoint_ip AND attr.remote_ip = f.dst_endpoint_ip"
-            }
             Self::PrefixTags => {
                 "LEFT JOIN cnpg_platform.platform.prefix_tags_catalog AS tags ON tags.prefix = concat(f.src_endpoint_ip, '/32')"
             }
@@ -209,7 +203,6 @@ fn catalog_joins(plan: &QueryPlan, dataset: Dataset) -> Result<Vec<CatalogJoin>>
     if wants_device {
         joins.push(CatalogJoin::Devices);
     }
-    let _ = CNPG_CATALOG;
     Ok(joins)
 }
 

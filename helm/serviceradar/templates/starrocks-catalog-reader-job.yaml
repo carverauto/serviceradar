@@ -21,6 +21,7 @@
 {{- $reader := default "serviceradar_starrocks_reader" $cat.user -}}
 {{- $superSecretName := default "cnpg-superuser" $cnpg.superuserSecret -}}
 {{- $database := default "serviceradar" $cnpg.database -}}
+{{- $cnpgClusterName := include "serviceradar.cnpgClusterName" . -}}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -46,20 +47,26 @@ spec:
     spec:
       restartPolicy: Never
       automountServiceAccountToken: false
+      {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       containers:
         - name: grant-reader
-          image: {{ printf "%s/postgres:16-alpine" (default "docker.io/library" $cnpg.utilityImageRegistry) | quote }}
-          imagePullPolicy: IfNotPresent
+          image: {{ include "serviceradar.cnpgImageName" (dict "Values" .Values "Chart" .Chart "cnpg" $cnpg) }}
+          imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+          {{- include "serviceradar.containerSecurityContext" . | nindent 10 }}
           command: ["/bin/sh", "-c"]
           args:
             - |
               set -eu
-              exec psql -v ON_ERROR_STOP=1 -d "$DATABASE_URL" -f /sql/reader.sql
+              exec psql -X -v ON_ERROR_STOP=1 -d {{ $database | quote }} -f /sql/reader.sql
+          {{- /* libpq reads the connection from PG* rather than a URL: a
+                 superuser password containing ':', '@', '/', '?' or '#' would
+                 have to be percent-encoded into a URL, and a $(VAR) reference
+                 only expands against env entries declared before it. */}}
           env:
             - name: PGHOST
               value: {{ include "serviceradar.cnpgDirectHost" . | quote }}
-            - name: DATABASE_URL
-              value: "postgresql://$(PGUSER):$(PGPASSWORD)@$(PGHOST):5432/{{ $database }}"
+            - name: PGPORT
+              value: {{ default 5432 $cnpg.port | quote }}
             - name: PGUSER
               valueFrom:
                 secretKeyRef:
@@ -70,14 +77,49 @@ spec:
                 secretKeyRef:
                   name: {{ $superSecretName | quote }}
                   key: password
+            - name: PGSSLMODE
+              value: {{ default "verify-full" $cnpg.sslmode | quote }}
+            - name: PGSSLROOTCERT
+              value: {{ default "/etc/serviceradar/cnpg/ca.crt" $cnpg.caFile | quote }}
+            {{- if $cnpg.requireClientCert }}
+            - name: PGSSLCERT
+              value: {{ printf "%s/%s" (default "/etc/serviceradar/certs" $cnpg.certDir) (default "cnpg-client.pem" $cnpg.clientCertName) | quote }}
+            - name: PGSSLKEY
+              value: {{ printf "%s/%s" (default "/etc/serviceradar/certs" $cnpg.certDir) (default "cnpg-client-key.pem" $cnpg.clientKeyName) | quote }}
+            {{- end }}
+            {{- /* readOnlyRootFilesystem is on, so keep psql's temp files off $HOME. */}}
+            - name: HOME
+              value: /tmp
           volumeMounts:
             - name: sql
               mountPath: /sql
               readOnly: true
+            - name: {{ $cnpgClusterName }}-ca
+              mountPath: /etc/serviceradar/cnpg
+              readOnly: true
+            {{- if $cnpg.requireClientCert }}
+            - name: cert-data
+              mountPath: /etc/serviceradar/certs
+              readOnly: true
+            {{- end }}
+            - name: tmp
+              mountPath: /tmp
       volumes:
         - name: sql
           configMap:
             name: {{ include "serviceradar.fullname" . }}-starrocks-catalog-reader
+        - name: {{ $cnpgClusterName }}-ca
+          secret:
+            secretName: {{ $cnpgClusterName }}-ca
+        {{- if $cnpg.requireClientCert }}
+        - name: cert-data
+          secret:
+            secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
+            items:
+{{ include "serviceradar.runtimeCertItems" (list "root.pem" "cnpg-client.pem" "cnpg-client-key.pem") | indent 14 }}
+        {{- end }}
+        - name: tmp
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: ConfigMap

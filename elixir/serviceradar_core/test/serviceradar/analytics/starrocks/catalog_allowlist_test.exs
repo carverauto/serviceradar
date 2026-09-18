@@ -14,8 +14,7 @@ defmodule ServiceRadar.Analytics.StarRocks.CatalogAllowlistTest do
     refute CatalogAllowlist.enabled?()
   end
 
-  test "allowlist is attribution and enrichment current-state only" do
-    assert "flow_process_attribution_current" in CatalogAllowlist.allowed_tables()
+  test "allowlist is enrichment current-state only" do
     assert "prefix_tags_catalog" in CatalogAllowlist.allowed_tables()
     refute "prefix_tags" in CatalogAllowlist.allowed_tables()
     assert "ocsf_devices" in CatalogAllowlist.allowed_tables()
@@ -26,7 +25,13 @@ defmodule ServiceRadar.Analytics.StarRocks.CatalogAllowlistTest do
     assert {:ok, "cnpg_platform.platform.netflow_exporter_cache"} =
              CatalogAllowlist.qualify("netflow_exporter_cache")
 
-    assert {:ok, "cnpg_platform.platform.flow_process_attribution_current"} ==
+    # Attributed flows read persisted pid/comm off the observation row, so the
+    # compiler never joins current-state attribution and the reader is granted
+    # nothing on it. Allowlisting it would let a re-enable reach the Frontend
+    # and fail there with permission denied instead of failing here.
+    refute CatalogAllowlist.allowed?("flow_process_attribution_current")
+
+    assert {:error, :not_allowlisted} ==
              CatalogAllowlist.qualify("flow_process_attribution_current")
   end
 
@@ -41,8 +46,8 @@ defmodule ServiceRadar.Analytics.StarRocks.CatalogAllowlistTest do
   test "compiled catalog SQL is refused while the Helm flag is off" do
     sql =
       "SELECT f.id FROM serviceradar.ocsf_network_activity AS f " <>
-        "INNER JOIN cnpg_platform.platform.flow_process_attribution_current AS attr " <>
-        "ON attr.local_ip = f.src_endpoint_ip"
+        "LEFT JOIN cnpg_platform.platform.ocsf_devices AS dev " <>
+        "ON dev.uid = f.device_uid"
 
     assert {:error, {:starrocks_catalog_disabled, "cnpg_platform"}} =
              CatalogAllowlist.assert_sql_executable(sql)

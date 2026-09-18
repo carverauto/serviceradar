@@ -2,16 +2,20 @@ defmodule ServiceRadar.Analytics.StarRocks.CatalogAllowlist do
   @moduledoc """
   Allowlisted CNPG current-state tables for the StarRocks JDBC catalog.
 
-  Used for query-time flow attribution and enrichment joins. The catalog is
-  read-only, opt-in, and off until Helm `analytics.starrocks.catalog.enabled`
-  is true. Telemetry hypertables and secrets are never join targets.
+  Used for query-time enrichment joins. The catalog is read-only, opt-in, and
+  off until Helm `analytics.starrocks.catalog.enabled` is true. Telemetry
+  hypertables and secrets are never join targets.
+
+  A table belongs here only while the compiler can actually join it and the
+  reader is granted SELECT on it. Attributed flows read persisted pid/comm off
+  the observation row rather than joining current-state attribution, so
+  `flow_process_attribution_current` is not a catalog target.
   """
 
   @catalog "cnpg_platform"
   @schema "platform"
 
   @allowed_tables ~w(
-    flow_process_attribution_current
     prefix_tags_catalog
     ocsf_devices
     device_alias_states
