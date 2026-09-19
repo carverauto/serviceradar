@@ -154,6 +154,64 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
+  dgraph-acl:
+    image: alpine:3.20
+    container_name: serviceradar-dgraph-acl
+    volumes:
+      - dgraph-acl:/dgraph/acl
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        if [ ! -s /dgraph/acl/hmac_secret_file ]; then
+          tr -dc A-Za-z0-9 </dev/urandom | head -c 48 > /dgraph/acl/hmac_secret_file
+        fi
+    restart: "no"
+    networks:
+      - serviceradar-net
+
+  dgraph:
+    image: ${DGRAPH_IMAGE:-dgraph/standalone:v25.4.0}
+    container_name: serviceradar-dgraph
+    environment:
+      - DGRAPH_ALPHA_ACL=secret-file=/dgraph/acl/hmac_secret_file
+      - DGRAPH_ALPHA_SECURITY=whitelist=0.0.0.0/0
+    ports:
+      - "127.0.0.1:9080:9080"
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - dgraph-acl:/dgraph/acl:ro
+      - dgraph-data:/dgraph
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8080/health >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    depends_on:
+      dgraph-acl:
+        condition: service_completed_successfully
+    networks:
+      serviceradar-net:
+        aliases:
+          - dgraph
+    restart: unless-stopped
+
+  dgraph-migrate:
+    image: ${DGRAPH_MIGRATE_IMAGE:-registry.carverauto.dev/serviceradar/serviceradar-dgraph-migrate:${APP_TAG:-latest}}
+    container_name: serviceradar-dgraph-migrate
+    environment:
+      - DGRAPH_ENV=LOCAL
+      - DGRAPH_URL=dgraph://groot:password@dgraph:9080?sslmode=disable
+      - DGRAPH_MIGRATION_MODE=MIGRATE
+    depends_on:
+      dgraph:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - serviceradar-net
+
   cert-permissions-fixer:
     image: alpine:3.20
     container_name: serviceradar-cert-permissions-fixer-mtls
@@ -333,6 +391,9 @@ services:
       - RELEASE_COOKIE_FILE=/etc/serviceradar/admin/release-cookie
       - RELEASE_NODE=serviceradar_core@core-elx
       - RELEASE_DISTRIBUTION=sname
+      - GRAPH_BACKEND=${GRAPH_BACKEND:-dual}
+      - GRAPH_READ=${GRAPH_READ:-age}
+      - DGRAPH_URL=${DGRAPH_URL:-dgraph://groot:password@dgraph:9080?sslmode=disable}
       - SERVICERADAR_CORE_OBAN_ENABLED=${SERVICERADAR_CORE_OBAN_ENABLED:-true}
       - SERVICERADAR_CORE_REPO_ENABLED=${SERVICERADAR_CORE_REPO_ENABLED:-true}
       - SERVICERADAR_CORE_RUN_MIGRATIONS=${SERVICERADAR_CORE_RUN_MIGRATIONS:-false}
@@ -1061,6 +1122,9 @@ services:
       - SERVICERADAR_GOD_VIEW_ENABLED=true
       - SERVICERADAR_GOD_VIEW_RUNTIME_GRAPH_REFRESH_MS=${SERVICERADAR_GOD_VIEW_RUNTIME_GRAPH_REFRESH_MS:-30000}
       - SERVICERADAR_GOD_VIEW_RUNTIME_GRAPH_AUTO_REFRESH=${SERVICERADAR_GOD_VIEW_RUNTIME_GRAPH_AUTO_REFRESH:-true}
+      - GRAPH_BACKEND=${GRAPH_BACKEND:-dual}
+      - GRAPH_READ=${GRAPH_READ:-age}
+      - DGRAPH_URL=${DGRAPH_URL:-dgraph://groot:password@dgraph:9080?sslmode=disable}
       - SERVICERADAR_ADMIN_EMAIL=${SERVICERADAR_ADMIN_EMAIL:-root@localhost}
       - SERVICERADAR_ADMIN_PASSWORD_FILE=/etc/serviceradar/admin/admin-password
       # Leave force-sync off by default so UI-driven admin password changes are
@@ -1215,6 +1279,10 @@ volumes:
     name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_cnpg-credentials"
   cnpg-data:
     name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_cnpg-data"
+  dgraph-acl:
+    name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_dgraph-acl"
+  dgraph-data:
+    name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_dgraph-data"
   datasvc-data:
   nats-data:
     name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_nats-data"

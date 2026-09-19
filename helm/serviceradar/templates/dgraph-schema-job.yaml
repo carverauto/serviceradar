@@ -1,0 +1,90 @@
+{{- $d := default (dict) .Values.dgraph -}}
+{{- $schema := default (dict) $d.schema -}}
+{{- $externalHost := default "" (default (dict) $d.external).host -}}
+{{- $schemaEnabled := true -}}
+{{- if hasKey $schema "enabled" -}}
+{{- $schemaEnabled = $schema.enabled -}}
+{{- end -}}
+{{- if and (or $d.enabled (ne $externalHost "")) $schemaEnabled }}
+{{- $host := include "serviceradar.dgraph.host" . -}}
+{{- $port := include "serviceradar.dgraph.port" . -}}
+{{- $tlsMode := "verify-ca" -}}
+{{- if not $d.enabled -}}
+{{- $tlsMode = default "disable" (default (dict) $d.external).tlsMode -}}
+{{- end }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: serviceradar-dgraph-schema
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: dgraph-schema
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        app: serviceradar-dgraph-schema
+        app.kubernetes.io/part-of: serviceradar
+        app.kubernetes.io/component: dgraph-schema
+    spec:
+      restartPolicy: OnFailure
+      {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
+      containers:
+      - name: dgraph-migrate
+        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-dgraph-migrate" "service" "dgraphMigrate") }}
+        imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+        {{- include "serviceradar.nonRootContainerSecurityContext" . | nindent 8 }}
+        env:
+        - name: DGRAPH_ENV
+          value: CLUSTER
+        - name: DGRAPH_HOST
+          value: {{ $host | quote }}
+        - name: DGRAPH_PORT
+          value: {{ $port | quote }}
+        - name: DGRAPH_MIGRATION_MODE
+          value: MIGRATE
+        - name: DGRAPH_URL
+          value: {{ printf "dgraph://groot:password@%s:%s?sslmode=%s" $host $port $tlsMode | quote }}
+        {{- if eq $tlsMode "verify-ca" }}
+        volumeMounts:
+        - name: dgraph-ca
+          mountPath: /etc/dgraph-ca
+          readOnly: true
+        {{- end }}
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          set -euo pipefail
+          URL="${DGRAPH_URL}"
+          if [ -f /etc/dgraph-ca/ca.crt ]; then
+            URL="${URL}&sslrootcert=/etc/dgraph-ca/ca.crt"
+          fi
+          export DGRAPH_URL="${URL}"
+          i=0
+          until /usr/local/bin/dgraph-migrate; do
+            i=$((i + 1))
+            if [ "${i}" -ge 30 ]; then
+              echo "dgraph schema migrate did not succeed after ${i} attempts"
+              exit 1
+            fi
+            echo "dgraph not ready, retry ${i}/30"
+            sleep 5
+          done
+      {{- if eq $tlsMode "verify-ca" }}
+      volumes:
+      - name: dgraph-ca
+        secret:
+          secretName: {{ default "dgraph-ca" (default (dict) $d.external).caSecret }}
+          items:
+          - key: {{ default "ca.crt" (default (dict) $d.external).caKey }}
+            path: ca.crt
+      {{- end }}
+{{- end }}

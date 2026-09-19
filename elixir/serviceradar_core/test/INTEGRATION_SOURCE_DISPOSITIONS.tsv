@@ -309,6 +309,7 @@ test/serviceradar/flow_attribution/event_rows_test.exs	-	not_selected	load_only	
 test/serviceradar/flow_attribution/persistence_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/flow_attribution/retention_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/flow_attribution_test.exs	ServiceRadar.FlowAttributionTest	data_case	serial	application_env	Overrides flow-attribution application configuration at test:39-64.
+test/serviceradar/dgraph_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/graph_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/http/egress_client_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/http/egress_proxy_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
@@ -565,6 +566,7 @@ test/serviceradar/network_discovery/topology_graph/canonical_rebuild_test.exs	-	
 test/serviceradar/network_discovery/topology_graph/health_conditions_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/network_discovery/topology_graph/projection_neighbor_drop_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/network_discovery/topology_graph/utils_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
+test/serviceradar/network_discovery/topology_graph_backend_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/network_discovery/topology_projection_contract_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/network_discovery/topology_stale_window_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/network_discovery/topology_state_cleanup_test.exs	ServiceRadar.NetworkDiscovery.TopologyStateCleanupTest	data_case	serial	ddl	Creates database functions/triggers for topology cleanup at test:219 and :234.

@@ -447,6 +447,22 @@ crate.from_cargo(
     platform_triples = RUST_PLATFORMS,
 )
 
+# proto_dgraph is a workspace member of the dgraph-rs git dependency. Its
+# build.rs runs tonic_prost_build and shells out to protoc. Consumed through
+# crate.from_cargo the build script actually runs, so hand it the hermetic
+# protoc rather than a host install. Same annotation scrith uses.
+#
+# build_script_tools is a label list (resolved against this module's repo
+# mapping, rendered as @@protobuf+//:protoc). build_script_env is a plain
+# string dict copied into the generated crates repo, so it must name the
+# canonical label or $(execpath) cannot resolve.
+crate.annotation(
+    build_script_env = {"PROTOC": "$(execpath @@protobuf+//:protoc)"},
+    build_script_tools = ["@com_google_protobuf//:protoc"],
+    crate = "proto_dgraph",
+    repositories = ["crates"],
+)
+
 # openssl-sys: link the OpenSSL that @openssl builds, instead of building one.
 #
 # OPENSSL_NO_VENDOR turns off the openssl-src path and OPENSSL_STATIC picks the archives over

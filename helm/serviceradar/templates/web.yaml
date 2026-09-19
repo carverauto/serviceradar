@@ -720,6 +720,7 @@ spec:
           value: {{ default "1.0" .samplingRatio | quote }}
         {{- end }}
         {{- end }}
+        {{- include "serviceradar.graph.env" $ | nindent 8 }}
         {{- with .Values.webNg.extraEnv }}
         {{- range $name, $value := . }}
         {{- if and (ne $name "SERVICERADAR_MCP_ENABLED") (ne $name "SERVICERADAR_MCP_CLIENT_CREDENTIALS_ENABLED") (ne $name "SERVICERADAR_MCP_REFRESH_TTL_SECONDS") }}

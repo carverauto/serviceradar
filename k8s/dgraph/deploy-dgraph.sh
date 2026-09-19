@@ -93,6 +93,11 @@ deploy() {
   echo "waiting for certificate dgraph-alpha-tls to be issued..."
   kubectl wait --for=condition=Ready --timeout=300s \
     -n "$namespace" certificate/dgraph-alpha-tls
+  if kubectl get certificate dgraph-zero-tls -n "$namespace" >/dev/null 2>&1; then
+    echo "waiting for certificate dgraph-zero-tls to be issued..."
+    kubectl wait --for=condition=Ready --timeout=300s \
+      -n "$namespace" certificate/dgraph-zero-tls
+  fi
 
   helm upgrade --install "$RELEASE_NAME" "${CHART_REPO_NAME}/dgraph" \
     --version "$CHART_VERSION" \
@@ -116,7 +121,7 @@ deploy() {
 
 case "${1:-}" in
   ci)     deploy ci   dgraph-ci ;;
-  demo)   deploy demo dgraph ;;
+  demo)   deploy demo demo ;;
   mirror) mirror_images ;;
   *)      usage ;;
 esac

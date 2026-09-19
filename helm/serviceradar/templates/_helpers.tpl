@@ -850,3 +850,86 @@ will see, including ready_state_path/rehome_state_path.
 {{- $_ := set $cfg "rehome_state_path" $rehomePath -}}
 {{- toJson $cfg -}}
 {{- end -}}
+
+{{/*
+Dgraph subchart fullname. Must stay in lockstep with the official chart's
+`dgraph.fullname` (trunc 24): Release.Name-dgraph.
+*/}}
+{{- define "serviceradar.dgraph.fullname" -}}
+{{- printf "%s-dgraph" .Release.Name | trunc 24 | trimSuffix "-" -}}
+{{- end -}}
+
+{{- define "serviceradar.dgraph.alphaFullname" -}}
+{{- printf "%s-alpha" (include "serviceradar.dgraph.fullname" .) -}}
+{{- end -}}
+
+{{- define "serviceradar.dgraph.zeroFullname" -}}
+{{- printf "%s-zero" (include "serviceradar.dgraph.fullname" .) -}}
+{{- end -}}
+
+{{- define "serviceradar.dgraph.aclSecretName" -}}
+{{- printf "%s-acl-secret" (include "serviceradar.dgraph.alphaFullname" .) -}}
+{{- end -}}
+
+{{- define "serviceradar.dgraph.alphaTLSSecretName" -}}
+{{- printf "%s-tls-secret" (include "serviceradar.dgraph.alphaFullname" .) -}}
+{{- end -}}
+
+{{- define "serviceradar.dgraph.zeroTLSSecretName" -}}
+{{- printf "%s-tls-secret" (include "serviceradar.dgraph.zeroFullname" .) -}}
+{{- end -}}
+
+{{/*
+Hostname a client dials. In-chart Service when enabled, else external.host.
+*/}}
+{{- define "serviceradar.dgraph.host" -}}
+{{- $d := default (dict) .Values.dgraph -}}
+{{- if $d.enabled -}}
+{{- printf "%s.%s.svc.cluster.local" (include "serviceradar.dgraph.alphaFullname" .) .Release.Namespace -}}
+{{- else -}}
+{{- $ext := default (dict) $d.external -}}
+{{- required "dgraph.external.host is required when dgraph.enabled=false" $ext.host -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "serviceradar.dgraph.port" -}}
+{{- $d := default (dict) .Values.dgraph -}}
+{{- $ext := default (dict) $d.external -}}
+{{- default 9080 $ext.port -}}
+{{- end -}}
+
+{{/*
+TLS mode for application Dgraph clients. In-chart Alpha always serves TLS;
+external clusters follow dgraph.external.tlsMode. Application pods use
+`require` rather than `verify-ca` so they do not need a CA volume (the schema
+Job still verifies).
+*/}}
+{{- define "serviceradar.dgraph.appTlsMode" -}}
+{{- $d := default (dict) .Values.dgraph -}}
+{{- if $d.enabled -}}
+require
+{{- else -}}
+{{- $ext := default (dict) $d.external -}}
+{{- default "disable" $ext.tlsMode -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+GRAPH_BACKEND / GRAPH_READ / DGRAPH_* for topology writers (core, web-ng).
+*/}}
+{{- define "serviceradar.graph.env" -}}
+{{- $graph := default (dict) .Values.graph -}}
+- name: GRAPH_BACKEND
+  value: {{ default "dual" $graph.backend | quote }}
+- name: GRAPH_READ
+  value: {{ default "age" $graph.read | quote }}
+- name: DGRAPH_HOST
+  value: {{ include "serviceradar.dgraph.host" . | quote }}
+- name: DGRAPH_PORT
+  value: {{ include "serviceradar.dgraph.port" . | quote }}
+- name: DGRAPH_TLS_MODE
+  value: {{ include "serviceradar.dgraph.appTlsMode" . | quote }}
+- name: DGRAPH_URL
+  value: {{ printf "dgraph://groot:password@%s:%s?sslmode=%s" (include "serviceradar.dgraph.host" .) (include "serviceradar.dgraph.port" .) (include "serviceradar.dgraph.appTlsMode" .) | quote }}
+{{- end -}}
+

@@ -6,7 +6,7 @@ Two deployments of the official [Dgraph chart](https://charts.dgraph.io), both p
 | | `ci/` | `demo/` |
 |---|---|---|
 | Pattern | Basic Cluster | HA Cluster |
-| Namespace | `dgraph-ci` | `dgraph` |
+| Namespace | `dgraph-ci` | `demo` |
 | Zeros | 1 | 3 |
 | Alphas | 1 | 3 |
 | Replication (`shardReplicaCount`) | 1 | 3 |
@@ -16,7 +16,7 @@ Two deployments of the official [Dgraph chart](https://charts.dgraph.io), both p
 
 ```
 ./deploy-dgraph.sh ci        # disposable fixture
-./deploy-dgraph.sh demo      # HA
+./deploy-dgraph.sh demo      # HA, in the ServiceRadar `demo` namespace
 ./deploy-dgraph.sh mirror    # re-copy pinned images into Harbor
 ```
 

@@ -6,9 +6,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
   alias ServiceRadar.Graph
   alias ServiceRadar.NetworkDiscovery.RuntimeTopologyProjection
   alias ServiceRadar.NetworkDiscovery.TopologyGraph
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph.Backend
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalMutationLock
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild.Conflicts
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.HealthConditions
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph.Persist
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Queries
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Telemetry
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Utils
@@ -568,7 +571,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
     min_canonical_edges = canonical_rebuild_min_edges()
     upsert_cypher = Queries.canonical_rebuild_upsert_query(stale_cutoff)
 
-    case Graph.execute(upsert_cypher) do
+    case Persist.execute_age(upsert_cypher) do
       :ok ->
         demotion_result = Conflicts.reconcile_competing_same_port_canonical_edges()
         after_upsert_edges = canonical_edge_count()
@@ -606,6 +609,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
           lock_skipped: false
         }
 
+        maybe_dual_write_canonical()
         {:ok, structural_stats}
 
       {:error, reason} ->
@@ -772,7 +776,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
         min_canonical_edges: min_canonical_edges
       )
 
-      case Graph.execute(Queries.canonical_rebuild_upsert_query(stale_cutoff)) do
+      case Persist.execute_age(Queries.canonical_rebuild_upsert_query(stale_cutoff)) do
         :ok ->
           healed_edges = canonical_edge_count()
 
@@ -813,7 +817,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
   defp prune_stale_canonical_device_links(stale_cutoff) when is_binary(stale_cutoff) do
     prune_cypher = Queries.canonical_rebuild_prune_query(stale_cutoff)
 
-    case Graph.execute(prune_cypher) do
+    case Persist.execute_age(prune_cypher) do
       :ok ->
         :ok
 
@@ -849,4 +853,47 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
   end
 
   defp parse_count(_), do: 0
+
+  defp maybe_dual_write_canonical do
+    if Backend.write_dgraph?() and Backend.write_age?() do
+      cypher = """
+      MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device)
+      RETURN {
+        local_device_id: a.id,
+        neighbor_device_id: b.id,
+        protocol: coalesce(r.protocol, r.source, 'unknown'),
+        evidence_class: coalesce(r.evidence_class, 'direct'),
+        local_if_name: coalesce(r.local_if_name, ''),
+        neighbor_if_name: coalesce(r.neighbor_if_name, ''),
+        local_if_index: r.local_if_index,
+        neighbor_if_index: r.neighbor_if_index,
+        confidence_tier: r.confidence_tier,
+        flow_pps_ab: coalesce(r.flow_pps_ab, 0),
+        flow_pps_ba: coalesce(r.flow_pps_ba, 0),
+        flow_bps_ab: coalesce(r.flow_bps_ab, 0),
+        flow_bps_ba: coalesce(r.flow_bps_ba, 0),
+        capacity_bps: coalesce(r.capacity_bps, 0),
+        telemetry_eligible: coalesce(r.telemetry_eligible, false)
+      } AS row
+      """
+
+      case Graph.query(cypher) do
+        {:ok, rows} ->
+          payloads =
+            Enum.map(rows, fn
+              %{"row" => row} -> row
+              %{row: row} -> row
+              row -> row
+            end)
+
+          DgraphPersist.rebuild_canonical_from_age_rows(payloads)
+
+        {:error, reason} ->
+          Logger.warning("Dgraph canonical dual-write query failed: #{inspect(reason)}")
+          :ok
+      end
+    else
+      :ok
+    end
+  end
 end

@@ -1,6 +1,8 @@
 defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   @moduledoc """
-  Projects mapper topology links into the Apache AGE graph.
+  Projects mapper topology links into the configured graph backend
+  (`GRAPH_BACKEND=age|dual|dgraph`). AGE Cypher stays in `ServiceRadar.Graph`;
+  Dgraph writes go through typed `ServiceRadar.Dgraph` operations.
   """
 
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild

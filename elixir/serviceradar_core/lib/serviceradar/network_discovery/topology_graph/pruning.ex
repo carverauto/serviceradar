@@ -2,6 +2,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Pruning do
   @moduledoc false
 
   alias ServiceRadar.Graph
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph.Persist
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Queries
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Utils
 
@@ -14,7 +16,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Pruning do
       local_device_id
       |> Queries.prune_unseen_projected_links_queries(neighbor_ids)
       |> Enum.each(fn cypher ->
-        case Graph.execute(cypher) do
+        case Persist.execute_age(cypher) do
           :ok ->
             :ok
 
@@ -58,9 +60,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Pruning do
     DELETE r
     """
 
-    case Graph.execute(cypher) do
-      :ok -> :ok
-      {:error, reason} -> Logger.warning("Topology stale edge pruning failed: #{inspect(reason)}")
+    case Persist.execute_age(cypher) do
+      :ok ->
+        DgraphPersist.prune_stale(stale_cutoff)
+
+      {:error, reason} ->
+        Logger.warning("Topology stale edge pruning failed: #{inspect(reason)}")
     end
   end
 
@@ -76,9 +81,9 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Pruning do
     stale_cutoff = Utils.stale_cutoff_iso8601()
     cypher = Queries.prune_stale_mapper_evidence_links_query(stale_cutoff)
 
-    case Graph.execute(cypher) do
+    case Persist.execute_age(cypher) do
       :ok ->
-        :ok
+        DgraphPersist.prune_stale(stale_cutoff)
 
       {:error, reason} ->
         Logger.warning("Topology global stale edge pruning failed: #{inspect(reason)}")
@@ -88,7 +93,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Pruning do
   def reconcile_legacy_single_identifier_attachment_links do
     cypher = Queries.reconcile_legacy_single_identifier_attachment_links_query()
 
-    case Graph.execute(cypher) do
+    case Persist.execute_age(cypher) do
       :ok ->
         :ok
 
@@ -100,7 +105,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Pruning do
   def purge_legacy_single_identifier_canonical_links do
     cypher = Queries.purge_legacy_single_identifier_canonical_links_query()
 
-    case Graph.execute(cypher) do
+    case Persist.execute_age(cypher) do
       :ok ->
         :ok
 

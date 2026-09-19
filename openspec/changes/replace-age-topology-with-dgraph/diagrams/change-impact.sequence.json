@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "Change A versus Change B",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "viewBox": [920, 640],
+    "output": "change-impact.sequence.html",
+    "views": [
+      { "id": "hydrate", "label": "Hydrate", "focus": ["nco", "sr", "dgraph"], "note": "NCO names two changes; ServiceRadar has already projected topology and affects." },
+      { "id": "reason", "label": "Reason", "focus": ["scrith", "dc"], "note": "Scrith hydrates context and DeepCausality intervenes on A." },
+      { "id": "govern", "label": "Govern", "focus": ["dc", "scrith", "nco"], "note": "Ethos marks starting B Impermissible when B sits downstream of an upgrade." }
+    ]
+  },
+  "participants": [
+    { "id": "nco", "type": "external", "label": "NCO", "sublabel": "change window" },
+    { "id": "sr", "type": "backend", "label": "ServiceRadar", "sublabel": "world model" },
+    { "id": "dgraph", "type": "database", "label": "SR Dgraph", "sublabel": "NMS topology" },
+    { "id": "scrith", "type": "backend", "label": "Scrith", "sublabel": "extension + core" },
+    { "id": "dc", "type": "backend", "label": "DeepCausality", "sublabel": "reasoner" }
+  ],
+  "segments": [
+    { "from": 140, "to": 300, "label": "World model" },
+    { "from": 318, "to": 480, "label": "Counterfactual" },
+    { "from": 492, "to": 555, "label": "Verdict" }
+  ],
+  "messages": [
+    { "from": "nco", "to": "sr", "y": 170, "label": "store changes A and B", "variant": "emphasis" },
+    { "from": "sr", "to": "dgraph", "y": 214, "label": "project Change + affects", "variant": "emphasis" },
+    { "from": "nco", "to": "scrith", "y": 338, "label": "ChangeImpact(A, B)", "variant": "emphasis" },
+    { "from": "scrith", "to": "sr", "y": 370, "label": "NMS plugin snapshot" },
+    { "from": "sr", "to": "dgraph", "y": 400, "label": "read SR Dgraph" },
+    { "from": "sr", "to": "scrith", "y": 430, "label": "bounded subgraph", "variant": "return" },
+    { "from": "scrith", "to": "dc", "y": 462, "label": "intervene(A unavailable)", "variant": "emphasis" },
+    { "from": "dc", "to": "scrith", "y": 510, "label": "effect log + ethos", "variant": "return" },
+    { "from": "scrith", "to": "nco", "y": 542, "label": "delay B until A completes", "variant": "emphasis" }
+  ],
+  "activations": [
+    { "participant": "sr", "from": 164, "to": 230, "type": "backend" },
+    { "participant": "sr", "from": 364, "to": 446, "type": "backend" },
+    { "participant": "dgraph", "from": 208, "to": 250, "type": "database" },
+    { "participant": "dgraph", "from": 394, "to": 416, "type": "database" },
+    { "participant": "scrith", "from": 332, "to": 556, "type": "backend" },
+    { "participant": "dc", "from": 456, "to": 526, "type": "backend" }
+  ],
+  "cards": [
+    { "dot": "emerald", "title": "Scrith reasons", "items": ["NMS plugin snapshot in, DeepCausality verdict out", "ServiceRadar does not postpone or sequence"] }
+  ]
+}

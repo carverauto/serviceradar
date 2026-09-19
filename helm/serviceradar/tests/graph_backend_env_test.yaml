@@ -1,0 +1,49 @@
+suite: topology graph backend env
+templates:
+  - templates/core.yaml
+tests:
+  - it: injects GRAPH_BACKEND dual and GRAPH_READ age with DGRAPH_URL
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GRAPH_BACKEND
+            value: dual
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GRAPH_READ
+            value: age
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DGRAPH_HOST
+            value: RELEASE-NAME-dgraph-alpha.NAMESPACE.svc.cluster.local
+  - it: uses external host when the subchart is off
+    documentSelector:
+      path: kind
+      value: Deployment
+    set:
+      dgraph:
+        enabled: false
+        external:
+          host: dgraph-dgraph-alpha.demo.svc.cluster.local
+          port: 9080
+          tlsMode: require
+      graph:
+        backend: dual
+        read: age
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DGRAPH_HOST
+            value: dgraph-dgraph-alpha.demo.svc.cluster.local
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GRAPH_BACKEND
+            value: dual

@@ -793,6 +793,7 @@ spec:
           value: {{ default "1.0" .samplingRatio | quote }}
         {{- end }}
         {{- end }}
+        {{- include "serviceradar.graph.env" $ | nindent 8 }}
         {{- with $coreVals.extraEnv }}
         {{- range $name, $value := . }}
         - name: {{ $name | quote }}

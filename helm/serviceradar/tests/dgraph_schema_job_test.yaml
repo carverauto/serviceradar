@@ -1,0 +1,32 @@
+suite: dgraph schema job
+release:
+  name: serviceradar
+  namespace: serviceradar-test
+templates:
+  - templates/dgraph-schema-job.yaml
+tests:
+  - it: dials the in-chart Alpha
+    asserts:
+      - equal:
+          path: metadata.name
+          value: serviceradar-dgraph-schema
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DGRAPH_HOST
+            value: serviceradar-dgraph-alpha.serviceradar-test.svc.cluster.local
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: dgraph-migrate
+
+  - it: is omitted when schema is explicitly disabled
+    set:
+      dgraph:
+        enabled: false
+        schema:
+          enabled: false
+        external:
+          host: dgraph-dgraph-alpha.demo.svc.cluster.local
+    asserts:
+      - hasDocuments:
+          count: 0

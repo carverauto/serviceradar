@@ -506,6 +506,31 @@ declare_multiarch_image_index(
 )
 
 declare_service_container_amd64(
+    name = "dgraph_migrate_image_amd64",
+    cmd = ["dgraph-migrate"],
+    empty_dirs = [
+        "etc/dgraph-ca",
+        "tmp",
+    ],
+    entrypoint = ["/usr/local/bin/dgraph-migrate"],
+    files = {
+        "//rust/dgraph-topology:dgraph-migrate": "usr/local/bin/dgraph-migrate",
+    },
+    image_title = "serviceradar-dgraph-migrate",
+    modes = {
+        "usr/local/bin/dgraph-migrate": "0755",
+    },
+    repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-dgraph-migrate:local"],
+    runtime = "ubuntu",
+    workdir = "/tmp",
+)
+
+declare_multiarch_image_index(
+    name = "dgraph_migrate_image_multiarch",
+    image = ":dgraph_migrate_image_amd64",
+)
+
+declare_service_container_amd64(
     name = "flow_collector_image_amd64",
     cmd = [
         "--config",
@@ -840,6 +865,7 @@ _MULTIARCH_INDEXES = [
     "config_updater_image_multiarch",
     "core_elx_image_multiarch",
     "datasvc_image_multiarch",
+    "dgraph_migrate_image_multiarch",
     "faker_image_multiarch",
     "flow_collector_image_multiarch",
     "k8s_inventory_image_multiarch",

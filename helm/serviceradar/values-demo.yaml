@@ -3,6 +3,21 @@
 
 namespace: demo
 
+# HA Dgraph is already running in this namespace as Helm release `dgraph`
+# (k8s/dgraph/deploy-dgraph.sh demo). Keep the chart subchart off so Argo
+# does not create a second cluster. Flip enabled=true and remove the
+# standalone release as a later cutover.
+dgraph:
+  enabled: false
+  schema:
+    enabled: false
+  external:
+    host: dgraph-dgraph-alpha.demo.svc.cluster.local
+    port: 9080
+    tlsMode: verify-ca
+    caSecret: dgraph-ca
+    caKey: ca.crt
+
 topologySpread:
   enabled: true
   maxSkew: 1

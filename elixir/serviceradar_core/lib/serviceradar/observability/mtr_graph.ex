@@ -13,6 +13,8 @@ defmodule ServiceRadar.Observability.MtrGraph do
   """
 
   alias ServiceRadar.Graph
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph.Persist
   alias ServiceRadar.Repo
 
   require Logger
@@ -74,8 +76,9 @@ defmodule ServiceRadar.Observability.MtrGraph do
     DELETE r
     """
 
-    case Graph.execute(cypher) do
+    case Persist.execute_age(cypher) do
       :ok ->
+        DgraphPersist.prune_stale(cutoff)
         Logger.debug("Pruned stale MTR_PATH edges older than #{stale_hours}h")
 
       {:error, reason} ->
@@ -118,11 +121,24 @@ defmodule ServiceRadar.Observability.MtrGraph do
         observed_at
       )
 
-    case Graph.execute(cypher) do
-      :ok -> :ok
-      {:error, reason} -> Logger.warning("MTR graph edge upsert failed: #{inspect(reason)}")
+    case Persist.execute_age(cypher) do
+      :ok ->
+        DgraphPersist.upsert_mtr_path(%{
+          from_id: from_id,
+          to_id: to_id,
+          from_kind: mtr_node_kind(from_label),
+          to_kind: mtr_node_kind(to_label),
+          agent_id: agent_id,
+          observed_at: observed_at
+        })
+
+      {:error, reason} ->
+        Logger.warning("MTR graph edge upsert failed: #{inspect(reason)}")
     end
   end
+
+  defp mtr_node_kind("MtrHop"), do: :hop
+  defp mtr_node_kind(_), do: :device
 
   defp edge_upsert_cypher(
          from_hop,

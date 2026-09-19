@@ -81,6 +81,7 @@ image:
     tools: *appTag
     trivySidecar: *appTag
     k8sInventory: *appTag
+    dgraphMigrate: *appTag
   # Optional per-service digest pins. Keys match image.tags service names
   # (core, webNg, agent, agentGateway, datasvc, tools, etc.). Values can be
   # either "sha256:..." or "@sha256:..."; when set they override tags.
@@ -2159,6 +2160,118 @@ gatewayApi:
     streaming:
       requestTimeout: 0s
       maxStreamDuration: 0s
+
+# Topology persist/query target. dual writes AGE + Dgraph; read stays on AGE
+# until the migrator checksum is green. Override with GRAPH_BACKEND / GRAPH_READ.
+graph:
+  backend: dual
+  read: age
+
+# Topology graph store. Enabled by default so `helm upgrade --install` is
+# black-box: Zero and Alpha come up, an ACL HMAC Secret is generated, TLS is
+# issued, then the schema Job applies the topology predicates. Set
+# dgraph.enabled=false and dgraph.external.host to reuse dgraph-ci or a
+# cluster already installed in this namespace.
+dgraph:
+  enabled: true
+  # When enabled=false, callers dial this instead of the in-chart Service.
+  external:
+    host: ""
+    port: 9080
+    # disable | require | verify-ca
+    tlsMode: disable
+    caSecret: ""
+    caKey: ca.crt
+  schema:
+    enabled: true
+  image:
+    registry: registry.carverauto.dev
+    repository: mirror/dgraph/dgraph
+    tag: v25.4.0
+    pullPolicy: IfNotPresent
+  serviceAccount:
+    create: true
+    name: dgraph
+  ratel:
+    enabled: false
+  backups:
+    full:
+      enabled: false
+    incremental:
+      enabled: false
+  zero:
+    replicaCount: 1
+    # Zero's --replicas: Alphas per group, NOT the number of Zeros.
+    shardReplicaCount: 1
+    persistence:
+      enabled: true
+      size: 8Gi
+    securityContext:
+      enabled: true
+      fsGroup: 1001
+      runAsUser: 1001
+    resources:
+      requests:
+        cpu: 500m
+        memory: 512Mi
+      limits:
+        cpu: "2"
+        memory: 2Gi
+  alpha:
+    replicaCount: 1
+    persistence:
+      enabled: true
+      size: 16Gi
+    securityContext:
+      enabled: true
+      fsGroup: 1001
+      runAsUser: 1001
+    resources:
+      requests:
+        cpu: "1"
+        memory: 2Gi
+      limits:
+        cpu: "4"
+        memory: 8Gi
+    tls:
+      enabled: true
+      files: {}
+    configFile:
+      config.yaml: |
+        security:
+          whitelist: 0.0.0.0/0
+    livenessProbe:
+      enabled: false
+    readinessProbe:
+      enabled: false
+    customLivenessProbe:
+      httpGet:
+        path: /health?live=1
+        port: 8080
+        scheme: HTTPS
+      initialDelaySeconds: 15
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 6
+      successThreshold: 1
+    customReadinessProbe:
+      httpGet:
+        path: /health
+        port: 8080
+        scheme: HTTPS
+      initialDelaySeconds: 15
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 6
+      successThreshold: 1
+    acl:
+      enabled: true
+      file: {}
+    extraFlags: >-
+      --tls "ca-cert=/dgraph/tls/ca.crt; server-cert=/dgraph/tls/tls.crt;
+      server-key=/dgraph/tls/tls.key"
+      --acl "secret-file=/dgraph/acl/hmac_secret_file"
+
 networkPolicy:
   enabled: false
   podSelectorMatchAll: false
@@ -2223,6 +2336,16 @@ networkPolicy:
         port: 8081
       - protocol: TCP
         port: 8090
+      # Dgraph Zero Raft / HTTP and Alpha internal / gRPC. Required when
+      # Dgraph shares this namespace: serviceradar-egress selects every pod.
+      - protocol: TCP
+        port: 5080
+      - protocol: TCP
+        port: 6080
+      - protocol: TCP
+        port: 7080
+      - protocol: TCP
+        port: 9080
       - protocol: TCP
         port: 8222
       - protocol: TCP

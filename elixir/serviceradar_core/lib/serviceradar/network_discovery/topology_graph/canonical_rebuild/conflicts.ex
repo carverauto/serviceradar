@@ -2,6 +2,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild.Conflicts
   @moduledoc false
 
   alias ServiceRadar.Graph
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph.Persist
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Utils
 
   require Logger
@@ -100,7 +101,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild.Conflicts
     SET r.confidence_reason = 'shared_segment_via_uplink'
     """
 
-    case Graph.execute(cypher) do
+    case Persist.execute_age(cypher) do
       :ok -> :ok
       {:error, reason} -> Logger.warning("Canonical edge demotion failed: #{inspect(reason)}")
     end
