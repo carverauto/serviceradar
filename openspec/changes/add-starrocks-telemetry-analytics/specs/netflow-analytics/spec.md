@@ -36,6 +36,12 @@ An hourly aggregate answers at its own hour grain. Requested windows are not hou
 - **THEN** an explicit proven plan or raw fallback maintains correctness
 - **AND** profiling exposes the chosen source and latency for acceptance
 
+#### Scenario: A materialized view has fallen behind its source
+- **WHEN** an hourly view's newest bucket trails the newest row of the table it aggregates by more than the configured tolerance
+- **THEN** the query is served from the StarRocks raw table instead, never from CNPG
+- **AND** a view that is level with an idle source table is still read, because freshness is the view's lag behind that source rather than its age against the wall clock
+- **AND** any probe error, empty result or unreadable high-water mark is treated as stale
+
 #### Scenario: Approximation is requested
 - **WHEN** an explicitly supported approximate analytical operation is selected
 - **THEN** the response identifies approximation and its documented accuracy contract

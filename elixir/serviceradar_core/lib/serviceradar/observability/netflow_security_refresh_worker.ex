@@ -85,12 +85,13 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
     # Flows are warehouse-only. Until the dataset is cut over there is nothing
     # to read, and every helper below degrades an empty read to "no traffic",
     # so the refusal is said out loud here rather than looking like an idle
-    # network forever. It is a configured state, not a job failure, so the pass
-    # reports itself inapplicable and does nothing else; the scheduler's tick
-    # is what brings the next one around.
+    # network forever -- but at debug, because the scheduler re-arms this job
+    # every minute and a stock install has flows uncut forever. It is a
+    # configured state, not a job failure, so the pass reports itself
+    # inapplicable and does nothing else.
     case Readers.mode_for(:flows) do
       {:error, :starrocks_required} ->
-        Logger.info(
+        Logger.debug(
           "#{inspect(__MODULE__)}: flows are not cut over to StarRocks; skipping this pass"
         )
 

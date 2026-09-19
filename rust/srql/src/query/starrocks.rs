@@ -3,7 +3,7 @@ use crate::{
     error::{Result, ServiceError},
     parser::{Entity, Filter},
 };
-use chrono::{SecondsFormat, Utc};
+use chrono::{SecondsFormat, Timelike, Utc};
 
 /// Compile an authorized SRQL plan to StarRocks SQL.
 ///
@@ -590,21 +590,22 @@ fn profile_sql(
     if let Some(scope) = dataset.scope {
         clauses.push(format!("({scope})"));
     }
+    // The window bounds are not hour-aligned, and a profile scores whole hours:
+    // read verbatim they drop the hour holding `start` and the hour holding
+    // `end`, so `latest` resolves to a different cell on the view than on the
+    // raw table and the freshness gate changes the answer. CNPG's builder
+    // floors and ceils for the same reason (`hourly_cagg_*_bound_clause`).
+    let time_column = match rollup {
+        Some(_) => "`bucket`".to_string(),
+        None => format!("`{}`", dataset.time_column),
+    };
     clauses.push(format!(
-        "{bucket_col} >= '{start}'",
-        bucket_col = match rollup {
-            Some(_) => "`bucket`".to_string(),
-            None => format!("`{}`", dataset.time_column),
-        },
-        start = range.start.to_rfc3339_opts(SecondsFormat::Secs, true)
+        "{time_column} >= '{start}'",
+        start = floor_hour(range.start).to_rfc3339_opts(SecondsFormat::Secs, true)
     ));
     clauses.push(format!(
-        "{bucket_col} < '{end}'",
-        bucket_col = match rollup {
-            Some(_) => "`bucket`".to_string(),
-            None => format!("`{}`", dataset.time_column),
-        },
-        end = range.end.to_rfc3339_opts(SecondsFormat::Secs, true)
+        "{time_column} < '{end}'",
+        end = ceil_hour(range.end).to_rfc3339_opts(SecondsFormat::Secs, true)
     ));
     for filter in &plan.filters {
         if filter.field.eq_ignore_ascii_case("timezone") {
@@ -795,6 +796,23 @@ fn profile_order_sql(plan: &QueryPlan, bucket_count_alias: &str) -> String {
     }
 
     format!("\nORDER BY {}", parts.join(", "))
+}
+
+fn floor_hour(value: chrono::DateTime<Utc>) -> chrono::DateTime<Utc> {
+    value
+        .with_minute(0)
+        .and_then(|value| value.with_second(0))
+        .and_then(|value| value.with_nanosecond(0))
+        .unwrap_or(value)
+}
+
+fn ceil_hour(value: chrono::DateTime<Utc>) -> chrono::DateTime<Utc> {
+    let floored = floor_hour(value);
+    if floored == value {
+        floored
+    } else {
+        floored + chrono::Duration::hours(1)
+    }
 }
 
 fn profile_rollup_eligible(plan: &QueryPlan, rollup: HourlyRollup) -> bool {
@@ -1653,6 +1671,51 @@ mod tests {
             compiled
                 .sql
                 .contains("ORDER BY l.dow ASC, l.hod ASC, l.series ASC"),
+            "{}",
+            compiled.sql
+        );
+    }
+
+    // A profile scores whole hours, and the window bounds are `now`-relative so
+    // they never land on an hour. Emitting them verbatim dropped the hour
+    // holding `start` and the hour holding `end` from the view, while the raw
+    // fallback's date_trunc kept the end hour -- so `latest` resolved to a
+    // different cell depending only on whether the view happened to be fresh.
+    #[test]
+    fn profile_window_bounds_are_widened_to_whole_hours() {
+        let query = r#"in:timeseries_metrics metric_type:"sysmon.cpu" metric_name:"cpu.usage_percent" time:[2026-09-11T00:37:00Z,2026-09-19T15:37:00Z] bucket:1h agg:avg series:uid stats:profile_hour_of_week_peak(value) timezone:"UTC" limit:400"#;
+
+        let rolled = translate(&plan(query), "serviceradar").expect("rollup profile compiles");
+        let raw = translate_raw(&plan(query), "serviceradar").expect("raw profile compiles");
+
+        // The hour holding `start` is included whole, and the hour holding
+        // `end` is admitted by ceiling the exclusive upper bound.
+        for sql in [&rolled.sql, &raw.sql] {
+            assert!(sql.contains(">= '2026-09-11T00:00:00Z'"), "{sql}");
+            assert!(sql.contains("< '2026-09-19T16:00:00Z'"), "{sql}");
+            assert!(!sql.contains("00:37:00Z"), "{sql}");
+            assert!(!sql.contains("15:37:00Z"), "{sql}");
+        }
+    }
+
+    // An already-aligned end must not gain a spurious extra hour.
+    #[test]
+    fn an_hour_aligned_profile_window_is_left_alone() {
+        let compiled = translate(
+            &plan(
+                r#"in:timeseries_metrics metric_type:"sysmon.cpu" metric_name:"cpu.usage_percent" time:[2026-09-11T00:00:00Z,2026-09-19T15:00:00Z] bucket:1h agg:avg stats:profile_hour_of_week(value) timezone:"UTC" limit:400"#,
+            ),
+            "serviceradar",
+        )
+        .expect("profile compiles");
+
+        assert!(
+            compiled.sql.contains(">= '2026-09-11T00:00:00Z'"),
+            "{}",
+            compiled.sql
+        );
+        assert!(
+            compiled.sql.contains("< '2026-09-19T15:00:00Z'"),
             "{}",
             compiled.sql
         );
