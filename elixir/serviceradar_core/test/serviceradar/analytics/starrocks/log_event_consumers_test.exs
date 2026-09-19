@@ -73,10 +73,10 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumersTest do
         # statement uses, so the stub answers both high-water marks: the view
         # has kept up with the table it aggregates.
         sql == "SELECT MAX(`bucket`) FROM serviceradar.events_hourly" ->
-          {:ok, %{rows: [[~N[1999-06-15 23:00:00]]], num_rows: 1}}
+          {:ok, %{rows: [["1999-06-15 23:00:00"]], num_rows: 1}}
 
         sql == "SELECT MAX(`time`) FROM serviceradar.events" ->
-          {:ok, %{rows: [[~N[1999-06-15 23:30:00]]], num_rows: 1}}
+          {:ok, %{rows: [["1999-06-15 23:30:00"]], num_rows: 1}}
 
         sql =~ "SUM(total_count)" ->
           assert sql =~ "serviceradar.events_hourly"

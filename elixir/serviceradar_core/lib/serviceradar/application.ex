@@ -67,6 +67,7 @@ defmodule ServiceRadar.Application do
         repo_child(),
         control_repo_child(),
         starrocks_mysql_child(),
+        starrocks_rollup_freshness_cache_child(),
         starrocks_retention_child(),
 
         # Supervise asynchronous config dependency notifications so shutdown and
@@ -219,6 +220,10 @@ defmodule ServiceRadar.Application do
 
   defp starrocks_mysql_child do
     ServiceRadar.Analytics.StarRocks.MySQL.child_spec([])
+  end
+
+  defp starrocks_rollup_freshness_cache_child do
+    ServiceRadar.Analytics.StarRocks.RollupFreshnessCache.child_spec([])
   end
 
   defp starrocks_retention_child do

@@ -3,6 +3,7 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshnessTest do
 
   alias ServiceRadar.Analytics.StarRocks.Env
   alias ServiceRadar.Analytics.StarRocks.RollupFreshness
+  alias ServiceRadar.Analytics.StarRocks.RollupFreshnessCache
 
   @moduletag :db_free
 
@@ -70,6 +71,26 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshnessTest do
     refute RollupFreshness.fresh?(:flows, query: probe)
   end
 
+  # The Frontend answers over the MySQL text protocol and the transport hands
+  # cells through untouched, so a DATETIME reaches this check as whatever MyXQL
+  # decoded. Reading a binary as unparseable would report every view stale and
+  # silently retire the rollup with nothing logged.
+  test "a string high-water mark is read, not rejected" do
+    kept_up = probes([["1999-06-15 12:00:00"]], [["1999-06-15 12:59:00"]])
+    assert RollupFreshness.fresh?(:flows, query: kept_up)
+
+    lagging = probes([["1999-06-15 09:00:00"]], [["1999-06-15 12:59:00"]])
+    refute RollupFreshness.fresh?(:flows, query: lagging)
+
+    iso = probes([["1999-06-15T12:00:00Z"]], [["1999-06-15T12:59:00Z"]])
+    assert RollupFreshness.fresh?(:flows, query: iso)
+  end
+
+  test "a DateTime high-water mark is read too" do
+    probe = probes([[~U[1999-06-15 12:00:00Z]]], [[~U[1999-06-15 12:59:00Z]]])
+    assert RollupFreshness.fresh?(:flows, query: probe)
+  end
+
   test "a failed freshness probe fails closed to stale" do
     probe = fn _sql -> {:error, :connect_failed} end
     refute RollupFreshness.fresh?(:flows, query: probe)
@@ -116,6 +137,96 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshnessTest do
   test "the :mysql seam still reaches the probe when no :query fun is injected" do
     probe = probes([[~N[1999-06-15 12:00:00]]], [[~N[1999-06-15 12:30:00]]])
     assert RollupFreshness.fresh?(:flows, mysql: probe)
+  end
+
+  describe "with the high-water cache running" do
+    setup do
+      start_supervised!(%{
+        id: RollupFreshnessCache,
+        start: {RollupFreshnessCache, :start_link, [[]]}
+      })
+
+      :ok
+    end
+
+    # Both probes are unbounded aggregates over the warehouse's largest
+    # partitioned tables, and one dashboard render fires several rollup-eligible
+    # queries. Without amortization each chart pays its own pair.
+    test "queries within the cache window share one pair of probes" do
+      parent = self()
+      mv = flows_mv_sql()
+      raw = flows_raw_sql()
+
+      probe = fn
+        ^mv ->
+          send(parent, :mv_probe)
+          result([[~N[1999-06-15 12:00:00]]])
+
+        ^raw ->
+          send(parent, :raw_probe)
+          result([[~N[1999-06-15 12:30:00]]])
+      end
+
+      assert RollupFreshness.fresh?(:flows, query: probe)
+      assert RollupFreshness.fresh?(:flows, query: probe)
+      assert RollupFreshness.fresh?(:flows, query: probe)
+
+      assert_received :raw_probe
+      assert_received :mv_probe
+      refute_received :raw_probe
+      refute_received :mv_probe
+    end
+
+    test "each dataset caches its own marks" do
+      parent = self()
+
+      probe = fn sql ->
+        send(parent, {:probe, sql})
+
+        if sql =~ "_hourly" do
+          result([[~N[1999-06-15 12:00:00]]])
+        else
+          result([[~N[1999-06-15 12:30:00]]])
+        end
+      end
+
+      assert RollupFreshness.fresh?(:flows, query: probe)
+      assert RollupFreshness.fresh?(:events, query: probe)
+
+      assert_received {:probe, flows_raw}
+      assert flows_raw =~ "ocsf_network_activity"
+      assert_received {:probe, flows_mv}
+      assert flows_mv =~ "ocsf_network_activity_hourly"
+      assert_received {:probe, events_raw}
+      assert events_raw =~ "events"
+      assert_received {:probe, events_mv}
+      assert events_mv =~ "events_hourly"
+    end
+
+    # A cached failure would hold the rollup shut for the whole window after a
+    # single timeout, which is the outcome the gate exists to avoid.
+    test "a failed probe is not cached, so the next query retries it" do
+      attempts = :counters.new(1, [])
+      mv = flows_mv_sql()
+      raw = flows_raw_sql()
+
+      probe = fn
+        ^raw ->
+          :counters.add(attempts, 1, 1)
+
+          if :counters.get(attempts, 1) == 1 do
+            {:error, :connect_failed}
+          else
+            result([[~N[1999-06-15 12:30:00]]])
+          end
+
+        ^mv ->
+          result([[~N[1999-06-15 12:00:00]]])
+      end
+
+      refute RollupFreshness.fresh?(:flows, query: probe)
+      assert RollupFreshness.fresh?(:flows, query: probe)
+    end
   end
 
   test "the compiled SQL names the dataset whose rollup it reads" do

@@ -46,22 +46,20 @@ defmodule ServiceRadarWebNG.SRQL do
     direction = Map.get(opts, :direction)
     scope = Map.get(opts, :scope)
 
-    with :ok <- EntityAccess.authorize(query, scope) do
-      mode = resolve_backend_mode(query)
-
-      with {:ok, translation} <- translate(query, limit, cursor, direction, mode),
-           {:ok, translation, mode} <-
-             settle_rollup(translation, mode, &translate(query, limit, cursor, direction, &1)),
-           {:ok, result} <- execute_backend_raw(translation, mode),
-           {:ok, payload} <- encode_result_arrow(result) do
-        {:ok,
-         %{
-           payload: payload,
-           schema: %{"columns" => result.columns},
-           pagination: build_pagination(translation, result.rows),
-           viz: extract_viz(translation)
-         }}
-      end
+    with :ok <- EntityAccess.authorize(query, scope),
+         {:ok, mode} <- resolve_backend_mode(query),
+         {:ok, translation} <- translate(query, limit, cursor, direction, mode),
+         {:ok, translation, mode} <-
+           settle_rollup(translation, mode, &translate(query, limit, cursor, direction, &1)),
+         {:ok, result} <- execute_backend_raw(translation, mode),
+         {:ok, payload} <- encode_result_arrow(result) do
+      {:ok,
+       %{
+         payload: payload,
+         schema: %{"columns" => result.columns},
+         pagination: build_pagination(translation, result.rows),
+         viz: extract_viz(translation)
+       }}
     end
   end
 
@@ -92,8 +90,6 @@ defmodule ServiceRadarWebNG.SRQL do
           denied
 
         :ok ->
-          mode = resolve_backend_mode(query)
-
           if entity == "dashboards" do
             {:ok,
              %{
@@ -103,7 +99,8 @@ defmodule ServiceRadarWebNG.SRQL do
                "error" => nil
              }}
           else
-            with {:ok, translation} <- translate(query, limit, cursor, direction, mode),
+            with {:ok, mode} <- resolve_backend_mode(query),
+                 {:ok, translation} <- translate(query, limit, cursor, direction, mode),
                  {:ok, translation, mode} <-
                    settle_rollup(
                      translation,
@@ -137,10 +134,14 @@ defmodule ServiceRadarWebNG.SRQL do
     )
   end
 
+  # NetFlow is warehouse-only: an installation that has not cut flows over is
+  # told so, rather than being handed CNPG rows that answer the same question
+  # differently.
   defp resolve_backend_mode(query) do
-    query
-    |> EntityAccess.extract_entity()
-    |> Readers.mode_for()
+    case query |> EntityAccess.extract_entity() |> Readers.mode_for() do
+      {:error, _reason} = error -> error
+      mode -> {:ok, mode}
+    end
   end
 
   # Hourly materialized views are REFRESH ASYNC with no schedule, so a view

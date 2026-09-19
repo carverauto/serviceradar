@@ -299,8 +299,9 @@ defmodule ServiceRadar.Observability.ThreatIntelRetrohuntWorker do
   Aggregates every observed flow endpoint for the run window.
 
   The window is the whole run, not a batch, so this is resolved once per job and
-  threaded through every indicator batch. On CNPG the aggregation stays inside
-  the matching statement and there is nothing to resolve.
+  threaded through every indicator batch. Flows are warehouse-only, so a run on
+  an installation that has not cut them over fails here instead of matching
+  against CNPG history.
   """
   @spec observations_for_run(map(), keyword()) :: {:ok, [map()] | nil} | {:error, map()}
   def observations_for_run(state, opts \\ []) do
@@ -311,8 +312,8 @@ defmodule ServiceRadar.Observability.ThreatIntelRetrohuntWorker do
           {:error, reason} -> {:error, %{run_id: state.run_id, reason: reason}}
         end
 
-      :cnpg ->
-        {:ok, nil}
+      {:error, reason} ->
+        {:error, %{run_id: state.run_id, reason: reason}}
     end
   end
 

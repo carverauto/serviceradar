@@ -34,7 +34,7 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
     with {:ok, _current_backfills} <- WorkloadBackfill.backfill_current_workload_identity() do
       case flow_history_backend() do
         :starrocks -> correlate_starrocks()
-        :cnpg -> guarded_correlation_sql()
+        {:error, _reason} = error -> error
       end
     end
   end
@@ -799,23 +799,6 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
       ) AS pe_vip ON pe_backend.owner IS NULL
     )
     """
-  end
-
-  # Runs the correlation statement under a Postgres transaction-scoped advisory
-  # lock so only one `core` node executes a pass at a time. The lock is released
-  # automatically at transaction end (commit/rollback/disconnect), so a crashed
-  # node never strands the lock. If another node already holds it, this pass is a
-  # no-op (returns 0) rather than blocking.
-  defp guarded_correlation_sql do
-    case with_correlator_lock(fn ->
-           case ServiceRadar.Repo.query(correlation_sql(), [], timeout: @correlation_timeout_ms) do
-             {:ok, %{rows: [[num_rows]]}} -> {:ok, num_rows}
-             {:error, reason} -> {:error, reason}
-           end
-         end) do
-      {:ok, :contended} -> {:ok, 0}
-      other -> other
-    end
   end
 
   # The warehouse pass reaches StarRocks and JetStream, so only the CNPG

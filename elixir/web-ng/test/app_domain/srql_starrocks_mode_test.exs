@@ -21,7 +21,10 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
     %{prev: prev}
   end
 
-  test "authorized flow queries stay on CNPG while cutover_datasets is empty" do
+  # NetFlow has no CNPG serving path: an installation that has not cut flows
+  # over is told so, instead of being handed CNPG rows that answer the same
+  # question over a different retention window.
+  test "authorized flow queries refuse to serve while cutover_datasets is empty" do
     result =
       try do
         SRQL.query(@flows_query, %{scope: @scope})
@@ -29,7 +32,24 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
         exception -> {:rescued, exception}
       end
 
-    refute match?({:error, :connect_failed}, result)
+    assert result == {:error, :starrocks_required}
+  end
+
+  test "an unauthorized flow query is still forbidden before routing refuses" do
+    assert {:error, :forbidden} =
+             SRQL.query(@flows_query, %{scope: %{permissions: MapSet.new()}})
+  end
+
+  test "datasets that are not cut over and are not flows still read CNPG" do
+    scope = %{permissions: MapSet.new(["observability.logs.view"])}
+
+    result =
+      try do
+        SRQL.query("in:logs time:last_1h limit:1", %{scope: scope})
+      rescue
+        exception -> {:rescued, exception}
+      end
+
     assert match?({:rescued, %RuntimeError{message: "could not lookup Ecto repo" <> _}}, result)
   end
 
@@ -68,9 +88,6 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
       assert body =~ "ocsf_network_activity"
       refute body =~ "time_bucket"
     end
-
-    assert {:error, :forbidden} =
-             SRQL.query(@flows_query, %{scope: %{permissions: MapSet.new()}})
   end
 
   test "authorized last_1h map stats select StarRocks when flows are in cutover_datasets",
@@ -121,14 +138,8 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
       Keyword.put(prev, :mysql, mysql)
     )
 
-    result =
-      try do
-        SRQL.query(@flows_query, %{scope: @scope, mode: "starrocks"})
-      rescue
-        exception -> {:rescued, exception}
-      end
-
-    assert match?({:rescued, %RuntimeError{message: "could not lookup Ecto repo" <> _}}, result)
+    assert SRQL.query(@flows_query, %{scope: @scope, mode: "starrocks"}) ==
+             {:error, :starrocks_required}
   end
 
   test "a request-supplied mode cannot pull a cut-over dataset back to CNPG", %{prev: prev} do
@@ -494,12 +505,13 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
 
     mv_max = NaiveDateTime.add(raw_max, -mv_lag_seconds)
 
+    # Marks come back as the Frontend's text-protocol cells, not structs.
     fn
       "SELECT MAX(`bucket`) FROM serviceradar.ocsf_network_activity_hourly" ->
-        {:ok, postgrex_result(["max"], [[mv_max]])}
+        {:ok, postgrex_result(["max"], [[NaiveDateTime.to_string(mv_max)]])}
 
       "SELECT MAX(`time`) FROM serviceradar.ocsf_network_activity" ->
-        {:ok, postgrex_result(["max"], [[raw_max]])}
+        {:ok, postgrex_result(["max"], [[NaiveDateTime.to_string(raw_max)]])}
 
       sql ->
         send(self(), {:starrocks_query, sql})

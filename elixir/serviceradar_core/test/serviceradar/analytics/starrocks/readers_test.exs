@@ -7,13 +7,25 @@ defmodule ServiceRadar.Analytics.StarRocks.ReadersTest do
   @moduletag :db_free
 
   test "ordinary installations keep CNPG as the serving authority" do
-    assert Readers.mode_for(:flows) == nil
-    assert Readers.mode_for("flows") == nil
     assert Readers.mode_for(:metrics) == nil
-    assert Readers.backend(:flows) == :cnpg
     assert Readers.backend(:metrics) == :cnpg
     assert Readers.backend(:logs) == :cnpg
     assert Readers.backend(:events) == :cnpg
+  end
+
+  # NetFlow has no CNPG serving path. Routing it to CNPG when the warehouse is
+  # not cut over produces a second, divergent answer to the same question, so
+  # the router refuses instead.
+  test "flows refuse to serve until the dataset is cut over" do
+    assert Readers.mode_for(:flows) == {:error, :starrocks_required}
+    assert Readers.mode_for("flows") == {:error, :starrocks_required}
+    assert Readers.mode_for("attributed_flows") == {:error, :starrocks_required}
+    assert Readers.backend(:flows) == {:error, :starrocks_required}
+
+    assert Readers.fetch(:flows, %{
+             cnpg: fn -> flunk("flows must never read CNPG") end,
+             starrocks: fn -> :starrocks_branch end
+           }) == {:error, :starrocks_required}
   end
 
   test "cutover_datasets selects starrocks mode for the matching entity" do
@@ -56,7 +68,7 @@ defmodule ServiceRadar.Analytics.StarRocks.ReadersTest do
       assert Readers.mode_for("snmp") == "starrocks"
       assert Readers.mode_for("rperf_metrics") == "starrocks"
       assert Readers.backend(:metrics) == :starrocks
-      assert Readers.mode_for("flows") == nil
+      assert Readers.mode_for("flows") == {:error, :starrocks_required}
 
       # EventWriter mirrors CNPG timeseries_metrics only; the sysmon families
       # have their own CNPG tables, so a metrics cutover must not divert them.

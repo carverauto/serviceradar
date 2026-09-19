@@ -149,33 +149,15 @@ defmodule ServiceRadar.Observability.NetflowExporterCacheRefreshWorker do
       |> DateTime.add(-scan_window_seconds, :second)
       |> DateTime.truncate(:second)
 
-    ServiceRadar.Analytics.StarRocks.Readers.fetch(:flows, %{
-      cnpg: fn -> cnpg_sampler_addresses(since, limit) end,
-      starrocks: fn -> starrocks_sampler_addresses(since, limit, opts) end
-    })
+    # Flows live in the warehouse or nowhere: an installation that has not cut
+    # them over discovers no exporters rather than a CNPG answer.
+    case ServiceRadar.Analytics.StarRocks.Readers.mode_for(:flows) do
+      "starrocks" -> starrocks_sampler_addresses(since, limit, opts)
+      _ -> []
+    end
   end
 
   def discover_sampler_addresses(_scan_window_seconds, _limit, _opts), do: []
-
-  defp cnpg_sampler_addresses(since, limit) do
-    query =
-      from(f in "ocsf_network_activity",
-        prefix: "platform",
-        where: f.time >= ^since,
-        where: not is_nil(f.sampler_address),
-        where: f.sampler_address != "",
-        distinct: true,
-        select: f.sampler_address,
-        limit: ^limit
-      )
-
-    query
-    |> Repo.all()
-    |> Enum.map(&to_string/1)
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.uniq()
-  end
 
   defp starrocks_sampler_addresses(since, limit, opts) do
     iso = DateTime.to_iso8601(since)

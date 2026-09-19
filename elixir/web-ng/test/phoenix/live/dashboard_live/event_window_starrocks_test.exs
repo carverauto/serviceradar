@@ -30,7 +30,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.EventWindowStarRocksTest do
     # The rollup gate probes for staleness through this same seam. Here the
     # view has kept up with the table it aggregates, so the window reads it.
     starrocks_query =
-      with_freshness_probes(~N[1999-06-15 23:00:00], ~N[1999-06-15 23:30:00], fn sql ->
+      with_freshness_probes("1999-06-15 23:00:00", "1999-06-15 23:30:00", fn sql ->
         # events_hourly already groups by hour and severity, so a whole-day
         # bucket re-aggregates from it with SUM(total_count).
         assert sql =~ "serviceradar.events_hourly"
@@ -76,7 +76,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.EventWindowStarRocksTest do
 
     # The view is a day and a half behind the table it aggregates.
     starrocks_query =
-      with_freshness_probes(~N[1999-06-14 00:00:00], ~N[1999-06-15 12:00:00], fn sql ->
+      with_freshness_probes("1999-06-14 00:00:00", "1999-06-15 12:00:00", fn sql ->
         assert sql =~ "serviceradar.events"
         assert sql =~ "COUNT(*)"
         refute sql =~ "events_hourly"

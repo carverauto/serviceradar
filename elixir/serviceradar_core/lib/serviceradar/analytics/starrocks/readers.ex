@@ -3,7 +3,9 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
   Dataset reader routing for StarRocks cutover.
 
   Ordinary installations stay on CNPG until a dataset is listed in
-  `cutover_datasets`.
+  `cutover_datasets`. NetFlow is the exception: `:flows` is served from the
+  warehouse or not at all, so an installation that has not cut it over gets
+  `{:error, :starrocks_required}` rather than CNPG rows.
 
   An entity only maps to a dataset when the warehouse actually holds its rows.
   Every spelling the SRQL parser accepts for such an entity must be listed:
@@ -38,30 +40,44 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
     end
   end
 
-  @spec mode_for(atom() | String.t() | nil) :: String.t() | nil
+  # NetFlow has no CNPG serving path. Every other dataset keeps one and stays
+  # on CNPG until it is cut over; flows instead refuse to answer, because the
+  # alternative is a second, divergent set of numbers for the same question.
+  @starrocks_only [:flows]
+
+  @spec mode_for(atom() | String.t() | nil) ::
+          String.t() | {:error, :starrocks_required} | nil
   def mode_for(nil), do: nil
 
   def mode_for(entity) when is_binary(entity), do: mode_for(dataset_for_entity(entity))
 
   def mode_for(dataset) when is_atom(dataset) do
-    if dataset in cutover_datasets(), do: "starrocks"
+    cond do
+      dataset in cutover_datasets() -> "starrocks"
+      dataset in @starrocks_only -> {:error, :starrocks_required}
+      true -> nil
+    end
   end
 
-  @spec backend(atom() | String.t() | nil) :: :starrocks | :cnpg
+  @spec backend(atom() | String.t() | nil) ::
+          :starrocks | :cnpg | {:error, :starrocks_required}
   def backend(dataset) do
     case mode_for(dataset) do
       "starrocks" -> :starrocks
+      {:error, _reason} = error -> error
       _ -> :cnpg
     end
   end
 
-  @spec fetch(atom() | String.t() | nil, %{cnpg: (-> result), starrocks: (-> result)}) :: result
+  @spec fetch(atom() | String.t() | nil, %{cnpg: (-> result), starrocks: (-> result)}) ::
+          result | {:error, :starrocks_required}
         when result: term()
   def fetch(dataset, %{cnpg: cnpg, starrocks: starrocks})
       when is_function(cnpg, 0) and is_function(starrocks, 0) do
     case backend(dataset) do
       :starrocks -> starrocks.()
       :cnpg -> cnpg.()
+      {:error, _reason} = error -> error
     end
   end
 

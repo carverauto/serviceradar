@@ -385,15 +385,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
         window = Keyword.get(opts, :window)
         srql_module = Keyword.get(opts, :srql_module, default_srql_module_for_flows())
 
-        cond do
-          is_map(window) and srql_module != nil ->
-            load_netflow_map_window(scope, window, srql_module)
-
-          is_map(window) ->
-            load_netflow_map_legacy(scope, Keyword.put(opts, :time_window, window.value))
-
-          true ->
-            load_netflow_map_legacy(scope, opts)
+        if is_map(window) and srql_module != nil do
+          load_netflow_map_window(scope, window, srql_module)
+        else
+          raise "Dashboard NetFlow map requires the flows dataset on StarRocks"
         end
       end
 
@@ -455,56 +450,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
           {:ok, slice} -> slice
           {:error, _reason} -> raise "Dashboard event window query failed"
         end
-      end
-
-      defp load_netflow_map_legacy(_scope, opts) do
-        time_window = Keyword.get(opts, :time_window, "last_15m")
-
-        wave1 =
-          run_concurrent(
-            collector_counts: {fn -> ServiceRadarWebNG.TenantUsage.collector_counts_by_type() end, %{}},
-            flow_summary: {fn -> flow_summary(time_window) end, empty_flow_summary()},
-            traffic_links: {fn -> traffic_links(time_window) end, []},
-            topology_links: {fn -> topology_links(time_window) end, []},
-            mtr_overlays: {fn -> mtr_overlays() end, []}
-          )
-
-        %{
-          collector_counts: collector_counts,
-          flow_summary: flow_summary_raw,
-          traffic_links: traffic_links,
-          topology_links: topology_links,
-          mtr_overlays: mtr_overlays
-        } = wave1
-
-        flow_summary =
-          Map.put(
-            flow_summary_raw,
-            :link_count,
-            max(length(traffic_links), length(topology_links))
-          )
-
-        mtr_summary = summarize_mtr_overlays(mtr_overlays)
-        netflow_state = netflow_source_state(collector_counts, flow_summary, traffic_links)
-
-        %{
-          time_window: time_window,
-          time_window_label: time_window_label(time_window),
-          netflow_window: time_window,
-          netflow_state: netflow_state,
-          collector_counts: collector_counts,
-          flow_summary: flow_summary,
-          map_stats: map_stats(flow_summary, mtr_summary, traffic_links, time_window),
-          traffic_links_window_label: ServiceRadarWebNGWeb.DashboardLive.Window.label(time_window),
-          topology_links: topology_links,
-          topology_links_json: Jason.encode!(topology_links),
-          traffic_links: traffic_links,
-          traffic_links_json: Jason.encode!(traffic_links),
-          mtr_overlays: mtr_overlays,
-          mtr_overlays_json: Jason.encode!(mtr_overlays),
-          map_empty_title: map_empty_title(netflow_state, traffic_links),
-          map_empty_detail: map_empty_detail(netflow_state, traffic_links)
-        }
       end
 
       @spec load_survey_summary(term()) :: map()
