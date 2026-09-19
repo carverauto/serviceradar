@@ -32,6 +32,7 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
     unique: [period: :infinity, states: :incomplete]
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Analytics.StarRocks.Destination
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Inventory.InterfaceSettings
   alias ServiceRadar.Jobs.SelfScheduling
@@ -40,6 +41,8 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
 
   require Ash.Query
   require Logger
+
+  @event_buffer_key {__MODULE__, :shadow_events}
 
   # How often to run the evaluator (1 minute)
   @evaluation_interval_seconds 60
@@ -97,9 +100,13 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
       {:ok, settings} when settings != [] ->
         Logger.info("Evaluating #{length(settings)} interface thresholds")
 
+        start_event_buffer()
+
         Enum.each(settings, fn setting ->
           evaluate_threshold(setting)
         end)
+
+        flush_event_buffer()
 
         # Reschedule for next check
         schedule_next_check(args)
@@ -502,9 +509,34 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
         returning: false
       )
 
-    if count == 0, do: {:ok, :skipped}, else: {:ok, event}
+    if count == 0 do
+      {:ok, :skipped}
+    else
+      buffer_event(event)
+      {:ok, event}
+    end
   rescue
     error -> {:error, error}
+  end
+
+  # One job run can emit an event per threshold per interface. A Stream Load per
+  # event would put a synchronous HTTP round trip between each violation and its
+  # alert evaluation, and a burst of single-row loads is the StarRocks small-load
+  # anti-pattern. The job owns the batch boundary instead.
+  defp start_event_buffer, do: Process.put(@event_buffer_key, [])
+
+  defp buffer_event(event) do
+    Process.put(@event_buffer_key, [event | Process.get(@event_buffer_key, [])])
+    :ok
+  end
+
+  defp flush_event_buffer do
+    case Process.delete(@event_buffer_key) do
+      [_ | _] = events -> _ = Destination.persist_after_cnpg(:events, Enum.reverse(events))
+      _ -> :ok
+    end
+
+    :ok
   end
 
   defp build_metric_event(setting, metric_name, config, metric_value, duration_seconds) do

@@ -9,6 +9,7 @@ import TimezoneSelect from "./TimezoneSelect"
 import DashboardBuilderCanvas from "./DashboardBuilderCanvas"
 import DashboardPanelChart from "./DashboardPanelChart"
 import DashboardMapViewSelect from "./DashboardMapViewSelect"
+import DashboardWindowSelect from "./DashboardWindowSelect"
 import DashboardWasmHost from "./DashboardWasmHost"
 import DetailsState from "./DetailsState"
 import JdmEditorHook from "./JdmEditorHook"
@@ -59,6 +60,7 @@ export default {
   DashboardBuilderCanvas,
   DashboardPanelChart,
   DashboardMapViewSelect,
+  DashboardWindowSelect,
   DashboardWasmHost,
   DetailsState,
   JdmEditorHook,

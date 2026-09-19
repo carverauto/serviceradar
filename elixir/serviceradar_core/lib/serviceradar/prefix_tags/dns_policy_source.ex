@@ -14,6 +14,7 @@ defmodule ServiceRadar.PrefixTags.DnsPolicySource do
   @behaviour ServiceRadar.PrefixTags.ExternalSources
 
   alias Ecto.Adapters.SQL
+  alias ServiceRadar.Analytics.StarRocks.LogEventConsumers
   alias ServiceRadar.PrefixTags.ExternalSources
   alias ServiceRadar.PrefixTags.Loader
   alias ServiceRadar.PrefixTags.Slug
@@ -80,7 +81,7 @@ defmodule ServiceRadar.PrefixTags.DnsPolicySource do
     lookback = Keyword.get(config, :lookback_hours, @default_lookback_hours)
     max_hosts = Keyword.get(config, :max_hosts, @default_max_hosts)
 
-    case SQL.query(Repo, @load_rpz_clients_sql, [to_string(lookback), max_hosts]) do
+    case load_rpz_clients(lookback, max_hosts, opts) do
       {:ok, result} ->
         %{rows: rows, snapshot_at: snapshot_at} = parse_query_result(result)
 
@@ -99,6 +100,15 @@ defmodule ServiceRadar.PrefixTags.DnsPolicySource do
     end
   rescue
     e -> {:error, e}
+  end
+
+  defp load_rpz_clients(lookback, max_hosts, opts) do
+    LogEventConsumers.fetch(:events,
+      cnpg: fn -> SQL.query(Repo, @load_rpz_clients_sql, [to_string(lookback), max_hosts]) end,
+      starrocks: fn ->
+        LogEventConsumers.dns_rpz_clients(lookback, max_hosts, Keyword.take(opts, [:query]))
+      end
+    )
   end
 
   @doc false

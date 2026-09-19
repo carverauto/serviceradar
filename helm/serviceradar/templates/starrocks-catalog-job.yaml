@@ -1,0 +1,62 @@
+{{- /* CREATE EXTERNAL CATALOG on the StarRocks FE. Off unless both StarRocks
+     analytics and catalog.enabled are true. The CREATE SQL (including the
+     CNPG reader password) lives in an infrastructure secret, not values.yaml. */ -}}
+{{- $sr := default (dict) (default (dict) .Values.analytics).starrocks -}}
+{{- $cat := default (dict) $sr.catalog -}}
+{{- if and $sr.enabled $cat.enabled }}
+{{- if not $cat.secretName }}
+{{- fail "analytics.starrocks.catalog.secretName is required when catalog.enabled is true" }}
+{{- end }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-starrocks-catalog
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: serviceradar
+    app.kubernetes.io/component: starrocks-catalog
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "20"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: serviceradar
+        app.kubernetes.io/component: starrocks-catalog
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      containers:
+        - name: create-catalog
+          image: mysql:8.4
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              mysql -h "$FE_HOST" -P "$FE_PORT" -u root \
+                ${FE_PASSWORD:+-p"$FE_PASSWORD"} \
+                --protocol=TCP \
+                -e "$CATALOG_SQL"
+          env:
+            - name: FE_HOST
+              value: {{ $sr.fe.service | quote }}
+            - name: FE_PORT
+              value: {{ $sr.fe.queryPort | quote }}
+            - name: CATALOG_SQL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $cat.secretName | quote }}
+                  key: createSql
+            {{- if $cat.fePasswordSecretName }}
+            - name: FE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $cat.fePasswordSecretName | quote }}
+                  key: {{ $cat.fePasswordSecretKey | default "password" | quote }}
+            {{- end }}
+{{- end }}

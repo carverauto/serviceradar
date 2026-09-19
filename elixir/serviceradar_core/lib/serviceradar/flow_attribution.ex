@@ -41,11 +41,20 @@ defmodule ServiceRadar.FlowAttribution do
         persistence = Keyword.get(opts, :persistence, &Persistence.insert_current_rows/1)
 
         case persistence.(rows) do
-          :ok -> :ok
-          {:ok, _result} -> :ok
-          {:error, reason} -> persistence_error(reason)
-          %Postgrex.Result{} -> :ok
-          other -> persistence_error({:unexpected_persistence_result, other})
+          :ok ->
+            :ok
+
+          {:ok, _result} ->
+            :ok
+
+          {:error, reason} ->
+            persistence_error(reason)
+
+          %Postgrex.Result{} ->
+            :ok
+
+          other ->
+            persistence_error({:unexpected_persistence_result, other})
         end
     end
   rescue

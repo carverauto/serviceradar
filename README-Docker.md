@@ -81,6 +81,41 @@ To default to the dev compose overlay (no `-f`), set `COMPOSE_FILE=docker-compos
    - Email: `root@localhost`
    - Password: (from step 5)
 
+## Optional profiles: StarRocks warehouse and NetFlow collector
+
+The default stack does **not** start StarRocks or the NetFlow collector, and
+all telemetry stays on CNPG hypertables. Optional profiles:
+
+```bash
+# Warehouse only (metrics/logs/events shadow). No flow collector.
+STARROCKS_ENABLED=true docker compose --profile starrocks up -d
+
+# NetFlow/sFlow collector on CNPG only.
+docker compose --profile flows up -d
+
+# Warehouse + NetFlow/sFlow collector.
+STARROCKS_ENABLED=true docker compose --profile starrocks --profile flows up -d
+```
+
+`flow-collector` stays off unless you pass `--profile flows` or
+`--profile network-ingest`. The two profiles are independent: NetFlow works
+without the warehouse, and flows are then stored on CNPG hypertables.
+
+`--profile starrocks` also runs a one-shot `starrocks-init` container that
+creates the warehouse database and tables once the frontend and backend are up.
+Compose runs a single backend, so it rewrites the replica count the clustered
+DDL pins. It is idempotent; bringing the profile up again re-runs it as a
+no-op.
+
+StarRocks telemetry retention is set per dataset. The warehouse tables are
+partitioned by day, so each `STARROCKS_RETENTION_DAYS_*` value is the number of
+daily partitions kept; anything older is dropped.
+`STARROCKS_RETENTION_DAYS_FLOWS` and `STARROCKS_RETENTION_DAYS_METRICS` default
+to 90, `STARROCKS_RETENTION_DAYS_LOGS` and `STARROCKS_RETENTION_DAYS_EVENTS` to
+365. Core applies them at start and retries with backoff until the warehouse
+accepts them, so a slow Frontend does not leave the tables on their DDL
+default.
+
 ## Update an Existing Stack
 
 1. Optional: choose a target image tag (Compose defaults to `latest`):

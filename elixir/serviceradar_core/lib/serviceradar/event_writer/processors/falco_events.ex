@@ -12,6 +12,7 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
 
   import Bitwise
 
+  alias ServiceRadar.Analytics.StarRocks.Destination
   alias ServiceRadar.Events.PubSub, as: EventsPubSub
   alias ServiceRadar.EventWriter.BulkInsert
   alias ServiceRadar.EventWriter.DeviceCorrelation
@@ -80,6 +81,13 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
         |> dedupe_rows_by_conflict_key(&Map.get(&1, :id))
 
       {event_count, inserted_events} = insert_event_rows(promoted_rows)
+
+      warehouse =
+        with {:ok, _} <- Destination.persist_after_cnpg(:logs, log_rows),
+             {:ok, _} <- Destination.persist_after_cnpg(:events, inserted_events) do
+          :ok
+        end
+
       maybe_broadcast_logs(log_count)
       maybe_broadcast_events(event_count)
       maybe_evaluate_stateful_rules(inserted_events)
@@ -90,7 +98,10 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
         %{}
       )
 
-      {:ok, log_count}
+      case warehouse do
+        :ok -> {:ok, log_count}
+        {:error, reason} -> {:error, reason}
+      end
     end
   rescue
     e ->

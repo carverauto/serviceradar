@@ -347,6 +347,7 @@ CORE_DEPS = [
     "@hexpm//:horde",
     "@hexpm//:jason",
     "@hexpm//:libcluster",
+    "@hexpm//:myxql",
     "@hexpm//:oban",
     "@hexpm//:open_api_spex",
     "@hexpm//:opentelemetry",
@@ -477,6 +478,9 @@ ex_unit_tests(
         # It belongs in this tier, not the database-backed one: it reads two files and
         # asserts on their text.
         "//helm/serviceradar:values",
+        # StarRocks schema SQL lives in a nested package, so priv/** does not
+        # stage it. Attribution load_columns coverage reads these files.
+        "//elixir/serviceradar_core/priv/starrocks:schema_sql",
     ],
     test_helper = "test/test_helper.exs",
     deps = [":erlang_app"],

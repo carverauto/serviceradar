@@ -24,7 +24,20 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   use ServiceRadarWebNGWeb.DashboardLive.Data.MapHelpers
   use ServiceRadarWebNGWeb.DashboardLive.Data.FormatHelpers
 
+  alias ServiceRadar.Analytics.StarRocks.Readers
+
   defp default_srql_module do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
+  end
+
+  # The dashboard NetFlow map follows the flows-dataset backend: once flows
+  # are cut over it reads via SRQL, otherwise it stays on the legacy CNPG
+  # loader. An explicit :srql_module opt always wins.
+  defp default_srql_module_for_flows do
+    if Readers.backend(:flows) == :starrocks do
+      default_srql_module()
+    end
+  rescue
+    _ -> nil
   end
 end

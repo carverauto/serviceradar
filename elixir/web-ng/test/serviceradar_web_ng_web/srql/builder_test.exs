@@ -27,6 +27,18 @@ defmodule ServiceRadarWebNGWeb.SRQL.BuilderTest do
     assert rebuilt =~ "type:Access\\ Point"
   end
 
+  test "an apostrophe inside an unquoted value does not swallow the rest of the query" do
+    query = ~s|in:logs time:last_1h body:can't limit:100|
+
+    assert {:ok, state} = Builder.parse(query)
+    assert state["entity"] == "logs"
+    assert state["limit"] == 100
+
+    assert Enum.any?(state["filters"], fn filter ->
+             filter["field"] == "body" and filter["value"] == "can't"
+           end)
+  end
+
   test "parse supports escaped spaces in unquoted filter values" do
     query = ~S|in:devices vendor_name:Access\ Point sort:last_seen:desc limit:20|
 

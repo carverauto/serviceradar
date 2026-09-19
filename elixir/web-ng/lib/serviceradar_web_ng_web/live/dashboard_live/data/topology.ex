@@ -182,13 +182,30 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Topology do
         ORDER BY m.device_id, m.if_index, m.metric_name, bucket
         """
 
-        case ServiceRadarWebNG.Repo.query(sql, [
-               cutoff,
-               device_ids,
-               if_indexes,
-               ~w(ifHCInOctets ifHCOutOctets ifInOctets ifOutOctets)
-             ]) do
+        pairs = Enum.zip(device_ids, if_indexes)
+
+        result =
+          ServiceRadar.Analytics.StarRocks.MetricConsumers.fetch(
+            cnpg: fn ->
+              ServiceRadarWebNG.Repo.query(sql, [
+                cutoff,
+                device_ids,
+                if_indexes,
+                ~w(ifHCInOctets ifHCOutOctets ifInOctets ifOutOctets)
+              ])
+            end,
+            starrocks: fn ->
+              ServiceRadar.Analytics.StarRocks.MetricConsumers.sparkline_rows(pairs, cutoff)
+            end
+          )
+
+        case result do
           {:ok, %{rows: rows}} ->
+            rows
+            |> Enum.group_by(fn [device_id, if_index, _metric, _bucket, _value] -> {device_id, if_index} end)
+            |> Map.new(fn {key, grouped_rows} -> {key, build_interface_sparkline(grouped_rows)} end)
+
+          {:ok, rows} when is_list(rows) ->
             rows
             |> Enum.group_by(fn [device_id, if_index, _metric, _bucket, _value] -> {device_id, if_index} end)
             |> Map.new(fn {key, grouped_rows} -> {key, build_interface_sparkline(grouped_rows)} end)

@@ -4,7 +4,47 @@ defmodule ServiceRadar.EventWriter.Processors.FlowsTest do
   alias Flowpb.AttributedFlowMessage
   alias Flowpb.FlowAttribution
   alias Flowpb.FlowMessage
+  alias ServiceRadar.Analytics.StarRocks.Identity
   alias ServiceRadar.EventWriter.Processors.Flows
+
+  test "samples of one conversation inside a second stay distinct records" do
+    sample = %FlowMessage{
+      type: :SFLOW_5,
+      time_received_ns: 1_705_363_200_100_000_000,
+      time_flow_start_ns: 1_705_363_200_100_000_000,
+      time_flow_end_ns: 1_705_363_200_100_000_000,
+      sampler_address: <<198, 51, 100, 1>>,
+      src_addr: <<192, 0, 2, 10>>,
+      dst_addr: <<192, 0, 2, 20>>,
+      src_port: 44_321,
+      dst_port: 443,
+      proto: 6,
+      bytes: 1514,
+      packets: 1,
+      sampling_rate: 1024,
+      in_if: 10,
+      out_if: 20,
+      tcp_flags: 24,
+      protocol_name: "TCP"
+    }
+
+    ids =
+      for offset_ns <- [0, 300_000_000, 700_000_000] do
+        sample
+        |> Map.put(:time_flow_end_ns, sample.time_flow_end_ns + offset_ns)
+        |> Flows.row_from_flow_message(%{subject: "flows.raw.sflow"})
+        |> then(&Identity.record_id(:flows, &1))
+      end
+
+    assert Enum.uniq(ids) == ids
+
+    replay =
+      sample
+      |> Flows.row_from_flow_message(%{subject: "flows.raw.sflow"})
+      |> then(&Identity.record_id(:flows, &1))
+
+    assert replay == hd(ids)
+  end
 
   test "row_from_flow_message builds an OCSF-compatible row from protobuf flow data" do
     flow = %FlowMessage{

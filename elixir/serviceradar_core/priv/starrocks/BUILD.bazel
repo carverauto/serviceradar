@@ -1,0 +1,20 @@
+# StarRocks DDL. Not Ecto, not mix ecto.migrate.
+# Apply with the StarRocks SQL console (mysql protocol on FE:9030).
+# 0001–0005 are CREATE for a new warehouse; 0006+ are one-shot migrations for
+# already-deployed tables. Re-running an ADD COLUMN fails if the column exists.
+# 0014 documents, but does not execute, the rebuild an unpartitioned warehouse
+# needs, because StarRocks cannot add partitioning or change a primary key with
+# ALTER. Its statements are commented out so an in-order apply is a no-op.
+# 0016 is the exception to "0006+ is one-shot": it DROPs and recreates the flow
+# hourly rollup, so it is safe to re-run and is REQUIRED on any warehouse whose
+# view was created before that rollup carried sampling-weighted totals. Compose
+# `starrocks-init` applies 0001-0005 and 0016; k8s/starrocks/README.md covers
+# the hand-applied warehouses.
+# The cnpg_platform JDBC catalog is not here: it is created by
+# helm/serviceradar/templates/starrocks-catalog-job.yaml, and the relations it
+# may expose are owned by ServiceRadar.Analytics.StarRocks.CatalogAllowlist.
+filegroup(
+    name = "schema_sql",
+    srcs = glob(["*.sql"]),
+    visibility = ["//visibility:public"],
+)

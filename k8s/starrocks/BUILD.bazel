@@ -1,0 +1,10 @@
+filegroup(
+    name = "cluster_files",
+    srcs = [
+        "README.md",
+        "values.yaml",
+        "values-cluster.yaml",
+        "values-cluster-shared-data.yaml",
+    ],
+    visibility = ["//visibility:public"],
+)

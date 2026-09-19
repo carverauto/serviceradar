@@ -471,13 +471,18 @@ defmodule ServiceRadar.Plugins.ProducerScheduleTest do
              |> Ash.Changeset.for_update(:update, %{next_due_at: due_at}, actor: actor)
              |> Ash.update()
 
+    before_dispatch = DateTime.utc_now()
+
     assert {:ok, dispatched} =
              due_schedule
              |> Ash.Changeset.for_update(:dispatch_due, %{}, actor: actor)
              |> Ash.update()
 
-    assert DateTime.after?(dispatched.next_due_at, DateTime.utc_now())
-    assert DateTime.diff(dispatched.next_due_at, DateTime.utc_now(), :second) <= 90
+    # Compare against the pre-dispatch clock. `* * * * *` next-fire is the
+    # upcoming minute boundary, so a post-dispatch utc_now() that has already
+    # crossed that second makes DateTime.after?/2 fail for a correct schedule.
+    assert DateTime.compare(dispatched.next_due_at, before_dispatch) != :lt
+    assert DateTime.diff(dispatched.next_due_at, before_dispatch, :second) <= 90
   end
 
   test "raising the cadence reschedules the pending due from the last run", %{

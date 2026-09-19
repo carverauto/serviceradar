@@ -39,6 +39,7 @@ impl QueryEngine {
     pub async fn execute_query(&self, request: QueryRequest) -> Result<QueryResponse> {
         let ast = parser::parse(&request.query)?;
         let plan = build_query_plan(&self.config, &request, ast)?;
+
         let mut conn = self.pool.get().await.map_err(|err| {
             error!(error = ?err, "failed to acquire database connection");
             ServiceError::Internal(anyhow::anyhow!("{err:?}"))

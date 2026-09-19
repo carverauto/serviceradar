@@ -35,6 +35,31 @@ argocdImageUpdater:
 tools:
   enabled: true
 
+# Opt-in StarRocks analytics for the demo lab FE/CN in namespace starrocks.
+# Object table data uses the DuckDB Linode analytics bucket, not Barman.
+analytics:
+  starrocks:
+    enabled: true
+    profile: sharedData
+    shadowDatasets: []
+    cutoverDatasets: []
+    sharedData:
+      objectStorageBucket: serviceradar-demo-analytics
+      objectStorageEndpoint: https://us-ord-10.linodeobjects.com
+      objectStorageRegion: us-ord
+      objectStoragePrefix: starrocks
+      urlStyle: path
+      secretName: serviceradar-analytics-object-store
+    catalog:
+      enabled: true
+      secretName: serviceradar-starrocks-catalog
+      # CNPG managed.roles reconciles login + password for
+      # serviceradar_starrocks_reader from this secret. Same password goes in
+      # the jdbcUri baked into secretName above.
+      readerPasswordSecret: serviceradar-starrocks-reader
+      jdbcUri: "jdbc:postgresql://cnpg-rw.demo.svc:5432/serviceradar?ssl=true&sslmode=require"
+      sourceNamespace: starrocks
+
 trivySidecar:
   enabled: true
   clusterId: demo

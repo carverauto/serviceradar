@@ -33,7 +33,8 @@ Raw flows use a **dedicated JetStream stream** (`flows` by default), not the sha
 - **NATS JetStream (`flows`)**: Dedicated stream for protobuf `FlowMessage` bytes on `flows.raw.netflow` / `flows.raw.sflow` (owned max_bytes/max_age, R=3 in HA)
 - **EventWriter flow pipeline**: Dedicated Elixir/Broadway demand domain that long-polls JetStream, decodes protobuf, persists OCSF flow rows, and derives BGP observations
 - **CNPG/TimescaleDB**: Time-series storage with canonical `ocsf_network_activity` flow rows and derived `bgp_routing_info`
-- **SRQL**: Query flows via `in:flows` from `ocsf_network_activity`
+- **StarRocks (optional, off by default)**: when the warehouse is enabled, the same EventWriter pipeline also Stream Loads flow rows into StarRocks. CNPG keeps serving them until the `flows` dataset is listed in the cutover setting (Helm `analytics.starrocks.cutoverDatasets`, Compose `STARROCKS_CUTOVER_DATASETS`)
+- **SRQL**: Query flows via `in:flows` from `ocsf_network_activity`, on whichever of the two stores currently serves the dataset
 - **Web UI**: NetFlow dashboard with BGP topology visualization
 
 ## BGP Routing Support
@@ -75,8 +76,15 @@ Send NetFlow to `<FLOW_COLLECTOR_ADDRESS>:2055/UDP` and sFlow to `<FLOW_COLLECTO
 
 **Docker Compose:**
 
-The shipped Compose stack enables the flow, trap, and BMP collectors together
-with `docker compose --profile network-ingest up -d`. Its bounded JetStream
+The shipped Compose stack leaves the flow collector off unless you pass
+`--profile flows` or `--profile network-ingest`. `--profile starrocks` starts
+the StarRocks warehouse (`starrocks/allin1-ubuntu:3.5.21`) independently; set
+`STARROCKS_ENABLED=true` alongside it so EventWriter shadows telemetry. The
+profiles are independent: NetFlow collection without StarRocks is supported and
+stores flows on CNPG hypertables.
+
+The trap, flow, and BMP collectors together start with
+`docker compose --profile network-ingest up -d`. Its bounded JetStream
 reservations are KV 2 GiB + objects 2 GiB + events 2 GiB + flows 1 GiB + BMP
 128 MiB = 7.125 GiB. That leaves 896 MiB of account headroom under the generated
 8 GiB platform-account quota, which itself stays below the NATS server's 10G

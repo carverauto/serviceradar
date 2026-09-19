@@ -394,13 +394,25 @@ defmodule ServiceRadar.EventWriter.Pipeline do
         end
       end)
 
+    # handle_message routes by subject via batcher_rules/0. Stream names do
+    # not always match those atoms (EVENTS covers events.flow.attribution,
+    # which is :flow_attribution). Idle extra batchers are cheap; a missing
+    # one crashes every matching message.
+    batcher_opts = [batch_size: config.batch_size, batch_timeout: config.batch_timeout]
+
+    stream_batchers =
+      Enum.reduce(batcher_rules(), stream_batchers, fn {batcher, _matcher}, acc ->
+        if Keyword.has_key?(acc, batcher) do
+          acc
+        else
+          Keyword.put(acc, batcher, batcher_opts)
+        end
+      end)
+
     if Keyword.has_key?(stream_batchers, :default) do
       stream_batchers
     else
-      Keyword.put(stream_batchers, :default,
-        batch_size: config.batch_size,
-        batch_timeout: config.batch_timeout
-      )
+      Keyword.put(stream_batchers, :default, batcher_opts)
     end
   end
 
@@ -491,6 +503,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
       {:otel_traces, &String.starts_with?(&1, "otel.traces")},
       {:metrics, &String.starts_with?(&1, "metrics.")},
       {:logs, &String.starts_with?(&1, "logs.")},
+      {:flow_attribution, &String.starts_with?(&1, "events.flow.attribution")},
       {:events, &String.starts_with?(&1, "events.")},
       {:telemetry, &String.starts_with?(&1, "telemetry.")},
       # Catch-all before specific prefixes are unnecessary: every raw-flow
@@ -552,6 +565,10 @@ defmodule ServiceRadar.EventWriter.Pipeline do
 
   defp get_processor(:otel_metrics), do: ServiceRadar.EventWriter.Processors.OtelMetrics
   defp get_processor(:otel_traces), do: ServiceRadar.EventWriter.Processors.OtelTraces
+
+  defp get_processor(:flow_attribution),
+    do: ServiceRadar.EventWriter.Processors.FlowAttributionUpdates
+
   defp get_processor(:events), do: Events
   defp get_processor(:pdns_ocsf), do: PowerDNS
   defp get_processor(:falco), do: ServiceRadar.EventWriter.Processors.FalcoEvents

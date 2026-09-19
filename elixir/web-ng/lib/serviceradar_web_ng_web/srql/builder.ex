@@ -142,6 +142,24 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
 
   def parse(_), do: {:error, :invalid_query}
 
+  def with_time_range(query, time_range, opts \\ []) when is_binary(query) and is_binary(time_range) do
+    tokens = tokenize(query)
+    bucket = Keyword.get(opts, :bucket)
+    replace_bucket? = is_binary(bucket) and Enum.any?(tokens, &(token_key(&1) == "bucket"))
+
+    tokens =
+      Enum.reject(tokens, fn token ->
+        token_key(token) in ["time", "timeframe"] or
+          (replace_bucket? and token_key(token) == "bucket")
+      end)
+
+    tokens = tokens ++ ["time:#{time_range}"]
+    tokens = if replace_bucket?, do: tokens ++ ["bucket:#{bucket}"], else: tokens
+    Enum.join(tokens, " ")
+  end
+
+  defp token_key(token), do: token |> String.trim_leading("!") |> String.split(":", parts: 2) |> hd() |> String.downcase()
+
   defp tokenize(""), do: []
 
   defp tokenize(query) when is_binary(query) do

@@ -1,0 +1,32 @@
+{{- /* Allow StarRocks FE/BE in catalog.sourceNamespace to CNPG :5432 for the
+     JDBC catalog. Off unless both StarRocks analytics and catalog.enabled
+     are true. Does not open telemetry serving or write paths. */ -}}
+{{- $sr := default (dict) (default (dict) .Values.analytics).starrocks -}}
+{{- $cat := default (dict) $sr.catalog -}}
+{{- if and $sr.enabled $cat.enabled }}
+{{- $clusterName := include "serviceradar.cnpgClusterName" . -}}
+{{- $sourceNs := default "starrocks" $cat.sourceNamespace -}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-starrocks-catalog-cnpg
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: serviceradar
+    app.kubernetes.io/component: starrocks-catalog
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: {{ $clusterName | quote }}
+      cnpg.io/instanceRole: primary
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $sourceNs | quote }}
+      ports:
+        - protocol: TCP
+          port: 5432
+{{- end }}

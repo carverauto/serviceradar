@@ -1,0 +1,25 @@
+# Lab StarRocks namespace: operator + shared-nothing cluster.
+# Declared here so the Pod Security level travels with it.
+#
+# WHY `baseline` AND NOT THE CLUSTER DEFAULT `restricted` (same as k8s/dgraph):
+# the operator Deployment satisfies restricted via values.yaml. FE/BE/CN pods
+# do not: the operator does not propagate seccompProfile (upstream issue 740)
+# and those images still run as root with a writable root filesystem. Enforce
+# restricted here and the cluster CR fails at pod creation with FailedCreate.
+#
+# `baseline` still forbids privileged, host namespaces, hostPath and added
+# capabilities. Keep audit/warn at restricted so the gap stays visible.
+# Do not put this CR in carverauto `demo` (copyfail-demo-seccomp mutates every
+# non-CNPG pod) or farm01 `serviceradar` (live product namespace).
+#
+# The operator still runs here; its own securityContext is unchanged.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: starrocks
+  labels:
+    kubernetes.io/metadata.name: starrocks
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

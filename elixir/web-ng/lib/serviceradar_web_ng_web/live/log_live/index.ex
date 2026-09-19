@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   use ServiceRadarWebNGWeb, :live_view
 
   import Ecto.Query
+  import ServiceRadarWebNGWeb.MetricWindowComponents, only: [metric_window_controls: 1]
   import ServiceRadarWebNGWeb.UIComponents
 
   alias Phoenix.LiveView.JS
@@ -26,7 +27,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNGWeb.Components.PrefixTagChips
+  alias ServiceRadarWebNGWeb.LogLive.NetflowRuntime
   alias ServiceRadarWebNGWeb.MetricSeries
+  alias ServiceRadarWebNGWeb.MetricWindowComponents
   alias ServiceRadarWebNGWeb.NetFlow.EnrichmentExpiry
   alias ServiceRadarWebNGWeb.Netflow.PrefixTagQuery
   alias ServiceRadarWebNGWeb.Netflow.RangeSelection
@@ -493,6 +496,25 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
+  def handle_event("netflow_set_range", %{"range" => range}, socket) do
+    if range in MetricWindowComponents.ranges() do
+      patch_netflow_window(socket, range, current_netflow_patch_opts(socket.assigns))
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("netflow_custom_range", %{"window" => params}, socket) do
+    case MetricWindowComponents.custom_range(params) do
+      {:ok, range} ->
+        opts = socket.assigns |> current_netflow_patch_opts() |> Map.put(:view, "explorer")
+        patch_netflow_window(socket, range, opts)
+
+      {:error, message} ->
+        {:noreply, put_flash(socket, :error, message)}
+    end
+  end
+
   def handle_event("netflow_range_selected", params, socket) do
     patch_opts =
       socket.assigns
@@ -854,6 +876,20 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     else
       socket
     end
+  end
+
+  defp patch_netflow_window(socket, range, patch_opts) do
+    href =
+      netflow_filter_patch(
+        socket.assigns.srql[:page_path],
+        socket.assigns.srql[:query] || "",
+        socket.assigns.limit,
+        "time",
+        range,
+        patch_opts
+      )
+
+    {:noreply, push_patch(socket, to: href)}
   end
 
   defp maybe_patch_netflow_range(socket, params, selector_points, patch_opts) do
@@ -1518,6 +1554,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             latency={@trace_latency}
           />
           <.metrics_summary :if={@active_tab == "metrics"} stats={@metrics_stats} />
+          <.metric_window_controls
+            :if={@active_tab == "netflows"}
+            id="netflow-window"
+            range={extract_time_from_query(@srql[:query] || "") || "last_1h"}
+            event="netflow_set_range"
+            custom_event="netflow_custom_range"
+          />
           <.netflow_summary
             :if={@active_tab == "netflows"}
             timezone={@current_scope.user.timezone}
@@ -8244,15 +8287,23 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         Map.get(timeseries, :bucket_seconds, 300)
       )
 
+    view = Map.get(socket.assigns, :netflow_view, "overview")
+
     timeseries_stacked =
-      load_netflow_timeseries_stacked(
-        srql_module,
-        Map.get(socket.assigns.srql, :query),
-        scope,
-        Map.get(timeseries, :bucket_seconds, 300),
-        Map.get(timeseries, :points, []),
-        Map.get(socket.assigns, :netflow_stack_mode, @default_netflow_stack_mode)
-      )
+      case NetflowRuntime.load_activity(socket.assigns.active_tab, view, fn ->
+             load_netflow_timeseries_stacked(
+               srql_module,
+               Map.get(socket.assigns.srql, :query),
+               scope,
+               Map.get(timeseries, :bucket_seconds, 300),
+               Map.get(timeseries, :points, []),
+               Map.get(socket.assigns, :netflow_stack_mode, @default_netflow_stack_mode)
+             )
+           end) do
+        {:ok, value} -> value
+        {:error, _reason} = error -> error
+        {:skipped, :inactive_panel} -> %{bucket_seconds: 300, keys: [], points: [], colors: %{}}
+      end
 
     protocol_activity =
       load_netflow_protocol_activity(
@@ -8299,12 +8350,18 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     sankey_prefix = Map.get(socket.assigns, :netflow_sankey_prefix, 24)
 
     sankey =
-      load_netflow_sankey(
-        srql_module,
-        Map.get(socket.assigns.srql, :query),
-        scope,
-        sankey_prefix
-      )
+      case NetflowRuntime.load_activity(socket.assigns.active_tab, view, fn ->
+             load_netflow_sankey(
+               srql_module,
+               Map.get(socket.assigns.srql, :query),
+               scope,
+               sankey_prefix
+             )
+           end) do
+        {:ok, value} -> value
+        {:error, _reason} = error -> error
+        {:skipped, :inactive_panel} -> empty_netflow_sankey()
+      end
 
     sankey_edges_json =
       try do

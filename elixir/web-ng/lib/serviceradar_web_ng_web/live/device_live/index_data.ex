@@ -7,13 +7,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexData do
   alias ServiceRadarWebNGWeb.DeviceLive.IndexData.Stats
   alias ServiceRadarWebNGWeb.DeviceLive.IndexData.Telemetry
 
-  def build_device_enrichments(scope, query, devices) do
+  def build_icmp_enrichments(scope, devices) do
     {icmp_sparklines, icmp_error} = Telemetry.icmp_sparklines(scope, devices)
+
+    %{icmp_sparklines: icmp_sparklines, icmp_error: icmp_error}
+  end
+
+  def build_device_enrichments(scope, query, devices) do
     {snmp_presence, sysmon_presence} = Telemetry.metric_presence(scope, devices)
 
     %{
-      icmp_sparklines: icmp_sparklines,
-      icmp_error: icmp_error,
       effective_availability_by_device: Availability.effective_availability(devices, scope),
       snmp_presence: snmp_presence,
       sysmon_presence: sysmon_presence,

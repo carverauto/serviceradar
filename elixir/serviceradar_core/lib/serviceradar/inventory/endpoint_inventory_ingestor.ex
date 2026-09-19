@@ -7,6 +7,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
   import Ecto.Query
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Analytics.StarRocks.Destination
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.EndpointInventoryArtifactPersistence
@@ -181,18 +182,21 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
 
   defp touch_hash_noop_freshness(context, current) do
     invoke_before_hash_freshness_touch(context)
-    emit_floor? = newly_reconcile_floor_due?(context, current)
 
     case Repo.transaction(fn ->
+           floor_before = lock_scan_reconcile_floor(current.id)
            {updated_count, _} = update_current_scan_freshness(context, current)
            insert_scan_activity_event(current.id, context)
 
            latest = current_scan_snapshot(context.agent_id)
 
+           emit_floor? =
+             updated_count == 1 and floor_before == false and latest.reconcile_floor_due == true
+
            result_context =
              context
              |> freshness_result_context(latest, updated_count)
-             |> Map.put(:emit_reconcile_floor?, emit_floor? and updated_count == 1)
+             |> Map.put(:emit_reconcile_floor?, emit_floor?)
 
            hash_noop_result(latest, result_context)
          end) do
@@ -209,6 +213,20 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
        do: hook.(context)
 
   defp invoke_before_hash_freshness_touch(_context), do: :ok
+
+  # The preflight snapshot can precede another observation. Capture the floor
+  # flag under the same row lock as the increment so only its actual transition
+  # emits a directive, including when concurrent increments reach the count.
+  defp lock_scan_reconcile_floor(scan_id) do
+    Repo.one(
+      from(s in "endpoint_inventory_scans",
+        where: s.id == ^scan_id,
+        select: s.reconcile_floor_due,
+        lock: "FOR UPDATE"
+      ),
+      prefix: "platform"
+    )
+  end
 
   defp update_current_scan_freshness(context, current) do
     metadata = freshness_observation_metadata(context)
@@ -753,6 +771,8 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
       conflict_target: [:time, :id],
       returning: false
     )
+
+    _ = Destination.persist_after_cnpg(:events, [row])
 
     :ok
   end

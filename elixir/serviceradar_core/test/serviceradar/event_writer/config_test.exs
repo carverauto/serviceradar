@@ -624,6 +624,36 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       refute Enum.any?(Config.default_streams(), &(&1.subject == "flow.attributed.>"))
     end
 
+    # Producer creates one durable per stream config with filter_subject set to
+    # that config's subject, so two configs on the same JetStream stream whose
+    # filters both match a subject deliver -- and process -- every such message
+    # twice.
+    test "no subject is delivered by two consumers on the same jetstream stream" do
+      streams = Config.default_streams()
+
+      matches? = fn subject, filter ->
+        case String.split(filter, ".>", parts: 2) do
+          [prefix, ""] -> subject == prefix or String.starts_with?(subject, prefix <> ".")
+          _ -> subject == filter
+        end
+      end
+
+      for stream <- streams do
+        subject = stream.subject
+        stream_name = Config.jetstream_stream_name(stream)
+
+        consumers =
+          Enum.filter(streams, fn candidate ->
+            Config.jetstream_stream_name(candidate) == stream_name and
+              matches?.(subject, candidate.subject)
+          end)
+
+        assert length(consumers) == 1,
+               "#{subject} on #{stream_name} is delivered by " <>
+                 inspect(Enum.map(consumers, & &1.name))
+      end
+    end
+
     test "routes ad-hoc scan results from a dedicated stream" do
       scan = Enum.find(Config.default_streams(), &(&1.name == "SCAN_RESULTS"))
 

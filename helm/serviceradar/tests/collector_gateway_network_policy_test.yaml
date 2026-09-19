@@ -10,6 +10,7 @@ tests:
       gatewayApi.trapd.enabled: true
       gatewayApi.bmpCollector.enabled: true
       flowCollector.enabled: true
+      analytics.starrocks.enabled: true
       bmpCollector.enabled: true
     asserts:
       - equal:

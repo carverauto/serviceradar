@@ -74,18 +74,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTaskData do
     ServiceRadarWebNG.TaskSupervisor
     |> Task.Supervisor.async_stream_nolink(
       specs,
-      fn {_key, fun} -> fun.() end,
+      fn {key, fun} -> {key, fun.()} end,
       max_concurrency: max_concurrency,
       timeout: timeout,
       on_timeout: :kill_task,
-      ordered: true
+      ordered: false,
+      zip_input_on_exit: true
     )
-    # Stream.zip, not Enum.zip: Enum.zip is eager and would drain the whole
-    # stream before the reduce below ever ran, so the deadline halt could never
-    # fire and the batch budget would be unenforced.
-    |> Stream.zip(specs)
-    |> Enum.reduce_while(%{}, fn {result, {key, _fun}}, acc ->
-      acc = merge_result(acc, key, result)
+    # Collect completed loaders immediately. With ordered results, a stalled
+    # telemetry query at the head of the batch hid completed interface probes
+    # until the deadline, when the remaining results were discarded.
+    |> Enum.reduce_while(%{}, fn result, acc ->
+      acc = merge_result(acc, result)
 
       if System.monotonic_time(:millisecond) >= deadline do
         {:halt, acc}
@@ -95,11 +95,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTaskData do
     end)
   end
 
-  defp merge_result(acc, _key, {:ok, @failed}), do: acc
-  defp merge_result(acc, key, {:ok, value}), do: Map.put(acc, key, value)
+  defp merge_result(acc, {:ok, {_key, @failed}}), do: acc
+  defp merge_result(acc, {:ok, {key, value}}), do: Map.put(acc, key, value)
 
-  defp merge_result(acc, key, {:exit, reason}) do
+  defp merge_result(acc, {:exit, {{key, _fun}, reason}}) do
     Logger.warning("Device details task #{key} did not complete: #{inspect(reason)}")
+    acc
+  end
+
+  defp merge_result(acc, {:exit, reason}) do
+    Logger.warning("Device details task did not complete: #{inspect(reason)}")
     acc
   end
 

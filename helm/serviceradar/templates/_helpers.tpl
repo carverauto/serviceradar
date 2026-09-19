@@ -279,6 +279,65 @@ serviceradar.io/runtime-tls-revision: {{ default "initial" (default (dict) .Valu
   value: "{{ default "/etc/serviceradar/certs" $vals.coreClient.certDir }}"
 {{- end -}}
 
+{{- define "serviceradar.starrocksShadowDatasets" -}}
+{{- $sr := default (dict) (default (dict) .Values.analytics).starrocks -}}
+{{- $shadow := $sr.shadowDatasets | default list -}}
+{{- if eq (len $shadow) 0 -}}
+{{- $shadow = list "flows" "metrics" "logs" "events" -}}
+{{- end -}}
+{{- $shadow | join "," -}}
+{{- end -}}
+
+{{- define "serviceradar.starrocksAnalyticsEnv" -}}
+{{- $sr := default (dict) (default (dict) .Values.analytics).starrocks -}}
+{{- if $sr.enabled }}
+- name: SERVICERADAR_STARROCKS_ENABLED
+  value: "true"
+- name: SERVICERADAR_STARROCKS_CATALOG_ENABLED
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "serviceradar.fullname" . }}-starrocks-analytics
+      key: catalogEnabled
+- name: SERVICERADAR_STARROCKS_CUTOVER_DATASETS
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "serviceradar.fullname" . }}-starrocks-analytics
+      key: cutoverDatasets
+- name: SERVICERADAR_STARROCKS_SHADOW_DATASETS
+  value: {{ include "serviceradar.starrocksShadowDatasets" . | quote }}
+- name: SERVICERADAR_STARROCKS_DATABASE
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "serviceradar.fullname" . }}-starrocks-analytics
+      key: database
+{{- $retention := default (dict) $sr.retentionDays }}
+- name: SERVICERADAR_STARROCKS_RETENTION_DAYS_FLOWS
+  value: {{ $retention.flows | default 90 | quote }}
+- name: SERVICERADAR_STARROCKS_RETENTION_DAYS_METRICS
+  value: {{ $retention.metrics | default 90 | quote }}
+- name: SERVICERADAR_STARROCKS_RETENTION_DAYS_LOGS
+  value: {{ $retention.logs | default 365 | quote }}
+- name: SERVICERADAR_STARROCKS_RETENTION_DAYS_EVENTS
+  value: {{ $retention.events | default 365 | quote }}
+- name: SERVICERADAR_STARROCKS_FE_HTTP
+  value: {{ printf "http://%s:%v" $sr.fe.service $sr.fe.httpPort | quote }}
+- name: SERVICERADAR_STARROCKS_FE_HOST
+  value: {{ $sr.fe.service | quote }}
+- name: SERVICERADAR_STARROCKS_FE_QUERY_PORT
+  value: {{ $sr.fe.queryPort | quote }}
+{{- $feSecret := default (dict) $sr.catalog }}
+{{- if $feSecret.fePasswordSecretName }}
+{{- /* Same Frontend account the provisioning Jobs authenticate as (both run
+       `mysql -u root` with this secret), so it has one source of truth. */}}
+- name: SERVICERADAR_STARROCKS_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ $feSecret.fePasswordSecretName | quote }}
+      key: {{ $feSecret.fePasswordSecretKey | default "password" | quote }}
+{{- end }}
+{{- end }}
+{{- end -}}
+
 {{/*
 Topology spread constraints to distribute replicas of one workload across nodes.
 Enabled when .Values.topologySpread.enabled is true.

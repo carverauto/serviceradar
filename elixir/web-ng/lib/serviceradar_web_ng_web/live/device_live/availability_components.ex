@@ -18,10 +18,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents do
   attr(:availability, :map, required: true)
 
   def availability_section(assigns) do
-    uptime_pct = Map.get(assigns.availability, :uptime_pct, 0.0)
+    uptime_pct = Map.get(assigns.availability, :uptime_pct)
     total_checks = Map.get(assigns.availability, :total_checks, 0)
     online_checks = Map.get(assigns.availability, :online_checks, 0)
     offline_checks = Map.get(assigns.availability, :offline_checks, 0)
+    unknown_checks = Map.get(assigns.availability, :unknown_checks, 0)
     segments = Map.get(assigns.availability, :segments, [])
 
     assigns =
@@ -30,21 +31,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents do
       |> assign(:total_checks, total_checks)
       |> assign(:online_checks, online_checks)
       |> assign(:offline_checks, offline_checks)
+      |> assign(:unknown_checks, unknown_checks)
       |> assign(:segments, segments)
 
     ~H"""
-    <div class="rounded-xl border border-sr-line bg-sr-surface">
+    <div id="device-availability-timeline" class="rounded-xl border border-sr-line bg-sr-surface">
       <div class="px-4 py-3 border-b border-sr-line">
         <div class="flex items-center justify-between gap-3">
           <div>
             <div class="text-sm font-semibold">Availability Timeline</div>
             <div class="text-xs text-sr-muted">
-              Last 24h · each block = 30m bucket · green = online, red = offline
+              Last 24h · 30m buckets (partial at edges) · gaps are unknown
             </div>
           </div>
           <div class="text-right">
-            <div class="text-sm font-semibold tabular-nums">{format_pct(@uptime_pct)}%</div>
-            <div class="text-xs text-sr-muted">uptime (bucketed)</div>
+            <div id="device-availability-percent" class="text-sm font-semibold tabular-nums">
+              {if is_number(@uptime_pct), do: "#{format_pct(@uptime_pct)}%", else: "—"}
+            </div>
+            <div class="text-xs text-sr-muted">online among observed buckets</div>
           </div>
         </div>
       </div>
@@ -57,15 +61,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents do
           </div>
 
           <div class="h-6 rounded-lg bg-sr-subtle/50 p-0.5">
-            <div class="h-full grid grid-flow-col auto-cols-fr gap-px rounded-md overflow-hidden bg-sr-control/60">
+            <div class="h-full flex gap-px rounded-md overflow-hidden bg-sr-control/60">
               <%= for {seg, idx} <- Enum.with_index(@segments) do %>
                 <div
                   class={[
-                    "h-full transition-opacity",
-                    (seg.available && "bg-success") || "bg-error",
+                    "h-full min-w-0 basis-0 transition-opacity",
+                    availability_color(seg.status),
                     idx == 0 && "rounded-l-sm",
                     idx == length(@segments) - 1 && "rounded-r-sm"
                   ]}
+                  data-availability-status={seg.status}
+                  data-bucket-start={seg.timestamp}
+                  style={"flex-grow: #{seg.width}"}
                   title={seg.title}
                 />
               <% end %>
@@ -84,9 +91,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents do
                 <span class="tabular-nums font-semibold">{@offline_checks}</span>
                 <span class="text-sr-muted">offline buckets</span>
               </div>
+              <div class="flex items-center gap-2">
+                <span class="w-3 h-3 rounded-sm bg-base-300"></span>
+                <span class="tabular-nums font-semibold">{@unknown_checks}</span>
+                <span class="text-sr-muted">unknown buckets</span>
+              </div>
             </div>
             <div class="text-xs text-sr-muted tabular-nums">
-              {@total_checks} total buckets
+              {@total_checks} observed of {length(@segments)} buckets
             </div>
           </div>
         </div>
@@ -98,6 +110,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents do
     </div>
     """
   end
+
+  defp availability_color(:online), do: "bg-success"
+  defp availability_color(:offline), do: "bg-error"
+  defp availability_color(:unknown), do: "bg-base-300"
 
   attr(:rows, :list, required: true)
   attr(:device_row, :map, default: %{})

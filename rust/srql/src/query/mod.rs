@@ -6,6 +6,7 @@ mod cold;
 mod engine;
 mod plan;
 mod sql;
+mod starrocks;
 mod translate;
 mod types;
 
