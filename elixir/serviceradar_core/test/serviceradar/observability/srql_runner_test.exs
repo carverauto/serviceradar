@@ -1,7 +1,22 @@
 defmodule ServiceRadar.Observability.SRQLRunnerTest do
-  use ExUnit.Case, async: true
+  # Not async: the routing tests move `cutover_datasets`, which is application
+  # environment every other reader in the node shares.
+  use ExUnit.Case, async: false
 
+  alias ServiceRadar.Analytics.StarRocks
   alias ServiceRadar.Observability.SRQLRunner
+
+  defp put_cutover(datasets) do
+    previous = Application.get_env(:serviceradar_core, StarRocks, [])
+
+    Application.put_env(
+      :serviceradar_core,
+      StarRocks,
+      Keyword.put(previous, :cutover_datasets, datasets)
+    )
+
+    on_exit(fn -> Application.put_env(:serviceradar_core, StarRocks, previous) end)
+  end
 
   test "query_page returns mapped rows and next cursor for a full page" do
     translate_fn = fn "in:devices", 2, nil, "next", nil ->
@@ -33,6 +48,67 @@ defmodule ServiceRadar.Observability.SRQLRunnerTest do
              %{"hostname" => "router-1", "ip" => "10.0.0.1"},
              %{"hostname" => "router-2", "ip" => "10.0.0.2"}
            ]
+  end
+
+  # Background jobs must not answer from CNPG for a dataset the deployment
+  # serves from the warehouse, or the same question gets two different answers
+  # depending on which job asked it.
+  test "a cut-over dataset compiles for the warehouse" do
+    put_cutover([:logs])
+
+    translate_fn = fn "in:logs limit:1", 1, nil, nil, mode ->
+      assert mode == "starrocks"
+
+      {:ok, Jason.encode!(%{"sql" => "SELECT id FROM serviceradar.logs", "params" => []})}
+    end
+
+    query_fn = fn "SELECT id FROM serviceradar.logs", [] ->
+      {:ok, %Postgrex.Result{columns: ["id"], rows: [["log-alpha-0001"]]}}
+    end
+
+    assert {:ok, [%{"id" => "log-alpha-0001"}]} =
+             SRQLRunner.query("in:logs limit:1",
+               limit: 1,
+               translate_fn: translate_fn,
+               query_fn: query_fn
+             )
+  end
+
+  test "a dataset that is not cut over still compiles for CNPG" do
+    put_cutover([])
+
+    translate_fn = fn "in:logs limit:1", 1, nil, nil, mode ->
+      assert mode == nil
+
+      {:ok, Jason.encode!(%{"sql" => "SELECT id FROM platform.logs", "params" => []})}
+    end
+
+    query_fn = fn "SELECT id FROM platform.logs", [] ->
+      {:ok, %Postgrex.Result{columns: ["id"], rows: [["log-alpha-0001"]]}}
+    end
+
+    assert {:ok, [%{"id" => "log-alpha-0001"}]} =
+             SRQLRunner.query("in:logs limit:1",
+               limit: 1,
+               translate_fn: translate_fn,
+               query_fn: query_fn
+             )
+  end
+
+  # Flows have no CNPG serving path, so a background reader is told so rather
+  # than quietly reading a table the deployment may no longer write.
+  test "flows refuse to run until the dataset is cut over" do
+    put_cutover([])
+
+    translate_fn = fn _q, _l, _c, _d, _m -> flunk("uncut-over flows must not compile") end
+    query_fn = fn _sql, _params -> flunk("uncut-over flows must not reach a backend") end
+
+    assert {:error, :starrocks_required} =
+             SRQLRunner.query("in:flows time:last_1h limit:1",
+               limit: 1,
+               translate_fn: translate_fn,
+               query_fn: query_fn
+             )
   end
 
   test "query_page suppresses next cursor when the page is short" do

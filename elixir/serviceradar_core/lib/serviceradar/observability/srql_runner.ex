@@ -8,6 +8,8 @@ defmodule ServiceRadar.Observability.SRQLRunner do
   This module intentionally keeps the surface area small for background jobs.
   """
 
+  alias ServiceRadar.Analytics.StarRocks.Query, as: StarRocksQuery
+  alias ServiceRadar.Analytics.StarRocks.Readers
   alias ServiceRadar.Repo
 
   @type page :: %{
@@ -27,14 +29,35 @@ defmodule ServiceRadar.Observability.SRQLRunner do
     limit = Keyword.get(opts, :limit)
     cursor = Keyword.get(opts, :cursor)
     direction = Keyword.get(opts, :direction)
-    mode = Keyword.get(opts, :mode)
 
-    with {:ok, translation} <- translate(query, limit, cursor, direction, mode, opts),
+    with {:ok, mode} <- backend_mode(query),
+         {:ok, translation} <- translate(query, limit, cursor, direction, mode, opts),
          {:ok, sql} <- fetch_sql(translation),
          {:ok, params} <- decode_params(Map.get(translation, "params", []), opts),
          {:ok, %Postgrex.Result{columns: columns, rows: rows} = result} <-
-           run_sql(sql, params, opts) do
+           run_sql(sql, params, mode, opts) do
       {:ok, %{rows: rows_to_maps(columns, rows), next_cursor: next_cursor(translation, result)}}
+    end
+  end
+
+  # Background jobs read from whichever backend owns the dataset, through the
+  # same routing the web API uses. A dataset with no CNPG serving path answers
+  # with its routing error here rather than quietly reading a table the
+  # deployment may no longer write.
+  defp backend_mode(query) do
+    case query |> queried_entity() |> Readers.mode_for() do
+      {:error, _reason} = error -> error
+      mode -> {:ok, mode}
+    end
+  end
+
+  defp queried_entity(query) do
+    ~r/(?:^|[\s|])in:([A-Za-z0-9_]+)/i
+    |> Regex.scan(query)
+    |> List.last()
+    |> case do
+      [_match, entity] -> entity
+      _ -> nil
     end
   end
 
@@ -144,15 +167,20 @@ defmodule ServiceRadar.Observability.SRQLRunner do
   # DBConnection's 15s default causes spurious disconnects under load.
   @default_query_timeout_ms 60_000
 
-  defp run_sql(sql, params, opts) do
+  defp run_sql(sql, params, mode, opts) do
     timeout = Keyword.get(opts, :timeout, @default_query_timeout_ms)
-
-    query_fn =
-      Keyword.get(opts, :query_fn, fn s, p ->
-        Ecto.Adapters.SQL.query(Repo, s, p, timeout: timeout)
-      end)
+    query_fn = Keyword.get(opts, :query_fn, default_query_fn(mode, timeout))
 
     query_fn.(sql, params)
+  end
+
+  # StarRocks SQL is compiled with its literals inlined, which is why the
+  # warehouse executor takes no parameters.
+  defp default_query_fn("starrocks", _timeout),
+    do: fn sql, _params -> StarRocksQuery.execute(sql) end
+
+  defp default_query_fn(_mode, timeout) do
+    fn sql, params -> Ecto.Adapters.SQL.query(Repo, sql, params, timeout: timeout) end
   end
 
   defp next_cursor(translation, %Postgrex.Result{rows: rows}) do

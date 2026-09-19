@@ -3,6 +3,7 @@ defmodule ServiceRadar.Observability.ThreatIntelWorkerIngestorDBTest do
 
   alias Ecto.Adapters.SQL
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Analytics.StarRocks
   alias ServiceRadar.Observability.NetflowSecurityRefreshWorker
   alias ServiceRadar.Observability.ThreatIntel.Page
   alias ServiceRadar.Observability.ThreatIntelPluginIngestor
@@ -210,12 +211,31 @@ defmodule ServiceRadar.Observability.ThreatIntelWorkerIngestorDBTest do
              ).rows
   end
 
-  test "netflow security refresh caches OTX CIDR matches for recent flow IPs" do
+  # Flows are warehouse-only, so candidate discovery must read StarRocks once
+  # the dataset is cut over rather than the CNPG table the deployment may no
+  # longer write. The warehouse transport is stubbed; everything downstream of
+  # discovery is the real worker against the real cache table.
+  test "netflow security refresh caches OTX CIDR matches for flow IPs read from the warehouse" do
     now = DateTime.truncate(DateTime.utc_now(), :microsecond)
 
     enable_threat_intel_settings()
     seed_indicator("alienvault_otx", "198.51.100.0/24", 5, now)
-    seed_ocsf_flow(now, "198.51.100.23", "203.0.113.10")
+
+    cut_flows_over(fn sql ->
+      assert sql =~ "serviceradar.ocsf_network_activity"
+      refute sql =~ "platform.ocsf_network_activity"
+
+      column = if sql =~ "dst_endpoint_ip", do: "dst_endpoint_ip", else: "src_endpoint_ip"
+
+      {:ok,
+       %Postgrex.Result{
+         command: :select,
+         columns: [column, "total_bytes"],
+         rows: [["198.51.100.23", 2048]],
+         num_rows: 1,
+         connection_id: nil
+       }}
+    end)
 
     assert :ok = NetflowSecurityRefreshWorker.perform(%Oban.Job{args: %{}})
 
@@ -230,37 +250,12 @@ defmodule ServiceRadar.Observability.ThreatIntelWorkerIngestorDBTest do
              ).rows
   end
 
-  test "manual OTX retrohunt deduplicates netflow findings across repeated runs" do
-    previous_config =
-      Application.get_env(
-        :serviceradar_core,
-        ThreatIntelRetrohuntWorker
-      )
-
-    Application.put_env(
-      :serviceradar_core,
-      ThreatIntelRetrohuntWorker,
-      batch_size: 1,
-      max_batches_per_job: 10
-    )
-
-    on_exit(fn ->
-      if is_nil(previous_config) do
-        Application.delete_env(:serviceradar_core, ThreatIntelRetrohuntWorker)
-      else
-        Application.put_env(:serviceradar_core, ThreatIntelRetrohuntWorker, previous_config)
-      end
-    end)
-
+  # Without the cutover there is no flow history to retrohunt, and the routing
+  # error is surfaced rather than answered from CNPG.
+  test "manual OTX retrohunt refuses to run while flows are not cut over" do
     now = DateTime.truncate(DateTime.utc_now(), :microsecond)
-    flow_time = DateTime.add(now, -60, :second)
 
-    indicator_id = seed_indicator("alienvault_otx", "203.0.113.0/24", 4, now)
-    _second_indicator_id = seed_indicator("alienvault_otx", "198.51.100.0/24", 3, now)
-    seed_ocsf_flow(flow_time, "10.0.0.8", "203.0.113.77")
-    seed_ocsf_flow(flow_time, "10.0.0.9", "203.0.113.77")
-    seed_ocsf_flow(flow_time, "10.0.0.10", "198.51.100.42")
-    seed_sync_status_with_unsupported_count(now, %{"domain" => 2, "url" => 1})
+    seed_indicator("alienvault_otx", "203.0.113.0/24", 4, now)
 
     args = %{
       "source" => "alienvault_otx",
@@ -271,43 +266,26 @@ defmodule ServiceRadar.Observability.ThreatIntelWorkerIngestorDBTest do
       "triggered_by" => "manual-test"
     }
 
-    assert :ok = ThreatIntelRetrohuntWorker.perform(%Oban.Job{args: args})
-    assert :ok = ThreatIntelRetrohuntWorker.perform(%Oban.Job{args: args})
+    assert {:error, :starrocks_required} =
+             ThreatIntelRetrohuntWorker.perform(%Oban.Job{args: args})
 
-    assert [[1, ^indicator_id, 2]] =
+    assert [[0]] =
              query!(
-               """
-               SELECT COUNT(*)::int, MIN(indicator_id::text), MAX(evidence_count)::int
-               FROM platform.otx_retrohunt_findings
-               WHERE source = $1 AND observed_ip = ($2::text)::inet
-               """,
-               ["alienvault_otx", "203.0.113.77"]
-             ).rows
-
-    assert [
-             [
-               "ok",
-               2,
-               2,
-               3,
-               %{"batch_size" => 1, "batches_completed" => 2, "cursor_complete" => true}
-             ]
-           ] =
-             query!(
-               """
-               SELECT
-                 status,
-                 indicators_evaluated,
-                 findings_count,
-                 unsupported_count,
-                 metadata - 'indicator_cursor' - 'last_batch_indicators' - 'last_batch_findings'
-               FROM platform.otx_retrohunt_runs
-               WHERE source = $1
-               ORDER BY started_at DESC
-               LIMIT 1
-               """,
+               "SELECT COUNT(*)::int FROM platform.otx_retrohunt_findings WHERE source = $1",
                ["alienvault_otx"]
              ).rows
+  end
+
+  defp cut_flows_over(mysql) do
+    previous = Application.get_env(:serviceradar_core, StarRocks, [])
+
+    Application.put_env(
+      :serviceradar_core,
+      StarRocks,
+      previous |> Keyword.put(:cutover_datasets, [:flows]) |> Keyword.put(:mysql, mysql)
+    )
+
+    on_exit(fn -> Application.put_env(:serviceradar_core, StarRocks, previous) end)
   end
 
   defp reset_threat_intel_tables do
@@ -318,8 +296,7 @@ defmodule ServiceRadar.Observability.ThreatIntelWorkerIngestorDBTest do
         "platform.ip_threat_intel_cache",
         "platform.threat_intel_sync_statuses",
         "platform.threat_intel_source_objects",
-        "platform.threat_intel_indicators",
-        "platform.ocsf_network_activity"
+        "platform.threat_intel_indicators"
       ],
       fn table -> query!("DELETE FROM #{table}", []) end
     )
@@ -386,61 +363,6 @@ defmodule ServiceRadar.Observability.ThreatIntelWorkerIngestorDBTest do
       )
 
     id
-  end
-
-  defp seed_ocsf_flow(time, src_ip, dst_ip) do
-    query!(
-      """
-      INSERT INTO platform.ocsf_network_activity (
-        time,
-        src_endpoint_ip,
-        src_endpoint_port,
-        dst_endpoint_ip,
-        dst_endpoint_port,
-        protocol_num,
-        protocol_name,
-        bytes_total,
-        packets_total,
-        ocsf_payload
-      )
-      VALUES ($1, $2, 443, $3, 51515, 6, 'tcp', 2048, 8, '{}'::jsonb)
-      """,
-      [time, src_ip, dst_ip]
-    )
-  end
-
-  defp seed_sync_status_with_unsupported_count(now, skipped_by_type) do
-    query!(
-      """
-      INSERT INTO platform.threat_intel_sync_statuses (
-        provider,
-        source,
-        collection_id,
-        execution_mode,
-        last_status,
-        last_attempt_at,
-        last_success_at,
-        skipped_count,
-        metadata,
-        inserted_at,
-        updated_at
-      )
-      VALUES (
-        'alienvault_otx',
-        'alienvault_otx',
-        'otx:pulses:subscribed',
-        'core_worker',
-        'ok',
-        $1,
-        $1,
-        3,
-        jsonb_build_object('skipped_by_type', ($2::text)::jsonb),
-        $1,
-        $1
-      )
-      """,
-      [now, Jason.encode!(skipped_by_type)]
-    )
   end
 
   defp seed_plugin_assignment(params) do

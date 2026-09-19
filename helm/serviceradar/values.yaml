@@ -2545,9 +2545,12 @@ analytics:
     # it trades chart latency for accuracy; readers never fall back to CNPG.
     # Lag is measured in whole hours, because a view buckets by
     # date_trunc('hour', ...) and the source mark is floored to match: the
-    # default tolerates a view up to two hours behind, 3600 one hour, and
-    # anything below 3600 -- including 0, which is honoured literally rather
-    # than read as "unset" -- demands a view that is fully current.
+    # default tolerates a view up to two hours behind, and 3600 one hour.
+    # 0 is the strictest setting available -- it is honoured literally rather
+    # than read as "unset" -- and means no whole hour of lag: the view holds a
+    # bucket for the hour the newest raw row falls in. It does not mean that
+    # bucket is complete, so the newest point of an hourly chart can still be
+    # partial.
     rollupStaleAfterSeconds: 7200
     fe:
       service: lab-fe-service.starrocks.svc

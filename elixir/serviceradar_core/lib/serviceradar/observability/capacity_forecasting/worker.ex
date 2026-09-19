@@ -140,6 +140,18 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
           end
         end)
 
+      # A warehouse-only dataset that has not been cut over has nothing to
+      # forecast from. That is a configured state, so the source is skipped
+      # instead of failing the whole run and taking the other sources with it.
+      {:error, :starrocks_required} ->
+        Logger.info(
+          "Capacity forecast source skipped; its dataset is not cut over to StarRocks " <>
+            "source=#{source.name}",
+          source: source.name
+        )
+
+        :ok
+
       {:error, reason} ->
         Logger.warning(
           "Capacity forecast SRQL query failed source=#{source.name} reason=#{inspect(reason)}",
