@@ -556,7 +556,14 @@ fn profile_sql(
         ));
     };
 
-    let rollup = allow_rollup.then_some(METRIC_HOURLY);
+    // The view stores one row per (bucket, device_id, metric_type, metric_name),
+    // so a filter or series outside that dimension set either cannot be applied
+    // to it at all or changes which rows a cell is built from. `hourly_rollup`
+    // makes the same judgement for downsamples; the profile route must agree, or
+    // the freshness gate silently swaps one statistic for another.
+    let rollup = allow_rollup
+        .then_some(METRIC_HOURLY)
+        .filter(|rollup| profile_rollup_eligible(plan, *rollup));
     let source = match rollup {
         Some(rollup) => format!("{database}.{}", rollup.table),
         None => format!("{database}.{}", dataset.raw_table),
@@ -565,6 +572,8 @@ fn profile_sql(
         Some(_) => "`bucket`".to_string(),
         None => format!("date_trunc('hour', `{}`)", dataset.time_column),
     };
+    // The raw shape re-derives the view's own grouping so both sources feed the
+    // profile the same sample population.
     let sample = match (rollup, spec.peak) {
         (Some(_), false) => "avg_value".to_string(),
         (Some(_), true) => "max_value".to_string(),
@@ -574,7 +583,7 @@ fn profile_sql(
     let group = if rollup.is_some() {
         ""
     } else {
-        "\n  GROUP BY 1, 2"
+        "\n  GROUP BY 1, 2, 3, 4"
     };
 
     let mut clauses = vec!["device_id IS NOT NULL".to_string()];
@@ -616,7 +625,7 @@ fn profile_sql(
     // StarRocks DAYOFWEEK is 1=Sunday; the profile contract is Postgres EXTRACT(DOW), 0=Sunday.
     let head = format!(
         r#"WITH hourly AS (
-  SELECT device_id AS series, {bucket} AS bucket, {sample} AS sample_value
+  SELECT device_id AS series, metric_type, metric_name, {bucket} AS bucket, {sample} AS sample_value
   FROM {source}
   {where_sql}{group}
 ),
@@ -671,8 +680,9 @@ SELECT l.series AS series, l.dow AS dow, l.hod AS hod, l.sample_value AS sample_
 FROM latest l
 LEFT JOIN cell_profile c ON c.series = l.series AND c.hod = l.hod
 LEFT JOIN series_prior p ON p.series = l.series
-ORDER BY l.dow, l.hod, l.series
-LIMIT {limit} OFFSET {offset}"#
+{order}
+LIMIT {limit} OFFSET {offset}"#,
+            order = profile_order_sql(plan, "c")
         )
     } else {
         let selected = if spec.full { "profile_rows" } else { "latest" };
@@ -721,8 +731,9 @@ SELECT l.series AS series, l.dow AS dow, l.hod AS hod, l.sample_value AS sample_
 FROM {selected} l
 JOIN mean_profile p ON p.series = l.series AND p.dow = l.dow AND p.hod = l.hod
 LEFT JOIN robust_profile r ON r.series = l.series AND r.dow = l.dow AND r.hod = l.hod
-ORDER BY l.dow, l.hod, l.series
-LIMIT {limit} OFFSET {offset}"#
+{order}
+LIMIT {limit} OFFSET {offset}"#,
+            order = profile_order_sql(plan, "p")
         )
     };
 
@@ -739,6 +750,69 @@ LIMIT {limit} OFFSET {offset}"#
         },
         viz: None,
     })
+}
+
+/// Mirrors `timeseries_metrics::build_profile_order_clause`: a caller's sort
+/// decides which cells survive `limit:`, not merely how a page is ordered, so
+/// dropping it returns a different set of rows than CNPG for the same query.
+/// The profile-row identity is appended last because OFFSET pagination without
+/// it can overlap or skip rows.
+fn profile_order_sql(plan: &QueryPlan, bucket_count_alias: &str) -> String {
+    use crate::parser::OrderDirection;
+
+    let mut parts = Vec::new();
+    for clause in &plan.order {
+        let column = match clause.field.as_str() {
+            "series" | "series_key" => "l.series",
+            "dow" => "l.dow",
+            "hod" => "l.hod",
+            "bucket" => "l.bucket",
+            "sample_value" => "l.sample_value",
+            "bucket_count" => {
+                if bucket_count_alias == "c" {
+                    "c.bucket_count"
+                } else {
+                    "p.bucket_count"
+                }
+            }
+            _ => continue,
+        };
+
+        let dir = match clause.direction {
+            OrderDirection::Asc => "ASC",
+            OrderDirection::Desc => "DESC",
+        };
+        parts.push(format!("{column} {dir}"));
+    }
+
+    for (field, column) in [("series", "l.series"), ("dow", "l.dow"), ("hod", "l.hod")] {
+        if !plan.order.iter().any(|clause| {
+            (field == "series" && matches!(clause.field.as_str(), "series" | "series_key"))
+                || clause.field == field
+        }) {
+            parts.push(format!("{column} ASC"));
+        }
+    }
+
+    format!("\nORDER BY {}", parts.join(", "))
+}
+
+fn profile_rollup_eligible(plan: &QueryPlan, rollup: HourlyRollup) -> bool {
+    let dimension = |field: &str| {
+        let field = field.to_ascii_lowercase();
+        rollup.dimensions.iter().any(|name| *name == field)
+    };
+
+    // `timezone:` steers the profile rather than filtering a column, so it is
+    // never applied to either source and cannot make the view ineligible.
+    plan.filters
+        .iter()
+        .all(|filter| filter.field.eq_ignore_ascii_case("timezone") || dimension(&filter.field))
+        && plan
+            .downsample
+            .as_ref()
+            .and_then(|downsample| downsample.series.as_deref())
+            .is_none_or(dimension)
 }
 
 struct ProfileSpec {
@@ -1438,7 +1512,7 @@ mod tests {
             "{sql}"
         );
         assert!(sql.contains("MAX(`value`) AS sample_value"), "{sql}");
-        assert!(sql.contains("GROUP BY 1, 2"), "{sql}");
+        assert!(sql.contains("GROUP BY 1, 2, 3, 4"), "{sql}");
     }
 
     #[test]
@@ -1465,6 +1539,123 @@ mod tests {
         .expect_err("profile only supports value");
 
         assert!(matches!(err, ServiceError::InvalidRequest(_)), "{err:?}");
+    }
+
+    // The view stores one row per (bucket, device_id, metric_type, metric_name).
+    // Grouping the raw fallback by (device, hour) alone collapsed every metric a
+    // device reports into one sample, so the same profile query computed a
+    // different centre depending only on whether the view happened to be fresh.
+    #[test]
+    fn the_raw_profile_fallback_keeps_the_rollups_sample_population() {
+        let query = r#"in:timeseries_metrics metric_type:"sysmon.cpu" metric_name:"cpu.usage_percent" time:last_30d bucket:1h agg:avg series:uid stats:profile_hour_of_week(value) timezone:"UTC" limit:500"#;
+
+        let rolled = translate(&plan(query), "serviceradar").expect("rollup profile compiles");
+        let raw = translate_raw(&plan(query), "serviceradar").expect("raw profile compiles");
+
+        for sql in [&rolled.sql, &raw.sql] {
+            assert!(
+                sql.contains("device_id AS series, metric_type, metric_name"),
+                "{sql}"
+            );
+        }
+        assert!(raw.sql.contains("GROUP BY 1, 2, 3, 4"), "{}", raw.sql);
+    }
+
+    // A filter the view cannot answer must send the profile to the raw table,
+    // exactly as `hourly_rollup` decides for a downsample. `if_index` is a raw
+    // column but not a view dimension, so reading the view would either fail or
+    // build the cell from a different population.
+    #[test]
+    fn a_profile_filter_outside_the_view_dimensions_reads_the_raw_table() {
+        let compiled = translate(
+            &plan(
+                r#"in:timeseries_metrics if_index:3 time:last_30d bucket:1h agg:avg stats:profile_hour_of_week(value) timezone:"UTC" limit:500"#,
+            ),
+            "serviceradar",
+        )
+        .expect("profile compiles");
+
+        assert!(
+            !compiled.sql.contains("timeseries_metrics_hourly"),
+            "{}",
+            compiled.sql
+        );
+        assert!(compiled.sql.contains("if_index"), "{}", compiled.sql);
+    }
+
+    #[test]
+    fn a_profile_filtered_only_on_view_dimensions_still_reads_the_view() {
+        let compiled = translate(
+            &plan(
+                r#"in:timeseries_metrics metric_type:"sysmon.cpu" time:last_30d bucket:1h agg:avg stats:profile_hour_of_week(value) timezone:"UTC" limit:500"#,
+            ),
+            "serviceradar",
+        )
+        .expect("profile compiles");
+
+        assert!(
+            compiled
+                .sql
+                .contains("FROM serviceradar.timeseries_metrics_hourly"),
+            "{}",
+            compiled.sql
+        );
+    }
+
+    // A profile query carries a LIMIT, so the sort decides which cells survive
+    // it rather than merely how a page is ordered. Dropping the caller's sort
+    // returned a different set of rows than CNPG for the same query.
+    #[test]
+    fn a_caller_sort_is_honoured_by_the_profile_route() {
+        let compiled = translate(
+            &plan(
+                r#"in:timeseries_metrics metric_type:"sysmon.cpu" metric_name:"cpu.usage_percent" time:last_30d bucket:1h agg:avg stats:profile_hour_of_week_full(value) timezone:"UTC" sort:bucket_count:desc limit:50"#,
+            ),
+            "serviceradar",
+        )
+        .expect("profile compiles");
+
+        assert!(
+            compiled
+                .sql
+                .contains("ORDER BY p.bucket_count DESC, l.series ASC, l.dow ASC, l.hod ASC"),
+            "{}",
+            compiled.sql
+        );
+
+        let peak = translate(
+            &plan(
+                r#"in:timeseries_metrics metric_type:"sysmon.cpu" metric_name:"cpu.usage_percent" time:last_30d bucket:1h agg:avg stats:profile_hour_of_week_peak(value) timezone:"UTC" sort:sample_value:desc limit:50"#,
+            ),
+            "serviceradar",
+        )
+        .expect("peak profile compiles");
+
+        assert!(
+            peak.sql
+                .contains("ORDER BY l.sample_value DESC, l.series ASC, l.dow ASC, l.hod ASC"),
+            "{}",
+            peak.sql
+        );
+    }
+
+    #[test]
+    fn the_internal_profile_sort_keeps_its_dow_hod_order() {
+        let compiled = translate(
+            &plan(
+                r#"in:timeseries_metrics metric_type:"sysmon.cpu" metric_name:"cpu.usage_percent" time:last_30d bucket:1h agg:avg stats:profile_hour_of_week(value) timezone:"UTC" sort:dow:asc,hod:asc limit:500"#,
+            ),
+            "serviceradar",
+        )
+        .expect("profile compiles");
+
+        assert!(
+            compiled
+                .sql
+                .contains("ORDER BY l.dow ASC, l.hod ASC, l.series ASC"),
+            "{}",
+            compiled.sql
+        );
     }
 
     fn plan(query: &str) -> QueryPlan {
