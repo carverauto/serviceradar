@@ -43,6 +43,13 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
     let (sql, params) = if request.mode.as_deref() == Some("starrocks") {
         let compiled = starrocks::translate(&plan, &config.starrocks_database)?;
         (compiled.sql, compiled.params)
+    } else if request.mode.as_deref() == Some("starrocks_raw") {
+        // Rollup-freshness fallback: same StarRocks dialect, but hourly
+        // materialized views are stale, so compile from the raw tables.
+        // This arm must stay ahead of the downsample branch below, or a
+        // bucketed query would fall through to the CNPG downsample builder.
+        let compiled = starrocks::translate_raw(&plan, &config.starrocks_database)?;
+        (compiled.sql, compiled.params)
     } else if plan.downsample.is_some() && !is_profile_stats {
         downsample::to_sql_and_params(&plan)?
     } else {

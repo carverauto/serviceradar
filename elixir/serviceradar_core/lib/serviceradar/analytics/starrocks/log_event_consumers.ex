@@ -10,6 +10,7 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumers do
   alias ServiceRadar.Analytics.StarRocks.Env
   alias ServiceRadar.Analytics.StarRocks.Query
   alias ServiceRadar.Analytics.StarRocks.Readers
+  alias ServiceRadar.Analytics.StarRocks.RollupFreshness
 
   @spec fetch(atom(), keyword()) :: term()
   def fetch(dataset, opts) when dataset in [:logs, :events] and is_list(opts) do
@@ -25,7 +26,7 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumers do
       when is_struct(start_at, DateTime) and is_struct(end_at, DateTime) and
              is_integer(bucket_seconds) and
              bucket_seconds > 0 do
-    {table, column, total, grain_seconds} = event_window_source(bucket_seconds)
+    {table, column, total, grain_seconds} = event_window_source(bucket_seconds, opts)
     {lower_op, lower} = window_lower_bound(start_at, grain_seconds)
 
     sql =
@@ -45,12 +46,17 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumers do
 
   # events_hourly (priv/starrocks/0005) already groups by hour and severity, so
   # a whole-hour bucket re-aggregates from it with SUM(total_count). A sub-hour
-  # bucket cannot, and stays on the raw table.
-  defp event_window_source(bucket_seconds) when rem(bucket_seconds, 3600) == 0 do
-    {Env.table("events_hourly"), "bucket", "SUM(total_count)", 3600}
+  # bucket cannot, and stays on the raw table. A stale view also falls back to
+  # the raw StarRocks table: an unrefreshed async MV returns short counts.
+  defp event_window_source(bucket_seconds, opts) when rem(bucket_seconds, 3600) == 0 do
+    if RollupFreshness.fresh?(:events, opts) do
+      {Env.table("events_hourly"), "bucket", "SUM(total_count)", 3600}
+    else
+      {Env.table("events"), "time", "COUNT(*)", nil}
+    end
   end
 
-  defp event_window_source(_bucket_seconds) do
+  defp event_window_source(_bucket_seconds, _opts) do
     {Env.table("events"), "time", "COUNT(*)", nil}
   end
 

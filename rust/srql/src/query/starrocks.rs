@@ -10,8 +10,25 @@ use chrono::{SecondsFormat, Utc};
 /// Unsupported shapes return a capability error instead of silently falling
 /// back to PostgreSQL.
 pub fn translate(plan: &QueryPlan, database: &str) -> Result<TranslateResponse> {
+    translate_inner(plan, database, true)
+}
+
+/// Compile an authorized SRQL plan to StarRocks SQL without hourly rollups.
+///
+/// The Elixir rollup-freshness gate selects this entry point when an hourly
+/// materialized view is stale: the query reads the StarRocks raw table
+/// instead, never CNPG.
+pub fn translate_raw(plan: &QueryPlan, database: &str) -> Result<TranslateResponse> {
+    translate_inner(plan, database, false)
+}
+
+fn translate_inner(
+    plan: &QueryPlan,
+    database: &str,
+    allow_rollup: bool,
+) -> Result<TranslateResponse> {
     match dataset_for(&plan.entity) {
-        Some(dataset) => dataset_sql(plan, dataset, database),
+        Some(dataset) => dataset_sql(plan, dataset, database, allow_rollup),
         None => Err(ServiceError::NotImplemented(format!(
             "starrocks_unsupported_entity: {:?}",
             plan.entity
@@ -190,10 +207,15 @@ fn flow_row_select(plan: &QueryPlan) -> Result<String> {
     Ok(parts.join(", "))
 }
 
-fn dataset_sql(plan: &QueryPlan, dataset: Dataset, database: &str) -> Result<TranslateResponse> {
+fn dataset_sql(
+    plan: &QueryPlan,
+    dataset: Dataset,
+    database: &str,
+    allow_rollup: bool,
+) -> Result<TranslateResponse> {
     let joins = catalog_joins(plan, dataset)?;
     let direction = plan_mentions(plan, &["direction"]);
-    let rollup = if joins.is_empty() && !direction {
+    let rollup = if allow_rollup && joins.is_empty() && !direction {
         hourly_rollup(plan, dataset)
     } else {
         None
@@ -1241,6 +1263,28 @@ mod tests {
         );
         assert!(chart.sql.contains("SUM(bytes_total) AS value"));
         refute_postgres(&chart.sql);
+    }
+
+    #[test]
+    fn stale_rollups_compile_from_the_raw_table() {
+        // The freshness gate selects translate_raw when the hourly MV is
+        // stale: a rollup-eligible query must read the raw table, never CNPG.
+        let raw = translate_raw(
+            &plan("in:flows time:last_7d bucket:1h agg:sum value_field:bytes_total"),
+            "serviceradar",
+        )
+        .expect("raw fallback");
+        assert!(
+            raw.sql.contains("FROM serviceradar.ocsf_network_activity"),
+            "{}",
+            raw.sql
+        );
+        assert!(!raw.sql.contains("_hourly"), "{}", raw.sql);
+        // The raw table carries per-observation sampling weights the MV
+        // already folded in, so the fallback re-applies them explicitly.
+        assert!(raw.sql.contains("sampling_rate"), "{}", raw.sql);
+        assert!(raw.sql.contains("AS value"), "{}", raw.sql);
+        refute_postgres(&raw.sql);
     }
 
     #[test]

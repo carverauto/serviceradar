@@ -92,12 +92,28 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumersTest do
       end
     end
 
+    fresh_mv = fn sql ->
+      assert sql =~ "MAX(`bucket`)"
+      assert sql =~ "events_hourly"
+
+      {:ok,
+       %Postgrex.Result{
+         command: :select,
+         columns: ["MAX(`bucket`)"],
+         rows: [[~N[1999-06-15 23:00:00]]],
+         num_rows: 1,
+         connection_id: nil
+       }}
+    end
+
     assert {:ok, %{rows: [[bucket, 6, 11]]}} =
              LogEventConsumers.event_window_rows(
                ~U[1999-06-15 00:00:00Z],
                ~U[1999-06-16 00:00:00Z],
                86_400,
-               query: query
+               query: query,
+               mysql: fresh_mv,
+               now: ~N[1999-06-16 00:30:00]
              )
 
     assert %DateTime{} = bucket
@@ -122,6 +138,42 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumersTest do
              )
 
     assert_received {:event_sql, _}
+  end
+
+  test "a stale rollup view falls back to the raw StarRocks events table" do
+    stale_mv = fn sql ->
+      assert sql =~ "MAX(`bucket`)"
+      assert sql =~ "events_hourly"
+
+      {:ok,
+       %Postgrex.Result{
+         command: :select,
+         columns: ["MAX(`bucket`)"],
+         rows: [[~N[1999-06-14 00:00:00]]],
+         num_rows: 1,
+         connection_id: nil
+       }}
+    end
+
+    assert {:ok, %{rows: [[bucket, 6, 11]]}} =
+             LogEventConsumers.event_window_rows(
+               ~U[1999-06-15 00:00:00Z],
+               ~U[1999-06-16 00:00:00Z],
+               86_400,
+               query: fn sql ->
+                 # Stale MV: the whole-hour window reads raw events, never CNPG.
+                 refute sql =~ "events_hourly"
+                 refute sql =~ "platform.ocsf_events"
+                 assert sql =~ "serviceradar.events"
+                 assert sql =~ "COUNT(*)"
+                 assert sql =~ "`time` >= '1999-06-15T00:00:00Z'"
+                 {:ok, %{rows: [["1999-06-15 12:00:00", 6, 11]]}}
+               end,
+               mysql: stale_mv,
+               now: ~N[1999-06-16 00:30:00]
+             )
+
+    assert %DateTime{} = bucket
   end
 
   test "dns-policy reload reads StarRocks when events are cut over", %{prev: prev} do

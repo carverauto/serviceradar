@@ -16,6 +16,7 @@ defmodule ServiceRadarWebNG.SRQL do
   alias ServiceRadar.Analytics.StarRocks.CatalogAllowlist
   alias ServiceRadar.Analytics.StarRocks.Query, as: StarRocksQuery
   alias ServiceRadar.Analytics.StarRocks.Readers
+  alias ServiceRadar.Analytics.StarRocks.RollupFreshness
   alias ServiceRadar.Repo
   alias ServiceRadarWebNG.SRQL.EntityAccess
   alias ServiceRadarWebNG.SRQL.Native
@@ -134,12 +135,32 @@ defmodule ServiceRadarWebNG.SRQL do
   defp resolve_backend_mode(_query, mode) when is_binary(mode) and mode != "", do: mode
 
   defp resolve_backend_mode(query, _mode) do
-    query
-    |> EntityAccess.extract_entity()
-    |> Readers.mode_for()
+    entity =
+      query
+      |> EntityAccess.extract_entity()
+
+    case Readers.mode_for(entity) do
+      "starrocks" -> rollup_mode(entity)
+      other -> other
+    end
   end
 
-  defp execute_backend(%{"sql" => sql} = translation, "starrocks") when is_binary(sql) do
+  # Hourly materialized views are REFRESH ASYNC with no schedule: when the
+  # view behind a dataset is stale, compile from the StarRocks raw tables
+  # instead of serving short counts. Only the compiler-routed rollups
+  # (flows, metrics) downgrade; everything else stays on "starrocks".
+  defp rollup_mode(entity) do
+    case Readers.dataset_for_entity(entity) do
+      dataset when dataset in [:flows, :metrics] ->
+        if RollupFreshness.fresh?(dataset), do: "starrocks", else: "starrocks_raw"
+
+      _ ->
+        "starrocks"
+    end
+  end
+
+  defp execute_backend(%{"sql" => sql} = translation, mode)
+       when is_binary(sql) and mode in ["starrocks", "starrocks_raw"] do
     with :ok <- CatalogAllowlist.assert_sql_executable(sql) do
       case StarRocksQuery.execute(sql) do
         {:ok, result} -> {:ok, build_response(translation, result, &build_arrow_rows/2)}
@@ -150,7 +171,8 @@ defmodule ServiceRadarWebNG.SRQL do
 
   defp execute_backend(translation, _mode), do: execute_translation(translation)
 
-  defp execute_backend_raw(%{"sql" => sql}, "starrocks") when is_binary(sql) do
+  defp execute_backend_raw(%{"sql" => sql}, mode)
+       when is_binary(sql) and mode in ["starrocks", "starrocks_raw"] do
     with :ok <- CatalogAllowlist.assert_sql_executable(sql) do
       StarRocksQuery.execute(sql)
     end
@@ -246,7 +268,9 @@ defmodule ServiceRadarWebNG.SRQL do
     end
   rescue
     error in DBConnection.ConnectionError ->
-      Logger.warning("SRQL query could not obtain a database connection: #{Exception.message(error)}")
+      Logger.warning(
+        "SRQL query could not obtain a database connection: #{Exception.message(error)}"
+      )
 
       {:error, error}
   catch
@@ -329,7 +353,11 @@ defmodule ServiceRadarWebNG.SRQL do
     end
   end
 
-  defp build_response(translation, %Postgrex.Result{columns: columns, rows: rows}, row_builder \\ &build_results/2) do
+  defp build_response(
+         translation,
+         %Postgrex.Result{columns: columns, rows: rows},
+         row_builder \\ &build_results/2
+       ) do
     results =
       columns
       |> row_builder.(rows)
@@ -427,7 +455,8 @@ defmodule ServiceRadarWebNG.SRQL do
     end
   end
 
-  defp enrich_downsample_aliases(results, translation) when is_list(results) and is_map(translation) do
+  defp enrich_downsample_aliases(results, translation)
+       when is_list(results) and is_map(translation) do
     query = Map.get(translation, "_query")
     series_field = extract_query_token(query, "series")
 
@@ -566,7 +595,8 @@ defmodule ServiceRadarWebNG.SRQL do
     end
   end
 
-  def decode_param(%{"t" => type, "v" => value}) when type in ["inet", "cidr"] and is_binary(value) do
+  def decode_param(%{"t" => type, "v" => value})
+      when type in ["inet", "cidr"] and is_binary(value) do
     case ServiceRadar.Types.Cidr.dump_to_native(value, []) do
       {:ok, inet} -> {:ok, inet}
       _ -> {:error, :invalid_inet_param}

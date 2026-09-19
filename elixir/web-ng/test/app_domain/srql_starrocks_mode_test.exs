@@ -47,7 +47,7 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
       StarRocks,
       prev
       |> Keyword.put(:cutover_datasets, [:flows])
-      |> Keyword.put(:mysql, mysql)
+      |> Keyword.put(:mysql, with_fresh_mvs(mysql))
     )
 
     for query <- [
@@ -89,7 +89,7 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
       StarRocks,
       prev
       |> Keyword.put(:cutover_datasets, [:flows])
-      |> Keyword.put(:mysql, mysql)
+      |> Keyword.put(:mysql, with_fresh_mvs(mysql))
     )
 
     window = Window.resolve("last_1h", "netflow")
@@ -141,7 +141,7 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
       StarRocks,
       prev
       |> Keyword.put(:cutover_datasets, [:metrics])
-      |> Keyword.put(:mysql, mysql)
+      |> Keyword.put(:mysql, with_fresh_mvs(mysql))
     )
 
     assert {:ok, %{"results" => [row], "error" => nil}} =
@@ -163,7 +163,7 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
       StarRocks,
       prev
       |> Keyword.put(:cutover_datasets, [:flows])
-      |> Keyword.put(:mysql, mysql)
+      |> Keyword.put(:mysql, with_fresh_mvs(mysql))
     )
 
     # `hostname` is what pulls in the CNPG catalog join; the catalog flag gates
@@ -185,7 +185,7 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
       StarRocks,
       prev
       |> Keyword.put(:cutover_datasets, [:flows])
-      |> Keyword.put(:mysql, mysql)
+      |> Keyword.put(:mysql, with_fresh_mvs(mysql))
     )
 
     assert {:ok, %{"results" => [row], "error" => nil}} =
@@ -218,7 +218,7 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
       prev
       |> Keyword.put(:cutover_datasets, [:flows])
       |> Keyword.put(:catalog_enabled, true)
-      |> Keyword.put(:mysql, mysql)
+      |> Keyword.put(:mysql, with_fresh_mvs(mysql))
     )
 
     assert {:ok, %{"results" => [row], "error" => nil}} =
@@ -288,6 +288,46 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
                ~s|in:flows time:last_1h stats:"count_distinct(src_endpoint_ip) as unique_talkers"|,
                %{scope: @scope}
              )
+  end
+
+  test "whole-hour charts read the hourly rollup when the MV is fresh", %{prev: prev} do
+    Application.put_env(
+      :serviceradar_core,
+      StarRocks,
+      prev
+      |> Keyword.put(:cutover_datasets, [:flows])
+      |> Keyword.put(:mysql, mv_probe_result(1_800))
+    )
+
+    assert {:ok, %{"results" => [_row], "error" => nil}} =
+             SRQL.query(
+               "in:flows time:last_7d bucket:1h agg:sum value_field:bytes_total",
+               %{scope: @scope}
+             )
+
+    assert_received {:starrocks_query, body}
+    assert body =~ "FROM serviceradar.ocsf_network_activity_hourly"
+  end
+
+  test "whole-hour charts fall back to raw StarRocks tables when the MV is stale",
+       %{prev: prev} do
+    Application.put_env(
+      :serviceradar_core,
+      StarRocks,
+      prev
+      |> Keyword.put(:cutover_datasets, [:flows])
+      |> Keyword.put(:mysql, mv_probe_result(10_800))
+    )
+
+    assert {:ok, %{"results" => [_row], "error" => nil}} =
+             SRQL.query(
+               "in:flows time:last_7d bucket:1h agg:sum value_field:bytes_total",
+               %{scope: @scope}
+             )
+
+    assert_received {:starrocks_query, body}
+    assert body =~ "FROM serviceradar.ocsf_network_activity"
+    refute body =~ "_hourly"
   end
 
   defmodule MapSliceStub do
@@ -412,5 +452,43 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
       num_rows: length(rows),
       connection_id: nil
     }
+  end
+
+  # Answers rollup-freshness probes with a fresh high-water mark while data
+  # SQL flows to the test's own handler. Probe SQL must never reach
+  # {:starrocks_query, _} assertions, which pin the executed data statement.
+  defp with_fresh_mvs(handler) do
+    fn sql ->
+      if sql =~ "MAX(`bucket`)" do
+        {:ok, postgrex_result(["MAX(`bucket`)"], [[fresh_bucket()]])}
+      else
+        handler.(sql)
+      end
+    end
+  end
+
+  defp mv_probe_result(lag_seconds) do
+    fn sql ->
+      if sql =~ "MAX(`bucket`)" do
+        bucket =
+          NaiveDateTime.utc_now()
+          |> NaiveDateTime.add(-lag_seconds)
+          |> NaiveDateTime.truncate(:second)
+
+        {:ok, postgrex_result(["MAX(`bucket`)"], [[bucket]])}
+      else
+        send(self(), {:starrocks_query, sql})
+
+        {:ok,
+         postgrex_result(
+           ["timestamp", "value"],
+           [["1999-06-15 12:00:00", 1200]]
+         )}
+      end
+    end
+  end
+
+  defp fresh_bucket do
+    NaiveDateTime.utc_now() |> NaiveDateTime.add(-1800) |> NaiveDateTime.truncate(:second)
   end
 end
