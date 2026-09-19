@@ -38,6 +38,6 @@
 --   2. re-apply 0005 (hourly materialized views)
 --   3. backfill history, newest first, from CNPG
 --
--- Do NOT replay 0006-0013. Every column they add is already declared in
+-- Do NOT replay 0006-0015. Every column they add is already declared in
 -- 0001-0004, and re-running an ADD COLUMN fails once the column exists.
 SELECT 'partitioned telemetry rebuild is documented; not executed' AS status;

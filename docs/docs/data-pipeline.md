@@ -56,4 +56,13 @@ components manipulating JetStream buckets directly.
 
 CNPG is the system of record for inventory, telemetry, and analytics (Timescale hypertables and AGE graph features are enabled in the cluster).
 
+An optional StarRocks warehouse (off by default) can hold migrated telemetry
+history -- flows, scalar metrics, logs and event history -- written by the same
+EventWriter path. CNPG remains the system of record for inventory,
+configuration, credentials and current alert state, and keeps serving every
+telemetry dataset until one is explicitly cut over. See
+[NetFlow](./netflow.md) for the flow path and
+[Helm Deployment and Configuration](./helm-configuration.md) for the chart
+values and where the warehouse install is documented.
+
 Querying happens through the web UI and SRQL, which is embedded in `web-ng`.

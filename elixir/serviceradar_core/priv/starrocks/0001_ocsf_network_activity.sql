@@ -1,5 +1,5 @@
 -- StarRocks primary-key table for migrated OCSF flows.
--- Applied by the Bazel schema target, not Mix/Postgres migrations.
+-- Not a Mix/Postgres migration; BUILD.bazel here says how these are applied.
 -- `time` is part of the primary key because StarRocks requires the partition
 -- column to be a primary-key column. partition_live_number is the retention
 -- default; SERVICERADAR_STARROCKS_RETENTION_DAYS_FLOWS is applied on top at

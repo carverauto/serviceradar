@@ -14,11 +14,17 @@ The system SHALL leave NetFlow collection independently gated by Helm and Compos
 - **AND** other telemetry datasets may still persist to StarRocks
 
 ### Requirement: Exact accelerated flow analytics
-The system SHALL preserve exact flow totals, sampling semantics, nullable ports, classification and filter semantics when using StarRocks aggregates, and SHALL use only covered, eligible aggregates with disjoint raw edges or an exact raw fallback.
+The system SHALL preserve exact flow totals, sampling semantics, nullable ports, classification and filter semantics when using StarRocks aggregates, SHALL read an hourly aggregate only when the requested bucket, filters and aggregation re-aggregate from it exactly, and SHALL otherwise read the exact raw table.
+An hourly aggregate answers at its own hour grain. Requested windows are not hour-aligned, so an edge hour that overlaps the window is returned whole, including traffic just outside the request, and the warehouse alone answers it -- edges are never completed from CNPG or a second store.
 
-#### Scenario: Partial aggregate coverage
-- **WHEN** a requested interval includes incomplete edge buckets or stale aggregate partitions
-- **THEN** uncovered portions use raw data without overlapping covered contributions
+#### Scenario: Window bound falls inside an hour
+- **WHEN** a bucketed flow query starts or ends part way through an hour and the hourly aggregate is eligible
+- **THEN** every hourly row whose hour overlaps the window contributes in full
+- **AND** the edge buckets are not completed from CNPG or a separate raw query
+
+#### Scenario: Requested shape the aggregate cannot reproduce
+- **WHEN** the bucket is shorter than an hour, or a filter, series or value field is absent from the hourly aggregate
+- **THEN** the query reads the raw StarRocks table instead
 - **AND** the result matches synthetic raw ground truth
 
 #### Scenario: Classification requires omitted dimensions

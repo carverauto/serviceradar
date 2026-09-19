@@ -1,6 +1,6 @@
 -- Asynchronous hourly MVs for dashboard aggregates.
 -- Primary Key raw tables do not support synchronous MVs (StarRocks 3.5).
--- Applied by the Bazel schema target, not Mix/Postgres migrations.
+-- Not a Mix/Postgres migration; BUILD.bazel here says how these are applied.
 --
 -- Every stored aggregate must be re-aggregatable into a coarser bucket by the
 -- SRQL compiler, and must equal what the same query computes from the raw

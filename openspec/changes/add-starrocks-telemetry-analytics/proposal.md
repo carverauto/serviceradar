@@ -4,7 +4,7 @@
 
 The pg_duckdb design was withdrawn; it predates the move to GitHub and has no pull request there. [Issue #4484](https://github.com/carverauto/serviceradar/issues/4484) preserves useful dashboard and telemetry fixes, but long-window analytics still need a new storage and query architecture. The user's subsequent direction selects StarRocks as the proposed replacement; the older handoff's statement that no replacement was selected is historical.
 
-This is a proposal only. No application code, migrations, deployment, data recovery, branch merge, or production configuration change is authorized by this document. Implementation follows proposal approval in later agents/PRs.
+Implementation was authorized after this proposal was approved and lands with it. Deployment, data recovery, branch merge and production configuration changes are still outside it: no dataset is cut over and no live environment is migrated. [tasks.md](tasks.md) records what is implemented and what remains unverified.
 
 ## What Changes
 
@@ -15,7 +15,7 @@ This is a proposal only. No application code, migrations, deployment, data recov
 - Add a StarRocks SQL compiler/executor behind existing authorized SRQL entry points, with stable response contracts and explicit dataset routing. Dashboard callers do not issue database-specific SQL.
 - Provide an opt-in, read-only StarRocks JDBC catalog onto CNPG so authorized analytics can join local StarRocks telemetry with current-state metadata in the query engine instead of merging those result sets in application code. The primary consumers are flow attribution and flow enrichment (process correlation current-state, prefix tags, device/inventory identity). The catalog is not a telemetry serving path and is not a write path back into CNPG.
 - Preserve query correctness, process attribution updates, counter semantics, exact window boundaries and visible errors. Build time-bucket aggregates and verify their use and freshness.
-- Provide configurable dataset retention, a hosted default of one year for flows/logs/events/alert history, and longer operator-selected retention. Treat the previous 30-day hot-window preference as a cache-sizing hypothesis, not a storage boundary.
+- Provide configurable dataset retention, a hosted default of one year for logs/events/alert history and 90 days for raw flows/metrics, and longer operator-selected retention. Treat the previous 30-day hot-window preference as a cache-sizing hypothesis, not a storage boundary.
 - Require staged backfill, shadow validation, per-dataset cutover, rollback coverage and recovery drills before removing any existing historical storage.
 - **BREAKING, opt-in storage contract:** migrated telemetry is persisted in StarRocks rather than CNPG. Direct PostgreSQL consumers must migrate before their dataset switches. The JetStream-first/single-owner invariant is unchanged; update repository guidance to permit the approved destination change before implementing it.
 
@@ -29,4 +29,4 @@ This is a proposal only. No application code, migrations, deployment, data recov
 
 ## Review and implementation boundaries
 
-See [design.md](design.md) for decisions, failure handling, source verification and remaining design gates; [tasks.md](tasks.md) for ordered work packages. All tasks remain unchecked. Performance targets are proposed acceptance criteria, not measured results. The source PR's tests and closed status do not validate an extracted patch or a future deployment.
+See [design.md](design.md) for decisions, failure handling, source verification and remaining design gates; [tasks.md](tasks.md) for ordered work packages and their current status, where every unchecked task records what was not executed. Performance targets are proposed acceptance criteria, not measured results. The source PR's tests and closed status do not validate an extracted patch or a future deployment.

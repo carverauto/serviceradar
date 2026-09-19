@@ -1,5 +1,5 @@
 -- StarRocks primary-key table for migrated scalar metrics.
--- Applied by the Bazel schema target, not Mix/Postgres migrations.
+-- Not a Mix/Postgres migration; BUILD.bazel here says how these are applied.
 -- Identity matches CNPG: (timestamp, gateway_id, series_key).
 CREATE DATABASE IF NOT EXISTS serviceradar;
 

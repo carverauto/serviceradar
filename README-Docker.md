@@ -69,8 +69,22 @@ Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) and en
 By default, Compose pulls `latest` tags. Set `APP_TAG` when you need a pinned release or commit.
 To default to the dev compose overlay (no `-f`), set `COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml` in `.env`.
 
-The default stack does **not** start StarRocks or the NetFlow collector. Logs
-stay on CNPG hypertables. Optional profiles:
+5. **Get your admin password**:
+   ```bash
+   docker compose logs config-updater | grep "Password:"
+   ```
+
+6. **Access ServiceRadar**:
+   - Web Interface: https://localhost (Caddy on port 443, self-signed)
+   - HTTP fallback: http://localhost (Caddy on port 80)
+   - API via Caddy: https://localhost/api/
+   - Email: `root@localhost`
+   - Password: (from step 5)
+
+## Optional profiles: StarRocks warehouse and NetFlow collector
+
+The default stack does **not** start StarRocks or the NetFlow collector, and
+all telemetry stays on CNPG hypertables. Optional profiles:
 
 ```bash
 # Warehouse only (metrics/logs/events shadow). No flow collector.
@@ -101,18 +115,6 @@ to 90, `STARROCKS_RETENTION_DAYS_LOGS` and `STARROCKS_RETENTION_DAYS_EVENTS` to
 365. Core applies them at start and retries with backoff until the warehouse
 accepts them, so a slow Frontend does not leave the tables on their DDL
 default.
-
-5. **Get your admin password**:
-   ```bash
-   docker compose logs config-updater | grep "Password:"
-   ```
-
-6. **Access ServiceRadar**:
-   - Web Interface: https://localhost (Caddy on port 443, self-signed)
-   - HTTP fallback: http://localhost (Caddy on port 80)
-   - API via Caddy: https://localhost/api/
-   - Email: `root@localhost`
-   - Password: (from step 5)
 
 ## Update an Existing Stack
 

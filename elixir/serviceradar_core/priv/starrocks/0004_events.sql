@@ -1,6 +1,6 @@
 -- StarRocks primary-key table for migrated event / alert history.
 -- Current alert state remains in CNPG and is not written here.
--- Applied by the Bazel schema target, not Mix/Postgres migrations.
+-- Not a Mix/Postgres migration; BUILD.bazel here says how these are applied.
 CREATE DATABASE IF NOT EXISTS serviceradar;
 
 CREATE TABLE IF NOT EXISTS serviceradar.events (
