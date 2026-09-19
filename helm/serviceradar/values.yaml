@@ -2543,6 +2543,10 @@ analytics:
     # instead. The views are REFRESH ASYNC with no schedule, so this is the
     # operator's tolerance for short counts, not a refresh interval. Lowering
     # it trades chart latency for accuracy; readers never fall back to CNPG.
+    # Lag is measured in whole hours, because a view buckets by
+    # date_trunc('hour', ...) and the source mark is floored to match: the
+    # default tolerates a view up to two hours behind, 3600 one hour, and
+    # anything below 3600 demands a view that is fully current.
     rollupStaleAfterSeconds: 7200
     fe:
       service: lab-fe-service.starrocks.svc

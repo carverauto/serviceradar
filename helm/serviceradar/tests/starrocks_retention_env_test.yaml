@@ -54,10 +54,12 @@ tests:
             value: "7200"
           count: 1
 
+  # Lag is measured in whole hours, so a retune worth demonstrating is one
+  # grain, not an arbitrary sub-hour value that behaves the same as zero.
   - it: lets the rollup staleness threshold be retuned
     set:
       analytics.starrocks.enabled: true
-      analytics.starrocks.rollupStaleAfterSeconds: 900
+      analytics.starrocks.rollupStaleAfterSeconds: 3600
     documentSelector:
       path: kind
       value: Deployment
@@ -66,7 +68,7 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: SERVICERADAR_STARROCKS_ROLLUP_STALE_AFTER_SECONDS
-            value: "900"
+            value: "3600"
           count: 1
 
   # Bounding raw NetFlow must not also shorten log history.

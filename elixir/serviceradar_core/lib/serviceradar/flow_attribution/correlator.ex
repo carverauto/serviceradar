@@ -72,6 +72,9 @@ defmodule ServiceRadar.FlowAttribution.Correlator do
 
   defp run_once do
     case FlowAttribution.correlate() do
+      {:ok, :not_applicable} ->
+        :ok
+
       {:ok, count} when count > 0 ->
         Logger.info("FlowAttribution.Correlator stamped #{count} flow(s) as attributed")
 

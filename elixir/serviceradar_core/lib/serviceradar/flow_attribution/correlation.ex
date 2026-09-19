@@ -29,13 +29,20 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
   # Statement/transaction timeout for a correlation pass (ms).
   @correlation_timeout_ms 120_000
 
-  @spec correlate() :: {:ok, non_neg_integer()} | {:error, term()}
+  # Flows are warehouse-only, so an installation that has not cut them over has
+  # nothing to correlate. That is a configured state, not a failure: the pass
+  # reports itself inapplicable before doing the workload backfill, rather than
+  # discarding that work and raising an alarm every tick forever.
+  @spec correlate() :: {:ok, non_neg_integer() | :not_applicable} | {:error, term()}
   def correlate do
-    with {:ok, _current_backfills} <- WorkloadBackfill.backfill_current_workload_identity() do
-      case flow_history_backend() do
-        :starrocks -> correlate_starrocks()
-        {:error, _reason} = error -> error
-      end
+    case flow_history_backend() do
+      :starrocks ->
+        with {:ok, _current_backfills} <- WorkloadBackfill.backfill_current_workload_identity() do
+          correlate_starrocks()
+        end
+
+      {:error, :starrocks_required} ->
+        {:ok, :not_applicable}
     end
   end
 
@@ -131,120 +138,6 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
                     nextval('platform.flow_attribution_update_version')) AS attribution_version
     FROM candidates
     WHERE pid IS NOT NULL
-    """
-  end
-
-  @doc false
-  @spec correlation_sql() :: String.t()
-  def correlation_sql do
-    """
-    WITH recent_flows AS (
-      SELECT
-        f.tableoid,
-        f.ctid,
-        f.time,
-        f.partition,
-        f.protocol_num,
-        f.src_endpoint_ip,
-        f.src_endpoint_port,
-        f.dst_endpoint_ip,
-        f.dst_endpoint_port
-      FROM #{@schema}.ocsf_network_activity AS f
-      WHERE f.time > now() - interval '#{@correlation_window_minutes} minutes'
-        AND (f.ocsf_payload ->> 'event_type') IS DISTINCT FROM 'attributed_flow'
-      ORDER BY f.time DESC
-      LIMIT #{@batch_limit}
-    ),
-    #{candidate_ctes("f.tableoid AS flow_tableoid, f.ctid AS flow_ctid")},
-    stamped AS (
-      UPDATE #{@schema}.ocsf_network_activity AS f
-      SET ocsf_payload = f.ocsf_payload
-        || jsonb_build_object(
-             'event_type', 'attributed_flow',
-             'agent_id', candidates.agent_id,
-             'attribution', jsonb_strip_nulls(jsonb_build_object(
-               'pid', candidates.pid,
-               'comm', candidates.comm,
-               'redacted_cmdline', candidates.cmdline,
-               'uid', candidates.uid,
-               'container_id', candidates.container_id,
-               'workload_identity', candidates.workload_identity,
-               'public_endpoint', candidates.public_endpoint
-             ))
-           )
-      FROM candidates
-      WHERE f.tableoid = candidates.flow_tableoid
-        AND f.ctid = candidates.flow_ctid
-      RETURNING 1
-    ),
-    workload_backfills AS (
-      UPDATE #{@schema}.ocsf_network_activity AS f
-      SET ocsf_payload = jsonb_set(
-        f.ocsf_payload,
-        '{attribution,workload_identity}',
-        NULLIF(
-          COALESCE(wi.identity, '{}'::jsonb) ||
-            COALESCE(f.ocsf_payload #> '{attribution,workload_identity}', '{}'::jsonb),
-          '{}'::jsonb
-        ),
-        true
-      )
-      FROM #{@schema}.#{@workload_identity_table} AS wi
-      WHERE f.time > now() - interval '#{@correlation_window_minutes} minutes'
-        AND (f.ocsf_payload ->> 'event_type') = 'attributed_flow'
-        AND (f.ocsf_payload #>> '{attribution,container_id}') = wi.container_id
-        AND (f.ocsf_payload ->> 'agent_id') = wi.agent_id
-        AND f.partition = wi.partition
-        AND (
-          (f.ocsf_payload #> '{attribution,workload_identity}') IS NULL
-          OR NOT ((f.ocsf_payload #> '{attribution,workload_identity}') ? 'context_name')
-        )
-        AND COALESCE(f.ocsf_payload #> '{attribution,workload_identity}', '{}'::jsonb) <>
-          (
-            COALESCE(wi.identity, '{}'::jsonb) ||
-              COALESCE(f.ocsf_payload #> '{attribution,workload_identity}', '{}'::jsonb)
-          )
-      RETURNING 1
-    ),
-    public_endpoint_backfills AS (
-      -- Stamp VIP ownership onto already-attributed flows that lack it
-      -- (e.g. matched before inventory existed, or via a non-VIP path).
-      UPDATE #{@schema}.ocsf_network_activity AS f
-      SET ocsf_payload = jsonb_set(
-        f.ocsf_payload,
-        '{attribution,public_endpoint}',
-        pe.owner,
-        true
-      )
-      FROM (
-        SELECT DISTINCT ON (vip_ip_norm, vip_port, proto_num)
-          vip_ip_norm,
-          vip_port,
-          proto_num,
-          owner
-        FROM public_endpoint_backends
-        ORDER BY vip_ip_norm, vip_port, proto_num, exposure_rank
-      ) AS pe
-      WHERE f.time > now() - interval '#{@correlation_window_minutes} minutes'
-        AND (f.ocsf_payload ->> 'event_type') = 'attributed_flow'
-        AND (f.ocsf_payload #> '{attribution,public_endpoint}') IS NULL
-        AND pe.proto_num = f.protocol_num
-        AND (
-          (
-            pe.vip_ip_norm = lower(regexp_replace(coalesce(f.dst_endpoint_ip, ''), '^::ffff:', '', 'i'))
-            AND pe.vip_port = f.dst_endpoint_port
-          )
-          OR (
-            pe.vip_ip_norm = lower(regexp_replace(coalesce(f.src_endpoint_ip, ''), '^::ffff:', '', 'i'))
-            AND pe.vip_port = f.src_endpoint_port
-          )
-        )
-      RETURNING 1
-    )
-    SELECT
-      (SELECT count(*) FROM stamped) +
-      (SELECT count(*) FROM workload_backfills) +
-      (SELECT count(*) FROM public_endpoint_backfills) AS affected_rows
     """
   end
 

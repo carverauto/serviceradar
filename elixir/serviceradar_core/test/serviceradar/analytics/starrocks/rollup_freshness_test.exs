@@ -127,16 +127,25 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshnessTest do
     assert RollupFreshness.fresh?(:events, query: events)
   end
 
+  # `bucket` is date_trunc('hour', ...), so the source mark is floored to the
+  # same grain before diffing. Without that, a view that has fully caught up
+  # still shows the minutes elapsed inside the newest bucket as lag, and any
+  # threshold under an hour reports it stale for most of every hour.
+  test "a caught-up view is fresh even under a sub-hour threshold" do
+    probe = probes([[~N[1999-06-15 12:00:00]]], [[~N[1999-06-15 12:44:55]]])
+    assert RollupFreshness.fresh?(:flows, query: probe, stale_after_seconds: 900)
+  end
+
+  test "a view one whole hour behind is stale under a sub-hour threshold" do
+    probe = probes([[~N[1999-06-15 11:00:00]]], [[~N[1999-06-15 12:29:00]]])
+    refute RollupFreshness.fresh?(:flows, query: probe, stale_after_seconds: 900)
+  end
+
   test "the staleness threshold is configurable per call" do
     probe = probes([[~N[1999-06-15 09:00:00]]], [[~N[1999-06-15 12:00:00]]])
 
     assert RollupFreshness.fresh?(:flows, query: probe, stale_after_seconds: 11_000)
     refute RollupFreshness.fresh?(:flows, query: probe, stale_after_seconds: 3_000)
-  end
-
-  test "the :mysql seam still reaches the probe when no :query fun is injected" do
-    probe = probes([[~N[1999-06-15 12:00:00]]], [[~N[1999-06-15 12:30:00]]])
-    assert RollupFreshness.fresh?(:flows, mysql: probe)
   end
 
   describe "with the high-water cache running" do

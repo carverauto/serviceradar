@@ -68,7 +68,7 @@ defmodule ServiceRadar.FlowAttribution do
   Correlate recent attributions with recent NetFlow and stamp matches as
   `attributed_flow`. Direction-agnostic and idempotent.
   """
-  @spec correlate() :: {:ok, non_neg_integer()} | {:error, term()}
+  @spec correlate() :: {:ok, non_neg_integer() | :not_applicable} | {:error, term()}
   defdelegate correlate, to: Correlation
 
   @doc """

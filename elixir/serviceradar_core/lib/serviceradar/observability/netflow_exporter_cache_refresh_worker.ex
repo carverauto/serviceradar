@@ -71,8 +71,26 @@ defmodule ServiceRadar.Observability.NetflowExporterCacheRefreshWorker do
     actor = SystemActor.system(:netflow_exporter_cache_refresh)
     now = DateTime.utc_now()
 
-    sampler_addresses = discover_sampler_addresses(scan_window_seconds, limit)
+    case discover_sampler_addresses(scan_window_seconds, limit) do
+      {:ok, sampler_addresses} ->
+        refresh_cache(sampler_addresses, actor, now, reschedule_seconds)
 
+      # Flows are warehouse-only. Until they are cut over there is nothing to
+      # discover, which is a configured state rather than a job failure -- but
+      # it stops the cache being refreshed, so it is said out loud instead of
+      # looking like an empty warehouse.
+      {:error, :starrocks_required} ->
+        Logger.info(
+          "NetflowExporterCacheRefreshWorker: flows are not cut over to StarRocks; " <>
+            "exporter cache left unchanged"
+        )
+
+        ObanSupport.safe_insert(new(%{}, schedule_in: max(reschedule_seconds, 300)))
+        :ok
+    end
+  end
+
+  defp refresh_cache(sampler_addresses, actor, now, reschedule_seconds) do
     devices_by_ip = load_devices_by_ip(sampler_addresses, actor)
 
     attrs =
@@ -150,14 +168,14 @@ defmodule ServiceRadar.Observability.NetflowExporterCacheRefreshWorker do
       |> DateTime.truncate(:second)
 
     # Flows live in the warehouse or nowhere: an installation that has not cut
-    # them over discovers no exporters rather than a CNPG answer.
+    # them over gets the routing error, never a CNPG answer.
     case ServiceRadar.Analytics.StarRocks.Readers.mode_for(:flows) do
-      "starrocks" -> starrocks_sampler_addresses(since, limit, opts)
-      _ -> []
+      "starrocks" -> {:ok, starrocks_sampler_addresses(since, limit, opts)}
+      {:error, _reason} = error -> error
     end
   end
 
-  def discover_sampler_addresses(_scan_window_seconds, _limit, _opts), do: []
+  def discover_sampler_addresses(_scan_window_seconds, _limit, _opts), do: {:ok, []}
 
   defp starrocks_sampler_addresses(since, limit, opts) do
     iso = DateTime.to_iso8601(since)

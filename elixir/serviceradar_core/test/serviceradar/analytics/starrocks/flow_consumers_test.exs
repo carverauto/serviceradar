@@ -34,10 +34,23 @@ defmodule ServiceRadar.Analytics.StarRocks.FlowConsumersTest do
       {:ok, %{rows: [["192.0.2.10"], ["198.51.100.20"]]}}
     end
 
-    assert ["192.0.2.10", "198.51.100.20"] ==
+    assert {:ok, ["192.0.2.10", "198.51.100.20"]} ==
              NetflowExporterCacheRefreshWorker.discover_sampler_addresses(1_800, 50, query: query)
 
     assert_received {:exporter_sql, _sql}
+  end
+
+  # Flows are warehouse-only, so discovery reports the routing error rather
+  # than an empty list that reads as "this deployment exports no flows".
+  test "exporter cache discovery surfaces the routing error until flows are cut over" do
+    query = fn sql -> flunk("discovery must not query before cutover: #{sql}") end
+
+    assert {:error, :starrocks_required} ==
+             NetflowExporterCacheRefreshWorker.discover_sampler_addresses(1_800, 50, query: query)
+  end
+
+  test "attribution correlation reports itself inapplicable until flows are cut over" do
+    assert Correlation.correlate() == {:ok, :not_applicable}
   end
 
   test "threat retrohunt reads observed flows from StarRocks when flows are cut over",

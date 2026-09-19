@@ -356,7 +356,7 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
       StarRocks,
       prev
       |> Keyword.put(:cutover_datasets, [:flows])
-      |> Keyword.put(:mysql, flows_probes(10_800))
+      |> Keyword.put(:mysql, flows_probes(14_400))
     )
 
     assert {:ok, %{"results" => [_row], "error" => nil}} =
@@ -498,7 +498,9 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
   # other statement to the {:starrocks_query, _} assertions, which pin the
   # executed data statement. `mv_lag_seconds` is how far the view trails the
   # table it aggregates; both marks sit an hour in the past, so a test that
-  # passes here cannot be passing on wall-clock age.
+  # passes here cannot be passing on wall-clock age. Lag is compared on the
+  # hour grain, so the stale case is set a clear multiple of an hour beyond
+  # the threshold rather than a hair over it.
   defp flows_probes(mv_lag_seconds) do
     raw_max =
       NaiveDateTime.utc_now() |> NaiveDateTime.add(-3_600) |> NaiveDateTime.truncate(:second)

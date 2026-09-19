@@ -6,13 +6,18 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshness do
   schedule, so a reader must verify the view has caught up before trusting
   it: an unrefreshed view returns short counts with no error.
 
-  Staleness is the view's lag behind its own source table --
-  `MAX(raw.<time column>) - MAX(mv.bucket)` -- never the wall clock, so a
-  dataset that simply stopped receiving rows keeps its rollup instead of
-  pushing long windows onto a full raw scan. A source table holding no rows
-  reads as fresh. Any error, empty result, or unparseable high-water mark
-  reads as stale, which routes the query to the StarRocks raw table, never
-  CNPG.
+  Staleness is the view's lag behind its own source table, never the wall
+  clock, so a dataset that simply stopped receiving rows keeps its rollup
+  instead of pushing long windows onto a full raw scan. A source table
+  holding no rows reads as fresh. Any error, empty result, or unparseable
+  high-water mark reads as stale, which routes the query to the StarRocks
+  raw table, never CNPG.
+
+  Both marks are read on the same grain: `bucket` is `date_trunc('hour', ...)`,
+  so the source mark is floored to the hour before diffing. The threshold
+  therefore counts whole hours the view is behind -- not the minutes that have
+  elapsed inside the newest bucket, which a caught-up view accrues anyway and
+  which would otherwise report it stale for most of every hour.
 
   The Frontend is queried over the MySQL text protocol and `MySQL.to_postgrex/1`
   passes cells through untouched, so a `DATETIME` arrives as whatever MyXQL
@@ -22,8 +27,8 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshness do
 
   `RollupFreshnessCache` holds each mark for a minute so the queries of one
   dashboard render share a pair of probes. Callers inject the transport with
-  `:query` (the arity-1 seam the readers already use) or `:mysql`; both reach
-  the same Frontend pool in production.
+  `:query`, the arity-1 seam the readers already use; otherwise probes go
+  through `Query.execute/1` like every other statement.
   """
 
   alias ServiceRadar.Analytics.StarRocks
@@ -74,7 +79,7 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshness do
       {:ok, raw_max} ->
         case high_water(run, dataset, :mv, "SELECT MAX(`bucket`) FROM #{Env.table(mv)}") do
           {:ok, %NaiveDateTime{} = mv_max} ->
-            NaiveDateTime.diff(raw_max, mv_max) <= stale_after_seconds(opts)
+            NaiveDateTime.diff(floor_hour(raw_max), mv_max) <= stale_after_seconds(opts)
 
           _ ->
             false
@@ -119,14 +124,13 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshness do
 
   defp to_naive(_value), do: :error
 
+  defp floor_hour(%NaiveDateTime{} = value),
+    do: %{value | minute: 0, second: 0, microsecond: {0, 0}}
+
   defp runner(opts) do
     case Keyword.get(opts, :query) do
-      fun when is_function(fun, 1) ->
-        fun
-
-      _ ->
-        query_opts = Keyword.take(opts, [:mysql])
-        &Query.execute(&1, query_opts)
+      fun when is_function(fun, 1) -> fun
+      _ -> &Query.execute/1
     end
   end
 end

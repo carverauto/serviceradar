@@ -303,7 +303,7 @@ defmodule ServiceRadar.Observability.ThreatIntelRetrohuntWorker do
   an installation that has not cut them over fails here instead of matching
   against CNPG history.
   """
-  @spec observations_for_run(map(), keyword()) :: {:ok, [map()] | nil} | {:error, map()}
+  @spec observations_for_run(map(), keyword()) :: {:ok, [map()]} | {:error, map()}
   def observations_for_run(state, opts \\ []) do
     case flow_history_backend() do
       :starrocks ->
@@ -318,7 +318,7 @@ defmodule ServiceRadar.Observability.ThreatIntelRetrohuntWorker do
   end
 
   @doc false
-  def run_netflow_match_batch(state, batch_size, observations \\ nil, opts \\ []) do
+  def run_netflow_match_batch(state, batch_size, observations, opts \\ []) do
     sql = """
     WITH indicator_candidates AS (
       SELECT
@@ -439,7 +439,7 @@ defmodule ServiceRadar.Observability.ThreatIntelRetrohuntWorker do
       state.run_id
     ]
 
-    params = if is_nil(observations), do: params, else: params ++ [observations]
+    params = params ++ [observations]
     query = Keyword.get(opts, :repo_query, &SQL.query(Repo, &1, &2, timeout: 120_000))
 
     case query.(sql, params) do
@@ -458,46 +458,6 @@ defmodule ServiceRadar.Observability.ThreatIntelRetrohuntWorker do
       {:error, reason} ->
         {:error, %{run_id: state.run_id, reason: reason}}
     end
-  end
-
-  defp observed_ips_ctes(nil) do
-    """
-    observed_source_ips AS (
-      SELECT
-        NULLIF(m.src_endpoint_ip, '')::inet AS observed_ip,
-        'source'::text AS direction,
-        MIN(m.time) AS first_seen_at,
-        MAX(m.time) AS last_seen_at,
-        COUNT(*)::int AS evidence_count,
-        COALESCE(SUM(m.bytes_total), 0)::bigint AS bytes_total,
-        COALESCE(SUM(m.packets_total), 0)::bigint AS packets_total
-      FROM platform.ocsf_network_activity m
-      WHERE m.time >= $1
-        AND m.time <= $2
-        AND NULLIF(m.src_endpoint_ip, '') IS NOT NULL
-      GROUP BY NULLIF(m.src_endpoint_ip, '')::inet
-    ),
-    observed_destination_ips AS (
-      SELECT
-        NULLIF(m.dst_endpoint_ip, '')::inet AS observed_ip,
-        'destination'::text AS direction,
-        MIN(m.time) AS first_seen_at,
-        MAX(m.time) AS last_seen_at,
-        COUNT(*)::int AS evidence_count,
-        COALESCE(SUM(m.bytes_total), 0)::bigint AS bytes_total,
-        COALESCE(SUM(m.packets_total), 0)::bigint AS packets_total
-      FROM platform.ocsf_network_activity m
-      WHERE m.time >= $1
-        AND m.time <= $2
-        AND NULLIF(m.dst_endpoint_ip, '') IS NOT NULL
-      GROUP BY NULLIF(m.dst_endpoint_ip, '')::inet
-    ),
-    observed_ips AS (
-      SELECT * FROM observed_source_ips
-      UNION ALL
-      SELECT * FROM observed_destination_ips
-    )
-    """
   end
 
   defp observed_ips_ctes(_observations) do
