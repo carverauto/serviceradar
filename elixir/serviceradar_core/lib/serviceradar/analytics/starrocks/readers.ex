@@ -13,6 +13,33 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
   one spelling from the warehouse and another from CNPG.
   """
 
+  # The compiler resolves the LAST `in:` token, case-insensitively, with quotes
+  # stripped (rust/srql `parser/entity.rs`). Anything that decides where a query
+  # runs -- or whether the caller may run it -- has to resolve the same token,
+  # or it routes and authorizes an entity different from the one that executes.
+  @spec entity_for_query(String.t()) :: String.t() | nil
+  def entity_for_query(query) when is_binary(query) do
+    query
+    |> String.trim()
+    |> String.split(~r/[\s|]+/, trim: true)
+    |> Enum.reduce(nil, fn token, acc ->
+      case String.split(token, ":", parts: 2) do
+        [key, entity] when entity != "" ->
+          if String.downcase(key) == "in", do: normalize_entity(entity), else: acc
+
+        _ ->
+          acc
+      end
+    end)
+  end
+
+  defp normalize_entity(entity) do
+    entity
+    |> String.trim("\"")
+    |> String.trim("'")
+    |> String.downcase()
+  end
+
   @spec dataset_for_entity(String.t()) :: atom() | nil
   def dataset_for_entity(entity) when is_binary(entity) do
     case String.downcase(entity) do

@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
   Dashboards pass through to the existing Ash/scope search.
   """
 
+  alias ServiceRadar.Analytics.StarRocks.Readers
   alias ServiceRadar.Identity.RBAC, as: CoreRBAC
 
   @dashboards MapSet.new(~w(
@@ -180,33 +181,10 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
   # token or it authorizes an entity different from the one that runs.
   @spec extract_entity(String.t()) :: String.t()
   def extract_entity(query) when is_binary(query) do
-    query
-    |> String.trim()
-    |> String.split(~r/[\s|]+/, trim: true)
-    |> Enum.reduce(nil, fn token, acc ->
-      case String.split(token, ":", parts: 2) do
-        [key, entity] when entity != "" ->
-          if String.downcase(key) == "in" do
-            normalize_entity(entity)
-          else
-            acc
-          end
-
-        _ ->
-          acc
-      end
-    end)
-    |> case do
+    case Readers.entity_for_query(query) do
       nil -> fallback_entity(query)
       entity -> entity
     end
-  end
-
-  defp normalize_entity(entity) do
-    entity
-    |> String.trim("\"")
-    |> String.trim("'")
-    |> String.downcase()
   end
 
   defp fallback_entity(query) do

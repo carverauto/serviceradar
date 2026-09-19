@@ -16,6 +16,7 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
   import Ecto.Query, only: [from: 2]
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Analytics.StarRocks.Readers
   alias ServiceRadar.Observability.IpThreatIntelCache
   alias ServiceRadar.Observability.NetflowPortAnomalyFlag
   alias ServiceRadar.Observability.NetflowPortScanFlag
@@ -80,7 +81,26 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
   end
 
   @impl Oban.Worker
-  def perform(_job) do
+  def perform(job) do
+    # Flows are warehouse-only. Until the dataset is cut over there is nothing
+    # to read, and every helper below degrades an empty read to "no traffic",
+    # so the refusal is said out loud here rather than looking like an idle
+    # network forever.
+    case Readers.mode_for(:flows) do
+      {:error, :starrocks_required} = error ->
+        Logger.error(
+          "#{inspect(__MODULE__)} cannot run: the flows dataset is not cut over to StarRocks, " <>
+            "so no flow history is readable"
+        )
+
+        error
+
+      _mode ->
+        refresh(job)
+    end
+  end
+
+  defp refresh(_job) do
     config = Application.get_env(:serviceradar_core, __MODULE__, [])
     limit = Keyword.get(config, :limit, @default_limit)
 

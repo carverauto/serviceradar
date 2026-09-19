@@ -252,7 +252,25 @@ fn dataset_sql(
         where_sql.push_str(&filter_sql(plan, filter)?);
     }
     if let Some(downsample) = plan.downsample.as_ref() {
-        let sql = downsample_sql(plan, downsample, &from, &where_sql, time_column, rollup)?;
+        // A `profile_hour_of_week[_peak]` query carries a bucket clause but is a
+        // profile aggregation, not a downsample. Compiling it here would return
+        // timestamp/series/value rows under a profile query's name, so refuse it
+        // rather than answer a different question.
+        if is_profile_stats(plan) {
+            return Err(ServiceError::NotImplemented(
+                "starrocks_unsupported_stats: profile_hour_of_week".into(),
+            ));
+        }
+
+        let sql = downsample_sql(
+            plan,
+            dataset,
+            downsample,
+            &from,
+            &where_sql,
+            time_column,
+            rollup,
+        )?;
         return Ok(TranslateResponse {
             sql,
             params,
@@ -474,16 +492,20 @@ fn hourly_rollup(plan: &QueryPlan, dataset: Dataset) -> Option<HourlyRollup> {
     if downsample.series.as_deref().is_some_and(|s| !dimension(s)) {
         return None;
     }
-    rollup_agg(rollup, downsample).map(|_| rollup)
+    rollup_agg(rollup, downsample, default_value_field(dataset)).map(|_| rollup)
 }
 
 /// Re-aggregates a stored hourly aggregate into the requested bucket. `None`
 /// means the stored aggregate cannot reproduce the requested one, so the caller
 /// stays on the raw table.
-fn rollup_agg(rollup: HourlyRollup, downsample: &crate::parser::DownsampleSpec) -> Option<String> {
+fn rollup_agg(
+    rollup: HourlyRollup,
+    downsample: &crate::parser::DownsampleSpec,
+    default_field: &str,
+) -> Option<String> {
     use crate::parser::DownsampleAgg::{Avg, Count, Max, Min, Rate, RateSum, Sum};
 
-    let field = downsample.value_field.as_deref().unwrap_or("bytes_total");
+    let field = downsample.value_field.as_deref().unwrap_or(default_field);
     match rollup.table {
         "ocsf_network_activity_hourly" => match (downsample.agg, field) {
             (
@@ -508,8 +530,29 @@ fn rollup_agg(rollup: HourlyRollup, downsample: &crate::parser::DownsampleSpec) 
     }
 }
 
+fn is_profile_stats(plan: &QueryPlan) -> bool {
+    plan.stats.as_ref().is_some_and(|stats| {
+        stats
+            .as_raw()
+            .trim_start()
+            .to_ascii_lowercase()
+            .starts_with("profile_hour_of_week")
+    })
+}
+
+/// The column a bucketed query aggregates when it names none. Each dataset
+/// stores its measurement under a different name, so a single default silently
+/// asks the wrong table for a column it does not have.
+fn default_value_field(dataset: Dataset) -> &'static str {
+    match dataset.raw_table {
+        "timeseries_metrics" => "value",
+        _ => "bytes_total",
+    }
+}
+
 fn downsample_sql(
     plan: &QueryPlan,
+    dataset: Dataset,
     downsample: &crate::parser::DownsampleSpec,
     from: &str,
     where_sql: &str,
@@ -517,12 +560,13 @@ fn downsample_sql(
     rollup: Option<HourlyRollup>,
 ) -> Result<String> {
     let bucket = downsample.bucket_seconds.max(1);
-    let agg = match rollup.and_then(|rollup| rollup_agg(rollup, downsample)) {
+    let default_field = default_value_field(dataset);
+    let agg = match rollup.and_then(|rollup| rollup_agg(rollup, downsample, default_field)) {
         Some(agg) => agg,
         None => {
             let value = aggregate_field_sql(
                 plan,
-                downsample.value_field.as_deref().unwrap_or("bytes_total"),
+                downsample.value_field.as_deref().unwrap_or(default_field),
             )?;
             match downsample.agg {
                 crate::parser::DownsampleAgg::Sum => format!("SUM({value})"),
@@ -1002,6 +1046,66 @@ mod tests {
             rate_limit_max_requests: 120,
             rate_limit_window: StdDuration::from_secs(60),
         }
+    }
+
+    // A bucketed metric query names no value column, and the capacity
+    // forecaster ships several. Defaulting to the flow measurement asked
+    // timeseries_metrics for a column it does not have, so every default
+    // forecasting source failed the moment metrics were cut over.
+    #[test]
+    fn a_bucketed_metric_query_defaults_to_the_metric_value_column() {
+        let compiled = translate(
+            &plan(
+                r#"in:timeseries_metrics metric_type:"sysmon.cpu" metric_name:"cpu.usage_percent" time:last_30d bucket:1h agg:avg series:uid sort:timestamp:desc limit:500"#,
+            ),
+            "serviceradar",
+        )
+        .expect("metric downsample compiles");
+
+        assert!(
+            compiled
+                .sql
+                .contains("serviceradar.timeseries_metrics_hourly"),
+            "{}",
+            compiled.sql
+        );
+        assert!(compiled.sql.contains("avg_value"), "{}", compiled.sql);
+        assert!(!compiled.sql.contains("bytes_total"), "{}", compiled.sql);
+        assert!(
+            compiled.sql.contains("CAST(device_id AS STRING) AS series"),
+            "{}",
+            compiled.sql
+        );
+    }
+
+    #[test]
+    fn a_bucketed_flow_query_still_defaults_to_the_flow_measurement() {
+        let compiled = translate(
+            &plan("in:flows time:last_7d bucket:1h agg:sum"),
+            "serviceradar",
+        )
+        .expect("flow downsample compiles");
+
+        assert!(compiled.sql.contains("bytes_total"), "{}", compiled.sql);
+    }
+
+    // profile_hour_of_week is a profile aggregation that happens to carry a
+    // bucket clause. Compiling it as a downsample would answer with
+    // timestamp/series/value rows under a profile query's name.
+    #[test]
+    fn a_profile_stats_query_is_refused_rather_than_answered_as_a_downsample() {
+        let err = translate(
+            &plan(
+                r#"in:timeseries_metrics metric_type:"sysmon.memory" metric_name:"memory.used_percent" time:last_30d bucket:1h agg:avg series:uid stats:profile_hour_of_week(value) sort:dow:asc,hod:asc limit:500"#,
+            ),
+            "serviceradar",
+        )
+        .expect_err("profile stats must not compile as a downsample");
+
+        assert!(
+            matches!(err, ServiceError::NotImplemented(ref m) if m.contains("profile_hour_of_week")),
+            "{err:?}"
+        );
     }
 
     fn plan(query: &str) -> QueryPlan {

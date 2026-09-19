@@ -3,7 +3,9 @@ defmodule ServiceRadar.Analytics.StarRocks.FlowConsumersTest do
 
   alias ServiceRadar.Analytics.StarRocks
   alias ServiceRadar.FlowAttribution.Correlation
+  alias ServiceRadar.Observability.IpEnrichmentRefreshWorker
   alias ServiceRadar.Observability.NetflowExporterCacheRefreshWorker
+  alias ServiceRadar.Observability.NetflowSecurityRefreshWorker
   alias ServiceRadar.Observability.ThreatIntelRetrohuntWorker
 
   @moduletag :db_free
@@ -51,6 +53,18 @@ defmodule ServiceRadar.Analytics.StarRocks.FlowConsumersTest do
 
   test "attribution correlation reports itself inapplicable until flows are cut over" do
     assert Correlation.correlate() == {:ok, :not_applicable}
+  end
+
+  # Every helper in these two workers reads an empty flow result as "no
+  # traffic", so a routing refusal that degrades to [] is indistinguishable
+  # from an idle network and stays that way forever. They refuse the pass
+  # instead.
+  test "flow refresh workers refuse to run until flows are cut over" do
+    assert {:error, :starrocks_required} =
+             NetflowSecurityRefreshWorker.perform(%Oban.Job{args: %{}})
+
+    assert {:error, :starrocks_required} =
+             IpEnrichmentRefreshWorker.perform(%Oban.Job{args: %{}})
   end
 
   test "threat retrohunt reads observed flows from StarRocks when flows are cut over",

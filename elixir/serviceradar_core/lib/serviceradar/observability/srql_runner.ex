@@ -8,8 +8,10 @@ defmodule ServiceRadar.Observability.SRQLRunner do
   This module intentionally keeps the surface area small for background jobs.
   """
 
+  alias ServiceRadar.Analytics.StarRocks.CatalogAllowlist
   alias ServiceRadar.Analytics.StarRocks.Query, as: StarRocksQuery
   alias ServiceRadar.Analytics.StarRocks.Readers
+  alias ServiceRadar.Analytics.StarRocks.RollupFreshness
   alias ServiceRadar.Repo
 
   @type page :: %{
@@ -32,7 +34,10 @@ defmodule ServiceRadar.Observability.SRQLRunner do
 
     with {:ok, mode} <- backend_mode(query),
          {:ok, translation} <- translate(query, limit, cursor, direction, mode, opts),
+         {:ok, translation, mode} <-
+           settle_rollup(translation, mode, &translate(query, limit, cursor, direction, &1, opts)),
          {:ok, sql} <- fetch_sql(translation),
+         :ok <- assert_executable(sql, mode),
          {:ok, params} <- decode_params(Map.get(translation, "params", []), opts),
          {:ok, %Postgrex.Result{columns: columns, rows: rows} = result} <-
            run_sql(sql, params, mode, opts) do
@@ -40,24 +45,42 @@ defmodule ServiceRadar.Observability.SRQLRunner do
     end
   end
 
+  # Same two guards the web API applies before submitting compiled StarRocks
+  # SQL: an hourly view the compiler picked is only read while it has caught
+  # up with its source table, and a catalog reference is refused unless the
+  # JDBC catalog is actually provisioned.
+  defp settle_rollup(%{"sql" => sql} = translation, "starrocks", retranslate)
+       when is_binary(sql) do
+    case RollupFreshness.dataset_for_sql(sql) do
+      nil ->
+        {:ok, translation, "starrocks"}
+
+      dataset ->
+        if RollupFreshness.fresh?(dataset) do
+          {:ok, translation, "starrocks"}
+        else
+          with {:ok, raw} <- retranslate.("starrocks_raw") do
+            {:ok, raw, "starrocks_raw"}
+          end
+        end
+    end
+  end
+
+  defp settle_rollup(translation, mode, _retranslate), do: {:ok, translation, mode}
+
+  defp assert_executable(sql, mode) when mode in ["starrocks", "starrocks_raw"],
+    do: CatalogAllowlist.assert_sql_executable(sql)
+
+  defp assert_executable(_sql, _mode), do: :ok
+
   # Background jobs read from whichever backend owns the dataset, through the
   # same routing the web API uses. A dataset with no CNPG serving path answers
   # with its routing error here rather than quietly reading a table the
   # deployment may no longer write.
   defp backend_mode(query) do
-    case query |> queried_entity() |> Readers.mode_for() do
+    case query |> Readers.entity_for_query() |> Readers.mode_for() do
       {:error, _reason} = error -> error
       mode -> {:ok, mode}
-    end
-  end
-
-  defp queried_entity(query) do
-    ~r/(?:^|[\s|])in:([A-Za-z0-9_]+)/i
-    |> Regex.scan(query)
-    |> List.last()
-    |> case do
-      [_match, entity] -> entity
-      _ -> nil
     end
   end
 
@@ -176,7 +199,7 @@ defmodule ServiceRadar.Observability.SRQLRunner do
 
   # StarRocks SQL is compiled with its literals inlined, which is why the
   # warehouse executor takes no parameters.
-  defp default_query_fn("starrocks", _timeout),
+  defp default_query_fn(mode, _timeout) when mode in ["starrocks", "starrocks_raw"],
     do: fn sql, _params -> StarRocksQuery.execute(sql) end
 
   defp default_query_fn(_mode, timeout) do
