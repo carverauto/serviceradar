@@ -171,6 +171,7 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
         Entity::Alerts => services::alerts(),
         Entity::DeviceGraph => inventory::device_graph(),
         Entity::GraphCypher => inventory::graph_cypher(),
+        Entity::GraphDql => inventory::graph_cypher(),
         Entity::Flows | Entity::AttributedFlows => network::flows(),
         Entity::PublicEndpoints => network::public_endpoints(),
         Entity::ThreatIntelMatches => network::threat_intel_matches(),

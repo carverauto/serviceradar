@@ -7043,6 +7043,7 @@ dependencies = [
  "base64 0.22.1",
  "bb8 0.8.6",
  "chrono",
+ "dgraph-topology",
  "diesel",
  "diesel-async",
  "envy",

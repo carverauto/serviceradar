@@ -20,6 +20,7 @@ envy = { workspace = true }
 hmac = { workspace = true }
 http = { workspace = true }
 kvutil = { path = "../kvutil" }
+dgraph-topology = { path = "../dgraph-topology" }
 once_cell = { workspace = true }
 # No "vendored" here: see the [features] table at the bottom of this file.
 openssl-sys = { workspace = true }

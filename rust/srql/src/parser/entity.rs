@@ -8,8 +8,9 @@ pub(super) fn parse_entity(raw: &str) -> Result<Entity> {
     match normalized.as_str() {
         "agents" | "agent" | "ocsf_agents" => Ok(Entity::Agents),
         "devices" | "device" | "device_inventory" => Ok(Entity::Devices),
-        "device_graph" | "devicegraph" | "graph" => Ok(Entity::DeviceGraph),
+        "device_graph" | "devicegraph" => Ok(Entity::DeviceGraph),
         "graph_cypher" | "graphcypher" | "cypher" => Ok(Entity::GraphCypher),
+        "graph" | "graph_dql" | "graphdql" | "dql" => Ok(Entity::GraphDql),
         "interfaces" | "interface" | "discovered_interfaces" => Ok(Entity::Interfaces),
         "events" | "activity" => Ok(Entity::Events),
         "security_findings" | "security_finding" | "findings" | "finding" => {

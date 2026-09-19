@@ -89,13 +89,13 @@
 
 ## 6. Readers
 
-- [ ] 6.1 God View snapshot fetch uses Dgraph when `GRAPH_READ=dgraph`, AGE
+- [x] 6.1 God View snapshot fetch uses Dgraph when `GRAPH_READ=dgraph`, AGE
       otherwise. Snapshot Arrow contract is unchanged.
-- [ ] 6.2 SRQL: add `in:graph` / `in:graph_dql` executing read-only DQL and
+- [x] 6.2 SRQL: add `in:graph` / `in:graph_dql` executing read-only DQL and
       returning the same `{nodes, edges}` wrapper as `graph_cypher`. Refuse
       mutations.
-- [ ] 6.3 Keep `in:graph_cypher` working against AGE until AGE is retired.
-- [ ] 6.4 Causal hydrator `TOPOLOGY_EDGES_QUERY` switches to `in:graph` when
+- [x] 6.3 Keep `in:graph_cypher` working against AGE until AGE is retired.
+- [x] 6.4 Causal hydrator `TOPOLOGY_EDGES_QUERY` switches to `in:graph` when
       `GRAPH_READ=dgraph`.
 
 ## 7. AGE-to-Dgraph migrator

@@ -2,9 +2,9 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
   @moduledoc """
   Runtime topology graph cache for God-View.
 
-  AGE remains the canonical source of truth. This process continuously refreshes
-  an in-memory topology projection from AGE so snapshot builds do not re-query
-  the graph for every request.
+  Snapshot Arrow encoding is unchanged. The fetch source is AGE (or the SQL
+  projection) when `GRAPH_READ` is `age`, and Dgraph canonical edges when
+  `GRAPH_READ` is `dgraph`.
   """
 
   use GenServer
@@ -213,19 +213,74 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
   end
 
   defp fetch_topology_links_from_graph do
-    case projection_read_action(fetch_projected_topology_links()) do
-      {:projected, rows} ->
-        fetch_topology_links_with_virtualization(rows)
+    if ServiceRadar.NetworkDiscovery.TopologyGraph.Backend.read_dgraph?() do
+      fetch_topology_links_from_dgraph()
+    else
+      case projection_read_action(fetch_projected_topology_links()) do
+        {:projected, rows} ->
+          fetch_topology_links_with_virtualization(rows)
 
-      :fallback_uninitialized ->
-        fetch_topology_links_from_age()
+        :fallback_uninitialized ->
+          fetch_topology_links_from_age()
 
-      {:fallback_error, reason} ->
-        Logger.warning("runtime_graph_projection_read_failed reason=#{inspect(reason)}")
-        fetch_topology_links_from_age()
+        {:fallback_error, reason} ->
+          Logger.warning("runtime_graph_projection_read_failed reason=#{inspect(reason)}")
+          fetch_topology_links_from_age()
+      end
     end
   rescue
     error -> {:error, error}
+  end
+
+  defp fetch_topology_links_from_dgraph do
+    case ServiceRadar.Dgraph.query_canonical_edges() do
+      {:ok, edges} when is_list(edges) ->
+        rows = Enum.map(edges, &canonical_edge_to_runtime_row/1)
+        fetch_topology_links_with_virtualization(rows)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc false
+  @spec canonical_edge_to_runtime_row(map()) :: map()
+  def canonical_edge_to_runtime_row(edge) when is_map(edge) do
+    evidence_class = Map.get(edge, :evidence_class) || Map.get(edge, "evidence_class")
+    relation_type = relation_type_for_dgraph_evidence(evidence_class)
+
+    %{
+      local_device_id: Map.get(edge, :source) || Map.get(edge, "source"),
+      neighbor_device_id: Map.get(edge, :target) || Map.get(edge, "target"),
+      protocol: Map.get(edge, :protocol) || Map.get(edge, "protocol"),
+      evidence_class: evidence_class,
+      confidence_tier: Map.get(edge, :confidence_tier) || Map.get(edge, "confidence_tier"),
+      local_if_name: Map.get(edge, :if_name_ab) || Map.get(edge, "if_name_ab"),
+      neighbor_if_name: Map.get(edge, :if_name_ba) || Map.get(edge, "if_name_ba"),
+      local_if_index: Map.get(edge, :if_index_ab) || Map.get(edge, "if_index_ab"),
+      neighbor_if_index: Map.get(edge, :if_index_ba) || Map.get(edge, "if_index_ba"),
+      flow_pps: Map.get(edge, :flow_pps) || Map.get(edge, "flow_pps"),
+      flow_bps: Map.get(edge, :flow_bps) || Map.get(edge, "flow_bps"),
+      flow_pps_ab: Map.get(edge, :flow_pps_ab) || Map.get(edge, "flow_pps_ab"),
+      flow_pps_ba: Map.get(edge, :flow_pps_ba) || Map.get(edge, "flow_pps_ba"),
+      flow_bps_ab: Map.get(edge, :flow_bps_ab) || Map.get(edge, "flow_bps_ab"),
+      flow_bps_ba: Map.get(edge, :flow_bps_ba) || Map.get(edge, "flow_bps_ba"),
+      capacity_bps: Map.get(edge, :capacity_bps) || Map.get(edge, "capacity_bps"),
+      telemetry_eligible: Map.get(edge, :telemetry_eligible) || Map.get(edge, "telemetry_eligible"),
+      link_key: Map.get(edge, :link_key) || Map.get(edge, "link_key"),
+      metadata: %{"relation_type" => relation_type}
+    }
+  end
+
+  defp relation_type_for_dgraph_evidence(evidence_class) do
+    case evidence_class |> to_string() |> String.trim() |> String.downcase() do
+      "direct-logical" -> "LOGICAL_PEER"
+      "hosted-virtual" -> "HOSTED_ON"
+      "endpoint-attachment" -> "ATTACHED_TO"
+      "observed-only" -> "OBSERVED_TO"
+      "inferred-segment" -> "INFERRED_TO"
+      _ -> "CONNECTS_TO"
+    end
   end
 
   defp fetch_projected_topology_links do
