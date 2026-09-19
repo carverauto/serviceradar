@@ -35,7 +35,6 @@ defmodule ServiceRadarWebNG.SRQL do
       "limit" => Map.get(opts, :limit),
       "cursor" => Map.get(opts, :cursor),
       "direction" => Map.get(opts, :direction),
-      "mode" => Map.get(opts, :mode),
       "scope" => Map.get(opts, :scope)
     })
   end
@@ -45,13 +44,14 @@ defmodule ServiceRadarWebNG.SRQL do
     limit = Map.get(opts, :limit)
     cursor = Map.get(opts, :cursor)
     direction = Map.get(opts, :direction)
-    mode = Map.get(opts, :mode)
     scope = Map.get(opts, :scope)
 
     with :ok <- EntityAccess.authorize(query, scope) do
-      mode = resolve_backend_mode(query, mode)
+      mode = resolve_backend_mode(query)
 
       with {:ok, translation} <- translate(query, limit, cursor, direction, mode),
+           {:ok, translation, mode} <-
+             settle_rollup(translation, mode, &translate(query, limit, cursor, direction, &1)),
            {:ok, result} <- execute_backend_raw(translation, mode),
            {:ok, payload} <- encode_result_arrow(result) do
         {:ok,
@@ -68,13 +68,12 @@ defmodule ServiceRadarWebNG.SRQL do
   @impl true
   def query_request(%{} = request) do
     case normalize_request(request) do
-      {:ok, query, limit, cursor, direction, mode} ->
+      {:ok, query, limit, cursor, direction} ->
         execute_query(
           query,
           limit,
           cursor,
           direction,
-          mode,
           Map.get(request, "scope") || Map.get(request, :scope)
         )
 
@@ -83,7 +82,7 @@ defmodule ServiceRadarWebNG.SRQL do
     end
   end
 
-  defp execute_query(query, limit, cursor, direction, mode, scope) do
+  defp execute_query(query, limit, cursor, direction, scope) do
     entity = EntityAccess.extract_entity(query)
     start_time = System.monotonic_time()
 
@@ -93,7 +92,7 @@ defmodule ServiceRadarWebNG.SRQL do
           denied
 
         :ok ->
-          mode = resolve_backend_mode(query, mode)
+          mode = resolve_backend_mode(query)
 
           if entity == "dashboards" do
             {:ok,
@@ -104,7 +103,13 @@ defmodule ServiceRadarWebNG.SRQL do
                "error" => nil
              }}
           else
-            with {:ok, translation} <- translate(query, limit, cursor, direction, mode) do
+            with {:ok, translation} <- translate(query, limit, cursor, direction, mode),
+                 {:ok, translation, mode} <-
+                   settle_rollup(
+                     translation,
+                     mode,
+                     &translate(query, limit, cursor, direction, &1)
+                   ) do
               execute_backend(Map.put(translation, "_query", query), mode)
             end
           end
@@ -132,32 +137,35 @@ defmodule ServiceRadarWebNG.SRQL do
     )
   end
 
-  defp resolve_backend_mode(_query, mode) when is_binary(mode) and mode != "", do: mode
+  defp resolve_backend_mode(query) do
+    query
+    |> EntityAccess.extract_entity()
+    |> Readers.mode_for()
+  end
 
-  defp resolve_backend_mode(query, _mode) do
-    entity =
-      query
-      |> EntityAccess.extract_entity()
+  # Hourly materialized views are REFRESH ASYNC with no schedule, so a view
+  # the compiler actually picked has to be checked before its rows are
+  # served: an unrefreshed view returns short counts with no error. Only the
+  # compiled SQL knows whether a rollup was chosen, so the probe happens
+  # here -- a query that reads no `_hourly` view costs no round trip.
+  defp settle_rollup(%{"sql" => sql} = translation, "starrocks", retranslate)
+       when is_binary(sql) do
+    case RollupFreshness.dataset_for_sql(sql) do
+      nil ->
+        {:ok, translation, "starrocks"}
 
-    case Readers.mode_for(entity) do
-      "starrocks" -> rollup_mode(entity)
-      other -> other
+      dataset ->
+        if RollupFreshness.fresh?(dataset) do
+          {:ok, translation, "starrocks"}
+        else
+          with {:ok, raw} <- retranslate.("starrocks_raw") do
+            {:ok, raw, "starrocks_raw"}
+          end
+        end
     end
   end
 
-  # Hourly materialized views are REFRESH ASYNC with no schedule: when the
-  # view behind a dataset is stale, compile from the StarRocks raw tables
-  # instead of serving short counts. Only the compiler-routed rollups
-  # (flows, metrics) downgrade; everything else stays on "starrocks".
-  defp rollup_mode(entity) do
-    case Readers.dataset_for_entity(entity) do
-      dataset when dataset in [:flows, :metrics] ->
-        if RollupFreshness.fresh?(dataset), do: "starrocks", else: "starrocks_raw"
-
-      _ ->
-        "starrocks"
-    end
-  end
+  defp settle_rollup(translation, mode, _retranslate), do: {:ok, translation, mode}
 
   defp execute_backend(%{"sql" => sql} = translation, mode)
        when is_binary(sql) and mode in ["starrocks", "starrocks_raw"] do
@@ -605,20 +613,21 @@ defmodule ServiceRadarWebNG.SRQL do
 
   def decode_param(_), do: {:error, :invalid_srql_param}
 
+  # Backend routing is a server-side decision: a request-supplied "mode" is
+  # ignored so a caller cannot read a cut-over dataset from CNPG or skip the
+  # rollup-freshness gate.
   defp normalize_request(%{"query" => query} = request) when is_binary(query) do
     limit = parse_limit(Map.get(request, "limit"))
     cursor = normalize_optional_string(Map.get(request, "cursor"))
     direction = normalize_direction(Map.get(request, "direction"))
-    mode = normalize_optional_string(Map.get(request, "mode"))
-    {:ok, query, limit, cursor, direction, mode}
+    {:ok, query, limit, cursor, direction}
   end
 
   defp normalize_request(%{query: query} = request) when is_binary(query) do
     limit = parse_limit(Map.get(request, :limit))
     cursor = normalize_optional_string(Map.get(request, :cursor))
     direction = normalize_direction(Map.get(request, :direction))
-    mode = normalize_optional_string(Map.get(request, :mode))
-    {:ok, query, limit, cursor, direction, mode}
+    {:ok, query, limit, cursor, direction}
   end
 
   defp normalize_request(_request) do

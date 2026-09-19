@@ -38,6 +38,9 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
     parent = self()
 
     mysql = fn sql ->
+      # A row listing can never read an hourly view, so the rollup gate must
+      # not spend a Frontend round trip probing one.
+      refute sql =~ "MAX(`bucket`)"
       send(parent, {:starrocks_query, sql})
       {:ok, postgrex_result(["id", "bytes_in"], [["flow-alpha-0001", 1200]])}
     end
@@ -47,7 +50,7 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
       StarRocks,
       prev
       |> Keyword.put(:cutover_datasets, [:flows])
-      |> Keyword.put(:mysql, with_fresh_mvs(mysql))
+      |> Keyword.put(:mysql, mysql)
     )
 
     for query <- [
@@ -89,7 +92,7 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
       StarRocks,
       prev
       |> Keyword.put(:cutover_datasets, [:flows])
-      |> Keyword.put(:mysql, with_fresh_mvs(mysql))
+      |> Keyword.put(:mysql, mysql)
     )
 
     window = Window.resolve("last_1h", "netflow")
@@ -105,11 +108,12 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
     refute body =~ "time_bucket"
   end
 
-  test "explicit mode=starrocks executes after authorization without cutting over", %{prev: prev} do
-    mysql = fn sql ->
-      send(self(), {:starrocks_query, sql})
-      {:ok, postgrex_result(["id", "bytes_in"], [["flow-alpha-0001", 1200]])}
-    end
+  # Backend routing is a server-side decision. A caller-supplied mode used to
+  # short-circuit it, which both read a cut-over dataset from CNPG and skipped
+  # the rollup-freshness gate.
+  test "a request-supplied mode cannot reach StarRocks for a dataset that is not cut over",
+       %{prev: prev} do
+    mysql = fn sql -> flunk("request mode must not route to StarRocks: #{sql}") end
 
     Application.put_env(
       :serviceradar_core,
@@ -117,11 +121,36 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
       Keyword.put(prev, :mysql, mysql)
     )
 
+    result =
+      try do
+        SRQL.query(@flows_query, %{scope: @scope, mode: "starrocks"})
+      rescue
+        exception -> {:rescued, exception}
+      end
+
+    assert match?({:rescued, %RuntimeError{message: "could not lookup Ecto repo" <> _}}, result)
+  end
+
+  test "a request-supplied mode cannot pull a cut-over dataset back to CNPG", %{prev: prev} do
+    parent = self()
+
+    mysql = fn sql ->
+      send(parent, {:starrocks_query, sql})
+      {:ok, postgrex_result(["id", "bytes_in"], [["flow-alpha-0001", 1200]])}
+    end
+
+    Application.put_env(
+      :serviceradar_core,
+      StarRocks,
+      prev
+      |> Keyword.put(:cutover_datasets, [:flows])
+      |> Keyword.put(:mysql, mysql)
+    )
+
     assert {:ok, %{"results" => [row]}} =
-             SRQL.query(@flows_query, %{scope: @scope, mode: "starrocks"})
+             SRQL.query(@flows_query, %{scope: @scope, mode: "cnpg"})
 
     assert row["id"] == "flow-alpha-0001"
-    assert row["bytes_in"] == 1200
     assert_received {:starrocks_query, body}
     assert body =~ "FROM serviceradar.ocsf_network_activity"
   end
@@ -141,7 +170,7 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
       StarRocks,
       prev
       |> Keyword.put(:cutover_datasets, [:metrics])
-      |> Keyword.put(:mysql, with_fresh_mvs(mysql))
+      |> Keyword.put(:mysql, mysql)
     )
 
     assert {:ok, %{"results" => [row], "error" => nil}} =
@@ -163,7 +192,7 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
       StarRocks,
       prev
       |> Keyword.put(:cutover_datasets, [:flows])
-      |> Keyword.put(:mysql, with_fresh_mvs(mysql))
+      |> Keyword.put(:mysql, mysql)
     )
 
     # `hostname` is what pulls in the CNPG catalog join; the catalog flag gates
@@ -185,7 +214,7 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
       StarRocks,
       prev
       |> Keyword.put(:cutover_datasets, [:flows])
-      |> Keyword.put(:mysql, with_fresh_mvs(mysql))
+      |> Keyword.put(:mysql, mysql)
     )
 
     assert {:ok, %{"results" => [row], "error" => nil}} =
@@ -218,7 +247,7 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
       prev
       |> Keyword.put(:cutover_datasets, [:flows])
       |> Keyword.put(:catalog_enabled, true)
-      |> Keyword.put(:mysql, with_fresh_mvs(mysql))
+      |> Keyword.put(:mysql, mysql)
     )
 
     assert {:ok, %{"results" => [row], "error" => nil}} =
@@ -296,7 +325,7 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
       StarRocks,
       prev
       |> Keyword.put(:cutover_datasets, [:flows])
-      |> Keyword.put(:mysql, mv_probe_result(1_800))
+      |> Keyword.put(:mysql, flows_probes(1_800))
     )
 
     assert {:ok, %{"results" => [_row], "error" => nil}} =
@@ -316,7 +345,7 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
       StarRocks,
       prev
       |> Keyword.put(:cutover_datasets, [:flows])
-      |> Keyword.put(:mysql, mv_probe_result(10_800))
+      |> Keyword.put(:mysql, flows_probes(10_800))
     )
 
     assert {:ok, %{"results" => [_row], "error" => nil}} =
@@ -454,41 +483,27 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
     }
   end
 
-  # Answers rollup-freshness probes with a fresh high-water mark while data
-  # SQL flows to the test's own handler. Probe SQL must never reach
-  # {:starrocks_query, _} assertions, which pin the executed data statement.
-  defp with_fresh_mvs(handler) do
-    fn sql ->
-      if sql =~ "MAX(`bucket`)" do
-        {:ok, postgrex_result(["MAX(`bucket`)"], [[fresh_bucket()]])}
-      else
-        handler.(sql)
-      end
-    end
-  end
+  # Answers the rollup gate's two high-water-mark probes and forwards every
+  # other statement to the {:starrocks_query, _} assertions, which pin the
+  # executed data statement. `mv_lag_seconds` is how far the view trails the
+  # table it aggregates; both marks sit an hour in the past, so a test that
+  # passes here cannot be passing on wall-clock age.
+  defp flows_probes(mv_lag_seconds) do
+    raw_max =
+      NaiveDateTime.utc_now() |> NaiveDateTime.add(-3_600) |> NaiveDateTime.truncate(:second)
 
-  defp mv_probe_result(lag_seconds) do
-    fn sql ->
-      if sql =~ "MAX(`bucket`)" do
-        bucket =
-          NaiveDateTime.utc_now()
-          |> NaiveDateTime.add(-lag_seconds)
-          |> NaiveDateTime.truncate(:second)
+    mv_max = NaiveDateTime.add(raw_max, -mv_lag_seconds)
 
-        {:ok, postgrex_result(["MAX(`bucket`)"], [[bucket]])}
-      else
+    fn
+      "SELECT MAX(`bucket`) FROM serviceradar.ocsf_network_activity_hourly" ->
+        {:ok, postgrex_result(["max"], [[mv_max]])}
+
+      "SELECT MAX(`time`) FROM serviceradar.ocsf_network_activity" ->
+        {:ok, postgrex_result(["max"], [[raw_max]])}
+
+      sql ->
         send(self(), {:starrocks_query, sql})
-
-        {:ok,
-         postgrex_result(
-           ["timestamp", "value"],
-           [["1999-06-15 12:00:00", 1200]]
-         )}
-      end
+        {:ok, postgrex_result(["timestamp", "value"], [["1999-06-15 12:00:00", 1200]])}
     end
-  end
-
-  defp fresh_bucket do
-    NaiveDateTime.utc_now() |> NaiveDateTime.add(-1800) |> NaiveDateTime.truncate(:second)
   end
 end

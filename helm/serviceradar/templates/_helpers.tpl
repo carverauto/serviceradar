@@ -319,6 +319,8 @@ serviceradar.io/runtime-tls-revision: {{ default "initial" (default (dict) .Valu
   value: {{ $retention.logs | default 365 | quote }}
 - name: SERVICERADAR_STARROCKS_RETENTION_DAYS_EVENTS
   value: {{ $retention.events | default 365 | quote }}
+- name: SERVICERADAR_STARROCKS_ROLLUP_STALE_AFTER_SECONDS
+  value: {{ $sr.rollupStaleAfterSeconds | default 7200 | quote }}
 - name: SERVICERADAR_STARROCKS_FE_HTTP
   value: {{ printf "http://%s:%v" $sr.fe.service $sr.fe.httpPort | quote }}
 - name: SERVICERADAR_STARROCKS_FE_HOST

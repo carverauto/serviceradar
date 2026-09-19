@@ -38,6 +38,37 @@ tests:
             value: "365"
           count: 1
 
+  # The hourly views refresh asynchronously with no schedule, so readers need
+  # the operator's lag tolerance in the env to know when to stop trusting them.
+  - it: publishes the rollup staleness threshold when starrocks is enabled
+    set:
+      analytics.starrocks.enabled: true
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_STARROCKS_ROLLUP_STALE_AFTER_SECONDS
+            value: "7200"
+          count: 1
+
+  - it: lets the rollup staleness threshold be retuned
+    set:
+      analytics.starrocks.enabled: true
+      analytics.starrocks.rollupStaleAfterSeconds: 900
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_STARROCKS_ROLLUP_STALE_AFTER_SECONDS
+            value: "900"
+          count: 1
+
   # Bounding raw NetFlow must not also shorten log history.
   - it: lets one dataset be retuned without moving the others
     set:

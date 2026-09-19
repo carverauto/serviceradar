@@ -20,6 +20,11 @@ defmodule ServiceRadar.Analytics.StarRocks.Env do
   # hosted one-year retention. These are the values baked into the shipped DDL.
   @default_retention_days [flows: 90, metrics: 90, logs: 365, events: 365]
 
+  # How far an hourly materialized view may lag its source table before a
+  # reader stops trusting it. The views refresh asynchronously with no
+  # schedule, so this is the operator's tolerance, not a refresh interval.
+  @default_rollup_stale_after_seconds 7_200
+
   @spec config() :: keyword()
   def config do
     enabled = truthy?("SERVICERADAR_STARROCKS_ENABLED")
@@ -36,7 +41,8 @@ defmodule ServiceRadar.Analytics.StarRocks.Env do
       database: nonempty("SERVICERADAR_STARROCKS_DATABASE", "serviceradar"),
       user: nonempty("SERVICERADAR_STARROCKS_USER", "root"),
       password: System.get_env("SERVICERADAR_STARROCKS_PASSWORD", ""),
-      retention_days: retention_days()
+      retention_days: retention_days(),
+      rollup_stale_after_seconds: rollup_stale_after_seconds()
     ]
   end
 
@@ -48,6 +54,16 @@ defmodule ServiceRadar.Analytics.StarRocks.Env do
 
   @spec default_retention_days() :: keyword(pos_integer())
   def default_retention_days, do: @default_retention_days
+
+  @spec default_rollup_stale_after_seconds() :: pos_integer()
+  def default_rollup_stale_after_seconds, do: @default_rollup_stale_after_seconds
+
+  defp rollup_stale_after_seconds do
+    case Integer.parse(nonempty("SERVICERADAR_STARROCKS_ROLLUP_STALE_AFTER_SECONDS", "")) do
+      {seconds, _} when seconds > 0 -> seconds
+      _ -> @default_rollup_stale_after_seconds
+    end
+  end
 
   defp retention_days do
     Enum.map(@default_retention_days, fn {dataset, default} ->

@@ -2538,6 +2538,12 @@ analytics:
       metrics: 90
       logs: 365
       events: 365
+    # How far an hourly materialized view may lag its own source table before
+    # readers stop trusting it and compile from the raw warehouse tables
+    # instead. The views are REFRESH ASYNC with no schedule, so this is the
+    # operator's tolerance for short counts, not a refresh interval. Lowering
+    # it trades chart latency for accuracy; readers never fall back to CNPG.
+    rollupStaleAfterSeconds: 7200
     fe:
       service: lab-fe-service.starrocks.svc
       queryPort: 9030

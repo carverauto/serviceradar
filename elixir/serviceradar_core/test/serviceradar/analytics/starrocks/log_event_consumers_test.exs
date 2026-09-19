@@ -69,6 +69,15 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumersTest do
       send(self(), {:event_sql, sql})
 
       cond do
+        # The rollup gate probes through the same :query seam every other
+        # statement uses, so the stub answers both high-water marks: the view
+        # has kept up with the table it aggregates.
+        sql == "SELECT MAX(`bucket`) FROM serviceradar.events_hourly" ->
+          {:ok, %{rows: [[~N[1999-06-15 23:00:00]]], num_rows: 1}}
+
+        sql == "SELECT MAX(`time`) FROM serviceradar.events" ->
+          {:ok, %{rows: [[~N[1999-06-15 23:30:00]]], num_rows: 1}}
+
         sql =~ "SUM(total_count)" ->
           assert sql =~ "serviceradar.events_hourly"
           # The rollup row labelled 23:00 covers 23:00-00:00 and does not
@@ -92,28 +101,12 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumersTest do
       end
     end
 
-    fresh_mv = fn sql ->
-      assert sql =~ "MAX(`bucket`)"
-      assert sql =~ "events_hourly"
-
-      {:ok,
-       %Postgrex.Result{
-         command: :select,
-         columns: ["MAX(`bucket`)"],
-         rows: [[~N[1999-06-15 23:00:00]]],
-         num_rows: 1,
-         connection_id: nil
-       }}
-    end
-
     assert {:ok, %{rows: [[bucket, 6, 11]]}} =
              LogEventConsumers.event_window_rows(
                ~U[1999-06-15 00:00:00Z],
                ~U[1999-06-16 00:00:00Z],
                86_400,
-               query: query,
-               mysql: fresh_mv,
-               now: ~N[1999-06-16 00:30:00]
+               query: query
              )
 
     assert %DateTime{} = bucket
@@ -141,18 +134,25 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumersTest do
   end
 
   test "a stale rollup view falls back to the raw StarRocks events table" do
-    stale_mv = fn sql ->
-      assert sql =~ "MAX(`bucket`)"
-      assert sql =~ "events_hourly"
+    # The view sits a day and a half behind the table it aggregates, which is
+    # staleness; the same gap against the wall clock on an idle dataset is not.
+    query = fn sql ->
+      cond do
+        sql == "SELECT MAX(`bucket`) FROM serviceradar.events_hourly" ->
+          {:ok, %{rows: [[~N[1999-06-14 00:00:00]]], num_rows: 1}}
 
-      {:ok,
-       %Postgrex.Result{
-         command: :select,
-         columns: ["MAX(`bucket`)"],
-         rows: [[~N[1999-06-14 00:00:00]]],
-         num_rows: 1,
-         connection_id: nil
-       }}
+        sql == "SELECT MAX(`time`) FROM serviceradar.events" ->
+          {:ok, %{rows: [[~N[1999-06-15 12:00:00]]], num_rows: 1}}
+
+        true ->
+          # Stale MV: the whole-hour window reads raw events, never CNPG.
+          refute sql =~ "events_hourly"
+          refute sql =~ "platform.ocsf_events"
+          assert sql =~ "serviceradar.events"
+          assert sql =~ "COUNT(*)"
+          assert sql =~ "`time` >= '1999-06-15T00:00:00Z'"
+          {:ok, %{rows: [["1999-06-15 12:00:00", 6, 11]]}}
+      end
     end
 
     assert {:ok, %{rows: [[bucket, 6, 11]]}} =
@@ -160,20 +160,35 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumersTest do
                ~U[1999-06-15 00:00:00Z],
                ~U[1999-06-16 00:00:00Z],
                86_400,
-               query: fn sql ->
-                 # Stale MV: the whole-hour window reads raw events, never CNPG.
-                 refute sql =~ "events_hourly"
-                 refute sql =~ "platform.ocsf_events"
-                 assert sql =~ "serviceradar.events"
-                 assert sql =~ "COUNT(*)"
-                 assert sql =~ "`time` >= '1999-06-15T00:00:00Z'"
-                 {:ok, %{rows: [["1999-06-15 12:00:00", 6, 11]]}}
-               end,
-               mysql: stale_mv,
-               now: ~N[1999-06-16 00:30:00]
+               query: query
              )
 
     assert %DateTime{} = bucket
+  end
+
+  test "an idle events dataset keeps reading its rollup" do
+    query = fn sql ->
+      cond do
+        sql == "SELECT MAX(`bucket`) FROM serviceradar.events_hourly" ->
+          {:ok, %{rows: [[~N[1999-06-15 03:00:00]]], num_rows: 1}}
+
+        sql == "SELECT MAX(`time`) FROM serviceradar.events" ->
+          {:ok, %{rows: [[~N[1999-06-15 03:40:00]]], num_rows: 1}}
+
+        true ->
+          assert sql =~ "serviceradar.events_hourly"
+          assert sql =~ "SUM(total_count)"
+          {:ok, %{rows: [["1999-06-15 12:00:00", 6, 11]]}}
+      end
+    end
+
+    assert {:ok, %{rows: [[_bucket, 6, 11]]}} =
+             LogEventConsumers.event_window_rows(
+               ~U[1999-06-15 00:00:00Z],
+               ~U[1999-06-16 00:00:00Z],
+               86_400,
+               query: query
+             )
   end
 
   test "dns-policy reload reads StarRocks when events are cut over", %{prev: prev} do
