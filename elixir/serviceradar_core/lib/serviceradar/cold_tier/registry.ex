@@ -317,7 +317,11 @@ defmodule ServiceRadar.ColdTier.Registry do
         {"src_prefix_tags", "jsonb", :text},
         {"dst_prefix_tags", "jsonb", :text},
         {"src_prefix_tags_source", "text", :none},
-        {"dst_prefix_tags_source", "text", :none}
+        {"dst_prefix_tags_source", "text", :none},
+        # EventWriter record identity, added by AddFlowUidDedupKey as the
+        # table's deduplication key. Nullable on rows written before that
+        # migration, so it is not a tiebreaker.
+        {"flow_uid", "text", :none}
       ]
     }
   ]
