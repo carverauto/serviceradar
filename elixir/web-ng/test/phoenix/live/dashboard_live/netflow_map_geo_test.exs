@@ -93,7 +93,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.NetflowMapGeoTest do
       INSERT INTO platform.netflow_local_cidrs
         (id, partition, label, location_label, cidr, latitude, longitude, enabled,
          inserted_at, updated_at)
-      VALUES (gen_random_uuid(), $1, $5, $5, $2::cidr, $3, $4, true, $6, $6)
+      VALUES (gen_random_uuid(), $1, $5, $5, ($2::text)::cidr, $3, $4, true, $6, $6)
       """,
       [partition, cidr, latitude, longitude, label, now]
     )
