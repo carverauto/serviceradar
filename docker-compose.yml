@@ -733,10 +733,13 @@ services:
       - serviceradar-net
     restart: unless-stopped
 
-  # Optional StarRocks warehouse. Off in the default stack (all telemetry,
-  # NetFlow included, stays on CNPG hypertables). `--profile starrocks` starts
-  # the warehouse; it is independent of the collector profiles. Set
-  # STARROCKS_ENABLED=true in the environment when using it.
+  # Optional StarRocks warehouse. Off in the default stack, where every dataset
+  # is written to CNPG hypertables and metrics, logs and events are read back
+  # from them. Flow READS are warehouse-only: without the warehouse and the
+  # `flows` cutover, the NetFlow dashboard and `in:flows` are refused rather than
+  # served from CNPG. `--profile starrocks` starts the warehouse; it is
+  # independent of the collector profiles. Set STARROCKS_ENABLED=true in the
+  # environment when using it.
   starrocks:
     image: starrocks/allin1-ubuntu:3.5.21
     container_name: serviceradar-starrocks

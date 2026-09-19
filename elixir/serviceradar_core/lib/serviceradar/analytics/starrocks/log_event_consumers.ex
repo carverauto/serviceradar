@@ -27,14 +27,14 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumers do
              is_integer(bucket_seconds) and
              bucket_seconds > 0 do
     {table, column, total} = event_window_source(bucket_seconds, opts)
-    lower = window_lower_bound(start_at, bucket_seconds)
+    {lower, upper} = window_bounds(start_at, end_at, bucket_seconds)
 
     sql =
       """
       SELECT time_slice(`#{column}`, INTERVAL #{bucket_seconds} SECOND), \
       COALESCE(severity_id, 0), #{total} \
       FROM #{table} \
-      WHERE `#{column}` >= '#{iso(lower)}' AND `#{column}` < '#{iso(end_at)}' \
+      WHERE `#{column}` >= '#{iso(lower)}' AND `#{column}` < '#{iso(upper)}' \
       GROUP BY 1, 2 ORDER BY 1, 2
       """
 
@@ -61,15 +61,18 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumers do
   end
 
   # A whole-hour bucket is scored on the hour, and window bounds are
-  # `now - seconds`..`now` and never hour-aligned, so the hour holding the start
-  # belongs in the answer whole. The bound follows the bucket, never the source:
-  # the freshness gate swaps `events_hourly` for `events` underneath the same
-  # window, and a bound that moved with it would change the first point's value
-  # with no error.
-  defp window_lower_bound(start_at, bucket_seconds) when rem(bucket_seconds, 3600) == 0,
-    do: %{start_at | minute: 0, second: 0, microsecond: {0, 0}}
+  # `now - seconds`..`now` and never hour-aligned, so both edge hours belong in
+  # the answer whole. The bounds follow the bucket, never the source: the
+  # freshness gate swaps `events_hourly` for `events` underneath the same
+  # window, and a bound that moved with it would change an edge point's value
+  # with no error -- `bucket < end` admits the row covering the whole hour
+  # holding `end`, while `time < end` truncates it.
+  defp window_bounds(start_at, end_at, bucket_seconds) when rem(bucket_seconds, 3600) == 0,
+    do: {floor_hour(start_at), DateTime.add(floor_hour(end_at), 3600, :second)}
 
-  defp window_lower_bound(start_at, _bucket_seconds), do: start_at
+  defp window_bounds(start_at, end_at, _bucket_seconds), do: {start_at, end_at}
+
+  defp floor_hour(%DateTime{} = at), do: %{at | minute: 0, second: 0, microsecond: {0, 0}}
 
   @spec dns_rpz_clients(pos_integer(), pos_integer(), keyword()) ::
           {:ok, %{rows: [list()]}} | {:error, term()}

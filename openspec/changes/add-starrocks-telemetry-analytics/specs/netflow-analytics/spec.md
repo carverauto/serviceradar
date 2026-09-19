@@ -21,13 +21,18 @@ Flow serving is warehouse-only. CNPG hypertables remain the flow write target, a
 
 ### Requirement: Exact accelerated flow analytics
 The system SHALL preserve exact flow totals, sampling semantics, nullable ports, classification and filter semantics when using StarRocks aggregates, SHALL read an hourly aggregate only when the requested bucket, filters and aggregation re-aggregate from it exactly, and SHALL otherwise read the exact raw table.
-A whole-hour bucket is answered at the hour grain. Requested windows are not hour-aligned, so the hour holding the window start is returned whole, including traffic just outside the request, and the warehouse alone answers it -- edges are never completed from CNPG or a second store. That grain is a property of the requested bucket, not of the source read, so a query that falls back from an aggregate to the raw table scores the same hours.
+A whole-hour bucket is answered at the hour grain. Requested windows are not hour-aligned, so the hours holding the window start and end are returned whole, including traffic just outside the request, and the warehouse alone answers it -- edges are never completed from CNPG or a second store. That grain is a property of the requested bucket, not of the source read, so a query that falls back from an aggregate to the raw table scores the same hours.
 
 #### Scenario: Window bound falls inside an hour
-- **WHEN** a bucketed flow query starts part way through an hour and the requested bucket is a whole number of hours
-- **THEN** the hourly row holding the window start contributes in full
+- **WHEN** a bucketed flow query starts or ends part way through an hour and the requested bucket is a whole number of hours
+- **THEN** the hourly rows holding the window start and end contribute in full
 - **AND** the edge buckets are not completed from CNPG or a separate raw query
-- **AND** the same window bound is used whether the query reads the hourly aggregate or the raw table
+- **AND** the same window bounds are used whether the query reads the hourly aggregate or the raw table
+
+#### Scenario: Window bound falls exactly on an hour
+- **WHEN** a whole-hour bucketed query ends exactly on an hour
+- **THEN** the bucket that starts at that hour is included, matching the hour-of-week profile route
+- **AND** the aggregate and the raw table return the same trailing bucket
 
 #### Scenario: Requested shape the aggregate cannot reproduce
 - **WHEN** the bucket is shorter than an hour, or a filter, series or value field is absent from the hourly aggregate

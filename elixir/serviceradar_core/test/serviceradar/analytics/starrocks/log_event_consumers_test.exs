@@ -81,7 +81,7 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumersTest do
         sql =~ "SUM(total_count)" ->
           assert sql =~ "serviceradar.events_hourly"
           assert sql =~ "`bucket` >= '1999-06-15T00:00:00Z'"
-          assert sql =~ "`bucket` < '1999-06-16T00:00:00Z'"
+          assert sql =~ "`bucket` < '1999-06-16T01:00:00Z'"
           {:ok, %{rows: [["1999-06-15 12:00:00", 6, 11]]}}
 
         sql =~ "class_uid = 4003" ->
@@ -132,11 +132,12 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumersTest do
   end
 
   # The gate swaps the source underneath an unchanged window, so it must not be
-  # able to change the answer. A whole-hour bucket is scored on the hour, so the
-  # hour holding an unaligned start belongs in the answer whole on BOTH sources;
-  # before this, the rollup read it whole and the raw fallback truncated it at
-  # 00:37, silently shrinking the first point of the chart.
-  test "fresh and stale event windows read the same leading hour of an unaligned window" do
+  # able to change the answer. A whole-hour bucket is scored on the hour, so both
+  # edge hours belong in the answer whole on BOTH sources; before this, the
+  # rollup read them whole while the raw fallback truncated the leading hour at
+  # 00:37 and the trailing hour at 00:37, silently shrinking the first and last
+  # points of the chart.
+  test "fresh and stale event windows score the same whole hours" do
     probe = fn mv_max ->
       fn sql ->
         cond do
@@ -153,12 +154,9 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumersTest do
       end
     end
 
-    read = fn mv_max ->
+    read = fn mv_max, start_at, end_at ->
       assert {:ok, %{rows: [[_, 6, 11]]}} =
-               LogEventConsumers.event_window_rows(
-                 ~U[1999-06-15 00:37:12Z],
-                 ~U[1999-06-16 00:37:12Z],
-                 21_600,
+               LogEventConsumers.event_window_rows(start_at, end_at, 21_600,
                  query: probe.(mv_max)
                )
 
@@ -166,16 +164,25 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumersTest do
       sql
     end
 
-    fresh = read.(~N[1999-06-15 12:00:00])
-    stale = read.(~N[1999-06-14 00:00:00])
+    windows = [
+      {~U[1999-06-15 00:37:12Z], ~U[1999-06-16 00:37:12Z], "1999-06-15T00:00:00Z",
+       "1999-06-16T01:00:00Z"},
+      {~U[1999-06-15 00:00:00Z], ~U[1999-06-16 00:00:00Z], "1999-06-15T00:00:00Z",
+       "1999-06-16T01:00:00Z"}
+    ]
 
-    assert fresh =~ "serviceradar.events_hourly"
-    assert stale =~ "serviceradar.events"
-    refute stale =~ "events_hourly"
+    for {start_at, end_at, lower, upper} <- windows do
+      fresh = read.(~N[1999-06-15 12:00:00], start_at, end_at)
+      stale = read.(~N[1999-06-14 00:00:00], start_at, end_at)
 
-    for sql <- [fresh, stale] do
-      assert sql =~ ">= '1999-06-15T00:00:00Z'"
-      refute sql =~ ">= '1999-06-15T00:37:12Z'"
+      assert fresh =~ "serviceradar.events_hourly"
+      assert stale =~ "serviceradar.events"
+      refute stale =~ "events_hourly"
+
+      for sql <- [fresh, stale] do
+        assert sql =~ ">= '#{lower}'"
+        assert sql =~ "< '#{upper}'"
+      end
     end
   end
 

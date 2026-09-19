@@ -2507,7 +2507,11 @@ sweep:
 # =============================================================================
 
 # Optional telemetry warehouse for flows, scalar metrics, logs and events.
-# Disabled means all telemetry, NetFlow included, stays on CNPG hypertables.
+# Disabled means every dataset is written to CNPG hypertables, and metrics, logs
+# and events are also read from them. Flow READS are warehouse-only: until
+# `flows` is listed in cutoverDatasets, the NetFlow dashboard and `in:flows` are
+# refused with a warehouse-required error instead of falling back to CNPG, which
+# stays the flow write target only.
 # flowCollector is gated independently. Empty shadowDatasets means all four
 # datasets. Cutover stays empty until a dataset is explicitly listed. Lab
 # clusters run the shared-nothing profile from k8s/starrocks/, not this chart.

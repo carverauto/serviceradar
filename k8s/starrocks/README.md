@@ -207,8 +207,10 @@ now reads that view for whole-hour flow charts, and the old column set has no
 The chart has no schema-apply Job, so nothing creates these tables for you.
 Core's MyXQL pool opens `analytics.starrocks.database` directly, and Stream
 Load PUTs to `/api/<database>/...`, so a mismatch between the applied DDL and
-that value leaves the warehouse empty while the deployment looks healthy --
-`cutoverDatasets` defaults to empty, so the UI stays on CNPG throughout.
+that value leaves the warehouse empty while the deployment looks healthy.
+`cutoverDatasets` defaults to empty, so metric, log and event panels stay on
+CNPG throughout; the NetFlow panel does not fall back -- it is refused with a
+warehouse-required error until `flows` is cut over to a populated warehouse.
 
 ## Host sysctl
 
