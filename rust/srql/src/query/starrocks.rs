@@ -806,13 +806,12 @@ fn floor_hour(value: chrono::DateTime<Utc>) -> chrono::DateTime<Utc> {
         .unwrap_or(value)
 }
 
+/// The exclusive upper bound CNPG's `hourly_cagg_upper_bound_clause` emits:
+/// `time_bucket('1 hour', end) + INTERVAL '1 hour'`, unconditionally. Leaving an
+/// already-aligned end alone would exclude the bucket CNPG includes, so the two
+/// backends would resolve `latest` to different hours for the same query.
 fn ceil_hour(value: chrono::DateTime<Utc>) -> chrono::DateTime<Utc> {
-    let floored = floor_hour(value);
-    if floored == value {
-        floored
-    } else {
-        floored + chrono::Duration::hours(1)
-    }
+    floor_hour(value) + chrono::Duration::hours(1)
 }
 
 fn profile_rollup_eligible(plan: &QueryPlan, rollup: HourlyRollup) -> bool {
@@ -1699,8 +1698,11 @@ mod tests {
     }
 
     // An already-aligned end must not gain a spurious extra hour.
+    // CNPG adds the hour unconditionally, so an already-aligned end still
+    // includes the bucket that starts at it. Excluding it would answer the same
+    // query differently on the two backends.
     #[test]
-    fn an_hour_aligned_profile_window_is_left_alone() {
+    fn an_hour_aligned_profile_end_still_includes_its_own_bucket() {
         let compiled = translate(
             &plan(
                 r#"in:timeseries_metrics metric_type:"sysmon.cpu" metric_name:"cpu.usage_percent" time:[2026-09-11T00:00:00Z,2026-09-19T15:00:00Z] bucket:1h agg:avg stats:profile_hour_of_week(value) timezone:"UTC" limit:400"#,
@@ -1715,7 +1717,7 @@ mod tests {
             compiled.sql
         );
         assert!(
-            compiled.sql.contains("< '2026-09-19T15:00:00Z'"),
+            compiled.sql.contains("< '2026-09-19T16:00:00Z'"),
             "{}",
             compiled.sql
         );

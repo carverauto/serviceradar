@@ -305,7 +305,6 @@ test/serviceradar/event_writer/telemetry_test.exs	-	not_selected	load_only	not_s
 test/serviceradar/events/audit_notifier_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/events/audit_writer_test.exs	ServiceRadar.Events.AuditWriterTest	data_case	async	transaction_owner	DataCase :9; test only builds an event synchronously at :24-34.
 test/serviceradar/events/internal_log_publisher_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
-test/serviceradar/flow_attribution/correlation_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/flow_attribution/event_rows_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/flow_attribution/persistence_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/flow_attribution/retention_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.

@@ -3,6 +3,7 @@ defmodule ServiceRadar.FlowAttributionTest do
 
   alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEvent
   alias ServiceRadar.FlowAttribution
+  alias ServiceRadar.FlowAttribution.Correlation
   alias ServiceRadar.FlowAttribution.Persistence
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
@@ -24,6 +25,7 @@ defmodule ServiceRadar.FlowAttributionTest do
       ])
 
       query!("DELETE FROM platform.workload_identity_current WHERE partition = $1", [partition])
+      query!("DELETE FROM platform.ocsf_agents WHERE uid = $1", [agent_id])
     end)
 
     %{partition: partition, agent_id: agent_id}
@@ -440,10 +442,597 @@ defmodule ServiceRadar.FlowAttributionTest do
 
   # Flows are warehouse-only: until the dataset is cut over there is nothing for
   # a correlation pass to read, and that is a configured state rather than a
-  # failure. The matching itself is covered against the warehouse reader in
-  # ServiceRadar.Analytics.StarRocks.FlowConsumersTest.
+  # failure.
   test "correlation reports itself inapplicable while flows are not cut over" do
     assert {:ok, :not_applicable} = FlowAttribution.correlate()
+  end
+
+  # The matching SQL below is the same `candidate_ctes/1` the CNPG pass used; only
+  # the flow source moved to the warehouse. These run it for real against CNPG --
+  # the warehouse read is the injected seam, `repo_query` is not -- so a change to
+  # the rank ordering or a fallback predicate that mis-attributes a flow fails
+  # here rather than passing a substring check.
+  describe "warehouse correlation matching" do
+    test "correlates delayed TCP flow from current-state attribution", %{
+      partition: partition,
+      agent_id: agent_id
+    } do
+      flow_time = DateTime.add(now(), -10, :minute)
+
+      seed_attribution(%{
+        partition: partition,
+        agent_id: agent_id,
+        observed_at: DateTime.add(flow_time, -2, :second),
+        local_ip: "192.168.1.62",
+        local_port: 54_710,
+        remote_ip: "192.168.1.1",
+        remote_port: 443,
+        pid: 61_707,
+        comm: "serviceradar-agent"
+      })
+
+      update =
+        correlate_one(%{
+          partition: partition,
+          time: flow_time,
+          src_ip: "192.168.1.62",
+          src_port: 54_710,
+          dst_ip: "192.168.1.1",
+          dst_port: 443
+        })
+
+      assert update["pid"] == 61_707
+      assert update["comm"] == "serviceradar-agent"
+    end
+
+    test "correlates pod-local attribution to node-SNATed NetFlow", %{
+      partition: partition,
+      agent_id: agent_id
+    } do
+      now = now()
+      seed_agent(agent_id, "10.0.2.9")
+
+      seed_attribution(%{
+        partition: partition,
+        agent_id: agent_id,
+        observed_at: DateTime.add(now, -10, :second),
+        local_ip: "10.42.202.17",
+        local_port: 42_276,
+        remote_ip: "104.20.23.154",
+        remote_port: 443,
+        pid: 12_345,
+        comm: "curl"
+      })
+
+      update =
+        correlate_one(%{
+          partition: partition,
+          time: now,
+          src_ip: "10.0.2.9",
+          src_port: 55_000,
+          dst_ip: "104.20.23.154",
+          dst_port: 443
+        })
+
+      assert update["pid"] == 12_345
+      assert update["comm"] == "curl"
+    end
+
+    test "keeps exact 5-tuple attribution ahead of SNAT fallback candidates", %{
+      partition: partition,
+      agent_id: agent_id
+    } do
+      now = now()
+      seed_agent(agent_id, "10.0.2.9")
+
+      seed_attribution(%{
+        partition: partition,
+        agent_id: agent_id,
+        observed_at: DateTime.add(now, -8, :second),
+        local_ip: "10.42.202.17",
+        local_port: 51_515,
+        remote_ip: "104.20.23.154",
+        remote_port: 443,
+        pid: 22_222,
+        comm: "pod-curl"
+      })
+
+      seed_attribution(%{
+        partition: partition,
+        agent_id: agent_id,
+        observed_at: DateTime.add(now, -12, :second),
+        local_ip: "10.0.2.9",
+        local_port: 42_276,
+        remote_ip: "104.20.23.154",
+        remote_port: 443,
+        pid: 11_111,
+        comm: "host-curl"
+      })
+
+      update =
+        correlate_one(%{
+          partition: partition,
+          time: now,
+          src_ip: "10.0.2.9",
+          src_port: 42_276,
+          dst_ip: "104.20.23.154",
+          dst_port: 443
+        })
+
+      assert update["pid"] == 11_111
+      assert update["comm"] == "host-curl"
+    end
+
+    test "correlates exact UDP attribution", %{partition: partition, agent_id: agent_id} do
+      now = now()
+
+      seed_attribution(%{
+        partition: partition,
+        agent_id: agent_id,
+        observed_at: DateTime.add(now, -2, :second),
+        proto: 17,
+        local_ip: "10.42.68.167",
+        local_port: 57_279,
+        remote_ip: "10.43.0.10",
+        remote_port: 53,
+        pid: 44_024,
+        comm: "redis-server"
+      })
+
+      update =
+        correlate_one(%{
+          partition: partition,
+          time: now,
+          proto: 17,
+          src_ip: "10.42.68.167",
+          src_port: 57_279,
+          dst_ip: "10.43.0.10",
+          dst_port: 53
+        })
+
+      assert update["pid"] == 44_024
+      assert update["comm"] == "redis-server"
+    end
+
+    test "correlates wildcard service attribution for server-side fan-in", %{
+      partition: partition,
+      agent_id: agent_id
+    } do
+      now = now()
+
+      seed_attribution(%{
+        partition: partition,
+        agent_id: agent_id,
+        observed_at: DateTime.add(now, -2, :second),
+        proto: 17,
+        local_ip: "10.42.221.147",
+        local_port: 53,
+        remote_ip: "0.0.0.0",
+        remote_port: 0,
+        pid: 55_053,
+        comm: "coredns"
+      })
+
+      update =
+        correlate_one(%{
+          partition: partition,
+          time: now,
+          proto: 17,
+          src_ip: "10.42.221.147",
+          src_port: 53,
+          dst_ip: "10.42.199.32",
+          dst_port: 57_216
+        })
+
+      assert update["pid"] == 55_053
+      assert update["comm"] == "coredns"
+    end
+
+    test "keeps exact attribution ahead of wildcard service attribution", %{
+      partition: partition,
+      agent_id: agent_id
+    } do
+      now = now()
+
+      seed_attribution(%{
+        partition: partition,
+        agent_id: agent_id,
+        observed_at: DateTime.add(now, -2, :second),
+        local_ip: "10.42.221.147",
+        local_port: 6379,
+        remote_ip: "0.0.0.0",
+        remote_port: 0,
+        pid: 63_790,
+        comm: "wildcard-redis"
+      })
+
+      seed_attribution(%{
+        partition: partition,
+        agent_id: agent_id,
+        observed_at: DateTime.add(now, -5, :second),
+        local_ip: "10.42.221.147",
+        local_port: 6379,
+        remote_ip: "10.42.199.32",
+        remote_port: 57_216,
+        pid: 63_791,
+        comm: "exact-redis"
+      })
+
+      update =
+        correlate_one(%{
+          partition: partition,
+          time: now,
+          src_ip: "10.42.221.147",
+          src_port: 6379,
+          dst_ip: "10.42.199.32",
+          dst_port: 57_216
+        })
+
+      assert update["pid"] == 63_791
+      assert update["comm"] == "exact-redis"
+    end
+
+    test "carries workload identity into the published update", %{
+      partition: partition,
+      agent_id: agent_id
+    } do
+      now = now()
+
+      seed_attribution(%{
+        partition: partition,
+        agent_id: agent_id,
+        observed_at: DateTime.add(now, -2, :second),
+        local_ip: "10.42.68.167",
+        local_port: 57_279,
+        remote_ip: "10.43.0.10",
+        remote_port: 6379,
+        pid: 44_024,
+        comm: "redis-server",
+        workload_identity: %{
+          "pod_namespace" => "demo",
+          "pod_name" => "redis-0",
+          "pod_uid" => "57e67067-89e4-4001-bdd4-8632d39ea02b",
+          "container_name" => "redis",
+          "image" => "redis:7",
+          "runtime_source" => "containerd",
+          "confidence" => "high",
+          "labels" => %{"app.kubernetes.io/name" => "redis"}
+        }
+      })
+
+      update =
+        correlate_one(%{
+          partition: partition,
+          time: now,
+          src_ip: "10.42.68.167",
+          src_port: 57_279,
+          dst_ip: "10.43.0.10",
+          dst_port: 6379
+        })
+
+      workload = update["workload_identity"]
+      assert workload["pod_namespace"] == "demo"
+      assert workload["pod_name"] == "redis-0"
+      assert workload["container_name"] == "redis"
+      assert workload["labels"]["app.kubernetes.io/name"] == "redis"
+    end
+
+    test "joins standalone workload identity by agent and container during correlation", %{
+      partition: partition,
+      agent_id: agent_id
+    } do
+      now = now()
+      container_id = "containerd://6c6ad30c2ff8796e0c016634eb069cb54eb5539c"
+
+      seed_attribution(%{
+        partition: partition,
+        agent_id: agent_id,
+        observed_at: DateTime.add(now, -2, :second),
+        local_ip: "10.42.68.167",
+        local_port: 57_279,
+        remote_ip: "10.43.0.10",
+        remote_port: 6379,
+        pid: 44_024,
+        comm: "redis-server",
+        container_id: container_id
+      })
+
+      seed_workload_identity(%{
+        partition: partition,
+        agent_id: agent_id,
+        observed_at: DateTime.add(now, -1, :second),
+        container_id: container_id,
+        identity: %{
+          "container_id" => container_id,
+          "pod_namespace" => "demo",
+          "pod_name" => "redis-0",
+          "pod_uid" => "57e67067-89e4-4001-bdd4-8632d39ea02b",
+          "container_name" => "redis",
+          "image" => "redis:7",
+          "runtime_source" => "containerd",
+          "confidence" => "high"
+        }
+      })
+
+      update =
+        correlate_one(%{
+          partition: partition,
+          time: now,
+          src_ip: "10.42.68.167",
+          src_port: 57_279,
+          dst_ip: "10.43.0.10",
+          dst_port: 6379
+        })
+
+      workload = update["workload_identity"]
+      assert workload["container_id"] == container_id
+      assert workload["pod_namespace"] == "demo"
+      assert workload["pod_name"] == "redis-0"
+      assert workload["container_name"] == "redis"
+      assert workload["runtime_source"] == "containerd"
+    end
+
+    test "correlation merges standalone context into partial attributed flow workload", %{
+      partition: partition,
+      agent_id: agent_id
+    } do
+      now = now()
+      container_id = "containerd://partial-flow-context"
+
+      seed_attribution(%{
+        partition: partition,
+        agent_id: agent_id,
+        observed_at: DateTime.add(now, -2, :second),
+        proto: 17,
+        local_ip: "10.0.2.12",
+        local_port: 7946,
+        remote_ip: "192.168.10.96",
+        remote_port: 7946,
+        pid: 963_214,
+        comm: "speaker",
+        container_id: container_id,
+        workload_identity: %{
+          "container_id" => container_id,
+          "pod_namespace" => "metallb-system",
+          "pod_name" => "speaker-dhj7j",
+          "container_name" => "speaker"
+        }
+      })
+
+      seed_workload_identity(%{
+        partition: partition,
+        agent_id: agent_id,
+        observed_at: DateTime.add(now, -1, :second),
+        container_id: container_id,
+        identity: %{
+          "context_name" => "default-cp3",
+          "container_id" => container_id,
+          "pod_namespace" => "metallb-system",
+          "pod_name" => "speaker-dhj7j",
+          "container_name" => "speaker",
+          "image" => "quay.io/metallb/speaker:v0.15.2",
+          "runtime_source" => "containerd"
+        }
+      })
+
+      update =
+        correlate_one(%{
+          partition: partition,
+          time: now,
+          proto: 17,
+          src_ip: "10.0.2.12",
+          src_port: 7946,
+          dst_ip: "192.168.10.96",
+          dst_port: 7946
+        })
+
+      workload = update["workload_identity"]
+      assert workload["context_name"] == "default-cp3"
+      assert workload["pod_namespace"] == "metallb-system"
+      assert workload["pod_name"] == "speaker-dhj7j"
+      assert workload["container_name"] == "speaker"
+      assert workload["image"] == "quay.io/metallb/speaker:v0.15.2"
+    end
+
+    test "correlates UDP attribution when exporter local ephemeral port differs", %{
+      partition: partition,
+      agent_id: agent_id
+    } do
+      now = now()
+
+      seed_attribution(%{
+        partition: partition,
+        agent_id: agent_id,
+        observed_at: DateTime.add(now, -2, :second),
+        proto: 17,
+        local_ip: "203.0.113.17",
+        local_port: 61_002,
+        remote_ip: "198.51.100.123",
+        remote_port: 4_321,
+        pid: 42_002,
+        comm: "udp-port-client"
+      })
+
+      update =
+        correlate_one(%{
+          partition: partition,
+          time: now,
+          proto: 17,
+          src_ip: "203.0.113.17",
+          src_port: 61_001,
+          dst_ip: "198.51.100.123",
+          dst_port: 4_321
+        })
+
+      assert update["pid"] == 42_002
+      assert update["comm"] == "udp-port-client"
+    end
+
+    test "correlates coalesced UDP attribution with a zero local port", %{
+      partition: partition,
+      agent_id: agent_id
+    } do
+      now = now()
+
+      seed_attribution(%{
+        partition: partition,
+        agent_id: agent_id,
+        observed_at: DateTime.add(now, -2, :second),
+        proto: 17,
+        local_ip: "192.0.2.44",
+        local_port: 0,
+        remote_ip: "198.51.100.53",
+        remote_port: 8_125,
+        pid: 42_001,
+        comm: "udp-zero-client"
+      })
+
+      update =
+        correlate_one(%{
+          partition: partition,
+          time: now,
+          proto: 17,
+          src_ip: "192.0.2.44",
+          src_port: 49_152,
+          dst_ip: "198.51.100.53",
+          dst_port: 8_125
+        })
+
+      assert update["pid"] == 42_001
+      assert update["comm"] == "udp-zero-client"
+    end
+
+    test "keeps exact UDP attribution ahead of relaxed service-port candidates", %{
+      partition: partition,
+      agent_id: agent_id
+    } do
+      now = now()
+
+      seed_attribution(%{
+        partition: partition,
+        agent_id: agent_id,
+        observed_at: DateTime.add(now, -1, :second),
+        proto: 17,
+        local_ip: "10.0.2.12",
+        local_port: 20_509,
+        remote_ip: "152.117.116.178",
+        remote_port: 161,
+        pid: 72_101,
+        comm: "relaxed"
+      })
+
+      seed_attribution(%{
+        partition: partition,
+        agent_id: agent_id,
+        observed_at: DateTime.add(now, -5, :second),
+        proto: 17,
+        local_ip: "10.0.2.12",
+        local_port: 38_573,
+        remote_ip: "152.117.116.178",
+        remote_port: 161,
+        pid: 72_102,
+        comm: "exact"
+      })
+
+      update =
+        correlate_one(%{
+          partition: partition,
+          time: now,
+          proto: 17,
+          src_ip: "10.0.2.12",
+          src_port: 38_573,
+          dst_ip: "152.117.116.178",
+          dst_port: 161
+        })
+
+      assert update["pid"] == 72_102
+      assert update["comm"] == "exact"
+    end
+
+    test "correlates ICMP pseudo-port exporter data through node fallback", %{
+      partition: partition,
+      agent_id: agent_id
+    } do
+      now = now()
+      seed_agent(agent_id, "10.0.2.11")
+
+      seed_attribution(%{
+        partition: partition,
+        agent_id: agent_id,
+        observed_at: DateTime.add(now, -2, :second),
+        proto: 1,
+        local_ip: "10.42.68.112",
+        local_port: 0,
+        remote_ip: "1.1.1.1",
+        remote_port: 0,
+        pid: 55_555,
+        comm: "ping"
+      })
+
+      update =
+        correlate_one(%{
+          partition: partition,
+          time: now,
+          proto: 1,
+          src_ip: "1.1.1.1",
+          src_port: 8,
+          dst_ip: "10.0.2.11",
+          dst_port: 0
+        })
+
+      assert update["pid"] == 55_555
+      assert update["comm"] == "ping"
+    end
+  end
+
+  defp now, do: DateTime.truncate(DateTime.utc_now(), :second)
+
+  # Runs one warehouse correlation pass: the flow the warehouse would have
+  # returned is injected, the CNPG matching statement runs for real, and the
+  # published partial update is returned. `repo_query` is deliberately left at
+  # its default so the matching SQL under test is the shipped one.
+  defp correlate_one(flow) do
+    parent = self()
+
+    columns = ~w(
+      id time partition protocol_num attribution_version
+      src_endpoint_ip dst_endpoint_ip src_endpoint_port dst_endpoint_port
+    )
+
+    row = [
+      Map.get(flow, :id, "flow-#{System.unique_integer([:positive])}"),
+      DateTime.to_naive(flow.time),
+      flow.partition,
+      Map.get(flow, :proto, 6),
+      0,
+      flow.src_ip,
+      flow.dst_ip,
+      flow.src_port,
+      flow.dst_port
+    ]
+
+    assert {:ok, 1} =
+             Correlation.correlate_starrocks(
+               query: fn _sql -> {:ok, %{columns: columns, rows: [row]}} end,
+               publish: fn %{payload: payload} ->
+                 send(parent, {:attribution_update, payload})
+                 :ok
+               end
+             )
+
+    assert_received {:attribution_update, payload}
+    payload
+  end
+
+  defp seed_agent(agent_id, ip) do
+    query!(
+      """
+      INSERT INTO platform.ocsf_agents (uid, ip, status)
+      VALUES ($1, $2, 'healthy')
+      ON CONFLICT (uid) DO UPDATE SET ip = EXCLUDED.ip
+      """,
+      [agent_id, ip]
+    )
   end
 
   defp seed_attribution(params) do
