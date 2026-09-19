@@ -2,9 +2,9 @@ filegroup(
     name = "cluster_files",
     srcs = [
         "README.md",
+        "values.yaml",
         "values-cluster.yaml",
         "values-cluster-shared-data.yaml",
-        "values.yaml",
     ],
     visibility = ["//visibility:public"],
 )
