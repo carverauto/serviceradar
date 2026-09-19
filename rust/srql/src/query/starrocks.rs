@@ -213,6 +213,13 @@ fn dataset_sql(
     database: &str,
     allow_rollup: bool,
 ) -> Result<TranslateResponse> {
+    // A `profile_hour_of_week[_peak]` query carries a bucket clause but is a
+    // profile aggregation, not a downsample, and it owns its own WHERE because
+    // `timezone:` steers the profile rather than filtering a column.
+    if is_profile_stats(plan) {
+        return profile_sql(plan, dataset, database, allow_rollup);
+    }
+
     let joins = catalog_joins(plan, dataset)?;
     let direction = plan_mentions(plan, &["direction"]);
     let rollup = if allow_rollup && joins.is_empty() && !direction {
@@ -252,16 +259,6 @@ fn dataset_sql(
         where_sql.push_str(&filter_sql(plan, filter)?);
     }
     if let Some(downsample) = plan.downsample.as_ref() {
-        // A `profile_hour_of_week[_peak]` query carries a bucket clause but is a
-        // profile aggregation, not a downsample. Compiling it here would return
-        // timestamp/series/value rows under a profile query's name, so refuse it
-        // rather than answer a different question.
-        if is_profile_stats(plan) {
-            return Err(ServiceError::NotImplemented(
-                "starrocks_unsupported_stats: profile_hour_of_week".into(),
-            ));
-        }
-
         let sql = downsample_sql(
             plan,
             dataset,
@@ -530,7 +527,267 @@ fn rollup_agg(
     }
 }
 
-fn is_profile_stats(plan: &QueryPlan) -> bool {
+/// Hour-of-week profiles, the StarRocks half of the CNPG `profile_hour_of_week`
+/// and `profile_hour_of_week_peak` routes (`timeseries_metrics.rs`).
+///
+/// Two deliberate differences from the CNPG builder, both forced by the engine:
+/// percentiles are `PERCENTILE_APPROX` rather than exact `percentile_cont`, and
+/// the row is flat columns rather than a `jsonb` payload -- the MySQL protocol
+/// would hand a JSON object back as an opaque string, and both consumers
+/// already read a flat row (`Map.get(row, "payload", row)`).
+fn profile_sql(
+    plan: &QueryPlan,
+    dataset: Dataset,
+    database: &str,
+    allow_rollup: bool,
+) -> Result<TranslateResponse> {
+    let spec = ProfileSpec::parse(plan)?;
+
+    if dataset.raw_table != "timeseries_metrics" {
+        return Err(ServiceError::NotImplemented(format!(
+            "starrocks_unsupported_stats: {} is not a metric dataset",
+            dataset.raw_table
+        )));
+    }
+
+    let Some(range) = plan.time_range.as_ref() else {
+        return Err(ServiceError::InvalidRequest(
+            "profile_hour_of_week requires an explicit time range".into(),
+        ));
+    };
+
+    let rollup = allow_rollup.then_some(METRIC_HOURLY);
+    let source = match rollup {
+        Some(rollup) => format!("{database}.{}", rollup.table),
+        None => format!("{database}.{}", dataset.raw_table),
+    };
+    let bucket = match rollup {
+        Some(_) => "`bucket`".to_string(),
+        None => format!("date_trunc('hour', `{}`)", dataset.time_column),
+    };
+    let sample = match (rollup, spec.peak) {
+        (Some(_), false) => "avg_value".to_string(),
+        (Some(_), true) => "max_value".to_string(),
+        (None, false) => "AVG(`value`)".to_string(),
+        (None, true) => "MAX(`value`)".to_string(),
+    };
+    let group = if rollup.is_some() {
+        ""
+    } else {
+        "\n  GROUP BY 1, 2"
+    };
+
+    let mut clauses = vec!["device_id IS NOT NULL".to_string()];
+    if let Some(scope) = dataset.scope {
+        clauses.push(format!("({scope})"));
+    }
+    clauses.push(format!(
+        "{bucket_col} >= '{start}'",
+        bucket_col = match rollup {
+            Some(_) => "`bucket`".to_string(),
+            None => format!("`{}`", dataset.time_column),
+        },
+        start = range.start.to_rfc3339_opts(SecondsFormat::Secs, true)
+    ));
+    clauses.push(format!(
+        "{bucket_col} < '{end}'",
+        bucket_col = match rollup {
+            Some(_) => "`bucket`".to_string(),
+            None => format!("`{}`", dataset.time_column),
+        },
+        end = range.end.to_rfc3339_opts(SecondsFormat::Secs, true)
+    ));
+    for filter in &plan.filters {
+        if filter.field.eq_ignore_ascii_case("timezone") {
+            continue;
+        }
+        clauses.push(filter_sql(plan, filter)?);
+    }
+    let where_sql = format!("WHERE {}", clauses.join(" AND "));
+
+    let tz = sql_literal(&spec.timezone);
+    let local = format!(
+        "CONVERT_TZ({bucket_expr}, 'UTC', {tz})",
+        bucket_expr = "bucket"
+    );
+    let limit = plan.limit.max(1);
+    let offset = plan.offset.max(0);
+
+    // StarRocks DAYOFWEEK is 1=Sunday; the profile contract is Postgres EXTRACT(DOW), 0=Sunday.
+    let head = format!(
+        r#"WITH hourly AS (
+  SELECT device_id AS series, {bucket} AS bucket, {sample} AS sample_value
+  FROM {source}
+  {where_sql}{group}
+),
+local_hourly AS (
+  SELECT series, bucket, sample_value, DAYOFWEEK({local}) - 1 AS dow, HOUR({local}) AS hod
+  FROM hourly
+),
+ranked AS (
+  SELECT series, bucket, sample_value, dow, hod,
+    ROW_NUMBER() OVER (PARTITION BY series ORDER BY bucket DESC) AS series_rank,
+    ROW_NUMBER() OVER (PARTITION BY series, dow, hod ORDER BY bucket DESC) AS cell_rank
+  FROM local_hourly
+),
+latest AS (
+  SELECT series, bucket, sample_value, dow, hod FROM ranked WHERE series_rank = 1
+)"#
+    );
+
+    let sql = if spec.peak {
+        format!(
+            r#"{head},
+profile_values AS (
+  SELECT h.series, h.hod, h.bucket, h.sample_value
+  FROM local_hourly h
+  JOIN latest l ON l.series = h.series AND l.hod = h.hod
+  WHERE h.bucket <> l.bucket
+),
+prior_values AS (
+  SELECT h.series, h.sample_value
+  FROM local_hourly h
+  JOIN latest l ON l.series = h.series
+  WHERE h.bucket <> l.bucket
+),
+cell_profile AS (
+  SELECT series, hod, COUNT(*) AS bucket_count,
+    PERCENTILE_APPROX(sample_value, 0.5) AS center,
+    PERCENTILE_APPROX(sample_value, 0.05) AS p05,
+    PERCENTILE_APPROX(sample_value, 0.95) AS p95
+  FROM profile_values GROUP BY 1, 2
+),
+series_prior AS (
+  SELECT series,
+    PERCENTILE_APPROX(sample_value, 0.05) AS prior_p05,
+    PERCENTILE_APPROX(sample_value, 0.95) AS prior_p95
+  FROM prior_values GROUP BY 1
+)
+SELECT l.series AS series, l.dow AS dow, l.hod AS hod, l.sample_value AS sample_value,
+  l.bucket AS bucket, c.bucket_count AS bucket_count, c.center AS center,
+  c.p05 AS p05, c.p95 AS p95, c.p95 AS q95,
+  (c.p95 - c.p05) * 0.30398 AS scale,
+  (p.prior_p95 - p.prior_p05) * 0.30398 AS prior_scale
+FROM latest l
+LEFT JOIN cell_profile c ON c.series = l.series AND c.hod = l.hod
+LEFT JOIN series_prior p ON p.series = l.series
+ORDER BY l.dow, l.hod, l.series
+LIMIT {limit} OFFSET {offset}"#
+        )
+    } else {
+        let selected = if spec.full { "profile_rows" } else { "latest" };
+        format!(
+            r#"{head},
+profile_rows AS (
+  SELECT series, bucket, sample_value, dow, hod FROM ranked WHERE cell_rank = 1
+),
+profile_keys AS (
+  SELECT DISTINCT series, dow, hod FROM {selected}
+),
+mean_profile AS (
+  SELECT h.series, h.dow, h.hod, COUNT(*) AS bucket_count,
+    SUM(h.sample_value) AS bucket_sum,
+    SUM(h.sample_value * h.sample_value) AS bucket_sum_sq
+  FROM local_hourly h
+  JOIN profile_keys k ON k.series = h.series AND k.dow = h.dow AND k.hod = h.hod
+  GROUP BY 1, 2, 3
+),
+robust_values AS (
+  SELECT h.series, h.dow, h.hod, h.sample_value
+  FROM local_hourly h
+  JOIN profile_keys k ON k.series = h.series AND k.dow = h.dow AND k.hod = h.hod
+  LEFT JOIN latest l ON l.series = h.series AND l.bucket = h.bucket
+  WHERE l.bucket IS NULL
+),
+robust_base AS (
+  SELECT series, dow, hod,
+    PERCENTILE_APPROX(sample_value, 0.5) AS center,
+    PERCENTILE_APPROX(sample_value, 0.05) AS p05,
+    PERCENTILE_APPROX(sample_value, 0.95) AS p95
+  FROM robust_values GROUP BY 1, 2, 3
+),
+robust_profile AS (
+  SELECT b.series, b.dow, b.hod, b.center, COUNT(v.sample_value) AS robust_bucket_count,
+    PERCENTILE_APPROX(ABS(v.sample_value - b.center), 0.5) AS mad, b.p05, b.p95
+  FROM robust_base b
+  JOIN robust_values v ON v.series = b.series AND v.dow = b.dow AND v.hod = b.hod
+  GROUP BY b.series, b.dow, b.hod, b.center, b.p05, b.p95
+)
+SELECT l.series AS series, l.dow AS dow, l.hod AS hod, l.sample_value AS sample_value,
+  l.bucket AS bucket, p.bucket_count AS bucket_count,
+  COALESCE(r.robust_bucket_count, 0) AS robust_bucket_count,
+  p.bucket_sum AS bucket_sum, p.bucket_sum_sq AS bucket_sum_sq,
+  r.center AS center, r.mad AS mad, r.p05 AS p05, r.p95 AS p95
+FROM {selected} l
+JOIN mean_profile p ON p.series = l.series AND p.dow = l.dow AND p.hod = l.hod
+LEFT JOIN robust_profile r ON r.series = l.series AND r.dow = l.dow AND r.hod = l.hod
+ORDER BY l.dow, l.hod, l.series
+LIMIT {limit} OFFSET {offset}"#
+        )
+    };
+
+    Ok(TranslateResponse {
+        sql,
+        params: vec![
+            BindParam::timestamptz(range.start),
+            BindParam::timestamptz(range.end),
+        ],
+        pagination: PaginationMeta {
+            next_cursor: None,
+            prev_cursor: None,
+            limit: Some(plan.limit),
+        },
+        viz: None,
+    })
+}
+
+struct ProfileSpec {
+    peak: bool,
+    full: bool,
+    timezone: String,
+}
+
+impl ProfileSpec {
+    fn parse(plan: &QueryPlan) -> Result<Self> {
+        let raw = plan
+            .stats
+            .as_ref()
+            .map(|stats| stats.as_raw().trim().to_ascii_lowercase())
+            .unwrap_or_default();
+
+        let (verb, rest) = raw.split_once('(').ok_or_else(|| {
+            ServiceError::InvalidRequest("profile_hour_of_week requires a field".into())
+        })?;
+        let field = rest.trim_end_matches(')').trim();
+        if field != "value" {
+            return Err(ServiceError::InvalidRequest(format!(
+                "{} only supports value",
+                verb.trim()
+            )));
+        }
+
+        let verb = verb.trim();
+        let timezone = plan
+            .filters
+            .iter()
+            .find(|filter| filter.field.eq_ignore_ascii_case("timezone"))
+            .and_then(|filter| filter.value.as_scalar().ok())
+            .map(super::timeseries_metrics::normalize_profile_timezone)
+            .unwrap_or_else(|| super::timeseries_metrics::normalize_profile_timezone(""));
+
+        Ok(Self {
+            peak: verb == "profile_hour_of_week_peak",
+            full: verb == "profile_hour_of_week_full",
+            timezone,
+        })
+    }
+}
+
+/// A `profile_hour_of_week[_peak]` query is a profile aggregation, not a
+/// downsample, even though its `bucket:1h` clause sets `plan.downsample`.
+/// Both dialects route on this one predicate: if they disagreed, one branch
+/// would build a profile while the other answered a different question.
+pub(crate) fn is_profile_stats(plan: &QueryPlan) -> bool {
     plan.stats.as_ref().is_some_and(|stats| {
         stats
             .as_raw()
@@ -1089,23 +1346,125 @@ mod tests {
         assert!(compiled.sql.contains("bytes_total"), "{}", compiled.sql);
     }
 
-    // profile_hour_of_week is a profile aggregation that happens to carry a
-    // bucket clause. Compiling it as a downsample would answer with
-    // timestamp/series/value rows under a profile query's name.
+    // Anomaly peak profiling and seasonal baselines are metric consumers, so a
+    // metrics cutover has to keep answering them. Compiling their bucket clause
+    // as a downsample returned timestamp/series/value rows under a profile
+    // query's name; refusing them disabled the baselines instead.
     #[test]
-    fn a_profile_stats_query_is_refused_rather_than_answered_as_a_downsample() {
-        let err = translate(
+    fn the_seasonal_profile_route_compiles_against_the_metric_rollup() {
+        let compiled = translate(
             &plan(
-                r#"in:timeseries_metrics metric_type:"sysmon.memory" metric_name:"memory.used_percent" time:last_30d bucket:1h agg:avg series:uid stats:profile_hour_of_week(value) sort:dow:asc,hod:asc limit:500"#,
+                r#"in:timeseries_metrics metric_type:"sysmon.memory" metric_name:"memory.used_percent" time:last_30d bucket:1h agg:avg series:uid stats:profile_hour_of_week(value) timezone:"America/Chicago" sort:dow:asc,hod:asc limit:500"#,
             ),
             "serviceradar",
         )
-        .expect_err("profile stats must not compile as a downsample");
+        .expect("profile compiles");
 
+        let sql = compiled.sql;
         assert!(
-            matches!(err, ServiceError::NotImplemented(ref m) if m.contains("profile_hour_of_week")),
-            "{err:?}"
+            sql.contains("FROM serviceradar.timeseries_metrics_hourly"),
+            "{sql}"
         );
+        // The consumers read a flat row; a jsonb payload would arrive as an
+        // opaque string over the MySQL protocol.
+        for column in [
+            "AS series",
+            "AS dow",
+            "AS hod",
+            "AS bucket_count",
+            "AS bucket_sum",
+            "AS bucket_sum_sq",
+            "AS center",
+            "AS mad",
+            "AS p05",
+            "AS p95",
+        ] {
+            assert!(sql.contains(column), "missing {column} in {sql}");
+        }
+        assert!(!sql.contains("jsonb_build_object"), "{sql}");
+        assert!(!sql.contains("DISTINCT ON"), "{sql}");
+        assert!(!sql.contains("WITHIN GROUP"), "{sql}");
+        assert!(
+            sql.contains("CONVERT_TZ(bucket, 'UTC', 'America/Chicago')"),
+            "{sql}"
+        );
+        // StarRocks DAYOFWEEK is 1=Sunday; the profile contract is 0=Sunday.
+        assert!(
+            sql.contains("DAYOFWEEK(CONVERT_TZ") && sql.contains(") - 1 AS dow"),
+            "{sql}"
+        );
+        assert!(sql.contains("metric_type = 'sysmon.memory'"), "{sql}");
+        assert!(!sql.contains("timezone ="), "{sql}");
+    }
+
+    #[test]
+    fn the_peak_profile_route_reads_the_maximum_and_carries_its_scale() {
+        let compiled = translate(
+            &plan(
+                r#"in:timeseries_metrics metric_type:"sysmon.cpu" metric_name:"cpu.usage_percent" time:last_30d bucket:1h agg:avg series:uid stats:profile_hour_of_week_peak(value) timezone:"UTC" sort:dow:asc,hod:asc limit:400"#,
+            ),
+            "serviceradar",
+        )
+        .expect("peak profile compiles");
+
+        let sql = compiled.sql;
+        assert!(sql.contains("max_value AS sample_value"), "{sql}");
+        for column in ["AS center", "AS p95", "AS bucket_count", "AS prior_scale"] {
+            assert!(sql.contains(column), "missing {column} in {sql}");
+        }
+        assert!(sql.contains("LIMIT 400"), "{sql}");
+    }
+
+    // The freshness gate recompiles a stale view's query through translate_raw,
+    // so the profile route has to have a raw-table shape as well.
+    #[test]
+    fn a_stale_metric_view_recompiles_the_profile_from_the_raw_table() {
+        let compiled = translate_raw(
+            &plan(
+                r#"in:timeseries_metrics metric_type:"sysmon.cpu" metric_name:"cpu.usage_percent" time:last_30d bucket:1h agg:avg series:uid stats:profile_hour_of_week_peak(value) timezone:"UTC" sort:dow:asc,hod:asc limit:400"#,
+            ),
+            "serviceradar",
+        )
+        .expect("raw profile compiles");
+
+        let sql = compiled.sql;
+        assert!(!sql.contains("timeseries_metrics_hourly"), "{sql}");
+        assert!(
+            sql.contains("FROM serviceradar.timeseries_metrics\n"),
+            "{sql}"
+        );
+        assert!(
+            sql.contains("date_trunc('hour', `timestamp`) AS bucket"),
+            "{sql}"
+        );
+        assert!(sql.contains("MAX(`value`) AS sample_value"), "{sql}");
+        assert!(sql.contains("GROUP BY 1, 2"), "{sql}");
+    }
+
+    #[test]
+    fn a_profile_over_a_non_metric_dataset_is_still_refused() {
+        let err = translate(
+            &plan(
+                r#"in:flows time:last_30d bucket:1h agg:avg stats:profile_hour_of_week(value) limit:10"#,
+            ),
+            "serviceradar",
+        )
+        .expect_err("flows have no hour-of-week profile");
+
+        assert!(matches!(err, ServiceError::NotImplemented(_)), "{err:?}");
+    }
+
+    #[test]
+    fn a_profile_over_a_field_other_than_value_is_rejected() {
+        let err = translate(
+            &plan(
+                r#"in:timeseries_metrics time:last_30d bucket:1h agg:avg stats:profile_hour_of_week(usage_percent) limit:10"#,
+            ),
+            "serviceradar",
+        )
+        .expect_err("profile only supports value");
+
+        assert!(matches!(err, ServiceError::InvalidRequest(_)), "{err:?}");
     }
 
     fn plan(query: &str) -> QueryPlan {

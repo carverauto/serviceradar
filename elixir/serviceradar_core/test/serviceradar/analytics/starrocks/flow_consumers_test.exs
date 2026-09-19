@@ -57,13 +57,15 @@ defmodule ServiceRadar.Analytics.StarRocks.FlowConsumersTest do
 
   # Every helper in these two workers reads an empty flow result as "no
   # traffic", so a routing refusal that degrades to [] is indistinguishable
-  # from an idle network and stays that way forever. They refuse the pass
-  # instead.
-  test "flow refresh workers refuse to run until flows are cut over" do
-    assert {:error, :starrocks_required} =
+  # from an idle network and stays that way forever. Not being cut over is a
+  # configured state, not a job failure, so the pass is skipped rather than
+  # retried to exhaustion -- an error return discards the job after three
+  # attempts and takes each worker's self-rescheduling chain with it.
+  test "flow refresh workers skip the pass until flows are cut over" do
+    assert {:ok, :not_applicable} =
              NetflowSecurityRefreshWorker.perform(%Oban.Job{args: %{}})
 
-    assert {:error, :starrocks_required} =
+    assert {:ok, :not_applicable} =
              IpEnrichmentRefreshWorker.perform(%Oban.Job{args: %{}})
   end
 

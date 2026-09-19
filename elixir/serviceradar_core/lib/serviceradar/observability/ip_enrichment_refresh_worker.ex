@@ -132,15 +132,16 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
     # Flows are warehouse-only. Until the dataset is cut over there is nothing
     # to read, and every helper below degrades an empty read to "no traffic",
     # so the refusal is said out loud here rather than looking like an idle
-    # network forever.
+    # network forever. It is a configured state, not a job failure: the pass is
+    # skipped and re-armed, so no retry storm and no dead recurrence either.
     case Readers.mode_for(:flows) do
-      {:error, :starrocks_required} = error ->
-        Logger.error(
-          "#{inspect(__MODULE__)} cannot run: the flows dataset is not cut over to StarRocks, " <>
-            "so no flow history is readable"
+      {:error, :starrocks_required} ->
+        Logger.info(
+          "#{inspect(__MODULE__)}: flows are not cut over to StarRocks; skipping this pass"
         )
 
-        error
+        ObanSupport.safe_insert(new(%{}, schedule_in: @default_reschedule_seconds))
+        {:ok, :not_applicable}
 
       _mode ->
         refresh(job)

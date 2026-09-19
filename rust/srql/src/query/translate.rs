@@ -23,22 +23,11 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
     let plan = build_query_plan(config, &request, ast)?;
     let viz = viz::meta_for_plan(&plan);
 
-    // A `profile_hour_of_week[_peak]` stats query is a profile aggregation, never a
-    // downsample — even though its `bucket:1h` clause sets `plan.downsample`. Without this
-    // guard it dispatches to the downsample builder (which rejects the `timezone` filter
-    // the profile route needs), so the query never reaches the profile/peak SQL builders.
-    // (Discovered via a real-DB check: the seasonal-disposition profile query failed here.)
-    let is_profile_stats = plan
-        .stats
-        .as_ref()
-        .map(|stats| {
-            stats
-                .as_raw()
-                .trim_start()
-                .to_ascii_lowercase()
-                .starts_with("profile_hour_of_week")
-        })
-        .unwrap_or(false);
+    // Without this guard a profile query dispatches to the downsample builder
+    // (which rejects the `timezone` filter the profile route needs), so it never
+    // reaches the profile/peak SQL builders. (Discovered via a real-DB check: the
+    // seasonal-disposition profile query failed here.)
+    let is_profile_stats = starrocks::is_profile_stats(&plan);
 
     let (sql, params) = if request.mode.as_deref() == Some("starrocks") {
         let compiled = starrocks::translate(&plan, &config.starrocks_database)?;
