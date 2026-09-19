@@ -14,7 +14,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   use ServiceRadarWebNGWeb.DashboardLive.Data.SurveyRaster
   use ServiceRadarWebNGWeb.DashboardLive.Data.SurveyGeometry
   use ServiceRadarWebNGWeb.DashboardLive.Data.SurveyMarkers
-  use ServiceRadarWebNGWeb.DashboardLive.Data.SecurityTrend
   use ServiceRadarWebNGWeb.DashboardLive.Data.TrafficSparklines
   use ServiceRadarWebNGWeb.DashboardLive.Data.ServiceSparklines
   use ServiceRadarWebNGWeb.DashboardLive.Data.AlertsThreats

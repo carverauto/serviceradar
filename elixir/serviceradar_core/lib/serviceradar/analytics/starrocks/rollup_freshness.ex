@@ -52,7 +52,7 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshness do
 
   def dataset_for_sql(_sql), do: nil
 
-  @spec stale_after_seconds(keyword()) :: pos_integer()
+  @spec stale_after_seconds(keyword()) :: non_neg_integer()
   def stale_after_seconds(opts \\ []) do
     Keyword.get_lazy(opts, :stale_after_seconds, fn ->
       :serviceradar_core

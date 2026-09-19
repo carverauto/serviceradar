@@ -75,10 +75,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.StatesCards do
         }
       end
 
-      defp loaded_kpi_loading do
-        Map.new(default_kpi_loading(), fn {key, _value} -> {key, false} end)
-      end
-
       defp kpi_cards(device, services, flows, camera, survey, alerts, events, sparklines) do
         [
           %{

@@ -17,17 +17,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.DbTimeHelpers do
           column_exists?("platform.netflow_local_cidrs", "location_label")
       end
 
-      defp anchor_partition_filter(relation) do
-        if column_exists?(qualified_relation_name(relation), "partition") do
-          "(c.partition IS NULL OR c.partition = f.partition)"
-        else
-          "TRUE"
-        end
-      end
-
-      defp qualified_relation_name("platform." <> _ = relation), do: relation
-      defp qualified_relation_name(relation), do: "platform.#{relation}"
-
       defp endpoint_inet_expr(column) do
         """
         (CASE
@@ -95,9 +84,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.DbTimeHelpers do
 
       defp local_anchor_select_expr(false, _anchor_alias), do: "FALSE"
 
-      defp flow_count_expr("ocsf_network_activity"), do: "COUNT(*)"
-      defp flow_count_expr(_relation), do: "SUM(flow_count)"
-
       defp cutoff_for_time_window("last_15m"), do: DateTime.add(DateTime.utc_now(), -15, :minute)
       defp cutoff_for_time_window("last_1h"), do: DateTime.add(DateTime.utc_now(), -1, :hour)
       defp cutoff_for_time_window("last_6h"), do: DateTime.add(DateTime.utc_now(), -6, :hour)
@@ -106,8 +92,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.DbTimeHelpers do
       defp cutoff_for_time_window("last_30d"), do: DateTime.add(DateTime.utc_now(), -30, :day)
       defp cutoff_for_time_window("last_90d"), do: DateTime.add(DateTime.utc_now(), -90, :day)
       defp cutoff_for_time_window(_), do: cutoff_for_time_window("last_24h")
-
-      defp netflow_map_cutoff(time_window), do: cutoff_for_time_window(time_window)
 
       defp sparkline_bucket_for("last_1h"), do: "1 minute"
       defp sparkline_bucket_for("last_6h"), do: "5 minutes"

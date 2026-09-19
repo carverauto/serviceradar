@@ -71,6 +71,24 @@ tests:
             value: "3600"
           count: 1
 
+  # 0 is the strictest setting this knob has, not an absent one: an operator
+  # asking to serve only a fully current view must not silently get the loosest
+  # tolerance instead.
+  - it: honours a zero rollup staleness threshold literally
+    set:
+      analytics.starrocks.enabled: true
+      analytics.starrocks.rollupStaleAfterSeconds: 0
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_STARROCKS_ROLLUP_STALE_AFTER_SECONDS
+            value: "0"
+          count: 1
+
   # Bounding raw NetFlow must not also shorten log history.
   - it: lets one dataset be retuned without moving the others
     set:

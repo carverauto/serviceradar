@@ -2546,7 +2546,8 @@ analytics:
     # Lag is measured in whole hours, because a view buckets by
     # date_trunc('hour', ...) and the source mark is floored to match: the
     # default tolerates a view up to two hours behind, 3600 one hour, and
-    # anything below 3600 demands a view that is fully current.
+    # anything below 3600 -- including 0, which is honoured literally rather
+    # than read as "unset" -- demands a view that is fully current.
     rollupStaleAfterSeconds: 7200
     fe:
       service: lab-fe-service.starrocks.svc

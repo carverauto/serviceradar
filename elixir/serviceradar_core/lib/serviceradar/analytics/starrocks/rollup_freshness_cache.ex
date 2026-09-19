@@ -8,10 +8,11 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshnessCache do
   dashboard render issues several rollup-eligible queries, so without a cache
   every chart pays its own pair of round trips.
 
-  Marks are held for a minute, which is short against the two-hour default
-  staleness threshold: the verdict a cached mark produces is the verdict a
-  fresh probe would have produced. Only successful marks are stored, so a
-  failed probe is retried rather than pinning the gate closed.
+  Marks are held for a minute, so a view that goes stale keeps being served
+  for up to that long, and one that catches up keeps paying the raw scan for
+  up to that long. That window is the price of not probing per query; it is
+  small against the hour the marks are compared on. Only successful marks are
+  stored, so a failed probe is retried rather than pinning the gate closed.
 
   This process owns the table. When it is not running -- StarRocks disabled,
   or a database-free test -- every lookup misses and every probe runs, so the

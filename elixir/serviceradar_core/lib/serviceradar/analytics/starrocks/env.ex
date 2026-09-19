@@ -58,9 +58,11 @@ defmodule ServiceRadar.Analytics.StarRocks.Env do
   @spec default_rollup_stale_after_seconds() :: pos_integer()
   def default_rollup_stale_after_seconds, do: @default_rollup_stale_after_seconds
 
+  # 0 is a real setting here -- serve only a fully current view -- unlike the
+  # retention knobs, where it would mean "keep nothing".
   defp rollup_stale_after_seconds do
     case Integer.parse(nonempty("SERVICERADAR_STARROCKS_ROLLUP_STALE_AFTER_SECONDS", "")) do
-      {seconds, _} when seconds > 0 -> seconds
+      {seconds, _} when seconds >= 0 -> seconds
       _ -> @default_rollup_stale_after_seconds
     end
   end
