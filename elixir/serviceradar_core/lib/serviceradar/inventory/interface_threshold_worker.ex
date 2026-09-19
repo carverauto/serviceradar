@@ -39,10 +39,10 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
   alias ServiceRadar.Observability.StatefulAlertEngine
   alias ServiceRadar.SweepJobs.ObanSupport
 
-  @event_buffer_key {__MODULE__, :shadow_events}
-
   require Ash.Query
   require Logger
+
+  @event_buffer_key {__MODULE__, :shadow_events}
 
   # How often to run the evaluator (1 minute)
   @evaluation_interval_seconds 60

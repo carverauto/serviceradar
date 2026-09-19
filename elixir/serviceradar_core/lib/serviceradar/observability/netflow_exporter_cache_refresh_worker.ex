@@ -16,8 +16,8 @@ defmodule ServiceRadar.Observability.NetflowExporterCacheRefreshWorker do
   import Ash.Expr
   import Ecto.Query, only: [from: 2]
 
-  alias ServiceRadar.Analytics.StarRocks.Env
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Analytics.StarRocks.Env
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Observability

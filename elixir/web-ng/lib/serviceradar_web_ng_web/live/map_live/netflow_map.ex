@@ -161,8 +161,7 @@ defmodule ServiceRadarWebNGWeb.MapLive.NetflowMap do
   end
 
   defp failed_netflow_map do
-    empty_netflow_map()
-    |> Map.merge(%{
+    Map.merge(empty_netflow_map(), %{
       netflow_state: :error,
       traffic_links: [],
       traffic_links_json: "[]",

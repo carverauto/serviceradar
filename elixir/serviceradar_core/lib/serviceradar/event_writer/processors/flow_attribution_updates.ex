@@ -10,9 +10,9 @@ defmodule ServiceRadar.EventWriter.Processors.FlowAttributionUpdates do
 
   @behaviour ServiceRadar.EventWriter.Processor
 
-  alias ServiceRadar.Analytics.StarRocks.Env
   alias ServiceRadar.Analytics.StarRocks.Attribution
   alias ServiceRadar.Analytics.StarRocks.Destination
+  alias ServiceRadar.Analytics.StarRocks.Env
   alias ServiceRadar.Analytics.StarRocks.Query
 
   @impl true

@@ -1,4 +1,5 @@
 defmodule ServiceRadar.Repo.Migrations.AddWarehouseMatchingSupport do
+  @moduledoc false
   use Ecto.Migration
 
   def up do

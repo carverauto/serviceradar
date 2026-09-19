@@ -246,9 +246,7 @@ defmodule ServiceRadarWebNG.SRQL do
     end
   rescue
     error in DBConnection.ConnectionError ->
-      Logger.warning(
-        "SRQL query could not obtain a database connection: #{Exception.message(error)}"
-      )
+      Logger.warning("SRQL query could not obtain a database connection: #{Exception.message(error)}")
 
       {:error, error}
   catch
@@ -331,11 +329,7 @@ defmodule ServiceRadarWebNG.SRQL do
     end
   end
 
-  defp build_response(
-         translation,
-         %Postgrex.Result{columns: columns, rows: rows},
-         row_builder \\ &build_results/2
-       ) do
+  defp build_response(translation, %Postgrex.Result{columns: columns, rows: rows}, row_builder \\ &build_results/2) do
     results =
       columns
       |> row_builder.(rows)
@@ -433,8 +427,7 @@ defmodule ServiceRadarWebNG.SRQL do
     end
   end
 
-  defp enrich_downsample_aliases(results, translation)
-       when is_list(results) and is_map(translation) do
+  defp enrich_downsample_aliases(results, translation) when is_list(results) and is_map(translation) do
     query = Map.get(translation, "_query")
     series_field = extract_query_token(query, "series")
 
@@ -573,8 +566,7 @@ defmodule ServiceRadarWebNG.SRQL do
     end
   end
 
-  def decode_param(%{"t" => type, "v" => value})
-      when type in ["inet", "cidr"] and is_binary(value) do
+  def decode_param(%{"t" => type, "v" => value}) when type in ["inet", "cidr"] and is_binary(value) do
     case ServiceRadar.Types.Cidr.dump_to_native(value, []) do
       {:ok, inet} -> {:ok, inet}
       _ -> {:error, :invalid_inet_param}

@@ -17,10 +17,10 @@ defmodule ServiceRadar.Analytics.StarRocks.Retention do
   backoff until the statements succeed rather than giving up.
   """
 
-  require Logger
-
   alias ServiceRadar.Analytics.StarRocks.Env
   alias ServiceRadar.Analytics.StarRocks.MySQL
+
+  require Logger
 
   @tables [
     flows: "ocsf_network_activity",

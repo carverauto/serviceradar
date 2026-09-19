@@ -1,8 +1,8 @@
 defmodule ServiceRadar.FlowAttribution.Correlation do
   @moduledoc false
 
-  alias ServiceRadar.Analytics.StarRocks.Env
   alias ServiceRadar.Analytics.StarRocks.Attribution
+  alias ServiceRadar.Analytics.StarRocks.Env
   alias ServiceRadar.Analytics.StarRocks.Query
   alias ServiceRadar.Analytics.StarRocks.Readers
   alias ServiceRadar.FlowAttribution.WorkloadBackfill

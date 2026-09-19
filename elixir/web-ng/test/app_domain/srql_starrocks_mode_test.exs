@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
 
   alias ServiceRadar.Analytics.StarRocks
   alias ServiceRadarWebNG.SRQL
+  alias ServiceRadarWebNGWeb.DashboardLive.Data
   alias ServiceRadarWebNGWeb.DashboardLive.Window
 
   @moduletag :db_free
@@ -338,7 +339,7 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
     scope = %{permissions: MapSet.new(["observability.netflow.view"]), test_pid: self()}
     window = Window.resolve("last_1h", "netflow")
 
-    slice = ServiceRadarWebNGWeb.DashboardLive.Data.load_netflow_map(scope, window: window)
+    slice = Data.load_netflow_map(scope, window: window)
 
     assert [link] = slice.traffic_links
     assert link.src_endpoint_ip == "192.0.2.10"
@@ -370,7 +371,7 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
   end
 
   test "fullscreen map overlay becomes an error when the SRQL load exits" do
-    empty = ServiceRadarWebNGWeb.DashboardLive.Data.empty()
+    empty = Data.empty()
 
     socket =
       Phoenix.Component.assign(%Phoenix.LiveView.Socket{}, %{

@@ -75,6 +75,7 @@ defmodule ServiceRadar.Analytics.StarRocks.AttributionTest do
 
   test "publish_updates emit JetStream payloads without clobbering traffic totals" do
     parent = self()
+
     row = %{
       id: "flow-alpha-0001",
       time: ~N[1999-06-15 12:00:00],
@@ -131,6 +132,7 @@ defmodule ServiceRadar.Analytics.StarRocks.AttributionTest do
 
   test "load labels distinguish versions and remain stable on retry" do
     alias ServiceRadar.Analytics.StarRocks.StreamLoad
+
     first = %{"id" => "flow-alpha-0001", "attribution_version" => 41}
     second = %{first | "attribution_version" => 42}
 

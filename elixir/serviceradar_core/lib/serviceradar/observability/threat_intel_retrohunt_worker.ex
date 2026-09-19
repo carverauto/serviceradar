@@ -16,9 +16,9 @@ defmodule ServiceRadar.Observability.ThreatIntelRetrohuntWorker do
       states: :incomplete
     ]
 
-  alias ServiceRadar.Analytics.StarRocks.Env
   alias Ecto.Adapters.SQL
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Analytics.StarRocks.Env
   alias ServiceRadar.Analytics.StarRocks.Query
   alias ServiceRadar.Analytics.StarRocks.Readers
   alias ServiceRadar.Observability.NetflowSettings

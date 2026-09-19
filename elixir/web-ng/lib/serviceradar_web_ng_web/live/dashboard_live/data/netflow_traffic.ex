@@ -230,8 +230,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.NetflowTraffic do
         _ -> []
       end
 
-      defp traffic_link_sources(time_window)
-           when time_window in ["last_15m", "last_1h", "last_6h"] do
+      defp traffic_link_sources(time_window) when time_window in ["last_15m", "last_1h", "last_6h"] do
         [
           {"platform.ocsf_network_activity", "ocsf_network_activity", "time"},
           {"platform.ocsf_network_activity_hourly_conversations", "ocsf_network_activity_hourly_conversations", "bucket"}
