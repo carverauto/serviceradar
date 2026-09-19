@@ -217,7 +217,7 @@ fn dataset_sql(
     // profile aggregation, not a downsample, and it owns its own WHERE because
     // `timezone:` steers the profile rather than filtering a column.
     if is_profile_stats(plan) {
-        return profile_sql(plan, dataset, database, allow_rollup);
+        return profile_sql(plan, dataset, database);
     }
 
     let joins = catalog_joins(plan, dataset)?;
@@ -535,12 +535,15 @@ fn rollup_agg(
 /// the row is flat columns rather than a `jsonb` payload -- the MySQL protocol
 /// would hand a JSON object back as an opaque string, and both consumers
 /// already read a flat row (`Map.get(row, "payload", row)`).
-fn profile_sql(
-    plan: &QueryPlan,
-    dataset: Dataset,
-    database: &str,
-    allow_rollup: bool,
-) -> Result<TranslateResponse> {
+///
+/// A profile always reads the raw table, on both entry points. It re-derives
+/// the hourly grain itself, so `timeseries_metrics_hourly` could in principle
+/// serve it -- but the view groups by `(bucket, device_id, metric_type,
+/// metric_name)` and every shipped caller asks for `series:uid`, a column the
+/// view does not carry. There is no query that reaches this route and can be
+/// answered from the view, so there is no rollup branch to keep in step with
+/// the freshness gate.
+fn profile_sql(plan: &QueryPlan, dataset: Dataset, database: &str) -> Result<TranslateResponse> {
     let spec = ProfileSpec::parse(plan)?;
 
     if dataset.raw_table != "timeseries_metrics" {
@@ -556,56 +559,35 @@ fn profile_sql(
         ));
     };
 
-    // The view stores one row per (bucket, device_id, metric_type, metric_name),
-    // so a filter or series outside that dimension set either cannot be applied
-    // to it at all or changes which rows a cell is built from. `hourly_rollup`
-    // makes the same judgement for downsamples; the profile route must agree, or
-    // the freshness gate silently swaps one statistic for another.
-    let rollup = allow_rollup
-        .then_some(METRIC_HOURLY)
-        .filter(|rollup| profile_rollup_eligible(plan, *rollup));
-    let source = match rollup {
-        Some(rollup) => format!("{database}.{}", rollup.table),
-        None => format!("{database}.{}", dataset.raw_table),
-    };
-    let bucket = match rollup {
-        Some(_) => "`bucket`".to_string(),
-        None => format!("date_trunc('hour', `{}`)", dataset.time_column),
-    };
-    // The raw shape re-derives the view's own grouping so both sources feed the
-    // profile the same sample population.
-    let sample = match (rollup, spec.peak) {
-        (Some(_), false) => "avg_value".to_string(),
-        (Some(_), true) => "max_value".to_string(),
-        (None, false) => "AVG(`value`)".to_string(),
-        (None, true) => "MAX(`value`)".to_string(),
-    };
-    let group = if rollup.is_some() {
-        ""
+    let source = format!("{database}.{}", dataset.raw_table);
+    let bucket = format!("date_trunc('hour', `{}`)", dataset.time_column);
+    // One sample per (hour, device, metric_type, metric_name): the grain the
+    // profile scores. Grouping by (device, hour) alone would collapse every
+    // metric a device reports into one cell.
+    let sample = if spec.peak {
+        "MAX(`value`)"
     } else {
-        "\n  GROUP BY 1, 2, 3, 4"
+        "AVG(`value`)"
     };
+    let group = "\n  GROUP BY 1, 2, 3, 4";
 
     let mut clauses = vec!["device_id IS NOT NULL".to_string()];
     if let Some(scope) = dataset.scope {
         clauses.push(format!("({scope})"));
     }
-    // The window bounds are not hour-aligned, and a profile scores whole hours:
-    // read verbatim they drop the hour holding `start` and the hour holding
-    // `end`, so `latest` resolves to a different cell on the view than on the
-    // raw table and the freshness gate changes the answer. CNPG's builder
-    // floors and ceils for the same reason (`hourly_cagg_*_bound_clause`).
-    let time_column = match rollup {
-        Some(_) => "`bucket`".to_string(),
-        None => format!("`{}`", dataset.time_column),
-    };
+    // The window bounds are `now`-relative and so never hour-aligned, but a
+    // profile scores whole hours: read verbatim they drop the hour holding
+    // `start` and the hour holding `end`, answering the same query differently
+    // than CNPG, whose builder widens for the same reason
+    // (`hourly_cagg_*_bound_clause`).
+    let time_column = format!("`{}`", dataset.time_column);
     clauses.push(format!(
         "{time_column} >= '{start}'",
         start = floor_hour(range.start).to_rfc3339_opts(SecondsFormat::Secs, true)
     ));
     clauses.push(format!(
         "{time_column} < '{end}'",
-        end = ceil_hour(range.end).to_rfc3339_opts(SecondsFormat::Secs, true)
+        end = exclusive_hour_end(range.end).to_rfc3339_opts(SecondsFormat::Secs, true)
     ));
     for filter in &plan.filters {
         if filter.field.eq_ignore_ascii_case("timezone") {
@@ -806,30 +788,14 @@ fn floor_hour(value: chrono::DateTime<Utc>) -> chrono::DateTime<Utc> {
         .unwrap_or(value)
 }
 
-/// The exclusive upper bound CNPG's `hourly_cagg_upper_bound_clause` emits:
-/// `time_bucket('1 hour', end) + INTERVAL '1 hour'`, unconditionally. Leaving an
-/// already-aligned end alone would exclude the bucket CNPG includes, so the two
-/// backends would resolve `latest` to different hours for the same query.
-fn ceil_hour(value: chrono::DateTime<Utc>) -> chrono::DateTime<Utc> {
+/// Floor to the hour and add one, which is the exclusive upper bound CNPG's
+/// `hourly_cagg_upper_bound_clause` emits: `time_bucket('1 hour', end) +
+/// INTERVAL '1 hour'`, unconditionally. This is deliberately not a ceiling --
+/// leaving an already-aligned end alone would exclude the bucket CNPG includes,
+/// so the two backends would resolve `latest` to different hours for the same
+/// query.
+fn exclusive_hour_end(value: chrono::DateTime<Utc>) -> chrono::DateTime<Utc> {
     floor_hour(value) + chrono::Duration::hours(1)
-}
-
-fn profile_rollup_eligible(plan: &QueryPlan, rollup: HourlyRollup) -> bool {
-    let dimension = |field: &str| {
-        let field = field.to_ascii_lowercase();
-        rollup.dimensions.iter().any(|name| *name == field)
-    };
-
-    // `timezone:` steers the profile rather than filtering a column, so it is
-    // never applied to either source and cannot make the view ineligible.
-    plan.filters
-        .iter()
-        .all(|filter| filter.field.eq_ignore_ascii_case("timezone") || dimension(&filter.field))
-        && plan
-            .downsample
-            .as_ref()
-            .and_then(|downsample| downsample.series.as_deref())
-            .is_none_or(dimension)
 }
 
 struct ProfileSpec {
@@ -1442,7 +1408,7 @@ mod tests {
     // as a downsample returned timestamp/series/value rows under a profile
     // query's name; refusing them disabled the baselines instead.
     #[test]
-    fn the_seasonal_profile_route_compiles_against_the_metric_rollup() {
+    fn the_seasonal_profile_route_compiles_against_the_raw_metric_table() {
         let compiled = translate(
             &plan(
                 r#"in:timeseries_metrics metric_type:"sysmon.memory" metric_name:"memory.used_percent" time:last_30d bucket:1h agg:avg series:uid stats:profile_hour_of_week(value) timezone:"America/Chicago" sort:dow:asc,hod:asc limit:500"#,
@@ -1452,8 +1418,11 @@ mod tests {
         .expect("profile compiles");
 
         let sql = compiled.sql;
+        // `series:uid` is not a view dimension, so the hourly view cannot serve
+        // this profile even on the rollup-eligible entry point.
+        assert!(!sql.contains("timeseries_metrics_hourly"), "{sql}");
         assert!(
-            sql.contains("FROM serviceradar.timeseries_metrics_hourly"),
+            sql.contains("FROM serviceradar.timeseries_metrics\n"),
             "{sql}"
         );
         // The consumers read a flat row; a jsonb payload would arrive as an
@@ -1499,7 +1468,7 @@ mod tests {
         .expect("peak profile compiles");
 
         let sql = compiled.sql;
-        assert!(sql.contains("max_value AS sample_value"), "{sql}");
+        assert!(sql.contains("MAX(`value`) AS sample_value"), "{sql}");
         for column in ["AS center", "AS p95", "AS bucket_count", "AS prior_scale"] {
             assert!(sql.contains(column), "missing {column} in {sql}");
         }
@@ -1558,32 +1527,38 @@ mod tests {
         assert!(matches!(err, ServiceError::InvalidRequest(_)), "{err:?}");
     }
 
-    // The view stores one row per (bucket, device_id, metric_type, metric_name).
-    // Grouping the raw fallback by (device, hour) alone collapsed every metric a
-    // device reports into one sample, so the same profile query computed a
-    // different centre depending only on whether the view happened to be fresh.
+    // The freshness gate exists to keep a rollup read and its raw fallback
+    // answering the same question. The profile route has no rollup branch at
+    // all, so the gate must not be able to change its answer: both entry points
+    // have to compile the identical statement, sampled one row per (hour,
+    // device, metric_type, metric_name) -- the grain the view itself stores.
     #[test]
-    fn the_raw_profile_fallback_keeps_the_rollups_sample_population() {
+    fn both_entry_points_compile_the_same_raw_profile() {
         let query = r#"in:timeseries_metrics metric_type:"sysmon.cpu" metric_name:"cpu.usage_percent" time:last_30d bucket:1h agg:avg series:uid stats:profile_hour_of_week(value) timezone:"UTC" limit:500"#;
 
-        let rolled = translate(&plan(query), "serviceradar").expect("rollup profile compiles");
-        let raw = translate_raw(&plan(query), "serviceradar").expect("raw profile compiles");
+        let rollup_entry = translate(&plan(query), "serviceradar").expect("profile compiles");
+        let raw_entry = translate_raw(&plan(query), "serviceradar").expect("raw profile compiles");
 
-        for sql in [&rolled.sql, &raw.sql] {
-            assert!(
-                sql.contains("device_id AS series, metric_type, metric_name"),
-                "{sql}"
-            );
-        }
-        assert!(raw.sql.contains("GROUP BY 1, 2, 3, 4"), "{}", raw.sql);
+        assert_eq!(rollup_entry.sql, raw_entry.sql);
+        assert!(
+            rollup_entry
+                .sql
+                .contains("device_id AS series, metric_type, metric_name"),
+            "{}",
+            rollup_entry.sql
+        );
+        assert!(
+            rollup_entry.sql.contains("GROUP BY 1, 2, 3, 4"),
+            "{}",
+            rollup_entry.sql
+        );
     }
 
-    // A filter the view cannot answer must send the profile to the raw table,
-    // exactly as `hourly_rollup` decides for a downsample. `if_index` is a raw
-    // column but not a view dimension, so reading the view would either fail or
-    // build the cell from a different population.
+    // `if_index` is a raw column the hourly view does not carry. It has to
+    // survive into the profile's WHERE rather than being dropped as a filter
+    // the source cannot answer.
     #[test]
-    fn a_profile_filter_outside_the_view_dimensions_reads_the_raw_table() {
+    fn a_profile_filter_on_a_raw_only_column_is_applied() {
         let compiled = translate(
             &plan(
                 r#"in:timeseries_metrics if_index:3 time:last_30d bucket:1h agg:avg stats:profile_hour_of_week(value) timezone:"UTC" limit:500"#,
@@ -1600,8 +1575,13 @@ mod tests {
         assert!(compiled.sql.contains("if_index"), "{}", compiled.sql);
     }
 
+    // The one query shape the hourly view could have served: no `series:`, and
+    // every filter inside its dimension set. Reading the view here would have
+    // been correct, but it is a shape no shipped caller emits -- so keeping the
+    // branch meant a second profile statement that only a hand-typed query
+    // could reach, with its own sample population to keep in step.
     #[test]
-    fn a_profile_filtered_only_on_view_dimensions_still_reads_the_view() {
+    fn a_profile_filtered_only_on_view_dimensions_still_reads_the_raw_table() {
         let compiled = translate(
             &plan(
                 r#"in:timeseries_metrics metric_type:"sysmon.cpu" time:last_30d bucket:1h agg:avg stats:profile_hour_of_week(value) timezone:"UTC" limit:500"#,
@@ -1611,9 +1591,19 @@ mod tests {
         .expect("profile compiles");
 
         assert!(
+            !compiled.sql.contains("timeseries_metrics_hourly"),
+            "{}",
+            compiled.sql
+        );
+        assert!(
             compiled
                 .sql
-                .contains("FROM serviceradar.timeseries_metrics_hourly"),
+                .contains("FROM serviceradar.timeseries_metrics\n"),
+            "{}",
+            compiled.sql
+        );
+        assert!(
+            compiled.sql.contains("AVG(`value`) AS sample_value"),
             "{}",
             compiled.sql
         );
@@ -1684,12 +1674,13 @@ mod tests {
     fn profile_window_bounds_are_widened_to_whole_hours() {
         let query = r#"in:timeseries_metrics metric_type:"sysmon.cpu" metric_name:"cpu.usage_percent" time:[2026-09-11T00:37:00Z,2026-09-19T15:37:00Z] bucket:1h agg:avg series:uid stats:profile_hour_of_week_peak(value) timezone:"UTC" limit:400"#;
 
-        let rolled = translate(&plan(query), "serviceradar").expect("rollup profile compiles");
-        let raw = translate_raw(&plan(query), "serviceradar").expect("raw profile compiles");
+        let rollup_entry = translate(&plan(query), "serviceradar").expect("profile compiles");
+        let raw_entry = translate_raw(&plan(query), "serviceradar").expect("raw profile compiles");
 
         // The hour holding `start` is included whole, and the hour holding
-        // `end` is admitted by ceiling the exclusive upper bound.
-        for sql in [&rolled.sql, &raw.sql] {
+        // `end` is admitted by pushing the exclusive upper bound out to the
+        // next hour.
+        for sql in [&rollup_entry.sql, &raw_entry.sql] {
             assert!(sql.contains(">= '2026-09-11T00:00:00Z'"), "{sql}");
             assert!(sql.contains("< '2026-09-19T16:00:00Z'"), "{sql}");
             assert!(!sql.contains("00:37:00Z"), "{sql}");
@@ -1697,7 +1688,6 @@ mod tests {
         }
     }
 
-    // An already-aligned end must not gain a spurious extra hour.
     // CNPG adds the hour unconditionally, so an already-aligned end still
     // includes the bucket that starts at it. Excluding it would answer the same
     // query differently on the two backends.

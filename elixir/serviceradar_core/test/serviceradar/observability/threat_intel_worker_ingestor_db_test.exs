@@ -276,6 +276,142 @@ defmodule ServiceRadar.Observability.ThreatIntelWorkerIngestorDBTest do
              ).rows
   end
 
+  # The finding key is (source, indicator, observed_ip, direction, first_seen_at,
+  # last_seen_at) and the upsert is DO UPDATE, so re-running a hunt over the same
+  # window must refresh one row rather than accumulate duplicates -- an operator
+  # can trigger a retrohunt repeatedly, and every one of them replays the whole
+  # window. Only the warehouse read is stubbed: the matching statement, the
+  # upsert, and the run-state writes are the shipped SQL against CNPG.
+  test "a repeated OTX retrohunt upserts its netflow findings instead of duplicating them" do
+    limit_batches_to_one_indicator()
+
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
+    observed_at = DateTime.add(now, -60, :second)
+
+    indicator_id = seed_indicator("alienvault_otx", "203.0.113.0/24", 4, now)
+    _second_indicator_id = seed_indicator("alienvault_otx", "198.51.100.0/24", 3, now)
+    seed_sync_status_with_unsupported_count(now, %{"domain" => 2, "url" => 1})
+
+    cut_flows_over(warehouse_aggregates(observed_at))
+
+    assert :ok = ThreatIntelRetrohuntWorker.perform(%Oban.Job{args: retrohunt_args()})
+    assert :ok = ThreatIntelRetrohuntWorker.perform(%Oban.Job{args: retrohunt_args()})
+
+    # Two runs, two matches of the same aggregate: one row, still carrying the
+    # evidence count the warehouse reported rather than a doubled one.
+    assert [[1, ^indicator_id, 2]] =
+             query!(
+               """
+               SELECT COUNT(*)::int, MIN(indicator_id::text), MAX(evidence_count)::int
+               FROM platform.otx_retrohunt_findings
+               WHERE source = $1 AND observed_ip = ($2::text)::inet
+               """,
+               ["alienvault_otx", "203.0.113.77"]
+             ).rows
+
+    # Both indicators matched, each in its own batch, so the whole window is
+    # covered exactly once per run.
+    assert [[2]] =
+             query!(
+               "SELECT COUNT(*)::int FROM platform.otx_retrohunt_findings WHERE source = $1",
+               ["alienvault_otx"]
+             ).rows
+  end
+
+  # One indicator per batch with two indicators seeded, so the run has to take a
+  # second batch before it may report itself complete. A cursor that reported
+  # `cursor_complete` on the first batch would silently leave indicators
+  # unhunted while the run still finished "ok".
+  test "an OTX retrohunt walks its indicator cursor to completion across batches" do
+    limit_batches_to_one_indicator()
+
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
+
+    seed_indicator("alienvault_otx", "203.0.113.0/24", 4, now)
+    seed_indicator("alienvault_otx", "198.51.100.0/24", 3, now)
+    seed_sync_status_with_unsupported_count(now, %{"domain" => 2, "url" => 1})
+
+    cut_flows_over(warehouse_aggregates(DateTime.add(now, -60, :second)))
+
+    assert :ok = ThreatIntelRetrohuntWorker.perform(%Oban.Job{args: retrohunt_args()})
+
+    assert [
+             [
+               "ok",
+               2,
+               2,
+               3,
+               %{"batch_size" => 1, "batches_completed" => 2, "cursor_complete" => true}
+             ]
+           ] =
+             query!(
+               """
+               SELECT
+                 status,
+                 indicators_evaluated,
+                 findings_count,
+                 unsupported_count,
+                 metadata - 'indicator_cursor' - 'last_batch_indicators' - 'last_batch_findings'
+               FROM platform.otx_retrohunt_runs
+               WHERE source = $1
+               ORDER BY started_at DESC
+               LIMIT 1
+               """,
+               ["alienvault_otx"]
+             ).rows
+  end
+
+  defp retrohunt_args do
+    %{
+      "source" => "alienvault_otx",
+      "window_seconds" => 3_600,
+      "triggered_by" => "manual-test"
+    }
+  end
+
+  defp limit_batches_to_one_indicator do
+    previous = Application.get_env(:serviceradar_core, ThreatIntelRetrohuntWorker)
+
+    Application.put_env(:serviceradar_core, ThreatIntelRetrohuntWorker,
+      batch_size: 1,
+      max_batches_per_job: 10
+    )
+
+    on_exit(fn ->
+      if is_nil(previous) do
+        Application.delete_env(:serviceradar_core, ThreatIntelRetrohuntWorker)
+      else
+        Application.put_env(:serviceradar_core, ThreatIntelRetrohuntWorker, previous)
+      end
+    end)
+  end
+
+  # The per-(ip, direction) aggregate the warehouse returns for the run window.
+  # `203.0.113.77` was seen twice, so its evidence count is the value the upsert
+  # has to preserve across runs; the 192.0.2.0/24 sources match no indicator.
+  defp warehouse_aggregates(observed_at) do
+    fn sql ->
+      assert sql =~ "serviceradar.ocsf_network_activity"
+      refute sql =~ "platform.ocsf_network_activity"
+
+      {:ok,
+       %Postgrex.Result{
+         command: :select,
+         columns:
+           ~w(observed_ip direction first_seen_at last_seen_at evidence_count bytes_total packets_total),
+         rows: [
+           ["192.0.2.8", "source", observed_at, observed_at, 1, 2048, 8],
+           ["192.0.2.9", "source", observed_at, observed_at, 1, 2048, 8],
+           ["192.0.2.10", "source", observed_at, observed_at, 1, 2048, 8],
+           ["203.0.113.77", "destination", observed_at, observed_at, 2, 4096, 16],
+           ["198.51.100.42", "destination", observed_at, observed_at, 1, 2048, 8]
+         ],
+         num_rows: 5,
+         connection_id: nil
+       }}
+    end
+  end
+
   defp cut_flows_over(mysql) do
     previous = Application.get_env(:serviceradar_core, StarRocks, [])
 
@@ -363,6 +499,40 @@ defmodule ServiceRadar.Observability.ThreatIntelWorkerIngestorDBTest do
       )
 
     id
+  end
+
+  defp seed_sync_status_with_unsupported_count(now, skipped_by_type) do
+    query!(
+      """
+      INSERT INTO platform.threat_intel_sync_statuses (
+        provider,
+        source,
+        collection_id,
+        execution_mode,
+        last_status,
+        last_attempt_at,
+        last_success_at,
+        skipped_count,
+        metadata,
+        inserted_at,
+        updated_at
+      )
+      VALUES (
+        'alienvault_otx',
+        'alienvault_otx',
+        'otx:pulses:subscribed',
+        'core_worker',
+        'ok',
+        $1,
+        $1,
+        3,
+        jsonb_build_object('skipped_by_type', ($2::text)::jsonb),
+        $1,
+        $1
+      )
+      """,
+      [now, Jason.encode!(skipped_by_type)]
+    )
   end
 
   defp seed_plugin_assignment(params) do
