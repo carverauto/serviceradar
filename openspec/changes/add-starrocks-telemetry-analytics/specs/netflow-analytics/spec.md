@@ -1,12 +1,18 @@
 ## ADDED Requirements
 
 ### Requirement: NetFlow collection is independent of StarRocks
-The system SHALL leave NetFlow collection independently gated by Helm and Compose, SHALL keep NetFlow collection and serving working when StarRocks analytics is disabled, and SHALL NOT treat StarRocks as a NetFlow-only store.
+The system SHALL leave NetFlow collection independently gated by Helm and Compose, SHALL keep NetFlow collection and persistence working when StarRocks analytics is disabled, and SHALL NOT make the collector depend on the warehouse in either direction.
+Flow serving is warehouse-only. CNPG hypertables remain the flow write target, and SHALL NOT be read as a flow serving path: a flow read SHALL be answered from StarRocks once the `flows` dataset is cut over, and SHALL otherwise be refused with an explicit warehouse-required error rather than silently answered from CNPG.
 
 #### Scenario: Collector enablement without the warehouse
 - **WHEN** `flowCollector.enabled` is true and `analytics.starrocks.enabled` is false
 - **THEN** the collector is deployed and installation does not fail
-- **AND** CNPG hypertables remain the NetFlow store and serving path
+- **AND** CNPG hypertables remain the NetFlow store
+
+#### Scenario: A flow read before the dataset is cut over
+- **WHEN** a dashboard panel or an `in:flows` query runs while `flows` is absent from the cutover setting
+- **THEN** the read is refused with an explicit warehouse-required error
+- **AND** no flow rows are served from the CNPG hypertable
 
 #### Scenario: Warehouse without NetFlow
 - **WHEN** `analytics.starrocks.enabled` is true and `flowCollector.enabled` is false
@@ -15,12 +21,13 @@ The system SHALL leave NetFlow collection independently gated by Helm and Compos
 
 ### Requirement: Exact accelerated flow analytics
 The system SHALL preserve exact flow totals, sampling semantics, nullable ports, classification and filter semantics when using StarRocks aggregates, SHALL read an hourly aggregate only when the requested bucket, filters and aggregation re-aggregate from it exactly, and SHALL otherwise read the exact raw table.
-An hourly aggregate answers at its own hour grain. Requested windows are not hour-aligned, so an edge hour that overlaps the window is returned whole, including traffic just outside the request, and the warehouse alone answers it -- edges are never completed from CNPG or a second store.
+A whole-hour bucket is answered at the hour grain. Requested windows are not hour-aligned, so the hour holding the window start is returned whole, including traffic just outside the request, and the warehouse alone answers it -- edges are never completed from CNPG or a second store. That grain is a property of the requested bucket, not of the source read, so a query that falls back from an aggregate to the raw table scores the same hours.
 
 #### Scenario: Window bound falls inside an hour
-- **WHEN** a bucketed flow query starts or ends part way through an hour and the hourly aggregate is eligible
-- **THEN** every hourly row whose hour overlaps the window contributes in full
+- **WHEN** a bucketed flow query starts part way through an hour and the requested bucket is a whole number of hours
+- **THEN** the hourly row holding the window start contributes in full
 - **AND** the edge buckets are not completed from CNPG or a separate raw query
+- **AND** the same window bound is used whether the query reads the hourly aggregate or the raw table
 
 #### Scenario: Requested shape the aggregate cannot reproduce
 - **WHEN** the bucket is shorter than an hour, or a filter, series or value field is absent from the hourly aggregate
@@ -39,6 +46,7 @@ An hourly aggregate answers at its own hour grain. Requested windows are not hou
 #### Scenario: A materialized view has fallen behind its source
 - **WHEN** an hourly view's newest bucket trails the newest row of the table it aggregates by more than the configured tolerance
 - **THEN** the query is served from the StarRocks raw table instead, never from CNPG
+- **AND** the fallback scores the same whole hours the view would have, so the gate cannot change a bucket's value
 - **AND** a view that is level with an idle source table is still read, because freshness is the view's lag behind that source rather than its age against the wall clock
 - **AND** any probe error, empty result or unreadable high-water mark is treated as stale
 

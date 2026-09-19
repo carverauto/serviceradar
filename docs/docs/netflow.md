@@ -33,8 +33,8 @@ Raw flows use a **dedicated JetStream stream** (`flows` by default), not the sha
 - **NATS JetStream (`flows`)**: Dedicated stream for protobuf `FlowMessage` bytes on `flows.raw.netflow` / `flows.raw.sflow` (owned max_bytes/max_age, R=3 in HA)
 - **EventWriter flow pipeline**: Dedicated Elixir/Broadway demand domain that long-polls JetStream, decodes protobuf, persists OCSF flow rows, and derives BGP observations
 - **CNPG/TimescaleDB**: Time-series storage with canonical `ocsf_network_activity` flow rows and derived `bgp_routing_info`
-- **StarRocks (optional, off by default)**: when the warehouse is enabled, the same EventWriter pipeline also Stream Loads flow rows into StarRocks. CNPG keeps serving them until the `flows` dataset is listed in the cutover setting (Helm `analytics.starrocks.cutoverDatasets`, Compose `STARROCKS_CUTOVER_DATASETS`)
-- **SRQL**: Query flows via `in:flows` from `ocsf_network_activity`, on whichever of the two stores currently serves the dataset
+- **StarRocks (optional, off by default)**: when the warehouse is enabled, the same EventWriter pipeline also Stream Loads flow rows into StarRocks. Flow **serving** is warehouse-only: list the `flows` dataset in the cutover setting (Helm `analytics.starrocks.cutoverDatasets`, Compose `STARROCKS_CUTOVER_DATASETS`) before flow reads can be answered. CNPG stays the flow write target, never a flow read path
+- **SRQL**: Query flows via `in:flows` from `ocsf_network_activity`, served from StarRocks. Until `flows` is cut over, flow reads are refused with a warehouse-required error rather than answered from CNPG
 - **Web UI**: NetFlow dashboard with BGP topology visualization
 
 ## BGP Routing Support
@@ -81,7 +81,9 @@ The shipped Compose stack leaves the flow collector off unless you pass
 the StarRocks warehouse (`starrocks/allin1-ubuntu:3.5.21`) independently; set
 `STARROCKS_ENABLED=true` alongside it so EventWriter shadows telemetry. The
 profiles are independent: NetFlow collection without StarRocks is supported and
-stores flows on CNPG hypertables.
+stores flows on CNPG hypertables. Reading those flows back -- the dashboard
+NetFlow panel, `in:flows` -- requires the warehouse and the `flows` cutover;
+without it the read is refused rather than served from CNPG.
 
 The trap, flow, and BMP collectors together start with
 `docker compose --profile network-ingest up -d`. Its bounded JetStream

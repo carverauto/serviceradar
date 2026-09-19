@@ -26,15 +26,15 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumers do
       when is_struct(start_at, DateTime) and is_struct(end_at, DateTime) and
              is_integer(bucket_seconds) and
              bucket_seconds > 0 do
-    {table, column, total, grain_seconds} = event_window_source(bucket_seconds, opts)
-    {lower_op, lower} = window_lower_bound(start_at, grain_seconds)
+    {table, column, total} = event_window_source(bucket_seconds, opts)
+    lower = window_lower_bound(start_at, bucket_seconds)
 
     sql =
       """
       SELECT time_slice(`#{column}`, INTERVAL #{bucket_seconds} SECOND), \
       COALESCE(severity_id, 0), #{total} \
       FROM #{table} \
-      WHERE `#{column}` #{lower_op} '#{iso(lower)}' AND `#{column}` < '#{iso(end_at)}' \
+      WHERE `#{column}` >= '#{iso(lower)}' AND `#{column}` < '#{iso(end_at)}' \
       GROUP BY 1, 2 ORDER BY 1, 2
       """
 
@@ -50,24 +50,26 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumers do
   # the raw StarRocks table: an unrefreshed async MV returns short counts.
   defp event_window_source(bucket_seconds, opts) when rem(bucket_seconds, 3600) == 0 do
     if RollupFreshness.fresh?(:events, opts) do
-      {Env.table("events_hourly"), "bucket", "SUM(total_count)", 3600}
+      {Env.table("events_hourly"), "bucket", "SUM(total_count)"}
     else
-      {Env.table("events"), "time", "COUNT(*)", nil}
+      {Env.table("events"), "time", "COUNT(*)"}
     end
   end
 
   defp event_window_source(_bucket_seconds, _opts) do
-    {Env.table("events"), "time", "COUNT(*)", nil}
+    {Env.table("events"), "time", "COUNT(*)"}
   end
 
-  # A rollup row labelled `bucket` covers [bucket, bucket + grain), so it belongs
-  # in the answer whenever that span overlaps the window. Window bounds are
-  # `now - seconds`..`now` and never hour-aligned, so without this the hour
-  # holding the window start is dropped whole and the first point under-reports.
-  defp window_lower_bound(start_at, nil), do: {">=", start_at}
+  # A whole-hour bucket is scored on the hour, and window bounds are
+  # `now - seconds`..`now` and never hour-aligned, so the hour holding the start
+  # belongs in the answer whole. The bound follows the bucket, never the source:
+  # the freshness gate swaps `events_hourly` for `events` underneath the same
+  # window, and a bound that moved with it would change the first point's value
+  # with no error.
+  defp window_lower_bound(start_at, bucket_seconds) when rem(bucket_seconds, 3600) == 0,
+    do: %{start_at | minute: 0, second: 0, microsecond: {0, 0}}
 
-  defp window_lower_bound(start_at, grain_seconds),
-    do: {">", DateTime.add(start_at, -grain_seconds, :second)}
+  defp window_lower_bound(start_at, _bucket_seconds), do: start_at
 
   @spec dns_rpz_clients(pos_integer(), pos_integer(), keyword()) ::
           {:ok, %{rows: [list()]}} | {:error, term()}

@@ -347,6 +347,7 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
 
     assert_received {:starrocks_query, body}
     assert body =~ "FROM serviceradar.ocsf_network_activity_hourly"
+    assert hour_aligned_lower_bound(body)
   end
 
   test "whole-hour charts fall back to raw StarRocks tables when the MV is stale",
@@ -368,6 +369,16 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
     assert_received {:starrocks_query, body}
     assert body =~ "FROM serviceradar.ocsf_network_activity"
     refute body =~ "_hourly"
+    # `last_7d` starts at `now - 7d` and so never lands on an hour. The gate
+    # swapped the source underneath this query; it must not also move the window
+    # it scores, or the chart's leftmost bar changes value with no error.
+    assert hour_aligned_lower_bound(body)
+  end
+
+  defp hour_aligned_lower_bound(sql) do
+    [_, bound] = Regex.run(~r/>= '([^']+)'/, sql)
+    {:ok, at, _} = DateTime.from_iso8601(bound)
+    at.minute == 0 and at.second == 0
   end
 
   defmodule MapSliceStub do

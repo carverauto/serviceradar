@@ -222,11 +222,12 @@ fn dataset_sql(
 
     let joins = catalog_joins(plan, dataset)?;
     let direction = plan_mentions(plan, &["direction"]);
-    let rollup = if allow_rollup && joins.is_empty() && !direction {
+    let hour_grained = if joins.is_empty() && !direction {
         hourly_rollup(plan, dataset)
     } else {
         None
     };
+    let rollup = if allow_rollup { hour_grained } else { None };
     let time_column = match rollup {
         Some(_) => "bucket",
         None => dataset.time_column,
@@ -249,7 +250,7 @@ fn dataset_sql(
         plan,
         time_column,
         direction || !joins.is_empty(),
-        rollup.map(|_| HOURLY_ROLLUP_GRAIN_SECONDS),
+        hour_grained.is_some(),
     );
     if let Some(scope) = dataset.scope {
         where_sql.push_str(&format!(" AND ({scope})"));
@@ -466,17 +467,21 @@ fn ipv4_prefix_sql(column: &str, prefix: &str) -> String {
 /// has no bucket to absorb it. The remaining conditions keep every stored
 /// aggregate exactly re-aggregatable into the requested bucket.
 ///
-/// The window bounds are not hour-aligned, so `time_predicate` admits every
-/// hour that OVERLAPS the window and the two edge buckets therefore carry the
-/// whole hour they fall in, including traffic just outside the request. That is
-/// the rollup's grain; the edges are never backfilled from another store.
+/// The window bounds are not hour-aligned, so `time_predicate` floors the lower
+/// bound to the hour and the leading bucket therefore carries the whole hour it
+/// falls in, including traffic just outside the request. That is the hour grain
+/// this query is scored on, so the raw table is read the same way and the
+/// freshness gate cannot change the answer; the edges are never backfilled from
+/// another store.
 fn hourly_rollup(plan: &QueryPlan, dataset: Dataset) -> Option<HourlyRollup> {
     let rollup = dataset.hourly?;
     let downsample = plan.downsample.as_ref()?;
     if plan.stats.is_some() {
         return None;
     }
-    if downsample.bucket_seconds < 3600 || downsample.bucket_seconds % 3600 != 0 {
+    if downsample.bucket_seconds < HOURLY_ROLLUP_GRAIN_SECONDS
+        || downsample.bucket_seconds % HOURLY_ROLLUP_GRAIN_SECONDS != 0
+    {
         return None;
     }
     let dimension = |field: &str| {
@@ -1293,15 +1298,18 @@ fn order_sql(plan: &QueryPlan, time_column: &str) -> Result<String> {
     Ok(format!(" ORDER BY {}", terms.join(", ")))
 }
 
-/// `rollup_grain` is the width of one pre-aggregated row. A row labelled
-/// `bucket` covers `[bucket, bucket + grain)`, so it belongs in the answer when
-/// that span overlaps the window: `bucket < end AND bucket + grain > start`,
-/// which is `bucket > start - grain` in a form StarRocks can still prune on.
+/// `hour_grained` says the answer is scored on whole hours -- an hourly
+/// aggregate could serve this query, whether or not this compile is allowed to
+/// read one. The hour holding `start` therefore belongs in the answer in full,
+/// so the lower bound is floored to it. That is a property of the query, never
+/// of the source: the rollup-freshness gate recompiles the same query against
+/// the raw table, and if the bound moved with the source the gate would change
+/// the leading bucket's value with no error.
 fn time_predicate(
     plan: &QueryPlan,
     time_column: &str,
     qualify_flow: bool,
-    rollup_grain: Option<i64>,
+    hour_grained: bool,
 ) -> (String, Vec<BindParam>) {
     let column = if qualify_flow {
         format!("f.`{time_column}`")
@@ -1315,13 +1323,14 @@ fn time_predicate(
             (end - chrono::Duration::hours(1), end)
         }
     };
-    let (lower_op, lower) = match rollup_grain {
-        Some(grain) => (">", start - chrono::Duration::seconds(grain)),
-        None => (">=", start),
+    let lower = if hour_grained {
+        floor_hour(start)
+    } else {
+        start
     };
     (
         format!(
-            " WHERE {column} {lower_op} '{}' AND {column} < '{}'",
+            " WHERE {column} >= '{}' AND {column} < '{}'",
             lower.to_rfc3339_opts(SecondsFormat::Secs, true),
             end.to_rfc3339_opts(SecondsFormat::Secs, true)
         ),
@@ -2001,6 +2010,7 @@ mod tests {
         // 15:37 falls inside the 15:00 rollup row, which covers 15:00-16:00 and
         // therefore overlaps the window; a `bucket >= 15:37` predicate would
         // drop it whole and the first chart point would lose 23 minutes.
+        // Flooring the bound to 15:00 admits that row and nothing earlier.
         let rollup = translate(
             &plan(
                 "in:flows time:[2026-09-11T15:37:12Z,2026-09-11T18:30:00Z] bucket:1h agg:sum value_field:bytes_total",
@@ -2010,7 +2020,7 @@ mod tests {
         .expect("overlap window");
         assert!(rollup.sql.contains("ocsf_network_activity_hourly"));
         assert!(
-            rollup.sql.contains("`bucket` > '2026-09-11T14:37:12Z'"),
+            rollup.sql.contains("`bucket` >= '2026-09-11T15:00:00Z'"),
             "{}",
             rollup.sql
         );
@@ -2020,8 +2030,8 @@ mod tests {
             rollup.sql
         );
 
-        // The raw table stores one row per observation, so its window is the
-        // window: no grain to overlap, and the bound stays inclusive.
+        // A sub-hour bucket is not scored on the hour, so the window is the
+        // window and the bound stays where the caller put it.
         let raw = translate(
             &plan(
                 "in:flows time:[2026-09-11T15:37:12Z,2026-09-11T18:30:00Z] bucket:15m agg:sum value_field:bytes_total",
@@ -2035,6 +2045,31 @@ mod tests {
             "{}",
             raw.sql
         );
+    }
+
+    // The freshness gate recompiles the SAME query against the raw table when the
+    // view falls behind, so the window it scores must not move with the source.
+    // Before this, the fresh read returned the whole 15:00 hour while the stale
+    // fallback started at 15:37:12, and the leftmost bar of the chart changed by
+    // up to an hour of traffic with nothing in the response saying so.
+    #[test]
+    fn a_stale_view_scores_the_same_leading_hour_as_a_fresh_one() {
+        let query = "in:flows time:[2026-09-11T15:37:12Z,2026-09-18T18:30:00Z] bucket:1h agg:sum value_field:bytes_total";
+
+        let fresh = translate(&plan(query), "serviceradar").expect("fresh chart");
+        let stale = translate_raw(&plan(query), "serviceradar").expect("stale fallback");
+
+        assert!(
+            fresh.sql.contains("ocsf_network_activity_hourly"),
+            "{}",
+            fresh.sql
+        );
+        assert!(!stale.sql.contains("_hourly"), "{}", stale.sql);
+
+        for sql in [&fresh.sql, &stale.sql] {
+            assert!(sql.contains(">= '2026-09-11T15:00:00Z'"), "{sql}");
+            assert!(!sql.contains("15:37:12Z"), "{sql}");
+        }
     }
 
     #[test]
