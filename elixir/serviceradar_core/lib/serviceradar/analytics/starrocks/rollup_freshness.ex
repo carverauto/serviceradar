@@ -52,6 +52,38 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshness do
 
   def dataset_for_sql(_sql), do: nil
 
+  @doc """
+  Settles a compiled StarRocks translation against the freshness gate.
+
+  Hourly materialized views are `REFRESH ASYNC` with no schedule, so a view the
+  compiler actually picked has to be checked before its rows are served: an
+  unrefreshed view returns short counts with no error. Only the compiled SQL
+  knows whether a rollup was chosen, so this runs after compilation -- a query
+  that reads no `_hourly` view costs no round trip. A stale view is recompiled
+  through `retranslate` in `starrocks_raw` mode, never against CNPG.
+  """
+  @spec settle(map(), term(), (String.t() -> {:ok, map()} | {:error, term()})) ::
+          {:ok, map(), term()} | {:error, term()}
+  def settle(translation, mode, retranslate)
+
+  def settle(%{"sql" => sql} = translation, "starrocks", retranslate) when is_binary(sql) do
+    case dataset_for_sql(sql) do
+      nil ->
+        {:ok, translation, "starrocks"}
+
+      dataset ->
+        if fresh?(dataset) do
+          {:ok, translation, "starrocks"}
+        else
+          with {:ok, raw} <- retranslate.("starrocks_raw") do
+            {:ok, raw, "starrocks_raw"}
+          end
+        end
+    end
+  end
+
+  def settle(translation, mode, _retranslate), do: {:ok, translation, mode}
+
   @spec stale_after_seconds(keyword()) :: non_neg_integer()
   def stale_after_seconds(opts \\ []) do
     Keyword.get_lazy(opts, :stale_after_seconds, fn ->

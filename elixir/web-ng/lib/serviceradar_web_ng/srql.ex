@@ -50,7 +50,11 @@ defmodule ServiceRadarWebNG.SRQL do
          {:ok, mode} <- resolve_backend_mode(query),
          {:ok, translation} <- translate(query, limit, cursor, direction, mode),
          {:ok, translation, mode} <-
-           settle_rollup(translation, mode, &translate(query, limit, cursor, direction, &1)),
+           RollupFreshness.settle(
+             translation,
+             mode,
+             &translate(query, limit, cursor, direction, &1)
+           ),
          {:ok, result} <- execute_backend_raw(translation, mode),
          {:ok, payload} <- encode_result_arrow(result) do
       {:ok,
@@ -102,7 +106,7 @@ defmodule ServiceRadarWebNG.SRQL do
             with {:ok, mode} <- resolve_backend_mode(query),
                  {:ok, translation} <- translate(query, limit, cursor, direction, mode),
                  {:ok, translation, mode} <-
-                   settle_rollup(
+                   RollupFreshness.settle(
                      translation,
                      mode,
                      &translate(query, limit, cursor, direction, &1)
@@ -144,30 +148,6 @@ defmodule ServiceRadarWebNG.SRQL do
     end
   end
 
-  # Hourly materialized views are REFRESH ASYNC with no schedule, so a view
-  # the compiler actually picked has to be checked before its rows are
-  # served: an unrefreshed view returns short counts with no error. Only the
-  # compiled SQL knows whether a rollup was chosen, so the probe happens
-  # here -- a query that reads no `_hourly` view costs no round trip.
-  defp settle_rollup(%{"sql" => sql} = translation, "starrocks", retranslate)
-       when is_binary(sql) do
-    case RollupFreshness.dataset_for_sql(sql) do
-      nil ->
-        {:ok, translation, "starrocks"}
-
-      dataset ->
-        if RollupFreshness.fresh?(dataset) do
-          {:ok, translation, "starrocks"}
-        else
-          with {:ok, raw} <- retranslate.("starrocks_raw") do
-            {:ok, raw, "starrocks_raw"}
-          end
-        end
-    end
-  end
-
-  defp settle_rollup(translation, mode, _retranslate), do: {:ok, translation, mode}
-
   defp execute_backend(%{"sql" => sql} = translation, mode)
        when is_binary(sql) and mode in ["starrocks", "starrocks_raw"] do
     with :ok <- CatalogAllowlist.assert_sql_executable(sql) do
@@ -180,8 +160,7 @@ defmodule ServiceRadarWebNG.SRQL do
 
   defp execute_backend(translation, _mode), do: execute_translation(translation)
 
-  defp execute_backend_raw(%{"sql" => sql}, mode)
-       when is_binary(sql) and mode in ["starrocks", "starrocks_raw"] do
+  defp execute_backend_raw(%{"sql" => sql}, mode) when is_binary(sql) and mode in ["starrocks", "starrocks_raw"] do
     with :ok <- CatalogAllowlist.assert_sql_executable(sql) do
       StarRocksQuery.execute(sql)
     end
@@ -277,9 +256,7 @@ defmodule ServiceRadarWebNG.SRQL do
     end
   rescue
     error in DBConnection.ConnectionError ->
-      Logger.warning(
-        "SRQL query could not obtain a database connection: #{Exception.message(error)}"
-      )
+      Logger.warning("SRQL query could not obtain a database connection: #{Exception.message(error)}")
 
       {:error, error}
   catch
@@ -362,11 +339,7 @@ defmodule ServiceRadarWebNG.SRQL do
     end
   end
 
-  defp build_response(
-         translation,
-         %Postgrex.Result{columns: columns, rows: rows},
-         row_builder \\ &build_results/2
-       ) do
+  defp build_response(translation, %Postgrex.Result{columns: columns, rows: rows}, row_builder \\ &build_results/2) do
     results =
       columns
       |> row_builder.(rows)
@@ -464,8 +437,7 @@ defmodule ServiceRadarWebNG.SRQL do
     end
   end
 
-  defp enrich_downsample_aliases(results, translation)
-       when is_list(results) and is_map(translation) do
+  defp enrich_downsample_aliases(results, translation) when is_list(results) and is_map(translation) do
     query = Map.get(translation, "_query")
     series_field = extract_query_token(query, "series")
 
@@ -604,8 +576,7 @@ defmodule ServiceRadarWebNG.SRQL do
     end
   end
 
-  def decode_param(%{"t" => type, "v" => value})
-      when type in ["inet", "cidr"] and is_binary(value) do
+  def decode_param(%{"t" => type, "v" => value}) when type in ["inet", "cidr"] and is_binary(value) do
     case ServiceRadar.Types.Cidr.dump_to_native(value, []) do
       {:ok, inet} -> {:ok, inet}
       _ -> {:error, :invalid_inet_param}

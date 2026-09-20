@@ -41,8 +41,8 @@ defmodule ServiceRadar.Repo.Migrations.AddFlowUidDedupKey do
     execute("""
     CREATE UNIQUE INDEX IF NOT EXISTS idx_ocsf_network_activity_flow_uid
     ON #{@schema}.#{@table} (flow_uid, time)
-    WHERE flow_uid IS NOT NULL
     #{build_options}
+    WHERE flow_uid IS NOT NULL
     """)
   end
 
