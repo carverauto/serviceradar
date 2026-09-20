@@ -164,6 +164,36 @@ tests:
           any: true
           content:
             name: dgraph-ca
+  - it: demo overlay dual-writes to the standalone cluster and still reads AGE
+    values:
+      - ../values-demo.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GRAPH_BACKEND
+            value: dual
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GRAPH_READ
+            value: age
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DGRAPH_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: serviceradar-dgraph-credentials
+                key: groot_password
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DGRAPH_URL
+            value: dgraph://groot:$(DGRAPH_PASSWORD)@dgraph-dgraph-alpha.demo.svc.cluster.local:9080?sslmode=verify-ca&sslrootcert=/etc/dgraph-ca/ca.crt
   - it: an external endpoint alone does not turn on dual-write
     documentSelector:
       path: kind
