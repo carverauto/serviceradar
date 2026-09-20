@@ -203,8 +203,36 @@ defmodule ServiceRadar.Analytics.StarRocks.PendingLoadsTest do
 
     assert {:ok, %{drained: 2, deferred: 0}} = PendingLoads.drain_due(persist: replay)
 
-    assert_received {:replayed, "sr-older"}
-    assert_received {:replayed, "sr-newer"}
+    assert_received {:replayed, first}
+    assert_received {:replayed, second}
+    assert first == "sr-older"
+    assert second == "sr-newer"
+  end
+
+  test "drain_due claims the rows it selects so an overlapping drain skips them" do
+    insert_pending!("sr-claimed", 60)
+
+    caller = self()
+
+    overlapping = fn _table, _rows, opts ->
+      {:ok, inner} =
+        PendingLoads.drain_due(
+          persist: fn _table, _rows, _opts ->
+            send(caller, :replayed_twice)
+            {:ok, %{loaded: 1}}
+          end
+        )
+
+      send(caller, {:inner, inner})
+
+      {:ok, %{label: opts[:label], loaded: 1}}
+    end
+
+    assert {:ok, %{drained: 1, skipped: 0}} = PendingLoads.drain_due(persist: overlapping)
+
+    assert_received {:inner, %{drained: 0, quarantined: 0, deferred: 0, dead_lettered: 0}}
+    refute_received :replayed_twice
+    assert Repo.aggregate(Record, :count) == 0
   end
 
   test "drain_due replays at most ten batches per run" do

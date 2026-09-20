@@ -49,6 +49,11 @@ defmodule ServiceRadar.Analytics.StarRocks.PendingLoads do
   # bounded worst case (limit x timeout) to a couple of minutes.
   @drain_http_timeout_ms 15_000
 
+  # Long enough to cover a full drain pass at that worst case, so a batch a
+  # live drain still holds is not due for anyone else. A drain killed
+  # mid-pass releases its rows when the window lapses.
+  @drain_claim_seconds 300
+
   # 60s, 5m, 25m, then hourly. The producing worker runs every minute, so a
   # fresh failure is retried on the next run and a dead FE backs off fast.
   @retry_base_seconds 60
@@ -109,33 +114,72 @@ defmodule ServiceRadar.Analytics.StarRocks.PendingLoads do
              drained: non_neg_integer(),
              quarantined: non_neg_integer(),
              deferred: non_neg_integer(),
-             dead_lettered: non_neg_integer()
+             dead_lettered: non_neg_integer(),
+             skipped: non_neg_integer()
            }}
   def drain_due(opts \\ []) do
-    now = NaiveDateTime.utc_now()
-
-    due =
-      Repo.all(
-        from(r in Record,
-          where: r.next_retry_at <= ^now,
-          order_by: [asc: r.inserted_at],
-          limit: @drain_limit
-        )
-      )
-
-    empty = %{drained: 0, quarantined: 0, deferred: 0, dead_lettered: 0}
+    empty = %{drained: 0, quarantined: 0, deferred: 0, dead_lettered: 0, skipped: 0}
 
     summary =
-      Enum.reduce(due, empty, fn record, acc ->
-        case attempt_drain(record, opts) do
+      Enum.reduce(claim_due(), empty, fn record, acc ->
+        case drain_record(record, opts) do
           :drained -> %{acc | drained: acc.drained + 1}
           :quarantined -> %{acc | quarantined: acc.quarantined + 1}
           :deferred -> %{acc | deferred: acc.deferred + 1}
           :dead_lettered -> %{acc | dead_lettered: acc.dead_lettered + 1}
+          :skipped -> %{acc | skipped: acc.skipped + 1}
         end
       end)
 
     {:ok, summary}
+  end
+
+  # Drains overlap by design: the producing worker queues its successor
+  # before replaying, so a pass that outlives the run interval meets the next
+  # one. Locking the due rows and pushing their next retry past a full pass
+  # in one transaction leaves a concurrent drain a disjoint set.
+  defp claim_due do
+    now = NaiveDateTime.utc_now()
+
+    {:ok, due} =
+      Repo.transaction(fn ->
+        due =
+          Repo.all(
+            from(r in Record,
+              where: r.next_retry_at <= ^now,
+              order_by: [asc: r.inserted_at],
+              limit: @drain_limit,
+              lock: "FOR UPDATE SKIP LOCKED"
+            )
+          )
+
+        ids = Enum.map(due, & &1.id)
+        claimed_until = NaiveDateTime.add(now, @drain_claim_seconds, :second)
+
+        Repo.update_all(from(r in Record, where: r.id in ^ids),
+          set: [next_retry_at: claimed_until]
+        )
+
+        due
+      end)
+
+    due
+  end
+
+  # One record's failure costs that record, not the rest of the pass. The
+  # exception type alone is logged: `Ecto.StaleEntryError` renders the whole
+  # struct, payload rows included.
+  defp drain_record(%Record{} = record, opts) do
+    attempt_drain(record, opts)
+  rescue
+    error ->
+      Logger.error("StarRocks quarantined batch drain failed; row stays in the outbox",
+        label: record.label,
+        table: record.table_name,
+        error: inspect(error.__struct__)
+      )
+
+      :skipped
   end
 
   defp persist(dataset, rows, opts) do
@@ -215,19 +259,11 @@ defmodule ServiceRadar.Analytics.StarRocks.PendingLoads do
   end
 
   defp attempt_drain(%Record{} = record, opts) do
-    persist = Keyword.get(opts, :persist, &StreamLoad.persist/3)
     rows = get_in(record.payload, ["rows"]) || []
 
-    persist_opts =
-      opts
-      |> Keyword.take([:http])
-      |> Keyword.put(:label, record.label)
-      |> Keyword.put(:config, Destination.client_config())
-      |> Keyword.put(:http_timeout, @drain_http_timeout_ms)
-
-    case persist.(record.table_name, rows, persist_opts) do
+    case replay(record, rows, opts) do
       {:ok, result} ->
-        Repo.delete!(record)
+        discard(record)
 
         Logger.info("StarRocks quarantined batch replayed",
           label: record.label,
@@ -251,7 +287,7 @@ defmodule ServiceRadar.Analytics.StarRocks.PendingLoads do
       {:quarantine, reason} ->
         # Terminal: the FE filtered poison rows a retry would only filter
         # again. Drop with a report, mirroring Destination's treatment.
-        Repo.delete!(record)
+        discard(record)
 
         Logger.warning("StarRocks quarantined batch filtered on replay; dropping",
           label: record.label,
@@ -276,9 +312,29 @@ defmodule ServiceRadar.Analytics.StarRocks.PendingLoads do
       {:error, reason} ->
         defer(record, rows, reason)
     end
+  end
+
+  defp replay(%Record{} = record, rows, opts) do
+    persist = Keyword.get(opts, :persist, &StreamLoad.persist/3)
+
+    persist_opts =
+      opts
+      |> Keyword.take([:http])
+      |> Keyword.put(:label, record.label)
+      |> Keyword.put(:config, Destination.client_config())
+      |> Keyword.put(:http_timeout, @drain_http_timeout_ms)
+
+    persist.(record.table_name, rows, persist_opts)
   rescue
-    error ->
-      defer(record, get_in(record.payload, ["rows"]) || [], {:crashed, Exception.message(error)})
+    error -> {:error, {:crashed, Exception.message(error)}}
+  end
+
+  # A row another drain already finished is gone, not an error.
+  defp discard(%Record{} = record) do
+    Repo.delete!(record)
+    :ok
+  rescue
+    Ecto.StaleEntryError -> :ok
   end
 
   defp defer(%Record{} = record, rows, reason) do
@@ -290,37 +346,49 @@ defmodule ServiceRadar.Analytics.StarRocks.PendingLoads do
       next_retry_at =
         NaiveDateTime.add(NaiveDateTime.utc_now(), retry_after_seconds(attempts), :second)
 
-      record
-      |> Ecto.Changeset.change(attempts: attempts, next_retry_at: next_retry_at)
-      |> Repo.update!()
+      case reschedule(record, attempts, next_retry_at) do
+        :gone ->
+          :drained
 
-      Logger.warning("StarRocks quarantined batch replay failed; deferred with backoff",
-        label: record.label,
-        table: record.table_name,
-        rows: length(rows),
-        attempts: attempts,
-        next_retry_at: NaiveDateTime.to_iso8601(next_retry_at),
-        error: inspect(reason)
-      )
+        :ok ->
+          Logger.warning("StarRocks quarantined batch replay failed; deferred with backoff",
+            label: record.label,
+            table: record.table_name,
+            rows: length(rows),
+            attempts: attempts,
+            next_retry_at: NaiveDateTime.to_iso8601(next_retry_at),
+            error: inspect(reason)
+          )
 
-      :telemetry.execute(
-        [:serviceradar, :starrocks, :pending_loads, :deferred],
-        %{rows: length(rows)},
-        %{
-          dataset: record.dataset,
-          table: record.table_name,
-          label: record.label,
-          attempts: attempts,
-          reason: reason
-        }
-      )
+          :telemetry.execute(
+            [:serviceradar, :starrocks, :pending_loads, :deferred],
+            %{rows: length(rows)},
+            %{
+              dataset: record.dataset,
+              table: record.table_name,
+              label: record.label,
+              attempts: attempts,
+              reason: reason
+            }
+          )
 
-      :deferred
+          :deferred
+      end
     end
   end
 
+  defp reschedule(%Record{} = record, attempts, next_retry_at) do
+    record
+    |> Ecto.Changeset.change(attempts: attempts, next_retry_at: next_retry_at)
+    |> Repo.update!()
+
+    :ok
+  rescue
+    Ecto.StaleEntryError -> :gone
+  end
+
   defp dead_letter(%Record{} = record, rows, attempts, reason) do
-    Repo.delete!(record)
+    discard(record)
 
     Logger.error("StarRocks quarantined batch exhausted replays; dropping from outbox",
       label: record.label,
