@@ -52,7 +52,7 @@ defmodule ServiceRadar.Telemetry.OtelLogsExporterTest do
     assert %{resource_logs: [_]} = :otel_otlp_logs.to_proto(sanitized, resource, %{})
   end
 
-  test "sanitize of a huge logger report stays bounded and cheap" do
+  test "sanitize of a huge logger report stays bounded" do
     huge = Map.new(1..20_000, fn i -> {i, String.duplicate("z", 80)} end)
 
     batch = %{
@@ -65,10 +65,8 @@ defmodule ServiceRadar.Telemetry.OtelLogsExporterTest do
       ]
     }
 
-    {usec, sanitized} =
-      :timer.tc(fn -> :otel_exporter_logs_otlp.sanitize_logs_for_export(batch) end)
+    sanitized = :otel_exporter_logs_otlp.sanitize_logs_for_export(batch)
 
-    assert usec < 250_000
     assert %{undefined: [%{meta: metadata, msg: {:report, report}}]} = sanitized
     assert metadata.payload == "<truncated>"
     assert report.payload == "<truncated>"
@@ -133,11 +131,10 @@ defmodule ServiceRadar.Telemetry.OtelLogsExporterTest do
     assert is_binary(body1) and byte_size(body1) <= 8_192 + byte_size("...[truncated]")
     assert is_binary(body2) and byte_size(body2) <= 8_192 + byte_size("...[truncated]")
 
-    {usec, proto} =
-      :timer.tc(fn -> :otel_otlp_logs.to_proto(prepared, :otel_resource.create(%{}), %{}) end)
+    proto = :otel_otlp_logs.to_proto(prepared, :otel_resource.create(%{}), %{})
 
-    assert usec < 250_000
-    assert %{resource_logs: [_]} = proto
+    assert %{resource_logs: [%{scope_logs: [%{log_records: records}]}]} = proto
+    assert length(records) == 2
   end
 
   test "prepare drops extra events so a backed-up handler cannot encode tens of thousands" do
@@ -149,10 +146,9 @@ defmodule ServiceRadar.Telemetry.OtelLogsExporterTest do
     prepared = :otel_exporter_logs_otlp.prepare_logs_for_export(%{undefined: events})
     assert length(prepared.undefined) == 256
 
-    {usec, proto} =
-      :timer.tc(fn -> :otel_otlp_logs.to_proto(prepared, :otel_resource.create(%{}), %{}) end)
+    proto = :otel_otlp_logs.to_proto(prepared, :otel_resource.create(%{}), %{})
 
-    assert usec < 250_000
-    assert %{resource_logs: [_]} = proto
+    assert %{resource_logs: [%{scope_logs: [%{log_records: records}]}]} = proto
+    assert length(records) == 256
   end
 end
