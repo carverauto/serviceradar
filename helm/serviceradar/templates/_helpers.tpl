@@ -1038,3 +1038,13 @@ graph.backend rather than a side effect of naming a host.
 {{- end }}
 {{- end -}}
 
+{{/*
+Secret holding the StarRocks JDBC catalog reader's username and password. One
+name, because three templates have to agree on it: the secret generator mints
+it, CNPG managed.roles sets the role's password from it, and the catalog Job
+puts that same password into CREATE EXTERNAL CATALOG.
+*/}}
+{{- define "serviceradar.starrocks.readerSecretName" -}}
+{{- $cat := default (dict) (default (dict) (default (dict) .Values.analytics).starrocks).catalog -}}
+{{- default "serviceradar-starrocks-reader" $cat.readerPasswordSecret -}}
+{{- end -}}

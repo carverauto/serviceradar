@@ -320,7 +320,7 @@ spec:
         ensure: present
         login: true
         passwordSecret:
-          name: {{ required "analytics.starrocks.catalog.readerPasswordSecret is required when analytics.starrocks.catalog.enabled is true" $starrocksCatalog.readerPasswordSecret | quote }}
+          name: {{ include "serviceradar.starrocks.readerSecretName" . | quote }}
       {{- end }}
   monitoring:
     enablePodMonitor: true
