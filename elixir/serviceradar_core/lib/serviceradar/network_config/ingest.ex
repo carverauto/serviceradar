@@ -4,10 +4,11 @@ defmodule ServiceRadar.NetworkConfig.Ingest do
   project Prefix / Interface updates.
 
   Duplicate content hashes for the same device do not create another
-  revision and do not rebuild facts, with one exception: a revision that
-  carries no interface facts is a partially-failed ingest, so the identical
-  body replays facts and projection onto that same revision instead of being
-  reported as an unchanged no-op it can never recover from.
+  revision and do not rebuild facts, with one exception: a revision whose
+  facts never landed replays them onto that same revision instead of being
+  reported as an unchanged no-op it can never recover from. A body that
+  parses to no interfaces at all has already reached its final state, so it
+  settles as unchanged rather than replaying on every submission.
   """
 
   alias ServiceRadar.Actors.SystemActor
@@ -56,29 +57,37 @@ defmodule ServiceRadar.NetworkConfig.Ingest do
   @doc """
   What a resubmission of an already-recorded body should do.
 
-  Facts are written after the revision row, so a revision with none of them is
-  an ingest that failed part-way. Treating that as unchanged would strand the
-  device until its config actually changes.
+  Facts are written after the revision row, so a revision holding none of them
+  is either an ingest that failed part-way or a config that declares no
+  interfaces. The parser settles which: facts it produced that never landed are
+  a failed ingest and must replay, while a body that parses to nothing is
+  already in its final state and must settle, or an identical resubmission
+  would re-parse and re-project it on every cycle for the life of the device.
   """
-  @spec resume_action([term()]) :: :unchanged | :reproject
-  def resume_action([]), do: :reproject
-  def resume_action(facts) when is_list(facts), do: :unchanged
+  @spec resume_action([term()], [term()]) :: :unchanged | :reproject
+  def resume_action(stored_facts, parsed_facts)
+  def resume_action([_ | _], _parsed), do: :unchanged
+  def resume_action([], []), do: :unchanged
+  def resume_action([], [_ | _]), do: :reproject
 
   defp resume(%Revision{} = revision, device_uid, body, parser, projector, actor) do
-    with {:ok, facts} <- InterfaceFact.by_revision(revision.id, actor: actor) do
-      case resume_action(facts) do
+    with {:ok, stored} <- InterfaceFact.by_revision(revision.id, actor: actor),
+         {:ok, parsed} <- parse_for_resume(stored, body, parser) do
+      case resume_action(stored, parsed) do
         :unchanged ->
           {:ok, :unchanged, revision}
 
         :reproject ->
-          reproject(revision, device_uid, body, parser, projector, actor)
+          reproject(revision, device_uid, parsed, projector, actor)
       end
     end
   end
 
-  defp reproject(revision, device_uid, body, parser, projector, actor) do
-    with {:ok, facts} <- parser.(body),
-         :ok <- persist_facts(revision, facts, actor),
+  defp parse_for_resume([], body, parser), do: parser.(body)
+  defp parse_for_resume(_stored, _body, _parser), do: {:ok, []}
+
+  defp reproject(revision, device_uid, facts, projector, actor) do
+    with :ok <- persist_facts(revision, facts, actor),
          :ok <- projector.(device_uid, revision, facts) do
       {:ok, :reprojected, revision, facts}
     end

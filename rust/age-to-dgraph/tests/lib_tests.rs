@@ -16,8 +16,8 @@
 
 use age_to_dgraph::{
     CanonicalEdgeRecord, MapperLinkRow, Mode, canonical_link_key, compare_snapshots,
-    edge_writes_from_records, hash_canonical_edges, parse_dump, records_from_canonical_edges,
-    records_from_mapper_rows, snapshot_from_edges,
+    dedupe_by_link_key, edge_writes_from_records, hash_canonical_edges, parse_dump,
+    records_from_canonical_edges, records_from_mapper_rows, snapshot_from_edges,
 };
 use dgraph_topology::CanonicalEdge;
 
@@ -58,6 +58,29 @@ fn stored_dgraph_edge(
         0,
         if_ba.to_string(),
         stored_link_key.to_string(),
+        String::new(),
+    )
+}
+
+/// What `query_canonical_edges` returns for an edge the rebuild just upserted.
+fn readback_of(write: &dgraph_topology::EdgeWrite) -> CanonicalEdge {
+    CanonicalEdge::new(
+        write.source().to_string(),
+        write.target().to_string(),
+        0,
+        0,
+        0,
+        0,
+        0,
+        false,
+        write.protocol().to_string(),
+        write.evidence_class().to_string(),
+        write.confidence_tier().to_string(),
+        0,
+        write.if_name_ab().to_string(),
+        0,
+        write.if_name_ba().to_string(),
+        write.link_key(),
         String::new(),
     )
 }
@@ -195,6 +218,64 @@ fn mapper_rows_are_a_fallback_evidence_source() {
     let writes = edge_writes_from_records(&records);
     assert_eq!(writes.len(), 1);
     assert_eq!(writes[0].link_key(), records[0].link_key);
+}
+
+/// `mapper_topology_links` is unique on a key that includes `protocol`, so one
+/// Cisco link seen by both LLDP and CDP is two rows. Dgraph keys canonical
+/// edges on `topo.link_key`, which does not carry protocol, so the rebuild
+/// upserts both onto one node. Counting or hashing the two separately compares
+/// a multiset against that set and fails the checksum on every helm upgrade.
+#[test]
+fn one_link_discovered_by_two_protocols_is_one_canonical_edge() {
+    let rows = [
+        MapperLinkRow {
+            local_device_id: "sr:host01.example.com".into(),
+            neighbor_device_id: "sr:host02.example.com".into(),
+            protocol: "lldp".into(),
+            local_if_name: "Gi1/0/1".into(),
+            neighbor_if_name: "Gi1/0/2".into(),
+        },
+        MapperLinkRow {
+            local_device_id: "sr:host01.example.com".into(),
+            neighbor_device_id: "sr:host02.example.com".into(),
+            protocol: "cdp".into(),
+            local_if_name: "Gi1/0/1".into(),
+            neighbor_if_name: "Gi1/0/2".into(),
+        },
+    ];
+    let records = records_from_mapper_rows(&rows);
+    assert_eq!(records.len(), 2, "premise: the two rows are distinct");
+    assert_eq!(
+        records[0].link_key, records[1].link_key,
+        "premise: they collapse onto one Dgraph node"
+    );
+
+    let deduped = dedupe_by_link_key(&records);
+    assert_eq!(deduped.len(), 1);
+
+    // What the rebuild writes and what the checksum compares must be the same
+    // set, or the post-upgrade hook fails in exactly this state.
+    let writes = edge_writes_from_records(&deduped);
+    assert_eq!(writes.len(), 1);
+    let dgraph_readback = records_from_canonical_edges(&[readback_of(&writes[0])]);
+    compare_snapshots(
+        &snapshot_from_edges(&deduped),
+        &snapshot_from_edges(&dgraph_readback),
+    )
+    .expect("the relational set and the Dgraph set must agree");
+}
+
+#[test]
+fn dedupe_by_link_key_does_not_depend_on_row_order() {
+    let a = synthetic_edge("sr:host01.example.com", "sr:host02.example.com", "a", "b");
+    let mut b = a.clone();
+    b.protocol = "cdp".to_string();
+
+    assert_eq!(
+        dedupe_by_link_key(&[a.clone(), b.clone()]),
+        dedupe_by_link_key(&[b, a]),
+        "the surviving record must not depend on the order the database returned"
+    );
 }
 
 #[test]

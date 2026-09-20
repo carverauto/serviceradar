@@ -999,8 +999,14 @@ literal: kubelet expands $(DGRAPH_PASSWORD) from the preceding entry.
 - name: GRAPH_READ
   value: "age"
 {{- else }}
+{{- /*
+Dual-write is the default only for the cluster this chart provisions, where it
+also mints the ACL credential and applies the topology schema. An external
+endpoint is neither, so writing to it has to be an explicit opt-in through
+graph.backend rather than a side effect of naming a host.
+*/}}
 - name: GRAPH_BACKEND
-  value: {{ default "dual" $graph.backend | quote }}
+  value: {{ default (ternary "dual" "age" (not (not $d.enabled))) $graph.backend | quote }}
 - name: GRAPH_READ
   value: {{ default "age" $graph.read | quote }}
 - name: DGRAPH_HOST

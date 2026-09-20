@@ -2163,8 +2163,13 @@ gatewayApi:
 
 # Topology persist/query target. dual writes AGE + Dgraph; read stays on AGE
 # until the migrator checksum is green. Override with GRAPH_BACKEND / GRAPH_READ.
+#
+# An empty backend follows the cluster: `dual` for the Dgraph this chart
+# provisions (it also mints the ACL credential and applies the schema), `age`
+# for an external endpoint, which is neither. Set it to dual explicitly to
+# write to an external cluster once you have given the chart its credential.
 graph:
-  backend: dual
+  backend: ""
   read: age
 
 # Topology graph store. Enabled by default so `helm upgrade --install` is

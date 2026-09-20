@@ -19,9 +19,19 @@ defmodule ServiceRadar.NetworkConfig.IngestTest do
     refute Ingest.unchanged?("other", hash)
   end
 
-  test "resume_action replays a revision whose facts never landed" do
-    assert Ingest.resume_action([]) == :reproject
+  @fact %{if_name: "GigabitEthernet0/1"}
 
-    assert Ingest.resume_action([%{if_name: "GigabitEthernet0/1"}]) == :unchanged
+  test "resume_action replays a revision whose facts never landed" do
+    assert Ingest.resume_action([], [@fact]) == :reproject
+  end
+
+  test "resume_action settles a revision whose facts are already stored" do
+    assert Ingest.resume_action([@fact], [@fact]) == :unchanged
+  end
+
+  test "resume_action settles a config that declares no interfaces" do
+    assert Ingest.resume_action([], []) == :unchanged,
+           "a body that parses to nothing is in its final state; replaying it " <>
+             "would re-parse and re-project on every submission forever"
   end
 end

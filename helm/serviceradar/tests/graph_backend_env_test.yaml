@@ -169,9 +169,6 @@ tests:
       path: kind
       value: Deployment
     set:
-      graph:
-        backend: age
-        read: age
       dgraph:
         enabled: false
         external:
@@ -190,6 +187,21 @@ tests:
           content:
             name: GRAPH_READ
             value: age
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DGRAPH_HOST
+            value: dgraph-dgraph-alpha.demo.svc.cluster.local
+  - it: the in-chart cluster still defaults to dual-write
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GRAPH_BACKEND
+            value: dual
   - it: renders on AGE alone when Dgraph is disabled with no external host
     documentSelector:
       path: kind

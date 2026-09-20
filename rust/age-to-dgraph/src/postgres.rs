@@ -52,13 +52,18 @@ impl PostgresSource {
     /// compare an empty AGE against a Dgraph the rebuild had just filled from
     /// mapper evidence, and fail the Helm hook in exactly the state the
     /// fallback exists for.
+    ///
+    /// Deduplicated on `topo.link_key` here rather than in either caller, so
+    /// the rebuild upserts exactly what the checksum counts.
     pub async fn evidence_records(&self) -> Result<Vec<CanonicalEdgeRecord>, MigratorError> {
         let canonical = self.age_canonical_edges().await?;
         if !canonical.is_empty() {
-            return Ok(canonical);
+            return Ok(crate::dedupe_by_link_key(&canonical));
         }
         let mapper = self.mapper_rows().await?;
-        Ok(crate::records_from_mapper_rows(&mapper))
+        Ok(crate::dedupe_by_link_key(&crate::records_from_mapper_rows(
+            &mapper,
+        )))
     }
 
     pub async fn relational_snapshot(&self) -> Result<CanonicalSnapshot, MigratorError> {

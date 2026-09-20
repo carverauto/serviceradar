@@ -115,24 +115,46 @@ impl Mode {
     }
 }
 
+/// One record per `topo.link_key`, which is the identity Dgraph stores.
+///
+/// Relational evidence is a multiset on a wider key than Dgraph's: two mapper
+/// rows for one link discovered by both LLDP and CDP differ only in `protocol`,
+/// which is not part of `link_key`, so the rebuild upserts them onto a single
+/// node. Counting or hashing them separately would compare a multiset against
+/// the set Dgraph actually holds and fail the checksum every time.
+///
+/// The winner is the first record in sorted order, so it does not depend on the
+/// order the database returned rows in.
+#[must_use]
+pub fn dedupe_by_link_key(records: &[CanonicalEdgeRecord]) -> Vec<CanonicalEdgeRecord> {
+    let mut sorted: Vec<&CanonicalEdgeRecord> = records.iter().collect();
+    sorted.sort_by_key(|record| hash_line(record));
+
+    let mut seen = std::collections::BTreeSet::new();
+    sorted
+        .into_iter()
+        .filter(|record| seen.insert(record.link_key.clone()))
+        .cloned()
+        .collect()
+}
+
+fn hash_line(edge: &CanonicalEdgeRecord) -> String {
+    format!(
+        "{}\t{}\t{}\t{}\t{}\t{}\t{}",
+        edge.link_key,
+        edge.source,
+        edge.target,
+        edge.protocol,
+        edge.evidence_class,
+        edge.if_name_ab,
+        edge.if_name_ba
+    )
+}
+
 /// Stable content hash of canonical edges. Order-independent.
 #[must_use]
 pub fn hash_canonical_edges(edges: &[CanonicalEdgeRecord]) -> String {
-    let mut lines: Vec<String> = edges
-        .iter()
-        .map(|edge| {
-            format!(
-                "{}\t{}\t{}\t{}\t{}\t{}\t{}",
-                edge.link_key,
-                edge.source,
-                edge.target,
-                edge.protocol,
-                edge.evidence_class,
-                edge.if_name_ab,
-                edge.if_name_ba
-            )
-        })
-        .collect();
+    let mut lines: Vec<String> = edges.iter().map(hash_line).collect();
     lines.sort();
     let mut hasher = Sha256::new();
     for line in lines {
