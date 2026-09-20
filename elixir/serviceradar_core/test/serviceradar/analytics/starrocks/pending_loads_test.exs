@@ -1,6 +1,8 @@
 defmodule ServiceRadar.Analytics.StarRocks.PendingLoadsTest do
   use ServiceRadar.DataCase, async: false
 
+  import Ecto.Query
+
   alias ServiceRadar.Analytics.StarRocks
   alias ServiceRadar.Analytics.StarRocks.PendingLoads
   alias ServiceRadar.Analytics.StarRocks.PendingLoads.Record
@@ -8,8 +10,6 @@ defmodule ServiceRadar.Analytics.StarRocks.PendingLoadsTest do
   alias ServiceRadar.Analytics.StarRocks.StreamLoad
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
-
-  import Ecto.Query
 
   @moduletag :integration
 
