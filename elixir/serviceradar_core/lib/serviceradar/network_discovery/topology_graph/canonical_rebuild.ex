@@ -556,13 +556,14 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
 
   # Structural canonical rebuild — runs INSIDE the canonical mutation lock.
   # Everything here mutates CANONICAL_TOPOLOGY structure (upsert + reconcile +
-  # guarded prune + self-heal) and must be serialized by the lock. The two
-  # downstream materializations (telemetry refresh + projection refresh) are
-  # deliberately NOT run here; they run in finalize_canonical_rebuild/2 after the
-  # structural transaction commits so they don't extend the lock connection's
-  # checkout past the pool budget. Telemetry reacquires this lock only around its
-  # AGE writes. Returns {:ok, structural_stats} (telemetry_refresh /
-  # runtime_projection_refresh are merged in later) or {:error, reason, stats}.
+  # guarded prune + self-heal) and must be serialized by the lock. The three
+  # downstream materializations (telemetry refresh, projection refresh, Dgraph
+  # dual-write) are deliberately NOT run here; they run in
+  # finalize_canonical_rebuild/2 after the structural transaction commits so they
+  # don't extend the lock connection's checkout past the pool budget. Telemetry
+  # reacquires this lock only around its AGE writes. Returns {:ok,
+  # structural_stats} (telemetry_refresh / runtime_projection_refresh are merged
+  # in later) or {:error, reason, stats}.
   defp do_rebuild_canonical_device_links do
     before_edges = canonical_edge_count()
     mapper_evidence_edges = mapper_evidence_edge_count()
@@ -609,7 +610,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
           lock_skipped: false
         }
 
-        maybe_dual_write_canonical()
         {:ok, structural_stats}
 
       {:error, reason} ->
@@ -630,19 +630,25 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
   end
 
   # Runs AFTER the advisory-lock transaction commits (see run_canonical_rebuild/1).
-  # Refreshes the canonical-edge flow telemetry and then the SQL runtime-topology
-  # projection, each on its own pooled connection rather than the (now released)
-  # lock connection. Telemetry runs before the projection because the projection
-  # query reads the flow_pps/flow_bps the telemetry step writes onto the canonical
-  # edges. Both degrade gracefully: a failure is captured in the stats map (as it
-  # was before) and never fails the sibling step or the overall rebuild — the
-  # cleanup worker treats the {:ok, stats} as completed-with-degradation and
-  # retries the failed materialization next cycle.
+  # Refreshes the canonical-edge flow telemetry, then the SQL runtime-topology
+  # projection, then copies the canonical set to the Dgraph shadow, each on its
+  # own pooled connection rather than the (now released) lock connection.
+  # Telemetry runs first because both the projection query and the dual-write read
+  # the flow_pps/flow_bps it writes onto the canonical edges. The dual-write runs
+  # last because it is one sequential Dgraph round-trip per edge: inside the lock
+  # transaction a slow shadow store would exhaust the checkout budget and roll back
+  # the AGE rebuild that had already succeeded, and ahead of the projection it
+  # would delay the read model God View serves under GRAPH_READ=age. All three
+  # degrade gracefully: a failure is captured in the stats map (as it was before)
+  # and never fails a sibling step or the overall rebuild — the cleanup worker
+  # treats the {:ok, stats} as completed-with-degradation and retries the failed
+  # materialization next cycle.
   defp finalize_canonical_rebuild(structural_stats, fingerprint) when is_map(structural_stats) do
     stale_cutoff = Map.fetch!(structural_stats, :stale_cutoff)
 
     telemetry_result = Telemetry.refresh_canonical_edge_telemetry(stale_cutoff)
     runtime_projection_refresh = refresh_runtime_topology_projection(fingerprint)
+    maybe_dual_write_canonical()
 
     stats =
       structural_stats

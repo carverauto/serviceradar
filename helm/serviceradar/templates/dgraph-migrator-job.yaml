@@ -96,7 +96,11 @@ spec:
         command: ["/bin/sh", "-c"]
         args:
         - |
-          set -euo pipefail
+          # /bin/sh on this image is dash, which has no `pipefail`; asking for it
+          # is a fatal `set: Illegal option` before the first command runs. These
+          # scripts contain no pipelines, so errexit and nounset are the whole
+          # contract.
+          set -eu
           URL="${DGRAPH_URL}"
           if [ -f /etc/dgraph-ca/ca.crt ]; then
             URL="${URL}&sslrootcert=/etc/dgraph-ca/ca.crt"
