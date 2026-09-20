@@ -125,7 +125,7 @@ export default {
 
     g.append("g")
       .attr("transform", `translate(0,${ih})`)
-      .call(d3.axisBottom(x).ticks(5).tickFormat(timePresentation.axisFormatter).tickSizeOuter(0))
+      .call(d3.axisBottom(x).ticks(5).tickFormat(netflowAxisTimeFormatter(timePresentation.timeZone, x.domain())).tickSizeOuter(0))
       .call((gg) => gg.selectAll("text").attr("font-size", 10).attr("opacity", 0.7))
 
     g.append("g")

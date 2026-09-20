@@ -415,7 +415,7 @@ export function renderStackedFrame(
       d3
         .axisBottom(x)
         .ticks(5)
-        .tickFormat(netflowAxisTimeFormatter(el.dataset.timezone))
+        .tickFormat(netflowAxisTimeFormatter(el.dataset.timezone, x.domain()))
         .tickSizeOuter(0),
     )
     .call(nfStyleChartAxis)

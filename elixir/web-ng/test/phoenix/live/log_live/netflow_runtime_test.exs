@@ -58,4 +58,57 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowRuntimeTest do
     assert {:ok, ^scope} =
              NetflowRuntime.load_panel("netflows", "all", :sankey, fn -> {:ok, scope} end)
   end
+
+  describe "run_concurrently/2" do
+    test "returns every loader's result under its key" do
+      assert NetflowRuntime.run_concurrently([
+               {:ports, fn -> [443, 53] end, []},
+               {:summary, fn -> %{total: 3} end, %{}}
+             ]) == %{ports: [443, 53], summary: %{total: 3}}
+
+      assert NetflowRuntime.run_concurrently([]) == %{}
+    end
+
+    test "loaders overlap instead of queueing behind each other" do
+      parent = self()
+
+      # Every loader blocks until all of them have started. Run in sequence,
+      # the first would wait forever for siblings that were never launched.
+      jobs =
+        for n <- 1..4 do
+          {:"job_#{n}",
+           fn ->
+             send(parent, {:started, self()})
+
+             receive do
+               :release -> n
+             after
+               2_000 -> :never_released
+             end
+           end, :default}
+        end
+
+      task = Task.async(fn -> NetflowRuntime.run_concurrently(jobs) end)
+
+      pids =
+        for _ <- 1..4 do
+          assert_receive {:started, pid}, 1_000
+          pid
+        end
+
+      Enum.each(pids, &send(&1, :release))
+
+      assert Task.await(task) == %{job_1: 1, job_2: 2, job_3: 3, job_4: 4}
+    end
+
+    test "a loader that outlives the timeout costs only its own panel" do
+      assert NetflowRuntime.run_concurrently(
+               [
+                 {:stuck, fn -> Process.sleep(:infinity) end, :stuck_default},
+                 {:fine, fn -> :loaded end, :fine_default}
+               ],
+               timeout: 50
+             ) == %{stuck: :stuck_default, fine: :loaded}
+    end
+  end
 end

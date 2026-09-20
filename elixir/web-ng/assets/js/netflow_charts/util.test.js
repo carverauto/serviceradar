@@ -3,6 +3,7 @@ import {describe, expect, it} from "vitest"
 
 import {
   clientXToScaleX,
+  netflowAxisStyle,
   netflowAxisTimeFormatter,
   netflowRangeSelectionStatus,
   netflowTooltipTimeHtml,
@@ -84,5 +85,30 @@ describe("explicit-zone NetFlow time presentation", () => {
     expect(utc).toContain("GMT+0")
     expect(start).toBe("2026-08-27T10:00:00Z")
     expect(end).toBe("2026-08-27T10:04:59.999999Z")
+  })
+})
+
+describe("netflowAxisStyle", () => {
+  const at = (iso) => new Date(iso)
+
+  it("keeps clock time while the chart fits in a day", () => {
+    expect(netflowAxisStyle([at("2026-02-01T00:00:00Z"), at("2026-02-01T01:00:00Z")])).toBe("axis")
+    expect(netflowAxisStyle([at("2026-02-01T00:00:00Z"), at("2026-02-02T00:00:00Z")])).toBe("axis")
+    expect(netflowAxisStyle(undefined)).toBe("axis")
+  })
+
+  it("adds the date once ticks would repeat the same clock time", () => {
+    expect(netflowAxisStyle([at("2026-02-01T00:00:00Z"), at("2026-02-05T00:00:00Z")])).toBe("axisDayTime")
+    expect(netflowAxisStyle([at("2026-02-01T00:00:00Z"), at("2026-05-01T00:00:00Z")])).toBe("axisDate")
+  })
+
+  it("labels a multi-day window with dates a viewer can tell apart", () => {
+    const domain = [at("2026-02-01T00:00:00Z"), at("2026-05-01T00:00:00Z")]
+    const format = netflowAxisTimeFormatter("Etc/UTC", domain)
+
+    expect(format(at("2026-02-10T00:00:00Z"))).not.toBe(format(at("2026-03-10T00:00:00Z")))
+    // The defect: without a domain both ticks read as the same clock time.
+    const clock = netflowAxisTimeFormatter("Etc/UTC")
+    expect(clock(at("2026-02-10T00:00:00Z"))).toBe(clock(at("2026-03-10T00:00:00Z")))
   })
 })
