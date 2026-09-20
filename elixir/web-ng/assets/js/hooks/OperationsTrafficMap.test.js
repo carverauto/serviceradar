@@ -1,6 +1,10 @@
 import {describe, expect, it, vi} from "vitest"
 
-import OperationsTrafficMap from "./OperationsTrafficMap"
+import OperationsTrafficMap, {
+  NETFLOW_FRAMING_LINKS,
+  NETFLOW_HALO_LINKS,
+  netflowVisualLinks,
+} from "./OperationsTrafficMap"
 
 function classListMock() {
   return {
@@ -491,3 +495,36 @@ describe("OperationsTrafficMap overlay lifecycle", () => {
     expect(ctx.anchorDetails).toEqual({remove})
   })
 })
+
+describe("OperationsTrafficMap netflow arc selection", () => {
+  const arc = (n, magnitude) => ({
+    id: `flow-${n}`,
+    from: [-93.4, 44.9],
+    to: [n / 10, 51.5],
+    magnitude,
+  })
+
+  it("draws every arc the server sends, heaviest first", () => {
+    // The hook used to keep the 26 heaviest and discard the rest, so a window
+    // reaching hundreds of places showed a couple of dozen lines.
+    const links = Array.from({length: 480}, (_, n) => arc(n, n + 1))
+    const drawn = netflowVisualLinks(links)
+
+    expect(drawn).toHaveLength(480)
+    expect(drawn[0].magnitude).toBe(480)
+    expect(drawn[479].magnitude).toBe(1)
+    expect(new Set(drawn.map((link) => link.id)).size).toBe(480)
+  })
+
+  it("still leaves out arcs that carried nothing", () => {
+    expect(netflowVisualLinks([arc(1, 10), arc(2, 0)]).map((link) => link.id)).toEqual(["flow-1"])
+  })
+
+  it("frames and glows by the heaviest arcs without limiting what is drawn", () => {
+    expect(NETFLOW_FRAMING_LINKS).toBeLessThan(NETFLOW_HALO_LINKS)
+    expect(netflowVisualLinks(Array.from({length: 200}, (_, n) => arc(n, n + 1))).length).toBeGreaterThan(
+      NETFLOW_HALO_LINKS,
+    )
+  })
+})
+
