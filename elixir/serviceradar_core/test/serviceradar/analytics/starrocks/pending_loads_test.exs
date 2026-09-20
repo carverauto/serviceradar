@@ -333,6 +333,7 @@ defmodule ServiceRadar.Analytics.StarRocks.PendingLoadsTest do
   defp set_attempts!(label, attempts) do
     {1, _} =
       Repo.update_all(from(r in Record, where: r.label == ^label), set: [attempts: attempts])
+
     :ok
   end
 

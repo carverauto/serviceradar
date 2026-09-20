@@ -233,6 +233,7 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
       connect_timeout: 5_000,
       autoredirect: true
     ]
+
     opts = [body_format: :binary]
 
     result =

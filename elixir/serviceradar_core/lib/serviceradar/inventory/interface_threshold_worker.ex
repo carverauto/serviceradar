@@ -24,6 +24,13 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
   When a threshold is violated, an OCSF event is recorded with:
   - metric details including interface info
   - threshold configuration metadata
+
+  ## Warehouse Copy
+
+  Recorded events are also Stream Loaded into StarRocks when the `events`
+  dataset is cut over. This worker has no broker to redeliver a failed load,
+  so a failed batch is quarantined and replayed by later runs of this worker;
+  `ServiceRadar.Analytics.StarRocks.PendingLoads` owns that contract.
   """
 
   use Oban.Worker,
