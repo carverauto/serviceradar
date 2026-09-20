@@ -25,16 +25,22 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshness do
   `LogEventConsumers` already normalizes off this seam; treating a binary as
   unreadable would silently disable every rollup.
 
-  `RollupFreshnessCache` holds each mark for a minute so the queries of one
-  dashboard render share a pair of probes. Callers inject the transport with
-  `:query`, the arity-1 seam the readers already use; otherwise probes go
-  through `Query.execute/1` like every other statement.
+  `RollupFreshnessCache` holds each mark for `rollup_cache_ttl_seconds` so the
+  queries of one dashboard render share a pair of probes. Callers inject the
+  transport with `:query`, the arity-1 seam the readers already use; otherwise
+  probes go through `Query.execute/1` like every other statement.
+
+  The gate sits in the request path, so it never raises: a probe or cache
+  lookup that throws or exits is logged and read as stale, which routes the
+  query to the StarRocks raw table like every other failure here.
   """
 
   alias ServiceRadar.Analytics.StarRocks
   alias ServiceRadar.Analytics.StarRocks.Env
   alias ServiceRadar.Analytics.StarRocks.Query
   alias ServiceRadar.Analytics.StarRocks.RollupFreshnessCache
+
+  require Logger
 
   # dataset => {materialized view, source table, source time column}
   @sources %{
@@ -101,6 +107,18 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshness do
       {mv, raw, column} -> caught_up?(runner(opts), dataset, mv, raw, column, opts)
       nil -> false
     end
+  rescue
+    error -> stale(dataset, error)
+  catch
+    :exit, reason -> stale(dataset, reason)
+  end
+
+  defp stale(dataset, reason) do
+    Logger.warning("RollupFreshness: treating #{dataset} rollup as stale",
+      reason: inspect(reason)
+    )
+
+    false
   end
 
   defp caught_up?(run, dataset, mv, raw, column, opts) do

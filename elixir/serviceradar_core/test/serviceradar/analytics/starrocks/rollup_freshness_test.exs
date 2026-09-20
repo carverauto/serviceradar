@@ -1,6 +1,7 @@
 defmodule ServiceRadar.Analytics.StarRocks.RollupFreshnessTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
+  alias ServiceRadar.Analytics.StarRocks
   alias ServiceRadar.Analytics.StarRocks.Env
   alias ServiceRadar.Analytics.StarRocks.RollupFreshness
   alias ServiceRadar.Analytics.StarRocks.RollupFreshnessCache
@@ -235,6 +236,92 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshnessTest do
 
       refute RollupFreshness.fresh?(:flows, query: probe)
       assert RollupFreshness.fresh?(:flows, query: probe)
+    end
+  end
+
+  # The gate runs inside the request path, between compiling a query and
+  # submitting it. A probe or cache lookup that throws has to read as stale --
+  # routing the query to the StarRocks raw table -- rather than take the
+  # dashboard render down with it.
+  test "a raising probe reads as stale instead of propagating" do
+    probe = fn _sql -> raise "frontend exploded" end
+
+    assert ExUnit.CaptureLog.capture_log(fn ->
+             refute RollupFreshness.fresh?(:flows, query: probe)
+           end) =~ "treating flows rollup as stale"
+  end
+
+  test "a probe that exits reads as stale instead of propagating" do
+    probe = fn _sql -> exit(:timeout) end
+
+    assert ExUnit.CaptureLog.capture_log(fn ->
+             refute RollupFreshness.fresh?(:flows, query: probe)
+           end) =~ "treating flows rollup as stale"
+  end
+
+  describe "cache ttl" do
+    setup do
+      previous = Application.get_env(:serviceradar_core, StarRocks, [])
+      on_exit(fn -> Application.put_env(:serviceradar_core, StarRocks, previous) end)
+
+      start_supervised!(%{
+        id: RollupFreshnessCache,
+        start: {RollupFreshnessCache, :start_link, [[]]}
+      })
+
+      %{previous: previous}
+    end
+
+    # 0 means never reuse a mark, so every query pays its own pair of probes.
+    # Serving a cached verdict under that setting is the one thing it forbids.
+    test "a zero ttl disables reuse so every query probes", %{previous: previous} do
+      Application.put_env(
+        :serviceradar_core,
+        StarRocks,
+        Keyword.put(previous, :rollup_cache_ttl_seconds, 0)
+      )
+
+      parent = self()
+      mv = flows_mv_sql()
+      raw = flows_raw_sql()
+
+      probe = fn
+        ^mv ->
+          send(parent, :mv_probe)
+          result([[~N[1999-06-15 12:00:00]]])
+
+        ^raw ->
+          send(parent, :raw_probe)
+          result([[~N[1999-06-15 12:30:00]]])
+      end
+
+      assert RollupFreshness.fresh?(:flows, query: probe)
+      assert RollupFreshness.fresh?(:flows, query: probe)
+
+      assert_received :raw_probe
+      assert_received :mv_probe
+      assert_received :raw_probe
+      assert_received :mv_probe
+    end
+
+    test "a configured ttl is what the cache stores marks for", %{previous: previous} do
+      Application.put_env(
+        :serviceradar_core,
+        StarRocks,
+        Keyword.put(previous, :rollup_cache_ttl_seconds, 7)
+      )
+
+      assert RollupFreshnessCache.ttl_seconds() == 7
+    end
+
+    test "an unconfigured ttl is the shipped default", %{previous: previous} do
+      Application.put_env(
+        :serviceradar_core,
+        StarRocks,
+        Keyword.delete(previous, :rollup_cache_ttl_seconds)
+      )
+
+      assert RollupFreshnessCache.ttl_seconds() == Env.default_rollup_cache_ttl_seconds()
     end
   end
 

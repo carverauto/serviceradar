@@ -327,6 +327,14 @@ serviceradar.io/runtime-tls-revision: {{ default "initial" (default (dict) .Valu
 {{- end }}
 - name: SERVICERADAR_STARROCKS_ROLLUP_STALE_AFTER_SECONDS
   value: {{ $rollupStaleAfter | quote }}
+{{- /* Same reason as above: 0 is the strictest setting (never reuse a mark),
+       not an absent one. */}}
+{{- $rollupCacheTtl := 60 }}
+{{- if not (kindIs "invalid" $sr.rollupCacheTtlSeconds) }}
+{{- $rollupCacheTtl = $sr.rollupCacheTtlSeconds }}
+{{- end }}
+- name: SERVICERADAR_STARROCKS_ROLLUP_CACHE_TTL_SECONDS
+  value: {{ $rollupCacheTtl | quote }}
 - name: SERVICERADAR_STARROCKS_FE_HTTP
   value: {{ printf "http://%s:%v" $sr.fe.service $sr.fe.httpPort | quote }}
 - name: SERVICERADAR_STARROCKS_FE_HOST

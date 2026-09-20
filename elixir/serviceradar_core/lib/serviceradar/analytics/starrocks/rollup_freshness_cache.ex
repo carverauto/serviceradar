@@ -9,7 +9,8 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshnessCache do
   every chart pays its own pair of round trips.
 
   This cache is a performance decision, not part of the freshness contract.
-  Marks are held for a minute, so a view that goes stale keeps being served
+  Marks are held for `rollup_cache_ttl_seconds` (default 60, `0` disables reuse
+  entirely), so a view that goes stale keeps being served
   for up to that long, and one that catches up keeps paying the raw scan for
   up to that long. That window is the accepted price of not probing per query;
   it is small against the hour the marks are compared on. Only successful marks
@@ -22,10 +23,10 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshnessCache do
 
   use GenServer
 
+  alias ServiceRadar.Analytics.StarRocks
   alias ServiceRadar.Analytics.StarRocks.Env
 
   @table __MODULE__
-  @ttl_ms 60_000
 
   @spec start_link(term()) :: GenServer.on_start()
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -50,12 +51,20 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshnessCache do
 
   @spec put(term(), value) :: value when value: term()
   def put(key, value) do
-    case :ets.whereis(@table) do
-      :undefined -> :ok
-      tid -> :ets.insert(tid, {key, value, now_ms() + @ttl_ms})
+    case {ttl_ms(), :ets.whereis(@table)} do
+      {0, _tid} -> :ok
+      {_ttl, :undefined} -> :ok
+      {ttl, tid} -> :ets.insert(tid, {key, value, now_ms() + ttl})
     end
 
     value
+  end
+
+  @spec ttl_seconds() :: non_neg_integer()
+  def ttl_seconds do
+    :serviceradar_core
+    |> Application.get_env(StarRocks, [])
+    |> Keyword.get(:rollup_cache_ttl_seconds, Env.default_rollup_cache_ttl_seconds())
   end
 
   @impl true
@@ -63,6 +72,8 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshnessCache do
     :ets.new(@table, [:set, :public, :named_table, read_concurrency: true])
     {:ok, %{}}
   end
+
+  defp ttl_ms, do: ttl_seconds() * 1_000
 
   defp now_ms, do: System.monotonic_time(:millisecond)
 end

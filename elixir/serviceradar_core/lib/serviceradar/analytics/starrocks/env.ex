@@ -25,6 +25,10 @@ defmodule ServiceRadar.Analytics.StarRocks.Env do
   # schedule, so this is the operator's tolerance, not a refresh interval.
   @default_rollup_stale_after_seconds 7_200
 
+  # How long a high-water mark may be reused before the gate re-probes. Purely
+  # a round-trip saving; 0 disables reuse and probes every query.
+  @default_rollup_cache_ttl_seconds 60
+
   @spec config() :: keyword()
   def config do
     enabled = truthy?("SERVICERADAR_STARROCKS_ENABLED")
@@ -42,7 +46,8 @@ defmodule ServiceRadar.Analytics.StarRocks.Env do
       user: nonempty("SERVICERADAR_STARROCKS_USER", "root"),
       password: System.get_env("SERVICERADAR_STARROCKS_PASSWORD", ""),
       retention_days: retention_days(),
-      rollup_stale_after_seconds: rollup_stale_after_seconds()
+      rollup_stale_after_seconds: rollup_stale_after_seconds(),
+      rollup_cache_ttl_seconds: rollup_cache_ttl_seconds()
     ]
   end
 
@@ -58,12 +63,24 @@ defmodule ServiceRadar.Analytics.StarRocks.Env do
   @spec default_rollup_stale_after_seconds() :: pos_integer()
   def default_rollup_stale_after_seconds, do: @default_rollup_stale_after_seconds
 
+  @spec default_rollup_cache_ttl_seconds() :: non_neg_integer()
+  def default_rollup_cache_ttl_seconds, do: @default_rollup_cache_ttl_seconds
+
   # 0 is a real setting here -- serve only a fully current view -- unlike the
   # retention knobs, where it would mean "keep nothing".
   defp rollup_stale_after_seconds do
     case Integer.parse(nonempty("SERVICERADAR_STARROCKS_ROLLUP_STALE_AFTER_SECONDS", "")) do
       {seconds, _} when seconds >= 0 -> seconds
       _ -> @default_rollup_stale_after_seconds
+    end
+  end
+
+  # 0 is a real setting here too -- never reuse a mark -- so it is honoured
+  # literally rather than read as "unset".
+  defp rollup_cache_ttl_seconds do
+    case Integer.parse(nonempty("SERVICERADAR_STARROCKS_ROLLUP_CACHE_TTL_SECONDS", "")) do
+      {seconds, _} when seconds >= 0 -> seconds
+      _ -> @default_rollup_cache_ttl_seconds
     end
   end
 

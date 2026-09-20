@@ -87,6 +87,16 @@ defmodule ServiceRadar.Observability.NetflowExporterCacheRefreshWorker do
 
         ObanSupport.safe_insert(new(%{}, schedule_in: max(reschedule_seconds, 300)))
         :ok
+
+      # An unreachable Frontend is not an empty warehouse. Degrading it to no
+      # samplers left the cache stale forever while every run reported success,
+      # so the error is returned and Oban retries the job.
+      {:error, reason} ->
+        Logger.warning("NetflowExporterCacheRefreshWorker: sampler discovery failed",
+          reason: inspect(reason)
+        )
+
+        {:error, reason}
     end
   end
 
@@ -170,7 +180,7 @@ defmodule ServiceRadar.Observability.NetflowExporterCacheRefreshWorker do
     # Flows live in the warehouse or nowhere: an installation that has not cut
     # them over gets the routing error, never a CNPG answer.
     case ServiceRadar.Analytics.StarRocks.Readers.mode_for(:flows) do
-      "starrocks" -> {:ok, starrocks_sampler_addresses(since, limit, opts)}
+      "starrocks" -> starrocks_sampler_addresses(since, limit, opts)
       {:error, _reason} = error -> error
     end
   end
@@ -189,19 +199,25 @@ defmodule ServiceRadar.Observability.NetflowExporterCacheRefreshWorker do
 
     case query.(sql) do
       {:ok, %{rows: rows}} ->
-        rows
-        |> Enum.map(fn
-          [address | _] -> address
-          address when is_binary(address) -> address
-          _ -> nil
-        end)
-        |> Enum.map(&to_string/1)
-        |> Enum.map(&String.trim/1)
-        |> Enum.reject(&(&1 == ""))
-        |> Enum.uniq()
+        addresses =
+          rows
+          |> Enum.map(fn
+            [address | _] -> address
+            address when is_binary(address) -> address
+            _ -> nil
+          end)
+          |> Enum.map(&to_string/1)
+          |> Enum.map(&String.trim/1)
+          |> Enum.reject(&(&1 == ""))
+          |> Enum.uniq()
 
-      _ ->
-        []
+        {:ok, addresses}
+
+      {:error, reason} ->
+        {:error, reason}
+
+      other ->
+        {:error, {:unexpected_result, other}}
     end
   end
 

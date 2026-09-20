@@ -51,6 +51,30 @@ defmodule ServiceRadar.Analytics.StarRocks.FlowConsumersTest do
              NetflowExporterCacheRefreshWorker.discover_sampler_addresses(1_800, 50, query: query)
   end
 
+  # An unreachable Frontend is not an empty warehouse. Coercing the error to []
+  # left the exporter cache stale forever behind a green Oban run, so the error
+  # reaches perform/1 and the job fails for Oban to retry.
+  test "exporter cache discovery surfaces a warehouse failure rather than no samplers",
+       %{prev: prev} do
+    Application.put_env(
+      :serviceradar_core,
+      StarRocks,
+      Keyword.put(prev, :cutover_datasets, [:flows])
+    )
+
+    query = fn _sql -> {:error, :econnrefused} end
+
+    assert {:error, :econnrefused} ==
+             NetflowExporterCacheRefreshWorker.discover_sampler_addresses(1_800, 50, query: query)
+
+    unexpected = fn _sql -> :nope end
+
+    assert {:error, {:unexpected_result, :nope}} ==
+             NetflowExporterCacheRefreshWorker.discover_sampler_addresses(1_800, 50,
+               query: unexpected
+             )
+  end
+
   test "attribution correlation reports itself inapplicable until flows are cut over" do
     assert Correlation.correlate() == {:ok, :not_applicable}
   end

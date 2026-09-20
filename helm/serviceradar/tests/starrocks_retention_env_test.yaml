@@ -89,6 +89,39 @@ tests:
             value: "0"
           count: 1
 
+  # The gate reuses each high-water mark for this long, so an operator tuning
+  # how often the warehouse is probed needs the value in the env.
+  - it: publishes the rollup freshness cache ttl when starrocks is enabled
+    set:
+      analytics.starrocks.enabled: true
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_STARROCKS_ROLLUP_CACHE_TTL_SECONDS
+            value: "60"
+          count: 1
+
+  # 0 disables reuse so every query probes; like the staleness threshold it is
+  # a real setting, not an absent one, and must not fall back to the default.
+  - it: honours a zero rollup freshness cache ttl literally
+    set:
+      analytics.starrocks.enabled: true
+      analytics.starrocks.rollupCacheTtlSeconds: 0
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_STARROCKS_ROLLUP_CACHE_TTL_SECONDS
+            value: "0"
+          count: 1
+
   # Bounding raw NetFlow must not also shorten log history.
   - it: lets one dataset be retuned without moving the others
     set:

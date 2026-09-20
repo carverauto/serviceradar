@@ -2556,6 +2556,16 @@ analytics:
     # bucket is complete, so the newest point of an hourly chart can still be
     # partial.
     rollupStaleAfterSeconds: 7200
+    # How long the freshness gate may reuse a high-water mark before probing
+    # the warehouse again. This is a round-trip saving, not part of the
+    # staleness contract: the several rollup-eligible queries of one dashboard
+    # render share a pair of MAX(...) probes instead of each paying its own.
+    # The cost is symmetric -- a view that goes stale keeps being served for up
+    # to this long, and one that catches up keeps paying the raw scan for up to
+    # this long -- which is small against the whole hours the marks are
+    # compared on. 0 is honoured literally and disables reuse: every query
+    # probes. A failed probe is never cached.
+    rollupCacheTtlSeconds: 60
     fe:
       service: lab-fe-service.starrocks.svc
       queryPort: 9030
