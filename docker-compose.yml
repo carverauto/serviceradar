@@ -859,55 +859,10 @@ services:
       - serviceradar-net
     restart: unless-stopped
 
-  # Creates the warehouse schema the `starrocks` profile needs. Compose runs the
-  # single-BE allin1 image, which cannot satisfy the `replication_num = 3` the
-  # shipped DDL pins for a real cluster, so the copies are rewritten to 1 on the
-  # way in. The DDL also pins the database name, which STARROCKS_DATABASE
-  # overrides for every reader and Stream Load, so it is retargeted the same
-  # way. Only 0001-0005 and 0016 are applied: 0006-0015 add columns already
-  # declared in 0001-0005, and 0014 is documentation. 0016 rebuilds the flow
-  # rollup, which 0005 cannot correct on a warehouse that already has it, so it
-  # drops and recreates that one view; every other statement is
-  # CREATE ... IF NOT EXISTS, so re-running the profile is otherwise a no-op.
-  # `--skip-comments` is required: the client preserves comments by default
-  # since MySQL 8.0.16, so each file's leading `-- ...` header is forwarded to
-  # the Frontend as a statement of its own and StarRocks rejects it with
-  # "Unexpected input '<EOF>'", aborting the loop on the first file.
-  starrocks-init:
-    image: mysql:8.4
-    container_name: serviceradar-starrocks-init
-    profiles:
-      - starrocks
-    restart: "no"
-    environment:
-      - STARROCKS_DATABASE=${STARROCKS_DATABASE:-serviceradar}
-    volumes:
-      - ./elixir/serviceradar_core/priv/starrocks:/schema:ro
-    depends_on:
-      starrocks:
-        condition: service_started
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        set -eu
-        until mysql -h starrocks -P 9030 -u root --protocol=TCP -e 'SELECT 1' >/dev/null 2>&1; do
-          echo 'waiting for the StarRocks frontend'
-          sleep 5
-        done
-        until mysql -h starrocks -P 9030 -u root --protocol=TCP -N -e 'SHOW BACKENDS' 2>/dev/null | grep -q true; do
-          echo 'waiting for a live StarRocks backend'
-          sleep 5
-        done
-        for schema_file in /schema/0001_*.sql /schema/0002_*.sql /schema/0003_*.sql /schema/0004_*.sql /schema/0005_*.sql /schema/0016_*.sql; do
-          echo "applying $$(basename "$$schema_file")"
-          sed -e 's/"replication_num" = "3"/"replication_num" = "1"/' \
-              -e "s/EXISTS serviceradar;/EXISTS $$STARROCKS_DATABASE;/" \
-              -e "s/serviceradar\./$$STARROCKS_DATABASE./g" "$$schema_file" \
-            | mysql -h starrocks -P 9030 -u root --protocol=TCP --skip-comments
-        done
-        echo 'starrocks schema ready'
-    networks:
-      - serviceradar-net
+  # There is no schema-init service. core-elx creates and upgrades the warehouse
+  # schema itself at startup (ServiceRadar.Analytics.StarRocks.SchemaMigrator):
+  # it waits for a live backend, sizes replication to this single-BE image, and
+  # retargets the DDL to STARROCKS_DATABASE.
 
   # Optional network-ingest collectors are disabled in the default compose stack.
   # Enable all with `docker compose --profile network-ingest up -d`, or enable

@@ -168,46 +168,40 @@ kubectl --context "$ctx" -n starrocks get svc lab-fe-service
 # in-cluster: mysql -h lab-fe-service.starrocks.svc -P 9030 -uroot
 ```
 
-Every file under `elixir/serviceradar_core/priv/starrocks/` qualifies its
-statements with the database name `serviceradar`. Helm
-`analytics.starrocks.database` retargets every reader and Stream Load, so when
-it is not the default, rewrite the DDL the same way the Compose
-`starrocks-init` service does before applying it -- `retarget` below is the
-same pair of substitutions that service runs, and applies to ANY of these
-files, not just the ones in the fresh-warehouse apply:
+## Schema
 
-```bash
-ns=demo   # the release namespace
-db=$(helm get values serviceradar -n "$ns" -o json |
-  jq -r '.analytics.starrocks.database // "serviceradar"')
-schema=elixir/serviceradar_core/priv/starrocks
+Nothing here is applied by hand. When `analytics.starrocks.enabled` is true,
+core creates and upgrades the warehouse schema at startup
+(`ServiceRadar.Analytics.StarRocks.SchemaMigrator`), on every Helm install,
+Helm upgrade and Compose `up`:
 
-retarget() {
-  sed -e "s/EXISTS serviceradar;/EXISTS $db;/" -e "s/serviceradar\./$db./g" "$@"
-}
+- It waits for a live backend or compute node, then applies each file under
+  `elixir/serviceradar_core/priv/starrocks/` whose version is not yet recorded
+  in `<database>.schema_migrations`, in order.
+- The files pin the database `serviceradar` and `replication_num` 3. The
+  migrator retargets them to `analytics.starrocks.database`, and lowers
+  replication to the number of live backends on a shared-nothing warehouse
+  with fewer than three.
+- Replicas that start together are serialised by a PostgreSQL advisory lock.
+- A warehouse created before the ledger existed is adopted: CREATEs are
+  `IF NOT EXISTS`, the rollup rebuild drops before it creates, and an
+  `ADD COLUMN` whose column already exists is skipped.
+- A failure is logged as `StarRocks schema not migrated, retrying in ...` and
+  retried with backoff; the failed version is not recorded, so the next
+  attempt resumes at it.
 
-# Fresh warehouse: the CREATEs, plus the flow-rollup rebuild.
-retarget "$schema"/000[1-5]_*.sql "$schema"/0016_*.sql |
-  mysql -h ... -P 9030 -uroot --skip-comments
+To see what a warehouse has:
+
+```sql
+SELECT version, name, applied_at FROM serviceradar.schema_migrations ORDER BY version;
 ```
 
-`--skip-comments` is not optional. A client from MySQL 8.0.16 or newer keeps
-comments by default and forwards each file's leading `-- ...` header to the
-Frontend as its own statement, which StarRocks rejects with
-`Unexpected input '<EOF>'` before any DDL runs.
+`0014` is the exception the migrator cannot close. StarRocks cannot add
+partitioning or change a primary key with `ALTER`, so a warehouse created
+unpartitioned stays that way until its tables are rebuilt as that file
+describes, and retention logs `is not range partitioned` until then. A fresh
+warehouse is partitioned from `0001` and is not affected.
 
-`0006`-`0015` are one-shot `ALTER`s for warehouses created before those columns
-existed; apply them individually through `retarget`, and expect a failure if
-the column is already there. `0016` is different: it DROPs and recreates
-`ocsf_network_activity_hourly`, so it is safe to re-run and is REQUIRED on any
-warehouse whose rollup predates sampling-weighted totals -- the SRQL compiler
-now reads that view for whole-hour flow charts, and the old column set has no
-`bytes_total` at all.
-
-The chart has no schema-apply Job, so nothing creates these tables for you.
-Core's MyXQL pool opens `analytics.starrocks.database` directly, and Stream
-Load PUTs to `/api/<database>/...`, so a mismatch between the applied DDL and
-that value leaves the warehouse empty while the deployment looks healthy.
 `cutoverDatasets` defaults to empty, so metric, log and event panels stay on
 CNPG throughout; the NetFlow panel does not fall back -- it is refused with a
 warehouse-required error until `flows` is cut over to a populated warehouse.

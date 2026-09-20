@@ -283,6 +283,10 @@ filegroup(
 # Shared between the :test and :prod compilations below, which differ only in mix_env.
 CORE_SRCS = [
     ":compile_srcs",
+    # Read at compile time by ServiceRadar.Analytics.StarRocks.Schema and baked in with
+    # @external_resource. priv/starrocks is a package of its own, so the priv/** glob in
+    # :compile_srcs stops at its boundary and the files have to be named here.
+    "//elixir/serviceradar_core/priv/starrocks:schema_sql",
     # Read at compile time, from outside this package. The *_addon_package_seeder
     # modules do Path.expand("../../../../../addons/<x>/config.schema.json", __DIR__)
     # and bake the result in with @external_resource, so these have to be declared
