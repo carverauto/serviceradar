@@ -98,14 +98,20 @@ STARROCKS_ENABLED=true docker compose --profile starrocks --profile flows up -d
 ```
 
 `flow-collector` stays off unless you pass `--profile flows` or
-`--profile network-ingest`. The two profiles are independent: NetFlow works
-without the warehouse, and flows are then stored on CNPG hypertables.
+`--profile network-ingest`. The two profiles are independent for *collection*:
+NetFlow collects without the warehouse and stores flows on CNPG hypertables.
+Reading those flows back is warehouse-only -- until `flows` is listed in
+`STARROCKS_CUTOVER_DATASETS`, the NetFlow dashboard and `in:flows` are refused
+with a warehouse-required error instead of being answered from CNPG. See
+[NetFlow](docs/docs/netflow.md) for the full flow path.
 
 `--profile starrocks` also runs a one-shot `starrocks-init` container that
 creates the warehouse database and tables once the frontend and backend are up.
 Compose runs a single backend, so it rewrites the replica count the clustered
-DDL pins. It is idempotent; bringing the profile up again re-runs it as a
-no-op.
+DDL pins. Re-running the profile is safe: every statement is
+`CREATE ... IF NOT EXISTS` except the flow rollup view, which is dropped and
+recreated each time so a warehouse built before sampling-weighted totals is
+corrected.
 
 StarRocks telemetry retention is set per dataset. The warehouse tables are
 partitioned by day, so each `STARROCKS_RETENTION_DAYS_*` value is the number of
@@ -115,6 +121,17 @@ to 90, `STARROCKS_RETENTION_DAYS_LOGS` and `STARROCKS_RETENTION_DAYS_EVENTS` to
 365. Core applies them at start and retries with backoff until the warehouse
 accepts them, so a slow Frontend does not leave the tables on their DDL
 default.
+
+Hourly charts are served from the `*_hourly` materialized views only while
+those views have kept up with the tables they aggregate; otherwise the query
+reads the raw warehouse tables, never CNPG.
+`STARROCKS_ROLLUP_STALE_AFTER_SECONDS` (default 7200) is how far a view may
+trail its own source before readers stop trusting it, measured in whole hours
+because both marks sit on the view's hourly grain -- the default tolerates two
+hours behind, `3600` one, and `0` none.
+`STARROCKS_ROLLUP_CACHE_TTL_SECONDS` (default 60) is how long that verdict may
+be reused before probing again; it is a round-trip saving, and `0` makes every
+query probe.
 
 ## Update an Existing Stack
 

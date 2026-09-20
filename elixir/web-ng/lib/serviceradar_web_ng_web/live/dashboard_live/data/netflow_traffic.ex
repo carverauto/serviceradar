@@ -212,7 +212,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.NetflowTraffic do
           links -> links
         end
       end
-
     end
   end
 end

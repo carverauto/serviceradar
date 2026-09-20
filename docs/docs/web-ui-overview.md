@@ -64,7 +64,9 @@ order, so only matching results appear.
 - **Topology (Network Topology)** — an interactive map of how devices connect
   to each other. See [Network Topology](./network-topology.md).
 - **NetFlow Map / Spatial** — geospatial views of traffic flows and field
-  survey data.
+  survey data. Flow panels are served from the StarRocks warehouse and report a
+  warehouse-required error until the `flows` dataset is cut over; see
+  [NetFlow](./netflow.md).
 
 ## Diagnostics
 

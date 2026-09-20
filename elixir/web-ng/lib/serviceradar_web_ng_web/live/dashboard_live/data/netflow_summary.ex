@@ -63,7 +63,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.NetflowSummary do
 
       defp flow_summary(value, scope, srql_module),
         do: flow_summary(ServiceRadarWebNGWeb.DashboardLive.Window.resolve(value, "netflow"), scope, srql_module)
-
     end
   end
 end
