@@ -153,4 +153,6 @@ data:
       ON platform.netflow_exporter_cache TO {{ $reader }};
     GRANT SELECT (sampler_address, if_index, if_name, if_speed_bps)
       ON platform.netflow_interface_cache TO {{ $reader }};
+    GRANT SELECT (ip, country_iso2, expires_at)
+      ON platform.ip_geo_enrichment_cache TO {{ $reader }};
 {{- end }}

@@ -307,6 +307,8 @@ enum CatalogJoin {
     Devices,
     InputInterface,
     OutputInterface,
+    SrcGeo,
+    DstGeo,
 }
 
 impl CatalogJoin {
@@ -321,6 +323,15 @@ impl CatalogJoin {
             Self::OutputInterface => {
                 "LEFT JOIN cnpg_platform.platform.netflow_interface_cache AS out_if ON out_if.sampler_address = f.sampler_address AND out_if.if_index = f.output_snmp"
             }
+            // Country is never stored on the flow row, on either backend: GeoIP
+            // answers change and expire, so it is resolved against the cache at
+            // query time. An expired entry is ignored, as it is on CNPG.
+            Self::SrcGeo => {
+                "LEFT JOIN cnpg_platform.platform.ip_geo_enrichment_cache AS src_geo ON src_geo.ip = f.src_endpoint_ip AND (src_geo.expires_at IS NULL OR src_geo.expires_at > UTC_TIMESTAMP())"
+            }
+            Self::DstGeo => {
+                "LEFT JOIN cnpg_platform.platform.ip_geo_enrichment_cache AS dst_geo ON dst_geo.ip = f.dst_endpoint_ip AND (dst_geo.expires_at IS NULL OR dst_geo.expires_at > UTC_TIMESTAMP())"
+            }
         }
     }
 }
@@ -332,7 +343,14 @@ fn catalog_joins(plan: &QueryPlan, dataset: Dataset) -> Result<Vec<CatalogJoin>>
     let wants_device = plan_mentions(plan, &["hostname", "device_name"]);
     let wants_input_interface = plan_mentions(plan, &["in_if_name", "in_if_speed_bps"]);
     let wants_output_interface = plan_mentions(plan, &["out_if_name", "out_if_speed_bps"]);
-    if !wants_device && !wants_input_interface && !wants_output_interface {
+    let wants_src_geo = plan_mentions(plan, &["src_country_iso2", "src_country"]);
+    let wants_dst_geo = plan_mentions(plan, &["dst_country_iso2", "dst_country"]);
+    if !wants_device
+        && !wants_input_interface
+        && !wants_output_interface
+        && !wants_src_geo
+        && !wants_dst_geo
+    {
         return Ok(Vec::new());
     }
     if dataset.raw_table != "ocsf_network_activity" {
@@ -349,6 +367,12 @@ fn catalog_joins(plan: &QueryPlan, dataset: Dataset) -> Result<Vec<CatalogJoin>>
     }
     if wants_output_interface {
         joins.push(CatalogJoin::OutputInterface);
+    }
+    if wants_src_geo {
+        joins.push(CatalogJoin::SrcGeo);
+    }
+    if wants_dst_geo {
+        joins.push(CatalogJoin::DstGeo);
     }
     Ok(joins)
 }
@@ -1067,6 +1091,12 @@ fn field_sql(plan: &QueryPlan, field: &str) -> Result<String> {
             }
             "out_if_speed_bps" => {
                 return Ok("COALESCE(CAST(out_if.if_speed_bps AS STRING), 'Unknown')".into());
+            }
+            "src_country_iso2" | "src_country" => {
+                return Ok("COALESCE(src_geo.country_iso2, 'Unknown')".into());
+            }
+            "dst_country_iso2" | "dst_country" => {
+                return Ok("COALESCE(dst_geo.country_iso2, 'Unknown')".into());
             }
             _ => {}
         }
@@ -2394,6 +2424,65 @@ mod tests {
         );
         assert!(compiled.sql.contains("dev.uid = f.device_uid"));
         refute_postgres(&compiled.sql);
+    }
+
+    #[test]
+    fn country_breakdowns_resolve_against_the_cnpg_geoip_cache() {
+        // Neither backend stores a country on the flow row; CNPG joins
+        // ip_geo_enrichment_cache at query time and so must the warehouse, or
+        // the geo heatmap is refused as an unsupported field.
+        let base = "in:flows time:last_1h";
+        let dst = translate(
+            &plan(&format!(
+                "{base} stats:\"sum(bytes_total) as total_bytes by dst_country_iso2\" sort:total_bytes:desc limit:64"
+            )),
+            "serviceradar",
+        )
+        .expect("destination country breakdown");
+        assert!(
+            dst.sql.contains(
+                "LEFT JOIN cnpg_platform.platform.ip_geo_enrichment_cache AS dst_geo ON dst_geo.ip = f.dst_endpoint_ip AND (dst_geo.expires_at IS NULL OR dst_geo.expires_at > UTC_TIMESTAMP())"
+            ),
+            "{}",
+            dst.sql
+        );
+        assert!(
+            dst.sql
+                .contains("COALESCE(dst_geo.country_iso2, 'Unknown')")
+        );
+        assert!(!dst.sql.contains("src_geo"), "{}", dst.sql);
+        refute_postgres(&dst.sql);
+
+        let src = translate(
+            &plan(&format!(
+                "{base} stats:\"sum(bytes_total) as total_bytes by src_country\" sort:total_bytes:desc limit:64"
+            )),
+            "serviceradar",
+        )
+        .expect("source country breakdown");
+        assert!(
+            src.sql
+                .contains("ip_geo_enrichment_cache AS src_geo ON src_geo.ip = f.src_endpoint_ip")
+        );
+        assert!(
+            src.sql
+                .contains("COALESCE(src_geo.country_iso2, 'Unknown')")
+        );
+        assert!(!src.sql.contains("dst_geo"), "{}", src.sql);
+
+        // A plain flow query must not pay for a join it does not read.
+        let plain = translate(
+            &plan(&format!(
+                "{base} stats:\"sum(bytes_total) as total_bytes by dst_endpoint_port\" limit:5"
+            )),
+            "serviceradar",
+        )
+        .expect("plain breakdown");
+        assert!(
+            !plain.sql.contains("ip_geo_enrichment_cache"),
+            "{}",
+            plain.sql
+        );
     }
 
     #[test]
