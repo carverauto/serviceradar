@@ -1,0 +1,237 @@
+suite: topology graph backend env
+templates:
+  - templates/core.yaml
+tests:
+  - it: injects GRAPH_BACKEND dual and GRAPH_READ age with DGRAPH_URL
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GRAPH_BACKEND
+            value: dual
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GRAPH_READ
+            value: age
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DGRAPH_HOST
+            value: RELEASE-NAME-dgraph-alpha.NAMESPACE.svc.cluster.local
+  - it: takes the in-chart groot password from the generated ACL Secret
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DGRAPH_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: RELEASE-NAME-dgraph-alpha-acl-secret
+                key: groot_password
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DGRAPH_URL
+            value: dgraph://groot:$(DGRAPH_PASSWORD)@RELEASE-NAME-dgraph-alpha.NAMESPACE.svc.cluster.local:9080?sslmode=require
+  - it: uses external host when the subchart is off, with no credential literal
+    documentSelector:
+      path: kind
+      value: Deployment
+    set:
+      dgraph:
+        enabled: false
+        external:
+          host: dgraph-dgraph-alpha.demo.svc.cluster.local
+          port: 9080
+          tlsMode: require
+      graph:
+        backend: dual
+        read: age
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DGRAPH_HOST
+            value: dgraph-dgraph-alpha.demo.svc.cluster.local
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GRAPH_BACKEND
+            value: dual
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DGRAPH_URL
+            value: dgraph://dgraph-dgraph-alpha.demo.svc.cluster.local:9080?sslmode=require
+  - it: takes an external ACL credential from a Secret, never a values literal
+    documentSelector:
+      path: kind
+      value: Deployment
+    set:
+      dgraph:
+        enabled: false
+        external:
+          host: dgraph-dgraph-alpha.demo.svc.cluster.local
+          port: 9080
+          tlsMode: require
+          credentialsSecret: dgraph-acl
+          credentialsKey: groot_password
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DGRAPH_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: dgraph-acl
+                key: groot_password
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DGRAPH_URL
+            value: dgraph://groot:$(DGRAPH_PASSWORD)@dgraph-dgraph-alpha.demo.svc.cluster.local:9080?sslmode=require
+  - it: verifies an external verify-ca endpoint against the mounted CA
+    documentSelector:
+      path: kind
+      value: Deployment
+    set:
+      dgraph:
+        enabled: false
+        external:
+          host: dgraph-dgraph-alpha.demo.svc.cluster.local
+          port: 9080
+          tlsMode: verify-ca
+          caSecret: dgraph-ca
+          caKey: ca.crt
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DGRAPH_URL
+            value: dgraph://dgraph-dgraph-alpha.demo.svc.cluster.local:9080?sslmode=verify-ca&sslrootcert=/etc/dgraph-ca/ca.crt
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: dgraph-ca
+            mountPath: /etc/dgraph-ca
+            readOnly: true
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: dgraph-ca
+            secret:
+              secretName: dgraph-ca
+              items:
+                - key: ca.crt
+                  path: ca.crt
+  - it: leaves the system trust store in play when no external CA secret is given
+    documentSelector:
+      path: kind
+      value: Deployment
+    set:
+      dgraph:
+        enabled: false
+        external:
+          host: dgraph.example.com
+          port: 9080
+          tlsMode: verify-ca
+          caSecret: ""
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DGRAPH_URL
+            value: dgraph://dgraph.example.com:9080?sslmode=verify-ca
+      - notContains:
+          path: spec.template.spec.volumes
+          any: true
+          content:
+            name: dgraph-ca
+  - it: the in-chart endpoint dials require and mounts no CA
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - notContains:
+          path: spec.template.spec.volumes
+          any: true
+          content:
+            name: dgraph-ca
+  - it: an external endpoint alone does not turn on dual-write
+    documentSelector:
+      path: kind
+      value: Deployment
+    set:
+      dgraph:
+        enabled: false
+        external:
+          host: dgraph-dgraph-alpha.demo.svc.cluster.local
+          port: 9080
+          tlsMode: verify-ca
+          caSecret: dgraph-ca
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GRAPH_BACKEND
+            value: age
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GRAPH_READ
+            value: age
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DGRAPH_HOST
+            value: dgraph-dgraph-alpha.demo.svc.cluster.local
+  - it: the in-chart cluster still defaults to dual-write
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GRAPH_BACKEND
+            value: dual
+  - it: renders on AGE alone when Dgraph is disabled with no external host
+    documentSelector:
+      path: kind
+      value: Deployment
+    set:
+      dgraph:
+        enabled: false
+        external:
+          host: ""
+      graph:
+        backend: dual
+        read: dgraph
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GRAPH_BACKEND
+            value: age
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GRAPH_READ
+            value: age
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          any: true
+          content:
+            name: DGRAPH_URL
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          any: true
+          content:
+            name: DGRAPH_HOST

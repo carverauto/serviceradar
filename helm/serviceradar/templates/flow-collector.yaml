@@ -1,5 +1,4 @@
 {{- if .Values.flowCollector.enabled }}
-{{- include "serviceradar.requireStarRocksForNetFlow" . }}
 {{- $data := default (dict) .Values.flowCollector.data -}}
 {{- $dataEnabled := true -}}
 {{- if hasKey $data "enabled" -}}

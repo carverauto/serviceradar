@@ -3,6 +3,32 @@
 
 namespace: demo
 
+# Demo stays on AGE alone until the explicit cutover. The standalone Dgraph in
+# this namespace has ACL on with a password this chart is not given, and no
+# topology schema applied to it, so dual-write would fail every persist and log
+# once per entity per mapper cycle. Flip this to `dual` in the same change that
+# provisions the credential Secret and applies the schema.
+graph:
+  backend: age
+  read: age
+
+# HA Dgraph is already running in this namespace as Helm release `dgraph`
+# (k8s/dgraph/deploy-dgraph.sh demo). Keep the chart subchart off so Argo
+# does not create a second cluster. Flip enabled=true and remove the
+# standalone release as a later cutover.
+dgraph:
+  enabled: false
+  schema:
+    enabled: false
+  migrator:
+    enabled: false
+  external:
+    host: dgraph-dgraph-alpha.demo.svc.cluster.local
+    port: 9080
+    tlsMode: verify-ca
+    caSecret: dgraph-ca
+    caKey: ca.crt
+
 topologySpread:
   enabled: true
   maxSkew: 1
@@ -10,9 +36,12 @@ topologySpread:
   whenUnsatisfiable: ScheduleAnyway
 
 global:
-  # Demo uses an immutable ServiceRadar image tag so Kyverno can verify
-  # signatures without requiring digest-pinned user-facing values.
-  imageTag: "sha-217d693de66908133302bffea9a1091b03e45d87"
+  # No imageTag here. Images follow the chart version (v<appVersion>); release
+  # images are signed with the release key, so Kyverno verification still holds.
+  # The Git-sourced demo Application sets the release tag through its Argo CD
+  # source override, and the chart-sourced one clears global.imageTag in its own
+  # valuesObject, so a tag pinned here would either be ignored or point every
+  # workload at a build that may no longer exist.
   imagePullPolicy: Always
   forceRolloutOnUpgrade: true
   storage:
@@ -32,15 +61,28 @@ argocdImageUpdater:
 tools:
   enabled: true
 
+# Opt-in StarRocks analytics for the demo lab FE/CN in namespace starrocks.
+# Object table data uses the DuckDB Linode analytics bucket, not Barman.
 analytics:
   starrocks:
     enabled: true
+    profile: sharedData
     shadowDatasets: []
-    cutoverDatasets:
-      - flows
+    cutoverDatasets: []
+    sharedData:
+      objectStorageBucket: serviceradar-demo-analytics
+      objectStorageEndpoint: https://us-ord-10.linodeobjects.com
+      objectStorageRegion: us-ord
+      objectStoragePrefix: starrocks
+      urlStyle: path
+      secretName: serviceradar-analytics-object-store
     catalog:
       enabled: true
       secretName: serviceradar-starrocks-catalog
+      # CNPG managed.roles reconciles login + password for
+      # serviceradar_starrocks_reader from this secret. Same password goes in
+      # the jdbcUri baked into secretName above.
+      readerPasswordSecret: serviceradar-starrocks-reader
       jdbcUri: "jdbc:postgresql://cnpg-rw.demo.svc:5432/serviceradar?ssl=true&sslmode=require"
       sourceNamespace: starrocks
 
@@ -511,6 +553,21 @@ webNg:
   auth:
     forceLocalLogin: false
     disableSso: false
+  # Demo attaches to the shared envoy gateway in serviceradar-system, so
+  # trust its x-forwarded-for for audit logging.
+  #
+  # ONLY the envoy pod range. web-ng walks x-forwarded-for right-to-left and
+  # reports the first hop that is NOT in this list, so every CIDR here is an
+  # address web-ng will refuse to report as a client. Listing all of RFC1918
+  # put the site LAN in that set: a browser on 192.168.0.0/16 was treated as
+  # a proxy hop, no hop was left, and every login from the LAN was a 500
+  # (v1.4.56). Envoy is the only proxy in front of web-ng, its pods live in
+  # the k3s cluster CIDR, and the web-ng Service is IPv4-only, so the peer
+  # web-ng sees is always in this range.
+  clientIp:
+    trustXForwardedFor: true
+    trustedProxyCidrs:
+      - "10.42.0.0/16"
   publicUrl: "https://demo.serviceradar.cloud"
   # MCP OAuth AS for Authentik SSO testing. Chart default is off. Keep this
   # on the demo overlay so /mcp survives Image Updater rewrite of

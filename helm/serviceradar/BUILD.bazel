@@ -91,6 +91,17 @@ py_test(
     ]) + ["values.yaml"],
 )
 
+# What the published chart package carries. `helm package` honours .helmignore, and
+# the 1.4.68 package shipped this directory's demo overlay (an internal network plan),
+# the demo Argo CD override, BUILD.bazel, the Python tests and tests/. This pins the
+# ignore list in both directions, and classifies every values-*.yaml present so a new
+# environment overlay cannot ship by default.
+py_test(
+    name = "chart_package_contents_test",
+    srcs = ["chart_package_contents_test.py"],
+    data = [".helmignore"] + glob(["values-*.yaml"]) + glob(["charts/**"]),
+)
+
 py_test(
     name = "web_ng_public_url_test",
     srcs = ["web_ng_public_url_test.py"],
@@ -150,8 +161,10 @@ py_test(
         "Chart.yaml",
         "values.yaml",
         "values-demo.yaml",
+        "values-ha.yaml",
         ":helm_unittest_binary",
     ] + glob([
+        "charts/**",
         "crds/**",
         "dashboards/**",
         "files/**",

@@ -279,13 +279,6 @@ serviceradar.io/runtime-tls-revision: {{ default "initial" (default (dict) .Valu
   value: "{{ default "/etc/serviceradar/certs" $vals.coreClient.certDir }}"
 {{- end -}}
 
-{{- define "serviceradar.requireStarRocksForNetFlow" -}}
-{{- $sr := default (dict) (default (dict) .Values.analytics).starrocks -}}
-{{- if not $sr.enabled }}
-{{- fail "flowCollector.enabled requires analytics.starrocks.enabled: NetFlow history is stored in StarRocks. Without StarRocks, logs stay on CNPG hypertables and NetFlow is not collected." }}
-{{- end }}
-{{- end -}}
-
 {{- define "serviceradar.starrocksShadowDatasets" -}}
 {{- $sr := default (dict) (default (dict) .Values.analytics).starrocks -}}
 {{- $shadow := $sr.shadowDatasets | default list -}}
@@ -317,8 +310,47 @@ serviceradar.io/runtime-tls-revision: {{ default "initial" (default (dict) .Valu
     configMapKeyRef:
       name: {{ include "serviceradar.fullname" . }}-starrocks-analytics
       key: database
+{{- $retention := default (dict) $sr.retentionDays }}
+- name: SERVICERADAR_STARROCKS_RETENTION_DAYS_FLOWS
+  value: {{ $retention.flows | default 90 | quote }}
+- name: SERVICERADAR_STARROCKS_RETENTION_DAYS_METRICS
+  value: {{ $retention.metrics | default 90 | quote }}
+- name: SERVICERADAR_STARROCKS_RETENTION_DAYS_LOGS
+  value: {{ $retention.logs | default 365 | quote }}
+- name: SERVICERADAR_STARROCKS_RETENTION_DAYS_EVENTS
+  value: {{ $retention.events | default 365 | quote }}
+{{- /* Not `default`: sprig treats 0 as empty, and 0 is the strictest setting
+       this knob accepts (serve only a fully current view), not an absent one. */}}
+{{- $rollupStaleAfter := 7200 }}
+{{- if not (kindIs "invalid" $sr.rollupStaleAfterSeconds) }}
+{{- $rollupStaleAfter = $sr.rollupStaleAfterSeconds }}
+{{- end }}
+- name: SERVICERADAR_STARROCKS_ROLLUP_STALE_AFTER_SECONDS
+  value: {{ $rollupStaleAfter | quote }}
+{{- /* Same reason as above: 0 is the strictest setting (never reuse a mark),
+       not an absent one. */}}
+{{- $rollupCacheTtl := 60 }}
+{{- if not (kindIs "invalid" $sr.rollupCacheTtlSeconds) }}
+{{- $rollupCacheTtl = $sr.rollupCacheTtlSeconds }}
+{{- end }}
+- name: SERVICERADAR_STARROCKS_ROLLUP_CACHE_TTL_SECONDS
+  value: {{ $rollupCacheTtl | quote }}
 - name: SERVICERADAR_STARROCKS_FE_HTTP
   value: {{ printf "http://%s:%v" $sr.fe.service $sr.fe.httpPort | quote }}
+- name: SERVICERADAR_STARROCKS_FE_HOST
+  value: {{ $sr.fe.service | quote }}
+- name: SERVICERADAR_STARROCKS_FE_QUERY_PORT
+  value: {{ $sr.fe.queryPort | quote }}
+{{- $feSecret := default (dict) $sr.catalog }}
+{{- if $feSecret.fePasswordSecretName }}
+{{- /* Same Frontend account the provisioning Jobs authenticate as (both run
+       `mysql -u root` with this secret), so it has one source of truth. */}}
+- name: SERVICERADAR_STARROCKS_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ $feSecret.fePasswordSecretName | quote }}
+      key: {{ $feSecret.fePasswordSecretKey | default "password" | quote }}
+{{- end }}
 {{- end }}
 {{- end -}}
 
@@ -818,3 +850,191 @@ will see, including ready_state_path/rehome_state_path.
 {{- $_ := set $cfg "rehome_state_path" $rehomePath -}}
 {{- toJson $cfg -}}
 {{- end -}}
+
+{{/*
+Dgraph subchart fullname. Must stay in lockstep with the official chart's
+`dgraph.fullname` (trunc 24): Release.Name-dgraph.
+*/}}
+{{- define "serviceradar.dgraph.fullname" -}}
+{{- printf "%s-dgraph" .Release.Name | trunc 24 | trimSuffix "-" -}}
+{{- end -}}
+
+{{- define "serviceradar.dgraph.alphaFullname" -}}
+{{- printf "%s-alpha" (include "serviceradar.dgraph.fullname" .) -}}
+{{- end -}}
+
+{{- define "serviceradar.dgraph.zeroFullname" -}}
+{{- printf "%s-zero" (include "serviceradar.dgraph.fullname" .) -}}
+{{- end -}}
+
+{{- define "serviceradar.dgraph.aclSecretName" -}}
+{{- printf "%s-acl-secret" (include "serviceradar.dgraph.alphaFullname" .) -}}
+{{- end -}}
+
+{{- define "serviceradar.dgraph.alphaTLSSecretName" -}}
+{{- printf "%s-tls-secret" (include "serviceradar.dgraph.alphaFullname" .) -}}
+{{- end -}}
+
+{{- define "serviceradar.dgraph.zeroTLSSecretName" -}}
+{{- printf "%s-tls-secret" (include "serviceradar.dgraph.zeroFullname" .) -}}
+{{- end -}}
+
+{{/*
+Hostname a client dials. In-chart Service when enabled, else external.host.
+Empty when neither is configured: disabling an optional subsystem must not
+fail the render of every Deployment that happens to include graph.env.
+*/}}
+{{- define "serviceradar.dgraph.host" -}}
+{{- $d := default (dict) .Values.dgraph -}}
+{{- if $d.enabled -}}
+{{- printf "%s.%s.svc.cluster.local" (include "serviceradar.dgraph.alphaFullname" .) .Release.Namespace -}}
+{{- else -}}
+{{- default "" (default (dict) $d.external).host -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Non-empty when some Dgraph is reachable: the in-chart cluster, or a configured
+external host. Empty means the operator opted out of Dgraph entirely.
+*/}}
+{{- define "serviceradar.dgraph.configured" -}}
+{{- if ne (include "serviceradar.dgraph.host" .) "" -}}
+true
+{{- end -}}
+{{- end -}}
+
+{{- define "serviceradar.dgraph.port" -}}
+{{- $d := default (dict) .Values.dgraph -}}
+{{- $ext := default (dict) $d.external -}}
+{{- default 9080 $ext.port -}}
+{{- end -}}
+
+{{/*
+TLS mode for application Dgraph clients. In-chart Alpha always serves TLS;
+external clusters follow dgraph.external.tlsMode. Application pods use
+`require` rather than `verify-ca` so they do not need a CA volume (the schema
+Job still verifies).
+*/}}
+{{- define "serviceradar.dgraph.appTlsMode" -}}
+{{- $d := default (dict) .Values.dgraph -}}
+{{- if $d.enabled -}}
+require
+{{- else -}}
+{{- $ext := default (dict) $d.external -}}
+{{- default "disable" $ext.tlsMode -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Userinfo for an external Dgraph. The chart does not provision that cluster, so
+the credential comes from a Secret the operator already has
+(dgraph.external.credentialsSecret). No secret means no userinfo, which is an
+external cluster with ACL disabled. A credential is never a values literal:
+graph.env renders into a Deployment spec anyone with `get deploy` can read.
+*/}}
+{{- define "serviceradar.dgraph.externalUserinfo" -}}
+{{- $ext := default (dict) (default (dict) .Values.dgraph).external -}}
+{{- if ne (default "" $ext.credentialsSecret) "" -}}
+{{- printf "%s:$(DGRAPH_PASSWORD)@" (default "groot" $ext.username) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+CA the application pods verify an external Dgraph against, when they verify at
+all. The in-chart branch dials `require` and needs none. An external cluster on
+`verify-ca` with no caSecret is verifying against the system trust store, which
+is correct for a publicly issued certificate and needs no volume either.
+*/}}
+{{- define "serviceradar.dgraph.appCaSecret" -}}
+{{- $d := default (dict) .Values.dgraph -}}
+{{- $ext := default (dict) $d.external -}}
+{{- if and (not $d.enabled) (eq (include "serviceradar.dgraph.appTlsMode" .) "verify-ca") -}}
+{{- default "" $ext.caSecret -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "serviceradar.dgraph.caVolumeMount" -}}
+{{- if ne (include "serviceradar.dgraph.appCaSecret" .) "" }}
+- name: dgraph-ca
+  mountPath: /etc/dgraph-ca
+  readOnly: true
+{{- end }}
+{{- end -}}
+
+{{- define "serviceradar.dgraph.caVolume" -}}
+{{- $ext := default (dict) (default (dict) .Values.dgraph).external -}}
+{{- if ne (include "serviceradar.dgraph.appCaSecret" .) "" }}
+- name: dgraph-ca
+  secret:
+    secretName: {{ include "serviceradar.dgraph.appCaSecret" . | quote }}
+    items:
+    - key: {{ default "ca.crt" $ext.caKey | quote }}
+      path: ca.crt
+{{- end }}
+{{- end -}}
+
+{{/*
+`sslrootcert` for the rendered DGRAPH_URL. Without it a `verify-ca` dial checks
+the system trust store, which a private cert-manager CA is not in, so every
+connection fails the handshake.
+*/}}
+{{- define "serviceradar.dgraph.appSslRootCert" -}}
+{{- if ne (include "serviceradar.dgraph.appCaSecret" .) "" -}}
+&sslrootcert=/etc/dgraph-ca/ca.crt
+{{- end -}}
+{{- end -}}
+
+{{/*
+GRAPH_BACKEND / GRAPH_READ / DGRAPH_* for topology writers (core, web-ng).
+With no Dgraph configured this stays on AGE and emits no DGRAPH_* at all.
+The in-chart cluster's groot password is the generated ACL Secret, never a
+literal: kubelet expands $(DGRAPH_PASSWORD) from the preceding entry.
+*/}}
+{{- define "serviceradar.graph.env" -}}
+{{- $graph := default (dict) .Values.graph -}}
+{{- $d := default (dict) .Values.dgraph -}}
+{{- if not (include "serviceradar.dgraph.configured" .) }}
+- name: GRAPH_BACKEND
+  value: "age"
+- name: GRAPH_READ
+  value: "age"
+{{- else }}
+{{- /*
+Dual-write is the default only for the cluster this chart provisions, where it
+also mints the ACL credential and applies the topology schema. An external
+endpoint is neither, so writing to it has to be an explicit opt-in through
+graph.backend rather than a side effect of naming a host.
+*/}}
+- name: GRAPH_BACKEND
+  value: {{ default (ternary "dual" "age" (not (not $d.enabled))) $graph.backend | quote }}
+- name: GRAPH_READ
+  value: {{ default "age" $graph.read | quote }}
+- name: DGRAPH_HOST
+  value: {{ include "serviceradar.dgraph.host" . | quote }}
+- name: DGRAPH_PORT
+  value: {{ include "serviceradar.dgraph.port" . | quote }}
+- name: DGRAPH_TLS_MODE
+  value: {{ include "serviceradar.dgraph.appTlsMode" . | quote }}
+{{- if $d.enabled }}
+- name: DGRAPH_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "serviceradar.dgraph.aclSecretName" . | quote }}
+      key: groot_password
+- name: DGRAPH_URL
+  value: {{ printf "dgraph://groot:$(DGRAPH_PASSWORD)@%s:%s?sslmode=%s" (include "serviceradar.dgraph.host" .) (include "serviceradar.dgraph.port" .) (include "serviceradar.dgraph.appTlsMode" .) | quote }}
+{{- else }}
+{{- $ext := default (dict) $d.external }}
+{{- if ne (default "" $ext.credentialsSecret) "" }}
+- name: DGRAPH_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ $ext.credentialsSecret | quote }}
+      key: {{ default "password" $ext.credentialsKey | quote }}
+{{- end }}
+- name: DGRAPH_URL
+  value: {{ printf "dgraph://%s%s:%s?sslmode=%s%s" (include "serviceradar.dgraph.externalUserinfo" .) (include "serviceradar.dgraph.host" .) (include "serviceradar.dgraph.port" .) (include "serviceradar.dgraph.appTlsMode" .) (include "serviceradar.dgraph.appSslRootCert" .) | quote }}
+{{- end }}
+{{- end }}
+{{- end -}}
+

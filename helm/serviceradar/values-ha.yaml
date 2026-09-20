@@ -1,10 +1,15 @@
 # High-availability overlay for production-like ServiceRadar installs.
 #
-# Usage:
-#   helm upgrade --install serviceradar ./helm/serviceradar \
-#     -n <namespace> \
-#     -f helm/serviceradar/values.yaml \
-#     -f helm/serviceradar/values-ha.yaml
+# Usage (no repository checkout needed; this overlay ships inside the chart):
+#   helm pull oci://registry.carverauto.dev/serviceradar/charts/serviceradar \
+#     --version <chart-version> --untar --untardir serviceradar-<chart-version>
+#   helm upgrade --install serviceradar oci://registry.carverauto.dev/serviceradar/charts/serviceradar \
+#     --version <chart-version> \
+#     -n <namespace> --create-namespace \
+#     -f serviceradar-<chart-version>/serviceradar/values-ha.yaml \
+#     -f my-values.yaml
+#
+# List your own values file last so its site overrides win.
 #
 # This mirrors the demo namespace control-plane shape without carrying
 # demo-specific hostnames, MetalLB addresses, or sample-data services.
@@ -64,6 +69,73 @@ core:
 
 agentGateway:
   replicas: 3
+
+# HA Dgraph: 3 Zero, 3 Alpha, RF=3. TLS between nodes (internal-port).
+dgraph:
+  enabled: true
+  zero:
+    replicaCount: 3
+    shardReplicaCount: 3
+    antiAffinity: soft
+    persistence:
+      enabled: true
+      size: 16Gi
+    tls:
+      enabled: true
+      files: {}
+    livenessProbe:
+      enabled: false
+    readinessProbe:
+      enabled: false
+    customLivenessProbe:
+      httpGet:
+        path: /health
+        port: 6080
+        scheme: HTTPS
+      initialDelaySeconds: 15
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 6
+      successThreshold: 1
+    customReadinessProbe:
+      httpGet:
+        path: /state
+        port: 6080
+        scheme: HTTPS
+      initialDelaySeconds: 15
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 6
+      successThreshold: 1
+    extraFlags: >-
+      --tls "ca-cert=/dgraph/tls/ca.crt; server-cert=/dgraph/tls/tls.crt;
+      server-key=/dgraph/tls/tls.key; client-cert=/dgraph/tls/tls.crt;
+      client-key=/dgraph/tls/tls.key; internal-port=true"
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: "2"
+        memory: 4Gi
+  alpha:
+    replicaCount: 3
+    antiAffinity: soft
+    persistence:
+      enabled: true
+      size: 32Gi
+    extraFlags: >-
+      --tls "ca-cert=/dgraph/tls/ca.crt; server-cert=/dgraph/tls/tls.crt;
+      server-key=/dgraph/tls/tls.key; client-cert=/dgraph/tls/tls.crt;
+      client-key=/dgraph/tls/tls.key; internal-port=true"
+      --acl "secret-file=/dgraph/acl/hmac_secret_file"
+    resources:
+      requests:
+        cpu: "1"
+        memory: 2Gi
+      limits:
+        cpu: "4"
+        memory: 8Gi
 
 datasvc:
   replicaCount: 3
