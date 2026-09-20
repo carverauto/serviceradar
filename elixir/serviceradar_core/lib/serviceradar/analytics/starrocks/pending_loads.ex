@@ -44,13 +44,18 @@ defmodule ServiceRadar.Analytics.StarRocks.PendingLoads do
   # of holding the producing run on dozens of sequential Stream Loads.
   @drain_limit 10
 
-  # A replay runs after the producing worker has already alerted and
-  # rescheduled, so it only holds an Oban slot; a short timeout keeps the
-  # bounded worst case (limit x timeout) to a couple of minutes.
+  # A hung FE costs this twice per record, not once: the Stream Load PUT
+  # times out and `StreamLoad` then reconciles the label with a second
+  # request under the same budget.
   @drain_http_timeout_ms 15_000
 
-  # Long enough to cover a full drain pass at that worst case, so a batch a
-  # live drain still holds is not due for anyone else. A drain killed
+  # A pass stops starting replays once this much wall clock has gone and
+  # leaves the rest due, so the producing run holds its Oban slot for about
+  # one schedule interval however slowly the FE answers.
+  @drain_pass_deadline_ms 60_000
+
+  # Covers a pass that runs to its deadline plus the record still in flight,
+  # so a batch a live drain holds is not due for anyone else. A drain killed
   # mid-pass releases its rows when the window lapses.
   @drain_claim_seconds 300
 
@@ -104,9 +109,11 @@ defmodule ServiceRadar.Analytics.StarRocks.PendingLoads do
   @doc """
   Replays due quarantined batches, oldest first.
 
-  Accepts `:persist` (default `&StreamLoad.persist/3`) and `:http` forwarded
-  to it. At most #{@drain_limit} batches replay per call; per-batch failures
-  defer the batch with backoff instead of failing the drain.
+  Accepts `:persist` (default `&StreamLoad.persist/3`), `:http` forwarded to
+  it, and `:deadline_ms` (default #{@drain_pass_deadline_ms}) bounding the
+  pass. At most #{@drain_limit} batches replay per call; per-batch failures
+  defer the batch with backoff instead of failing the drain. Batches the
+  deadline leaves unattempted are released still due and counted `released`.
   """
   @spec drain_due(keyword()) ::
           {:ok,
@@ -115,23 +122,57 @@ defmodule ServiceRadar.Analytics.StarRocks.PendingLoads do
              quarantined: non_neg_integer(),
              deferred: non_neg_integer(),
              dead_lettered: non_neg_integer(),
-             skipped: non_neg_integer()
+             skipped: non_neg_integer(),
+             released: non_neg_integer()
            }}
   def drain_due(opts \\ []) do
-    empty = %{drained: 0, quarantined: 0, deferred: 0, dead_lettered: 0, skipped: 0}
+    deadline =
+      System.monotonic_time(:millisecond) +
+        Keyword.get(opts, :deadline_ms, @drain_pass_deadline_ms)
 
-    summary =
-      Enum.reduce(claim_due(), empty, fn record, acc ->
-        case drain_record(record, opts) do
-          :drained -> %{acc | drained: acc.drained + 1}
-          :quarantined -> %{acc | quarantined: acc.quarantined + 1}
-          :deferred -> %{acc | deferred: acc.deferred + 1}
-          :dead_lettered -> %{acc | dead_lettered: acc.dead_lettered + 1}
-          :skipped -> %{acc | skipped: acc.skipped + 1}
-        end
-      end)
+    empty = %{drained: 0, quarantined: 0, deferred: 0, dead_lettered: 0, skipped: 0, released: 0}
+    {due, due_at} = claim_due()
+    {summary, leftover} = drain_records(due, deadline, opts, empty)
 
-    {:ok, summary}
+    release(leftover, due_at)
+
+    {:ok, %{summary | released: length(leftover)}}
+  end
+
+  defp drain_records([], _deadline, _opts, acc), do: {acc, []}
+
+  defp drain_records([record | rest] = remaining, deadline, opts, acc) do
+    if System.monotonic_time(:millisecond) >= deadline do
+      {acc, remaining}
+    else
+      drain_records(rest, deadline, opts, tally(acc, drain_record(record, opts)))
+    end
+  end
+
+  defp tally(acc, outcome) do
+    case outcome do
+      :drained -> %{acc | drained: acc.drained + 1}
+      :quarantined -> %{acc | quarantined: acc.quarantined + 1}
+      :deferred -> %{acc | deferred: acc.deferred + 1}
+      :dead_lettered -> %{acc | dead_lettered: acc.dead_lettered + 1}
+      :skipped -> %{acc | skipped: acc.skipped + 1}
+    end
+  end
+
+  # The claim pushed these past due so no one else would take them; the pass
+  # ran out of time before reaching them, so hand them back still due.
+  defp release([], _due_at), do: :ok
+
+  defp release(records, due_at) do
+    ids = Enum.map(records, & &1.id)
+
+    Repo.update_all(from(r in Record, where: r.id in ^ids), set: [next_retry_at: due_at])
+
+    Logger.info("StarRocks drain pass reached its deadline; remaining batches left due",
+      released: length(ids)
+    )
+
+    :ok
   end
 
   # Drains overlap by design: the producing worker queues its successor
@@ -163,7 +204,7 @@ defmodule ServiceRadar.Analytics.StarRocks.PendingLoads do
         due
       end)
 
-    due
+    {due, now}
   end
 
   # One record's failure costs that record, not the rest of the pass. The

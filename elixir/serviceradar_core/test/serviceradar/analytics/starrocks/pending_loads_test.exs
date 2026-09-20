@@ -235,6 +235,29 @@ defmodule ServiceRadar.Analytics.StarRocks.PendingLoadsTest do
     assert Repo.aggregate(Record, :count) == 0
   end
 
+  test "drain_due stops at its deadline and leaves the rest due" do
+    for n <- 1..3, do: insert_pending!("sr-deadline-#{n}", 100 - n)
+
+    caller = self()
+
+    slow = fn _table, _rows, opts ->
+      send(caller, {:replayed, opts[:label]})
+      Process.sleep(200)
+      {:ok, %{label: opts[:label], loaded: 1}}
+    end
+
+    assert {:ok, %{drained: 1, skipped: 0, released: 2}} =
+             PendingLoads.drain_due(persist: slow, deadline_ms: 50)
+
+    assert_received {:replayed, "sr-deadline-1"}
+    refute_received {:replayed, _}
+
+    now = NaiveDateTime.utc_now()
+
+    assert [%Record{label: "sr-deadline-2"}, %Record{label: "sr-deadline-3"}] =
+             Repo.all(from(r in Record, where: r.next_retry_at <= ^now, order_by: r.label))
+  end
+
   test "drain_due replays at most ten batches per run" do
     for n <- 1..11, do: insert_pending!("sr-bounded-#{n}", 100 - n)
 
