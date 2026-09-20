@@ -107,6 +107,7 @@ fn test_config(database_url: String, tls_config: &FixtureTlsConfig) -> AppConfig
         listen_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
         database_url,
         age_graph_name: "platform_graph".to_string(),
+        starrocks_database: "serviceradar".to_string(),
         max_pool_size: 5,
         database_ca_pem: tls_config.ca_pem.clone(),
         database_client_cert_pem: tls_config.client_cert_pem.clone(),

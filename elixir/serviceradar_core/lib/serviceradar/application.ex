@@ -66,6 +66,9 @@ defmodule ServiceRadar.Application do
         # Database (can be disabled for standalone tests)
         repo_child(),
         control_repo_child(),
+        starrocks_mysql_child(),
+        starrocks_rollup_freshness_cache_child(),
+        starrocks_retention_child(),
 
         # Supervise asynchronous config dependency notifications so shutdown and
         # database ownership boundaries can drain them deterministically.
@@ -213,6 +216,18 @@ defmodule ServiceRadar.Application do
     if control_repo_enabled?() do
       ServiceRadar.ControlRepo
     end
+  end
+
+  defp starrocks_mysql_child do
+    ServiceRadar.Analytics.StarRocks.MySQL.child_spec([])
+  end
+
+  defp starrocks_rollup_freshness_cache_child do
+    ServiceRadar.Analytics.StarRocks.RollupFreshnessCache.child_spec([])
+  end
+
+  defp starrocks_retention_child do
+    ServiceRadar.Analytics.StarRocks.Retention.child_spec([])
   end
 
   defp as_lookup_child do

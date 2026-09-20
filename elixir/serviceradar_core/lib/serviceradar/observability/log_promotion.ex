@@ -6,6 +6,7 @@ defmodule ServiceRadar.Observability.LogPromotion do
   import Ash.Expr
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Analytics.StarRocks.Destination
   alias ServiceRadar.EventWriter.BulkInsert
   alias ServiceRadar.EventWriter.FalcoDecomposition
   alias ServiceRadar.EventWriter.OCSF
@@ -144,6 +145,8 @@ defmodule ServiceRadar.Observability.LogPromotion do
     if count > 0 do
       ServiceRadar.Events.PubSub.broadcast_event(%{count: count})
     end
+
+    _ = Destination.persist_after_cnpg(:events, events)
 
     :telemetry.execute(
       [:serviceradar, :log_promotion, :events_created],

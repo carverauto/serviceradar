@@ -488,6 +488,22 @@ Operational notes:
 - Keep migrations and bootstrap direct to `cnpg-rw`; PgBouncer transaction
   pooling is not appropriate for DDL, extension setup, or migration locks.
 
+## Optional StarRocks Analytics
+
+`analytics.starrocks.*` enables an opt-in telemetry warehouse for flows, scalar
+metrics, logs and event history. It is off by default, and NetFlow collection
+does not depend on it (`flowCollector.enabled` is independent). Metric, log and
+event reads stay on CNPG until the dataset is named in
+`analytics.starrocks.cutoverDatasets`. **Flow reads are the exception: they are
+warehouse-only.** Until `flows` is listed there, the NetFlow dashboard and
+`in:flows` are refused with a warehouse-required error rather than answered from
+CNPG, which stays the flow write target only.
+
+The chart does not create the warehouse schema. Cluster install, the DDL under
+`elixir/serviceradar_core/priv/starrocks/`, the CNPG JDBC catalog and its reader
+role are documented in `k8s/starrocks/README.md`. Per-key defaults, including
+retention, are commented in the chart's `values.yaml`.
+
 ## Deployment Provisioning
 
 ServiceRadar does not provision per-customer workloads from inside the Helm chart.

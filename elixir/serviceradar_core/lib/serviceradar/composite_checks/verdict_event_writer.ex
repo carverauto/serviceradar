@@ -14,6 +14,7 @@ defmodule ServiceRadar.CompositeChecks.VerdictEventWriter do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Analytics.StarRocks.Destination
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Monitoring.OcsfEvent
 
@@ -37,7 +38,8 @@ defmodule ServiceRadar.CompositeChecks.VerdictEventWriter do
            actor: SystemActor.system(:composite_check_verdict_writer),
            domain: ServiceRadar.Monitoring
          ) do
-      {:ok, _event} ->
+      {:ok, event} ->
+        _ = Destination.persist_after_cnpg(:events, [event])
         :ok
 
       {:error, error} ->

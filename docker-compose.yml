@@ -440,6 +440,22 @@ services:
       - NATS_TLS=true
       - NATS_SERVER_NAME=nats.serviceradar
       - NATS_CREDS_FILE=/etc/serviceradar/creds/platform.creds
+      # StarRocks warehouse. Default off so Compose without --profile starrocks
+      # keeps logs on CNPG. Set STARROCKS_ENABLED=true with that profile.
+      - SERVICERADAR_STARROCKS_ENABLED=${STARROCKS_ENABLED:-false}
+      - SERVICERADAR_STARROCKS_FE_HTTP=${STARROCKS_FE_HTTP:-http://starrocks:8030}
+      - SERVICERADAR_STARROCKS_FE_HOST=${STARROCKS_FE_HOST:-starrocks}
+      - SERVICERADAR_STARROCKS_FE_QUERY_PORT=${STARROCKS_FE_QUERY_PORT:-9030}
+      - SERVICERADAR_STARROCKS_DATABASE=${STARROCKS_DATABASE:-serviceradar}
+      - SERVICERADAR_STARROCKS_RETENTION_DAYS_FLOWS=${STARROCKS_RETENTION_DAYS_FLOWS:-90}
+      - SERVICERADAR_STARROCKS_RETENTION_DAYS_METRICS=${STARROCKS_RETENTION_DAYS_METRICS:-90}
+      - SERVICERADAR_STARROCKS_RETENTION_DAYS_LOGS=${STARROCKS_RETENTION_DAYS_LOGS:-365}
+      - SERVICERADAR_STARROCKS_RETENTION_DAYS_EVENTS=${STARROCKS_RETENTION_DAYS_EVENTS:-365}
+      - SERVICERADAR_STARROCKS_ROLLUP_STALE_AFTER_SECONDS=${STARROCKS_ROLLUP_STALE_AFTER_SECONDS:-7200}
+      - SERVICERADAR_STARROCKS_ROLLUP_CACHE_TTL_SECONDS=${STARROCKS_ROLLUP_CACHE_TTL_SECONDS:-60}
+      - SERVICERADAR_STARROCKS_SHADOW_DATASETS=${STARROCKS_SHADOW_DATASETS:-}
+      - SERVICERADAR_STARROCKS_CUTOVER_DATASETS=${STARROCKS_CUTOVER_DATASETS:-}
+      - SERVICERADAR_STARROCKS_CATALOG_ENABLED=${STARROCKS_CATALOG_ENABLED:-false}
       # OpenTelemetry
       - OTEL_EXPORTER_OTLP_ENDPOINT=https://log-collector:4317
       - OTEL_EXPORTER_OTLP_TIMEOUT_MS=${OTEL_EXPORTER_OTLP_TIMEOUT_MS:-30000}
@@ -718,10 +734,84 @@ services:
       - serviceradar-net
     restart: unless-stopped
 
+  # Optional StarRocks warehouse. Off in the default stack, where every dataset
+  # is written to CNPG hypertables and metrics, logs and events are read back
+  # from them. Flow READS are warehouse-only: without the warehouse and the
+  # `flows` cutover, the NetFlow dashboard and `in:flows` are refused rather than
+  # served from CNPG. `--profile starrocks` starts the warehouse; it is
+  # independent of the collector profiles. Set STARROCKS_ENABLED=true in the
+  # environment when using it.
+  starrocks:
+    image: starrocks/allin1-ubuntu:3.5.21
+    container_name: serviceradar-starrocks
+    hostname: starrocks
+    profiles:
+      - starrocks
+    ports:
+      - "8030:8030"
+      - "9030:9030"
+      - "8040:8040"
+    volumes:
+      - starrocks-data:/data
+      - ./logs:/opt/starrocks/logs
+    networks:
+      - serviceradar-net
+    restart: unless-stopped
+
+  # Creates the warehouse schema the `starrocks` profile needs. Compose runs the
+  # single-BE allin1 image, which cannot satisfy the `replication_num = 3` the
+  # shipped DDL pins for a real cluster, so the copies are rewritten to 1 on the
+  # way in. The DDL also pins the database name, which STARROCKS_DATABASE
+  # overrides for every reader and Stream Load, so it is retargeted the same
+  # way. Only 0001-0005 and 0016 are applied: 0006-0015 add columns already
+  # declared in 0001-0005, and 0014 is documentation. 0016 rebuilds the flow
+  # rollup, which 0005 cannot correct on a warehouse that already has it, so it
+  # drops and recreates that one view; every other statement is
+  # CREATE ... IF NOT EXISTS, so re-running the profile is otherwise a no-op.
+  # `--skip-comments` is required: the client preserves comments by default
+  # since MySQL 8.0.16, so each file's leading `-- ...` header is forwarded to
+  # the Frontend as a statement of its own and StarRocks rejects it with
+  # "Unexpected input '<EOF>'", aborting the loop on the first file.
+  starrocks-init:
+    image: mysql:8.4
+    container_name: serviceradar-starrocks-init
+    profiles:
+      - starrocks
+    restart: "no"
+    environment:
+      - STARROCKS_DATABASE=${STARROCKS_DATABASE:-serviceradar}
+    volumes:
+      - ./elixir/serviceradar_core/priv/starrocks:/schema:ro
+    depends_on:
+      starrocks:
+        condition: service_started
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        until mysql -h starrocks -P 9030 -u root --protocol=TCP -e 'SELECT 1' >/dev/null 2>&1; do
+          echo 'waiting for the StarRocks frontend'
+          sleep 5
+        done
+        until mysql -h starrocks -P 9030 -u root --protocol=TCP -N -e 'SHOW BACKENDS' 2>/dev/null | grep -q true; do
+          echo 'waiting for a live StarRocks backend'
+          sleep 5
+        done
+        for schema_file in /schema/0001_*.sql /schema/0002_*.sql /schema/0003_*.sql /schema/0004_*.sql /schema/0005_*.sql /schema/0016_*.sql; do
+          echo "applying $$(basename "$$schema_file")"
+          sed -e 's/"replication_num" = "3"/"replication_num" = "1"/' \
+              -e "s/EXISTS serviceradar;/EXISTS $$STARROCKS_DATABASE;/" \
+              -e "s/serviceradar\./$$STARROCKS_DATABASE./g" "$$schema_file" \
+            | mysql -h starrocks -P 9030 -u root --protocol=TCP --skip-comments
+        done
+        echo 'starrocks schema ready'
+    networks:
+      - serviceradar-net
+
   # Optional network-ingest collectors are disabled in the default compose stack.
   # Enable all with `docker compose --profile network-ingest up -d`, or enable
   # individual collectors with `--profile snmp-traps`, `--profile flows`, or
-  # `--profile bmp`.
+  # `--profile bmp`. The collector stays off unless that profile is selected.
   trapd:
     image: registry.carverauto.dev/serviceradar/serviceradar-trapd:${APP_TAG:-latest}
     container_name: serviceradar-trapd-mtls
@@ -991,6 +1081,20 @@ services:
       - SERVICERADAR_GATEWAY_ADDR=${SERVICERADAR_GATEWAY_ADDR:-${SERVICERADAR_HOST:-localhost}:50052}
       - NATS_URL=${NATS_URL:-nats://nats:4222}
       - CORE_ADDRESS=${CORE_ADDRESS:-core-elx:50052}
+      - SERVICERADAR_STARROCKS_ENABLED=${STARROCKS_ENABLED:-false}
+      - SERVICERADAR_STARROCKS_FE_HTTP=${STARROCKS_FE_HTTP:-http://starrocks:8030}
+      - SERVICERADAR_STARROCKS_FE_HOST=${STARROCKS_FE_HOST:-starrocks}
+      - SERVICERADAR_STARROCKS_FE_QUERY_PORT=${STARROCKS_FE_QUERY_PORT:-9030}
+      - SERVICERADAR_STARROCKS_DATABASE=${STARROCKS_DATABASE:-serviceradar}
+      - SERVICERADAR_STARROCKS_RETENTION_DAYS_FLOWS=${STARROCKS_RETENTION_DAYS_FLOWS:-90}
+      - SERVICERADAR_STARROCKS_RETENTION_DAYS_METRICS=${STARROCKS_RETENTION_DAYS_METRICS:-90}
+      - SERVICERADAR_STARROCKS_RETENTION_DAYS_LOGS=${STARROCKS_RETENTION_DAYS_LOGS:-365}
+      - SERVICERADAR_STARROCKS_RETENTION_DAYS_EVENTS=${STARROCKS_RETENTION_DAYS_EVENTS:-365}
+      - SERVICERADAR_STARROCKS_ROLLUP_STALE_AFTER_SECONDS=${STARROCKS_ROLLUP_STALE_AFTER_SECONDS:-7200}
+      - SERVICERADAR_STARROCKS_ROLLUP_CACHE_TTL_SECONDS=${STARROCKS_ROLLUP_CACHE_TTL_SECONDS:-60}
+      - SERVICERADAR_STARROCKS_SHADOW_DATASETS=${STARROCKS_SHADOW_DATASETS:-}
+      - SERVICERADAR_STARROCKS_CUTOVER_DATASETS=${STARROCKS_CUTOVER_DATASETS:-}
+      - SERVICERADAR_STARROCKS_CATALOG_ENABLED=${STARROCKS_CATALOG_ENABLED:-false}
       - CLUSTER_ENABLED=true
       - CLUSTER_STRATEGY=epmd
       - CLUSTER_HOSTS=serviceradar_agent_gateway@agent-gateway,serviceradar_core@core-elx,serviceradar_agent_gateway_t2@agent-gateway-t2
@@ -1130,6 +1234,8 @@ volumes:
   log-collector-data:
   trapd-data:
   flow-data:
+  starrocks-data:
+    name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_starrocks-data"
   bmp-data:
   coldtier-minio-data:
     name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_coldtier-minio-data"

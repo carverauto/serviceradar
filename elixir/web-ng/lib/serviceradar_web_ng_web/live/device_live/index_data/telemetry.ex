@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.DeviceLive.IndexData.Telemetry do
   @moduledoc false
 
+  alias ServiceRadarWebNGWeb.DeviceLive.ICMPData
+
   @sparkline_device_cap 200
   @sparkline_points_per_device 20
   @sparkline_bucket "5m"
@@ -32,27 +34,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexData.Telemetry do
     if device_uids == [] do
       {%{}, nil}
     else
-      query =
-        Enum.join(
-          [
-            "in:timeseries_metrics",
-            "metric_type:icmp",
-            "uid:(#{Enum.map_join(device_uids, ",", &escape_list_value/1)})",
-            "time:#{@sparkline_window}",
-            "bucket:#{@sparkline_bucket}",
-            "agg:avg",
-            "series:uid",
-            "limit:#{min(length(device_uids) * @sparkline_points_per_device, 4000)}"
-          ],
-          " "
-        )
-
-      case srql_module.query(query, %{scope: scope}) do
-        {:ok, %{"results" => rows}} when is_list(rows) ->
+      case ICMPData.load(srql_module, device_uids, scope,
+             time_range: @sparkline_window,
+             bucket: @sparkline_bucket,
+             aggregate: :avg,
+             limit: min(length(device_uids) * @sparkline_points_per_device, 4000)
+           ) do
+        {:ok, rows} ->
           {build_icmp_sparklines(rows), nil}
-
-        {:ok, other} ->
-          {%{}, "unexpected SRQL response: #{inspect(other)}"}
 
         {:error, reason} ->
           {%{}, format_error(reason)}

@@ -99,6 +99,8 @@ defmodule ServiceRadarCore.MixProject do
       # Database
       {:ecto_sql, "~> 3.10"},
       {:postgrex, ">= 0.0.0"},
+      # StarRocks Frontend query port (MySQL protocol). Stream Load stays HTTP.
+      {:myxql, "~> 0.8"},
 
       # Distributed systems
       {:horde, "~> 0.9"},

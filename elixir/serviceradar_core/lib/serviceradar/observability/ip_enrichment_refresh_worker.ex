@@ -24,6 +24,7 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
   alias Oban.Engine
   alias Oban.Job
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Analytics.StarRocks.Readers
   alias ServiceRadar.Observability.GeoIP
   alias ServiceRadar.Observability.IpGeoEnrichmentCache
   alias ServiceRadar.Observability.IpInfo
@@ -127,7 +128,28 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
   def timeout(_job), do: div(to_timeout(minute: stale_executing_minutes()), 2)
 
   @impl Oban.Worker
-  def perform(_job) do
+  def perform(job) do
+    # Flows are warehouse-only. Until the dataset is cut over there is nothing
+    # to read, and every helper below degrades an empty read to "no traffic",
+    # so the refusal is said out loud here rather than looking like an idle
+    # network forever -- but at debug, because the scheduler re-arms this job
+    # every minute and a stock install has flows uncut forever. It is a
+    # configured state, not a job failure, so the pass reports itself
+    # inapplicable and does nothing else.
+    case Readers.mode_for(:flows) do
+      {:error, :starrocks_required} ->
+        Logger.debug(
+          "#{inspect(__MODULE__)}: flows are not cut over to StarRocks; skipping this pass"
+        )
+
+        {:ok, :not_applicable}
+
+      _mode ->
+        refresh(job)
+    end
+  end
+
+  defp refresh(_job) do
     config = Application.get_env(:serviceradar_core, __MODULE__, [])
     scan_window = Keyword.get(config, :scan_window, @default_scan_window)
     limit = Keyword.get(config, :limit, @default_limit)

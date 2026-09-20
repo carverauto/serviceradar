@@ -428,12 +428,6 @@ otx_raw_storage =
     _ -> :file
   end
 
-# Terminal agent_command pruning (platform.agent_commands has a documented
-# bloat history, so these are incident-response levers).
-config :serviceradar_core, ServiceRadar.Edge.AgentCommandCleanupWorker,
-  retention_days: "AGENT_COMMAND_RETENTION_DAYS" |> parse_int_env.(2) |> max(1),
-  reschedule_seconds: "AGENT_COMMAND_CLEANUP_INTERVAL_SECONDS" |> parse_int_env.(3_600) |> max(60)
-
 # ---------------------------------------------------------------------------
 # Config blocks owned by the serviceradar_core APPLICATION.
 #
@@ -462,6 +456,19 @@ config :serviceradar_core, ServiceRadar.Edge.AgentCommandCleanupWorker,
 #
 # Keep in sync with elixir/serviceradar_core/config/runtime.exs.
 # ---------------------------------------------------------------------------
+
+# EventWriter shadow/cutover destination. Helm injects SERVICERADAR_STARROCKS_*
+# on this release; without this block those env vars are inert and Destination
+# reads enabled: false.
+config :serviceradar_core,
+       ServiceRadar.Analytics.StarRocks,
+       ServiceRadar.Analytics.StarRocks.Env.config()
+
+# Terminal agent_command pruning (platform.agent_commands has a documented
+# bloat history, so these are incident-response levers).
+config :serviceradar_core, ServiceRadar.Edge.AgentCommandCleanupWorker,
+  retention_days: "AGENT_COMMAND_RETENTION_DAYS" |> parse_int_env.(2) |> max(1),
+  reschedule_seconds: "AGENT_COMMAND_CLEANUP_INTERVAL_SECONDS" |> parse_int_env.(3_600) |> max(60)
 
 # Canonical-topology rebuild + its mass-deletion guardrail. The guard refuses a
 # stale-prune pass deleting more than canonical_prune_max_fraction of the

@@ -11,6 +11,9 @@ pub struct AppConfig {
     pub listen_addr: SocketAddr,
     pub database_url: String,
     pub age_graph_name: String,
+    /// Warehouse database the StarRocks compiler qualifies tables with. Must match
+    /// `SERVICERADAR_STARROCKS_DATABASE` / Helm `analytics.starrocks.database`.
+    pub starrocks_database: String,
     pub max_pool_size: u32,
     /// PEM CONTENT, not paths. A path is meaningful only on the host that resolves it, and
     /// SecretManager yields content because the same secret is a Kubernetes secret, a Docker
@@ -164,6 +167,7 @@ impl AppConfig {
             listen_addr,
             database_url,
             age_graph_name,
+            starrocks_database: starrocks_database_from_env(),
             max_pool_size: raw.srql_max_pool_size,
             database_ca_pem: tls.ca_pem,
             database_client_cert_pem: tls.client_cert_pem,
@@ -192,6 +196,7 @@ impl AppConfig {
             listen_addr: "127.0.0.1:0".parse().expect("valid socket addr"),
             database_url,
             age_graph_name: "platform_graph".to_string(),
+            starrocks_database: starrocks_database_from_env(),
             max_pool_size: default_pool_size(),
             database_ca_pem: None,
             database_client_cert_pem: None,
@@ -209,6 +214,13 @@ impl AppConfig {
             rate_limit_max_requests: default_rate_limit_requests(),
             rate_limit_window: Duration::from_secs(default_rate_limit_window_secs()),
         }
+    }
+}
+
+pub fn starrocks_database_from_env() -> String {
+    match std::env::var("SERVICERADAR_STARROCKS_DATABASE") {
+        Ok(value) if !value.trim().is_empty() => value.trim().to_string(),
+        _ => "serviceradar".to_string(),
     }
 }
 

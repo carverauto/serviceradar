@@ -1,0 +1,169 @@
+# Lab StarRocksCluster. Chart: starrocks/starrocks 1.11.7
+# Shared-nothing FE+BE. Not the hosted shared-data (CN + object storage) profile.
+#
+# Pin: StarRocks 3.5.21 (not 4.1-latest / not :latest).
+# Namespace: starrocks (baseline). Operator is a separate Helm release.
+#
+# Deploy:
+#   kubectl apply -f k8s/starrocks/namespace.yaml
+#   helm upgrade --install starrocks-lab starrocks/starrocks \
+#     --namespace starrocks --version 1.11.7 -f k8s/starrocks/values-cluster.yaml
+
+nameOverride: lab
+timeZone: UTC
+
+initPassword:
+  enabled: false
+
+starrocksCluster:
+  name: lab
+  enabledBe: true
+  enabledCn: false
+  waitForFullRollout: true
+  componentValues:
+    image:
+      tag: "3.5.21"
+    runAsNonRoot: false
+
+starrocksFESpec:
+  replicas: 3
+  image:
+    repository: starrocks/fe-ubuntu
+    tag: "3.5.21"
+  imagePullPolicy: IfNotPresent
+  runAsNonRoot: false
+  service:
+    type: ClusterIP
+  resources:
+    requests:
+      cpu: "2"
+      memory: 8Gi
+    limits:
+      # CFS throttling on vectorized FE threads. Memory is the bound that matters.
+      cpu: "unlimited"
+      memory: 10Gi
+  storageSpec:
+    name: fe
+    storageClassName: local-path
+    storageSize: 20Gi
+    logStorageSize: 5Gi
+  # JDBC driver for cnpg_platform. Chart 1.11.7 only emits extra volumes from
+  # emptyDirs/hostPaths/csiVolumes — values storageVolumes is ignored and a
+  # PVC named jdbc never reaches the StatefulSet. emptyDir is shared with the
+  # initContainer; wget re-runs on a new pod if the checksum is missing.
+  emptyDirs:
+    - name: jdbc
+      mountPath: /opt/starrocks/jdbc
+  initContainers:
+    - name: postgresql-jdbc
+      image: alpine:3.21.3
+      command:
+        - sh
+        - -c
+        - |
+          set -eu
+          dest=/opt/starrocks/jdbc/postgresql.jar
+          want=6e0e4cc2d8cae902084f8a2b18728b073a6fd9d1f87c9d8bff8f298c18185b93
+          if [ -f "$dest" ] && echo "$want  $dest" | sha256sum -c; then
+            exit 0
+          fi
+          url="https://repo1.maven.org/maven2/org/postgresql/postgresql/42.7.13/postgresql-42.7.13.jar"
+          i=0
+          while [ "$i" -lt 5 ]; do
+            if wget -T 30 -O "$dest" "$url"; then
+              break
+            fi
+            i=$((i + 1))
+            sleep 2
+          done
+          echo "$want  $dest" | sha256sum -c
+      volumeMounts:
+        - name: jdbc
+          mountPath: /opt/starrocks/jdbc
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            topologyKey: kubernetes.io/hostname
+            labelSelector:
+              matchLabels:
+                app.starrocks.io/component: fe
+  config: |
+    LOG_DIR = ${STARROCKS_HOME}/log
+    DATE = "$(date +%Y%m%d-%H%M%S)"
+    JAVA_OPTS="-Dlog4j2.formatMsgNoLookups=true -Xmx6g -XX:+UseG1GC -Xlog:gc*:${LOG_DIR}/fe.gc.log.$DATE:time"
+    http_port = 8030
+    rpc_port = 9020
+    query_port = 9030
+    edit_log_port = 9010
+    mysql_service_nio_enabled = true
+    sys_log_level = INFO
+    min_graceful_exit_time_second = 25
+
+starrocksBeSpec:
+  replicas: 3
+  image:
+    repository: starrocks/be-ubuntu
+    tag: "3.5.21"
+  imagePullPolicy: IfNotPresent
+  runAsNonRoot: false
+  service:
+    type: ClusterIP
+  resources:
+    requests:
+      cpu: "2"
+      memory: 8Gi
+    limits:
+      cpu: "unlimited"
+      memory: 10Gi
+  storageSpec:
+    name: be
+    storageClassName: local-path
+    storageSize: 50Gi
+    logStorageSize: 5Gi
+  emptyDirs:
+    - name: jdbc
+      mountPath: /opt/starrocks/jdbc
+  initContainers:
+    - name: postgresql-jdbc
+      image: alpine:3.21.3
+      command:
+        - sh
+        - -c
+        - |
+          set -eu
+          dest=/opt/starrocks/jdbc/postgresql.jar
+          want=6e0e4cc2d8cae902084f8a2b18728b073a6fd9d1f87c9d8bff8f298c18185b93
+          if [ -f "$dest" ] && echo "$want  $dest" | sha256sum -c; then
+            exit 0
+          fi
+          url="https://repo1.maven.org/maven2/org/postgresql/postgresql/42.7.13/postgresql-42.7.13.jar"
+          i=0
+          while [ "$i" -lt 5 ]; do
+            if wget -T 30 -O "$dest" "$url"; then
+              break
+            fi
+            i=$((i + 1))
+            sleep 2
+          done
+          echo "$want  $dest" | sha256sum -c
+      volumeMounts:
+        - name: jdbc
+          mountPath: /opt/starrocks/jdbc
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            topologyKey: kubernetes.io/hostname
+            labelSelector:
+              matchLabels:
+                app.starrocks.io/component: be
+  config: |
+    sys_log_level = INFO
+    thrift_port = 9060
+    webserver_port = 8040
+    heartbeat_service_port = 9050
+    brpc_port = 8060
+    mem_limit = 90%

@@ -1,0 +1,8 @@
+# Pinned PostgreSQL JDBC driver for the StarRocks CNPG catalog.
+# Runtime uses file:///opt/starrocks/jdbc/postgresql.jar (Helm catalog.driverUrl).
+# Do not let the Frontend fetch an unpinned Maven URL at CREATE CATALOG time.
+name=org.postgresql:postgresql
+version=42.7.13
+sha256=6e0e4cc2d8cae902084f8a2b18728b073a6fd9d1f87c9d8bff8f298c18185b93
+runtime_path=file:///opt/starrocks/jdbc/postgresql.jar
+driver_class=org.postgresql.Driver

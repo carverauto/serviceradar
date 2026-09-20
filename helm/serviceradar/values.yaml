@@ -622,7 +622,7 @@ core:
     #
     # Set to "" to fall back to the old existence-only check (for operators
     # running the chart against a deliberately pinned schema).
-    expectedVersion: "20260915000000"
+    expectedVersion: "20260919120000"
   # Stale device reaper settings - controls cleanup of IP-only "ghost" devices
   reaper:
     # How often to run the reaper job
@@ -1719,6 +1719,9 @@ trapd:
         port: 162
         targetPort: 162
         protocol: UDP
+# NetFlow/IPFIX collector. Independent of StarRocks: the collector publishes
+# to JetStream and EventWriter persists flows to CNPG hypertables when
+# analytics.starrocks.enabled is false.
 flowCollector:
   enabled: false
   replicaCount: 1
@@ -2502,6 +2505,126 @@ sweep:
 # =============================================================================
 # SPIFFE Configuration (shared by all Elixir components)
 # =============================================================================
+
+# Optional telemetry warehouse for flows, scalar metrics, logs and events.
+# Disabled means every dataset is written to CNPG hypertables, and metrics, logs
+# and events are also read from them. Flow READS are warehouse-only: until
+# `flows` is listed in cutoverDatasets, the NetFlow dashboard and `in:flows` are
+# refused with a warehouse-required error instead of falling back to CNPG, which
+# stays the flow write target only.
+# flowCollector is gated independently. Empty shadowDatasets means all four
+# datasets. Cutover stays empty until a dataset is explicitly listed. Lab
+# clusters run the shared-nothing profile from k8s/starrocks/, not this chart.
+analytics:
+  starrocks:
+    enabled: false
+    # sharedNothing (durable BE disks) or sharedData (object storage + CN cache).
+    # sharedData requires objectStorageBucket + secretName; that bucket is the
+    # analytics object store (DuckDB/StarRocks), never the CNPG Barman destination.
+    profile: sharedNothing
+    operatorChartVersion: "1.11.7"
+    imageTag: "3.5.21"
+    # The warehouse database core and web read, load and retain through. The
+    # chart does not create the schema: every file under priv/starrocks pins
+    # the name `serviceradar`, so changing this requires rewriting the DDL to
+    # match before applying it; k8s/starrocks/README.md carries the exact
+    # command and the list of files a fresh warehouse needs.
+    database: serviceradar
+    # Telemetry retention in days, per dataset. The warehouse tables are
+    # partitioned by day, so each value is the number of daily partitions
+    # StarRocks keeps; anything older is dropped. Flows and metrics mirror the
+    # 90-day CNPG raw policy; logs and event history carry the hosted one-year
+    # retention. Re-applied on every core rollout, so changing it here is
+    # enough. A warehouse created before partitioning must be rebuilt first
+    # (priv/starrocks/0014_partitioned_telemetry_rebuild.sql).
+    retentionDays:
+      flows: 90
+      metrics: 90
+      logs: 365
+      events: 365
+    # How far an hourly materialized view may lag its own source table before
+    # readers stop trusting it and compile from the raw warehouse tables
+    # instead. The views are REFRESH ASYNC with no schedule, so this is the
+    # operator's tolerance for short counts, not a refresh interval. Lowering
+    # it trades chart latency for accuracy; readers never fall back to CNPG.
+    # Lag is measured in whole hours, because a view buckets by
+    # date_trunc('hour', ...) and the source mark is floored to match: the
+    # default tolerates a view up to two hours behind, and 3600 one hour.
+    # 0 is the strictest setting available -- it is honoured literally rather
+    # than read as "unset" -- and means no whole hour of lag: the view holds a
+    # bucket for the hour the newest raw row falls in. It does not mean that
+    # bucket is complete, so the newest point of an hourly chart can still be
+    # partial.
+    rollupStaleAfterSeconds: 7200
+    # How long the freshness gate may reuse a high-water mark before probing
+    # the warehouse again. This is a round-trip saving, not part of the
+    # staleness contract: the several rollup-eligible queries of one dashboard
+    # render share a pair of MAX(...) probes instead of each paying its own.
+    # The cost is symmetric -- a view that goes stale keeps being served for up
+    # to this long, and one that catches up keeps paying the raw scan for up to
+    # this long -- which is small against the whole hours the marks are
+    # compared on. 0 is honoured literally and disables reuse: every query
+    # probes. A failed probe is never cached.
+    rollupCacheTtlSeconds: 60
+    fe:
+      service: lab-fe-service.starrocks.svc
+      queryPort: 9030
+      httpPort: 8030
+    sharedData:
+      objectStorageBucket: ""
+      objectStorageEndpoint: ""
+      objectStorageRegion: ""
+      objectStoragePrefix: starrocks
+      urlStyle: path
+      # Opaque secret with access_key_id / secret_access_key. Demo uses
+      # serviceradar-analytics-object-store (same keys as DuckDB). Not
+      # cnpg-backup-s3-creds (Barman / SeaweedFS).
+      secretName: ""
+      accessKeyKey: access_key_id
+      secretKeyKey: secret_access_key
+    streamLoad:
+      maxRows: 50000
+      maxBytes: 33554432
+      maxAgeMs: 2000
+      maxInFlight: 4
+    # Shadow writes are opt-in per dataset. Cutover stays empty until
+    # coverage inventory + synthetic shadow parity pass. Current alert
+    # state is never listed here.
+    shadowDatasets: []
+    cutoverDatasets: []
+    # JDBC catalog onto CNPG current-state tables for attribution/enrichment
+    # joins. Default chart stays off; values-demo.yaml enables it with an
+    # infra secret. Cutover stays empty.
+    catalog:
+      enabled: false
+      name: cnpg_platform
+      driverClass: org.postgresql.Driver
+      driverUrl: "file:///opt/starrocks/jdbc/postgresql.jar"
+      # Core migration 20260918120000 creates this role NOLOGIN with its
+      # complete grant set. CNPG owns login + password from readerPasswordSecret
+      # below, rendered into the cluster's managed.roles only while the catalog
+      # is enabled, so on a deployment that never turns it on the role cannot
+      # connect at all.
+      user: serviceradar_starrocks_reader
+      # Secret with a `password` key for the reader role above. CNPG reconciles
+      # login + password from it. Required when catalog.enabled is true; use the
+      # same password in the jdbcUri baked into secretName.
+      readerPasswordSecret: ""
+      # Infrastructure secret with key createSql (CREATE EXTERNAL CATALOG ...).
+      # Required only when catalog.enabled is true.
+      secretName: ""
+      # JDBC URI baked into that secret. Lab FE/BE run in namespace starrocks,
+      # so the host must be reachable from there (cnpg-rw.<cnpg-ns>.svc), not
+      # the same-namespace short name.
+      jdbcUri: "jdbc:postgresql://cnpg-rw:5432/serviceradar?ssl=true&sslmode=require"
+      # Namespace that hosts the StarRocksCluster FE/BE (lab: starrocks).
+      sourceNamespace: starrocks
+      # Secret holding the StarRocks Frontend password. Both provisioning Jobs
+      # and the application (Stream Load + the MyXQL reader) authenticate as
+      # that same `root` account, so this is the single source of truth for it.
+      # Leave empty for a passwordless Frontend.
+      fePasswordSecretName: ""
+      fePasswordSecretKey: password
 
 spiffe:
   mode: "filesystem"

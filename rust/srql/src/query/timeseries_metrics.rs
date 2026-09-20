@@ -2144,7 +2144,7 @@ fn profile_timezone(plan: &QueryPlan) -> Result<String> {
     Ok(timezone)
 }
 
-fn normalize_profile_timezone(timezone: &str) -> String {
+pub(crate) fn normalize_profile_timezone(timezone: &str) -> String {
     let timezone = timezone.trim();
 
     if timezone == "UTC" || timezone == DEFAULT_PROFILE_TIMEZONE {

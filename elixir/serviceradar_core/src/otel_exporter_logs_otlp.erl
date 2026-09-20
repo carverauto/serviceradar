@@ -21,7 +21,8 @@
          export/4,
          shutdown/1,
          merge_with_environment/1,
-         sanitize_logs_for_export/1]).
+         sanitize_logs_for_export/1,
+         prepare_logs_for_export/1]).
 
 -include_lib("kernel/include/logger.hrl").
 
@@ -35,6 +36,14 @@
 -define(MAX_METADATA_BYTES, 2048).
 -define(MAX_REPORT_BYTES, 8192).
 -define(INSPECT_DEPTH, 6).
+%% Words, not bytes. `io_lib:format("~0P", ...)` walks the whole term before
+%% truncate_binary/2 can cap it; a multi-megabyte Logger report (protobuf
+%% structs, agent config JSON) pinned the handler in inspect_term/2 while
+%% 90k casts piled up in the mailbox.
+-define(MAX_TERM_WORDS, 4096).
+-define(MAX_CHARLIST_ANY_VALUES, 4096).
+-define(MAX_EXPORT_EVENTS, 256).
+-define(MAX_REPORT_ATTRS, 16).
 
 -record(state, {channel :: term(),
                 httpc_profile :: atom() | undefined,
@@ -131,7 +140,7 @@ export(Logs, Resource, #state{protocol=http_protobuf,
             error;
         Address ->
             {Batch0, HandlerConfig} = normalize_logs_arg(Logs),
-            Batch = sanitize_logs_for_export(normalize_log_batch(Batch0)),
+            Batch = prepare_logs_for_export(Batch0),
             RequestMap0 = otel_otlp_logs:to_proto(Batch, Resource, HandlerConfig),
             RequestMap = normalize_request_map(RequestMap0),
             Body = opentelemetry_exporter_logs_service_pb:encode_msg(RequestMap, export_logs_service_request),
@@ -147,7 +156,7 @@ export(Logs, Resource, #state{protocol=grpc,
                               retry_base_delay_ms=BaseDelay,
                               retry_max_delay_ms=MaxDelay}) ->
     {Batch0, HandlerConfig} = normalize_logs_arg(Logs),
-    Batch = sanitize_logs_for_export(normalize_log_batch(Batch0)),
+    Batch = prepare_logs_for_export(Batch0),
     RequestMap0 = otel_otlp_logs:to_proto(Batch, Resource, HandlerConfig),
     RequestMap = normalize_request_map(RequestMap0),
     export_grpc_with_retry(opentelemetry_logs_service,
@@ -173,9 +182,37 @@ export(_Kind, _Logs, _Resource, _State) ->
 %% `otel_otlp_common:to_any_value/1` recursively encodes maps/lists/tuples and
 %% can raise on values Logger accepts. Local logs should remain rich, but the
 %% exported attribute surface must be bounded and OTLP-safe.
+%%
+%% Demo 2026-09-16: the log-collector was healthy (small batches from other
+%% pods published). Core never finished `otel_otlp_logs:to_proto` because
+%% `format_msg` runs `re:replace` and `to_array_value` on unbounded Logger
+%% charlists / `~0tp` report dumps. Cap events and force binary bodies before
+%% that encoder runs, or the request never leaves the VM.
+prepare_logs_for_export(Batch) ->
+    sanitize_logs_for_export(normalize_log_batch(trim_export_batch(Batch))).
+
 sanitize_logs_for_export(Batch) when is_map(Batch) ->
     maps:map(fun(_Scope, Logs) -> sanitize_log_list(Logs) end, Batch);
 sanitize_logs_for_export(_Other) ->
+    #{}.
+
+trim_export_batch(Batch) when is_map(Batch) ->
+    {Trimmed, _} =
+        maps:fold(fun(Scope, Logs, {Acc, Left}) ->
+                          case Left =< 0 of
+                              true ->
+                                  {Acc, 0};
+                              false when is_list(Logs) ->
+                                  Taken = lists:sublist(Logs, Left),
+                                  {Acc#{Scope => Taken}, Left - length(Taken)};
+                              false ->
+                                  {Acc, Left}
+                          end
+                  end,
+                  {#{}, ?MAX_EXPORT_EVENTS},
+                  Batch),
+    Trimmed;
+trim_export_batch(_Other) ->
     #{}.
 
 sanitize_log_list(Logs) when is_list(Logs) ->
@@ -217,8 +254,37 @@ sanitize_metadata_value(Value) ->
 
 sanitize_message({report, Report}) ->
     {report, sanitize_report(Report)};
-sanitize_message(Message) ->
-    Message.
+sanitize_message({string, String}) ->
+    {string, truncate_iodata(String, ?MAX_REPORT_BYTES)};
+sanitize_message({Format, Args}) when is_list(Args) ->
+    Size = try erts_debug:flat_size(Args) catch _:_ -> ?MAX_TERM_WORDS + 1 end,
+    case Size > ?MAX_TERM_WORDS of
+        true ->
+            {string, <<"<truncated>">>};
+        false ->
+            try
+                {string, truncate_iodata(io_lib:format(Format, Args), ?MAX_REPORT_BYTES)}
+            catch
+                _:_ ->
+                    {string, <<"<unformattable>">>}
+            end
+    end;
+sanitize_message(Message) when is_list(Message); is_binary(Message) ->
+    {string, truncate_iodata(Message, ?MAX_REPORT_BYTES)};
+sanitize_message(Other) ->
+    {string, inspect_term(Other, ?MAX_REPORT_BYTES)}.
+
+truncate_iodata(Value, Max) when is_binary(Value) ->
+    truncate_binary(Value, Max);
+truncate_iodata(Value, Max) when is_list(Value) ->
+    case charlist_to_binary(Value) of
+        {ok, Bin} ->
+            truncate_binary(Bin, Max);
+        error ->
+            inspect_term(Value, Max)
+    end;
+truncate_iodata(Value, Max) ->
+    inspect_term(Value, Max).
 
 sanitize_report(Report) when is_map(Report) ->
     maps:fold(fun(Key, Value, Acc) ->
@@ -300,11 +366,18 @@ charlist_to_binary(Value) ->
     end.
 
 inspect_term(Value, MaxBytes) ->
-    try
-        truncate_binary(iolist_to_binary(io_lib:format("~0P", [Value, ?INSPECT_DEPTH])), MaxBytes)
-    catch
-        _:_ ->
-            <<"<uninspectable>">>
+    Size = try erts_debug:flat_size(Value) catch _:_ -> ?MAX_TERM_WORDS + 1 end,
+    case Size > ?MAX_TERM_WORDS of
+        true ->
+            <<"<truncated>">>;
+        false ->
+            try
+                Chars = io_lib:print(Value, 1, MaxBytes, ?INSPECT_DEPTH),
+                truncate_binary(iolist_to_binary(Chars), MaxBytes)
+            catch
+                _:_ ->
+                    <<"<uninspectable>">>
+            end
     end.
 
 truncate_binary(Binary, MaxBytes) when is_binary(Binary), byte_size(Binary) =< MaxBytes ->
@@ -341,8 +414,17 @@ normalize_log_batch(Batch) ->
 normalize_log_event(#{msg := {report, Report}, meta := Meta0}=Log) ->
     {ReportBody, Meta} = normalize_report(Report, Meta0),
     Log#{msg := {string, ReportBody}, meta := Meta};
+normalize_log_event(#{msg := Msg}=Log) ->
+    Log#{msg := coerce_msg_to_string(Msg)};
 normalize_log_event(Log) ->
     Log.
+
+coerce_msg_to_string({string, String}) ->
+    {string, truncate_iodata(String, ?MAX_REPORT_BYTES)};
+coerce_msg_to_string({Format, Args}) ->
+    sanitize_message({Format, Args});
+coerce_msg_to_string(Other) ->
+    sanitize_message(Other).
 
 normalize_report(Report, Meta) ->
     case report_to_metadata(Report) of
@@ -353,20 +435,20 @@ normalize_report(Report, Meta) ->
     end.
 
 report_to_metadata(Report) when is_map(Report) ->
-    maps:to_list(Report);
+    lists:sublist(maps:to_list(Report), ?MAX_REPORT_ATTRS);
 report_to_metadata(Report) when is_list(Report) ->
     case lists:all(fun
                        ({Key, _Value}) when is_atom(Key); is_binary(Key); is_list(Key) -> true;
                        (_) -> false
                    end, Report) of
-        true -> Report;
+        true -> lists:sublist(Report, ?MAX_REPORT_ATTRS);
         false -> []
     end;
 report_to_metadata(_Report) ->
     [].
 
 format_report(Report) ->
-    unicode:characters_to_binary(io_lib:format("~0tp", [Report])).
+    inspect_term(Report, ?MAX_REPORT_BYTES).
 
 %% `otel_otlp_common:to_any_value/1` encodes Erlang lists as arrays, which is
 %% usually correct but breaks log bodies because formatted logger messages are
@@ -406,6 +488,8 @@ normalize_any_value(#{value := {array_value, #{values := Values}}}=AnyValue) whe
 normalize_any_value(AnyValue) ->
     AnyValue.
 
+charlist_from_any_values(Values) when length(Values) > ?MAX_CHARLIST_ANY_VALUES ->
+    error;
 charlist_from_any_values(Values) ->
     try
         Chars = [I || #{value := {int_value, I}} <- Values],

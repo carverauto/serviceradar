@@ -22,6 +22,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexRefresh do
   end
 
   def refresh_devices(socket, opts \\ []) do
+    if Keyword.get(opts, :preserve_async_data?, false) and device_tasks_pending?(socket) do
+      assign(socket, :device_refresh_pending, true)
+    else
+      socket
+      |> cancel_device_refresh_timer()
+      |> cancel_device_tasks()
+      |> assign(:device_refresh_pending, false)
+      |> load_devices(opts)
+    end
+  end
+
+  defp load_devices(socket, opts) do
     params =
       opts
       |> Keyword.get(:list_params, Map.get(socket.assigns, :last_params, %{}))
@@ -67,18 +79,44 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexRefresh do
   end
 
   def schedule_device_refresh(socket) do
-    if socket.assigns[:device_refresh_timer] do
-      socket
-    else
-      timer =
-        Process.send_after(
-          self(),
-          :refresh_devices_from_pubsub,
-          @device_pubsub_refresh_debounce_ms
-        )
+    cond do
+      device_tasks_pending?(socket) ->
+        assign(socket, :device_refresh_pending, true)
 
-      assign(socket, :device_refresh_timer, timer)
+      socket.assigns[:device_refresh_timer] ->
+        socket
+
+      true ->
+        timer =
+          Process.send_after(
+            self(),
+            :refresh_devices_from_pubsub,
+            @device_pubsub_refresh_debounce_ms
+          )
+
+        assign(socket, :device_refresh_timer, timer)
     end
+  end
+
+  defp device_tasks_pending?(socket) do
+    not is_nil(socket.assigns[:device_enrichment_task]) or
+      not is_nil(socket.assigns[:device_stats_task])
+  end
+
+  defp cancel_device_tasks(socket) do
+    Enum.reduce([:device_enrichment_task, :device_stats_task], socket, fn key, acc ->
+      case acc.assigns[key] do
+        nil ->
+          acc
+
+        %Task{} = task ->
+          Task.shutdown(task, :brutal_kill)
+          assign(acc, key, nil)
+
+        task ->
+          acc |> cancel_async(task) |> assign(key, nil)
+      end
+    end)
   end
 
   def cancel_device_refresh_timer(socket) do
@@ -135,10 +173,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexRefresh do
 
   defp start_device_enrichment_task(socket, token, scope, query, devices) do
     task = {:device_enrichment, token}
+    owner = self()
 
     socket
     |> assign(:device_enrichment_task, task)
-    |> start_async(task, fn -> IndexData.build_device_enrichments(scope, query, devices) end)
+    |> start_async(task, fn ->
+      icmp = IndexData.build_icmp_enrichments(scope, devices)
+      send(owner, {:device_icmp_loaded, token, icmp})
+      IndexData.build_device_enrichments(scope, query, devices)
+    end)
   end
 
   defp start_device_stats_task(socket, token, scope) do
@@ -153,10 +196,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexRefresh do
   end
 
   def clear_task_ref(socket, key, ref) do
-    case Map.get(socket.assigns, key) do
-      %Task{ref: ^ref} -> assign(socket, key, nil)
-      ^ref -> assign(socket, key, nil)
-      _ -> socket
+    socket =
+      case Map.get(socket.assigns, key) do
+        %Task{ref: ^ref} -> assign(socket, key, nil)
+        ^ref -> assign(socket, key, nil)
+        _ -> socket
+      end
+
+    if socket.assigns[:device_refresh_pending] == true and not device_tasks_pending?(socket) do
+      socket
+      |> assign(:device_refresh_pending, false)
+      |> schedule_device_refresh()
+    else
+      socket
     end
   end
 
@@ -171,8 +223,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexRefresh do
     if socket.assigns[:device_enrichment_token] == token do
       {:noreply,
        assign(socket,
-         icmp_sparklines: enrichments.icmp_sparklines,
-         icmp_error: enrichments.icmp_error,
          effective_availability_by_device: enrichments.effective_availability_by_device,
          snmp_presence: enrichments.snmp_presence,
          sysmon_presence: enrichments.sysmon_presence,
@@ -181,6 +231,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexRefresh do
          composite_verdicts_by_device: enrichments.composite_verdicts_by_device,
          total_device_count: enrichments.total_device_count
        )}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def apply_device_icmp(socket, token, icmp) do
+    if socket.assigns[:device_enrichment_token] == token do
+      {:noreply, assign(socket, icmp_sparklines: icmp.icmp_sparklines, icmp_error: icmp.icmp_error)}
     else
       {:noreply, socket}
     end

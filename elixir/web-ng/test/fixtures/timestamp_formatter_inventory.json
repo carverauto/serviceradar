@@ -512,6 +512,22 @@
     "reason": "shared explicit-zone presentation contract"
   },
   {
+    "path": "lib/serviceradar_web_ng_web/components/metric_window_components.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 1,
+    "fingerprint": "c38dbe4484b7a967f748dcacd6ad816f1d025e1bba86b1b2ddc43133904d30f8",
+    "classification": "canonical_machine",
+    "reason": "custom UTC history window encoded as an SRQL time range"
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/components/metric_window_components.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 2,
+    "fingerprint": "60d590de02073c5f09c8a5f71766eece35d542f60952b9dec2c2b8bbc95a7084",
+    "classification": "canonical_machine",
+    "reason": "custom UTC history window encoded as an SRQL time range"
+  },
+  {
     "path": "lib/serviceradar_web_ng_web/components/observability/signal_display_components.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 1,
@@ -912,6 +928,22 @@
     "reason": "canonical timestamp payload for the shared UserTime chart-axis presentation contract; browser localization preserves the instant"
   },
   {
+    "path": "lib/serviceradar_web_ng_web/live/dashboard_live/window.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 1,
+    "fingerprint": "cd038e6ca76606c737ce1f12797f4aba63ddd07a4028c2dac666b2016f470d51",
+    "classification": "canonical_machine",
+    "reason": "dashboard history window encoded as an SRQL time range"
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/live/dashboard_live/window.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 2,
+    "fingerprint": "3fed276ffa0b9c7e3c3a75d59f93d8ef1ea3483be3aa512fb144315ee46111d0",
+    "classification": "canonical_machine",
+    "reason": "dashboard history window encoded as an SRQL time range"
+  },
+  {
     "path": "lib/serviceradar_web_ng_web/live/device_live/anomaly_capacity_data.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 1,
@@ -934,6 +966,30 @@
     "fingerprint": "b4cf6599dc218233ea0847939110d7163eee6524d10f364de19541cd0b49d1f8",
     "classification": "canonical_machine",
     "reason": "Canonical seasonal bucket midpoint passed to metric query windows and chart overlays."
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/live/device_live/availability_data.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 1,
+    "fingerprint": "2288351a74832178aed9194490917af1d22b2b62c0a7954dce699bcd23f7d61e",
+    "classification": "canonical_machine",
+    "reason": "ICMP availability window encoded as an SRQL time range"
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/live/device_live/availability_data.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 2,
+    "fingerprint": "298b6dddfaf392ee6fce7b6c2f4f7916bf67f3e9dfca32abd6c6a56867b8f558",
+    "classification": "canonical_machine",
+    "reason": "ICMP availability window encoded as an SRQL time range"
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/live/device_live/availability_data.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 3,
+    "fingerprint": "888956ed48508add77a32aecc1362e96279466008f2c4b766d07d26964132365",
+    "classification": "canonical_machine",
+    "reason": "availability bucket identity encoded as canonical UTC"
   },
   {
     "path": "lib/serviceradar_web_ng_web/live/device_live/endpoint_inventory_components.ex",

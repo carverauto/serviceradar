@@ -313,6 +313,34 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
     end
   end
 
+  test "events.flow.attribution uses the flow_attribution batcher even without a dedicated stream" do
+    config = %Config{
+      enabled: true,
+      nats: %{},
+      batch_size: 100,
+      batch_timeout: 1_000,
+      consumer_name: "test-consumer",
+      streams: [
+        %{
+          name: "EVENTS",
+          stream_name: "events",
+          subject: "events.>",
+          processor: ServiceRadar.EventWriter.Processors.Events
+        }
+      ]
+    }
+
+    assert :flow_attribution in Pipeline.configured_batcher_names(config)
+
+    message = %Message{
+      data: ~s({"id":"flow-alpha-0001","attribution_version":1}),
+      metadata: %{subject: "events.flow.attribution"},
+      acknowledger: {Pipeline, :ack_ref, %{ack_fun: fn _ -> :ok end}}
+    }
+
+    assert %Message{batcher: :flow_attribution} = Pipeline.handle_message(:default, message, %{})
+  end
+
   test "does not declare a flow.attributed read-back batcher" do
     config = %Config{
       enabled: true,

@@ -28,6 +28,8 @@ defmodule ServiceRadar.Observability.AnomalyIngestSilenceWorker do
 
   use Oban.Worker, queue: :maintenance, max_attempts: 3
 
+  alias ServiceRadar.Analytics.StarRocks.LogEventConsumers
+  alias ServiceRadar.Analytics.StarRocks.MetricConsumers
   alias ServiceRadar.Observability.TripwireHealth
   alias ServiceRadar.Repo
 
@@ -99,13 +101,13 @@ defmodule ServiceRadar.Observability.AnomalyIngestSilenceWorker do
     anomaly_cutoff = DateTime.add(now, -hours * 3600, :second)
     heartbeat_cutoff = DateTime.add(now, -@addon_heartbeat_freshness_minutes * 60, :second)
 
-    case exists?(repo, @metrics_alive_sql, metrics_cutoff) do
+    case metrics_alive?(repo, metrics_cutoff, opts) do
       {:ok, false} ->
         # Metric ingest is dead too — a different alarm's job; no verdict.
         :ok
 
       {:ok, true} ->
-        case anomaly_pipeline_alive?(repo, anomaly_cutoff, heartbeat_cutoff) do
+        case anomaly_pipeline_alive?(repo, anomaly_cutoff, heartbeat_cutoff, opts) do
           {:ok, alive?} -> record_verdict(alive?, hours, health)
           {:error, reason} -> skip_run(reason)
         end
@@ -118,8 +120,8 @@ defmodule ServiceRadar.Observability.AnomalyIngestSilenceWorker do
   # Any one sign of life clears the tripwire: a 2004 anomaly-detection row, a
   # recently seen open episode, or a fresh running add-on heartbeat. Only the
   # conjunction of all three silences is a dead pipeline.
-  defp anomaly_pipeline_alive?(repo, anomaly_cutoff, heartbeat_cutoff) do
-    with {:ok, false} <- exists?(repo, @anomaly_rows_sql, anomaly_cutoff),
+  defp anomaly_pipeline_alive?(repo, anomaly_cutoff, heartbeat_cutoff, opts) do
+    with {:ok, false} <- anomaly_rows_present?(repo, anomaly_cutoff, opts),
          {:ok, false} <- exists?(repo, @open_episode_sql, DateTime.to_naive(anomaly_cutoff)),
          {:ok, false} <- exists?(repo, @addon_heartbeat_sql, DateTime.to_naive(heartbeat_cutoff)) do
       {:ok, false}
@@ -150,6 +152,22 @@ defmodule ServiceRadar.Observability.AnomalyIngestSilenceWorker do
     )
 
     :ok
+  end
+
+  defp anomaly_rows_present?(repo, cutoff, opts) do
+    LogEventConsumers.fetch(:events,
+      cnpg: fn -> exists?(repo, @anomaly_rows_sql, cutoff) end,
+      starrocks: fn ->
+        LogEventConsumers.anomaly_detection_present?(cutoff, Keyword.take(opts, [:query]))
+      end
+    )
+  end
+
+  defp metrics_alive?(repo, cutoff, opts) do
+    MetricConsumers.fetch(
+      cnpg: fn -> exists?(repo, @metrics_alive_sql, cutoff) end,
+      starrocks: fn -> MetricConsumers.metrics_alive?(cutoff, Keyword.take(opts, [:query])) end
+    )
   end
 
   defp exists?(repo, sql, cutoff) do

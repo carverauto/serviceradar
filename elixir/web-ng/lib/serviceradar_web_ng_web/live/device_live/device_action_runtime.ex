@@ -12,6 +12,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceActionRuntime do
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceFormData
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceResourceData
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceStateData
+  alias ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.IpAliasData
   alias ServiceRadarWebNGWeb.DeviceLive.SNMPCredentialData
 
@@ -129,8 +130,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceActionRuntime do
           |> Ash.update(scope: scope)
 
         case result do
-          {:ok, _updated} ->
+          {:ok, updated} ->
             socket
+            |> DeviceTabRuntime.availability_source_updated(updated.availability_source_agent_id)
             |> put_flash(:info, "Availability source updated")
             |> push_patch(to: device_show_path(socket, device_uid))
 

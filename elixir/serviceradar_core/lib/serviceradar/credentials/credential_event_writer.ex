@@ -35,6 +35,7 @@ defmodule ServiceRadar.Credentials.CredentialEventWriter do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Analytics.StarRocks.Destination
   alias ServiceRadar.Credentials.CredentialRedactor
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Monitoring.OcsfEvent
@@ -298,11 +299,14 @@ defmodule ServiceRadar.Credentials.CredentialEventWriter do
   end
 
   defp record_event(attrs) do
-    Ash.create(OcsfEvent, attrs,
-      action: :record,
-      actor: SystemActor.system(:credential_event_writer),
-      domain: ServiceRadar.Monitoring
-    )
+    case Ash.create(OcsfEvent, attrs,
+           action: :record,
+           actor: SystemActor.system(:credential_event_writer),
+           domain: ServiceRadar.Monitoring
+         ) do
+      {:ok, event} -> _ = Destination.persist_after_cnpg(:events, [event])
+      _ -> :ok
+    end
 
     :ok
   rescue

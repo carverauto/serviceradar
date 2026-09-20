@@ -231,6 +231,12 @@ trapd:
   externalService:
     enabled: true
 
+analytics:
+  starrocks:
+    enabled: true
+    shadowDatasets: []
+    cutoverDatasets: []
+
 flowCollector:
   enabled: true
   replicaCount: 1

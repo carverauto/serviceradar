@@ -1075,6 +1075,10 @@ cluster_coordinator =
   System.get_env("SERVICERADAR_CLUSTER_COORDINATOR", "false") in ~w(true 1 yes)
 
 config :serviceradar_core,
+       ServiceRadar.Analytics.StarRocks,
+       ServiceRadar.Analytics.StarRocks.Env.config()
+
+config :serviceradar_core,
   cluster_enabled: cluster_enabled,
   cluster_coordinator: cluster_coordinator
 

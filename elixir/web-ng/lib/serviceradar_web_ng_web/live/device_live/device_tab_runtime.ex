@@ -2,17 +2,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntime do
   @moduledoc false
 
   import Phoenix.Component, only: [assign: 3]
-  import Phoenix.LiveView, only: [connected?: 1, start_async: 3]
+  import Phoenix.LiveView, only: [cancel_async: 2, connected?: 1, start_async: 3]
 
   import ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents,
     only: [active_fingerprint_tab_visible?: 2]
 
+  alias ServiceRadarWebNGWeb.DeviceLive.AvailabilityData
   alias ServiceRadarWebNGWeb.DeviceLive.FlowData
   alias ServiceRadarWebNGWeb.DeviceLive.InterfaceData
   alias ServiceRadarWebNGWeb.DeviceLive.MtrRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.NorthboundInterfaceRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.QueryData
   alias ServiceRadarWebNGWeb.DeviceLive.SysmonProfileData
+
+  require Logger
 
   @valid_tabs ~w(
     details
@@ -99,10 +102,113 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntime do
 
   def reload_for_active_tab(socket, active_tab, uid, cursor, srql_module, opts) do
     socket
+    |> maybe_reload_availability_for_active_tab(active_tab, uid, srql_module)
     |> maybe_reload_flows_for_active_tab(active_tab, uid, cursor, srql_module, opts)
     |> maybe_reload_logs_for_active_tab(active_tab, uid, cursor, srql_module, opts)
     |> maybe_reload_interfaces_for_active_tab(active_tab, uid, srql_module)
     |> maybe_reload_profiles_for_active_tab(active_tab, uid)
+  end
+
+  def maybe_reload_availability_for_active_tab(socket, "details", uid, srql_module) do
+    agent_id = AvailabilityData.source_agent_id(socket.assigns[:device_row])
+    source = {uid, agent_id}
+
+    if connected?(socket) do
+      socket =
+        if socket.assigns[:availability_request_source] == source do
+          socket
+        else
+          invalidate_availability(socket)
+        end
+
+      begin_availability_refresh(socket, uid, agent_id, source, srql_module)
+    else
+      socket
+    end
+  end
+
+  def maybe_reload_availability_for_active_tab(socket, _tab, _uid, _srql_module), do: socket
+
+  def availability_source_updated(socket, agent_id) do
+    device_row = put_availability_source(socket.assigns[:device_row] || %{}, agent_id)
+
+    results =
+      Enum.map(socket.assigns[:results] || [], fn
+        row when is_map(row) ->
+          if (Map.get(row, "uid") || Map.get(row, :uid)) == socket.assigns.device_uid do
+            put_availability_source(row, agent_id)
+          else
+            row
+          end
+
+        row ->
+          row
+      end)
+
+    socket
+    |> invalidate_availability()
+    |> assign(:device_row, device_row)
+    |> assign(:results, results)
+  end
+
+  defp put_availability_source(row, agent_id) do
+    row
+    |> Map.drop([:availability_source_agent_id, :availability_source_profile_id])
+    |> Map.put("availability_source_agent_id", agent_id)
+    |> Map.put("availability_source_profile_id", nil)
+  end
+
+  def invalidate_availability(socket) do
+    socket =
+      case socket.assigns[:availability_request_ref] do
+        ref when is_reference(ref) ->
+          {uid, _agent_id} = socket.assigns[:availability_request_source] || {socket.assigns.device_uid, nil}
+          cancel_async(socket, {:device_availability, uid, ref})
+
+        _ ->
+          socket
+      end
+
+    socket
+    |> assign(:availability, nil)
+    |> assign(:availability_request_ref, nil)
+    |> assign(:availability_request_source, nil)
+  end
+
+  defp begin_availability_refresh(socket, uid, agent_id, source, srql_module) do
+    if is_nil(socket.assigns[:availability_request_ref]) do
+      scope = socket.assigns.current_scope
+      request_ref = make_ref()
+
+      socket
+      |> assign(:availability_request_ref, request_ref)
+      |> assign(:availability_request_source, source)
+      |> start_async({:device_availability, uid, request_ref}, fn ->
+        AvailabilityData.load_availability(srql_module, uid, scope, agent_id: agent_id)
+      end)
+    else
+      socket
+    end
+  end
+
+  def finish_availability_refresh(socket, uid, request_ref, result) do
+    source = {uid, AvailabilityData.source_agent_id(socket.assigns[:device_row])}
+
+    if uid == socket.assigns.device_uid and request_ref == socket.assigns[:availability_request_ref] and
+         source == socket.assigns[:availability_request_source] do
+      socket = assign(socket, :availability_request_ref, nil)
+
+      case result do
+        {:ok, availability} ->
+          assign(socket, :availability, availability)
+
+        {:exit, _reason} ->
+          Logger.warning("Device availability task failed")
+          socket
+      end
+    else
+      socket
+    end
   end
 
   def maybe_reload_logs_for_active_tab(socket, "logs", uid, cursor, srql_module, opts) do
@@ -170,35 +276,66 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntime do
     end
   end
 
-  def begin_interface_metrics_refresh(socket, uid, srql_module) do
+  def begin_interface_metrics_refresh(socket, uid, srql_module, opts \\ []) do
+    pending_ref = Map.get(socket.assigns, :interface_metrics_request_ref)
+
+    cond do
+      not connected?(socket) ->
+        socket
+
+      is_reference(pending_ref) and not Keyword.get(opts, :force, false) ->
+        # A chart batch can outlast the device refresh interval. Keep its
+        # request reference so broadcasts cannot continually discard its result.
+        socket
+
+      true ->
+        socket
+        |> cancel_interface_metrics_refresh(uid, pending_ref)
+        |> start_interface_metrics_refresh(uid, srql_module)
+    end
+  end
+
+  def finish_interface_metrics_refresh(socket, uid, request_ref, metrics) do
+    if uid == socket.assigns.device_uid and
+         request_ref == socket.assigns.interface_metrics_request_ref do
+      socket
+      |> assign(:interface_metrics, metrics)
+      |> assign(:interface_metrics_loading, false)
+      |> assign(:interface_metrics_request_ref, nil)
+    else
+      socket
+    end
+  end
+
+  defp cancel_interface_metrics_refresh(socket, uid, request_ref) when is_reference(request_ref) do
+    cancel_async(socket, {:interface_metrics, uid, request_ref})
+  end
+
+  defp cancel_interface_metrics_refresh(socket, _uid, _request_ref), do: socket
+
+  defp start_interface_metrics_refresh(socket, uid, srql_module) do
     scope = socket.assigns.current_scope
     request_ref = make_ref()
     favorited = socket.assigns.favorited_interfaces
     metrics_enabled = socket.assigns.metrics_enabled_interfaces
     interfaces = socket.assigns.network_interfaces
 
-    if connected?(socket) do
-      # Keep already-rendered favorited metrics on screen. A same-device
-      # refresh used to flip this true and replace the table header with
-      # "Loading favorited interface metrics" every 30s.
-      metrics_loading? = is_nil(socket.assigns.interface_metrics)
+    # Keep already-rendered favorited metrics visible during background refresh.
+    metrics_loading? = is_nil(socket.assigns.interface_metrics)
 
-      socket
-      |> assign(:interface_metrics_loading, metrics_loading?)
-      |> assign(:interface_metrics_request_ref, request_ref)
-      |> start_async({:interface_metrics, uid, request_ref}, fn ->
-        InterfaceData.load_interface_metrics(
-          srql_module,
-          uid,
-          favorited,
-          metrics_enabled,
-          interfaces,
-          scope
-        )
-      end)
-    else
-      socket
-    end
+    socket
+    |> assign(:interface_metrics_loading, metrics_loading?)
+    |> assign(:interface_metrics_request_ref, request_ref)
+    |> start_async({:interface_metrics, uid, request_ref}, fn ->
+      InterfaceData.load_interface_metrics(
+        srql_module,
+        uid,
+        favorited,
+        metrics_enabled,
+        interfaces,
+        scope
+      )
+    end)
   end
 
   defp maybe_reload_interfaces_for_active_tab(socket, "interfaces", uid, srql_module) do

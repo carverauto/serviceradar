@@ -13,7 +13,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Topology do
             |> Enum.reject(&is_nil/1)
             |> Enum.filter(&dashboard_backbone_link?/1)
             |> Enum.take(160)
-            |> attach_interface_sparklines(cutoff_for_time_window(time_window), sparkline_bucket_for(time_window))
+            |> attach_interface_sparklines(cutoff_for_time_window(time_window), bucket_seconds_for(time_window))
 
           _ ->
             []
@@ -101,9 +101,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Topology do
         |> String.slice(0, 12)
       end
 
-      defp attach_interface_sparklines(links, _cutoff, _bucket) when links == [], do: links
+      defp attach_interface_sparklines(links, _cutoff, _bucket_seconds) when links == [], do: links
 
-      defp attach_interface_sparklines(links, cutoff, bucket) do
+      defp attach_interface_sparklines(links, cutoff, bucket_seconds) do
         if relation_exists?("platform.timeseries_metrics") do
           pairs =
             links
@@ -111,7 +111,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Topology do
             |> Enum.uniq()
             |> Enum.take(80)
 
-          sparkline_by_pair = interface_sparkline_map(pairs, cutoff, bucket)
+          sparkline_by_pair = interface_sparkline_map(pairs, cutoff, bucket_seconds)
 
           Enum.map(links, fn link ->
             local_key = interface_pair_key(link.source_label, link.local_if_index)
@@ -157,12 +157,12 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Topology do
         end
       end
 
-      defp interface_sparkline_map([], _cutoff, _bucket), do: %{}
+      defp interface_sparkline_map([], _cutoff, _bucket_seconds), do: %{}
 
       @sobelow_skip ["SQL.Query"]
-      defp interface_sparkline_map(pairs, cutoff, bucket) do
+      defp interface_sparkline_map(pairs, cutoff, bucket_seconds) do
         {device_ids, if_indexes} = Enum.unzip(pairs)
-        bucket_interval = bucket_interval_literal(bucket)
+        bucket_interval = bucket_interval_literal(sparkline_bucket_for_from_seconds(bucket_seconds))
 
         sql = """
         WITH wanted(device_id, if_index) AS (
@@ -182,13 +182,34 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Topology do
         ORDER BY m.device_id, m.if_index, m.metric_name, bucket
         """
 
-        case ServiceRadarWebNG.Repo.query(sql, [
-               cutoff,
-               device_ids,
-               if_indexes,
-               ~w(ifHCInOctets ifHCOutOctets ifInOctets ifOutOctets)
-             ]) do
+        pairs = Enum.zip(device_ids, if_indexes)
+
+        result =
+          ServiceRadar.Analytics.StarRocks.MetricConsumers.fetch(
+            cnpg: fn ->
+              ServiceRadarWebNG.Repo.query(sql, [
+                cutoff,
+                device_ids,
+                if_indexes,
+                ~w(ifHCInOctets ifHCOutOctets ifInOctets ifOutOctets)
+              ])
+            end,
+            starrocks: fn ->
+              ServiceRadar.Analytics.StarRocks.MetricConsumers.sparkline_rows(
+                pairs,
+                cutoff,
+                bucket_seconds
+              )
+            end
+          )
+
+        case result do
           {:ok, %{rows: rows}} ->
+            rows
+            |> Enum.group_by(fn [device_id, if_index, _metric, _bucket, _value] -> {device_id, if_index} end)
+            |> Map.new(fn {key, grouped_rows} -> {key, build_interface_sparkline(grouped_rows)} end)
+
+          {:ok, rows} when is_list(rows) ->
             rows
             |> Enum.group_by(fn [device_id, if_index, _metric, _bucket, _value] -> {device_id, if_index} end)
             |> Map.new(fn {key, grouped_rows} -> {key, build_interface_sparkline(grouped_rows)} end)
