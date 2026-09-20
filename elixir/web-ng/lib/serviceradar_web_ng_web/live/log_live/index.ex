@@ -28,6 +28,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNGWeb.Components.PrefixTagChips
   alias ServiceRadarWebNGWeb.LogLive.NetflowRuntime
+  alias ServiceRadarWebNGWeb.LogLive.NetflowSankey
   alias ServiceRadarWebNGWeb.LogLive.NetflowSummary
   alias ServiceRadarWebNGWeb.MetricSeries
   alias ServiceRadarWebNGWeb.MetricWindowComponents
@@ -59,11 +60,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   @default_netflow_window "last_1h"
   @default_netflow_limit 50
   @max_netflow_limit 200
-  @netflow_sankey_query_limit 200
-  @netflow_sankey_max_edges 40
-  @netflow_sankey_max_sources 10
-  @netflow_sankey_max_mids 8
-  @netflow_sankey_max_dests 10
   @default_netflow_stack_mode "ports"
   @multi_span_filter "span_count:>1"
   @default_traces_query_base "in:otel_trace_summaries time:last_24h"
@@ -9709,72 +9705,20 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp empty_netflow_sankey, do: %{edges: [], sources: [], mids: [], dests: []}
 
   defp build_netflow_sankey(srql_module, base_query, scope, prefix) do
-    # SRQL doesn't guarantee support for expression-style group-by like `src_cidr:24` across all backends.
-    # To keep Sankey reliable, always group by raw endpoint IPs in SRQL and CIDR-collapse in Elixir.
-    ip_query =
-      ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by src_endpoint_ip, dst_endpoint_port, dst_endpoint_ip" sort:total_bytes:desc limit:#{@netflow_sankey_query_limit}|
-
-    rows = srql_stats_rows(srql_module, ip_query, scope, "IP")
-
     edges =
-      rows
-      |> Enum.map(fn row ->
-        netflow_sankey_edge_ip(row, prefix)
-      end)
-      |> Enum.reject(fn e ->
-        is_nil(e.src) or e.src in ["", "Unknown"] or is_nil(e.dst) or e.dst in ["", "Unknown"] or
-          e.bytes <= 0
-      end)
-      |> aggregate_netflow_sankey_edges()
-      |> focus_netflow_sankey_edges()
-
-    sources = sum_edges_by(edges, :src)
-    mids = sum_edges_by(edges, :mid)
-    dests = sum_edges_by(edges, :dst)
+      srql_module
+      |> srql_stats_rows(NetflowSankey.query(base_query, prefix), scope, "subnet")
+      |> NetflowSankey.edges(prefix, &netflow_port_mid_label/1)
 
     %{
       edges: edges,
-      sources: sources |> Enum.sort_by(fn {_k, v} -> -v end) |> Enum.take(@netflow_sankey_max_sources),
-      mids: mids |> Enum.sort_by(fn {_k, v} -> -v end) |> Enum.take(@netflow_sankey_max_mids),
-      dests: dests |> Enum.sort_by(fn {_k, v} -> -v end) |> Enum.take(@netflow_sankey_max_dests)
+      sources: NetflowSankey.totals_by(edges, :src),
+      mids: NetflowSankey.totals_by(edges, :mid),
+      dests: NetflowSankey.totals_by(edges, :dst)
     }
   rescue
     _ ->
       empty_netflow_sankey()
-  end
-
-  defp aggregate_netflow_sankey_edges(edges) when is_list(edges) do
-    edges
-    |> Enum.reduce(%{}, fn edge, acc ->
-      key = {edge.src, edge.mid, edge.port, edge.dst}
-
-      Map.update(acc, key, edge, fn existing ->
-        %{existing | bytes: existing.bytes + edge.bytes}
-      end)
-    end)
-    |> Map.values()
-    |> Enum.sort_by(& &1.bytes, :desc)
-  end
-
-  defp focus_netflow_sankey_edges(edges) when is_list(edges) do
-    top_sources = top_sankey_keys(edges, :src, @netflow_sankey_max_sources)
-    top_mids = top_sankey_keys(edges, :mid, @netflow_sankey_max_mids)
-    top_dests = top_sankey_keys(edges, :dst, @netflow_sankey_max_dests)
-
-    edges
-    |> Enum.filter(fn edge ->
-      MapSet.member?(top_sources, edge.src) and MapSet.member?(top_mids, edge.mid) and
-        MapSet.member?(top_dests, edge.dst)
-    end)
-    |> Enum.take(@netflow_sankey_max_edges)
-  end
-
-  defp top_sankey_keys(edges, key, limit) when is_list(edges) and is_atom(key) do
-    edges
-    |> sum_edges_by(key)
-    |> Enum.sort_by(fn {_value, bytes} -> -bytes end)
-    |> Enum.take(limit)
-    |> MapSet.new(fn {value, _bytes} -> value end)
   end
 
   defp srql_stats_rows(srql_module, query, scope, label) when is_binary(query) and is_binary(label) do
@@ -9790,15 +9734,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         Logger.warning("NetFlow sankey #{label} query unexpected result: #{inspect(other)}")
         []
     end
-  end
-
-  defp netflow_sankey_edge_ip(row, prefix) when prefix in [16, 24] do
-    src = ip_to_cidr(Map.get(row, "src_endpoint_ip"), prefix)
-    dst = ip_to_cidr(Map.get(row, "dst_endpoint_ip"), prefix)
-    port = to_int(Map.get(row, "dst_endpoint_port"))
-    bytes = to_int(Map.get(row, "total_bytes"))
-    mid = netflow_port_mid_label(port)
-    %{src: src, mid: mid, port: port, dst: dst, bytes: bytes}
   end
 
   defp ip_to_cidr(nil, _prefix), do: nil
@@ -9828,14 +9763,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp netflow_port_mid_label(_), do: "PORT:?"
-
-  defp sum_edges_by(edges, key) when is_list(edges) do
-    edges
-    |> Enum.reduce(%{}, fn e, acc ->
-      Map.update(acc, Map.get(e, key), e.bytes, &(&1 + e.bytes))
-    end)
-    |> Map.to_list()
-  end
 
   defp resolve_srql_time(value) when is_binary(value) do
     value
