@@ -428,6 +428,40 @@ fn parses_device_graph_entity() {
 }
 
 #[test]
+fn parses_graph_dql_aliases_and_quoted_dql() {
+    let cases = ["graph", "graph_dql"];
+    for raw in cases {
+        let ast = parse(&format!(
+            r#"in:{raw} dql:'{{ q(func: eq(device.id, "sr:host01.example.com")) {{ device.id }} }}'"#
+        ))
+        .unwrap();
+        assert!(matches!(ast.entity, Entity::GraphDql), "entity alias {raw}");
+        assert_eq!(ast.filters[0].field, "dql");
+        assert!(
+            ast.filters[0]
+                .value
+                .as_scalar()
+                .unwrap()
+                .contains(r#"eq(device.id, "sr:host01.example.com")"#),
+            "inner DQL quotes must survive SRQL quoting for {raw}"
+        );
+    }
+
+    for rejected in ["graphdql", "dql"] {
+        assert!(
+            parse(&format!(
+                "in:{rejected} dql:'{{ q(func: uid(0x1)) {{ uid }} }}'"
+            ))
+            .is_err(),
+            "{rejected} is not a spelling the SRQL spec names"
+        );
+    }
+
+    let cypher = parse("in:graph_cypher cypher:\"MATCH (n) RETURN n\"").unwrap();
+    assert!(matches!(cypher.entity, Entity::GraphCypher));
+}
+
+#[test]
 fn parses_wifi_map_entities() {
     let cases = [
         ("wifi_sites", Entity::WifiSites),

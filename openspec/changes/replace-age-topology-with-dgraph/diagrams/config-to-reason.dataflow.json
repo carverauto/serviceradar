@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "Config and mapper evidence become one graph",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "output": "config-to-reason.dataflow.html",
+    "viewBox": [1080, 520],
+    "views": [
+      { "id": "collect", "label": "Collect", "focus": ["opentext", "parser", "cnpg"], "note": "Running-config is parsed in core. Mapper LLDP evidence already lives in CNPG beside these facts." },
+      { "id": "project", "label": "Project", "focus": ["cnpg", "dgraph"], "note": "Parsed facts project onto the same Device and Prefix types as mapper topology." },
+      { "id": "reason", "label": "Reason", "focus": ["hydrate", "scrith", "dc"], "note": "The NMS plugin snapshot crosses CXP into scrith. DeepCausality intervenes on scrith's own graph." }
+    ]
+  },
+  "stages": [
+    { "label": "Collect" },
+    { "label": "Parse" },
+    { "label": "Store" },
+    { "label": "Graph" },
+    { "label": "Reason" }
+  ],
+  "nodes": [
+    { "id": "opentext", "type": "external", "label": "OpenText NA", "sublabel": "running-config", "stage": 0, "row": 0, "tag": "config" },
+    { "id": "parser", "type": "backend", "label": "Downparser", "sublabel": "interface stanzas", "stage": 1, "row": 0, "tag": "core" },
+    { "id": "cnpg", "type": "database", "label": "CNPG", "sublabel": "facts", "stage": 2, "row": 0, "tag": "evidence" },
+    { "id": "dgraph", "type": "database", "label": "SR Dgraph", "sublabel": "topology", "stage": 3, "row": 0, "tag": "traversal" },
+    { "id": "hydrate", "type": "backend", "label": "NMS plugin", "sublabel": "CXP snapshot", "stage": 3, "row": 2, "tag": "extension" },
+    { "id": "scrith", "type": "backend", "label": "Scrith core", "sublabel": "DeepBrain", "stage": 4, "row": 0, "tag": "ontology" },
+    { "id": "dc", "type": "backend", "label": "DeepCausality", "sublabel": "intervene", "stage": 4, "row": 2, "tag": "verdict" }
+  ],
+  "flows": [
+    { "id": "ot-parser", "from": "opentext", "to": "parser", "label": "config body", "classification": "artifact", "variant": "emphasis" },
+    { "id": "parser-cnpg", "from": "parser", "to": "cnpg", "label": "interface facts", "classification": "parsed", "variant": "emphasis" },
+    { "id": "cnpg-dgraph", "from": "cnpg", "to": "dgraph", "label": "project", "classification": "graph", "variant": "emphasis", "labelDy": -36 },
+    { "id": "dgraph-hydrate", "from": "dgraph", "to": "hydrate", "label": "snapshot", "classification": "bounded subgraph", "labelDy": 48 },
+    { "id": "hydrate-scrith", "from": "hydrate", "to": "scrith", "label": "hydrate API", "classification": "network", "variant": "emphasis" },
+    { "id": "scrith-dc", "from": "scrith", "to": "dc", "label": "intervene", "classification": "counterfactual", "variant": "emphasis", "labelDy": 28 }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "One graph, two collectors", "items": ["Mapper LLDP and parsed configs project onto the same Device and Prefix nodes", "Config is evidence class config-declared, not a second topology"] },
+    { "dot": "emerald", "title": "Blobs stay in CNPG", "items": ["Running-config bodies and parsed stanzas are Ash rows", "Dgraph stores only what must be walked"] },
+    { "dot": "orange", "title": "Reasoning is not a SQL walk", "items": ["downstream-of is a Spaceoid fact", "postpone-or-sequence is a DeepCausality verdict in scrith"] }
+  ]
+}

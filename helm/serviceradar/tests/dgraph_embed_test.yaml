@@ -1,0 +1,36 @@
+suite: dgraph chart embed
+release:
+  name: serviceradar
+  namespace: serviceradar-test
+templates:
+  - templates/dgraph-certificates.yaml
+tests:
+  - it: issues Alpha TLS for the in-chart Service name
+    asserts:
+      - equal:
+          path: spec.secretName
+          value: serviceradar-dgraph-alpha-tls-secret
+        documentSelector:
+          path: metadata.name
+          value: dgraph-alpha-tls
+      - equal:
+          path: spec.commonName
+          value: serviceradar-dgraph-alpha.serviceradar-test.svc.cluster.local
+        documentSelector:
+          path: metadata.name
+          value: dgraph-alpha-tls
+
+  - it: omits in-chart TLS when dgraph is an external cluster
+    set:
+      dgraph:
+        enabled: false
+        schema:
+          enabled: false
+        external:
+          host: dgraph-dgraph-alpha.demo.svc.cluster.local
+          port: 9080
+          tlsMode: verify-ca
+          caSecret: dgraph-ca
+    asserts:
+      - hasDocuments:
+          count: 0

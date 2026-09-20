@@ -1,7 +1,8 @@
 defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.RiskSummary do
   @moduledoc false
 
-  alias ServiceRadar.Graph
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph.Persist
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Queries
 
   require Logger
@@ -16,9 +17,9 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.RiskSummary do
         :ok
 
       cypher ->
-        case Graph.execute(cypher, opts) do
+        case Persist.execute_age(cypher, opts) do
           :ok ->
-            :ok
+            DgraphPersist.upsert_risk_summary(device_uid, summary)
 
           {:error, reason} ->
             Logger.warning(

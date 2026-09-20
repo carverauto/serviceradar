@@ -1,0 +1,15 @@
+[package]
+name = "network-config-downparser"
+version = "0.1.0"
+description = "V1 parser for invented IOS-like running-config into interface facts. Live dumps never enter git."
+edition = "2024"
+license = "Apache-2.0"
+autotests = false
+
+[lib]
+name = "network_config_downparser"
+path = "src/lib.rs"
+
+[[test]]
+name = "parse_tests"
+path = "tests/parse_tests.rs"

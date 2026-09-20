@@ -27,6 +27,7 @@ flowchart TB
     NATS["NATS JetStream"]
 
     DB["CNPG (Postgres + Timescale + AGE)"]
+    DgraphDB["Dgraph (topology graph)"]
   end
 
   subgraph Edge["Edge Site / Monitored Network"]
@@ -44,7 +45,15 @@ flowchart TB
 
   CoreSvc --> DB
   Web --> DB
+
+  CoreSvc --> DgraphDB
+  Web --> DgraphDB
 ```
+
+Topology is the one dataset with two stores during the Dgraph rollout: mapper
+evidence stays in CNPG, Dgraph is the traversal graph, and Apache AGE keeps
+receiving the same writes until the cutover. See
+[Network Topology](./network-topology.md).
 
 ## Control Plane (ERTS Cluster)
 

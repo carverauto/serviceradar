@@ -48,6 +48,7 @@ MUST_INCLUDE = (
     # Helm's convention for chart test hooks. Root-level build/test rules must
     # never reach into templates/.
     "templates/tests/test-connection.yaml",
+    "charts/dgraph-24.1.4.tgz",
 )
 
 

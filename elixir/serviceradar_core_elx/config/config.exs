@@ -98,6 +98,8 @@ config :spark,
 # Lint-only CI sets SERVICERADAR_SKIP_NIF_COMPILATION so mix deps.compile of
 # path-dep NIFs does not shell out to cargo. See elixir/web-ng/config/config.exs.
 if System.get_env("SERVICERADAR_SKIP_NIF_COMPILATION") == "1" do
+  config :serviceradar_core, ServiceRadar.Dgraph.Native, skip_compilation?: true
+  config :serviceradar_core, ServiceRadar.NetworkConfig.Native, skip_compilation?: true
   config :serviceradar_core, ServiceRadar.Observability.DispositionKernels, skip_compilation?: true
   config :serviceradar_core, ServiceRadar.Observability.Zen.Native, skip_compilation?: true
 

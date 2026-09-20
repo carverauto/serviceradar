@@ -1,5 +1,9 @@
 # Change: Add a first-party Rust Dgraph client
 
+> **Superseded by `replace-age-topology-with-dgraph`.** ServiceRadar consumes
+> `dgraph-client` from [`marvin-hansen/dgraph-rs`](https://github.com/marvin-hansen/dgraph-rs)
+> and does not land `rust/dgraph-client` in this repository.
+
 ## Why
 
 ServiceRadar needs to talk to Dgraph from Rust. The reference implementation is the

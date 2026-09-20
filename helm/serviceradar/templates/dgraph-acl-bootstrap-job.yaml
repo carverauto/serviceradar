@@ -1,0 +1,125 @@
+{{- $d := default (dict) .Values.dgraph -}}
+{{- $alphaAcl := default (dict) (default (dict) $d.alpha).acl -}}
+{{- if and $d.enabled (default false $alphaAcl.enabled) }}
+{{- $alpha := include "serviceradar.dgraph.alphaFullname" . -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: serviceradar-dgraph-acl-bootstrap
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: dgraph-acl-bootstrap
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "4"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        app: serviceradar-dgraph-acl-bootstrap
+        app.kubernetes.io/part-of: serviceradar
+        app.kubernetes.io/component: dgraph-acl-bootstrap
+    spec:
+      restartPolicy: OnFailure
+      {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
+      containers:
+      - name: acl-bootstrap
+        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-tools" "service" "tools") }}
+        imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+        {{- include "serviceradar.nonRootContainerSecurityContext" . | nindent 8 }}
+        env:
+        - name: DGRAPH_ADMIN_URL
+          value: {{ printf "https://%s.%s.svc.cluster.local:8080/admin" $alpha .Release.Namespace | quote }}
+        - name: DGRAPH_GROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "serviceradar.dgraph.aclSecretName" . | quote }}
+              key: groot_password
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        - name: dgraph-ca
+          mountPath: /etc/dgraph-ca
+          readOnly: true
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          set -eu
+
+          # Dgraph initialises groot with its well-known default password and
+          # exposes no chart value to change it, so the cluster is rotated onto
+          # the generated Secret here, once, before the schema Job runs. Every
+          # later run finds the generated password already working and is a
+          # no-op.
+          CA=/etc/dgraph-ca/ca.crt
+
+          admin_post() {
+            body="$1"
+            token="${2:-}"
+            if [ -n "${token}" ]; then
+              curl -sS --cacert "${CA}" \
+                --header "Content-Type: application/json" \
+                --header "X-Dgraph-AccessToken: ${token}" \
+                --data "${body}" "${DGRAPH_ADMIN_URL}"
+            else
+              curl -sS --cacert "${CA}" \
+                --header "Content-Type: application/json" \
+                --data "${body}" "${DGRAPH_ADMIN_URL}"
+            fi
+          }
+
+          access_token_for() {
+            printf '{"query":"mutation($p: String!){ login(userId: \\"groot\\", password: $p){ response{ accessJWT } } }","variables":{"p":%s}}' \
+              "$(printf '%s' "$1" | jq -Rs .)" >/tmp/login.json
+            admin_post "$(cat /tmp/login.json)" | jq -r '.data.login.response.accessJWT // ""'
+          }
+
+          i=0
+          until admin_post '{"query":"{ health { status } }"}' >/dev/null 2>&1; do
+            i=$((i + 1))
+            if [ "${i}" -ge 60 ]; then
+              echo "Dgraph admin endpoint never became reachable"
+              exit 1
+            fi
+            echo "dgraph admin not ready, retry ${i}/60"
+            sleep 5
+          done
+
+          if [ -n "$(access_token_for "${DGRAPH_GROOT_PASSWORD}")" ]; then
+            echo "groot already uses the generated password"
+            exit 0
+          fi
+
+          TOKEN="$(access_token_for password)"
+          if [ -z "${TOKEN}" ]; then
+            echo "groot accepts neither the generated password nor the Dgraph"
+            echo "default; refusing to guess. Restore groot_password in the"
+            echo "ACL Secret and rerun."
+            exit 1
+          fi
+
+          printf '{"query":"mutation($newPassword: String!){ updateUser(input: {filter: {name: {eq: \\"groot\\"}}, set: {password: $newPassword}}){ user{ name } } }","variables":{"newPassword":%s}}' \
+            "$(printf '%s' "${DGRAPH_GROOT_PASSWORD}" | jq -Rs .)" >/tmp/rotate.json
+          admin_post "$(cat /tmp/rotate.json)" "${TOKEN}" >/tmp/rotate-out
+
+          if [ -z "$(access_token_for "${DGRAPH_GROOT_PASSWORD}")" ]; then
+            echo "password rotation did not take effect"
+            cat /tmp/rotate-out || true
+            exit 1
+          fi
+          echo "Rotated groot off the Dgraph default password"
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      - name: dgraph-ca
+        secret:
+          secretName: dgraph-ca
+          items:
+          - key: ca.crt
+            path: ca.crt
+{{- end }}

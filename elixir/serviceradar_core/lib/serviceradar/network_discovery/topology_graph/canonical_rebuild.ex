@@ -6,9 +6,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
   alias ServiceRadar.Graph
   alias ServiceRadar.NetworkDiscovery.RuntimeTopologyProjection
   alias ServiceRadar.NetworkDiscovery.TopologyGraph
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph.Backend
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalMutationLock
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild.Conflicts
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.HealthConditions
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph.Persist
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Queries
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Telemetry
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Utils
@@ -553,13 +556,14 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
 
   # Structural canonical rebuild — runs INSIDE the canonical mutation lock.
   # Everything here mutates CANONICAL_TOPOLOGY structure (upsert + reconcile +
-  # guarded prune + self-heal) and must be serialized by the lock. The two
-  # downstream materializations (telemetry refresh + projection refresh) are
-  # deliberately NOT run here; they run in finalize_canonical_rebuild/2 after the
-  # structural transaction commits so they don't extend the lock connection's
-  # checkout past the pool budget. Telemetry reacquires this lock only around its
-  # AGE writes. Returns {:ok, structural_stats} (telemetry_refresh /
-  # runtime_projection_refresh are merged in later) or {:error, reason, stats}.
+  # guarded prune + self-heal) and must be serialized by the lock. The three
+  # downstream materializations (telemetry refresh, projection refresh, Dgraph
+  # dual-write) are deliberately NOT run here; they run in
+  # finalize_canonical_rebuild/2 after the structural transaction commits so they
+  # don't extend the lock connection's checkout past the pool budget. Telemetry
+  # reacquires this lock only around its AGE writes. Returns {:ok,
+  # structural_stats} (telemetry_refresh / runtime_projection_refresh are merged
+  # in later) or {:error, reason, stats}.
   defp do_rebuild_canonical_device_links do
     before_edges = canonical_edge_count()
     mapper_evidence_edges = mapper_evidence_edge_count()
@@ -568,7 +572,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
     min_canonical_edges = canonical_rebuild_min_edges()
     upsert_cypher = Queries.canonical_rebuild_upsert_query(stale_cutoff)
 
-    case Graph.execute(upsert_cypher) do
+    case Persist.execute_age(upsert_cypher) do
       :ok ->
         demotion_result = Conflicts.reconcile_competing_same_port_canonical_edges()
         after_upsert_edges = canonical_edge_count()
@@ -626,19 +630,25 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
   end
 
   # Runs AFTER the advisory-lock transaction commits (see run_canonical_rebuild/1).
-  # Refreshes the canonical-edge flow telemetry and then the SQL runtime-topology
-  # projection, each on its own pooled connection rather than the (now released)
-  # lock connection. Telemetry runs before the projection because the projection
-  # query reads the flow_pps/flow_bps the telemetry step writes onto the canonical
-  # edges. Both degrade gracefully: a failure is captured in the stats map (as it
-  # was before) and never fails the sibling step or the overall rebuild — the
-  # cleanup worker treats the {:ok, stats} as completed-with-degradation and
-  # retries the failed materialization next cycle.
+  # Refreshes the canonical-edge flow telemetry, then the SQL runtime-topology
+  # projection, then copies the canonical set to the Dgraph shadow, each on its
+  # own pooled connection rather than the (now released) lock connection.
+  # Telemetry runs first because both the projection query and the dual-write read
+  # the flow_pps/flow_bps it writes onto the canonical edges. The dual-write runs
+  # last because it is one sequential Dgraph round-trip per edge: inside the lock
+  # transaction a slow shadow store would exhaust the checkout budget and roll back
+  # the AGE rebuild that had already succeeded, and ahead of the projection it
+  # would delay the read model God View serves under GRAPH_READ=age. All three
+  # degrade gracefully: a failure is captured in the stats map (as it was before)
+  # and never fails a sibling step or the overall rebuild — the cleanup worker
+  # treats the {:ok, stats} as completed-with-degradation and retries the failed
+  # materialization next cycle.
   defp finalize_canonical_rebuild(structural_stats, fingerprint) when is_map(structural_stats) do
     stale_cutoff = Map.fetch!(structural_stats, :stale_cutoff)
 
     telemetry_result = Telemetry.refresh_canonical_edge_telemetry(stale_cutoff)
     runtime_projection_refresh = refresh_runtime_topology_projection(fingerprint)
+    maybe_dual_write_canonical()
 
     stats =
       structural_stats
@@ -772,7 +782,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
         min_canonical_edges: min_canonical_edges
       )
 
-      case Graph.execute(Queries.canonical_rebuild_upsert_query(stale_cutoff)) do
+      case Persist.execute_age(Queries.canonical_rebuild_upsert_query(stale_cutoff)) do
         :ok ->
           healed_edges = canonical_edge_count()
 
@@ -813,7 +823,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
   defp prune_stale_canonical_device_links(stale_cutoff) when is_binary(stale_cutoff) do
     prune_cypher = Queries.canonical_rebuild_prune_query(stale_cutoff)
 
-    case Graph.execute(prune_cypher) do
+    case Persist.execute_age(prune_cypher) do
       :ok ->
         :ok
 
@@ -849,4 +859,48 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
   end
 
   defp parse_count(_), do: 0
+
+  defp maybe_dual_write_canonical do
+    if Backend.write_dgraph?() and Backend.write_age?() do
+      cypher = """
+      MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device)
+      WHERE #{RuntimeTopologyProjection.canonical_edge_predicate()}
+      RETURN {
+        local_device_id: a.id,
+        neighbor_device_id: b.id,
+        protocol: coalesce(r.protocol, r.source, 'unknown'),
+        evidence_class: coalesce(r.evidence_class, 'direct'),
+        local_if_name: coalesce(r.local_if_name, ''),
+        neighbor_if_name: coalesce(r.neighbor_if_name, ''),
+        local_if_index: r.local_if_index,
+        neighbor_if_index: r.neighbor_if_index,
+        confidence_tier: r.confidence_tier,
+        flow_pps_ab: coalesce(r.flow_pps_ab, 0),
+        flow_pps_ba: coalesce(r.flow_pps_ba, 0),
+        flow_bps_ab: coalesce(r.flow_bps_ab, 0),
+        flow_bps_ba: coalesce(r.flow_bps_ba, 0),
+        capacity_bps: coalesce(r.capacity_bps, 0),
+        telemetry_eligible: coalesce(r.telemetry_eligible, false)
+      } AS row
+      """
+
+      case Graph.query(cypher) do
+        {:ok, rows} ->
+          payloads =
+            Enum.map(rows, fn
+              %{"row" => row} -> row
+              %{row: row} -> row
+              row -> row
+            end)
+
+          DgraphPersist.rebuild_canonical_from_age_rows(payloads)
+
+        {:error, reason} ->
+          Logger.warning("Dgraph canonical dual-write query failed: #{inspect(reason)}")
+          :ok
+      end
+    else
+      :ok
+    end
+  end
 end

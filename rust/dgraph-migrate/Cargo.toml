@@ -1,0 +1,29 @@
+[package]
+name = "dgraph-migrate"
+version = "0.1.0"
+description = "Generic Dgraph schema runner: verify, apply, and scoped remove. Schema text and predicate/type lists are parameters. Never drop_all."
+edition = "2024"
+license = "Apache-2.0"
+autotests = false
+
+[lib]
+name = "dgraph_migrate"
+path = "src/lib.rs"
+
+[[test]]
+name = "lib_tests"
+path = "tests/lib_tests.rs"
+
+[features]
+default = []
+# DgraphInstance::acquire (docker standalone or DGRAPH_TEST_STRATEGY=existing).
+integration-tests = ["dgraph_client/test-utils"]
+
+[dependencies]
+dgraph_client = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

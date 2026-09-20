@@ -720,6 +720,7 @@ spec:
           value: {{ default "1.0" .samplingRatio | quote }}
         {{- end }}
         {{- end }}
+        {{- include "serviceradar.graph.env" $ | nindent 8 }}
         {{- with .Values.webNg.extraEnv }}
         {{- range $name, $value := . }}
         {{- if and (ne $name "SERVICERADAR_MCP_ENABLED") (ne $name "SERVICERADAR_MCP_CLIENT_CREDENTIALS_ENABLED") (ne $name "SERVICERADAR_MCP_REFRESH_TTL_SECONDS") }}
@@ -804,6 +805,7 @@ spec:
         volumeMounts:
         - name: tmp
           mountPath: /tmp
+        {{- include "serviceradar.dgraph.caVolumeMount" $ | nindent 8 }}
         - name: cert-data
           mountPath: /etc/serviceradar/certs
           readOnly: true
@@ -880,6 +882,7 @@ spec:
       volumes:
       - name: tmp
         emptyDir: {}
+      {{- include "serviceradar.dgraph.caVolume" $ | nindent 6 }}
       - name: cert-data
         secret:
           secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}

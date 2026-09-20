@@ -1,0 +1,47 @@
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:rust_binary.bzl", "rust_binary")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+
+rust_library(
+    name = "age_to_dgraph_lib",
+    srcs = glob(
+        ["src/**/*.rs"],
+        exclude = ["src/main.rs"],
+    ),
+    crate_name = "age_to_dgraph",
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + ["//rust/dgraph-topology:dgraph_topology"],
+)
+
+rust_binary(
+    name = "age-to-dgraph",
+    srcs = ["src/main.rs"],
+    crate_root = "src/main.rs",
+    edition = "2024",
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + [":age_to_dgraph_lib"],
+)
+
+rust_test(
+    name = "lib_tests",
+    srcs = ["tests/lib_tests.rs"],
+    crate_root = "tests/lib_tests.rs",
+    edition = "2024",
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+        normal_dev = True,
+    ) + [
+        ":age_to_dgraph_lib",
+        "//rust/dgraph-topology:dgraph_topology",
+    ],
+)

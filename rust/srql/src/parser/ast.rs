@@ -12,6 +12,7 @@ pub enum Entity {
     Interfaces,
     DeviceGraph,
     GraphCypher,
+    GraphDql,
     Events,
     SecurityFindings,
     ScanActivity,

@@ -1136,6 +1136,61 @@ fn translate_graph_cypher_still_rejects_mutations_after_comments() {
 }
 
 #[test]
+fn translate_graph_dql_rejects_mutations() {
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+    let request = QueryRequest {
+        query: r#"in:graph dql:"mutation { set { _:x <dgraph.type> \"Device\" } }""#.to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let err = translate_request(&config, request).expect_err("should reject write dql");
+    assert!(
+        err.to_string().to_lowercase().contains("read-only")
+            || err.to_string().to_lowercase().contains("mutation"),
+        "expected mutation refusal, got: {err}"
+    );
+}
+
+#[test]
+fn translate_graph_dql_requires_dql() {
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+    let request = QueryRequest {
+        query: "in:graph_dql limit:10".to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let err = translate_request(&config, request).expect_err("should require dql");
+    assert!(
+        err.to_string().to_lowercase().contains("dql"),
+        "expected missing dql error, got: {err}"
+    );
+}
+
+#[test]
+fn translate_graph_dql_is_not_sql() {
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+    let request = QueryRequest {
+        query: r#"in:graph dql:'{ q(func: type(Device)) { device.id } }'"#.to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let err = translate_request(&config, request).expect_err("graph_dql is not SQL");
+    assert!(
+        err.to_string().to_lowercase().contains("not sql"),
+        "expected not-SQL error, got: {err}"
+    );
+}
+
+#[test]
 fn translate_graph_cypher_wraps_rows_as_topology_payload() {
     let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
     let request = QueryRequest {

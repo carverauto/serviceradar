@@ -1135,6 +1135,14 @@ if config_env() == :prod do
   config :serviceradar_core, :platform_sync_component_id, platform_sync_component_id
   config :serviceradar_core, :start_ash_oban_scheduler, ash_oban_scheduler_enabled
 
+  config :serviceradar_core,
+    graph_backend: System.get_env("GRAPH_BACKEND", "dual"),
+    graph_read: System.get_env("GRAPH_READ", "age"),
+    dgraph_url: System.get_env("DGRAPH_URL"),
+    dgraph_host: System.get_env("DGRAPH_HOST"),
+    dgraph_port: parse_int_env.("DGRAPH_PORT", 9080),
+    dgraph_tls_mode: System.get_env("DGRAPH_TLS_MODE", "disable")
+
   # Operator-set stale thresholds for the scheduled anomaly workers; the
   # worker modules' own defaults apply when unset.
   for {key, value} <- ProductionSchedule.app_env() do

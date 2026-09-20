@@ -1,0 +1,57 @@
+# The in-chart counterpart of //k8s/dgraph/tests:dgraph_endpoint_contract_test.
+# TLS verifies the name DIALED, so the host the chart hands its clients has to be
+# a SAN on the certificate the chart issues. That test reads k8s/dgraph YAML and
+# cannot see these names, which only exist after rendering.
+suite: dgraph product endpoint agrees with the issued certificate
+release:
+  name: serviceradar
+  namespace: serviceradar-test
+templates:
+  - templates/core.yaml
+  - templates/web.yaml
+  - templates/dgraph-certificates.yaml
+  - templates/dgraph-schema-job.yaml
+  - templates/dgraph-migrator-job.yaml
+tests:
+  - it: every client dials the name the Alpha certificate carries
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DGRAPH_HOST
+            value: serviceradar-dgraph-alpha.serviceradar-test.svc.cluster.local
+        template: templates/core.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DGRAPH_HOST
+            value: serviceradar-dgraph-alpha.serviceradar-test.svc.cluster.local
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - equal:
+          path: spec.commonName
+          value: serviceradar-dgraph-alpha.serviceradar-test.svc.cluster.local
+        template: templates/dgraph-certificates.yaml
+        documentSelector:
+          path: metadata.name
+          value: dgraph-alpha-tls
+      - contains:
+          path: spec.dnsNames
+          content: serviceradar-dgraph-alpha.serviceradar-test.svc.cluster.local
+        template: templates/dgraph-certificates.yaml
+        documentSelector:
+          path: metadata.name
+          value: dgraph-alpha-tls
+      - matchRegex:
+          path: spec.template.spec.containers[0].env[?(@.name=="DGRAPH_URL")].value
+          pattern: '@serviceradar-dgraph-alpha\.serviceradar-test\.svc\.cluster\.local:9080\?'
+        template: templates/dgraph-schema-job.yaml
+      - matchRegex:
+          path: spec.template.spec.containers[0].env[?(@.name=="DGRAPH_URL")].value
+          pattern: '@serviceradar-dgraph-alpha\.serviceradar-test\.svc\.cluster\.local:9080\?'
+        template: templates/dgraph-migrator-job.yaml

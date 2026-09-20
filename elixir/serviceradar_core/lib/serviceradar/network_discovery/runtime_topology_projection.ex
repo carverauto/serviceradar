@@ -19,20 +19,35 @@ defmodule ServiceRadar.NetworkDiscovery.RuntimeTopologyProjection do
   @type refresh_result :: {:ok, %{rows: non_neg_integer()}} | {:error, term()}
 
   @doc """
+  Cypher predicate selecting the canonical topology set.
+
+  One definition, because three writers must agree on it: this projection, the
+  Dgraph dual-write copy, and the AGE-to-Dgraph migrator's checksum. A writer
+  using a wider or narrower set than another makes the destructive
+  `rebuild_canonical` delete the other writer's edges.
+  """
+  @spec canonical_edge_predicate(String.t(), String.t(), String.t()) :: String.t()
+  def canonical_edge_predicate(local \\ "a", neighbor \\ "b", edge \\ "r") do
+    String.trim_trailing("""
+    #{local}.id IS NOT NULL
+      AND #{neighbor}.id IS NOT NULL
+      AND #{local}.id STARTS WITH 'sr:'
+      AND #{neighbor}.id STARTS WITH 'sr:'
+      AND (
+        toUpper(coalesce(#{edge}.relation_type, '')) IN ['CONNECTS_TO', 'LOGICAL_PEER', 'HOSTED_ON']
+        OR (coalesce(#{edge}.relation_type, '') = '' AND toLower(coalesce(#{edge}.evidence_class, '')) IN ['direct', 'direct-physical', 'direct-logical', 'hosted-virtual'])
+      )
+    """)
+  end
+
+  @doc """
   AGE query used to build the SQL projection.
   """
   @spec graph_projection_query() :: String.t()
   def graph_projection_query do
     """
     MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device)
-    WHERE a.id IS NOT NULL
-      AND b.id IS NOT NULL
-      AND a.id STARTS WITH 'sr:'
-      AND b.id STARTS WITH 'sr:'
-      AND (
-        toUpper(coalesce(r.relation_type, '')) IN ['CONNECTS_TO', 'LOGICAL_PEER', 'HOSTED_ON']
-        OR (coalesce(r.relation_type, '') = '' AND toLower(coalesce(r.evidence_class, '')) IN ['direct', 'direct-physical', 'direct-logical', 'hosted-virtual'])
-      )
+    WHERE #{canonical_edge_predicate()}
     WITH a, b, r
     ORDER BY coalesce(r.last_observed_at, r.observed_at) DESC,
       a.id ASC,

@@ -82,6 +82,10 @@ jobs:
             --set flowCollector.enabled=true \
             --set analytics.starrocks.enabled=true \
             --debug > /dev/null
+          helm template serviceradar helm/serviceradar \
+            --set global.imageTag="v1.0.0" \
+            -f helm/serviceradar/values-ha.yaml \
+            --debug > /dev/null
 
       - name: Verify web-ng secret-backed environment values
         run: ./scripts/check-web-ng-extra-env-value-from.sh

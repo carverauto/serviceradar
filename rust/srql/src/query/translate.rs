@@ -4,12 +4,12 @@ use super::{
     composite_results, cpu_metrics, dashboard_service_views, dashboards, device_graph,
     device_sweep_overlap, devices, disk_metrics, downsample, endpoint_inventory_scans,
     endpoint_package_catalog, endpoint_packages, endpoint_vulnerability_matches, events,
-    field_survey, flows, gateways, graph_cypher, identity, interfaces, is_exhaustive_profile_query,
-    logs, memory_metrics, mtr_traces, otel_metric_points, otel_metrics, process_metrics,
-    public_endpoints, services, source_fact_disagreements, starrocks, sweep_coverage,
-    sweep_executions, sweep_groups, sweep_profiles, sweep_results, threat_intel_matches,
-    timeseries_metrics, trace_summaries, traces, virtualization, viz, vulnerability_advisories,
-    wifi_map,
+    field_survey, flows, gateways, graph_cypher, graph_dql, identity, interfaces,
+    is_exhaustive_profile_query, logs, memory_metrics, mtr_traces, otel_metric_points,
+    otel_metrics, process_metrics, public_endpoints, services, source_fact_disagreements,
+    starrocks, sweep_coverage, sweep_executions, sweep_groups, sweep_profiles, sweep_results,
+    threat_intel_matches, timeseries_metrics, trace_summaries, traces, virtualization, viz,
+    vulnerability_advisories, wifi_map,
 };
 use crate::{
     config::AppConfig,
@@ -60,6 +60,7 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             Entity::Devices => devices::to_sql_and_params(&plan)?,
             Entity::DeviceGraph => device_graph::to_sql_and_params(&plan)?,
             Entity::GraphCypher => graph_cypher::to_sql_and_params(&plan, &config.age_graph_name)?,
+            Entity::GraphDql => graph_dql::to_sql_and_params(&plan)?,
             Entity::Events
             | Entity::SecurityFindings
             | Entity::ScanActivity

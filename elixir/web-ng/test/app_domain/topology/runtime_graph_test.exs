@@ -78,6 +78,79 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphTest do
     assert RuntimeGraph.projection_read_action({:error, :boom}) == {:fallback_error, :boom}
   end
 
+  test "canonical_edge_to_runtime_row/1 maps Dgraph edges onto the God View row contract" do
+    row =
+      RuntimeGraph.canonical_edge_to_runtime_row(%{
+        source: "sr:host01.example.com",
+        target: "sr:host02.example.com",
+        protocol: "lldp",
+        evidence_class: "direct-physical",
+        confidence_tier: "high",
+        if_name_ab: "eth0",
+        if_name_ba: "eth1",
+        if_index_ab: 1,
+        if_index_ba: 2,
+        flow_pps: 40,
+        flow_bps: 4_000,
+        flow_pps_ab: 30,
+        flow_pps_ba: 10,
+        flow_bps_ab: 3_000,
+        flow_bps_ba: 1_000,
+        capacity_bps: 1_000_000_000,
+        telemetry_eligible: true,
+        link_key: "sr:host01.example.com|sr:host02.example.com|eth0|eth1"
+      })
+
+    assert row.local_device_id == "sr:host01.example.com"
+    assert row.neighbor_device_id == "sr:host02.example.com"
+    assert row.local_if_name == "eth0"
+    assert row.neighbor_if_name == "eth1"
+    assert row.evidence_class == "direct-physical"
+    assert row.metadata["relation_type"] == "CONNECTS_TO"
+    assert RuntimeGraph.canonical_runtime_row?(row)
+    assert RuntimeGraph.backbone_runtime_row?(row)
+
+    logical =
+      RuntimeGraph.canonical_edge_to_runtime_row(%{
+        "source" => "sr:host01.example.com",
+        "target" => "sr:host03.example.com",
+        "evidence_class" => "direct-logical"
+      })
+
+    assert logical.metadata["relation_type"] == "LOGICAL_PEER"
+    assert RuntimeGraph.backbone_runtime_row?(logical)
+  end
+
+  test "canonical_edge_to_runtime_row/1 keeps inferred segments on the attachment plane" do
+    row =
+      RuntimeGraph.canonical_edge_to_runtime_row(%{
+        source: "sr:host01.example.com",
+        target: "sr:host02.example.com",
+        evidence_class: "inferred-segment"
+      })
+
+    assert row.metadata["relation_type"] == "ATTACHED_TO"
+    assert RuntimeGraph.attachment_runtime_row?(row)
+
+    assert RuntimeGraph.canonical_runtime_row?(row),
+           "an inferred segment read from Dgraph must survive the God View filter"
+  end
+
+  test "canonical_edge_to_runtime_row/1 does not promote unrecognised evidence to backbone" do
+    row =
+      RuntimeGraph.canonical_edge_to_runtime_row(%{
+        source: "sr:host01.example.com",
+        target: "sr:host02.example.com",
+        evidence_class: "inferred"
+      })
+
+    assert row.metadata["relation_type"] == ""
+    refute RuntimeGraph.backbone_runtime_row?(row)
+
+    refute RuntimeGraph.canonical_runtime_row?(row),
+           "AGE excludes an inferred canonical edge; the Dgraph read must match"
+  end
+
   test "topology_diagnostics_query/0 exposes canonical edge health counters" do
     query = RuntimeGraph.topology_diagnostics_query()
 

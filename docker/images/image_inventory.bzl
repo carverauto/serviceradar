@@ -8,6 +8,7 @@ PUBLISHABLE_IMAGES = [
     {"image": "datasvc_image_amd64", "push_image": "datasvc_image_multiarch", "repository": "registry.carverauto.dev/serviceradar/serviceradar-datasvc"},
     {"image": "log_collector_image_amd64", "push_image": "log_collector_image_multiarch", "repository": "registry.carverauto.dev/serviceradar/serviceradar-log-collector"},
     {"image": "trapd_image_amd64", "push_image": "trapd_image_multiarch", "repository": "registry.carverauto.dev/serviceradar/serviceradar-trapd"},
+    {"image": "dgraph_migrate_image_amd64", "push_image": "dgraph_migrate_image_multiarch", "repository": "registry.carverauto.dev/serviceradar/serviceradar-dgraph-migrate"},
     {"image": "flow_collector_image_amd64", "push_image": "flow_collector_image_multiarch", "repository": "registry.carverauto.dev/serviceradar/serviceradar-flow-collector"},
     {"image": "bmp_collector_image_amd64", "push_image": "bmp_collector_image_multiarch", "repository": "registry.carverauto.dev/serviceradar/arancini"},
     {"image": "rperf_client_image_amd64", "push_image": "rperf_client_image_multiarch", "repository": "registry.carverauto.dev/serviceradar/serviceradar-rperf-client"},

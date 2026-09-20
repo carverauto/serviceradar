@@ -8,11 +8,17 @@ members = [
     "config/manager_validator/rust",
     "rust/integration-db",
     "elixir/serviceradar_core/native/anomaly_disposition_nif",
+    "elixir/serviceradar_core/native/dgraph_nif",
+    "elixir/serviceradar_core/native/network_config_nif",
     "elixir/serviceradar_core/native/zen_nif",
     "elixir/serviceradar_srql/native/srql_nif",
     "elixir/web-ng/native/god_view_nif",
     "rust/kvutil",
     "rust/config-bootstrap",
+    "rust/age-to-dgraph",
+    "rust/dgraph-migrate",
+    "rust/network-config-downparser",
+    "rust/dgraph-topology",
     "rust/edge-onboarding",
     "rust/bmp-collector",
     "rust/flowgger",
@@ -53,7 +59,9 @@ exclude = [
 
 [workspace.package]
 edition = "2024"
-rust-version = "1.93.0"
+# Keep in lockstep with MODULE.bazel RUST_DEFAULT_VERSION. dgraph-client
+# (marvin-hansen/dgraph-rs) declares MSRV 1.97.1.
+rust-version = "1.97.1"
 
 
 [workspace.dependencies]
@@ -91,6 +99,10 @@ deep_causality_topology = "0.7"
 deep_causality_uncertain = "0.5"
 diesel = { version = "2.3", default-features = false }
 diesel-async = { version = "0.7.1", default-features = false }
+# Git pin until dgraph-client is published on crates.io. The hyphen crate is not
+# the crates.io `dgraph_client` 0.1.0 package. Same source scrith uses; do not
+# recreate rust/dgraph-client in this repo. See rust/README_RUST.md.
+dgraph_client = { git = "https://github.com/marvin-hansen/dgraph-rs.git", branch = "main", package = "dgraph-client" }
 ed25519-dalek = { version = "3", default-features = false }
 # default = auto-color/humantime/regex. All three are expected logging behaviour
 # (humantime is timestamp_seconds; dropping regex would silently breaks RUST_LOG filters).

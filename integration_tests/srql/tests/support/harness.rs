@@ -108,6 +108,7 @@ fn test_config(database_url: String, tls_config: &FixtureTlsConfig) -> AppConfig
         database_url,
         age_graph_name: "platform_graph".to_string(),
         starrocks_database: "serviceradar".to_string(),
+        dgraph_url: None,
         max_pool_size: 5,
         database_ca_pem: tls_config.ca_pem.clone(),
         database_client_cert_pem: tls_config.client_cert_pem.clone(),

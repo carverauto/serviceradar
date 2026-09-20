@@ -304,10 +304,17 @@ fields; using a field that the entity does not support returns an
 | `endpoint_vulnerability_assessments` | `endpoint_vulnerability_assessment`, `package_vulnerabilities`, `endpoint_vulnerability_matches`, `vulnerability_matches`, `cve_matches`, `advisory_matches` | Stable device/package/CVE assessments, including candidates and resolved history. |
 
 > The engine also exposes specialized entities — device graph (`device_graph`),
-> device updates (`device_updates`), Wi-Fi site mapping (`wifi_sites`,
-> `wifi_access_points`, …), virtualization (`virtualization_hosts`,
-> `virtualization_guests`, …), and field-survey datasets. They use the same
-> `key:value` grammar described above.
+> topology graph (`graph`, alias `graph_dql`), device updates (`device_updates`),
+> Wi-Fi site mapping (`wifi_sites`, `wifi_access_points`, …), virtualization
+> (`virtualization_hosts`, `virtualization_guests`, …), and field-survey
+> datasets. They use the same `key:value` grammar described above.
+>
+> The two graph entities take a query string rather than field filters:
+> `in:graph dql:"..."` runs read-only DQL against Dgraph, and
+> `in:graph_cypher cypher:"..."` runs read-only openCypher against the Apache
+> AGE graph. Mutations are refused in both. `in:graph` selected the device
+> neighborhood in earlier releases; that entity is now reachable only as
+> `in:device_graph`.
 
 ## Filterable fields by entity
 

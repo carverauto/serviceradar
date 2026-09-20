@@ -2,6 +2,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Interfaces do
   @moduledoc false
 
   alias ServiceRadar.Graph
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph.Persist
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Utils
 
   require Logger
@@ -32,7 +34,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Interfaces do
       SET rev.source = 'mapper'
       """
 
-      case Graph.execute(cypher) do
+      case Persist.execute_age(cypher) do
         :ok -> :ok
         {:error, reason} -> Logger.warning("MANAGED_BY graph upsert failed: #{inspect(reason)}")
       end
@@ -90,9 +92,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Interfaces do
     SET r.source = 'mapper'
     """
 
-    case Graph.execute(cypher) do
-      :ok -> :ok
-      {:error, reason} -> Logger.warning("Interface graph upsert failed: #{inspect(reason)}")
+    case Persist.execute_age(cypher) do
+      :ok ->
+        DgraphPersist.upsert_interface(payload)
+
+      {:error, reason} ->
+        Logger.warning("Interface graph upsert failed: #{inspect(reason)}")
     end
   end
 end

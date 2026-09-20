@@ -3,6 +3,8 @@
 # ONE group. Deliberately not the multi-group "Distributed HA" pattern; see README, "Scaling".
 #
 # Deploy: ./deploy-dgraph.sh demo
+# Lands in the ServiceRadar `demo` namespace (same namespace as core/web-ng), not a
+# sibling `dgraph` namespace. dgraph-ci stays the CI fixture.
 
 image:
   # Harbor mirror, not Docker Hub: the cluster pulls locally, which removes the Hub rate limit
@@ -29,7 +31,8 @@ zero:
 
   persistence:
     enabled: true
-    size: 32Gi
+    storageClass: local-path
+    size: 16Gi
 
   # The chart emits only fsGroup and runAsUser, at pod level. Enough to keep Dgraph off root
   # and let it own its PVC, but it cannot express allowPrivilegeEscalation, capabilities.drop
@@ -108,7 +111,8 @@ alpha:
 
   persistence:
     enabled: true
-    size: 250Gi
+    storageClass: local-path
+    size: 32Gi
 
   securityContext:
     enabled: true

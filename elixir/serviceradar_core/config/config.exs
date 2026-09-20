@@ -190,7 +190,13 @@ config :serviceradar_core, :plugin_storage,
 config :serviceradar_core, :required_agent_addons, ["otel-collector"]
 
 config :serviceradar_core,
-  age_graph_name: "platform_graph"
+  age_graph_name: "platform_graph",
+  graph_backend: :age,
+  graph_read: :age,
+  dgraph_url: nil,
+  dgraph_host: nil,
+  dgraph_port: 9080,
+  dgraph_tls_mode: "disable"
 
 config :serviceradar_core,
   bumblebee_catalog_refresh_enabled: false
@@ -225,6 +231,7 @@ config :serviceradar_core,
     ServiceRadar.SweepJobs,
     ServiceRadar.SysmonProfiles,
     ServiceRadar.SNMPProfiles,
+    ServiceRadar.NetworkConfig,
     ServiceRadar.NetworkDiscovery,
     ServiceRadar.Plugins,
     ServiceRadar.Spatial,
@@ -343,6 +350,9 @@ config :spark,
 config :swoosh, :api_client, false
 
 if System.get_env("SERVICERADAR_SKIP_NIF_COMPILATION") == "1" do
+  config :serviceradar_core, ServiceRadar.Dgraph.Native, skip_compilation?: true
+  config :serviceradar_core, ServiceRadar.NetworkConfig.Native, skip_compilation?: true
+
   config :serviceradar_core, ServiceRadar.Observability.DispositionKernels,
     skip_compilation?: true
 

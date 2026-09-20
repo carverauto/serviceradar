@@ -1,0 +1,47 @@
+{{- /* Dgraph peer/client ports. serviceradar-egress selects every pod in the
+     namespace, so Zero Raft (5080) and Alpha gRPC (9080) are dropped unless
+     they appear on an allow list. This policy is additive. */ -}}
+{{- $np := default (dict) .Values.networkPolicy -}}
+{{- $d := default (dict) .Values.dgraph -}}
+{{- $externalHost := default "" (default (dict) $d.external).host -}}
+{{- if and $np.enabled (or $d.enabled (ne $externalHost "")) -}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-dgraph-peer
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: dgraph
+spec:
+  podSelector:
+    matchLabels:
+      app: dgraph
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: dgraph
+      ports:
+        - protocol: TCP
+          port: 5080
+        - protocol: TCP
+          port: 6080
+        - protocol: TCP
+          port: 7080
+        - protocol: TCP
+          port: 8080
+        - protocol: TCP
+          port: 9080
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace }}
+      ports:
+        - protocol: TCP
+          port: 8080
+        - protocol: TCP
+          port: 9080
+{{- end }}

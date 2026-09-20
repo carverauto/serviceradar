@@ -99,7 +99,7 @@ py_test(
 py_test(
     name = "chart_package_contents_test",
     srcs = ["chart_package_contents_test.py"],
-    data = [".helmignore"] + glob(["values-*.yaml"]),
+    data = [".helmignore"] + glob(["values-*.yaml"]) + glob(["charts/**"]),
 )
 
 py_test(
@@ -161,8 +161,10 @@ py_test(
         "Chart.yaml",
         "values.yaml",
         "values-demo.yaml",
+        "values-ha.yaml",
         ":helm_unittest_binary",
     ] + glob([
+        "charts/**",
         "crds/**",
         "dashboards/**",
         "files/**",

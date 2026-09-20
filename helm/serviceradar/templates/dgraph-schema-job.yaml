@@ -1,0 +1,121 @@
+{{- $d := default (dict) .Values.dgraph -}}
+{{- $schema := default (dict) $d.schema -}}
+{{- $externalHost := default "" (default (dict) $d.external).host -}}
+{{- $schemaEnabled := true -}}
+{{- if hasKey $schema "enabled" -}}
+{{- $schemaEnabled = $schema.enabled -}}
+{{- end -}}
+{{- if and (or $d.enabled (ne $externalHost "")) $schemaEnabled }}
+{{- $host := include "serviceradar.dgraph.host" . -}}
+{{- $port := include "serviceradar.dgraph.port" . -}}
+{{- $tlsMode := "verify-ca" -}}
+{{- if not $d.enabled -}}
+{{- $tlsMode = default "disable" (default (dict) $d.external).tlsMode -}}
+{{- end }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: serviceradar-dgraph-schema
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: dgraph-schema
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        app: serviceradar-dgraph-schema
+        app.kubernetes.io/part-of: serviceradar
+        app.kubernetes.io/component: dgraph-schema
+    spec:
+      restartPolicy: OnFailure
+      {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
+      containers:
+      - name: dgraph-migrate
+        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-dgraph-migrate" "service" "dgraphMigrate") }}
+        imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+        {{- include "serviceradar.nonRootContainerSecurityContext" . | nindent 8 }}
+        env:
+        - name: DGRAPH_ENV
+          value: CLUSTER
+        - name: DGRAPH_HOST
+          value: {{ $host | quote }}
+        - name: DGRAPH_PORT
+          value: {{ $port | quote }}
+        - name: DGRAPH_MIGRATION_MODE
+          value: MIGRATE
+        {{- if $d.enabled }}
+        - name: DGRAPH_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "serviceradar.dgraph.aclSecretName" . | quote }}
+              key: groot_password
+        - name: DGRAPH_URL
+          value: {{ printf "dgraph://groot:$(DGRAPH_PASSWORD)@%s:%s?sslmode=%s" $host $port $tlsMode | quote }}
+        {{- else }}
+        {{- $ext := default (dict) $d.external }}
+        {{- if ne (default "" $ext.credentialsSecret) "" }}
+        - name: DGRAPH_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ $ext.credentialsSecret | quote }}
+              key: {{ default "password" $ext.credentialsKey | quote }}
+        {{- end }}
+        - name: DGRAPH_URL
+          value: {{ printf "dgraph://%s%s:%s?sslmode=%s" (include "serviceradar.dgraph.externalUserinfo" .) $host $port $tlsMode | quote }}
+        {{- end }}
+        {{- if eq $tlsMode "verify-ca" }}
+        volumeMounts:
+        - name: dgraph-ca
+          mountPath: /etc/dgraph-ca
+          readOnly: true
+        {{- end }}
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          # /bin/sh on this image is dash, which has no `pipefail`; asking for it
+          # is a fatal `set: Illegal option` before the first command runs. These
+          # scripts contain no pipelines, so errexit and nounset are the whole
+          # contract.
+          set -eu
+          URL="${DGRAPH_URL}"
+          if [ -f /etc/dgraph-ca/ca.crt ]; then
+            URL="${URL}&sslrootcert=/etc/dgraph-ca/ca.crt"
+          fi
+          export DGRAPH_URL="${URL}"
+          # dgraph-migrate exits 0 ("already current") and 10 ("schema applied").
+          # Both are success; treating 10 as a failure logs "not ready" right
+          # after a successful apply and costs a redundant alter.
+          migrate_once() {
+            /usr/local/bin/dgraph-migrate
+            code=$?
+            [ "${code}" -eq 0 ] || [ "${code}" -eq 10 ]
+          }
+
+          i=0
+          until migrate_once; do
+            i=$((i + 1))
+            if [ "${i}" -ge 30 ]; then
+              echo "dgraph schema migrate did not succeed after ${i} attempts"
+              exit 1
+            fi
+            echo "dgraph not ready, retry ${i}/30"
+            sleep 5
+          done
+      {{- if eq $tlsMode "verify-ca" }}
+      volumes:
+      - name: dgraph-ca
+        secret:
+          secretName: {{ default "dgraph-ca" (default (dict) $d.external).caSecret }}
+          items:
+          - key: {{ default "ca.crt" (default (dict) $d.external).caKey }}
+            path: ca.crt
+      {{- end }}
+{{- end }}

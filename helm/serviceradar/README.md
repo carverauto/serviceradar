@@ -67,6 +67,7 @@ The chart deploys the following components:
 | NATS | JetStream messaging | 4222 |
 | CNPG | App database cluster | 5432 |
 | CNPG PgBouncer Pooler | Optional CNPG-managed connection pooler | 5432 |
+| Dgraph | Topology graph (Zero + Alpha). Disable with `dgraph.enabled=false` and set `dgraph.external.host` to reuse an existing cluster. | 9080 (gRPC), 8080 (HTTP) |
 | OTEL | Telemetry collector | - |
 
 ### Edge Agents

@@ -29,7 +29,20 @@ const DEFAULT_MAX_HYDRATION_ROWS: i64 = 50_000;
 /// vertex keys on the canonical `id` property (`ocsf_devices.uid`), so `a.id`/
 /// `b.id` are canonical `sr:` ids. The returned `{start_id,end_id,label}` object
 /// is wrapped by `graph_cypher` into `{nodes,edges}` (see `parse_topology_edges`).
-const TOPOLOGY_EDGES_QUERY: &str = "in:graph_cypher cypher:\"MATCH (a)-[r]->(b) WHERE type(r) IN ['CONNECTS_TO','MANAGED_BY','CONTAINS','BACKED_BY','DEPENDS_ON'] RETURN {start_id: a.id, end_id: b.id, label: type(r)} AS result\"";
+const TOPOLOGY_EDGES_QUERY_AGE: &str = "in:graph_cypher cypher:\"MATCH (a)-[r]->(b) WHERE type(r) IN ['CONNECTS_TO','MANAGED_BY','CONTAINS','BACKED_BY','DEPENDS_ON'] RETURN {start_id: a.id, end_id: b.id, label: type(r)} AS result\"";
+
+const TOPOLOGY_EDGES_QUERY_DGRAPH: &str = r#"in:graph dql:'{ edges(func: type(TopologyEdge)) @filter(NOT eq(topo.stale, true) AND (eq(topo.kind, "CONNECTS_TO") OR eq(topo.kind, "CANONICAL_TOPOLOGY") OR eq(topo.kind, "LOGICAL_PEER"))) { topo.kind topo.src { device.id } topo.dst { device.id } } }'"#;
+
+fn topology_edges_query() -> &'static str {
+    topology_edges_query_for(std::env::var("GRAPH_READ").ok().as_deref())
+}
+
+fn topology_edges_query_for(graph_read: Option<&str>) -> &'static str {
+    match graph_read {
+        Some(value) if value.eq_ignore_ascii_case("dgraph") => TOPOLOGY_EDGES_QUERY_DGRAPH,
+        _ => TOPOLOGY_EDGES_QUERY_AGE,
+    }
+}
 
 /// Interface the reasoner uses to read the latest hydrated `Context`.
 #[async_trait]
@@ -106,7 +119,7 @@ impl ContextHydrator {
         // the whole refresh — the engine still reasons from the snapshot + the
         // live state-change deltas, just without the structural causaloids this
         // tick.
-        let edges = match self.query(TOPOLOGY_EDGES_QUERY).await {
+        let edges = match self.query(topology_edges_query()).await {
             Ok(rows) => parse_topology_edges(&rows),
             Err(err) => {
                 warn!(error = %err, "topology edge projection failed; reasoning without edges this tick");
@@ -242,7 +255,7 @@ fn map_service(row: &serde_json::Value) -> Option<Service> {
 /// are dropped (coverage broadens as new edge kinds are projected).
 fn edge_kind_from_label(label: &str) -> Option<EdgeKind> {
     match label {
-        "CONNECTS_TO" => Some(EdgeKind::ConnectsTo),
+        "CONNECTS_TO" | "CANONICAL_TOPOLOGY" | "LOGICAL_PEER" => Some(EdgeKind::ConnectsTo),
         "MANAGED_BY" => Some(EdgeKind::ManagedBy),
         "CONTAINS" => Some(EdgeKind::Contains),
         "BACKED_BY" => Some(EdgeKind::BackedBy),
@@ -254,8 +267,13 @@ fn edge_kind_from_label(label: &str) -> Option<EdgeKind> {
 /// Project the `graph_cypher` result rows (each `{nodes,edges}`, with every
 /// `edge` carrying `start_id`/`end_id`/`label`) into deduplicated topology
 /// edges, enforcing canonical-id discipline (both endpoints must be `sr:`-keyed).
+///
+/// Dedup keys on the resolved [`EdgeKind`], not the label: several labels
+/// collapse onto one kind, and one link labelled both `CONNECTS_TO` and
+/// `CANONICAL_TOPOLOGY` would otherwise become two parallel edges, which hides
+/// it from bridge detection.
 fn parse_topology_edges(results: &[serde_json::Value]) -> Vec<TopologyEdge> {
-    let mut seen: HashSet<(String, String, String)> = HashSet::new();
+    let mut seen: HashSet<(String, String, EdgeKind)> = HashSet::new();
     let mut edges = Vec::new();
     for result in results {
         let Some(edge_rows) = result.get("edges").and_then(|e| e.as_array()) else {
@@ -276,7 +294,7 @@ fn parse_topology_edges(results: &[serde_json::Value]) -> Vec<TopologyEdge> {
                 // The engine consumes one canonical ID space; never fork it.
                 continue;
             }
-            if seen.insert((src.to_string(), dst.to_string(), label.to_string())) {
+            if seen.insert((src.to_string(), dst.to_string(), kind)) {
                 edges.push(TopologyEdge::new(src, dst, kind));
             }
         }
@@ -287,8 +305,8 @@ fn parse_topology_edges(results: &[serde_json::Value]) -> Vec<TopologyEdge> {
 #[cfg(test)]
 mod tests {
     use super::{
-        edge_kind_from_label, map_device, map_service, parse_topology_edges,
-        reconcile_hydrated_context,
+        TOPOLOGY_EDGES_QUERY_AGE, TOPOLOGY_EDGES_QUERY_DGRAPH, edge_kind_from_label, map_device,
+        map_service, parse_topology_edges, reconcile_hydrated_context, topology_edges_query_for,
     };
     use crate::domain_model::{
         AttributedFlow, BgpRoute, Context, Device, EdgeKind, InterfaceLink, OperatorRule, Service,
@@ -348,7 +366,28 @@ mod tests {
             edge_kind_from_label("DEPENDS_ON"),
             Some(EdgeKind::DependsOn)
         );
+        assert_eq!(
+            edge_kind_from_label("CANONICAL_TOPOLOGY"),
+            Some(EdgeKind::ConnectsTo)
+        );
+        assert_eq!(
+            edge_kind_from_label("LOGICAL_PEER"),
+            Some(EdgeKind::ConnectsTo)
+        );
         assert_eq!(edge_kind_from_label("HAS_INTERFACE"), None);
+    }
+
+    #[test]
+    fn topology_edges_query_follows_graph_read() {
+        assert_eq!(topology_edges_query_for(None), TOPOLOGY_EDGES_QUERY_AGE);
+        assert_eq!(
+            topology_edges_query_for(Some("age")),
+            TOPOLOGY_EDGES_QUERY_AGE
+        );
+        assert_eq!(
+            topology_edges_query_for(Some("dgraph")),
+            TOPOLOGY_EDGES_QUERY_DGRAPH
+        );
     }
 
     /// Mirror the `graph_cypher` wrapper shape: each row is `{nodes, edges}` and
@@ -374,6 +413,26 @@ mod tests {
             && e.dst == "sr:device:b"
             && e.kind == EdgeKind::ConnectsTo));
         assert!(edges.iter().any(|e| e.kind == EdgeKind::ManagedBy));
+    }
+
+    #[test]
+    fn labels_that_share_a_kind_do_not_become_parallel_edges() {
+        // One physical link is written twice in Dgraph: CONNECTS_TO by the
+        // mapper and CANONICAL_TOPOLOGY by the canonical rebuild. Both map to
+        // EdgeKind::ConnectsTo, and a second copy would give the link a
+        // parallel sibling, which stops bridge detection reporting it.
+        let results = vec![
+            cypher_edge("sr:device:a", "sr:device:b", "CONNECTS_TO"),
+            cypher_edge("sr:device:a", "sr:device:b", "CANONICAL_TOPOLOGY"),
+            cypher_edge("sr:device:a", "sr:device:b", "LOGICAL_PEER"),
+        ];
+        let edges = parse_topology_edges(&results);
+        assert_eq!(
+            edges.len(),
+            1,
+            "three labels collapsing onto one kind must yield one edge, got {edges:?}"
+        );
+        assert_eq!(edges[0].kind, EdgeKind::ConnectsTo);
     }
 
     #[test]

@@ -193,7 +193,13 @@ actions:
              --nocache_test_results --noremote_upload_local_results
              --test_env=SERVICERADAR_SECRET_DATABASE_PASSWORD
              --test_env=SERVICERADAR_SECRET_DATABASE_ADMIN_PASSWORD
-             --test_env=SERVICERADAR_SECRET_DGRAPH_ADMIN_PASSWORD"
+             --test_env=SERVICERADAR_SECRET_DGRAPH_ADMIN_PASSWORD
+             --test_env=DGRAPH_TEST_STRATEGY=existing
+             --test_env=DGRAPH_TEST_HOST=dgraph-dgraph-alpha.dgraph-ci.svc.cluster.local
+             --test_env=DGRAPH_TEST_PORT=9080
+             --test_env=DGRAPH_TEST_SSLMODE=verify-ca
+             --test_env=DGRAPH_TEST_CA_BUNDLE_URL=https://dgraph-ci-ca.carverauto.dev/ca.crt
+             --test_env=DGRAPH_ADMIN_PASSWORD"
 
           OBSERVER_DIR="$(mktemp -d "${TMPDIR:-/tmp}/serviceradar-observer.XXXXXX")"
           READY_FILE="$OBSERVER_DIR/ready"
@@ -349,6 +355,7 @@ actions:
           trap cleanup EXIT
           bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //:buildbuddy_setup_fixture_env
           set -a; . "$SERVICERADAR_FIXTURE_ENV_FILE"; set +a
+          export DGRAPH_ADMIN_PASSWORD="${SERVICERADAR_SECRET_DGRAPH_ADMIN_PASSWORD:-}"
           FLAGS="$FLAGS $SERVICERADAR_TEST_ENV_FLAGS"
 
           bazel test $FLAGS //rust/integration-db:sweep_stale_dbs
@@ -486,7 +493,13 @@ actions:
              --nocache_test_results --noremote_upload_local_results
              --test_env=SERVICERADAR_SECRET_DATABASE_PASSWORD
              --test_env=SERVICERADAR_SECRET_DATABASE_ADMIN_PASSWORD
-             --test_env=SERVICERADAR_SECRET_DGRAPH_ADMIN_PASSWORD"
+             --test_env=SERVICERADAR_SECRET_DGRAPH_ADMIN_PASSWORD
+             --test_env=DGRAPH_TEST_STRATEGY=existing
+             --test_env=DGRAPH_TEST_HOST=dgraph-dgraph-alpha.dgraph-ci.svc.cluster.local
+             --test_env=DGRAPH_TEST_PORT=9080
+             --test_env=DGRAPH_TEST_SSLMODE=verify-ca
+             --test_env=DGRAPH_TEST_CA_BUNDLE_URL=https://dgraph-ci-ca.carverauto.dev/ca.crt
+             --test_env=DGRAPH_ADMIN_PASSWORD"
 
           OBSERVER_DIR="$(mktemp -d "${TMPDIR:-/tmp}/serviceradar-observer.XXXXXX")"
           READY_FILE="$OBSERVER_DIR/ready"
@@ -642,6 +655,7 @@ actions:
           trap cleanup EXIT
           bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //:buildbuddy_setup_fixture_env
           set -a; . "$SERVICERADAR_FIXTURE_ENV_FILE"; set +a
+          export DGRAPH_ADMIN_PASSWORD="${SERVICERADAR_SECRET_DGRAPH_ADMIN_PASSWORD:-}"
           FLAGS="$FLAGS $SERVICERADAR_TEST_ENV_FLAGS"
 
           bazel test $FLAGS //rust/integration-db:sweep_stale_dbs
@@ -752,7 +766,13 @@ actions:
              --nocache_test_results --noremote_upload_local_results
              --test_env=SERVICERADAR_SECRET_DATABASE_PASSWORD
              --test_env=SERVICERADAR_SECRET_DATABASE_ADMIN_PASSWORD
-             --test_env=SERVICERADAR_SECRET_DGRAPH_ADMIN_PASSWORD"
+             --test_env=SERVICERADAR_SECRET_DGRAPH_ADMIN_PASSWORD
+             --test_env=DGRAPH_TEST_STRATEGY=existing
+             --test_env=DGRAPH_TEST_HOST=dgraph-dgraph-alpha.dgraph-ci.svc.cluster.local
+             --test_env=DGRAPH_TEST_PORT=9080
+             --test_env=DGRAPH_TEST_SSLMODE=verify-ca
+             --test_env=DGRAPH_TEST_CA_BUNDLE_URL=https://dgraph-ci-ca.carverauto.dev/ca.crt
+             --test_env=DGRAPH_ADMIN_PASSWORD"
 
           OBSERVER_DIR="$(mktemp -d)"
           READY_FILE="$OBSERVER_DIR/ready"
@@ -870,6 +890,7 @@ actions:
           trap cleanup EXIT
           bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //:buildbuddy_setup_fixture_env
           set -a; . "$SERVICERADAR_FIXTURE_ENV_FILE"; set +a
+          export DGRAPH_ADMIN_PASSWORD="${SERVICERADAR_SECRET_DGRAPH_ADMIN_PASSWORD:-}"
           FLAGS="$FLAGS $SERVICERADAR_TEST_ENV_FLAGS"
 
           bazel test $FLAGS //rust/integration-db:sweep_stale_dbs

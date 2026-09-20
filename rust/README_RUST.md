@@ -4,6 +4,10 @@ Every Rust crate here is built two ways: by **Cargo** (for local work, `cargo te
 by **Bazel** (for CI, release artifacts, and everything downstream). Both read the *same*
 dependency versions from one place -- the root `Cargo.toml` -- so the two builds cannot drift.
 
+MSRV is **1.97.1**, declared in `[workspace.package] rust-version`, pinned for rustup by
+`rust-toolchain.toml`, and selected for Bazel as `RUST_DEFAULT_VERSION` in `MODULE.bazel`.
+Keep those three in step.
+
 This document explains that arrangement, how Bazel gets its crates, and the workflow for
 updating dependencies without breaking either build.
 
@@ -81,6 +85,40 @@ Only one crate holds a local version, and it is documented at the declaration:
 
 `rust/rdp-connector-probe` is deliberately **detached** from the workspace: it is a
 review-only, date-audited IronRDP probe with its own `[workspace]` and lockfile. Leave it be.
+
+- **`dgraph_client`**: git pin of [`marvin-hansen/dgraph-rs`](https://github.com/marvin-hansen/dgraph-rs)
+  (`package = "dgraph-client"`, branch `main`) until that crate is on crates.io. The
+  crates.io `dgraph_client` 0.1.0 package is unrelated and must not be used. Git
+  sources are not vendored by `//third_party/crate_mirror`; `crate.from_cargo`
+  fetches them from `Cargo.lock`. `proto_dgraph` (a workspace member of that git
+  repo) runs `tonic_prost_build` from its `build.rs`, so `MODULE.bazel` carries
+  the same `crate.annotation` scrith uses to hand it hermetic `protoc`
+  (`@@protobuf+//:protoc`). Do not recreate `rust/dgraph-client` in this tree.
+
+### Dgraph and network-config crates
+
+These first-party crates sit next to the client pin:
+
+| crate | owns | does not own |
+|---|---|---|
+| `rust/dgraph-migrate` | Generic verify / apply / scoped remove, `Outcome`, env resolution. Schema string and predicate/type lists are parameters. Never `drop_all`. | Any product schema. Scrith's SMDB schema stays in scrith. |
+| `rust/dgraph-topology` | Topology DQL schema (`device.*`, `iface.*`, `hop.*`, `collector.*`, `topo.*`, `prefix.*`, `change.*`), typed JSON upserts/reads, and the `dgraph-migrate` binary that applies that schema. | The generic runner (it calls `dgraph-migrate`). |
+| `rust/age-to-dgraph` | Rebuild-from-evidence and AGE-vs-Dgraph checksum binary. Default mode is rebuild; checksum fails the Job on divergence. | Schema apply (`dgraph-migrate`). Live dumps never enter git. |
+| `elixir/serviceradar_core/native/dgraph_nif` | Thin Rustler ABI (`ServiceRadar.Dgraph.Native`) over `dgraph-topology`. Typed `NifMap` writes, read-only DQL hatch, dedicated tokio runtime, DirtyIo. | Schema apply, Helm, credentials. |
+| `rust/network-config-downparser` | V1 IOS-like running-config parser. Invented fixtures only; extracts interface name, prefixes, description, VLAN, shutdown, VRF. | Topology projection, live NA dumps. |
+| `elixir/serviceradar_core/native/network_config_nif` | Thin Rustler ABI (`ServiceRadar.NetworkConfig.Native`) over `network-config-downparser`. Typed `NifMap` facts, DirtyCpu, `catch_unwind`. | Wasm plugin parse. |
+
+The ServiceRadar Helm schema Job and compose `dgraph-migrate` one-shot run
+`//rust/dgraph-topology:dgraph-migrate`. The migrator Job / compose
+`age-to-dgraph` one-shot run `//rust/age-to-dgraph:age-to-dgraph` (rebuild,
+then checksum). Both binaries ship in `serviceradar-dgraph-migrate`.
+
+Live schema and cutover tests (`cargo test -p dgraph-topology --features integration-tests --test schema_lifecycle --lib`)
+call `DgraphInstance::acquire()`. A workstation with Docker needs no env (it starts
+`dgraph/standalone:v25.4.0`). CI sets `DGRAPH_TEST_STRATEGY=existing` at
+`dgraph-dgraph-alpha.dgraph-ci.svc.cluster.local` (see `buildbuddy.yaml`). Do not
+point these tests at the `demo` namespace; product Helm embed is a separate
+install path.
 
 ---
 
@@ -350,6 +388,7 @@ build configuration sit in one file:
 | `zstd-sys`, `libz-sys` | `Cargo.toml` | Use the BCR C libraries instead of each crate's bundled copy, with the build script off. |
 | `protoc-gen-prost`, `protoc-gen-tonic` | `Cargo.toml` | `gen_binaries`, so the plugin binaries `//build/rust/prost_toolchain` runs actually get targets. |
 | `openssl-sys` | `MODULE.bazel` | Points its build script at `@openssl` (section 4). |
+| `proto_dgraph` | `MODULE.bazel` | Git member of `dgraph-rs`. Hands hermetic `protoc` to its `build.rs`. |
 
 **An annotation goes in `MODULE.bazel` when it needs something only the module file has.**
 Two things qualify: `$(execpath ...)` / `$(location ...)` make-variable strings, and an

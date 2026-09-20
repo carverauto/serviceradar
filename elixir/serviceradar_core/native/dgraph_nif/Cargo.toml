@@ -1,0 +1,15 @@
+[package]
+name = "dgraph_nif"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "dgraph_nif"
+crate-type = ["cdylib"]
+
+[dependencies]
+# This cdylib is the only rustler consumer; dgraph-topology stays rustler-free.
+rustler = { workspace = true, features = ["nif_version_2_15"] }
+dgraph-topology = { path = "../../../../rust/dgraph-topology" }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

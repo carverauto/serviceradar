@@ -52,7 +52,7 @@ core {
 dgraph {
   # The alpha Service the chart renders, not a guess: release `dgraph` yields
   # <release>-dgraph-alpha. Deployed by //k8s/dgraph/demo.
-  host: "dgraph-dgraph-alpha.dgraph.svc.cluster.local"
+  host: "dgraph-dgraph-alpha.demo.svc.cluster.local"
   port: 9080
 
   # Verified against an in-cluster CA supplied as `dgraph.ca_cert`, not the system
