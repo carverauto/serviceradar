@@ -28,6 +28,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNGWeb.Components.PrefixTagChips
   alias ServiceRadarWebNGWeb.LogLive.NetflowRuntime
+  alias ServiceRadarWebNGWeb.LogLive.NetflowSummary
   alias ServiceRadarWebNGWeb.MetricSeries
   alias ServiceRadarWebNGWeb.MetricWindowComponents
   alias ServiceRadarWebNGWeb.NetFlow.EnrichmentExpiry
@@ -8907,47 +8908,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         _ -> 60 * 60
       end
 
-    # One grouped query answers every card: the per-protocol rows carry the
-    # flow, byte and packet sums, and the totals are their sum. This used to be
-    # seven round trips, three of them fallbacks for packet fields that
-    # `packets_total` already resolves on its own. 256 covers every protocol
-    # number, so the sum cannot be short a row.
-    summary_query =
-      ~s|#{base_query} stats:"count(*) as total, sum(bytes_total) as total_bytes, sum(packets_total) as total_packets by protocol_num" sort:total:desc limit:256|
-
-    proto_rows = extract_stats_rows(srql_module.query(summary_query, %{scope: scope}))
-
-    sum_of = fn field -> proto_rows |> Enum.map(&to_int(Map.get(&1, field))) |> Enum.sum() end
-
-    protocol_total = fn number ->
-      proto_rows
-      |> Enum.filter(&(to_int(Map.get(&1, "protocol_num")) == number))
-      |> Enum.map(&to_int(Map.get(&1, "total")))
-      |> Enum.sum()
-    end
-
-    total = sum_of.("total")
-    total_bytes = sum_of.("total_bytes")
-    total_packets = sum_of.("total_packets")
-    tcp = protocol_total.(6)
-    udp = protocol_total.(17)
-
-    other = max(total - tcp - udp, 0)
-
-    avg_bps = total_bytes * 8.0 / window_seconds
-    avg_pps = total_packets * 1.0 / window_seconds
-
-    %{
-      total: total,
-      tcp: tcp,
-      udp: udp,
-      other: other,
-      total_bytes: total_bytes,
-      total_packets: total_packets,
-      avg_bps: avg_bps,
-      avg_pps: avg_pps,
-      window_seconds: window_seconds
-    }
+    base_query
+    |> NetflowSummary.query()
+    |> srql_module.query(%{scope: scope})
+    |> extract_stats_rows()
+    |> NetflowSummary.from_rows(window_seconds)
   rescue
     e ->
       Logger.warning("Failed to load netflow summary stats: #{inspect(e)}")
