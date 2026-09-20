@@ -266,10 +266,6 @@ jobs:
           fi
           "${cmd[@]}"
 
-          if ! command -v skopeo >/dev/null 2>&1; then
-            ./scripts/install-skopeo.sh
-          fi
-
           verify_tags=(latest "sha-${GITHUB_SHA}")
           if [[ -n "${EXTRA_TAG}" ]]; then
             verify_tags+=("${EXTRA_TAG}")
