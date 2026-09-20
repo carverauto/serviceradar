@@ -148,13 +148,24 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.StatesCards do
       end
 
       defp map_stats(_flows, _mtr, traffic_links, time_window \\ "last_15m") do
-        link_count = length(List.wrap(traffic_links))
+        # A drawn arc may stand for many conversations between the same two
+        # places, so count what it carries, not how many lines are on the map.
+        conversations_of = fn link ->
+          max(to_int(Map.get(link, :conversation_count, Map.get(link, "conversation_count", 1))), 1)
+        end
+
+        link_count = traffic_links |> List.wrap() |> Enum.map(conversations_of) |> Enum.sum()
         window_bytes = traffic_links |> Enum.map(&to_int(Map.get(&1, :bytes, Map.get(&1, "bytes", 0)))) |> Enum.sum()
 
         window_flows =
           traffic_links |> Enum.map(&to_int(Map.get(&1, :flow_count, Map.get(&1, "flow_count", 0)))) |> Enum.sum()
 
-        geo_mapped = Enum.count(traffic_links, &Map.get(&1, :geo_mapped, Map.get(&1, "geo_mapped", false)))
+        geo_mapped =
+          traffic_links
+          |> Enum.filter(&Map.get(&1, :geo_mapped, Map.get(&1, "geo_mapped", false)))
+          |> Enum.map(conversations_of)
+          |> Enum.sum()
+
         geo_pct = if link_count > 0, do: geo_mapped * 100 / link_count, else: 0
 
         [
