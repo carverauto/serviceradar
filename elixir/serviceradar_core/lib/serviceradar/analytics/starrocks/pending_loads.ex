@@ -1,6 +1,6 @@
 defmodule ServiceRadar.Analytics.StarRocks.PendingLoads do
   @moduledoc """
-  Durable outbox for StarRocks Stream Loads that fail outside JetStream ACK.
+  Durable outbox for threshold-event Stream Loads that fail outside JetStream ACK.
 
   `Destination.persist_after_cnpg/3` fails the EventWriter ACK when a cutover
   dataset misses the warehouse, and the broker redelivers. Producers without
@@ -9,8 +9,13 @@ defmodule ServiceRadar.Analytics.StarRocks.PendingLoads do
   `platform.starrocks_pending_loads` and `drain_due/1` replays due rows on a
   later run. The warehouse copy is never silently dropped and the producing
   run is never blocked: both functions answer `:ok`-shaped tuples once the
-  batch is durable, and only a failing outbox insert itself returns
-  `{:error, _}`.
+  batch is durable, and a failing outbox is contained and reported as
+  `{:error, {:quarantine_failed, _}}` rather than raised.
+
+  Only `:events` is accepted. A replay carries the batch's stored label and
+  nothing else, so a dataset whose Stream Load needs extra headers -
+  `:flows` and `:flow_attribution` carry `merge_condition` and
+  `partial_update` - would replay without them and overwrite newer rows.
 
   Replays are safe twice over. The warehouse tables are PRIMARY KEY models,
   so reloading the same rows converges on the same state, and every row
@@ -18,6 +23,10 @@ defmodule ServiceRadar.Analytics.StarRocks.PendingLoads do
   whose original response was lost instead of applying it twice. A
   `{:quarantine, _}` reply is terminal: the FE filtered poison rows that a
   retry would only filter again, so the row is dropped with a report.
+
+  A batch that still fails after 25 replays is dead-lettered so the outbox
+  cannot grow without bound; CNPG still holds the authoritative copy for a
+  manual replay.
   """
 
   import Ecto.Query
@@ -29,17 +38,27 @@ defmodule ServiceRadar.Analytics.StarRocks.PendingLoads do
 
   require Logger
 
-  @type dataset :: Destination.dataset()
+  @type dataset :: :events
 
   # Bounds one drain so a long outage's backlog clears progressively instead
   # of holding the producing run on dozens of sequential Stream Loads.
-  @drain_limit 25
+  @drain_limit 10
+
+  # A replay runs after the producing worker has already alerted and
+  # rescheduled, so it only holds an Oban slot; a short timeout keeps the
+  # bounded worst case (limit x timeout) to a couple of minutes.
+  @drain_http_timeout_ms 15_000
 
   # 60s, 5m, 25m, then hourly. The producing worker runs every minute, so a
   # fresh failure is retried on the next run and a dead FE backs off fast.
   @retry_base_seconds 60
   @retry_factor 5
   @retry_cap_seconds 3_600
+
+  # At the hourly cap this is roughly a day of replays. A batch still failing
+  # then is not a transient outage, and holding its payload forever is what
+  # turns one dead FE into an unbounded table.
+  @max_attempts 25
 
   defmodule Record do
     @moduledoc false
@@ -64,15 +83,63 @@ defmodule ServiceRadar.Analytics.StarRocks.PendingLoads do
 
   Forwards `opts` to `Destination.persist_after_cnpg/3` (notably `:persist`
   and `:http`). Answers `{:ok, :enqueued}` once a failed batch is durable;
-  only a failing outbox insert answers `{:error, _}`.
+  only a failing outbox itself answers `{:error, _}`.
   """
   @spec persist_or_enqueue(dataset(), [map()], keyword()) ::
           {:ok, map()} | {:ok, :disabled} | {:ok, :enqueued} | {:error, term()}
-  def persist_or_enqueue(dataset, rows, opts \\ []) do
-    case Destination.persist_after_cnpg(dataset, rows, opts) do
+  def persist_or_enqueue(dataset, rows, opts \\ [])
+
+  def persist_or_enqueue(:events = dataset, rows, opts) do
+    case persist(dataset, rows, opts) do
       {:ok, _} = ok -> ok
       {:error, reason} -> enqueue_failed(dataset, rows, reason)
     end
+  end
+
+  @doc """
+  Replays due quarantined batches, oldest first.
+
+  Accepts `:persist` (default `&StreamLoad.persist/3`) and `:http` forwarded
+  to it. At most #{@drain_limit} batches replay per call; per-batch failures
+  defer the batch with backoff instead of failing the drain.
+  """
+  @spec drain_due(keyword()) ::
+          {:ok,
+           %{
+             drained: non_neg_integer(),
+             quarantined: non_neg_integer(),
+             deferred: non_neg_integer(),
+             dead_lettered: non_neg_integer()
+           }}
+  def drain_due(opts \\ []) do
+    now = NaiveDateTime.utc_now()
+
+    due =
+      Repo.all(
+        from(r in Record,
+          where: r.next_retry_at <= ^now,
+          order_by: [asc: r.inserted_at],
+          limit: @drain_limit
+        )
+      )
+
+    empty = %{drained: 0, quarantined: 0, deferred: 0, dead_lettered: 0}
+
+    summary =
+      Enum.reduce(due, empty, fn record, acc ->
+        case attempt_drain(record, opts) do
+          :drained -> %{acc | drained: acc.drained + 1}
+          :quarantined -> %{acc | quarantined: acc.quarantined + 1}
+          :deferred -> %{acc | deferred: acc.deferred + 1}
+          :dead_lettered -> %{acc | dead_lettered: acc.dead_lettered + 1}
+        end
+      end)
+
+    {:ok, summary}
+  end
+
+  defp persist(dataset, rows, opts) do
+    Destination.persist_after_cnpg(dataset, rows, opts)
   rescue
     error ->
       # A crash leaves the load state unknown, but the deterministic label
@@ -83,57 +150,17 @@ defmodule ServiceRadar.Analytics.StarRocks.PendingLoads do
         stacktrace: Exception.format_stacktrace(__STACKTRACE__)
       )
 
-      enqueue_failed(dataset, rows, {:crashed, Exception.message(error)})
+      {:error, {:crashed, Exception.message(error)}}
   end
 
-  @doc """
-  Replays due quarantined batches, oldest first.
-
-  Accepts `:persist` (default `&StreamLoad.persist/3`), `:http` forwarded to
-  it, and `:limit`. Answers a summary; per-batch failures defer the batch
-  with backoff instead of failing the drain.
-  """
-  @spec drain_due(keyword()) ::
-          {:ok,
-           %{
-             drained: non_neg_integer(),
-             quarantined: non_neg_integer(),
-             deferred: non_neg_integer()
-           }}
-  def drain_due(opts \\ []) do
-    limit = Keyword.get(opts, :limit, @drain_limit)
-    now = NaiveDateTime.utc_now()
-
-    due =
-      Repo.all(
-        from(r in Record,
-          where: r.next_retry_at <= ^now,
-          order_by: [asc: r.inserted_at],
-          limit: ^limit,
-          lock: "FOR UPDATE SKIP LOCKED"
-        )
-      )
-
-    summary =
-      Enum.reduce(due, %{drained: 0, quarantined: 0, deferred: 0}, fn record, acc ->
-        case attempt_drain(record, opts) do
-          :drained -> %{acc | drained: acc.drained + 1}
-          :quarantined -> %{acc | quarantined: acc.quarantined + 1}
-          :deferred -> %{acc | deferred: acc.deferred + 1}
-        end
-      end)
-
-    {:ok, summary}
-  end
-
-  @doc """
-  Seconds until the next retry after `attempts` recorded failures.
-  """
-  @spec retry_after_seconds(non_neg_integer()) :: pos_integer()
-  def retry_after_seconds(attempts) when is_integer(attempts) and attempts >= 0 do
+  defp retry_after_seconds(attempts) when is_integer(attempts) and attempts >= 0 do
     min(@retry_base_seconds * Integer.pow(@retry_factor, attempts), @retry_cap_seconds)
   end
 
+  # `Repo.insert/2` raises rather than returns on a pool checkout timeout, a
+  # CNPG failover or a missing table, and the caller is a self-rescheduling
+  # Oban job: an escaping exception would end the schedule chain. The outbox
+  # is never re-entered from here.
   defp enqueue_failed(dataset, rows, reason) do
     encoded = Rows.encode(dataset, rows)
     table = Destination.table_for(dataset)
@@ -175,19 +202,16 @@ defmodule ServiceRadar.Analytics.StarRocks.PendingLoads do
         )
 
         {:ok, :enqueued}
-
-      {:error, changeset} ->
-        Logger.error("StarRocks warehouse load failed AND quarantine insert failed; batch lost",
-          dataset: dataset,
-          table: table,
-          label: label,
-          rows: length(encoded),
-          error: inspect(reason),
-          changeset_errors: inspect(changeset.errors)
-        )
-
-        {:error, {:quarantine_failed, reason}}
     end
+  rescue
+    error ->
+      Logger.error("StarRocks warehouse load failed AND quarantine failed; batch lost",
+        dataset: dataset,
+        error: inspect(reason),
+        quarantine_error: Exception.message(error)
+      )
+
+      {:error, {:quarantine_failed, reason}}
   end
 
   defp attempt_drain(%Record{} = record, opts) do
@@ -199,6 +223,7 @@ defmodule ServiceRadar.Analytics.StarRocks.PendingLoads do
       |> Keyword.take([:http])
       |> Keyword.put(:label, record.label)
       |> Keyword.put(:config, Destination.client_config())
+      |> Keyword.put(:http_timeout, @drain_http_timeout_ms)
 
     case persist.(record.table_name, rows, persist_opts) do
       {:ok, result} ->
@@ -259,24 +284,54 @@ defmodule ServiceRadar.Analytics.StarRocks.PendingLoads do
   defp defer(%Record{} = record, rows, reason) do
     attempts = record.attempts + 1
 
-    next_retry_at =
-      NaiveDateTime.add(NaiveDateTime.utc_now(), retry_after_seconds(attempts), :second)
+    if attempts >= @max_attempts do
+      dead_letter(record, rows, attempts, reason)
+    else
+      next_retry_at =
+        NaiveDateTime.add(NaiveDateTime.utc_now(), retry_after_seconds(attempts), :second)
 
-    record
-    |> Ecto.Changeset.change(attempts: attempts, next_retry_at: next_retry_at)
-    |> Repo.update!()
+      record
+      |> Ecto.Changeset.change(attempts: attempts, next_retry_at: next_retry_at)
+      |> Repo.update!()
 
-    Logger.warning("StarRocks quarantined batch replay failed; deferred with backoff",
+      Logger.warning("StarRocks quarantined batch replay failed; deferred with backoff",
+        label: record.label,
+        table: record.table_name,
+        rows: length(rows),
+        attempts: attempts,
+        next_retry_at: NaiveDateTime.to_iso8601(next_retry_at),
+        error: inspect(reason)
+      )
+
+      :telemetry.execute(
+        [:serviceradar, :starrocks, :pending_loads, :deferred],
+        %{rows: length(rows)},
+        %{
+          dataset: record.dataset,
+          table: record.table_name,
+          label: record.label,
+          attempts: attempts,
+          reason: reason
+        }
+      )
+
+      :deferred
+    end
+  end
+
+  defp dead_letter(%Record{} = record, rows, attempts, reason) do
+    Repo.delete!(record)
+
+    Logger.error("StarRocks quarantined batch exhausted replays; dropping from outbox",
       label: record.label,
       table: record.table_name,
       rows: length(rows),
       attempts: attempts,
-      next_retry_at: NaiveDateTime.to_iso8601(next_retry_at),
       error: inspect(reason)
     )
 
     :telemetry.execute(
-      [:serviceradar, :starrocks, :pending_loads, :deferred],
+      [:serviceradar, :starrocks, :pending_loads, :dead_lettered],
       %{rows: length(rows)},
       %{
         dataset: record.dataset,
@@ -287,6 +342,6 @@ defmodule ServiceRadar.Analytics.StarRocks.PendingLoads do
       }
     )
 
-    :deferred
+    :dead_lettered
   end
 end

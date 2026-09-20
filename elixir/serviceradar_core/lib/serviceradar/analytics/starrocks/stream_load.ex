@@ -9,6 +9,11 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
 
   @success_status "Success"
 
+  # Stream Load is a synchronous commit, so the default budget is generous.
+  # Callers replaying a backlog pass a shorter `:http_timeout` to bound how
+  # long one pass can hold its caller.
+  @default_http_timeout_ms 60_000
+
   def persist(table, rows, opts \\ []) when is_binary(table) and is_list(rows) do
     http = Keyword.get(opts, :http, &default_http/1)
     config = Keyword.get(opts, :config, %{})
@@ -101,7 +106,7 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
   defp reconcile_or_retry(label, table, expected_count, opts) do
     http = Keyword.get(opts, :http, &default_http/1)
     config = Keyword.get(opts, :config, %{})
-    request = state_request(config, label)
+    request = state_request(config, label, opts)
 
     case http.(request) do
       {:ok, %{body: body}} ->
@@ -156,9 +161,12 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
           {"label", label}
         ] ++ partial_update_headers(opts),
       body: body,
-      config: config
+      config: config,
+      timeout: http_timeout(opts)
     }
   end
+
+  defp http_timeout(opts), do: Keyword.get(opts, :http_timeout, @default_http_timeout_ms)
 
   defp partial_update_headers(opts) do
     []
@@ -176,7 +184,7 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
 
   defp columns_header(_), do: nil
 
-  defp state_request(config, label) do
+  defp state_request(config, label, opts) do
     database = Map.get(config, :database, "serviceradar")
     fe = Map.get(config, :fe_http, "http://127.0.0.1:8030")
 
@@ -185,7 +193,8 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
       url: "#{fe}/api/#{database}/get_load_state?label=#{label}",
       headers: [],
       body: nil,
-      config: config
+      config: config,
+      timeout: http_timeout(opts)
     }
   end
 
@@ -219,7 +228,11 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
         {String.to_charlist(to_string(key)), String.to_charlist(to_string(value))}
       end)
 
-    http_opts = [timeout: 60_000, connect_timeout: 5_000, autoredirect: true]
+    http_opts = [
+      timeout: Map.get(request, :timeout) || @default_http_timeout_ms,
+      connect_timeout: 5_000,
+      autoredirect: true
+    ]
     opts = [body_format: :binary]
 
     result =

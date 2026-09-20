@@ -9,6 +9,8 @@ defmodule ServiceRadar.Analytics.StarRocks.PendingLoadsTest do
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
 
+  import Ecto.Query
+
   @moduletag :integration
 
   setup_all do
@@ -176,6 +178,61 @@ defmodule ServiceRadar.Analytics.StarRocks.PendingLoadsTest do
     assert Repo.aggregate(Record, :count) == 0
   end
 
+  test "persist_or_enqueue reports instead of raising when quarantining fails", %{rows: rows} do
+    with_cutover([:events])
+
+    # A non-map row makes the row encoder raise, so the load fails AND the
+    # quarantine that would store it fails on the same input. The producing
+    # worker self-schedules, so this must answer rather than escape.
+    assert {:error, {:quarantine_failed, {:crashed, _}}} =
+             PendingLoads.persist_or_enqueue(:events, rows ++ [:not_a_row])
+
+    assert Repo.aggregate(Record, :count) == 0
+  end
+
+  test "drain_due replays the oldest quarantined batch first" do
+    insert_pending!("sr-newer", 10)
+    insert_pending!("sr-older", 600)
+
+    caller = self()
+
+    replay = fn _table, _rows, opts ->
+      send(caller, {:replayed, opts[:label]})
+      {:ok, %{label: opts[:label], loaded: 1}}
+    end
+
+    assert {:ok, %{drained: 2, deferred: 0}} = PendingLoads.drain_due(persist: replay)
+
+    assert_received {:replayed, "sr-older"}
+    assert_received {:replayed, "sr-newer"}
+  end
+
+  test "drain_due replays at most ten batches per run" do
+    for n <- 1..11, do: insert_pending!("sr-bounded-#{n}", 100 - n)
+
+    replay = fn _table, _rows, opts -> {:ok, %{label: opts[:label], loaded: 1}} end
+
+    assert {:ok, %{drained: 10, quarantined: 0, deferred: 0, dead_lettered: 0}} =
+             PendingLoads.drain_due(persist: replay)
+
+    assert Repo.aggregate(Record, :count) == 1
+  end
+
+  test "drain_due dead-letters only once the replay budget is exhausted" do
+    nearly = insert_pending!("sr-nearly-exhausted", 120)
+    exhausted = insert_pending!("sr-exhausted", 60)
+
+    set_attempts!(nearly, 23)
+    set_attempts!(exhausted, 24)
+
+    failing = fn _table, _rows, _opts -> {:error, {:load_status, "Fail", "sr-test"}} end
+
+    assert {:ok, %{drained: 0, quarantined: 0, deferred: 1, dead_lettered: 1}} =
+             PendingLoads.drain_due(persist: failing)
+
+    assert [%Record{label: ^nearly, attempts: 24}] = Repo.all(Record)
+  end
+
   test "enqueueing the same batch twice keeps a single row", %{rows: rows} do
     with_cutover([:events])
 
@@ -197,6 +254,35 @@ defmodule ServiceRadar.Analytics.StarRocks.PendingLoadsTest do
       |> Keyword.put(:shadow_datasets, [:events])
       |> Keyword.put(:cutover_datasets, datasets)
     )
+  end
+
+  defp insert_pending!(label, inserted_seconds_ago) do
+    now = NaiveDateTime.utc_now()
+
+    %Record{}
+    |> Ecto.Changeset.change(%{
+      dataset: "events",
+      table_name: "events",
+      label: label,
+      payload: %{"rows" => [%{"id" => label}]},
+      attempts: 0,
+      next_retry_at: NaiveDateTime.add(now, -1, :second)
+    })
+    |> Repo.insert!()
+
+    # `timestamps()` resolves to whole seconds, so the drain's oldest-first
+    # order is only observable with inserted_at set apart explicitly.
+    Repo.update_all(from(r in Record, where: r.label == ^label),
+      set: [inserted_at: NaiveDateTime.add(now, -inserted_seconds_ago, :second)]
+    )
+
+    label
+  end
+
+  defp set_attempts!(label, attempts) do
+    {1, _} =
+      Repo.update_all(from(r in Record, where: r.label == ^label), set: [attempts: attempts])
+    :ok
   end
 
   defp assert_next_retry_in(next_retry_at, expected_seconds, tolerance_seconds) do

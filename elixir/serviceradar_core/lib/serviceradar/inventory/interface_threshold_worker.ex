@@ -96,8 +96,16 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
   def perform(%Oban.Job{args: args}) do
     Logger.info("Running interface threshold evaluation")
 
+    result = evaluate_and_reschedule(args)
+
+    # Replaying quarantined warehouse batches must never delay alerting, so
+    # it runs once this job has already evaluated and queued its successor.
     drain_pending_loads()
 
+    result
+  end
+
+  defp evaluate_and_reschedule(args) do
     case get_enabled_thresholds() do
       {:ok, settings} when settings != [] ->
         Logger.info("Evaluating #{length(settings)} interface thresholds")
@@ -559,7 +567,7 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
   # Replays warehouse batches quarantined by earlier runs. A drain problem
   # must never fail threshold evaluation, so every failure is contained here.
   defp drain_pending_loads do
-    PendingLoads.drain_due()
+    {:ok, _summary} = PendingLoads.drain_due()
     :ok
   rescue
     error ->
