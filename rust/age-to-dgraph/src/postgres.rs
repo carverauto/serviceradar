@@ -16,6 +16,7 @@
 
 use std::env;
 
+use tokio_postgres::error::SqlState;
 use tokio_postgres::{Client, NoTls};
 
 use crate::evidence::{MapperLinkRow, canonical_link_key};
@@ -92,7 +93,7 @@ impl PostgresSource {
                 })
                 .collect()),
             Err(err) if missing_relation(&err) => Ok(Vec::new()),
-            Err(err) => Err(MigratorError::Postgres(err.to_string())),
+            Err(err) => Err(postgres_error(&err)),
         }
     }
 
@@ -151,7 +152,7 @@ impl PostgresSource {
                 })
                 .collect()),
             Err(err) if missing_relation(&err) => Ok(Vec::new()),
-            Err(err) => Err(MigratorError::Postgres(err.to_string())),
+            Err(err) => Err(postgres_error(&err)),
         }
     }
 }
@@ -250,8 +251,34 @@ fn read_secret(value_env: &str, file_env: &str) -> Result<String, MigratorError>
     Err(MigratorError::MissingConfig(value_env.into()))
 }
 
+/// SQLSTATEs that mean "this evidence source is not in the database", which
+/// both readers degrade to an empty set for.
+///
+/// `42P01` is a missing `platform.mapper_topology_links`. `3F000` covers both a
+/// missing `ag_catalog` schema (AGE not installed) and the error AGE itself
+/// raises for a graph that has not been created yet. Every other SQLSTATE is a
+/// real failure and must fail the Job.
+///
+/// Classification reads the SQLSTATE rather than the error text because
+/// tokio-postgres renders every server error as the literal `db error`, with
+/// the server's own message reachable only through `DbError`. A match on the
+/// rendered string can never fire.
+#[must_use]
+pub fn missing_relation_sqlstate(code: &SqlState) -> bool {
+    *code == SqlState::UNDEFINED_TABLE || *code == SqlState::INVALID_SCHEMA_NAME
+}
+
 fn missing_relation(err: &tokio_postgres::Error) -> bool {
-    err.to_string().contains("does not exist")
+    err.code().is_some_and(missing_relation_sqlstate)
+}
+
+/// Carry the SQLSTATE and the server's message, so a failure an operator has to
+/// act on does not surface as the bare `db error` tokio-postgres displays.
+fn postgres_error(err: &tokio_postgres::Error) -> MigratorError {
+    match err.as_db_error() {
+        Some(db) => MigratorError::Postgres(format!("{}: {}", db.code().code(), db.message())),
+        None => MigratorError::Postgres(err.to_string()),
+    }
 }
 
 fn agtype_string(raw: &str) -> Option<String> {

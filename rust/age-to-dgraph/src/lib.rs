@@ -35,6 +35,7 @@ pub use evidence::{
     MapperLinkRow, canonical_link_key, edge_writes_from_records, records_from_canonical_edges,
     records_from_mapper_rows,
 };
+pub use postgres::missing_relation_sqlstate;
 pub use run::{RebuildReport, run};
 
 pub const MODE_ENV: &str = "AGE_TO_DGRAPH_MODE";

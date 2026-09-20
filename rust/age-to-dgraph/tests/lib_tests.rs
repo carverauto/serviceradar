@@ -16,10 +16,11 @@
 
 use age_to_dgraph::{
     CanonicalEdgeRecord, MapperLinkRow, Mode, canonical_link_key, compare_snapshots,
-    dedupe_by_link_key, edge_writes_from_records, hash_canonical_edges, parse_dump,
-    records_from_canonical_edges, records_from_mapper_rows, snapshot_from_edges,
+    dedupe_by_link_key, edge_writes_from_records, hash_canonical_edges, missing_relation_sqlstate,
+    parse_dump, records_from_canonical_edges, records_from_mapper_rows, snapshot_from_edges,
 };
 use dgraph_topology::CanonicalEdge;
+use tokio_postgres::error::SqlState;
 
 fn synthetic_edge(src: &str, dst: &str, if_ab: &str, if_ba: &str) -> CanonicalEdgeRecord {
     CanonicalEdgeRecord {
@@ -304,4 +305,31 @@ fn synthetic_lab_dump_parses() {
 fn dump_load_is_refused_without_lab_flag() {
     let err = Mode::require_lab_dump_allowed().expect_err("refused");
     assert!(err.to_string().contains("lab-only"));
+}
+
+/// A fresh install runs the migrator Job before any AGE graph or mapper table
+/// exists, and an absent evidence source has to degrade to an empty set rather
+/// than fail the Helm release. The deciding signal is the SQLSTATE: every
+/// server error tokio-postgres reports renders as the literal `db error`, so a
+/// classifier keyed on the error text matches nothing and the degrade never
+/// happens.
+#[test]
+fn absent_evidence_relations_are_classified_by_sqlstate() {
+    // No platform.mapper_topology_links yet.
+    assert!(missing_relation_sqlstate(&SqlState::from_code("42P01")));
+    // No ag_catalog schema (AGE absent), and AGE's own "graph does not exist".
+    assert!(missing_relation_sqlstate(&SqlState::from_code("3F000")));
+}
+
+/// The degrade is only for an absent relation. Anything else -- a renamed
+/// column, a revoked grant, a rejected password -- is a real failure that must
+/// fail the Job instead of rebuilding Dgraph from an empty evidence set.
+#[test]
+fn other_database_errors_still_fail_the_job() {
+    for code in ["42703", "42501", "28P01", "57014", "53300"] {
+        assert!(
+            !missing_relation_sqlstate(&SqlState::from_code(code)),
+            "SQLSTATE {code} must not degrade to an empty evidence set"
+        );
+    }
 }
