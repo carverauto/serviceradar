@@ -3,13 +3,11 @@
 
 namespace: demo
 
-# Demo stays on AGE alone until the explicit cutover. The standalone Dgraph in
-# this namespace has ACL on with a password this chart is not given, and no
-# topology schema applied to it, so dual-write would fail every persist and log
-# once per entity per mapper cycle. Flip this to `dual` in the same change that
-# provisions the credential Secret and applies the schema.
+# Dual-write into the standalone Dgraph; God View still reads AGE until the
+# checksum Job is green (OpenSpec 8.4). Do not enable the product subchart:
+# that would create a second cluster next to Helm release `dgraph`.
 graph:
-  backend: age
+  backend: dual
   read: age
 
 # HA Dgraph is already running in this namespace as Helm release `dgraph`
@@ -19,12 +17,15 @@ graph:
 dgraph:
   enabled: false
   schema:
-    enabled: false
+    enabled: true
   migrator:
     enabled: false
   external:
     host: dgraph-dgraph-alpha.demo.svc.cluster.local
     port: 9080
+    username: groot
+    credentialsSecret: serviceradar-dgraph-credentials
+    credentialsKey: groot_password
     tlsMode: verify-ca
     caSecret: dgraph-ca
     caKey: ca.crt
