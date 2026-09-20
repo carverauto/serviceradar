@@ -22,6 +22,7 @@ defmodule ServiceRadar.Analytics.StarRocks.CatalogAllowlist do
     netflow_exporter_cache
     netflow_interface_cache
     netflow_local_cidrs_catalog
+    ip_geo_enrichment_cache
   )
 
   @forbidden_tables ~w(

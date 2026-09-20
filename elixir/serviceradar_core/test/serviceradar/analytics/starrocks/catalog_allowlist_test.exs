@@ -24,6 +24,11 @@ defmodule ServiceRadar.Analytics.StarRocks.CatalogAllowlistTest do
     assert {:ok, "cnpg_platform.platform.netflow_exporter_cache"} =
              CatalogAllowlist.qualify("netflow_exporter_cache")
 
+    # Country is resolved at query time on both backends, never stored on the
+    # flow row, so the GeoIP cache is a join target.
+    assert {:ok, "cnpg_platform.platform.ip_geo_enrichment_cache"} =
+             CatalogAllowlist.qualify("ip_geo_enrichment_cache")
+
     # Attributed flows read persisted pid/comm off the observation row, so the
     # compiler never joins current-state attribution and the reader is granted
     # nothing on it. Allowlisting it would let a re-enable reach the Frontend
