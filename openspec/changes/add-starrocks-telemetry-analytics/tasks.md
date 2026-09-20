@@ -23,6 +23,7 @@
 - [x] 3.2 Add Bazel-managed synthetic shared-data and shared-nothing test environments and versioned schema/migration targets; no new shell scripts.
 - [x] 3.3 Add opt-in Helm/operator integration and Compose profile, internal transport authentication, scoped roles/secrets, redirect policy and dedicated object storage configuration.
   - `analytics.starrocks.enabled` warehouses flows/metrics/logs/events. `flowCollector.enabled` is independent and works without StarRocks. Compose: `--profile starrocks` warehouse only; `--profile flows` collector only; combine them for both. Off StarRocks means remaining telemetry on CNPG hypertables. `cutoverDatasets` stays empty.
+- [x] 3.3a Apply the versioned StarRocks DDL automatically at core startup (`SchemaMigrator`): version ledger in the warehouse, PostgreSQL advisory lock across replicas, adoption of pre-ledger warehouses, replication sized to live backends. Removes the Compose `starrocks-init` shell loop and the hand-apply runbook; Helm installs and upgrades need no operator DDL.
 - [ ] 3.4 Prove FE metadata persistence, CN cache loss, upgrades, object outage and full restore; publish minimum supported installation profiles.
   - Lab shared-nothing limits recorded: FE follower restart PASS (3 Alive, invented rows survived). CN cache loss FAIL (enabledCn false). Object outage FAIL (no bucket). Full restore FAIL (not executed). Upgrade FAIL (already 3.5.21). Demo/serviceradar untouched.
 

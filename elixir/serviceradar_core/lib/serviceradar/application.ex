@@ -66,6 +66,7 @@ defmodule ServiceRadar.Application do
         # Database (can be disabled for standalone tests)
         repo_child(),
         control_repo_child(),
+        starrocks_schema_migrator_child(),
         starrocks_mysql_child(),
         starrocks_rollup_freshness_cache_child(),
         starrocks_retention_child(),
@@ -215,6 +216,14 @@ defmodule ServiceRadar.Application do
   defp control_repo_child do
     if control_repo_enabled?() do
       ServiceRadar.ControlRepo
+    end
+  end
+
+  # Serialised across replicas with a PostgreSQL advisory lock, so it only
+  # starts where the repo does.
+  defp starrocks_schema_migrator_child do
+    if repo_enabled?() do
+      ServiceRadar.Analytics.StarRocks.SchemaMigrator.child_spec([])
     end
   end
 
