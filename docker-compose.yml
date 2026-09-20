@@ -201,6 +201,12 @@ services:
   dgraph-migrate:
     image: ${DGRAPH_MIGRATE_IMAGE:-registry.carverauto.dev/serviceradar/serviceradar-dgraph-migrate:${APP_TAG:-latest}}
     container_name: serviceradar-dgraph-migrate
+    # dgraph-migrate exits 10 ("schema applied") and 0 ("already current"), so a
+    # first boot would otherwise fail service_completed_successfully and strand
+    # age-to-dgraph. Both are success here; the binary's exit codes are unchanged.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - '/usr/local/bin/dgraph-migrate; c=$$?; [ "$$c" -eq 0 ] || [ "$$c" -eq 10 ]'
     environment:
       - DGRAPH_ENV=LOCAL
       - DGRAPH_URL=dgraph://groot:password@dgraph:9080?sslmode=disable

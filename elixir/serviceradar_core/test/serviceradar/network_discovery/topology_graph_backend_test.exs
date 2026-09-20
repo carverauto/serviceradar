@@ -1,10 +1,13 @@
 defmodule ServiceRadar.NetworkDiscovery.TopologyGraphBackendTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Backend
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Persist
 
   @dgraph_url "dgraph://dgraph.example.com:9080?sslmode=disable"
+  @unresolved_url_marker {Backend, :dgraph_url_unresolved}
 
   setup do
     previous_backend = Application.get_env(:serviceradar_core, :graph_backend)
@@ -22,8 +25,10 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraphBackendTest do
     System.delete_env("DGRAPH_HOST")
     Application.delete_env(:serviceradar_core, :dgraph_url)
     Application.delete_env(:serviceradar_core, :dgraph_host)
+    :persistent_term.erase(@unresolved_url_marker)
 
     on_exit(fn ->
+      :persistent_term.erase(@unresolved_url_marker)
       restore_env("GRAPH_BACKEND", env_backend)
       restore_env("GRAPH_READ", env_read)
       restore_env("DGRAPH_URL", env_url)
@@ -75,6 +80,34 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraphBackendTest do
     assert Backend.backend() == :dgraph
     refute Backend.write_age?()
     assert Backend.write_dgraph?()
+  end
+
+  test "dgraph-only without a resolvable endpoint reports the dropped writes once" do
+    Application.put_env(:serviceradar_core, :graph_backend, :dgraph)
+
+    log =
+      capture_log(fn ->
+        refute Backend.write_dgraph?()
+      end)
+
+    assert log =~ "topology writes are being dropped"
+
+    repeat =
+      capture_log(fn ->
+        refute Backend.write_dgraph?()
+        refute Backend.write_dgraph?()
+      end)
+
+    assert repeat == "", "the drop must be reported per transition, not per write"
+
+    Application.put_env(:serviceradar_core, :dgraph_url, @dgraph_url)
+
+    recovery =
+      capture_log(fn ->
+        assert Backend.write_dgraph?()
+      end)
+
+    assert recovery =~ "resumed"
   end
 
   test "dgraph-only skips AGE execute" do
