@@ -43,6 +43,7 @@ defmodule ServiceRadar.NetworkConfig.InterfaceFact do
 
       upsert? true
       upsert_identity :revision_if_name
+
       upsert_fields [
         :device_uid,
         :ipv4_prefix,

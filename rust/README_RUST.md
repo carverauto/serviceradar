@@ -95,9 +95,9 @@ review-only, date-audited IronRDP probe with its own `[workspace]` and lockfile.
   the same `crate.annotation` scrith uses to hand it hermetic `protoc`
   (`@@protobuf+//:protoc`). Do not recreate `rust/dgraph-client` in this tree.
 
-### Dgraph crates
+### Dgraph and network-config crates
 
-Two first-party crates sit next to the client pin:
+These first-party crates sit next to the client pin:
 
 | crate | owns | does not own |
 |---|---|---|

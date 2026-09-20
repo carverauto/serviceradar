@@ -156,9 +156,12 @@ The stack automatically handles certificate generation and configuration:
 4. **config-updater** - Writes the bootstrap admin password (one-shot)
 5. **nats** - Message broker with mTLS
 6. **datasvc** - Internal coordination service (planned to be phased out)
-7. **core-elx, agent-gateway, web-ng** - Control plane services
-8. **zen, log-promotion** - Bulk ingestion consumers
-9. **agent** - Edge agent (collectors + embedded engines + Wasm plugins)
+7. **dgraph-acl, dgraph** - Topology graph: ACL secret (one-shot), then Dgraph
+8. **dgraph-migrate** - Applies the Dgraph topology schema (one-shot)
+9. **core-elx, agent-gateway, web-ng** - Control plane services
+10. **age-to-dgraph** - Rebuilds Dgraph from the AGE graph and checksums the two (one-shot)
+11. **zen, log-promotion** - Bulk ingestion consumers
+12. **agent** - Edge agent (collectors + embedded engines + Wasm plugins)
 
 ## Test Your Setup
 

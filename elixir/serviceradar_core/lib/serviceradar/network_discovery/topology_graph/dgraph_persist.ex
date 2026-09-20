@@ -14,15 +14,13 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist do
              Dgraph.upsert_device(%{
                id: payload.device_id,
                ip: payload[:ip]
-             }),
-           :ok <-
-             Dgraph.upsert_interface(%{
-               key: payload.interface_id,
-               device_id: payload.device_id,
-               name: payload.if_name,
-               if_index: int_or_nil(payload.if_index)
              }) do
-        :ok
+        Dgraph.upsert_interface(%{
+          key: payload.interface_id,
+          device_id: payload.device_id,
+          name: payload.if_name,
+          if_index: int_or_nil(payload.if_index)
+        })
       end
     end)
   end
@@ -43,9 +41,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist do
                id: device_uid,
                config_revision_id: revision_id && to_string(revision_id)
              }),
-           :ok <- upsert_config_interfaces(payloads[:interfaces] || []),
-           :ok <- upsert_config_prefixes(payloads[:prefixes] || []) do
-        :ok
+           :ok <- upsert_config_interfaces(payloads[:interfaces] || []) do
+        upsert_config_prefixes(payloads[:prefixes] || [])
       end
     end)
   end
@@ -68,23 +65,21 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist do
                payload.neighbor_device_id,
                payload.neighbor_port_name,
                nil
-             ),
-           :ok <-
-             Dgraph.upsert_edge(%{
-               source: payload.local_device_id,
-               target: payload.neighbor_device_id,
-               kind: edge_kind(relation),
-               protocol: payload.protocol || "unknown",
-               evidence_class: payload.evidence_class || "direct",
-               ingestor: "mapper_topology_v1",
-               if_name_ab: payload.local_if_name,
-               if_name_ba: payload.neighbor_port_name,
-               if_index_ab: int_or_nil(payload.local_if_index),
-               if_index_ba: 0,
-               confidence_tier: payload.confidence_tier,
-               last_seen: payload.observed_at
-             }) do
-        :ok
+             ) do
+        Dgraph.upsert_edge(%{
+          source: payload.local_device_id,
+          target: payload.neighbor_device_id,
+          kind: edge_kind(relation),
+          protocol: payload.protocol || "unknown",
+          evidence_class: payload.evidence_class || "direct",
+          ingestor: "mapper_topology_v1",
+          if_name_ab: payload.local_if_name,
+          if_name_ba: payload.neighbor_port_name,
+          if_index_ab: int_or_nil(payload.local_if_index),
+          if_index_ba: 0,
+          confidence_tier: payload.confidence_tier,
+          last_seen: payload.observed_at
+        })
       end
     end)
   end
@@ -132,19 +127,17 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist do
       target = dgraph_mtr_id(to_kind, to_id)
 
       with :ok <- upsert_mtr_node(from_kind, source),
-           :ok <- upsert_mtr_node(to_kind, target),
-           :ok <-
-             Dgraph.upsert_mtr_path(%{
-               source: source,
-               target: target,
-               kind: :mtr_path,
-               protocol: "mtr",
-               evidence_class: "path",
-               ingestor: "mtr_path_v1",
-               agent_id: Map.get(attrs, :agent_id),
-               last_seen: Map.get(attrs, :observed_at)
-             }) do
-        :ok
+           :ok <- upsert_mtr_node(to_kind, target) do
+        Dgraph.upsert_mtr_path(%{
+          source: source,
+          target: target,
+          kind: :mtr_path,
+          protocol: "mtr",
+          evidence_class: "path",
+          ingestor: "mtr_path_v1",
+          agent_id: Map.get(attrs, :agent_id),
+          last_seen: Map.get(attrs, :observed_at)
+        })
       end
     end)
   end
@@ -276,9 +269,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist do
   defp upsert_config_prefixes(prefixes) do
     Enum.reduce_while(prefixes, :ok, fn prefix, :ok ->
       result =
-        with :ok <- Dgraph.upsert_prefix(%{cidr: prefix.cidr, family: prefix.family}),
-             :ok <- Dgraph.attach_prefix(prefix.interface_id, prefix.cidr) do
-          :ok
+        with :ok <- Dgraph.upsert_prefix(%{cidr: prefix.cidr, family: prefix.family}) do
+          Dgraph.attach_prefix(prefix.interface_id, prefix.cidr)
         end
 
       case result do

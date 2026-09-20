@@ -104,6 +104,23 @@ Key values: workload identity (`spire`)
 - Set `spire.enabled=true` to provision SPIFFE/SPIRE workload identities, and
   set `spire.trustDomain` to your environment's trust domain.
 
+Key values: topology graph (`dgraph`, `graph`)
+- `dgraph.enabled` defaults to `true`. The chart installs Dgraph (Zero + Alpha)
+  as a subchart, generates its ACL credential, issues its TLS certificates, and
+  applies the topology schema through a post-install Job.
+- **cert-manager is required for that default.** The Dgraph `Issuer` and
+  `Certificate` objects are plain cert-manager resources; without cert-manager
+  installed in the cluster the install fails on unknown kinds.
+- To reuse a Dgraph cluster you already run, set `dgraph.enabled=false` and
+  `dgraph.external.host`. Its ACL credential comes from a Secret that already
+  exists in the namespace (`dgraph.external.credentialsSecret`), never from a
+  chart value.
+- `graph.backend` and `graph.read` select where topology is written and read.
+  Reads stay on AGE until you cut over deliberately.
+- The store layout, the migrator Job, credential handling, and the
+  cutover/rollback procedure are in
+  [Network Topology](./network-topology.md).
+
 Key values: `sweep`
 
 The chart exposes the full sweep configuration tree (`sweep.networks`,

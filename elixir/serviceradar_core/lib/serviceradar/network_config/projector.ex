@@ -33,9 +33,8 @@ defmodule ServiceRadar.NetworkConfig.Projector do
     persist_dgraph = Keyword.get(opts, :persist_dgraph, &DgraphPersist.project_config_facts/1)
     payloads = payloads(device_uid, revision, facts)
 
-    with :ok <- persist_age.(device_uid, payloads),
-         :ok <- persist_dgraph.(payloads) do
-      :ok
+    with :ok <- persist_age.(device_uid, payloads) do
+      persist_dgraph.(payloads)
     end
   end
 
@@ -110,11 +109,13 @@ defmodule ServiceRadar.NetworkConfig.Projector do
         []
 
       iface ->
-        [
-          prefix_entry(iface, fact_value(fact, :ipv4_prefix), "ipv4"),
-          prefix_entry(iface, fact_value(fact, :ipv6_prefix), "ipv6")
-        ]
-        |> Enum.reject(&is_nil/1)
+        Enum.reject(
+          [
+            prefix_entry(iface, fact_value(fact, :ipv4_prefix), "ipv4"),
+            prefix_entry(iface, fact_value(fact, :ipv6_prefix), "ipv6")
+          ],
+          &is_nil/1
+        )
     end
   end
 

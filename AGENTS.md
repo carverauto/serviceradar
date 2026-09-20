@@ -179,8 +179,9 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 
   Kubernetes Secrets, OpenBao/Vault, Helm values, process environment, Docker
   secrets, and SPIFFE SVIDs are only for **ServiceRadar talking to itself**: CNPG,
-  NATS, SPIFFE/mTLS between core/gateway/agent, registry pull, image signing,
-  session/JWT keys. They are not a store for "the SNMP password for farm01".
+  NATS, the Dgraph ACL credential, SPIFFE/mTLS between core/gateway/agent,
+  registry pull, image signing, session/JWT keys. They are not a store for "the
+  SNMP password for farm01".
 
   `network_credential_secrets` is the operator-facing inventory of reusable
   encrypted material; `network_credential_rules` controls where that material
@@ -354,10 +355,10 @@ This file applies repo-wide, but subdirectories may include their own `AGENTS.md
 - **Bringing a database up to date: `mix serviceradar.db.migrate`, NOT `mix ecto.migrate`.**
   An empty database is built from the committed baseline
   (`elixir/serviceradar_core/priv/repo/baseline/`) and the migrations it contains are recorded
-  as applied; only newer ones run. `mix ecto.migrate` replays all 436 migrations instead, which
-  is slow and against a remote instance has failed outright. Pass `--no-baseline` only when you
-  deliberately want the full replay. Service startup has always baselined; this task is the same
-  code path (`ServiceRadar.Repo.SchemaBootstrap`).
+  as applied; only newer ones run. `mix ecto.migrate` replays every migration in the tree
+  instead, which is slow and against a remote instance has failed outright. Pass
+  `--no-baseline` only when you deliberately want the full replay. Service startup has always
+  baselined; this task is the same code path (`ServiceRadar.Repo.SchemaBootstrap`).
 
   **The baseline does NOT work for a database that already carries TimescaleDB hypertables or
   AGE graphs, which is every real one.** It is a `pg_dump --schema-only`, and this schema does

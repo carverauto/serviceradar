@@ -30,7 +30,7 @@ Demo site available at https://demo.serviceradar.cloud login: `demo@serviceradar
 - **Causal Engine**: Real-time triage and isolation via [DeepCausality](https://github.com/deepcausality-rs) (Rust). Employs hybrid filtering and [roaring bitmaps](https://github.com/RoaringBitmap/roaring) to identify root causes and visually isolate an event's "blast radius" in microseconds.
 - **Anomaly Engine**: Anomaly Engine scores numeric time series at the edge (robust median/MAD spikes plus CUSUM drift) and in core (seasonal hour-of-week baselines, episode lifecycle, severity, and capacity runway). Findings are episode-bounded—open/update/clear with cooldowns and storm shedding—so operators get durable alerts instead of noisy per-sample alarms.
 - **SRQL**: intuitive key:value syntax for querying time-series and relational data.
-- **Unified Data Layer**: Powered by CloudNativePG, TimescaleDB, PGVector, and Apache AGE for relational, time-series, and graph topology data.
+- **Unified Data Layer**: Powered by CloudNativePG, TimescaleDB, and PGVector for relational, time-series, and vector data, with Dgraph as the topology graph store (Apache AGE still runs beside it during the rollout). See [docs/network-topology.md](./docs/docs/network-topology.md).
 - **Monitoring**: Monitor endpoints with ICMP/TCP checks, create composite service checks from multiple vantage points by deploying serviceradar-agent in edge/segmented networks.
 - **Observability**: Native support for OTEL, GELF, Syslog, SNMP (polling/traps), BGP ([BMP](https://github.com/carverauto/arancini)), and [NetFlow](https://github.com/mikemiles-dev/netflow_parser).
 - **Graph Network Mapper**: Discovery engine that maps interfaces and topology relationships via SNMP/LLDP/CDP.

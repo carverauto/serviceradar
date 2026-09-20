@@ -95,7 +95,8 @@ Lab graphs with no evidence tables may use `dump-load` with
 must not enter git.
 
 `in:graph_cypher` continues to query AGE until AGE is retired. `in:graph` /
-`in:graph_dql` query Dgraph.
+`in:graph_dql` query Dgraph. Both entities are described in the
+[SRQL Language Reference](./srql-language-reference.md).
 
 ## Operator Controls
 

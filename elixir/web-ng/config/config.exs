@@ -410,10 +410,10 @@ config :tailwind,
 if System.get_env("SERVICERADAR_SKIP_NIF_COMPILATION") == "1" do
   # Rustler app-env options override module options, including in path dependencies.
   # Skip both cargo metadata and NIF builds for source-only lint; other builds keep them.
-  config :serviceradar_core, ServiceRadar.Observability.DispositionKernels, skip_compilation?: true
-  config :serviceradar_core, ServiceRadar.Observability.Zen.Native, skip_compilation?: true
   config :serviceradar_core, ServiceRadar.Dgraph.Native, skip_compilation?: true
   config :serviceradar_core, ServiceRadar.NetworkConfig.Native, skip_compilation?: true
+  config :serviceradar_core, ServiceRadar.Observability.DispositionKernels, skip_compilation?: true
+  config :serviceradar_core, ServiceRadar.Observability.Zen.Native, skip_compilation?: true
 
   config :serviceradar_srql, ServiceRadarSRQL.Native, skip_compilation?: true
 
