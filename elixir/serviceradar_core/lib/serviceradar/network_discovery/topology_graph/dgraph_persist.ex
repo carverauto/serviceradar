@@ -128,13 +128,15 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist do
       to_id = Map.fetch!(attrs, :to_id)
       from_kind = Map.get(attrs, :from_kind, :device)
       to_kind = Map.get(attrs, :to_kind, :device)
+      source = dgraph_mtr_id(from_kind, from_id)
+      target = dgraph_mtr_id(to_kind, to_id)
 
-      with :ok <- upsert_mtr_node(from_kind, from_id),
-           :ok <- upsert_mtr_node(to_kind, to_id),
+      with :ok <- upsert_mtr_node(from_kind, source),
+           :ok <- upsert_mtr_node(to_kind, target),
            :ok <-
              Dgraph.upsert_mtr_path(%{
-               source: from_id,
-               target: to_id,
+               source: source,
+               target: target,
                kind: :mtr_path,
                protocol: "mtr",
                evidence_class: "path",
@@ -188,6 +190,17 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist do
   defp upsert_mtr_node(_, id) when is_binary(id), do: Dgraph.upsert_device(%{id: id})
   defp upsert_mtr_node(_, _), do: :ok
 
+  @doc """
+  Dgraph identity for an MTR endpoint.
+
+  AGE keys an unresolved hop `mtr:<addr>`; Dgraph keys a HopNode by `hop.ip`,
+  so the prefix is stripped and both the node and the edge endpoint use the
+  bare address.
+  """
+  @spec dgraph_mtr_id(:hop | :device | atom(), term()) :: term()
+  def dgraph_mtr_id(:hop, "mtr:" <> address), do: address
+  def dgraph_mtr_id(_kind, id), do: id
+
   defp canonical_edge_from_row(row) when is_map(row) do
     source = row_value(row, :local_device_id) || row_value(row, :source) || row_value(row, :a)
     target = row_value(row, :neighbor_device_id) || row_value(row, :target) || row_value(row, :b)
@@ -227,6 +240,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist do
   defp edge_kind("HOSTED_ON"), do: :hosted_on
   defp edge_kind("INFERRED_TO"), do: :inferred_to
   defp edge_kind("ATTACHED_TO"), do: :attached_to
+  defp edge_kind("OBSERVED_TO"), do: :observed_to
   defp edge_kind("MTR_PATH"), do: :mtr_path
   defp edge_kind("CONFIG_DECLARED"), do: :config_declared
   defp edge_kind(_), do: :inferred_to

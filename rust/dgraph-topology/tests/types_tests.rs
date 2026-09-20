@@ -129,6 +129,12 @@ fn edge_kinds_match_age_relationship_names() {
     assert_eq!(EdgeKind::ConnectsTo.as_str(), "CONNECTS_TO");
     assert_eq!(EdgeKind::CanonicalTopology.as_str(), "CANONICAL_TOPOLOGY");
     assert_eq!(EdgeKind::MtrPath.as_str(), "MTR_PATH");
+    assert_eq!(EdgeKind::AttachedTo.as_str(), "ATTACHED_TO");
+    assert_eq!(
+        EdgeKind::ObservedTo.as_str(),
+        "OBSERVED_TO",
+        "AGE labels this plane OBSERVED_TO; the shadow store must not relabel it"
+    );
 }
 
 #[test]

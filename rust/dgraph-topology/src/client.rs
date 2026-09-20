@@ -47,7 +47,7 @@ impl TopologyClient {
     pub async fn connect(target: &str) -> Result<Self, TopologyError> {
         let client = DgraphClient::connect(target)
             .await
-            .map_err(|err| TopologyError::Connect(target.to_string(), err.to_string()))?;
+            .map_err(|err| TopologyError::Connect(redact_userinfo(target), err.to_string()))?;
         Ok(Self { client })
     }
 
@@ -194,24 +194,28 @@ impl TopologyClient {
     /// As [`Self::upsert_device`].
     pub async fn upsert_change(&self, change: &ChangeWrite) -> Result<(), TopologyError> {
         let id = dql_string(change.id())?;
-        let query = format!("{{ q(func: eq(change.id, {id})) {{ v as uid }} }}");
+        let mut blocks = vec![format!("q(func: eq(change.id, {id})) {{ v as uid }}")];
         let mut affects = Vec::new();
+        let mut targets = Vec::new();
         for cidr in change.affects_prefix_cidrs() {
-            let _ = dql_string(cidr)?;
-            affects.push(json!({
-                "uid": "_:pfx",
-                "dgraph.type": "Prefix",
-                "prefix.cidr": cidr,
-            }));
+            targets.push(("prefix.cidr", "Prefix", cidr.as_str()));
         }
         for device_id in change.affects_device_ids() {
-            let _ = dql_string(device_id)?;
+            targets.push(("device.id", "Device", device_id.as_str()));
+        }
+        for (index, (predicate, node_type, value)) in targets.into_iter().enumerate() {
+            let value_q = dql_string(value)?;
+            let var = format!("t{index}");
+            blocks.push(format!(
+                "affect{index}(func: eq({predicate}, {value_q})) {{ {var} as uid }}"
+            ));
             affects.push(json!({
-                "uid": "_:dev",
-                "dgraph.type": "Device",
-                "device.id": device_id,
+                "uid": format!("uid({var})"),
+                "dgraph.type": node_type,
+                predicate: value,
             }));
         }
+        let query = format!("{{\n  {}\n}}", blocks.join("\n  "));
         let node = json!({
             "uid": "uid(v)",
             "dgraph.type": "Change",
@@ -257,8 +261,12 @@ impl TopologyClient {
         let key = dql_string(&edge.link_key())?;
         let query = format!(
             "{{
-  src(func: eq(device.id, {source})) {{ s as uid }}
-  dst(func: eq(device.id, {target})) {{ d as uid }}
+  var(func: eq(device.id, {source})) {{ sd as uid }}
+  var(func: eq(hop.ip, {source})) {{ sh as uid }}
+  var(func: eq(device.id, {target})) {{ dd as uid }}
+  var(func: eq(hop.ip, {target})) {{ dh as uid }}
+  src(func: uid(sd, sh)) {{ s as uid }}
+  dst(func: uid(dd, dh)) {{ d as uid }}
   edge(func: eq(topo.link_key, {key})) {{ e as uid }}
 }}"
         );
@@ -691,10 +699,56 @@ fn require_block(rows: &[UidRow], block: &str, key: &str) -> Result<(), Topology
     Ok(())
 }
 
+/// Connection string with any `user:password@` removed.
+///
+/// The target is carried in connect errors, which reach the application log on
+/// every failed write. The Dgraph ACL password must never travel with it.
+#[must_use]
+pub(crate) fn redact_userinfo(target: &str) -> String {
+    let Some((scheme, rest)) = target.split_once("://") else {
+        return target.to_string();
+    };
+    let authority_end = rest.find(['/', '?']).unwrap_or(rest.len());
+    let (authority, tail) = rest.split_at(authority_end);
+    match authority.rsplit_once('@') {
+        Some((_userinfo, host)) => format!("{scheme}://{host}{tail}"),
+        None => target.to_string(),
+    }
+}
+
 /// Reject values that would break DQL string literals.
 pub(crate) fn dql_string(value: &str) -> Result<String, TopologyError> {
     if value.contains('"') || value.contains('\n') || value.contains('\\') {
         return Err(TopologyError::InvalidValue(value.to_string()));
     }
     Ok(format!("\"{value}\""))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::redact_userinfo;
+
+    #[test]
+    fn connect_errors_do_not_carry_the_acl_password() {
+        assert_eq!(
+            redact_userinfo("dgraph://groot:s3cr3t@alpha.example.com:9080?sslmode=require"),
+            "dgraph://alpha.example.com:9080?sslmode=require"
+        );
+        assert_eq!(
+            redact_userinfo("dgraph://groot:p@ss:word@alpha.example.com:9080"),
+            "dgraph://alpha.example.com:9080"
+        );
+    }
+
+    #[test]
+    fn a_target_without_userinfo_is_unchanged() {
+        assert_eq!(
+            redact_userinfo("dgraph://alpha.example.com:9080?sslmode=verify-ca"),
+            "dgraph://alpha.example.com:9080?sslmode=verify-ca"
+        );
+        assert_eq!(
+            redact_userinfo("alpha.example.com:9080"),
+            "alpha.example.com:9080"
+        );
+    }
 }

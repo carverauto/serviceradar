@@ -97,6 +97,73 @@ tests:
           content:
             name: DGRAPH_URL
             value: dgraph://groot:$(DGRAPH_PASSWORD)@dgraph-dgraph-alpha.demo.svc.cluster.local:9080?sslmode=require
+  - it: verifies an external verify-ca endpoint against the mounted CA
+    documentSelector:
+      path: kind
+      value: Deployment
+    set:
+      dgraph:
+        enabled: false
+        external:
+          host: dgraph-dgraph-alpha.demo.svc.cluster.local
+          port: 9080
+          tlsMode: verify-ca
+          caSecret: dgraph-ca
+          caKey: ca.crt
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DGRAPH_URL
+            value: dgraph://dgraph-dgraph-alpha.demo.svc.cluster.local:9080?sslmode=verify-ca&sslrootcert=/etc/dgraph-ca/ca.crt
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: dgraph-ca
+            mountPath: /etc/dgraph-ca
+            readOnly: true
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: dgraph-ca
+            secret:
+              secretName: dgraph-ca
+              items:
+                - key: ca.crt
+                  path: ca.crt
+  - it: leaves the system trust store in play when no external CA secret is given
+    documentSelector:
+      path: kind
+      value: Deployment
+    set:
+      dgraph:
+        enabled: false
+        external:
+          host: dgraph.example.com
+          port: 9080
+          tlsMode: verify-ca
+          caSecret: ""
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DGRAPH_URL
+            value: dgraph://dgraph.example.com:9080?sslmode=verify-ca
+      - notContains:
+          path: spec.template.spec.volumes
+          any: true
+          content:
+            name: dgraph-ca
+  - it: the in-chart endpoint dials require and mounts no CA
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - notContains:
+          path: spec.template.spec.volumes
+          any: true
+          content:
+            name: dgraph-ca
   - it: renders on AGE alone when Dgraph is disabled with no external host
     documentSelector:
       path: kind

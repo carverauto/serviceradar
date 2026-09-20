@@ -805,6 +805,7 @@ spec:
         volumeMounts:
         - name: tmp
           mountPath: /tmp
+        {{- include "serviceradar.dgraph.caVolumeMount" $ | nindent 8 }}
         - name: cert-data
           mountPath: /etc/serviceradar/certs
           readOnly: true
@@ -881,6 +882,7 @@ spec:
       volumes:
       - name: tmp
         emptyDir: {}
+      {{- include "serviceradar.dgraph.caVolume" $ | nindent 6 }}
       - name: cert-data
         secret:
           secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}

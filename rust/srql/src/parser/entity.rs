@@ -10,7 +10,7 @@ pub(super) fn parse_entity(raw: &str) -> Result<Entity> {
         "devices" | "device" | "device_inventory" => Ok(Entity::Devices),
         "device_graph" | "devicegraph" => Ok(Entity::DeviceGraph),
         "graph_cypher" | "graphcypher" | "cypher" => Ok(Entity::GraphCypher),
-        "graph" | "graph_dql" | "graphdql" | "dql" => Ok(Entity::GraphDql),
+        "graph" | "graph_dql" => Ok(Entity::GraphDql),
         "interfaces" | "interface" | "discovered_interfaces" => Ok(Entity::Interfaces),
         "events" | "activity" => Ok(Entity::Events),
         "security_findings" | "security_finding" | "findings" | "finding" => {

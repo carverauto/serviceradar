@@ -56,6 +56,7 @@ pub enum NifEdgeKind {
     HostedOn,
     InferredTo,
     AttachedTo,
+    ObservedTo,
     MtrPath,
     ConfigDeclared,
 }
@@ -69,6 +70,7 @@ impl From<NifEdgeKind> for EdgeKind {
             NifEdgeKind::HostedOn => Self::HostedOn,
             NifEdgeKind::InferredTo => Self::InferredTo,
             NifEdgeKind::AttachedTo => Self::AttachedTo,
+            NifEdgeKind::ObservedTo => Self::ObservedTo,
             NifEdgeKind::MtrPath => Self::MtrPath,
             NifEdgeKind::ConfigDeclared => Self::ConfigDeclared,
         }

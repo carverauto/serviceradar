@@ -940,6 +940,51 @@ graph.env renders into a Deployment spec anyone with `get deploy` can read.
 {{- end -}}
 
 {{/*
+CA the application pods verify an external Dgraph against, when they verify at
+all. The in-chart branch dials `require` and needs none. An external cluster on
+`verify-ca` with no caSecret is verifying against the system trust store, which
+is correct for a publicly issued certificate and needs no volume either.
+*/}}
+{{- define "serviceradar.dgraph.appCaSecret" -}}
+{{- $d := default (dict) .Values.dgraph -}}
+{{- $ext := default (dict) $d.external -}}
+{{- if and (not $d.enabled) (eq (include "serviceradar.dgraph.appTlsMode" .) "verify-ca") -}}
+{{- default "" $ext.caSecret -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "serviceradar.dgraph.caVolumeMount" -}}
+{{- if ne (include "serviceradar.dgraph.appCaSecret" .) "" }}
+- name: dgraph-ca
+  mountPath: /etc/dgraph-ca
+  readOnly: true
+{{- end }}
+{{- end -}}
+
+{{- define "serviceradar.dgraph.caVolume" -}}
+{{- $ext := default (dict) (default (dict) .Values.dgraph).external -}}
+{{- if ne (include "serviceradar.dgraph.appCaSecret" .) "" }}
+- name: dgraph-ca
+  secret:
+    secretName: {{ include "serviceradar.dgraph.appCaSecret" . | quote }}
+    items:
+    - key: {{ default "ca.crt" $ext.caKey | quote }}
+      path: ca.crt
+{{- end }}
+{{- end -}}
+
+{{/*
+`sslrootcert` for the rendered DGRAPH_URL. Without it a `verify-ca` dial checks
+the system trust store, which a private cert-manager CA is not in, so every
+connection fails the handshake.
+*/}}
+{{- define "serviceradar.dgraph.appSslRootCert" -}}
+{{- if ne (include "serviceradar.dgraph.appCaSecret" .) "" -}}
+&sslrootcert=/etc/dgraph-ca/ca.crt
+{{- end -}}
+{{- end -}}
+
+{{/*
 GRAPH_BACKEND / GRAPH_READ / DGRAPH_* for topology writers (core, web-ng).
 With no Dgraph configured this stays on AGE and emits no DGRAPH_* at all.
 The in-chart cluster's groot password is the generated ACL Secret, never a
@@ -982,7 +1027,7 @@ literal: kubelet expands $(DGRAPH_PASSWORD) from the preceding entry.
       key: {{ default "password" $ext.credentialsKey | quote }}
 {{- end }}
 - name: DGRAPH_URL
-  value: {{ printf "dgraph://%s%s:%s?sslmode=%s" (include "serviceradar.dgraph.externalUserinfo" .) (include "serviceradar.dgraph.host" .) (include "serviceradar.dgraph.port" .) (include "serviceradar.dgraph.appTlsMode" .) | quote }}
+  value: {{ printf "dgraph://%s%s:%s?sslmode=%s%s" (include "serviceradar.dgraph.externalUserinfo" .) (include "serviceradar.dgraph.host" .) (include "serviceradar.dgraph.port" .) (include "serviceradar.dgraph.appTlsMode" .) (include "serviceradar.dgraph.appSslRootCert" .) | quote }}
 {{- end }}
 {{- end }}
 {{- end -}}

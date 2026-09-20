@@ -33,7 +33,7 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
       endpoint_vulnerability_assessments endpoint_vulnerability_assessment
       package_vulnerabilities endpoint_vulnerability_matches vulnerability_matches
       cve_matches advisory_matches
-      device_graph devicegraph graph graph_dql graphdql dql graph_cypher graphcypher cypher
+      device_graph devicegraph graph graph_dql graph_cypher graphcypher cypher
       field_survey_sessions fieldsurvey_sessions survey_sessions
       field_survey_rasters fieldsurvey_rasters survey_coverage_rasters survey_rasters
       field_survey_artifacts fieldsurvey_artifacts survey_room_artifacts survey_artifacts

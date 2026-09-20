@@ -26,14 +26,20 @@ REPO = Path(__file__).resolve().parents[3]
 K8S = REPO / "k8s" / "dgraph"
 ENVIRONMENTS = REPO / "config" / "environments"
 
-# Deployed environments only. `localhost` runs Dgraph on a dev machine in plaintext and has no
+# Environments deployed by //k8s/dgraph, whose SANs and namespace live in this tree as plain
+# YAML this test can read. `localhost` runs Dgraph on a dev machine in plaintext and has no
 # certificate to agree with; asserting a SAN for it would be asserting a file that should not
-# exist.
+# exist. `saas` is served by the in-chart Dgraph, whose SANs are Helm-templated and only exist
+# after rendering -- helm/serviceradar/tests/dgraph_product_endpoint_test.yaml asserts that
+# the host the chart tells clients to dial is a SAN the chart itself issues.
 ENV_TO_DEPLOYMENT = {
     "ci": "ci",
     "demo": "demo",
-    "saas": "demo",
 }
+
+# Every environment that dials a deployed Dgraph, wherever its certificate comes from. These
+# assertions read only the environment's own config, so they hold for the in-chart cluster too.
+VERIFYING_ENVIRONMENTS = ("ci", "demo", "saas")
 
 # Public-zone name on lan-shared-gateway. Let's Encrypt will not issue for
 # *.svc.cluster.local; scratch images already have the public roots.
@@ -123,7 +129,7 @@ class DgraphEndpointContract(unittest.TestCase):
     def test_deployed_environments_verify_the_certificate(self):
         # A host that matches the SAN buys nothing if the mode does not verify. This is the
         # assertion that would have caught the earlier design, where CI ran sslmode=require.
-        for env in ENV_TO_DEPLOYMENT:
+        for env in VERIFYING_ENVIRONMENTS:
             with self.subTest(env=env):
                 block = re.search(
                     r"^dgraph \{.*?^\}",
@@ -139,7 +145,7 @@ class DgraphEndpointContract(unittest.TestCase):
     def test_alpha_grpc_port_is_the_one_the_config_dials(self):
         # 9080 is Alpha's external gRPC port. 8080 is HTTP and 7080 is internal-only; dialing
         # either with a gRPC client fails in a way that looks like a TLS problem.
-        for env in ENV_TO_DEPLOYMENT:
+        for env in VERIFYING_ENVIRONMENTS:
             with self.subTest(env=env):
                 _, port = dgraph_host_and_port(env)
                 self.assertEqual(port, 9080, f"{env} does not dial Alpha's gRPC port")

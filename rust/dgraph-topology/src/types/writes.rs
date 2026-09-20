@@ -25,6 +25,7 @@ pub enum EdgeKind {
     HostedOn,
     InferredTo,
     AttachedTo,
+    ObservedTo,
     MtrPath,
     ConfigDeclared,
 }
@@ -40,6 +41,7 @@ impl EdgeKind {
             Self::HostedOn => "HOSTED_ON",
             Self::InferredTo => "INFERRED_TO",
             Self::AttachedTo => "ATTACHED_TO",
+            Self::ObservedTo => "OBSERVED_TO",
             Self::MtrPath => "MTR_PATH",
             Self::ConfigDeclared => "CONFIG_DECLARED",
         }

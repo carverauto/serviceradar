@@ -41,6 +41,8 @@ spec:
               name: {{ include "serviceradar.dgraph.aclSecretName" . | quote }}
               key: groot_password
         volumeMounts:
+        - name: tmp
+          mountPath: /tmp
         - name: dgraph-ca
           mountPath: /etc/dgraph-ca
           readOnly: true
@@ -112,6 +114,8 @@ spec:
           fi
           echo "Rotated groot off the Dgraph default password"
       volumes:
+      - name: tmp
+        emptyDir: {}
       - name: dgraph-ca
         secret:
           secretName: dgraph-ca

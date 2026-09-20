@@ -810,6 +810,7 @@ spec:
         volumeMounts:
         - name: tmp
           mountPath: /tmp
+        {{- include "serviceradar.dgraph.caVolumeMount" $ | nindent 8 }}
         - name: ansible-catalog
           mountPath: {{ default "/var/lib/serviceradar/ansible_catalog" $ansibleVals.catalogBaseDir | quote }}
         - name: cert-data
@@ -891,6 +892,7 @@ spec:
       volumes:
       - name: tmp
         emptyDir: {}
+      {{- include "serviceradar.dgraph.caVolume" $ | nindent 6 }}
       - name: ansible-catalog
         emptyDir: {}
       - name: cert-data

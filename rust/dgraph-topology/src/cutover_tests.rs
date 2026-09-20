@@ -23,7 +23,7 @@ use dgraph_client::utils_test::fixtures::fetch_ca_bundle;
 use dgraph_client::utils_test::{DEFAULT_GROOT_PASSWORD, DgraphInstance};
 use dgraph_migrate::{Mode, connect, run_with_client};
 
-use crate::{DeviceWrite, EdgeWrite, TopologyClient, schema_spec};
+use crate::{DeviceWrite, EdgeWrite, HopWrite, TopologyClient, schema_spec};
 
 #[tokio::test]
 async fn rebuild_is_idempotent_and_stale_mtr_prunes() {
@@ -91,6 +91,40 @@ async fn rebuild_is_idempotent_and_stale_mtr_prunes() {
         1,
         "canonical edges must survive MTR prune"
     );
+}
+
+#[tokio::test]
+async fn mtr_path_lands_on_a_hop_node_for_an_unresolved_ip() {
+    let client = connected_scratch().await;
+
+    let device = "sr:host01.example.com";
+    let hop = "192.0.2.10";
+
+    client
+        .upsert_device(&DeviceWrite::new(device))
+        .await
+        .expect("device");
+    client
+        .upsert_hop(&HopWrite::new(hop))
+        .await
+        .expect("hop node");
+
+    let edge =
+        EdgeWrite::mtr_path(device, hop, "agent-lab-1").with_last_seen("2030-01-01T00:00:00Z");
+    client
+        .upsert_mtr_path(&edge)
+        .await
+        .expect("an MTR hop that is not a Device must still upsert");
+
+    let neighbourhood = client
+        .query_neighbourhood(device)
+        .await
+        .expect("neighbourhood");
+    let mtr: Vec<_> = neighbourhood
+        .iter()
+        .filter(|e| e.kind() == "MTR_PATH")
+        .collect();
+    assert_eq!(mtr.len(), 1, "the hop edge must be incident on the device");
 }
 
 async fn connected_scratch() -> TopologyClient {
