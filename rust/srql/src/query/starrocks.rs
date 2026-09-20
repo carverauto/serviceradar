@@ -1141,16 +1141,34 @@ fn field_sql(plan: &QueryPlan, field: &str) -> Result<String> {
     }
 }
 
+// Whether an endpoint falls inside a configured local CIDR, for the flow's
+// partition. `lc` is the single row `direction_source` cross joins in, holding
+// every enabled CIDR as three parallel arrays.
+//
+// CNPG asks this with a correlated EXISTS over a range test. StarRocks refuses
+// that outright ("Not support Non-EQ correlated predicate in correlated
+// subquery"), and a join against the CIDR rows would count a flow once per
+// matching row, so nested CIDRs -- a /8 holding a /24 -- would double its bytes.
+// A lambda over arrays on a one-row join can do neither: the row count is the
+// flow count by construction. With no CIDRs configured the arrays are NULL,
+// the match is NULL, and the CASE falls through to the persisted label.
 fn direction_sql() -> String {
     let local = |endpoint: &str| {
         format!(
-            "EXISTS (SELECT 1 FROM {CNPG_CATALOG}.netflow_local_cidrs_catalog c WHERE c.enabled AND (c.partition IS NULL OR c.partition = f.`partition`) AND LENGTH(f.{endpoint}_ip_hex) = LENGTH(c.first_ip_hex) AND f.{endpoint}_ip_hex BETWEEN c.first_ip_hex AND c.last_ip_hex)"
+            "any_match((a, b, q) -> LENGTH(f.{endpoint}_ip_hex) = LENGTH(a) AND f.{endpoint}_ip_hex BETWEEN a AND b AND (q IS NULL OR q = f.`partition`), lc.firsts, lc.lasts, lc.parts)"
         )
     };
     let src = local("src");
     let dst = local("dst");
     format!(
         "CASE WHEN {src} AND {dst} THEN 'bidirectional' WHEN {dst} THEN 'ingress' WHEN {src} THEN 'egress' ELSE COALESCE(f.direction_label, 'unknown') END"
+    )
+}
+
+// PARTITION is a reserved word in StarRocks; unquoted it is a syntax error.
+fn local_cidrs_sql() -> String {
+    format!(
+        "(SELECT ARRAY_AGG(first_ip_hex) AS firsts, ARRAY_AGG(last_ip_hex) AS lasts, ARRAY_AGG(`partition`) AS parts FROM {CNPG_CATALOG}.netflow_local_cidrs_catalog WHERE enabled) lc"
     )
 }
 
@@ -1161,12 +1179,13 @@ fn direction_source(table: &str) -> String {
         )
     };
     format!(
-        "(SELECT f.*, {} AS direction FROM (SELECT normalized.*, {} AS src_ip_hex, {} AS dst_ip_hex FROM (SELECT *, {} AS src_ip_normalized, {} AS dst_ip_normalized FROM {table}) normalized) f)",
+        "(SELECT f.*, {} AS direction FROM (SELECT normalized.*, {} AS src_ip_hex, {} AS dst_ip_hex FROM (SELECT *, {} AS src_ip_normalized, {} AS dst_ip_normalized FROM {table}) normalized) f CROSS JOIN {})",
         direction_sql(),
         ip_hex_sql("src_ip_normalized"),
         ip_hex_sql("dst_ip_normalized"),
         normalized("src_endpoint_ip"),
-        normalized("dst_endpoint_ip")
+        normalized("dst_endpoint_ip"),
+        local_cidrs_sql()
     )
 }
 
@@ -1215,6 +1234,15 @@ fn filter_sql(plan: &QueryPlan, filter: &Filter) -> Result<String> {
         }
     }
     let field = field_sql(plan, &filter.field)?;
+    let is_direction = matches!(plan.entity, Entity::Flows | Entity::AttributedFlows)
+        && filter.field == "direction";
+    let literal = |value: &str| {
+        sql_literal(if is_direction {
+            direction_value(value)
+        } else {
+            value
+        })
+    };
     let op = match filter.op {
         FilterOp::Eq => "=",
         FilterOp::NotEq => "!=",
@@ -1238,7 +1266,7 @@ fn filter_sql(plan: &QueryPlan, filter: &Filter) -> Result<String> {
                 "{field} {op} ({})",
                 values
                     .iter()
-                    .map(|v| sql_literal(v))
+                    .map(|v| literal(v))
                     .collect::<Vec<_>>()
                     .join(", ")
             ));
@@ -1246,8 +1274,22 @@ fn filter_sql(plan: &QueryPlan, filter: &Filter) -> Result<String> {
     };
     Ok(format!(
         "{field} {op} {}",
-        sql_literal(filter.value.as_scalar()?)
+        literal(filter.value.as_scalar()?)
     ))
+}
+
+// The classifier names a flow by which end is local: both, the destination,
+// the source, or neither. The UI names the same four cases from the network's
+// point of view, and those are the words its direction chips send. Without
+// this the chips matched nothing, on either backend.
+fn direction_value(value: &str) -> &str {
+    match value.to_ascii_lowercase().as_str() {
+        "internal" => "bidirectional",
+        "inbound" => "ingress",
+        "outbound" => "egress",
+        "external" => "unknown",
+        _ => value,
+    }
 }
 
 fn sql_literal(value: &str) -> String {
@@ -1768,6 +1810,47 @@ mod tests {
     }
 
     #[test]
+    fn direction_filters_accept_the_ui_vocabulary() {
+        for (ui, stored) in [
+            ("internal", "bidirectional"),
+            ("inbound", "ingress"),
+            ("outbound", "egress"),
+            ("external", "unknown"),
+            ("ingress", "ingress"),
+        ] {
+            let compiled = translate(
+                &plan(&format!("in:flows time:last_1h direction:{ui}")),
+                "serviceradar",
+            )
+            .unwrap();
+            assert!(
+                compiled.sql.contains(&format!("direction = '{stored}'")),
+                "direction:{ui} -> {}",
+                compiled.sql
+            );
+        }
+
+        let listed = translate(
+            &plan("in:flows time:last_1h direction:(internal,outbound)"),
+            "serviceradar",
+        )
+        .unwrap();
+        assert!(
+            listed.sql.contains("IN ('bidirectional', 'egress')"),
+            "{}",
+            listed.sql
+        );
+
+        // Only the direction field is translated.
+        let other = translate(
+            &plan("in:flows time:last_1h protocol_name:internal"),
+            "serviceradar",
+        )
+        .unwrap();
+        assert!(other.sql.contains("'internal'"), "{}", other.sql);
+    }
+
+    #[test]
     fn direction_queries_use_partition_scoped_cidr_classification() {
         for query in [
             r#"in:flows time:last_1h stats:"sum(bytes_total) as total by direction""#,
@@ -1775,27 +1858,36 @@ mod tests {
             "in:flows time:last_1h sort:direction:asc",
         ] {
             let compiled = translate(&plan(query), "serviceradar").unwrap();
+            let sql = &compiled.sql;
+            assert!(sql.contains("cnpg_platform.platform.netflow_local_cidrs_catalog"));
+
+            // The CIDRs arrive as one row of parallel arrays, so the join cannot
+            // change the number of flows however the CIDRs nest or overlap.
+            assert!(sql.contains("CROSS JOIN (SELECT ARRAY_AGG(first_ip_hex) AS firsts, ARRAY_AGG(last_ip_hex) AS lasts, ARRAY_AGG(`partition`) AS parts"), "{sql}");
+            assert!(sql.contains("WHERE enabled) lc"), "{sql}");
+            assert!(sql.contains("any_match((a, b, q) -> LENGTH(f.src_ip_hex) = LENGTH(a) AND f.src_ip_hex BETWEEN a AND b AND (q IS NULL OR q = f.`partition`), lc.firsts, lc.lasts, lc.parts)"), "{sql}");
             assert!(
-                compiled
-                    .sql
-                    .contains("cnpg_platform.platform.netflow_local_cidrs_catalog")
+                sql.contains("any_match((a, b, q) -> LENGTH(f.dst_ip_hex) = LENGTH(a)"),
+                "{sql}"
             );
-            assert!(compiled.sql.contains("c.enabled"));
+
+            // StarRocks rejects a range test inside a correlated subquery
+            // ("Not support Non-EQ correlated predicate"), so this shape took out
+            // every direction filter and chart.
             assert!(
-                compiled
-                    .sql
-                    .contains("c.partition IS NULL OR c.partition = f.`partition`")
+                !sql.contains("EXISTS (SELECT 1 FROM cnpg_platform"),
+                "{sql}"
             );
-            assert!(compiled.sql.contains("THEN 'bidirectional'"));
-            assert!(compiled.sql.contains("THEN 'ingress'"));
-            assert!(compiled.sql.contains("THEN 'egress'"));
-            assert!(
-                compiled
-                    .sql
-                    .contains("COALESCE(f.direction_label, 'unknown')")
-            );
-            assert!(compiled.sql.contains("AS src_ip_hex"));
-            assert!(compiled.sql.contains("AS dst_ip_hex"));
+            // PARTITION is reserved: unquoted, the whole query is a syntax error.
+            assert!(!sql.contains("c.partition"), "{sql}");
+            assert!(!sql.contains("ARRAY_AGG(partition)"), "{sql}");
+
+            assert!(sql.contains("THEN 'bidirectional'"));
+            assert!(sql.contains("THEN 'ingress'"));
+            assert!(sql.contains("THEN 'egress'"));
+            assert!(sql.contains("COALESCE(f.direction_label, 'unknown')"));
+            assert!(sql.contains("AS src_ip_hex"));
+            assert!(sql.contains("AS dst_ip_hex"));
         }
     }
 
