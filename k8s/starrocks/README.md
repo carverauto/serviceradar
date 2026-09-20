@@ -27,8 +27,8 @@ re-fetches the pinned jar (BusyBox wget) when the checksum is missing.
 Nodes that cannot resolve repo1.maven.org will CrashLoop the init
 container; do not roll those until the jar is available in-cluster.
 Demo CNPG now has an additive NetworkPolicy allowing namespace
-`starrocks` on 5432. Lab FE has `cnpg_platform` (infra secret
-`serviceradar-starrocks-catalog`, not in git). Helm default catalog stays
+`starrocks` on 5432. Lab FE has `cnpg_platform`, created by the chart's
+catalog Job from a generated reader Secret. Helm default catalog stays
 off; `values-demo.yaml` enables it with empty cutover. Do not let the
 Frontend download Maven at catalog-create time.
 
@@ -68,10 +68,24 @@ grants. Enabling the catalog after install therefore converges on the next
 `helm upgrade`, and no operator has to issue a GRANT by hand.
 
 Login and password stay with CNPG `managed.roles`: enabling the catalog renders
-the role into the cluster manifest with `login: true` and the password from
-`analytics.starrocks.catalog.readerPasswordSecret`, reconciled continuously so
-it survives failover. Use that same password in the `jdbcUri` baked into the
-catalog secret. Neither the migration nor the Job ever sets login or password.
+the role into the cluster manifest with `login: true` and the password from the
+reader Secret (`analytics.starrocks.catalog.readerPasswordSecret`, default
+`serviceradar-starrocks-reader`), reconciled continuously so it survives
+failover. Neither the migration nor the Job ever sets login or password.
+
+Nobody creates that Secret by hand. The chart's secret generator mints it when
+it is missing and never rotates it, and the `serviceradar-starrocks-catalog`
+Job reads the same Secret to build `CREATE EXTERNAL CATALOG`, so the two sides
+cannot disagree. The Job drops the catalog before creating it: a JDBC catalog
+keeps the password it was created with, so `IF NOT EXISTS` could never deliver
+a corrected one. A reader role whose Secret is missing has no password at all,
+and the symptom is remote from the cause -- the Frontend logs
+`password authentication failed for user "serviceradar_starrocks_reader"` and
+every catalog-joined flow query (exporter and interface names, per-device
+filters, direction) fails while plain flow queries keep working.
+`catalog.secretName` (key `createSql`) remains as an override for a statement
+the Job does not produce; with `secrets.autoGenerate` off, create the reader
+Secret with `username` and `password` keys before enabling the catalog.
 
 `NOLOGIN` rather than a `LOGIN` role with no password is deliberate: an empty
 password is an absence of a credential, not of capability, and a `trust`/`peer`

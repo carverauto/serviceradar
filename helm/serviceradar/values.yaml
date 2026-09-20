@@ -2733,8 +2733,8 @@ analytics:
     shadowDatasets: []
     cutoverDatasets: []
     # JDBC catalog onto CNPG current-state tables for attribution/enrichment
-    # joins. Default chart stays off; values-demo.yaml enables it with an
-    # infra secret. Cutover stays empty.
+    # joins. Default chart stays off; values-demo.yaml enables it. Cutover
+    # stays empty.
     catalog:
       enabled: false
       name: cnpg_platform
@@ -2746,14 +2746,18 @@ analytics:
       # is enabled, so on a deployment that never turns it on the role cannot
       # connect at all.
       user: serviceradar_starrocks_reader
-      # Secret with a `password` key for the reader role above. CNPG reconciles
-      # login + password from it. Required when catalog.enabled is true; use the
-      # same password in the jdbcUri baked into secretName.
+      # Secret with `username` and `password` keys for the reader role above.
+      # Empty means "serviceradar-starrocks-reader". With secrets.autoGenerate
+      # (the default) the secret generator creates it when it is missing and
+      # never rotates it; CNPG sets the role's password from it and the catalog
+      # Job puts the same value into CREATE EXTERNAL CATALOG. With autoGenerate
+      # off, create this Secret yourself before enabling the catalog.
       readerPasswordSecret: ""
-      # Infrastructure secret with key createSql (CREATE EXTERNAL CATALOG ...).
-      # Required only when catalog.enabled is true.
+      # Optional override: a Secret with key createSql holding the complete
+      # CREATE EXTERNAL CATALOG statement. Leave empty and the catalog Job
+      # builds the statement from the settings here and the reader Secret.
       secretName: ""
-      # JDBC URI baked into that secret. Lab FE/BE run in namespace starrocks,
+      # JDBC URI the catalog connects to. Lab FE/BE run in namespace starrocks,
       # so the host must be reachable from there (cnpg-rw.<cnpg-ns>.svc), not
       # the same-namespace short name.
       jdbcUri: "jdbc:postgresql://cnpg-rw:5432/serviceradar?ssl=true&sslmode=require"
