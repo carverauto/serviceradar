@@ -89,7 +89,7 @@ capnpc = "0.25.0"
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 clap = "4"
 crossbeam-channel = "0.5"
-deep_causality = "0.15"
+deep_causality = "0.17"
 deep_causality_algebra = "0.2"
 deep_causality_core = "0.11"
 deep_causality_data_structures = "0.10"
