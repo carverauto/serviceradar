@@ -35,4 +35,5 @@ pub use crate::utils::endpoint::{
 };
 pub use crate::utils::migrate::{connect, run, run_from_env, run_with_client};
 pub use crate::utils::mode_env::{CONFIRM_ENV, CONFIRM_VALUE, ENV_ENV, MODE_ENV};
+pub use crate::utils::redact::redact_userinfo;
 pub use crate::utils::schema::{apply, remove, verify};

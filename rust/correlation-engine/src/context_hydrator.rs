@@ -267,8 +267,13 @@ fn edge_kind_from_label(label: &str) -> Option<EdgeKind> {
 /// Project the `graph_cypher` result rows (each `{nodes,edges}`, with every
 /// `edge` carrying `start_id`/`end_id`/`label`) into deduplicated topology
 /// edges, enforcing canonical-id discipline (both endpoints must be `sr:`-keyed).
+///
+/// Dedup keys on the resolved [`EdgeKind`], not the label: several labels
+/// collapse onto one kind, and one link labelled both `CONNECTS_TO` and
+/// `CANONICAL_TOPOLOGY` would otherwise become two parallel edges, which hides
+/// it from bridge detection.
 fn parse_topology_edges(results: &[serde_json::Value]) -> Vec<TopologyEdge> {
-    let mut seen: HashSet<(String, String, String)> = HashSet::new();
+    let mut seen: HashSet<(String, String, EdgeKind)> = HashSet::new();
     let mut edges = Vec::new();
     for result in results {
         let Some(edge_rows) = result.get("edges").and_then(|e| e.as_array()) else {
@@ -289,7 +294,7 @@ fn parse_topology_edges(results: &[serde_json::Value]) -> Vec<TopologyEdge> {
                 // The engine consumes one canonical ID space; never fork it.
                 continue;
             }
-            if seen.insert((src.to_string(), dst.to_string(), label.to_string())) {
+            if seen.insert((src.to_string(), dst.to_string(), kind)) {
                 edges.push(TopologyEdge::new(src, dst, kind));
             }
         }
@@ -408,6 +413,26 @@ mod tests {
             && e.dst == "sr:device:b"
             && e.kind == EdgeKind::ConnectsTo));
         assert!(edges.iter().any(|e| e.kind == EdgeKind::ManagedBy));
+    }
+
+    #[test]
+    fn labels_that_share_a_kind_do_not_become_parallel_edges() {
+        // One physical link is written twice in Dgraph: CONNECTS_TO by the
+        // mapper and CANONICAL_TOPOLOGY by the canonical rebuild. Both map to
+        // EdgeKind::ConnectsTo, and a second copy would give the link a
+        // parallel sibling, which stops bridge detection reporting it.
+        let results = vec![
+            cypher_edge("sr:device:a", "sr:device:b", "CONNECTS_TO"),
+            cypher_edge("sr:device:a", "sr:device:b", "CANONICAL_TOPOLOGY"),
+            cypher_edge("sr:device:a", "sr:device:b", "LOGICAL_PEER"),
+        ];
+        let edges = parse_topology_edges(&results);
+        assert_eq!(
+            edges.len(),
+            1,
+            "three labels collapsing onto one kind must yield one edge, got {edges:?}"
+        );
+        assert_eq!(edges[0].kind, EdgeKind::ConnectsTo);
     }
 
     #[test]

@@ -1,4 +1,6 @@
-use dgraph_topology::{CanonicalEdge, DeviceWrite, EdgeKind, EdgeWrite, PrefixWrite, link_key};
+use dgraph_topology::{
+    CanonicalEdge, DeviceWrite, EdgeKind, EdgeWrite, PrefixWrite, TopologyError, link_key,
+};
 
 #[test]
 fn link_key_joins_kind_endpoints_and_interfaces() {
@@ -179,4 +181,24 @@ fn dgraph_topology_dql_string(value: &str) -> Result<String, String> {
     } else {
         Ok(format!("\"{value}\""))
     }
+}
+
+/// This error reaches the application log on every failed write, so the
+/// guarantee has to hold for the variant itself, not for one call site.
+#[test]
+fn a_connect_error_never_renders_the_acl_password() {
+    let err = TopologyError::Connect(
+        "dgraph://groot:s3cr3t@alpha.example.com:9080?sslmode=require".to_string(),
+        "transport error".to_string(),
+    );
+    let rendered = err.to_string();
+
+    assert!(
+        !rendered.contains("s3cr3t"),
+        "connect error leaked the ACL password: {rendered}"
+    );
+    assert!(
+        rendered.contains("alpha.example.com:9080"),
+        "connect error must still name the endpoint: {rendered}"
+    );
 }

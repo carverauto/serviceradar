@@ -164,6 +164,32 @@ tests:
           any: true
           content:
             name: dgraph-ca
+  - it: an external endpoint alone does not turn on dual-write
+    documentSelector:
+      path: kind
+      value: Deployment
+    set:
+      graph:
+        backend: age
+        read: age
+      dgraph:
+        enabled: false
+        external:
+          host: dgraph-dgraph-alpha.demo.svc.cluster.local
+          port: 9080
+          tlsMode: verify-ca
+          caSecret: dgraph-ca
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GRAPH_BACKEND
+            value: age
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GRAPH_READ
+            value: age
   - it: renders on AGE alone when Dgraph is disabled with no external host
     documentSelector:
       path: kind

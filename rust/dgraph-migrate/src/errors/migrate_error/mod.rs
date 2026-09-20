@@ -65,10 +65,15 @@ impl MigrateError {
         Self::new(MigrateErrorEnum::Endpoint(reason))
     }
 
+    /// The target is redacted here, not by the caller: this variant is printed
+    /// by both Jobs on every retry and must never carry the ACL password.
     #[allow(non_snake_case)]
     #[must_use]
     pub fn Connect(target: String, reason: String) -> Self {
-        Self::new(MigrateErrorEnum::Connect { target, reason })
+        Self::new(MigrateErrorEnum::Connect {
+            target: crate::utils::redact::redact_userinfo(&target),
+            reason,
+        })
     }
 
     #[allow(non_snake_case)]

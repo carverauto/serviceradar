@@ -86,8 +86,17 @@ spec:
             URL="${URL}&sslrootcert=/etc/dgraph-ca/ca.crt"
           fi
           export DGRAPH_URL="${URL}"
+          # dgraph-migrate exits 0 ("already current") and 10 ("schema applied").
+          # Both are success; treating 10 as a failure logs "not ready" right
+          # after a successful apply and costs a redundant alter.
+          migrate_once() {
+            /usr/local/bin/dgraph-migrate
+            code=$?
+            [ "${code}" -eq 0 ] || [ "${code}" -eq 10 ]
+          }
+
           i=0
-          until /usr/local/bin/dgraph-migrate; do
+          until migrate_once; do
             i=$((i + 1))
             if [ "${i}" -ge 30 ]; then
               echo "dgraph schema migrate did not succeed after ${i} attempts"

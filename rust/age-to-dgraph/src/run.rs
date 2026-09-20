@@ -77,7 +77,7 @@ async fn rebuild() -> Result<RebuildReport, MigratorError> {
 
 async fn checksum() -> Result<crate::ChecksumReport, MigratorError> {
     let postgres = PostgresSource::connect().await?;
-    let age = postgres.age_snapshot().await?;
+    let age = postgres.relational_snapshot().await?;
     let dgraph = dgraph_snapshot().await?;
     compare_snapshots(&age, &dgraph)
 }

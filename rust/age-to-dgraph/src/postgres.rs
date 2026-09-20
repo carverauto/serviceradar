@@ -41,10 +41,17 @@ impl PostgresSource {
         Ok(Self { client, graph_name })
     }
 
-    /// Rebuild source. AGE's canonical edges are the graph; `runtime_topology_links`
-    /// is a row-capped God View cache and would silently truncate a large fleet
-    /// into a destructive rebuild. Mapper evidence is the fallback for a
-    /// deployment whose AGE graph holds no canonical edges yet.
+    /// Relational source of truth for both halves of the Job. AGE's canonical
+    /// edges are the graph; `runtime_topology_links` is a row-capped God View
+    /// cache and would silently truncate a large fleet into a destructive
+    /// rebuild. Mapper evidence is the fallback for a deployment whose AGE
+    /// graph holds no canonical edges yet.
+    ///
+    /// `rebuild` writes this set and `checksum` compares it, so the two must
+    /// read it through the same call: a checksum that always read AGE would
+    /// compare an empty AGE against a Dgraph the rebuild had just filled from
+    /// mapper evidence, and fail the Helm hook in exactly the state the
+    /// fallback exists for.
     pub async fn evidence_records(&self) -> Result<Vec<CanonicalEdgeRecord>, MigratorError> {
         let canonical = self.age_canonical_edges().await?;
         if !canonical.is_empty() {
@@ -54,8 +61,8 @@ impl PostgresSource {
         Ok(crate::records_from_mapper_rows(&mapper))
     }
 
-    pub async fn age_snapshot(&self) -> Result<CanonicalSnapshot, MigratorError> {
-        let edges = self.age_canonical_edges().await?;
+    pub async fn relational_snapshot(&self) -> Result<CanonicalSnapshot, MigratorError> {
+        let edges = self.evidence_records().await?;
         Ok(snapshot_from_edges(&edges))
     }
 

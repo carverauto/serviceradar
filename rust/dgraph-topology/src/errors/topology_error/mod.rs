@@ -48,10 +48,16 @@ impl TopologyError {
         &self.0
     }
 
+    /// The target is redacted here, not by the caller: this variant reaches the
+    /// application log on every failed write and must never carry the ACL
+    /// password.
     #[allow(non_snake_case)]
     #[must_use]
     pub fn Connect(target: String, reason: String) -> Self {
-        Self::new(TopologyErrorEnum::Connect { target, reason })
+        Self::new(TopologyErrorEnum::Connect {
+            target: dgraph_migrate::redact_userinfo(&target),
+            reason,
+        })
     }
 
     #[allow(non_snake_case)]

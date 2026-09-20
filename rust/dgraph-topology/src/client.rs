@@ -47,7 +47,7 @@ impl TopologyClient {
     pub async fn connect(target: &str) -> Result<Self, TopologyError> {
         let client = DgraphClient::connect(target)
             .await
-            .map_err(|err| TopologyError::Connect(redact_userinfo(target), err.to_string()))?;
+            .map_err(|err| TopologyError::Connect(target.to_string(), err.to_string()))?;
         Ok(Self { client })
     }
 
@@ -468,8 +468,8 @@ impl TopologyClient {
     topo.if_name_ab
     topo.if_name_ba
     topo.mutation_id
-    topo.src {{ device.id }}
-    topo.dst {{ device.id }}
+    topo.src {{ device.id hop.ip }}
+    topo.dst {{ device.id hop.ip }}
   }}
 }}"#
         );
@@ -603,6 +603,18 @@ struct StaleQuery {
 struct EndpointId {
     #[serde(default, rename = "device.id")]
     device_id: String,
+    #[serde(default, rename = "hop.ip")]
+    hop_ip: String,
+}
+
+impl EndpointId {
+    /// An MTR path may terminate on a HopNode, which carries `hop.ip` and no
+    /// `device.id`. An endpoint with neither is not an identity at all.
+    fn id(&self) -> Option<&str> {
+        [self.device_id.as_str(), self.hop_ip.as_str()]
+            .into_iter()
+            .find(|value| !value.is_empty())
+    }
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -647,8 +659,8 @@ struct CanonicalEdgeRow {
 
 impl CanonicalEdgeRow {
     fn into_edge(self) -> Option<CanonicalEdge> {
-        let source = self.src.first()?.device_id.clone();
-        let target = self.dst.first()?.device_id.clone();
+        let source = self.src.first().and_then(EndpointId::id)?.to_string();
+        let target = self.dst.first().and_then(EndpointId::id)?.to_string();
         Some(CanonicalEdge::new(
             source,
             target,
@@ -699,23 +711,6 @@ fn require_block(rows: &[UidRow], block: &str, key: &str) -> Result<(), Topology
     Ok(())
 }
 
-/// Connection string with any `user:password@` removed.
-///
-/// The target is carried in connect errors, which reach the application log on
-/// every failed write. The Dgraph ACL password must never travel with it.
-#[must_use]
-pub(crate) fn redact_userinfo(target: &str) -> String {
-    let Some((scheme, rest)) = target.split_once("://") else {
-        return target.to_string();
-    };
-    let authority_end = rest.find(['/', '?']).unwrap_or(rest.len());
-    let (authority, tail) = rest.split_at(authority_end);
-    match authority.rsplit_once('@') {
-        Some((_userinfo, host)) => format!("{scheme}://{host}{tail}"),
-        None => target.to_string(),
-    }
-}
-
 /// Reject values that would break DQL string literals.
 pub(crate) fn dql_string(value: &str) -> Result<String, TopologyError> {
     if value.contains('"') || value.contains('\n') || value.contains('\\') {
@@ -726,29 +721,51 @@ pub(crate) fn dql_string(value: &str) -> Result<String, TopologyError> {
 
 #[cfg(test)]
 mod tests {
-    use super::redact_userinfo;
+    use super::{CanonicalEdgeRow, EndpointId};
+
+    fn row(src: serde_json::Value, dst: serde_json::Value) -> CanonicalEdgeRow {
+        serde_json::from_value(serde_json::json!({
+            "topo.link_key": "MTR_PATH|sr:host01.example.com|192.0.2.10||",
+            "topo.kind": "MTR_PATH",
+            "topo.src": [src],
+            "topo.dst": [dst],
+        }))
+        .expect("row")
+    }
 
     #[test]
-    fn connect_errors_do_not_carry_the_acl_password() {
-        assert_eq!(
-            redact_userinfo("dgraph://groot:s3cr3t@alpha.example.com:9080?sslmode=require"),
-            "dgraph://alpha.example.com:9080?sslmode=require"
-        );
-        assert_eq!(
-            redact_userinfo("dgraph://groot:p@ss:word@alpha.example.com:9080"),
-            "dgraph://alpha.example.com:9080"
+    fn an_mtr_endpoint_may_be_a_hop_node() {
+        let edge = row(
+            serde_json::json!({ "device.id": "sr:host01.example.com" }),
+            serde_json::json!({ "hop.ip": "192.0.2.10" }),
+        )
+        .into_edge()
+        .expect("a hop-terminated MTR edge must read back");
+
+        assert_eq!(edge.source(), "sr:host01.example.com");
+        assert_eq!(edge.target(), "192.0.2.10");
+    }
+
+    #[test]
+    fn an_endpoint_with_no_identity_drops_the_edge() {
+        assert!(
+            row(
+                serde_json::json!({ "device.id": "sr:host01.example.com" }),
+                serde_json::json!({}),
+            )
+            .into_edge()
+            .is_none(),
+            "an endpoint carrying neither device.id nor hop.ip is not an identity"
         );
     }
 
     #[test]
-    fn a_target_without_userinfo_is_unchanged() {
-        assert_eq!(
-            redact_userinfo("dgraph://alpha.example.com:9080?sslmode=verify-ca"),
-            "dgraph://alpha.example.com:9080?sslmode=verify-ca"
-        );
-        assert_eq!(
-            redact_userinfo("alpha.example.com:9080"),
-            "alpha.example.com:9080"
-        );
+    fn device_id_wins_when_an_endpoint_carries_both() {
+        let endpoint: EndpointId = serde_json::from_value(serde_json::json!({
+            "device.id": "sr:host01.example.com",
+            "hop.ip": "192.0.2.10",
+        }))
+        .expect("endpoint");
+        assert_eq!(endpoint.id(), Some("sr:host01.example.com"));
     }
 }

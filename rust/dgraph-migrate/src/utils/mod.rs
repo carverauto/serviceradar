@@ -17,4 +17,5 @@
 pub(crate) mod endpoint;
 pub(crate) mod migrate;
 pub(crate) mod mode_env;
+pub(crate) mod redact;
 pub(crate) mod schema;
