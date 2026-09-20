@@ -96,31 +96,48 @@ defmodule ServiceRadar.Analytics.StarRocks.MetricConsumers do
       "target_device_ip IN (#{Enum.join(ips, ",")}))"
   end
 
-  @spec sparkline_rows([{String.t(), integer()}], DateTime.t(), keyword()) ::
+  @spec sparkline_rows([{String.t(), integer()}], DateTime.t(), pos_integer(), keyword()) ::
           {:ok, [list()]} | {:error, term()}
-  def sparkline_rows(pairs, cutoff, opts \\ []) when is_list(pairs) do
-    devices = pairs |> Enum.map(&elem(&1, 0)) |> Enum.flat_map(&List.wrap(quote_id(&1)))
-    indexes = pairs |> Enum.map(&elem(&1, 1)) |> Enum.filter(&is_integer/1)
+  def sparkline_rows(pairs, cutoff, bucket_seconds, opts \\ [])
+      when is_list(pairs) and is_integer(bucket_seconds) and bucket_seconds > 0 do
     names = Enum.map(@sparkline_metrics, &quote_id/1)
 
-    if devices == [] or indexes == [] do
-      {:ok, []}
-    else
-      sql =
-        "SELECT device_id, if_index, metric_name, date_trunc('minute', `timestamp`) AS bucket, MAX(value) AS value " <>
-          "FROM #{Env.table("timeseries_metrics")} " <>
-          "WHERE device_id IN (#{Enum.join(devices, ",")}) " <>
-          "AND if_index IN (#{Enum.join(indexes, ",")}) " <>
-          "AND metric_name IN (#{Enum.join(names, ",")}) " <>
-          "AND `timestamp` >= '#{iso(cutoff)}' " <>
-          "GROUP BY device_id, if_index, metric_name, bucket " <>
-          "ORDER BY device_id, if_index, metric_name, bucket"
+    case pair_predicates(pairs) do
+      [] ->
+        {:ok, []}
 
-      case query(opts).(sql) do
-        {:ok, %{rows: rows}} -> {:ok, rows}
-        {:error, reason} -> {:error, reason}
-      end
+      predicates ->
+        sql =
+          "SELECT device_id, if_index, metric_name, " <>
+            "time_slice(`timestamp`, INTERVAL #{bucket_seconds} SECOND) AS bucket, " <>
+            "MAX(value) AS value " <>
+            "FROM #{Env.table("timeseries_metrics")} " <>
+            "WHERE (#{Enum.join(predicates, " OR ")}) " <>
+            "AND metric_name IN (#{Enum.join(names, ",")}) " <>
+            "AND `timestamp` >= '#{iso(cutoff)}' " <>
+            "GROUP BY device_id, if_index, metric_name, bucket " <>
+            "ORDER BY device_id, if_index, metric_name, bucket"
+
+        case query(opts).(sql) do
+          {:ok, %{rows: rows}} -> {:ok, rows}
+          {:error, reason} -> {:error, reason}
+        end
     end
+  end
+
+  defp pair_predicates(pairs) do
+    pairs
+    |> Enum.flat_map(fn
+      {device_id, if_index} when is_integer(if_index) ->
+        case quote_id(device_id) do
+          quoted when is_binary(quoted) -> ["(device_id = #{quoted} AND if_index = #{if_index})"]
+          _ -> []
+        end
+
+      _ ->
+        []
+    end)
+    |> Enum.uniq()
   end
 
   @spec fetch(keyword()) :: term()

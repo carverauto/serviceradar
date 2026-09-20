@@ -55,12 +55,17 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.EventWindowStarRocksTest do
 
     # The window starts exactly on 1999-03-18 00:00:00, so an epoch-aligned
     # bucket key lands on the first trend point; a key offset by the FE's time
-    # zone leaves the trend at zero while the summary total stays 18.
+    # zone would leave the trend at zero.
     assert hd(slice.security_trend).total == 11
     assert hd(slice.security_trend).critical == 11
-    assert slice.event_summary.total == 18
+
+    # The second row is keyed exactly at `window.end`. The widened trailing
+    # bound lets the warehouse return it, the trend does not plot it, and the
+    # summary card must not count what the chart beside it omits.
+    assert slice.event_summary.total == 11
     assert slice.event_summary.fatal == 11
-    assert slice.event_summary.low == 7
+    assert slice.event_summary.low == 0
+    assert slice.event_summary.total == Enum.sum(Enum.map(slice.security_trend, & &1.total))
     assert_received {:window_sql, _sql}
   end
 

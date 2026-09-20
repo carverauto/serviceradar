@@ -79,10 +79,73 @@ defmodule ServiceRadar.Analytics.StarRocks.MetricConsumersTest do
              MetricConsumers.sparkline_rows(
                [{"sr:host-alpha", 1}],
                ~U[1999-06-15 12:00:00Z],
+               900,
                query: query
              )
 
     assert_received {:metric_sql, _}
+  end
+
+  # The caller keeps only the last 36 buckets, so the grain decides how much
+  # history the panel shows. A fixed minute grain rendered ~36 minutes under the
+  # same axis where CNPG's window-derived bucket rendered ~9 days.
+  test "the interface sparkline buckets on the grain its caller asked for" do
+    parent = self()
+
+    query = fn sql ->
+      send(parent, {:sparkline_sql, sql})
+      {:ok, %{rows: []}}
+    end
+
+    for bucket_seconds <- [60, 900, 21_600] do
+      assert {:ok, []} =
+               MetricConsumers.sparkline_rows(
+                 [{"sr:host-alpha", 1}],
+                 ~U[1999-06-15 12:00:00Z],
+                 bucket_seconds,
+                 query: query
+               )
+
+      assert_received {:sparkline_sql, sql}
+      assert sql =~ "time_slice(`timestamp`, INTERVAL #{bucket_seconds} SECOND) AS bucket"
+      refute sql =~ "date_trunc('minute'"
+    end
+  end
+
+  # Two independent IN lists match every device against every interface index,
+  # so 80 requested pairs asked the warehouse for up to 6,400 combinations. The
+  # predicate has to name the pairs the caller actually asked for.
+  test "the interface sparkline filters on whole pairs rather than a cross product" do
+    parent = self()
+
+    query = fn sql ->
+      send(parent, {:sparkline_sql, sql})
+      {:ok, %{rows: []}}
+    end
+
+    assert {:ok, []} =
+             MetricConsumers.sparkline_rows(
+               [{"sr:host-alpha", 1}, {"sr:host-beta", 2}],
+               ~U[1999-06-15 12:00:00Z],
+               900,
+               query: query
+             )
+
+    assert_received {:sparkline_sql, sql}
+    assert sql =~ "(device_id = 'sr:host-alpha' AND if_index = 1)"
+    assert sql =~ "(device_id = 'sr:host-beta' AND if_index = 2)"
+    refute sql =~ "device_id = 'sr:host-alpha' AND if_index = 2"
+    refute sql =~ "if_index IN ("
+
+    # An unquotable device id or a non-integer index cannot become a predicate,
+    # and with none left there is nothing to ask the warehouse.
+    assert {:ok, []} =
+             MetricConsumers.sparkline_rows(
+               [{"sr:host alpha'; DROP", 1}, {"sr:host-beta", nil}],
+               ~U[1999-06-15 12:00:00Z],
+               900,
+               query: fn _sql -> flunk("no valid pair should reach the warehouse") end
+             )
   end
 
   test "directional rows carry the same scope and latest-sample semantics as CNPG" do

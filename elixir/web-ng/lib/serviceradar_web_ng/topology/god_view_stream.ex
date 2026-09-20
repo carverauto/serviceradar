@@ -62,6 +62,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   @unplaced_device_visible_limit 16
   @edge_sparkline_interface_limit 96
   @edge_sparkline_metrics ~w(ifHCInOctets ifHCOutOctets ifInOctets ifOutOctets)
+  @edge_sparkline_bucket_seconds 900
   @unplaced_device_type_ids [1, 6, 9, 10, 12, 15, 99]
   @proximity_collision_iterations 8
   @proximity_collision_min_distance 34.0
@@ -4893,7 +4894,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
               m.device_id,
               m.if_index,
               m.metric_name,
-              time_bucket('15 minutes'::interval, m.timestamp) AS bucket,
+              time_bucket(make_interval(secs => #{@edge_sparkline_bucket_seconds}), m.timestamp) AS bucket,
               MAX(m.value)::float8 AS value
             FROM platform.timeseries_metrics m
             INNER JOIN wanted w ON w.device_id = m.device_id AND w.if_index = m.if_index
@@ -4906,7 +4907,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
           )
         end,
         starrocks: fn ->
-          MetricConsumers.sparkline_rows(pairs, cutoff)
+          MetricConsumers.sparkline_rows(pairs, cutoff, @edge_sparkline_bucket_seconds)
         end
       )
 

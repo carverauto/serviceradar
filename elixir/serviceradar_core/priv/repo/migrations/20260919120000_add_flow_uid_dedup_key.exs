@@ -14,6 +14,12 @@ defmodule ServiceRadar.Repo.Migrations.AddFlowUidDedupKey do
   this migration carry no identity, so it starts empty and cannot fail to build
   on history that already holds duplicates. TimescaleDB requires the
   partitioning column in a unique index, hence `(flow_uid, time)`.
+
+  `platform.ocsf_network_activity` is a large TimescaleDB hypertable and this
+  runs during service startup, so the index is built one chunk per transaction
+  rather than holding a hypertable-wide lock against EventWriter's flow inserts
+  for the whole scan. TimescaleDB requires that option to run outside Ecto's DDL
+  transaction and migration lock.
   """
 
   use Ecto.Migration
@@ -27,15 +33,41 @@ defmodule ServiceRadar.Repo.Migrations.AddFlowUidDedupKey do
   def up do
     execute("ALTER TABLE #{@schema}.#{@table} ADD COLUMN IF NOT EXISTS flow_uid text")
 
+    build_options =
+      if hypertable?(),
+        do: "WITH (timescaledb.transaction_per_chunk)",
+        else: ""
+
     execute("""
     CREATE UNIQUE INDEX IF NOT EXISTS idx_ocsf_network_activity_flow_uid
     ON #{@schema}.#{@table} (flow_uid, time)
     WHERE flow_uid IS NOT NULL
+    #{build_options}
     """)
   end
 
   def down do
     execute("DROP INDEX IF EXISTS #{@schema}.idx_ocsf_network_activity_flow_uid")
     execute("ALTER TABLE #{@schema}.#{@table} DROP COLUMN IF EXISTS flow_uid")
+  end
+
+  defp hypertable? do
+    case repo().query!("SELECT to_regclass('timescaledb_information.hypertables')") do
+      %{rows: [[nil]]} ->
+        false
+
+      %{rows: [[_hypertables_view]]} ->
+        %{rows: [[hypertable?]]} =
+          repo().query!("""
+          SELECT EXISTS (
+            SELECT 1
+            FROM timescaledb_information.hypertables
+            WHERE hypertable_schema = '#{@schema}'
+              AND hypertable_name = '#{@table}'
+          )
+          """)
+
+        hypertable?
+    end
   end
 end

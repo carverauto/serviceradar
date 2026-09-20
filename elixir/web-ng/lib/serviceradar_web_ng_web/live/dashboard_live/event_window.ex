@@ -79,9 +79,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.EventWindow do
     by_bucket = Enum.group_by(rows, fn [bucket, _, _] -> DateTime.to_unix(bucket) end)
     first = div(DateTime.to_unix(window.start), bucket_seconds) * bucket_seconds
     last = DateTime.to_unix(window.end) - 1
+    buckets = first..last//bucket_seconds
 
     points =
-      for unix <- first..last//bucket_seconds do
+      for unix <- buckets do
         bucket = DateTime.from_unix!(unix)
 
         Enum.reduce(
@@ -110,8 +111,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.EventWindow do
         )
       end
 
+    scored = Enum.flat_map(buckets, &Map.get(by_bucket, &1, []))
+
     summary =
-      Enum.reduce(rows, ServiceRadarWebNGWeb.Stats.empty_events_summary(), fn [_, severity, count], acc ->
+      Enum.reduce(scored, ServiceRadarWebNGWeb.Stats.empty_events_summary(), fn [_, severity, count], acc ->
         field =
           %{0 => :unknown, 1 => :informational, 2 => :low, 3 => :medium, 4 => :high, 5 => :critical, 6 => :fatal}[
             severity
