@@ -24,6 +24,13 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
   When a threshold is violated, an OCSF event is recorded with:
   - metric details including interface info
   - threshold configuration metadata
+
+  ## Warehouse Copy
+
+  Recorded events are also Stream Loaded into StarRocks when the `events`
+  dataset is cut over. This worker has no broker to redeliver a failed load,
+  so a failed batch is quarantined and replayed by later runs of this worker;
+  `ServiceRadar.Analytics.StarRocks.PendingLoads` owns that contract.
   """
 
   use Oban.Worker,
@@ -32,7 +39,7 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
     unique: [period: :infinity, states: :incomplete]
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Analytics.StarRocks.Destination
+  alias ServiceRadar.Analytics.StarRocks.PendingLoads
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Inventory.InterfaceSettings
   alias ServiceRadar.Jobs.SelfScheduling
@@ -96,6 +103,16 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
   def perform(%Oban.Job{args: args}) do
     Logger.info("Running interface threshold evaluation")
 
+    result = evaluate_and_reschedule(args)
+
+    # Replaying quarantined warehouse batches must never delay alerting, so
+    # it runs once this job has already evaluated and queued its successor.
+    drain_pending_loads()
+
+    result
+  end
+
+  defp evaluate_and_reschedule(args) do
     case get_enabled_thresholds() do
       {:ok, settings} when settings != [] ->
         Logger.info("Evaluating #{length(settings)} interface thresholds")
@@ -532,11 +549,41 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
 
   defp flush_event_buffer do
     case Process.delete(@event_buffer_key) do
-      [_ | _] = events -> _ = Destination.persist_after_cnpg(:events, Enum.reverse(events))
-      _ -> :ok
+      [_ | _] = events ->
+        events
+        |> Enum.reverse()
+        |> then(&PendingLoads.persist_or_enqueue(:events, &1))
+        |> case do
+          {:error, reason} ->
+            Logger.error(
+              "StarRocks threshold event batch lost: persist and quarantine both failed",
+              error: inspect(reason)
+            )
+
+          _ ->
+            :ok
+        end
+
+      _ ->
+        :ok
     end
 
     :ok
+  end
+
+  # Replays warehouse batches quarantined by earlier runs. A drain problem
+  # must never fail threshold evaluation, so every failure is contained here.
+  defp drain_pending_loads do
+    {:ok, _summary} = PendingLoads.drain_due()
+    :ok
+  rescue
+    error ->
+      Logger.error("StarRocks pending loads drain crashed; batches remain queued",
+        error: Exception.message(error),
+        stacktrace: Exception.format_stacktrace(__STACKTRACE__)
+      )
+
+      :ok
   end
 
   defp build_metric_event(setting, metric_name, config, metric_value, duration_seconds) do
