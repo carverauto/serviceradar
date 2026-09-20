@@ -8290,7 +8290,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     view = Map.get(socket.assigns, :netflow_view, "overview")
 
     timeseries_stacked =
-      case NetflowRuntime.load_activity(socket.assigns.active_tab, view, fn ->
+      case NetflowRuntime.load_panel(socket.assigns.active_tab, view, :stacked_timeseries, fn ->
              load_netflow_timeseries_stacked(
                srql_module,
                Map.get(socket.assigns.srql, :query),
@@ -8350,7 +8350,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     sankey_prefix = Map.get(socket.assigns, :netflow_sankey_prefix, 24)
 
     sankey =
-      case NetflowRuntime.load_activity(socket.assigns.active_tab, view, fn ->
+      case NetflowRuntime.load_panel(socket.assigns.active_tab, view, :sankey, fn ->
              load_netflow_sankey(
                srql_module,
                Map.get(socket.assigns.srql, :query),
