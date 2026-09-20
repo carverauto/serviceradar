@@ -32,8 +32,8 @@ use thiserror::Error;
 
 pub use dump::{DumpFile, load_dump, parse_dump};
 pub use evidence::{
-    MapperLinkRow, RuntimeLinkRow, edge_writes_from_records, records_from_canonical_edges,
-    records_from_mapper_rows, records_from_runtime_rows,
+    MapperLinkRow, RuntimeLinkRow, canonical_link_key, edge_writes_from_records,
+    records_from_canonical_edges, records_from_mapper_rows, records_from_runtime_rows,
 };
 pub use run::{RebuildReport, run};
 
@@ -146,10 +146,23 @@ pub fn hash_canonical_edges(edges: &[CanonicalEdgeRecord]) -> String {
         .collect()
 }
 
+/// Devices that appear as an endpoint of a canonical edge. Counting the whole
+/// `:Device` vertex set would compare AGE's inventory against the endpoint-only
+/// node set the Dgraph rebuild creates, which can never match.
 #[must_use]
-pub fn snapshot_from_edges(node_count: u64, edges: &[CanonicalEdgeRecord]) -> CanonicalSnapshot {
+pub fn node_count_from_edges(edges: &[CanonicalEdgeRecord]) -> u64 {
+    let mut ids = std::collections::BTreeSet::new();
+    for edge in edges {
+        ids.insert(edge.source.as_str());
+        ids.insert(edge.target.as_str());
+    }
+    ids.len() as u64
+}
+
+#[must_use]
+pub fn snapshot_from_edges(edges: &[CanonicalEdgeRecord]) -> CanonicalSnapshot {
     CanonicalSnapshot {
-        node_count,
+        node_count: node_count_from_edges(edges),
         edge_count: edges.len() as u64,
         content_hash: hash_canonical_edges(edges),
     }

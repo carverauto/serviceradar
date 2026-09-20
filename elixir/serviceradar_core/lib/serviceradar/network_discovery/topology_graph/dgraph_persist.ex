@@ -104,10 +104,17 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist do
     end)
   end
 
-  @spec prune_stale(String.t()) :: :ok
-  def prune_stale(cutoff) when is_binary(cutoff) do
+  @doc """
+  Delete Dgraph edges of `kinds` last seen before `cutoff`.
+
+  The kind set mirrors whichever AGE statement the caller just ran: the two
+  prunes delete different relationship types on different schedules, so a
+  shared kind list would diverge the shadow store from AGE in both directions.
+  """
+  @spec prune_stale(String.t(), [String.t()]) :: :ok
+  def prune_stale(cutoff, kinds) when is_binary(cutoff) and is_list(kinds) do
     maybe(fn ->
-      case Dgraph.prune_stale(cutoff) do
+      case Dgraph.prune_stale(cutoff, kinds) do
         {:ok, _count} -> :ok
         other -> other
       end

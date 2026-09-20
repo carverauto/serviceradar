@@ -1,8 +1,9 @@
 use dgraph_topology::{CanonicalEdge, DeviceWrite, EdgeKind, EdgeWrite, PrefixWrite, link_key};
 
 #[test]
-fn link_key_joins_endpoints_and_interfaces() {
+fn link_key_joins_kind_endpoints_and_interfaces() {
     let key = link_key(
+        EdgeKind::CanonicalTopology.as_str(),
         "sr:host01.example.com",
         "sr:host02.example.com",
         "GigabitEthernet0/1",
@@ -10,7 +11,29 @@ fn link_key_joins_endpoints_and_interfaces() {
     );
     assert_eq!(
         key,
-        "sr:host01.example.com|sr:host02.example.com|GigabitEthernet0/1|GigabitEthernet0/2"
+        "CANONICAL_TOPOLOGY|sr:host01.example.com|sr:host02.example.com|GigabitEthernet0/1|GigabitEthernet0/2"
+    );
+}
+
+#[test]
+fn edges_of_different_kinds_between_one_pair_do_not_share_a_key() {
+    let canonical = EdgeWrite::canonical(
+        "sr:host01.example.com",
+        "sr:host02.example.com",
+        "lldp",
+        "direct-physical",
+    );
+    let mtr = EdgeWrite::mtr_path(
+        "sr:host01.example.com",
+        "sr:host02.example.com",
+        "agent-lab-1",
+    );
+    assert_eq!(canonical.if_name_ab(), mtr.if_name_ab());
+    assert_eq!(canonical.if_name_ba(), mtr.if_name_ba());
+    assert_ne!(
+        canonical.link_key(),
+        mtr.link_key(),
+        "a CANONICAL_TOPOLOGY upsert must not overwrite the MTR_PATH node"
     );
 }
 
@@ -132,7 +155,7 @@ fn canonical_edge_write_sets_mapper_ingestor() {
     assert_eq!(edge.ingestor(), "mapper_topology_v1");
     assert_eq!(
         edge.link_key(),
-        "sr:host01.example.com|sr:host02.example.com|Gi0/1|Gi0/2"
+        "CANONICAL_TOPOLOGY|sr:host01.example.com|sr:host02.example.com|Gi0/1|Gi0/2"
     );
     assert!(edge.telemetry_eligible());
 }

@@ -5,6 +5,10 @@ defmodule ServiceRadar.NetworkConfig.Revision do
   The body and content hash stay in CNPG. They are never written as Dgraph
   predicates. Duplicate `(device_uid, content_hash)` submissions are
   idempotent.
+
+  A running-config routinely carries SNMP communities, TACACS/RADIUS keys and
+  local secrets, so reads are operator-only and `body` is sensitive: it is
+  redacted by `inspect/1` and by AshAdmin rather than rendered verbatim.
   """
 
   use Ash.Resource,
@@ -57,7 +61,7 @@ defmodule ServiceRadar.NetworkConfig.Revision do
 
     system_bypass()
     operator_action_type(:create)
-    read_all()
+    read_operator_plus()
   end
 
   attributes do
@@ -92,6 +96,7 @@ defmodule ServiceRadar.NetworkConfig.Revision do
     attribute :body, :string do
       allow_nil? false
       public? true
+      sensitive? true
       constraints allow_empty?: true, trim?: false
     end
 

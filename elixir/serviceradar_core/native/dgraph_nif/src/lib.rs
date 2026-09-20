@@ -120,12 +120,12 @@ fn upsert_mtr_path(url: String, edge: NifEdgeWrite) -> WriteResult {
 }
 
 #[rustler::nif(schedule = "DirtyIo")]
-fn prune_stale(url: String, cutoff: String) -> CountResult {
+fn prune_stale(url: String, cutoff: String, kinds: Vec<String>) -> CountResult {
     match isolate(|| {
         require_url(&url)?;
         let client = client_for(&url)?;
         runtime()?
-            .block_on(client.prune_stale(&cutoff))
+            .block_on(client.prune_stale(&cutoff, &kinds))
             .map_err(|err| err.to_string())
     }) {
         Ok(count) => CountResult::Ok(count as u64),

@@ -11,7 +11,7 @@ metadata:
   name: {{ include "serviceradar.fullname" . }}-dgraph-peer
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "serviceradar.labels" . | nindent 4 }}
+    app.kubernetes.io/part-of: serviceradar
     app.kubernetes.io/component: dgraph
 spec:
   podSelector:

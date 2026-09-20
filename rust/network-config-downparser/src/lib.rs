@@ -114,12 +114,8 @@ fn flush(facts: &mut Vec<InterfaceFact>, stanza: Option<Stanza>) {
 }
 
 fn interface_header(line: &str) -> Option<String> {
-    let trimmed = line.trim();
-    if trimmed.len() < 10 || !trimmed[..10].eq_ignore_ascii_case("interface ") {
-        return None;
-    }
-    let name = trimmed[10..].trim();
-    if name.is_empty() || name.to_ascii_lowercase().starts_with("range ") {
+    let name = strip_ignore_case(line.trim(), "interface ")?.trim();
+    if name.is_empty() || strip_ignore_case(name, "range ").is_some() {
         return None;
     }
     Some(name.to_string())
@@ -182,12 +178,19 @@ fn apply_command(stanza: &mut Stanza, cmd: &str) {
     }
 }
 
+/// Case-insensitive prefix strip that never indexes into a multi-byte
+/// character. `line[..prefix.len()]` panics on a config line whose text is
+/// non-ASCII, so the split point comes from the iterator instead.
 fn strip_ignore_case<'a>(line: &'a str, prefix: &str) -> Option<&'a str> {
-    if line.len() >= prefix.len() && line[..prefix.len()].eq_ignore_ascii_case(prefix) {
-        Some(&line[prefix.len()..])
-    } else {
-        None
+    let mut line_chars = line.char_indices();
+    for expected in prefix.chars() {
+        let (_, actual) = line_chars.next()?;
+        if !actual.eq_ignore_ascii_case(&expected) {
+            return None;
+        }
     }
+    let split = line_chars.next().map_or(line.len(), |(idx, _)| idx);
+    Some(&line[split..])
 }
 
 fn parse_vlan(rest: &str) -> Option<i32> {
@@ -218,10 +221,21 @@ fn parse_ipv4_prefix(rest: &str) -> Option<String> {
 
 fn parse_ipv6_prefix(rest: &str) -> Option<String> {
     let token = rest.split_whitespace().next()?;
-    if token.contains('/') {
-        Some(token.to_string())
+    let (host, prefix_len) = token.split_once('/')?;
+    let len: u32 = prefix_len.parse().ok()?;
+    if len > 128 {
+        return None;
+    }
+    let addr: std::net::Ipv6Addr = host.parse().ok()?;
+    let masked = u128::from_be_bytes(addr.octets()) & ipv6_prefix_mask(len);
+    Some(format!("{}/{}", std::net::Ipv6Addr::from(masked), len))
+}
+
+fn ipv6_prefix_mask(len: u32) -> u128 {
+    if len == 0 {
+        0
     } else {
-        None
+        u128::MAX << (128 - len)
     }
 }
 
@@ -260,7 +274,34 @@ fn is_prefix_mask(mask: u32) -> bool {
 
 #[cfg(test)]
 mod unit_tests {
-    use super::{is_prefix_mask, parse_ipv4, parse_ipv4_prefix};
+    use super::{is_prefix_mask, parse, parse_ipv4, parse_ipv4_prefix, parse_ipv6_prefix};
+
+    #[test]
+    fn ipv6_slash_form_is_network_cidr() {
+        assert_eq!(
+            parse_ipv6_prefix("2001:db8:1::1/64").as_deref(),
+            Some("2001:db8:1::/64")
+        );
+        assert_eq!(
+            parse_ipv6_prefix("2001:db8:1::2/64").as_deref(),
+            parse_ipv6_prefix("2001:db8:1::1/64").as_deref(),
+            "two hosts on one segment share a Prefix node"
+        );
+    }
+
+    #[test]
+    fn non_ascii_lines_do_not_panic() {
+        let body = concat!(
+            "interface GigabitEthernet0/1\n",
+            " description \u{30cd}\u{30c3}\u{30c8}\u{30ef}\u{30fc}\u{30af}\n",
+            " ip address 192.0.2.1 255.255.255.0\n",
+            "\u{30cd}\u{30c3}\u{30c8}\u{30ef}\u{30fc}\u{30af}\n"
+        );
+        let facts = parse(body);
+        assert_eq!(facts.len(), 1);
+        assert_eq!(facts[0].if_name, "GigabitEthernet0/1");
+        assert_eq!(facts[0].ipv4_prefix.as_deref(), Some("192.0.2.0/24"));
+    }
 
     #[test]
     fn slash_form_is_network_cidr() {

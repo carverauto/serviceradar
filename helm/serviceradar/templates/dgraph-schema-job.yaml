@@ -51,8 +51,18 @@ spec:
           value: {{ $port | quote }}
         - name: DGRAPH_MIGRATION_MODE
           value: MIGRATE
+        {{- if $d.enabled }}
+        - name: DGRAPH_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "serviceradar.dgraph.aclSecretName" . | quote }}
+              key: groot_password
         - name: DGRAPH_URL
-          value: {{ printf "dgraph://groot:password@%s:%s?sslmode=%s" $host $port $tlsMode | quote }}
+          value: {{ printf "dgraph://groot:$(DGRAPH_PASSWORD)@%s:%s?sslmode=%s" $host $port $tlsMode | quote }}
+        {{- else }}
+        - name: DGRAPH_URL
+          value: {{ printf "dgraph://%s%s:%s?sslmode=%s" (include "serviceradar.dgraph.externalUserinfo" .) $host $port $tlsMode | quote }}
+        {{- end }}
         {{- if eq $tlsMode "verify-ca" }}
         volumeMounts:
         - name: dgraph-ca

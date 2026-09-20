@@ -278,7 +278,10 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
       "hosted-virtual" -> "HOSTED_ON"
       "endpoint-attachment" -> "ATTACHED_TO"
       "observed-only" -> "OBSERVED_TO"
-      "inferred-segment" -> "INFERRED_TO"
+      # AGE stores inferred segments on the attachment plane as ATTACHED_TO and
+      # distinguishes them by evidence_class; INFERRED_TO would be filtered out
+      # of the runtime rows entirely.
+      "inferred-segment" -> "ATTACHED_TO"
       _ -> "CONNECTS_TO"
     end
   end

@@ -45,8 +45,8 @@ defmodule ServiceRadar.Dgraph.Native do
   @spec upsert_mtr_path(url(), map()) :: write_result()
   def upsert_mtr_path(_url, _edge), do: :erlang.nif_error(:nif_not_loaded)
 
-  @spec prune_stale(url(), String.t()) :: count_result()
-  def prune_stale(_url, _cutoff), do: :erlang.nif_error(:nif_not_loaded)
+  @spec prune_stale(url(), String.t(), [String.t()]) :: count_result()
+  def prune_stale(_url, _cutoff, _kinds), do: :erlang.nif_error(:nif_not_loaded)
 
   @spec rebuild_canonical(url(), [map()]) :: write_result()
   def rebuild_canonical(_url, _edges), do: :erlang.nif_error(:nif_not_loaded)

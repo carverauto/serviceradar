@@ -4,7 +4,10 @@ defmodule ServiceRadar.NetworkConfig.Ingest do
   project Prefix / Interface updates.
 
   Duplicate content hashes for the same device do not create another
-  revision and do not rebuild facts.
+  revision and do not rebuild facts, with one exception: a revision that
+  carries no interface facts is a partially-failed ingest, so the identical
+  body replays facts and projection onto that same revision instead of being
+  reported as an unchanged no-op it can never recover from.
   """
 
   alias ServiceRadar.Actors.SystemActor
@@ -15,6 +18,7 @@ defmodule ServiceRadar.NetworkConfig.Ingest do
 
   @type submit_result ::
           {:ok, :unchanged, Revision.t()}
+          | {:ok, :reprojected, Revision.t(), [map()]}
           | {:ok, :created, Revision.t(), [map()]}
           | {:error, term()}
 
@@ -42,10 +46,41 @@ defmodule ServiceRadar.NetworkConfig.Ingest do
 
     with {:ok, latest} <- latest_revision(device_uid, actor) do
       if unchanged?(latest && latest.content_hash, hash) do
-        {:ok, :unchanged, latest}
+        resume(latest, device_uid, body, parser, projector, actor)
       else
         create_and_project(attrs, device_uid, body, hash, parser, projector, actor)
       end
+    end
+  end
+
+  @doc """
+  What a resubmission of an already-recorded body should do.
+
+  Facts are written after the revision row, so a revision with none of them is
+  an ingest that failed part-way. Treating that as unchanged would strand the
+  device until its config actually changes.
+  """
+  @spec resume_action([term()]) :: :unchanged | :reproject
+  def resume_action([]), do: :reproject
+  def resume_action(facts) when is_list(facts), do: :unchanged
+
+  defp resume(%Revision{} = revision, device_uid, body, parser, projector, actor) do
+    with {:ok, facts} <- InterfaceFact.by_revision(revision.id, actor: actor) do
+      case resume_action(facts) do
+        :unchanged ->
+          {:ok, :unchanged, revision}
+
+        :reproject ->
+          reproject(revision, device_uid, body, parser, projector, actor)
+      end
+    end
+  end
+
+  defp reproject(revision, device_uid, body, parser, projector, actor) do
+    with {:ok, facts} <- parser.(body),
+         :ok <- persist_facts(revision, facts, actor),
+         :ok <- projector.(device_uid, revision, facts) do
+      {:ok, :reprojected, revision, facts}
     end
   end
 

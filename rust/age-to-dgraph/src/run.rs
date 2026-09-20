@@ -18,13 +18,12 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use dgraph_topology::{DeviceWrite, TopologyClient};
-use serde_json::Value;
 
 use crate::dump::load_dump;
 use crate::postgres::PostgresSource;
 use crate::{
     CanonicalEdgeRecord, CanonicalSnapshot, DUMP_PATH_ENV, MigratorError, Mode, compare_snapshots,
-    edge_writes_from_records, hash_canonical_edges, records_from_canonical_edges,
+    edge_writes_from_records, records_from_canonical_edges, snapshot_from_edges,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -122,30 +121,7 @@ async fn dgraph_snapshot() -> Result<CanonicalSnapshot, MigratorError> {
         .query_canonical_edges()
         .await
         .map_err(|err| MigratorError::Dgraph(err.to_string()))?;
-    let records = records_from_canonical_edges(&edges);
-    Ok(CanonicalSnapshot {
-        node_count: dgraph_device_count(&client).await?,
-        edge_count: records.len() as u64,
-        content_hash: hash_canonical_edges(&records),
-    })
-}
-
-async fn dgraph_device_count(client: &TopologyClient) -> Result<u64, MigratorError> {
-    let value = client
-        .query_dql("{ devices(func: type(Device)) { count(uid) } }")
-        .await
-        .map_err(|err| MigratorError::Dgraph(err.to_string()))?;
-    Ok(parse_count(&value))
-}
-
-fn parse_count(value: &Value) -> u64 {
-    value
-        .get("devices")
-        .and_then(Value::as_array)
-        .and_then(|items| items.first())
-        .and_then(|item| item.get("count"))
-        .and_then(Value::as_u64)
-        .unwrap_or(0)
+    Ok(snapshot_from_edges(&records_from_canonical_edges(&edges)))
 }
 
 async fn dgraph_client() -> Result<TopologyClient, MigratorError> {

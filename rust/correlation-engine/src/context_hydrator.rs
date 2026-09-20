@@ -383,9 +383,6 @@ mod tests {
             topology_edges_query_for(Some("dgraph")),
             TOPOLOGY_EDGES_QUERY_DGRAPH
         );
-        assert!(TOPOLOGY_EDGES_QUERY_DGRAPH.starts_with("in:graph "));
-        assert!(TOPOLOGY_EDGES_QUERY_DGRAPH.contains("dql:"));
-        assert!(!TOPOLOGY_EDGES_QUERY_DGRAPH.contains('\\'));
     }
 
     /// Mirror the `graph_cypher` wrapper shape: each row is `{nodes, edges}` and

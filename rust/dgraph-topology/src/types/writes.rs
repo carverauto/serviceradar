@@ -512,6 +512,7 @@ impl EdgeWrite {
     #[must_use]
     pub fn link_key(&self) -> String {
         link_key(
+            self.kind.as_str(),
             &self.source,
             &self.target,
             &self.if_name_ab,

@@ -104,10 +104,10 @@ defmodule ServiceRadar.Dgraph do
     end
   end
 
-  @spec prune_stale(String.t()) :: count_result()
-  def prune_stale(cutoff) when is_binary(cutoff) do
+  @spec prune_stale(String.t(), [String.t()]) :: count_result()
+  def prune_stale(cutoff, kinds) when is_binary(cutoff) and is_list(kinds) do
     with {:ok, url} <- url() do
-      Native.prune_stale(url, cutoff)
+      Native.prune_stale(url, cutoff, kinds)
     end
   end
 

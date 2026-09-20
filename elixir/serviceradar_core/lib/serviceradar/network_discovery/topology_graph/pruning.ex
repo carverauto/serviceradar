@@ -9,6 +9,17 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Pruning do
 
   require Logger
 
+  # The relationship types the AGE mapper prune statements delete. MTR_PATH is
+  # deliberately absent: it is pruned on its own 24h window by MtrGraph.
+  @mapper_edge_kinds [
+    "CONNECTS_TO",
+    "LOGICAL_PEER",
+    "HOSTED_ON",
+    "INFERRED_TO",
+    "ATTACHED_TO",
+    "OBSERVED_TO"
+  ]
+
   def prune_unseen_projected_links(neighbor_index) when map_size(neighbor_index) == 0, do: :ok
 
   def prune_unseen_projected_links(neighbor_index) do
@@ -62,7 +73,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Pruning do
 
     case Persist.execute_age(cypher) do
       :ok ->
-        DgraphPersist.prune_stale(stale_cutoff)
+        DgraphPersist.prune_stale(stale_cutoff, @mapper_edge_kinds)
 
       {:error, reason} ->
         Logger.warning("Topology stale edge pruning failed: #{inspect(reason)}")
@@ -83,7 +94,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Pruning do
 
     case Persist.execute_age(cypher) do
       :ok ->
-        DgraphPersist.prune_stale(stale_cutoff)
+        DgraphPersist.prune_stale(stale_cutoff, @mapper_edge_kinds)
 
       {:error, reason} ->
         Logger.warning("Topology global stale edge pruning failed: #{inspect(reason)}")

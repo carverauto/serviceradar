@@ -14,9 +14,19 @@
  * limitations under the License.
  */
 
-use dgraph_topology::{CanonicalEdge, EdgeWrite, link_key};
+use dgraph_topology::{CanonicalEdge, EdgeKind, EdgeWrite, link_key};
 
 use crate::CanonicalEdgeRecord;
+
+/// Every record the migrator rebuilds is a canonical-topology edge; the
+/// checksum compares this one identity on both stores.
+const CANONICAL_KIND: &str = EdgeKind::CanonicalTopology.as_str();
+
+/// Store-independent identity for a canonical edge, in the Dgraph key format.
+#[must_use]
+pub fn canonical_link_key(source: &str, target: &str, if_ab: &str, if_ba: &str) -> String {
+    link_key(CANONICAL_KIND, source, target, if_ab, if_ba)
+}
 
 #[derive(Debug, Clone)]
 pub struct RuntimeLinkRow {
@@ -69,7 +79,12 @@ pub fn edge_writes_from_records(records: &[CanonicalEdgeRecord]) -> Vec<EdgeWrit
 impl From<&CanonicalEdge> for CanonicalEdgeRecord {
     fn from(edge: &CanonicalEdge) -> Self {
         Self {
-            link_key: edge.link_key().to_string(),
+            link_key: canonical_link_key(
+                edge.source(),
+                edge.target(),
+                edge.local_if_name_ab(),
+                edge.local_if_name_ba(),
+            ),
             source: edge.source().to_string(),
             target: edge.target().to_string(),
             protocol: edge.protocol().to_string(),
@@ -95,7 +110,7 @@ fn record_from_runtime(row: &RuntimeLinkRow) -> Option<CanonicalEdgeRecord> {
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| json_string(&row.row, &["evidence_class"]));
     Some(CanonicalEdgeRecord {
-        link_key: link_key(&source, &target, &if_name_ab, &if_name_ba),
+        link_key: canonical_link_key(&source, &target, &if_name_ab, &if_name_ba),
         source,
         target,
         protocol: nonempty(protocol, "unknown"),
@@ -112,7 +127,7 @@ fn record_from_mapper(row: &MapperLinkRow) -> Option<CanonicalEdgeRecord> {
         return None;
     }
     Some(CanonicalEdgeRecord {
-        link_key: link_key(&source, &target, &row.local_if_name, &row.neighbor_if_name),
+        link_key: canonical_link_key(&source, &target, &row.local_if_name, &row.neighbor_if_name),
         source,
         target,
         protocol: nonempty(row.protocol.clone(), "unknown"),

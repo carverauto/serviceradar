@@ -66,7 +66,7 @@ fn extracts_interface_stanzas_from_invented_ios() {
         InterfaceFact {
             if_name: "GigabitEthernet0/1".to_string(),
             ipv4_prefix: Some("192.0.2.0/24".to_string()),
-            ipv6_prefix: Some("2001:db8:1::1/64".to_string()),
+            ipv6_prefix: Some("2001:db8:1::/64".to_string()),
             vlan: Some(10),
             description: Some("Uplink to core".to_string()),
             shutdown: false,

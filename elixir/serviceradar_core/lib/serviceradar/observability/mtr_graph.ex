@@ -78,7 +78,7 @@ defmodule ServiceRadar.Observability.MtrGraph do
 
     case Persist.execute_age(cypher) do
       :ok ->
-        DgraphPersist.prune_stale(cutoff)
+        DgraphPersist.prune_stale(cutoff, ["MTR_PATH"])
         Logger.debug("Pruned stale MTR_PATH edges older than #{stale_hours}h")
 
       {:error, reason} ->

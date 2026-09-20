@@ -121,6 +121,21 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphTest do
     assert RuntimeGraph.backbone_runtime_row?(logical)
   end
 
+  test "canonical_edge_to_runtime_row/1 keeps inferred segments on the attachment plane" do
+    row =
+      RuntimeGraph.canonical_edge_to_runtime_row(%{
+        source: "sr:host01.example.com",
+        target: "sr:host02.example.com",
+        evidence_class: "inferred-segment"
+      })
+
+    assert row.metadata["relation_type"] == "ATTACHED_TO"
+    assert RuntimeGraph.attachment_runtime_row?(row)
+
+    assert RuntimeGraph.canonical_runtime_row?(row),
+           "an inferred segment read from Dgraph must survive the God View filter"
+  end
+
   test "topology_diagnostics_query/0 exposes canonical edge health counters" do
     query = RuntimeGraph.topology_diagnostics_query()
 

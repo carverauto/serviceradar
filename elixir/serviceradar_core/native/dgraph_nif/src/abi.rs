@@ -449,7 +449,7 @@ mod tests {
         assert_eq!(write.if_index_ba(), 2);
         assert_eq!(
             write.link_key(),
-            "sr:host01.example.com|sr:host02.example.com|eth1|eth2"
+            "CANONICAL_TOPOLOGY|sr:host01.example.com|sr:host02.example.com|eth1|eth2"
         );
     }
 }

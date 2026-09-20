@@ -10,7 +10,7 @@ defmodule ServiceRadar.NetworkConfig.ProjectorTest do
     %{
       if_name: "GigabitEthernet0/1",
       ipv4_prefix: "192.0.2.0/24",
-      ipv6_prefix: "2001:db8:1::1/64",
+      ipv6_prefix: "2001:db8:1::/64",
       vlan: 10,
       description: "Uplink to core",
       shutdown: false,
@@ -40,7 +40,7 @@ defmodule ServiceRadar.NetworkConfig.ProjectorTest do
 
     cidrs = Enum.map(payloads.prefixes, & &1.cidr)
     assert "192.0.2.0/24" in cidrs
-    assert "2001:db8:1::1/64" in cidrs
+    assert "2001:db8:1::/64" in cidrs
     assert "198.51.100.0/24" in cidrs
 
     refute Enum.any?(payloads.interfaces, &Map.has_key?(&1, :neighbor_device_id))

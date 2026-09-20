@@ -15,14 +15,16 @@
  */
 
 use age_to_dgraph::{
-    CanonicalEdgeRecord, MapperLinkRow, Mode, RuntimeLinkRow, compare_snapshots,
-    edge_writes_from_records, hash_canonical_edges, parse_dump, records_from_mapper_rows,
-    records_from_runtime_rows, snapshot_from_edges,
+    CanonicalEdgeRecord, MapperLinkRow, Mode, RuntimeLinkRow, canonical_link_key,
+    compare_snapshots, edge_writes_from_records, hash_canonical_edges, parse_dump,
+    records_from_canonical_edges, records_from_mapper_rows, records_from_runtime_rows,
+    snapshot_from_edges,
 };
+use dgraph_topology::CanonicalEdge;
 
 fn synthetic_edge(src: &str, dst: &str, if_ab: &str, if_ba: &str) -> CanonicalEdgeRecord {
     CanonicalEdgeRecord {
-        link_key: format!("{src}|{dst}|{if_ab}|{if_ba}"),
+        link_key: canonical_link_key(src, dst, if_ab, if_ba),
         source: src.to_string(),
         target: dst.to_string(),
         protocol: "lldp".to_string(),
@@ -30,6 +32,35 @@ fn synthetic_edge(src: &str, dst: &str, if_ab: &str, if_ba: &str) -> CanonicalEd
         if_name_ab: if_ab.to_string(),
         if_name_ba: if_ba.to_string(),
     }
+}
+
+/// A Dgraph read carries whatever `topo.link_key` the store happens to hold.
+fn stored_dgraph_edge(
+    src: &str,
+    dst: &str,
+    if_ab: &str,
+    if_ba: &str,
+    stored_link_key: &str,
+) -> CanonicalEdge {
+    CanonicalEdge::new(
+        src.to_string(),
+        dst.to_string(),
+        0,
+        0,
+        0,
+        0,
+        0,
+        false,
+        "lldp".to_string(),
+        "direct-physical".to_string(),
+        "high".to_string(),
+        0,
+        if_ab.to_string(),
+        0,
+        if_ba.to_string(),
+        stored_link_key.to_string(),
+        String::new(),
+    )
 }
 
 #[test]
@@ -70,10 +101,40 @@ fn matching_snapshots_pass() {
         "eth0",
         "eth1",
     )];
-    let age = snapshot_from_edges(2, &edges);
-    let dgraph = snapshot_from_edges(2, &edges);
+    let age = snapshot_from_edges(&edges);
+    let dgraph = snapshot_from_edges(&edges);
     let report = compare_snapshots(&age, &dgraph).expect("match");
     assert_eq!(report.age.edge_count, 1);
+    assert_eq!(
+        report.age.node_count, 2,
+        "node count is the endpoints of canonical edges"
+    );
+}
+
+#[test]
+fn checksum_ignores_the_store_native_link_key() {
+    // AGE stores `<local_interface_key>|<neighbor_interface_key>`; a Dgraph
+    // node written before the key format changed carries the 4-part form.
+    // Neither may reach the hash, or the checksum can never pass.
+    let age_edges = [synthetic_edge(
+        "sr:host01.example.com",
+        "sr:host02.example.com",
+        "eth0",
+        "eth1",
+    )];
+    let dgraph_edges = records_from_canonical_edges(&[stored_dgraph_edge(
+        "sr:host01.example.com",
+        "sr:host02.example.com",
+        "eth0",
+        "eth1",
+        "sr:host01.example.com|sr:host02.example.com|eth0|eth1",
+    )]);
+    assert_eq!(dgraph_edges[0].link_key, age_edges[0].link_key);
+    compare_snapshots(
+        &snapshot_from_edges(&age_edges),
+        &snapshot_from_edges(&dgraph_edges),
+    )
+    .expect("identity is recomputed on both sides");
 }
 
 #[test]
@@ -99,11 +160,12 @@ fn missing_dgraph_edge_fails_checksum() {
         "eth1",
     )];
     let err = compare_snapshots(
-        &snapshot_from_edges(3, &age_edges),
-        &snapshot_from_edges(2, &dgraph_edges),
+        &snapshot_from_edges(&age_edges),
+        &snapshot_from_edges(&dgraph_edges),
     )
     .expect_err("divergence");
     let message = err.to_string();
+    assert!(message.contains("node_count"), "{message}");
     assert!(message.contains("edge_count"), "{message}");
     assert!(message.contains("content_hash"), "{message}");
 }

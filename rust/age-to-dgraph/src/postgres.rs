@@ -18,9 +18,9 @@ use std::env;
 
 use tokio_postgres::{Client, NoTls};
 
-use crate::evidence::{MapperLinkRow, RuntimeLinkRow};
+use crate::evidence::{MapperLinkRow, RuntimeLinkRow, canonical_link_key};
 use crate::tls::postgres_connector;
-use crate::{CanonicalEdgeRecord, CanonicalSnapshot, MigratorError, hash_canonical_edges};
+use crate::{CanonicalEdgeRecord, CanonicalSnapshot, MigratorError, snapshot_from_edges};
 
 pub struct PostgresSource {
     client: Client,
@@ -52,21 +52,18 @@ impl PostgresSource {
             .await
             .map_err(|err| MigratorError::Postgres(err.to_string()))?;
 
-        let node_count = self
-            .cypher_count("MATCH (n:Device) RETURN count(n)")
-            .await?;
         let edges = self.age_canonical_edges().await?;
-        Ok(CanonicalSnapshot {
-            node_count,
-            edge_count: edges.len() as u64,
-            content_hash: hash_canonical_edges(&edges),
-        })
+        Ok(snapshot_from_edges(&edges))
     }
 
     async fn runtime_rows(&self) -> Result<Vec<RuntimeLinkRow>, MigratorError> {
+        // Only the canonical planes. The attachment plane (ATTACHED_TO /
+        // OBSERVED_TO and inferred segments) is evidence, not backbone, and
+        // must never be rebuilt as CANONICAL_TOPOLOGY.
         let sql = "
             SELECT local_device_id, neighbor_device_id, coalesce(evidence_class, ''), row::text
             FROM platform.runtime_topology_links
+            WHERE topology_plane IN ('backbone', 'logical', 'hosted')
         ";
         match self.client.query(sql, &[]).await {
             Ok(rows) => Ok(rows
@@ -113,19 +110,21 @@ impl PostgresSource {
 
     async fn age_canonical_edges(&self) -> Result<Vec<CanonicalEdgeRecord>, MigratorError> {
         let graph = self.graph_name.replace('\'', "''");
+        // `r.link_key` is deliberately not read: AGE and Dgraph store
+        // different native key formats, so identity is recomputed here in the
+        // Dgraph format on both sides of the checksum.
         let sql = format!(
             "
-            SELECT src::text, dst::text, link_key::text, protocol::text,
+            SELECT src::text, dst::text, protocol::text,
                    evidence_class::text, if_ab::text, if_ba::text
             FROM ag_catalog.cypher('{graph}', $$
               MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device)
               RETURN a.id, b.id,
-                coalesce(r.link_key, ''),
                 coalesce(r.protocol, ''),
                 coalesce(r.evidence_class, ''),
                 coalesce(r.local_if_name, coalesce(r.if_name_ab, '')),
                 coalesce(r.neighbor_if_name, coalesce(r.if_name_ba, ''))
-            $$) AS (src agtype, dst agtype, link_key agtype, protocol agtype,
+            $$) AS (src agtype, dst agtype, protocol agtype,
                     evidence_class agtype, if_ab agtype, if_ba agtype)
             "
         );
@@ -135,18 +134,13 @@ impl PostgresSource {
                 .filter_map(|row| {
                     let source = agtype_string(&row.get::<_, String>(0))?;
                     let target = agtype_string(&row.get::<_, String>(1))?;
-                    let if_ab = agtype_string(&row.get::<_, String>(5)).unwrap_or_default();
-                    let if_ba = agtype_string(&row.get::<_, String>(6)).unwrap_or_default();
-                    let link = agtype_string(&row.get::<_, String>(2))
-                        .filter(|value| !value.is_empty())
-                        .unwrap_or_else(|| {
-                            dgraph_topology::link_key(&source, &target, &if_ab, &if_ba)
-                        });
+                    let if_ab = agtype_string(&row.get::<_, String>(4)).unwrap_or_default();
+                    let if_ba = agtype_string(&row.get::<_, String>(5)).unwrap_or_default();
                     Some(CanonicalEdgeRecord {
-                        link_key: link,
-                        protocol: agtype_string(&row.get::<_, String>(3))
+                        link_key: canonical_link_key(&source, &target, &if_ab, &if_ba),
+                        protocol: agtype_string(&row.get::<_, String>(2))
                             .unwrap_or_else(|| "unknown".into()),
-                        evidence_class: agtype_string(&row.get::<_, String>(4))
+                        evidence_class: agtype_string(&row.get::<_, String>(3))
                             .unwrap_or_else(|| "direct".into()),
                         source,
                         target,
@@ -156,22 +150,6 @@ impl PostgresSource {
                 })
                 .collect()),
             Err(err) if missing_relation(&err) => Ok(Vec::new()),
-            Err(err) => Err(MigratorError::Postgres(err.to_string())),
-        }
-    }
-
-    async fn cypher_count(&self, body: &str) -> Result<u64, MigratorError> {
-        let graph = self.graph_name.replace('\'', "''");
-        let sql =
-            format!("SELECT c::text FROM ag_catalog.cypher('{graph}', $${body}$$) AS (c agtype)");
-        match self.client.query_one(&sql, &[]).await {
-            Ok(row) => {
-                let raw: String = row.get(0);
-                Ok(agtype_string(&raw)
-                    .and_then(|value| value.parse().ok())
-                    .unwrap_or(0))
-            }
-            Err(err) if missing_relation(&err) => Ok(0),
             Err(err) => Err(MigratorError::Postgres(err.to_string())),
         }
     }

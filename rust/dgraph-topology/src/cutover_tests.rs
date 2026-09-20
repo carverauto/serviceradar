@@ -78,7 +78,7 @@ async fn rebuild_is_idempotent_and_stale_mtr_prunes() {
     .with_last_seen("2000-01-01T00:00:00Z");
     client.upsert_mtr_path(&mtr).await.expect("mtr path");
     let pruned = client
-        .prune_stale("2001-01-01T00:00:00Z")
+        .prune_stale("2001-01-01T00:00:00Z", &["MTR_PATH".to_string()])
         .await
         .expect("prune");
     assert!(pruned >= 1, "stale MTR_PATH must prune, got {pruned}");

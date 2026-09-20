@@ -16,6 +16,7 @@
 
 //! Typed JSON mutations and reads. Callers do not concatenate DQL for writes.
 
+use chrono::{SecondsFormat, Utc};
 use dgraph_client::{DgraphClient, Mutation};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -284,9 +285,13 @@ impl TopologyClient {
             "topo.if_name_ba": edge.if_name_ba(),
             "topo.stale": false,
         });
-        if !edge.last_seen().is_empty() {
-            node["topo.last_seen"] = json!(edge.last_seen());
-        }
+        // Always present: an edge without `topo.last_seen` never matches the
+        // prune filter's `lt()` and would outlive every cutoff.
+        node["topo.last_seen"] = if edge.last_seen().is_empty() {
+            json!(Utc::now().to_rfc3339_opts(SecondsFormat::Micros, true))
+        } else {
+            json!(edge.last_seen())
+        };
         if !edge.mutation_id().is_empty() {
             node["topo.mutation_id"] = json!(edge.mutation_id());
         }
@@ -339,17 +344,32 @@ impl TopologyClient {
         self.upsert_edge(edge).await
     }
 
-    /// Mark inferred / MTR edges stale when `topo.last_seen` is older than
-    /// `cutoff` (RFC3339) and delete those nodes.
+    /// Delete edges of the given `kinds` whose `topo.last_seen` is older than
+    /// `cutoff` (RFC3339). The caller owns both the cutoff and the kind set,
+    /// because each AGE prune statement deletes a different set of relationship
+    /// types on its own schedule.
     ///
     /// # Errors
     ///
     /// Returns [`TopologyError`] if the query or delete fails.
-    pub async fn prune_stale(&self, cutoff: &str) -> Result<usize, TopologyError> {
+    pub async fn prune_stale(
+        &self,
+        cutoff: &str,
+        kinds: &[String],
+    ) -> Result<usize, TopologyError> {
+        if kinds.is_empty() {
+            return Ok(0);
+        }
         let cutoff_q = dql_string(cutoff)?;
+        let mut kind_filters = Vec::with_capacity(kinds.len());
+        for kind in kinds {
+            let kind_q = dql_string(kind)?;
+            kind_filters.push(format!("eq(topo.kind, {kind_q})"));
+        }
+        let kind_filter = kind_filters.join(" OR ");
         let query = format!(
             "{{
-  stale(func: type(TopologyEdge)) @filter((eq(topo.kind, \"INFERRED_TO\") OR eq(topo.kind, \"MTR_PATH\")) AND lt(topo.last_seen, {cutoff_q})) {{
+  stale(func: type(TopologyEdge)) @filter(({kind_filter}) AND lt(topo.last_seen, {cutoff_q})) {{
     uid
   }}
 }}"

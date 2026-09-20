@@ -881,14 +881,25 @@ Dgraph subchart fullname. Must stay in lockstep with the official chart's
 
 {{/*
 Hostname a client dials. In-chart Service when enabled, else external.host.
+Empty when neither is configured: disabling an optional subsystem must not
+fail the render of every Deployment that happens to include graph.env.
 */}}
 {{- define "serviceradar.dgraph.host" -}}
 {{- $d := default (dict) .Values.dgraph -}}
 {{- if $d.enabled -}}
 {{- printf "%s.%s.svc.cluster.local" (include "serviceradar.dgraph.alphaFullname" .) .Release.Namespace -}}
 {{- else -}}
-{{- $ext := default (dict) $d.external -}}
-{{- required "dgraph.external.host is required when dgraph.enabled=false" $ext.host -}}
+{{- default "" (default (dict) $d.external).host -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Non-empty when some Dgraph is reachable: the in-chart cluster, or a configured
+external host. Empty means the operator opted out of Dgraph entirely.
+*/}}
+{{- define "serviceradar.dgraph.configured" -}}
+{{- if ne (include "serviceradar.dgraph.host" .) "" -}}
+true
 {{- end -}}
 {{- end -}}
 
@@ -915,10 +926,33 @@ require
 {{- end -}}
 
 {{/*
+Userinfo for an external Dgraph. The chart does not provision that cluster, so
+its credentials are values rather than a generated Secret. Empty username
+dials without ACL credentials.
+*/}}
+{{- define "serviceradar.dgraph.externalUserinfo" -}}
+{{- $ext := default (dict) (default (dict) .Values.dgraph).external -}}
+{{- $user := default "" $ext.username -}}
+{{- if ne $user "" -}}
+{{- printf "%s:%s@" $user (default "" $ext.password) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 GRAPH_BACKEND / GRAPH_READ / DGRAPH_* for topology writers (core, web-ng).
+With no Dgraph configured this stays on AGE and emits no DGRAPH_* at all.
+The in-chart cluster's groot password is the generated ACL Secret, never a
+literal: kubelet expands $(DGRAPH_PASSWORD) from the preceding entry.
 */}}
 {{- define "serviceradar.graph.env" -}}
 {{- $graph := default (dict) .Values.graph -}}
+{{- $d := default (dict) .Values.dgraph -}}
+{{- if not (include "serviceradar.dgraph.configured" .) }}
+- name: GRAPH_BACKEND
+  value: "age"
+- name: GRAPH_READ
+  value: "age"
+{{- else }}
 - name: GRAPH_BACKEND
   value: {{ default "dual" $graph.backend | quote }}
 - name: GRAPH_READ
@@ -929,7 +963,18 @@ GRAPH_BACKEND / GRAPH_READ / DGRAPH_* for topology writers (core, web-ng).
   value: {{ include "serviceradar.dgraph.port" . | quote }}
 - name: DGRAPH_TLS_MODE
   value: {{ include "serviceradar.dgraph.appTlsMode" . | quote }}
+{{- if $d.enabled }}
+- name: DGRAPH_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "serviceradar.dgraph.aclSecretName" . | quote }}
+      key: groot_password
 - name: DGRAPH_URL
-  value: {{ printf "dgraph://groot:password@%s:%s?sslmode=%s" (include "serviceradar.dgraph.host" .) (include "serviceradar.dgraph.port" .) (include "serviceradar.dgraph.appTlsMode" .) | quote }}
+  value: {{ printf "dgraph://groot:$(DGRAPH_PASSWORD)@%s:%s?sslmode=%s" (include "serviceradar.dgraph.host" .) (include "serviceradar.dgraph.port" .) (include "serviceradar.dgraph.appTlsMode" .) | quote }}
+{{- else }}
+- name: DGRAPH_URL
+  value: {{ printf "dgraph://%s%s:%s?sslmode=%s" (include "serviceradar.dgraph.externalUserinfo" .) (include "serviceradar.dgraph.host" .) (include "serviceradar.dgraph.port" .) (include "serviceradar.dgraph.appTlsMode" .) | quote }}
+{{- end }}
+{{- end }}
 {{- end -}}
 

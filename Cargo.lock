@@ -1988,6 +1988,7 @@ dependencies = [
 name = "dgraph-topology"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "dgraph-client",
  "dgraph-migrate",
  "serde",

@@ -208,8 +208,10 @@ impl NeighbourhoodEdge {
     }
 }
 
-/// Idempotency key for a projected link: source, target, and both interface keys.
+/// Idempotency key for a projected link: edge kind, source, target, and both
+/// interface keys. Kind leads so edges of different kinds between the same pair
+/// of endpoints are distinct nodes.
 #[must_use]
-pub fn link_key(source: &str, target: &str, if_ab: &str, if_ba: &str) -> String {
-    format!("{source}|{target}|{if_ab}|{if_ba}")
+pub fn link_key(kind: &str, source: &str, target: &str, if_ab: &str, if_ba: &str) -> String {
+    format!("{kind}|{source}|{target}|{if_ab}|{if_ba}")
 }

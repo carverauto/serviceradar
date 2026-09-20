@@ -18,4 +18,10 @@ defmodule ServiceRadar.NetworkConfig.IngestTest do
     refute Ingest.unchanged?(nil, hash)
     refute Ingest.unchanged?("other", hash)
   end
+
+  test "resume_action replays a revision whose facts never landed" do
+    assert Ingest.resume_action([]) == :reproject
+
+    assert Ingest.resume_action([%{if_name: "GigabitEthernet0/1"}]) == :unchanged
+  end
 end

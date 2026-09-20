@@ -22,6 +22,24 @@ tests:
           content:
             name: DGRAPH_HOST
             value: RELEASE-NAME-dgraph-alpha.NAMESPACE.svc.cluster.local
+  - it: takes the in-chart groot password from the generated ACL Secret
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DGRAPH_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: RELEASE-NAME-dgraph-alpha-acl-secret
+                key: groot_password
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DGRAPH_URL
+            value: dgraph://groot:$(DGRAPH_PASSWORD)@RELEASE-NAME-dgraph-alpha.NAMESPACE.svc.cluster.local:9080?sslmode=require
   - it: uses external host when the subchart is off
     documentSelector:
       path: kind
@@ -47,3 +65,36 @@ tests:
           content:
             name: GRAPH_BACKEND
             value: dual
+  - it: renders on AGE alone when Dgraph is disabled with no external host
+    documentSelector:
+      path: kind
+      value: Deployment
+    set:
+      dgraph:
+        enabled: false
+        external:
+          host: ""
+      graph:
+        backend: dual
+        read: dgraph
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GRAPH_BACKEND
+            value: age
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GRAPH_READ
+            value: age
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          any: true
+          content:
+            name: DGRAPH_URL
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          any: true
+          content:
+            name: DGRAPH_HOST
