@@ -108,7 +108,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.NetflowMapGeoTest do
 
     slice = Data.load_netflow_map(scope, window: window)
 
-    assert [link | _] = slice.traffic_links
+    # The fixture is one address pair seen in two partitions. With no site
+    # anchors both resolve to the same two cities, which is one line on a map,
+    # so they are one arc carrying both conversations.
+    assert [link] = slice.traffic_links
 
     # The map hook drops every netflow link that lacks either endpoint, so these
     # two points are what makes an arc render at all.
@@ -119,8 +122,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.NetflowMapGeoTest do
     assert link.target_geo_label == "Sample City, JP, 198.51.100.20"
     assert link.source_label == "192.0.2.10"
     assert link.target_label == "198.51.100.20"
-    assert link.bytes == 1200
-    assert link.flow_count == 7
+    assert link.bytes == 2100
+    assert link.flow_count == 10
+    assert link.conversation_count == 2
 
     refute slice.map_empty_title == "Flows are not mapped yet"
   end

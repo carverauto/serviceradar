@@ -2,29 +2,111 @@
 defmodule ServiceRadarWebNGWeb.DashboardLive.Data.NetflowTraffic do
   @moduledoc false
 
+  # Every conversation in the window, not the heaviest few. The heaviest
+  # conversations of a typical network all terminate in the same handful of
+  # cloud regions, so a byte-ranked top 120 drew a few dozen arcs on top of one
+  # another while thousands of conversations to other places were never
+  # fetched. Which arcs to draw is decided after geolocation, in
+  # `collapse_arcs/1`, and nothing is dropped there.
+  #
+  # This is a memory guard, not a product limit: a conversation is an IP pair,
+  # so the row count grows with the window and the network, and the rows pass
+  # through this process. Reaching it is logged, never silent. The way to
+  # remove it is to group by place in the warehouse, where the result is
+  # bounded by geography instead of by address pairs.
+  @conversation_limit 250_000
+
+  @spec conversation_limit() :: pos_integer()
+  def conversation_limit, do: @conversation_limit
+
   @spec srql_query(map()) :: String.t()
   def srql_query(%{} = window) do
     time = ServiceRadarWebNGWeb.DashboardLive.Window.query_time(window)
 
-    ~s|in:flows #{time} stats:"sum(bytes_total) as bytes_total, sum(packets_total) as packets_total, count(*) as flow_count by src_endpoint_ip,dst_endpoint_ip,partition" sort:bytes_total:desc limit:120|
+    ~s|in:flows #{time} stats:"sum(bytes_total) as bytes_total, sum(packets_total) as packets_total, count(*) as flow_count by src_endpoint_ip,dst_endpoint_ip,partition" sort:bytes_total:desc limit:#{@conversation_limit}|
+  end
+
+  @doc """
+  Merges conversations that would draw the same arc into one.
+
+  Two conversations between the same pair of places are the same line on a
+  map, so they become one link carrying their summed traffic and a
+  `conversation_count`; the heaviest member supplies the labels. Arcs are
+  bounded by geography, so none are dropped, whatever the window. Links that
+  could not be geolocated draw nothing on the geo map; they are kept as they
+  are for the topology view and so the tiles still account for them.
+  """
+  @spec collapse_arcs([map()]) :: [map()]
+  def collapse_arcs(links) when is_list(links) do
+    {mapped, unmapped} = Enum.split_with(links, &(&1[:geo_mapped] == true))
+
+    arcs =
+      mapped
+      |> Enum.group_by(&{&1.geo_from, &1.geo_to})
+      |> Enum.map(fn {_places, members} -> merge_arc(members) end)
+      |> Enum.sort_by(& &1.bytes, :desc)
+
+    unmapped =
+      unmapped
+      |> Enum.map(&Map.put_new(&1, :conversation_count, 1))
+      |> Enum.sort_by(& &1.bytes, :desc)
+
+    arcs ++ unmapped
+  end
+
+  defp merge_arc([only]), do: Map.put_new(only, :conversation_count, 1)
+
+  defp merge_arc(members) do
+    heaviest = Enum.max_by(members, & &1.bytes)
+    bytes = members |> Enum.map(& &1.bytes) |> Enum.sum()
+    packets = members |> Enum.map(& &1.packets) |> Enum.sum()
+
+    Map.merge(heaviest, %{
+      bytes: bytes,
+      bytes_total: bytes,
+      magnitude: bytes,
+      packets: packets,
+      packets_total: packets,
+      flow_count: members |> Enum.map(& &1.flow_count) |> Enum.sum(),
+      conversation_count: length(members)
+    })
   end
 
   defmacro __using__(_opts) do
     quote do
+      alias ServiceRadarWebNGWeb.DashboardLive.Data.NetflowTraffic
+
+      require Logger
+
       defp traffic_links(%{seconds: _seconds} = window, scope, srql_module) do
-        query = ServiceRadarWebNGWeb.DashboardLive.Data.NetflowTraffic.srql_query(window)
+        query = NetflowTraffic.srql_query(window)
 
         case srql_module.query(query, %{scope: scope}) do
           {:ok, %{"results" => []}} ->
             []
 
           {:ok, %{"results" => rows}} when is_list(rows) ->
+            limit = NetflowTraffic.conversation_limit()
+
+            if length(rows) >= limit do
+              Logger.warning(
+                "NetFlow map reached its #{limit}-conversation memory guard for #{inspect(window[:seconds])}s; " <>
+                  "the lightest conversations in this window are not on the map"
+              )
+            end
+
             rows = Enum.filter(rows, &distinct_endpoints?/1)
             geo = netflow_geo_points(netflow_endpoint_keys(rows))
 
             rows
             |> Enum.with_index()
             |> Enum.map(fn {row, idx} -> srql_traffic_link(row, idx, geo) end)
+            |> NetflowTraffic.collapse_arcs()
+            |> Enum.with_index()
+            |> Enum.map(fn {link, idx} ->
+              # Ids and colours follow draw order, which collapsing changed.
+              %{link | id: "flow-#{idx}", color: flow_color(idx, link.magnitude)}
+            end)
 
           _ ->
             :error
