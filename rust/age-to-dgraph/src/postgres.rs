@@ -18,7 +18,7 @@ use std::env;
 
 use tokio_postgres::{Client, NoTls};
 
-use crate::evidence::{MapperLinkRow, RuntimeLinkRow, canonical_link_key};
+use crate::evidence::{MapperLinkRow, canonical_link_key};
 use crate::tls::postgres_connector;
 use crate::{CanonicalEdgeRecord, CanonicalSnapshot, MigratorError, snapshot_from_edges};
 
@@ -30,57 +30,33 @@ pub struct PostgresSource {
 impl PostgresSource {
     pub async fn connect() -> Result<Self, MigratorError> {
         let client = connect_client().await?;
+        client
+            .batch_execute(
+                "SELECT set_config('search_path', 'ag_catalog, platform, public', false)",
+            )
+            .await
+            .map_err(|err| MigratorError::Postgres(err.to_string()))?;
         let graph_name =
             env::var("AGE_GRAPH_NAME").unwrap_or_else(|_| "platform_graph".to_string());
         Ok(Self { client, graph_name })
     }
 
+    /// Rebuild source. AGE's canonical edges are the graph; `runtime_topology_links`
+    /// is a row-capped God View cache and would silently truncate a large fleet
+    /// into a destructive rebuild. Mapper evidence is the fallback for a
+    /// deployment whose AGE graph holds no canonical edges yet.
     pub async fn evidence_records(&self) -> Result<Vec<CanonicalEdgeRecord>, MigratorError> {
-        let runtime = self.runtime_rows().await?;
-        if !runtime.is_empty() {
-            return Ok(crate::records_from_runtime_rows(&runtime));
+        let canonical = self.age_canonical_edges().await?;
+        if !canonical.is_empty() {
+            return Ok(canonical);
         }
         let mapper = self.mapper_rows().await?;
         Ok(crate::records_from_mapper_rows(&mapper))
     }
 
     pub async fn age_snapshot(&self) -> Result<CanonicalSnapshot, MigratorError> {
-        self.client
-            .batch_execute(
-                "SELECT set_config('search_path', 'ag_catalog, platform, public', false)",
-            )
-            .await
-            .map_err(|err| MigratorError::Postgres(err.to_string()))?;
-
         let edges = self.age_canonical_edges().await?;
         Ok(snapshot_from_edges(&edges))
-    }
-
-    async fn runtime_rows(&self) -> Result<Vec<RuntimeLinkRow>, MigratorError> {
-        // Only the canonical planes. The attachment plane (ATTACHED_TO /
-        // OBSERVED_TO and inferred segments) is evidence, not backbone, and
-        // must never be rebuilt as CANONICAL_TOPOLOGY.
-        let sql = "
-            SELECT local_device_id, neighbor_device_id, coalesce(evidence_class, ''), row::text
-            FROM platform.runtime_topology_links
-            WHERE topology_plane IN ('backbone', 'logical', 'hosted')
-        ";
-        match self.client.query(sql, &[]).await {
-            Ok(rows) => Ok(rows
-                .into_iter()
-                .map(|row| {
-                    let raw: String = row.get(3);
-                    RuntimeLinkRow {
-                        local_device_id: row.get::<_, String>(0),
-                        neighbor_device_id: row.get::<_, String>(1),
-                        evidence_class: Some(row.get::<_, String>(2)),
-                        row: serde_json::from_str(&raw).unwrap_or_else(|_| serde_json::json!({})),
-                    }
-                })
-                .collect()),
-            Err(err) if missing_relation(&err) => Ok(Vec::new()),
-            Err(err) => Err(MigratorError::Postgres(err.to_string())),
-        }
     }
 
     async fn mapper_rows(&self) -> Result<Vec<MapperLinkRow>, MigratorError> {
@@ -113,12 +89,25 @@ impl PostgresSource {
         // `r.link_key` is deliberately not read: AGE and Dgraph store
         // different native key formats, so identity is recomputed here in the
         // Dgraph format on both sides of the checksum.
+        //
+        // The WHERE clause is the canonical set, and must stay identical to
+        // `RuntimeTopologyProjection.canonical_edge_predicate/3`. Rebuild is
+        // destructive, so a wider or narrower set here deletes the edges core's
+        // dual-write just copied in.
         let sql = format!(
             "
             SELECT src::text, dst::text, protocol::text,
                    evidence_class::text, if_ab::text, if_ba::text
             FROM ag_catalog.cypher('{graph}', $$
               MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device)
+              WHERE a.id IS NOT NULL
+                AND b.id IS NOT NULL
+                AND a.id STARTS WITH 'sr:'
+                AND b.id STARTS WITH 'sr:'
+                AND (
+                  toUpper(coalesce(r.relation_type, '')) IN ['CONNECTS_TO', 'LOGICAL_PEER', 'HOSTED_ON']
+                  OR (coalesce(r.relation_type, '') = '' AND toLower(coalesce(r.evidence_class, '')) IN ['direct', 'direct-physical', 'direct-logical', 'hosted-virtual'])
+                )
               RETURN a.id, b.id,
                 coalesce(r.protocol, ''),
                 coalesce(r.evidence_class, ''),

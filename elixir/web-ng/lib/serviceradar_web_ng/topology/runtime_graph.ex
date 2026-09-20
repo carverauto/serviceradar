@@ -274,6 +274,8 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
 
   defp relation_type_for_dgraph_evidence(evidence_class) do
     case evidence_class |> to_string() |> String.trim() |> String.downcase() do
+      "direct" -> "CONNECTS_TO"
+      "direct-physical" -> "CONNECTS_TO"
       "direct-logical" -> "LOGICAL_PEER"
       "hosted-virtual" -> "HOSTED_ON"
       "endpoint-attachment" -> "ATTACHED_TO"
@@ -282,7 +284,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
       # distinguishes them by evidence_class; INFERRED_TO would be filtered out
       # of the runtime rows entirely.
       "inferred-segment" -> "ATTACHED_TO"
-      _ -> "CONNECTS_TO"
+      _ -> ""
     end
   end
 

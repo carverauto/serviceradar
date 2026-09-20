@@ -29,25 +29,12 @@ pub fn canonical_link_key(source: &str, target: &str, if_ab: &str, if_ba: &str) 
 }
 
 #[derive(Debug, Clone)]
-pub struct RuntimeLinkRow {
-    pub local_device_id: String,
-    pub neighbor_device_id: String,
-    pub evidence_class: Option<String>,
-    pub row: serde_json::Value,
-}
-
-#[derive(Debug, Clone)]
 pub struct MapperLinkRow {
     pub local_device_id: String,
     pub neighbor_device_id: String,
     pub protocol: String,
     pub local_if_name: String,
     pub neighbor_if_name: String,
-}
-
-#[must_use]
-pub fn records_from_runtime_rows(rows: &[RuntimeLinkRow]) -> Vec<CanonicalEdgeRecord> {
-    rows.iter().filter_map(record_from_runtime).collect()
 }
 
 #[must_use]
@@ -95,31 +82,6 @@ impl From<&CanonicalEdge> for CanonicalEdgeRecord {
     }
 }
 
-fn record_from_runtime(row: &RuntimeLinkRow) -> Option<CanonicalEdgeRecord> {
-    let source = canonical_id(&row.local_device_id)?;
-    let target = canonical_id(&row.neighbor_device_id)?;
-    if source == target {
-        return None;
-    }
-    let if_name_ab = json_string(&row.row, &["local_if_name", "local_if_name_ab"]);
-    let if_name_ba = json_string(&row.row, &["neighbor_if_name", "local_if_name_ba"]);
-    let protocol = json_string(&row.row, &["protocol"]);
-    let evidence_class = row
-        .evidence_class
-        .clone()
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| json_string(&row.row, &["evidence_class"]));
-    Some(CanonicalEdgeRecord {
-        link_key: canonical_link_key(&source, &target, &if_name_ab, &if_name_ba),
-        source,
-        target,
-        protocol: nonempty(protocol, "unknown"),
-        evidence_class: nonempty(evidence_class, "direct"),
-        if_name_ab,
-        if_name_ba,
-    })
-}
-
 fn record_from_mapper(row: &MapperLinkRow) -> Option<CanonicalEdgeRecord> {
     let source = canonical_id(&row.local_device_id)?;
     let target = canonical_id(&row.neighbor_device_id)?;
@@ -144,18 +106,6 @@ fn canonical_id(value: &str) -> Option<String> {
     } else {
         None
     }
-}
-
-fn json_string(value: &serde_json::Value, keys: &[&str]) -> String {
-    for key in keys {
-        if let Some(found) = value.get(*key).and_then(|item| item.as_str()) {
-            let trimmed = found.trim();
-            if !trimmed.is_empty() {
-                return trimmed.to_string();
-            }
-        }
-    }
-    String::new()
 }
 
 fn nonempty(value: String, fallback: &str) -> String {

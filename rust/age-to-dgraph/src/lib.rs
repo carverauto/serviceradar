@@ -32,8 +32,8 @@ use thiserror::Error;
 
 pub use dump::{DumpFile, load_dump, parse_dump};
 pub use evidence::{
-    MapperLinkRow, RuntimeLinkRow, canonical_link_key, edge_writes_from_records,
-    records_from_canonical_edges, records_from_mapper_rows, records_from_runtime_rows,
+    MapperLinkRow, canonical_link_key, edge_writes_from_records, records_from_canonical_edges,
+    records_from_mapper_rows,
 };
 pub use run::{RebuildReport, run};
 

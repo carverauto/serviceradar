@@ -60,6 +60,14 @@ spec:
         - name: DGRAPH_URL
           value: {{ printf "dgraph://groot:$(DGRAPH_PASSWORD)@%s:%s?sslmode=%s" $host $port $tlsMode | quote }}
         {{- else }}
+        {{- $ext := default (dict) $d.external }}
+        {{- if ne (default "" $ext.credentialsSecret) "" }}
+        - name: DGRAPH_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ $ext.credentialsSecret | quote }}
+              key: {{ default "password" $ext.credentialsKey | quote }}
+        {{- end }}
         - name: DGRAPH_URL
           value: {{ printf "dgraph://%s%s:%s?sslmode=%s" (include "serviceradar.dgraph.externalUserinfo" .) $host $port $tlsMode | quote }}
         {{- end }}

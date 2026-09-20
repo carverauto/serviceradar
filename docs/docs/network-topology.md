@@ -38,11 +38,15 @@ Dgraph is the traversal graph. During rollout, `graph.backend` defaults to
 The Helm post-install Job `serviceradar-dgraph-migrator` (and the Compose
 one-shot `age-to-dgraph`) runs the Bazel `age-to-dgraph` binary:
 
-1. `rebuild` — canonical edges from relational evidence into Dgraph (idempotent).
-   Only the canonical planes are rebuilt: `runtime_topology_links` rows whose
-   `topology_plane` is `backbone`, `logical` or `hosted`. Attachment-plane
-   evidence (`ATTACHED_TO` / `OBSERVED_TO`, inferred segments) is not backbone
-   topology and is never promoted to a canonical edge.
+1. `rebuild` — canonical edges from AGE into Dgraph (idempotent). The source is
+   AGE's `CANONICAL_TOPOLOGY` edges, not `runtime_topology_links`: that table is
+   a row-capped God View cache, and rebuild deletes every key it does not send,
+   so a fleet larger than the cap would have its extra edges removed. Mapper
+   evidence is the fallback when AGE holds no canonical edges. Only the
+   canonical set is rebuilt: `relation_type` in `CONNECTS_TO` / `LOGICAL_PEER` /
+   `HOSTED_ON`, or an empty `relation_type` with a direct evidence class.
+   Attachment-plane evidence (`ATTACHED_TO` / `OBSERVED_TO`, inferred segments)
+   is not backbone topology and is never promoted to a canonical edge.
 2. `checksum` — AGE `platform_graph` vs Dgraph node/edge counts and content hash.
    Both sides recompute edge identity in the Dgraph key format rather than
    hashing whichever key each store happens to hold, and `node_count` is the
@@ -51,6 +55,12 @@ one-shot `age-to-dgraph`) runs the Bazel `age-to-dgraph` binary:
 
 A checksum failure fails the Job and does **not** flip `graph.read`. Cutover is
 an operator values change (`graph.read: dgraph`), with rollback `graph.read: age`.
+
+The migrator, core's dual-write copy, and the projection that feeds God View
+must all select the same canonical set, because `rebuild` deletes every
+canonical edge it was not given. The predicate has one definition in
+`RuntimeTopologyProjection.canonical_edge_predicate/3`; the migrator's Cypher
+repeats it verbatim.
 
 ### Dgraph superuser credentials
 
@@ -61,11 +71,12 @@ Dgraph's well-known default before the schema Job runs. Application pods and
 both Jobs read it through `DGRAPH_PASSWORD`; nothing embeds a literal password.
 
 An external cluster (`dgraph.enabled=false` with `dgraph.external.host`) is not
-provisioned by this chart, so its credentials are values:
-`dgraph.external.username` / `dgraph.external.password`. Those default to
-Dgraph's factory defaults. Set them for any external cluster whose groot
-password has been rotated, or set `username: ""` to dial a cluster with ACL
-disabled.
+provisioned by this chart, so an ACL credential for it must already exist as a
+Secret in the namespace: point `dgraph.external.credentialsSecret` (and
+`credentialsKey`, default `password`) at it, with `dgraph.external.username`
+naming the ACL user. Leave `credentialsSecret` empty to dial an external
+cluster that has ACL disabled. A password is never a chart value, because
+`graph.env` renders into the Deployment spec.
 
 ### Operator-safe Dgraph reset
 

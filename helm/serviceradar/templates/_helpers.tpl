@@ -927,14 +927,15 @@ require
 
 {{/*
 Userinfo for an external Dgraph. The chart does not provision that cluster, so
-its credentials are values rather than a generated Secret. Empty username
-dials without ACL credentials.
+the credential comes from a Secret the operator already has
+(dgraph.external.credentialsSecret). No secret means no userinfo, which is an
+external cluster with ACL disabled. A credential is never a values literal:
+graph.env renders into a Deployment spec anyone with `get deploy` can read.
 */}}
 {{- define "serviceradar.dgraph.externalUserinfo" -}}
 {{- $ext := default (dict) (default (dict) .Values.dgraph).external -}}
-{{- $user := default "" $ext.username -}}
-{{- if ne $user "" -}}
-{{- printf "%s:%s@" $user (default "" $ext.password) -}}
+{{- if ne (default "" $ext.credentialsSecret) "" -}}
+{{- printf "%s:$(DGRAPH_PASSWORD)@" (default "groot" $ext.username) -}}
 {{- end -}}
 {{- end -}}
 
@@ -972,6 +973,14 @@ literal: kubelet expands $(DGRAPH_PASSWORD) from the preceding entry.
 - name: DGRAPH_URL
   value: {{ printf "dgraph://groot:$(DGRAPH_PASSWORD)@%s:%s?sslmode=%s" (include "serviceradar.dgraph.host" .) (include "serviceradar.dgraph.port" .) (include "serviceradar.dgraph.appTlsMode" .) | quote }}
 {{- else }}
+{{- $ext := default (dict) $d.external }}
+{{- if ne (default "" $ext.credentialsSecret) "" }}
+- name: DGRAPH_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ $ext.credentialsSecret | quote }}
+      key: {{ default "password" $ext.credentialsKey | quote }}
+{{- end }}
 - name: DGRAPH_URL
   value: {{ printf "dgraph://%s%s:%s?sslmode=%s" (include "serviceradar.dgraph.externalUserinfo" .) (include "serviceradar.dgraph.host" .) (include "serviceradar.dgraph.port" .) (include "serviceradar.dgraph.appTlsMode" .) | quote }}
 {{- end }}

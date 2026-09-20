@@ -11,5 +11,4 @@ exports_files([
     "ci/namespace.yaml",
     "demo/values.yaml",
     "demo/certificate.yaml",
-)
 ])

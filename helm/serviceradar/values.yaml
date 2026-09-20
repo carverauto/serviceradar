@@ -2175,17 +2175,17 @@ graph:
 dgraph:
   enabled: true
   # When enabled=false, callers dial this instead of the in-chart Service.
-  # The chart does not provision that cluster, so its ACL credentials are
-  # values here. username/password below are Dgraph's factory defaults, which
-  # is what an unrotated external cluster has; override them for any cluster
-  # whose groot password has been changed, and set username to "" to dial a
-  # cluster with ACL disabled. The in-chart cluster never uses these: its
-  # groot password is minted into the generated ACL Secret.
+  # The chart does not provision that cluster, so an ACL credential for it must
+  # come from a Secret that already exists in the namespace. Leave
+  # credentialsSecret empty to dial without ACL credentials. A password is never
+  # a value here: graph.env renders into the Deployment spec. The in-chart
+  # cluster ignores these; its groot password is minted into the ACL Secret.
   external:
     host: ""
     port: 9080
     username: groot
-    password: password
+    credentialsSecret: ""
+    credentialsKey: password
     # disable | require | verify-ca
     tlsMode: disable
     caSecret: ""

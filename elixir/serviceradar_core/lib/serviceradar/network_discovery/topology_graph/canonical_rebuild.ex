@@ -858,6 +858,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
     if Backend.write_dgraph?() and Backend.write_age?() do
       cypher = """
       MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device)
+      WHERE #{RuntimeTopologyProjection.canonical_edge_predicate()}
       RETURN {
         local_device_id: a.id,
         neighbor_device_id: b.id,

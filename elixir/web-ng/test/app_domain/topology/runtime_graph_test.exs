@@ -136,6 +136,21 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphTest do
            "an inferred segment read from Dgraph must survive the God View filter"
   end
 
+  test "canonical_edge_to_runtime_row/1 does not promote unrecognised evidence to backbone" do
+    row =
+      RuntimeGraph.canonical_edge_to_runtime_row(%{
+        source: "sr:host01.example.com",
+        target: "sr:host02.example.com",
+        evidence_class: "inferred"
+      })
+
+    assert row.metadata["relation_type"] == ""
+    refute RuntimeGraph.backbone_runtime_row?(row)
+
+    refute RuntimeGraph.canonical_runtime_row?(row),
+           "AGE excludes an inferred canonical edge; the Dgraph read must match"
+  end
+
   test "topology_diagnostics_query/0 exposes canonical edge health counters" do
     query = RuntimeGraph.topology_diagnostics_query()
 

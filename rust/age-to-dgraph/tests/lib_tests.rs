@@ -15,10 +15,9 @@
  */
 
 use age_to_dgraph::{
-    CanonicalEdgeRecord, MapperLinkRow, Mode, RuntimeLinkRow, canonical_link_key,
-    compare_snapshots, edge_writes_from_records, hash_canonical_edges, parse_dump,
-    records_from_canonical_edges, records_from_mapper_rows, records_from_runtime_rows,
-    snapshot_from_edges,
+    CanonicalEdgeRecord, MapperLinkRow, Mode, canonical_link_key, compare_snapshots,
+    edge_writes_from_records, hash_canonical_edges, parse_dump, records_from_canonical_edges,
+    records_from_mapper_rows, snapshot_from_edges,
 };
 use dgraph_topology::CanonicalEdge;
 
@@ -171,45 +170,31 @@ fn missing_dgraph_edge_fails_checksum() {
 }
 
 #[test]
-fn runtime_rows_keep_canonical_sr_ids_only() {
+fn mapper_rows_are_a_fallback_evidence_source() {
     let rows = [
-        RuntimeLinkRow {
+        MapperLinkRow {
             local_device_id: "sr:host01.example.com".into(),
             neighbor_device_id: "sr:host02.example.com".into(),
-            evidence_class: Some("direct-physical".into()),
-            row: serde_json::json!({
-                "protocol": "lldp",
-                "local_if_name": "eth0",
-                "neighbor_if_name": "eth1"
-            }),
+            protocol: "cdp".into(),
+            local_if_name: "Gi1/0/1".into(),
+            neighbor_if_name: "Gi1/0/2".into(),
         },
-        RuntimeLinkRow {
+        MapperLinkRow {
             local_device_id: "switch.internal".into(),
             neighbor_device_id: "sr:host02.example.com".into(),
-            evidence_class: Some("direct".into()),
-            row: serde_json::json!({}),
+            protocol: "cdp".into(),
+            local_if_name: String::new(),
+            neighbor_if_name: String::new(),
         },
     ];
-    let records = records_from_runtime_rows(&rows);
-    assert_eq!(records.len(), 1);
+    let records = records_from_mapper_rows(&rows);
+    assert_eq!(records.len(), 1, "only sr: <-> sr: pairs are canonical");
     assert_eq!(records[0].source, "sr:host01.example.com");
+    assert_eq!(records[0].protocol, "cdp");
+    assert_eq!(records[0].evidence_class, "direct");
     let writes = edge_writes_from_records(&records);
     assert_eq!(writes.len(), 1);
     assert_eq!(writes[0].link_key(), records[0].link_key);
-}
-
-#[test]
-fn mapper_rows_are_a_fallback_evidence_source() {
-    let rows = [MapperLinkRow {
-        local_device_id: "sr:host01.example.com".into(),
-        neighbor_device_id: "sr:host02.example.com".into(),
-        protocol: "cdp".into(),
-        local_if_name: "Gi1/0/1".into(),
-        neighbor_if_name: "Gi1/0/2".into(),
-    }];
-    let records = records_from_mapper_rows(&rows);
-    assert_eq!(records[0].protocol, "cdp");
-    assert_eq!(records[0].evidence_class, "direct");
 }
 
 #[test]

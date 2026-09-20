@@ -40,7 +40,7 @@ tests:
           content:
             name: DGRAPH_URL
             value: dgraph://groot:$(DGRAPH_PASSWORD)@RELEASE-NAME-dgraph-alpha.NAMESPACE.svc.cluster.local:9080?sslmode=require
-  - it: uses external host when the subchart is off
+  - it: uses external host when the subchart is off, with no credential literal
     documentSelector:
       path: kind
       value: Deployment
@@ -65,6 +65,38 @@ tests:
           content:
             name: GRAPH_BACKEND
             value: dual
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DGRAPH_URL
+            value: dgraph://dgraph-dgraph-alpha.demo.svc.cluster.local:9080?sslmode=require
+  - it: takes an external ACL credential from a Secret, never a values literal
+    documentSelector:
+      path: kind
+      value: Deployment
+    set:
+      dgraph:
+        enabled: false
+        external:
+          host: dgraph-dgraph-alpha.demo.svc.cluster.local
+          port: 9080
+          tlsMode: require
+          credentialsSecret: dgraph-acl
+          credentialsKey: groot_password
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DGRAPH_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: dgraph-acl
+                key: groot_password
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DGRAPH_URL
+            value: dgraph://groot:$(DGRAPH_PASSWORD)@dgraph-dgraph-alpha.demo.svc.cluster.local:9080?sslmode=require
   - it: renders on AGE alone when Dgraph is disabled with no external host
     documentSelector:
       path: kind
