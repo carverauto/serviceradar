@@ -169,7 +169,16 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
     end
   end
 
-  defp client_config do
+  @doc """
+  StarRocks FE connection config for Stream Load calls.
+  """
+  @spec client_config() :: %{
+          fe_http: String.t(),
+          database: String.t(),
+          user: String.t(),
+          password: String.t()
+        }
+  def client_config do
     env = Application.get_env(:serviceradar_core, StarRocks, [])
 
     %{

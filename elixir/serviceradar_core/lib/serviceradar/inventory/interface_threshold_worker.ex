@@ -32,7 +32,7 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
     unique: [period: :infinity, states: :incomplete]
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Analytics.StarRocks.Destination
+  alias ServiceRadar.Analytics.StarRocks.PendingLoads
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Inventory.InterfaceSettings
   alias ServiceRadar.Jobs.SelfScheduling
@@ -95,6 +95,8 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
   @impl Oban.Worker
   def perform(%Oban.Job{args: args}) do
     Logger.info("Running interface threshold evaluation")
+
+    drain_pending_loads()
 
     case get_enabled_thresholds() do
       {:ok, settings} when settings != [] ->
@@ -532,11 +534,41 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
 
   defp flush_event_buffer do
     case Process.delete(@event_buffer_key) do
-      [_ | _] = events -> _ = Destination.persist_after_cnpg(:events, Enum.reverse(events))
-      _ -> :ok
+      [_ | _] = events ->
+        events
+        |> Enum.reverse()
+        |> then(&PendingLoads.persist_or_enqueue(:events, &1))
+        |> case do
+          {:error, reason} ->
+            Logger.error(
+              "StarRocks threshold event batch lost: persist and quarantine both failed",
+              error: inspect(reason)
+            )
+
+          _ ->
+            :ok
+        end
+
+      _ ->
+        :ok
     end
 
     :ok
+  end
+
+  # Replays warehouse batches quarantined by earlier runs. A drain problem
+  # must never fail threshold evaluation, so every failure is contained here.
+  defp drain_pending_loads do
+    PendingLoads.drain_due()
+    :ok
+  rescue
+    error ->
+      Logger.error("StarRocks pending loads drain crashed; batches remain queued",
+        error: Exception.message(error),
+        stacktrace: Exception.format_stacktrace(__STACKTRACE__)
+      )
+
+      :ok
   end
 
   defp build_metric_event(setting, metric_name, config, metric_value, duration_seconds) do
