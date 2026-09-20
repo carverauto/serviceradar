@@ -483,7 +483,7 @@ SERIAL_INTEGRATION_SELECTED_TEST_COUNTS = {
     "test/serviceradar/observability/stateful_alert_engine/alert_lifecycle_notification_test.exs": 7,
     "test/serviceradar/observability/stateful_alert_engine_rules_loaded_telemetry_test.exs": 1,
     "test/serviceradar/observability/stateful_alert_engine_test.exs": 14,
-    "test/serviceradar/observability/threat_intel_worker_ingestor_db_test.exs": 6,
+    "test/serviceradar/observability/threat_intel_worker_ingestor_db_test.exs": 8,
     "test/serviceradar/observability/timeseries_series_identity_integration_test.exs": 3,
     "test/serviceradar/observability/zen_rule_seeder_test.exs": 2,
     "test/serviceradar/plugins/addon_profile_action_test.exs": 2,

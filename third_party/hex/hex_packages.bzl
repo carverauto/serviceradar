@@ -186,7 +186,7 @@ HEX_PACKAGES = [
     ("membrane_webrtc_plugin", "membrane_webrtc_plugin", "0.26.7", "4690ae3c06185cf6e3511b03e56522f681cefde5b862914fa437e2a2c5da87fb"),
     ("merkle_map", "merkle_map", "0.2.2", "383107f0503f230ac9175e0631647c424efd027e89ea65ab5ea12eeb54257aaf"),
     ("mime", "mime", "2.0.7", "6171188e399ee16023ffc5b76ce445eb6d9672e2e241d2df6050f3c771e80ccd"),
-    ("mint", "mint", "1.10.0", "8b16fb72aaa7531d206a1f05e4cc85509ba531ccec7a17a22736c9c95cbb24d1"),
+    ("mint", "mint", "1.10.1", "0ba2a904605ed8406393444fb8b3356dc58eb59ee6c7fb94ac3f015e1be129e8"),
     ("mix_audit", "mix_audit", "2.1.5", "87f9298e21da32f697af535475860dc1d3617a010e0b418d2ec6142bc8b42d69"),
     ("mmdb2_decoder", "mmdb2_decoder", "3.0.1", "316af0f388fac824782d944f54efe78e7c9691bbbdb0afd5cccdd0510adf559d"),
     ("mockery", "mockery", "2.3.4", "bd6a6e4d604395a6232f426f2bf3d4c4011faf36a307523ee9d63cd549334162"),
