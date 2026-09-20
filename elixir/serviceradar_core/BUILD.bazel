@@ -311,11 +311,13 @@ CORE_EXTRA_CONFIG = [
     "config :serviceradar_core, ServiceRadar.Observability.Zen.Native, skip_compilation?: true",
     "config :serviceradar_core, ServiceRadar.Observability.DispositionKernels, skip_compilation?: true",
     "config :serviceradar_core, ServiceRadar.Dgraph.Native, skip_compilation?: true",
+    "config :serviceradar_core, ServiceRadar.NetworkConfig.Native, skip_compilation?: true",
 ]
 
 CORE_NATIVE_LIBS = {
     "//elixir/serviceradar_core/native/anomaly_disposition_nif:anomaly_disposition_nif": "anomaly_disposition_nif",
     "//elixir/serviceradar_core/native/dgraph_nif:dgraph_nif": "dgraph_nif",
+    "//elixir/serviceradar_core/native/network_config_nif:network_config_nif": "network_config_nif",
     "//elixir/serviceradar_core/native/zen_nif:zen_nif": "zen_nif",
 }
 

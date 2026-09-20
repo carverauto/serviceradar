@@ -1,0 +1,285 @@
+/*
+ * Copyright 2026 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+use std::env;
+
+use tokio_postgres::{Client, NoTls};
+
+use crate::evidence::{MapperLinkRow, RuntimeLinkRow};
+use crate::tls::postgres_connector;
+use crate::{CanonicalEdgeRecord, CanonicalSnapshot, MigratorError, hash_canonical_edges};
+
+pub struct PostgresSource {
+    client: Client,
+    graph_name: String,
+}
+
+impl PostgresSource {
+    pub async fn connect() -> Result<Self, MigratorError> {
+        let client = connect_client().await?;
+        let graph_name =
+            env::var("AGE_GRAPH_NAME").unwrap_or_else(|_| "platform_graph".to_string());
+        Ok(Self { client, graph_name })
+    }
+
+    pub async fn evidence_records(&self) -> Result<Vec<CanonicalEdgeRecord>, MigratorError> {
+        let runtime = self.runtime_rows().await?;
+        if !runtime.is_empty() {
+            return Ok(crate::records_from_runtime_rows(&runtime));
+        }
+        let mapper = self.mapper_rows().await?;
+        Ok(crate::records_from_mapper_rows(&mapper))
+    }
+
+    pub async fn age_snapshot(&self) -> Result<CanonicalSnapshot, MigratorError> {
+        self.client
+            .batch_execute(
+                "SELECT set_config('search_path', 'ag_catalog, platform, public', false)",
+            )
+            .await
+            .map_err(|err| MigratorError::Postgres(err.to_string()))?;
+
+        let node_count = self
+            .cypher_count("MATCH (n:Device) RETURN count(n)")
+            .await?;
+        let edges = self.age_canonical_edges().await?;
+        Ok(CanonicalSnapshot {
+            node_count,
+            edge_count: edges.len() as u64,
+            content_hash: hash_canonical_edges(&edges),
+        })
+    }
+
+    async fn runtime_rows(&self) -> Result<Vec<RuntimeLinkRow>, MigratorError> {
+        let sql = "
+            SELECT local_device_id, neighbor_device_id, coalesce(evidence_class, ''), row::text
+            FROM platform.runtime_topology_links
+        ";
+        match self.client.query(sql, &[]).await {
+            Ok(rows) => Ok(rows
+                .into_iter()
+                .map(|row| {
+                    let raw: String = row.get(3);
+                    RuntimeLinkRow {
+                        local_device_id: row.get::<_, String>(0),
+                        neighbor_device_id: row.get::<_, String>(1),
+                        evidence_class: Some(row.get::<_, String>(2)),
+                        row: serde_json::from_str(&raw).unwrap_or_else(|_| serde_json::json!({})),
+                    }
+                })
+                .collect()),
+            Err(err) if missing_relation(&err) => Ok(Vec::new()),
+            Err(err) => Err(MigratorError::Postgres(err.to_string())),
+        }
+    }
+
+    async fn mapper_rows(&self) -> Result<Vec<MapperLinkRow>, MigratorError> {
+        let sql = "
+            SELECT local_device_id, neighbor_device_id, protocol,
+                   coalesce(local_if_name, ''), coalesce(neighbor_port_id, '')
+            FROM platform.mapper_topology_links
+            WHERE local_device_id LIKE 'sr:%'
+              AND neighbor_device_id LIKE 'sr:%'
+              AND local_device_id <> neighbor_device_id
+        ";
+        match self.client.query(sql, &[]).await {
+            Ok(rows) => Ok(rows
+                .into_iter()
+                .map(|row| MapperLinkRow {
+                    local_device_id: row.get(0),
+                    neighbor_device_id: row.get(1),
+                    protocol: row.get(2),
+                    local_if_name: row.get(3),
+                    neighbor_if_name: row.get(4),
+                })
+                .collect()),
+            Err(err) if missing_relation(&err) => Ok(Vec::new()),
+            Err(err) => Err(MigratorError::Postgres(err.to_string())),
+        }
+    }
+
+    async fn age_canonical_edges(&self) -> Result<Vec<CanonicalEdgeRecord>, MigratorError> {
+        let graph = self.graph_name.replace('\'', "''");
+        let sql = format!(
+            "
+            SELECT src::text, dst::text, link_key::text, protocol::text,
+                   evidence_class::text, if_ab::text, if_ba::text
+            FROM ag_catalog.cypher('{graph}', $$
+              MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device)
+              RETURN a.id, b.id,
+                coalesce(r.link_key, ''),
+                coalesce(r.protocol, ''),
+                coalesce(r.evidence_class, ''),
+                coalesce(r.local_if_name, coalesce(r.if_name_ab, '')),
+                coalesce(r.neighbor_if_name, coalesce(r.if_name_ba, ''))
+            $$) AS (src agtype, dst agtype, link_key agtype, protocol agtype,
+                    evidence_class agtype, if_ab agtype, if_ba agtype)
+            "
+        );
+        match self.client.query(&sql, &[]).await {
+            Ok(rows) => Ok(rows
+                .into_iter()
+                .filter_map(|row| {
+                    let source = agtype_string(&row.get::<_, String>(0))?;
+                    let target = agtype_string(&row.get::<_, String>(1))?;
+                    let if_ab = agtype_string(&row.get::<_, String>(5)).unwrap_or_default();
+                    let if_ba = agtype_string(&row.get::<_, String>(6)).unwrap_or_default();
+                    let link = agtype_string(&row.get::<_, String>(2))
+                        .filter(|value| !value.is_empty())
+                        .unwrap_or_else(|| {
+                            dgraph_topology::link_key(&source, &target, &if_ab, &if_ba)
+                        });
+                    Some(CanonicalEdgeRecord {
+                        link_key: link,
+                        protocol: agtype_string(&row.get::<_, String>(3))
+                            .unwrap_or_else(|| "unknown".into()),
+                        evidence_class: agtype_string(&row.get::<_, String>(4))
+                            .unwrap_or_else(|| "direct".into()),
+                        source,
+                        target,
+                        if_name_ab: if_ab,
+                        if_name_ba: if_ba,
+                    })
+                })
+                .collect()),
+            Err(err) if missing_relation(&err) => Ok(Vec::new()),
+            Err(err) => Err(MigratorError::Postgres(err.to_string())),
+        }
+    }
+
+    async fn cypher_count(&self, body: &str) -> Result<u64, MigratorError> {
+        let graph = self.graph_name.replace('\'', "''");
+        let sql =
+            format!("SELECT c::text FROM ag_catalog.cypher('{graph}', $${body}$$) AS (c agtype)");
+        match self.client.query_one(&sql, &[]).await {
+            Ok(row) => {
+                let raw: String = row.get(0);
+                Ok(agtype_string(&raw)
+                    .and_then(|value| value.parse().ok())
+                    .unwrap_or(0))
+            }
+            Err(err) if missing_relation(&err) => Ok(0),
+            Err(err) => Err(MigratorError::Postgres(err.to_string())),
+        }
+    }
+}
+
+fn spawn_connection<F>(connection: F)
+where
+    F: std::future::Future<Output = Result<(), tokio_postgres::Error>> + Send + 'static,
+{
+    tokio::spawn(async move {
+        if let Err(err) = connection.await {
+            eprintln!("postgres connection error: {err}");
+        }
+    });
+}
+
+async fn connect_client() -> Result<Client, MigratorError> {
+    let config = pg_config()?;
+    let ssl_mode = env::var("CNPG_SSL_MODE")
+        .or_else(|_| env::var("PGSSLMODE"))
+        .unwrap_or_else(|_| "disable".to_string());
+    if ssl_mode.eq_ignore_ascii_case("disable") {
+        let (client, connection) = config
+            .connect(NoTls)
+            .await
+            .map_err(|err| MigratorError::Postgres(err.to_string()))?;
+        spawn_connection(connection);
+        return Ok(client);
+    }
+
+    let ca_path =
+        env::var("CNPG_CA_FILE").unwrap_or_else(|_| "/etc/serviceradar/certs/root.pem".into());
+    let ca_pem = std::fs::read(&ca_path)
+        .map_err(|err| MigratorError::Postgres(format!("read CNPG_CA_FILE {ca_path}: {err}")))?;
+    let cert_path = env::var("CNPG_CERT_FILE").ok();
+    let key_path = env::var("CNPG_KEY_FILE").ok();
+    let client_cert = match (cert_path, key_path) {
+        (Some(cert), Some(key)) => Some((
+            std::fs::read(&cert).map_err(|err| MigratorError::Io(err.to_string()))?,
+            std::fs::read(&key).map_err(|err| MigratorError::Io(err.to_string()))?,
+        )),
+        _ => None,
+    };
+    let server_name = env::var("CNPG_TLS_SERVER_NAME").ok();
+    let tls = postgres_connector(
+        &ca_pem,
+        client_cert.as_ref().map(|(cert, _)| cert.as_slice()),
+        client_cert.as_ref().map(|(_, key)| key.as_slice()),
+        server_name.as_deref(),
+    )?;
+    let (client, connection) = config
+        .connect(tls)
+        .await
+        .map_err(|err| MigratorError::Postgres(err.to_string()))?;
+    spawn_connection(connection);
+    Ok(client)
+}
+
+fn pg_config() -> Result<tokio_postgres::Config, MigratorError> {
+    if let Ok(url) = env::var("DATABASE_URL") {
+        return url
+            .parse()
+            .map_err(|err: tokio_postgres::Error| MigratorError::Postgres(err.to_string()));
+    }
+    let host = env::var("CNPG_HOST")
+        .map_err(|_| MigratorError::MissingConfig("CNPG_HOST or DATABASE_URL".into()))?;
+    let port = env::var("CNPG_PORT")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(5432);
+    let database = env::var("CNPG_DATABASE").unwrap_or_else(|_| "serviceradar".into());
+    let user = read_secret("CNPG_USERNAME", "CNPG_USERNAME_FILE")
+        .or_else(|_| read_secret("CNPG_APP_USER", "CNPG_APP_USER_FILE"))?;
+    let password = read_secret("CNPG_PASSWORD", "CNPG_PASSWORD_FILE")
+        .or_else(|_| read_secret("CNPG_APP_PASSWORD", "CNPG_APP_PASSWORD_FILE"))
+        .unwrap_or_default();
+    let mut config = tokio_postgres::Config::new();
+    config.host(&host);
+    config.port(port);
+    config.user(&user);
+    config.password(&password);
+    config.dbname(&database);
+    Ok(config)
+}
+
+fn read_secret(value_env: &str, file_env: &str) -> Result<String, MigratorError> {
+    if let Ok(value) = env::var(value_env)
+        && !value.is_empty()
+    {
+        return Ok(value);
+    }
+    if let Ok(path) = env::var(file_env) {
+        let value = std::fs::read_to_string(&path)
+            .map_err(|err| MigratorError::Io(format!("{file_env} {path}: {err}")))?;
+        return Ok(value.trim().to_string());
+    }
+    Err(MigratorError::MissingConfig(value_env.into()))
+}
+
+fn missing_relation(err: &tokio_postgres::Error) -> bool {
+    err.to_string().contains("does not exist")
+}
+
+fn agtype_string(raw: &str) -> Option<String> {
+    let trimmed = raw.trim().trim_matches('"').trim();
+    if trimmed.is_empty() || trimmed == "null" {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}

@@ -27,6 +27,9 @@ mod errors;
 mod schema;
 mod types;
 
+#[cfg(all(test, feature = "integration-tests"))]
+mod cutover_tests;
+
 pub use crate::client::TopologyClient;
 pub use crate::errors::{TopologyError, TopologyErrorEnum};
 pub use crate::schema::{

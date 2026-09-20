@@ -69,7 +69,7 @@
 - [x] 4.3 `dgraph.enabled=false` plus external endpoint for CI
       (`dgraph-ci`) and one-time cutover from the standalone demo
       cluster. Documented install path is the embedded chart.
-- [ ] 4.4 CI crate tests may use `dgraph-ci` with
+- [x] 4.4 CI crate tests may use `dgraph-ci` with
       `DGRAPH_TEST_STRATEGY=existing` or `DgraphInstance::acquire()`
       locally. Product-install tests template the embedded chart.
 
@@ -100,32 +100,32 @@
 
 ## 7. AGE-to-Dgraph migrator
 
-- [ ] 7.1 Add `rust/age-to-dgraph` Bazel `rust_binary` with modes `rebuild`
+- [x] 7.1 Add `rust/age-to-dgraph` Bazel `rust_binary` with modes `rebuild`
       (default: canonical rebuild from evidence into Dgraph) and `checksum`
       (compare AGE vs Dgraph counts + canonical-edge content hash).
-- [ ] 7.2 Optional dump-and-load path for lab graphs with no evidence tables.
+- [x] 7.2 Optional dump-and-load path for lab graphs with no evidence tables.
       Fixtures are synthetic. Live dumps never enter the repository.
-- [ ] 7.3 Helm Job / compose one-shot invoke the binary. Checksum failure
+- [x] 7.3 Helm Job / compose one-shot invoke the binary. Checksum failure
       fails the Job and MUST NOT flip `GRAPH_READ`.
-- [ ] 7.4 Operator-safe reset: documented rebuild-from-evidence against
+- [x] 7.4 Operator-safe reset: documented rebuild-from-evidence against
       Dgraph, with pre/post counts, matching the existing AGE reset contract.
 
 ## 8. Cutover and tests
 
-- [ ] 8.1 Integration: dual-write a synthetic topology, checksum passes,
+- [x] 8.1 Integration: dual-write a synthetic topology, checksum passes,
       `GRAPH_READ=dgraph` serves God View and SRQL, flipping back to AGE still
       serves the shadow graph.
-- [ ] 8.2 Idempotence: re-running rebuild and schema migrate is a no-op on a
+- [x] 8.2 Idempotence: re-running rebuild and schema migrate is a no-op on a
       current cluster.
-- [ ] 8.3 Stale-edge TTL and MTR path prune behave the same on Dgraph as on
+- [x] 8.3 Stale-edge TTL and MTR path prune behave the same on Dgraph as on
       AGE for the synthetic fixture.
 - [ ] 8.4 Demo cutover: checksum Job green, `GRAPH_READ=dgraph`, then
       `GRAPH_BACKEND=dgraph`. Record rollback as `GRAPH_READ=age`.
-- [ ] 8.5 Do not remove AGE from the CNPG image in this change.
+- [x] 8.5 Do not remove AGE from the CNPG image in this change.
 
 ## 9. Coordination
 
-- [ ] 9.1 Note on in-flight AGE writers (`add-endpoint-sbom-inventory`,
+- [x] 9.1 Note on in-flight AGE writers (`add-endpoint-sbom-inventory`,
       `fix-topology-evidence-pipeline-resilience`, and any remaining
       `add-causal-engine` graph projection) that new graph writes target
       Dgraph, not new AGE Cypher. Do not depend on `add-causal-engine`
@@ -135,17 +135,17 @@
 
 ## 10. Network config facts (CNPG)
 
-- [ ] 10.1 Ash resource + migration `network_config_revisions` in `platform`:
+- [x] 10.1 Ash resource + migration `network_config_revisions` in `platform`:
       device_uid, source, config_kind (`running` | `startup`), retrieved_at,
       content_hash, body, parser_version. `migrate?: false` if the table needs
       a raw SQL migration; attributes must match.
-- [ ] 10.2 Ash resource + migration `network_config_interface_facts`:
+- [x] 10.2 Ash resource + migration `network_config_interface_facts`:
       revision_id, device_uid, if_name, ipv4_prefix, ipv6_prefix, vlan,
       description, shutdown, vrf. Unique on `(revision_id, if_name)`.
-- [ ] 10.3 Downparser (Rust, Bazel-tested) that reads a revision body and
+- [x] 10.3 Downparser (Rust, Bazel-tested) that reads a revision body and
       writes interface facts. V1 extracts name, prefixes, description, VLAN,
       shutdown from invented IOS-like fixtures. Live dumps never enter git.
-- [ ] 10.4 Projector: turn interface facts into `TopologyGraph` payloads with
+- [x] 10.4 Projector: turn interface facts into `TopologyGraph` payloads with
       `ingestor=network_config_v1`, `evidence_class=config-declared`,
       `protocol=config`. Upsert Prefix nodes and `iface.prefixes`. Do not
       overwrite `direct-physical` backbone edges.

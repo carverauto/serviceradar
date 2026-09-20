@@ -103,15 +103,22 @@ Two first-party crates sit next to the client pin:
 |---|---|---|
 | `rust/dgraph-migrate` | Generic verify / apply / scoped remove, `Outcome`, env resolution. Schema string and predicate/type lists are parameters. Never `drop_all`. | Any product schema. Scrith's SMDB schema stays in scrith. |
 | `rust/dgraph-topology` | Topology DQL schema (`device.*`, `iface.*`, `hop.*`, `collector.*`, `topo.*`, `prefix.*`, `change.*`), typed JSON upserts/reads, and the `dgraph-migrate` binary that applies that schema. | The generic runner (it calls `dgraph-migrate`). |
+| `rust/age-to-dgraph` | Rebuild-from-evidence and AGE-vs-Dgraph checksum binary. Default mode is rebuild; checksum fails the Job on divergence. | Schema apply (`dgraph-migrate`). Live dumps never enter git. |
 | `elixir/serviceradar_core/native/dgraph_nif` | Thin Rustler ABI (`ServiceRadar.Dgraph.Native`) over `dgraph-topology`. Typed `NifMap` writes, read-only DQL hatch, dedicated tokio runtime, DirtyIo. | Schema apply, Helm, credentials. |
+| `rust/network-config-downparser` | V1 IOS-like running-config parser. Invented fixtures only; extracts interface name, prefixes, description, VLAN, shutdown, VRF. | Topology projection, live NA dumps. |
+| `elixir/serviceradar_core/native/network_config_nif` | Thin Rustler ABI (`ServiceRadar.NetworkConfig.Native`) over `network-config-downparser`. Typed `NifMap` facts, DirtyCpu, `catch_unwind`. | Wasm plugin parse. |
 
-The ServiceRadar Helm Job and compose one-shot run `//rust/dgraph-topology:dgraph-migrate`.
+The ServiceRadar Helm schema Job and compose `dgraph-migrate` one-shot run
+`//rust/dgraph-topology:dgraph-migrate`. The migrator Job / compose
+`age-to-dgraph` one-shot run `//rust/age-to-dgraph:age-to-dgraph` (rebuild,
+then checksum). Both binaries ship in `serviceradar-dgraph-migrate`.
 
-Live schema tests (`cargo test -p dgraph-topology --features integration-tests --test schema_lifecycle`)
+Live schema and cutover tests (`cargo test -p dgraph-topology --features integration-tests --test schema_lifecycle --lib`)
 call `DgraphInstance::acquire()`. A workstation with Docker needs no env (it starts
 `dgraph/standalone:v25.4.0`). CI sets `DGRAPH_TEST_STRATEGY=existing` at
-`dgraph-dgraph-alpha.dgraph-ci.svc.cluster.local`. Do not point these tests at the
-`demo` namespace; product Helm embed is a separate install path.
+`dgraph-dgraph-alpha.dgraph-ci.svc.cluster.local` (see `buildbuddy.yaml`). Do not
+point these tests at the `demo` namespace; product Helm embed is a separate
+install path.
 
 ---
 

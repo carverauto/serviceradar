@@ -212,6 +212,40 @@ services:
     networks:
       - serviceradar-net
 
+  age-to-dgraph:
+    image: ${DGRAPH_MIGRATE_IMAGE:-registry.carverauto.dev/serviceradar/serviceradar-dgraph-migrate:${APP_TAG:-latest}}
+    container_name: serviceradar-age-to-dgraph
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - /usr/local/bin/age-to-dgraph rebuild && /usr/local/bin/age-to-dgraph checksum
+    environment:
+      - DGRAPH_URL=dgraph://groot:password@dgraph:9080?sslmode=disable
+      - CNPG_HOST=${CNPG_DOCKER_HOST:-cnpg}
+      - CNPG_PORT=${CNPG_DOCKER_PORT:-5432}
+      - CNPG_DATABASE=${CNPG_DATABASE:-serviceradar}
+      - CNPG_USERNAME=${CNPG_APP_USER:-serviceradar}
+      - CNPG_PASSWORD_FILE=/etc/serviceradar/cnpg/serviceradar-password
+      - CNPG_SSL_MODE=${CNPG_SSL_MODE:-verify-full}
+      - CNPG_TLS_SERVER_NAME=${CNPG_TLS_SERVER_NAME:-cnpg}
+      - CNPG_CA_FILE=/etc/serviceradar/certs/root.pem
+      - CNPG_CERT_FILE=/etc/serviceradar/certs/db-client.pem
+      - CNPG_KEY_FILE=/etc/serviceradar/certs/db-client-key.pem
+    volumes:
+      - cert-data:/etc/serviceradar/certs:ro
+      - cnpg-credentials:/etc/serviceradar/cnpg:ro
+    depends_on:
+      dgraph-migrate:
+        condition: service_completed_successfully
+      core-elx-migrations:
+        condition: service_completed_successfully
+      cnpg:
+        condition: service_healthy
+      dgraph:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - serviceradar-net
+
   cert-permissions-fixer:
     image: alpine:3.20
     container_name: serviceradar-cert-permissions-fixer-mtls

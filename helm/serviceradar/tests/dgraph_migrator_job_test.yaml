@@ -1,0 +1,35 @@
+suite: dgraph AGE-to-Dgraph migrator job
+release:
+  name: serviceradar
+  namespace: serviceradar-test
+templates:
+  - templates/dgraph-migrator-job.yaml
+tests:
+  - it: rebuilds then checksums and does not set GRAPH_READ
+    asserts:
+      - equal:
+          path: metadata.name
+          value: serviceradar-dgraph-migrator
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: age-to-dgraph rebuild
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: age-to-dgraph checksum
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GRAPH_READ
+            value: dgraph
+
+  - it: is omitted when migrator is explicitly disabled
+    set:
+      dgraph:
+        enabled: false
+        migrator:
+          enabled: false
+        external:
+          host: dgraph-dgraph-alpha.demo.svc.cluster.local
+    asserts:
+      - hasDocuments:
+          count: 0

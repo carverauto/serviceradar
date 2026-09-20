@@ -64,14 +64,18 @@ rust_test(
 
 # Live cluster. `make test` excludes integration_test. Local:
 #   cargo test -p dgraph-topology --features integration-tests --test schema_lifecycle
-# CI: DGRAPH_TEST_STRATEGY=existing against dgraph-ci, not the demo namespace.
+# CI: buildbuddy.yaml passes DGRAPH_TEST_STRATEGY=existing against dgraph-ci,
+# not the demo namespace.
 rust_test(
     name = "schema_lifecycle_test",
     srcs = ["tests/schema_lifecycle.rs"],
     crate_features = ["integration-tests"],
     crate_root = "tests/schema_lifecycle.rs",
     edition = "2024",
-    tags = ["integration_test"],
+    tags = [
+        "integration_test",
+        "manual",
+    ],
     deps = all_crate_deps(
         cargo_only = True,
         normal = True,
@@ -81,3 +85,9 @@ rust_test(
         "//rust/dgraph-migrate:dgraph_migrate",
     ],
 )
+
+# Live cluster tests (schema_lifecycle, src/cutover_tests.rs) compile
+# dgraph_client/test-utils, which Bazel crate_universe does not enable on the
+# shared dgraph_client rlib. Run them with Cargo:
+#   cargo test -p dgraph-topology --features integration-tests --lib --test schema_lifecycle
+# CI documents DGRAPH_TEST_STRATEGY=existing in buildbuddy.yaml for that path.

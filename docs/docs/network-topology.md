@@ -29,6 +29,40 @@ For Helm-based deployments:
 
 - Set `webNg.extraEnv.SERVICERADAR_GOD_VIEW_ENABLED: "true"` in the target values file.
 
+## Dgraph topology store
+
+Mapper evidence stays in CNPG (`mapper_topology_links`, `runtime_topology_links`).
+Dgraph is the traversal graph. During rollout, `graph.backend` defaults to
+`dual` and `graph.read` stays `age` until the migrator checksum is green.
+
+The Helm post-install Job `serviceradar-dgraph-migrator` (and the Compose
+one-shot `age-to-dgraph`) runs the Bazel `age-to-dgraph` binary:
+
+1. `rebuild` — canonical edges from relational evidence into Dgraph (idempotent).
+2. `checksum` — AGE `platform_graph` vs Dgraph node/edge counts and content hash.
+
+A checksum failure fails the Job and does **not** flip `graph.read`. Cutover is
+an operator values change (`graph.read: dgraph`), with rollback `graph.read: age`.
+
+### Operator-safe Dgraph reset
+
+To clear a polluted Dgraph topology and rebuild from current observations:
+
+1. Record pre counts: `AGE_TO_DGRAPH_MODE=checksum` (or inspect God View).
+2. Reset mapper evidence using the existing topology-evidence cleanup (CNPG
+   `mapper_topology_links` / `runtime_topology_links` stay the source of truth;
+   do not `drop_all` on Dgraph).
+3. Run `age-to-dgraph rebuild`. The binary prints `pre_edges` / `post_edges` /
+   `upserted`.
+4. Run `age-to-dgraph checksum`. Leave `graph.read` at `age` until it passes.
+
+Lab graphs with no evidence tables may use `dump-load` with
+`AGE_TO_DGRAPH_ALLOW_LAB_DUMP=1` and a synthetic JSON fixture. Live AGE dumps
+must not enter git.
+
+`in:graph_cypher` continues to query AGE until AGE is retired. `in:graph` /
+`in:graph_dql` query Dgraph.
+
 ## Operator Controls
 
 Primary controls in the Network Topology view:

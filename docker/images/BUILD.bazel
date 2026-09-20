@@ -47,6 +47,13 @@ py_test(
     ],
 )
 
+# OpenSpec replace-age-topology-with-dgraph 8.5: do not drop AGE from the CNPG image.
+py_test(
+    name = "cnpg_age_extension_test",
+    srcs = ["cnpg_age_extension_test.py"],
+    data = ["cnpg_image.bzl"],
+)
+
 # ARC runner image -----------------------------------------------------------
 
 declare_loaded_oci_image_amd64(
@@ -515,10 +522,12 @@ declare_service_container_amd64(
     entrypoint = ["/usr/local/bin/dgraph-migrate"],
     files = {
         "//rust/dgraph-topology:dgraph-migrate": "usr/local/bin/dgraph-migrate",
+        "//rust/age-to-dgraph:age-to-dgraph": "usr/local/bin/age-to-dgraph",
     },
     image_title = "serviceradar-dgraph-migrate",
     modes = {
         "usr/local/bin/dgraph-migrate": "0755",
+        "usr/local/bin/age-to-dgraph": "0755",
     },
     repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-dgraph-migrate:local"],
     runtime = "ubuntu",

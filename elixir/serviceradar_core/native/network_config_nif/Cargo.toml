@@ -1,0 +1,13 @@
+[package]
+name = "network_config_nif"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "network_config_nif"
+crate-type = ["cdylib"]
+
+[dependencies]
+# This cdylib is the only rustler consumer; network-config-downparser stays rustler-free.
+rustler = { workspace = true, features = ["nif_version_2_15"] }
+network-config-downparser = { path = "../../../../rust/network-config-downparser" }

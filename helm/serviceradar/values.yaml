@@ -623,7 +623,7 @@ core:
     #
     # Set to "" to fall back to the old existence-only check (for operators
     # running the chart against a deliberately pinned schema).
-    expectedVersion: "20260919120000"
+    expectedVersion: "20260919130100"
   # Stale device reaper settings - controls cleanup of IP-only "ghost" devices
   reaper:
     # How often to run the reaper job
@@ -2183,6 +2183,10 @@ dgraph:
     caSecret: ""
     caKey: ca.crt
   schema:
+    enabled: true
+  # Rebuild-from-evidence then AGE-vs-Dgraph checksum. A checksum failure
+  # fails the Helm hook and does not flip graph.read.
+  migrator:
     enabled: true
   image:
     registry: registry.carverauto.dev

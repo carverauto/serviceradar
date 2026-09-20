@@ -27,6 +27,29 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist do
     end)
   end
 
+  @doc """
+  Project config-declared interface and Prefix facts. Does not upsert
+  canonical or CONNECTS_TO edges, so mapper `direct-physical` backbone
+  is left untouched.
+  """
+  @spec project_config_facts(map()) :: :ok
+  def project_config_facts(payloads) when is_map(payloads) do
+    maybe(fn ->
+      device_uid = payloads[:device_uid] || payloads[:device_id]
+      revision_id = payloads[:revision_id]
+
+      with :ok <-
+             Dgraph.upsert_device(%{
+               id: device_uid,
+               config_revision_id: revision_id && to_string(revision_id)
+             }),
+           :ok <- upsert_config_interfaces(payloads[:interfaces] || []),
+           :ok <- upsert_config_prefixes(payloads[:prefixes] || []) do
+        :ok
+      end
+    end)
+  end
+
   @spec upsert_link(map(), String.t()) :: :ok
   def upsert_link(payload, relation) when is_map(payload) and is_binary(relation) do
     maybe(fn ->
@@ -211,6 +234,38 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist do
   end
 
   defp int_or_nil(_), do: nil
+
+  defp upsert_config_interfaces(interfaces) do
+    Enum.reduce_while(interfaces, :ok, fn iface, :ok ->
+      result =
+        Dgraph.upsert_interface(%{
+          key: iface.interface_id,
+          device_id: iface.device_id,
+          name: iface.if_name,
+          if_index: int_or_nil(iface[:if_index])
+        })
+
+      case result do
+        :ok -> {:cont, :ok}
+        other -> {:halt, other}
+      end
+    end)
+  end
+
+  defp upsert_config_prefixes(prefixes) do
+    Enum.reduce_while(prefixes, :ok, fn prefix, :ok ->
+      result =
+        with :ok <- Dgraph.upsert_prefix(%{cidr: prefix.cidr, family: prefix.family}),
+             :ok <- Dgraph.attach_prefix(prefix.interface_id, prefix.cidr) do
+          :ok
+        end
+
+      case result do
+        :ok -> {:cont, :ok}
+        other -> {:halt, other}
+      end
+    end)
+  end
 
   defp maybe(fun) when is_function(fun, 0) do
     if Backend.write_dgraph?() do

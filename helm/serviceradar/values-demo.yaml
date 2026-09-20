@@ -11,6 +11,8 @@ dgraph:
   enabled: false
   schema:
     enabled: false
+  migrator:
+    enabled: false
   external:
     host: dgraph-dgraph-alpha.demo.svc.cluster.local
     port: 9080

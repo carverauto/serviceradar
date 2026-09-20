@@ -48,6 +48,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "age-to-dgraph"
+version = "0.1.0"
+dependencies = [
+ "dgraph-topology",
+ "rustls",
+ "rustls-pemfile",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "thiserror 2.0.20",
+ "tokio",
+ "tokio-postgres",
+ "tokio-postgres-rustls",
+]
+
+[[package]]
 name = "ahash"
 version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3851,6 +3867,18 @@ dependencies = [
  "nom",
  "nom-derive",
  "serde",
+]
+
+[[package]]
+name = "network-config-downparser"
+version = "0.1.0"
+
+[[package]]
+name = "network_config_nif"
+version = "0.1.0"
+dependencies = [
+ "network-config-downparser",
+ "rustler",
 ]
 
 [[package]]
