@@ -8288,6 +8288,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     points = Map.get(timeseries, :points, [])
     empty_series = %{bucket_seconds: bucket_seconds, keys: [], points: [], colors: %{}}
 
+    load_protocol_activity = fn ->
+      load_netflow_protocol_activity(srql_module, query, scope, bucket_seconds, points)
+    end
+
+    load_app_activity = fn ->
+      load_netflow_app_activity(srql_module, query, scope, bucket_seconds, points)
+    end
+
     # These need the total series' bucket and points, or the top talkers.
     %{
       rdns_map: rdns_map,
@@ -8319,10 +8327,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
              {:skipped, :inactive_panel} -> %{empty_series | bucket_seconds: 300}
            end
          end, empty_series},
-        {:protocol_activity, fn -> load_netflow_protocol_activity(srql_module, query, scope, bucket_seconds, points) end,
-         empty_series},
-        {:app_activity, fn -> load_netflow_app_activity(srql_module, query, scope, bucket_seconds, points) end,
-         empty_series}
+        {:protocol_activity, load_protocol_activity, empty_series},
+        {:app_activity, load_app_activity, empty_series}
       ])
 
     sankey_edges_json =
