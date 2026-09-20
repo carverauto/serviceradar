@@ -8038,25 +8038,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp numeric_to_float(value) when is_number(value), do: value * 1.0
   defp numeric_to_float(_), do: 0.0
 
-  defp extract_stats_count({:ok, %{"results" => [%{} | _]}} = result, key) when is_binary(key) do
-    result
-    |> extract_stats_row()
-    |> Map.get(key)
-    |> to_int()
-  end
-
-  defp extract_stats_count({:ok, %{"results" => [value | _]}}, _key), do: to_int(value)
-  defp extract_stats_count(_result, _key), do: 0
-
-  defp extract_stats_row({:ok, %{"results" => [%{} = raw | _]}}) do
-    case Map.get(raw, "payload") do
-      %{} = payload -> payload
-      _ -> raw
-    end
-  end
-
-  defp extract_stats_row(_), do: %{}
-
   defp srql_module do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
   end
@@ -8258,110 +8239,97 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp apply_tab_assigns(socket, "netflows", srql_module) do
     scope = Map.get(socket.assigns, :current_scope)
-    summary = maybe_load_netflow_summary(socket, srql_module, scope)
-
-    top_talkers =
-      load_netflow_top_talkers(
-        srql_module,
-        Map.get(socket.assigns.srql, :query),
-        scope,
-        Map.get(socket.assigns, :netflow_talker_cidr)
-      )
-
-    rdns_map = load_netflow_rdns_map(socket.assigns.netflows, top_talkers, scope)
-    threat_map = load_netflow_threat_map(socket.assigns.netflows)
-
-    top_ports = load_netflow_top_ports(srql_module, Map.get(socket.assigns.srql, :query), scope)
-
-    timeseries =
-      load_netflow_timeseries(srql_module, Map.get(socket.assigns.srql, :query), scope)
-
-    compare_mode = Map.get(socket.assigns, :netflow_compare_mode, "off")
-
-    timeseries_compare =
-      load_netflow_timeseries_compare(
-        srql_module,
-        Map.get(socket.assigns.srql, :query),
-        scope,
-        compare_mode,
-        Map.get(timeseries, :bucket_seconds, 300)
-      )
-
+    query = Map.get(socket.assigns.srql, :query)
+    tab = socket.assigns.active_tab
     view = Map.get(socket.assigns, :netflow_view, "overview")
-
-    timeseries_stacked =
-      case NetflowRuntime.load_panel(socket.assigns.active_tab, view, :stacked_timeseries, fn ->
-             load_netflow_timeseries_stacked(
-               srql_module,
-               Map.get(socket.assigns.srql, :query),
-               scope,
-               Map.get(timeseries, :bucket_seconds, 300),
-               Map.get(timeseries, :points, []),
-               Map.get(socket.assigns, :netflow_stack_mode, @default_netflow_stack_mode)
-             )
-           end) do
-        {:ok, value} -> value
-        {:error, _reason} = error -> error
-        {:skipped, :inactive_panel} -> %{bucket_seconds: 300, keys: [], points: [], colors: %{}}
-      end
-
-    protocol_activity =
-      load_netflow_protocol_activity(
-        srql_module,
-        Map.get(socket.assigns.srql, :query),
-        scope,
-        Map.get(timeseries, :bucket_seconds, 300),
-        Map.get(timeseries, :points, [])
-      )
-
-    app_activity =
-      load_netflow_app_activity(
-        srql_module,
-        Map.get(socket.assigns.srql, :query),
-        scope,
-        Map.get(timeseries, :bucket_seconds, 300),
-        Map.get(timeseries, :points, [])
-      )
-
-    frequent_talkers_packets =
-      load_netflow_frequent_talkers_packets(
-        srql_module,
-        Map.get(socket.assigns.srql, :query),
-        scope
-      )
-
-    frequent_talkers_bytes =
-      load_netflow_frequent_talkers_bytes(
-        srql_module,
-        Map.get(socket.assigns.srql, :query),
-        scope
-      )
-
+    compare_mode = Map.get(socket.assigns, :netflow_compare_mode, "off")
+    stack_mode = Map.get(socket.assigns, :netflow_stack_mode, @default_netflow_stack_mode)
     geo_side = Map.get(socket.assigns, :netflow_geo_side, "dst")
-
-    geo_heatmap =
-      load_netflow_geo_heatmap(
-        srql_module,
-        Map.get(socket.assigns.srql, :query),
-        scope,
-        geo_side
-      )
-
     sankey_prefix = Map.get(socket.assigns, :netflow_sankey_prefix, 24)
+    talker_cidr = Map.get(socket.assigns, :netflow_talker_cidr)
+    netflows = socket.assigns.netflows
 
-    sankey =
-      case NetflowRuntime.load_panel(socket.assigns.active_tab, view, :sankey, fn ->
-             load_netflow_sankey(
-               srql_module,
-               Map.get(socket.assigns.srql, :query),
-               scope,
-               sankey_prefix
-             )
-           end) do
-        {:ok, value} -> value
-        {:error, _reason} = error -> error
-        {:skipped, :inactive_panel} -> empty_netflow_sankey()
-      end
+    # Every loader below is one or more warehouse round trips. None in this
+    # first group needs another's answer, so they run at the same time and the
+    # page waits for the slowest instead of for the sum.
+    %{
+      summary: summary,
+      top_talkers: top_talkers,
+      threat_map: threat_map,
+      top_ports: top_ports,
+      timeseries: timeseries,
+      frequent_talkers_packets: frequent_talkers_packets,
+      frequent_talkers_bytes: frequent_talkers_bytes,
+      geo_heatmap: geo_heatmap,
+      sankey: sankey
+    } =
+      NetflowRuntime.run_concurrently([
+        {:summary, fn -> maybe_load_netflow_summary(socket, srql_module, scope) end, empty_netflow_summary()},
+        {:top_talkers, fn -> load_netflow_top_talkers(srql_module, query, scope, talker_cidr) end, []},
+        {:threat_map, fn -> load_netflow_threat_map(netflows) end, %{}},
+        {:top_ports, fn -> load_netflow_top_ports(srql_module, query, scope) end, []},
+        {:timeseries, fn -> load_netflow_timeseries(srql_module, query, scope) end, %{bucket_seconds: 300, points: []}},
+        {:frequent_talkers_packets, fn -> load_netflow_frequent_talkers_packets(srql_module, query, scope) end, []},
+        {:frequent_talkers_bytes, fn -> load_netflow_frequent_talkers_bytes(srql_module, query, scope) end, []},
+        {:geo_heatmap, fn -> load_netflow_geo_heatmap(srql_module, query, scope, geo_side) end, []},
+        {:sankey,
+         fn ->
+           case NetflowRuntime.load_panel(tab, view, :sankey, fn ->
+                  load_netflow_sankey(srql_module, query, scope, sankey_prefix)
+                end) do
+             {:ok, value} -> value
+             {:error, _reason} = error -> error
+             {:skipped, :inactive_panel} -> empty_netflow_sankey()
+           end
+         end, empty_netflow_sankey()}
+      ])
+
+    bucket_seconds = Map.get(timeseries, :bucket_seconds, 300)
+    points = Map.get(timeseries, :points, [])
+    empty_series = %{bucket_seconds: bucket_seconds, keys: [], points: [], colors: %{}}
+
+    load_protocol_activity = fn ->
+      load_netflow_protocol_activity(srql_module, query, scope, bucket_seconds, points)
+    end
+
+    load_app_activity = fn ->
+      load_netflow_app_activity(srql_module, query, scope, bucket_seconds, points)
+    end
+
+    # These need the total series' bucket and points, or the top talkers.
+    %{
+      rdns_map: rdns_map,
+      timeseries_compare: timeseries_compare,
+      timeseries_stacked: timeseries_stacked,
+      protocol_activity: protocol_activity,
+      app_activity: app_activity
+    } =
+      NetflowRuntime.run_concurrently([
+        {:rdns_map, fn -> load_netflow_rdns_map(netflows, top_talkers, scope) end, %{}},
+        {:timeseries_compare,
+         fn ->
+           load_netflow_timeseries_compare(srql_module, query, scope, compare_mode, bucket_seconds)
+         end, %{bucket_seconds: bucket_seconds, points: []}},
+        {:timeseries_stacked,
+         fn ->
+           case NetflowRuntime.load_panel(tab, view, :stacked_timeseries, fn ->
+                  load_netflow_timeseries_stacked(
+                    srql_module,
+                    query,
+                    scope,
+                    bucket_seconds,
+                    points,
+                    stack_mode
+                  )
+                end) do
+             {:ok, value} -> value
+             {:error, _reason} = error -> error
+             {:skipped, :inactive_panel} -> %{empty_series | bucket_seconds: 300}
+           end
+         end, empty_series},
+        {:protocol_activity, load_protocol_activity, empty_series},
+        {:app_activity, load_app_activity, empty_series}
+      ])
 
     sankey_edges_json =
       try do
@@ -8939,61 +8907,30 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         _ -> 60 * 60
       end
 
-    total_query = ~s|#{base_query} stats:"count(*) as total" limit:1|
-    bytes_query = ~s|#{base_query} stats:"sum(bytes_total) as total_bytes" limit:1|
-    packets_total_query = ~s|#{base_query} stats:"sum(packets_total) as total_packets" limit:1|
-    packets_alt_query = ~s|#{base_query} stats:"sum(packets) as total_packets" limit:1|
-    packets_in_query = ~s|#{base_query} stats:"sum(packets_in) as total_packets_in" limit:1|
-    packets_out_query = ~s|#{base_query} stats:"sum(packets_out) as total_packets_out" limit:1|
+    # One grouped query answers every card: the per-protocol rows carry the
+    # flow, byte and packet sums, and the totals are their sum. This used to be
+    # seven round trips, three of them fallbacks for packet fields that
+    # `packets_total` already resolves on its own. 256 covers every protocol
+    # number, so the sum cannot be short a row.
+    summary_query =
+      ~s|#{base_query} stats:"count(*) as total, sum(bytes_total) as total_bytes, sum(packets_total) as total_packets by protocol_num" sort:total:desc limit:256|
 
-    proto_query =
-      ~s|#{base_query} stats:"count(*) as total by protocol_num" sort:total:desc limit:50|
+    proto_rows = extract_stats_rows(srql_module.query(summary_query, %{scope: scope}))
 
-    total = extract_stats_count(srql_module.query(total_query, %{scope: scope}), "total")
+    sum_of = fn field -> proto_rows |> Enum.map(&to_int(Map.get(&1, field))) |> Enum.sum() end
 
-    total_bytes =
-      extract_stats_count(srql_module.query(bytes_query, %{scope: scope}), "total_bytes")
+    protocol_total = fn number ->
+      proto_rows
+      |> Enum.filter(&(to_int(Map.get(&1, "protocol_num")) == number))
+      |> Enum.map(&to_int(Map.get(&1, "total")))
+      |> Enum.sum()
+    end
 
-    packets_total_primary =
-      extract_stats_count(
-        srql_module.query(packets_total_query, %{scope: scope}),
-        "total_packets"
-      )
-
-    packets_total_alt =
-      extract_stats_count(srql_module.query(packets_alt_query, %{scope: scope}), "total_packets")
-
-    packets_in =
-      extract_stats_count(
-        srql_module.query(packets_in_query, %{scope: scope}),
-        "total_packets_in"
-      )
-
-    packets_out =
-      extract_stats_count(
-        srql_module.query(packets_out_query, %{scope: scope}),
-        "total_packets_out"
-      )
-
-    total_packets =
-      cond do
-        packets_total_primary > 0 -> packets_total_primary
-        packets_total_alt > 0 -> packets_total_alt
-        packets_in + packets_out > 0 -> packets_in + packets_out
-        true -> 0
-      end
-
-    proto_rows = extract_stats_rows(srql_module.query(proto_query, %{scope: scope}))
-
-    tcp =
-      Enum.find_value(proto_rows, 0, fn row ->
-        if to_int(Map.get(row, "protocol_num")) == 6, do: to_int(row["total"])
-      end)
-
-    udp =
-      Enum.find_value(proto_rows, 0, fn row ->
-        if to_int(Map.get(row, "protocol_num")) == 17, do: to_int(row["total"])
-      end)
+    total = sum_of.("total")
+    total_bytes = sum_of.("total_bytes")
+    total_packets = sum_of.("total_packets")
+    tcp = protocol_total.(6)
+    udp = protocol_total.(17)
 
     other = max(total - tcp - udp, 0)
 
@@ -9604,16 +9541,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> Enum.take(8)
 
     maps =
-      Map.new(keys, fn ip ->
-        {ip,
-         load_netflow_timeseries_bytes_map(
-           srql_module,
-           scope,
-           base_query,
-           bucket,
-           " src_ip:#{ip}"
-         )}
-      end)
+      load_netflow_keyed_series_maps(srql_module, scope, base_query, bucket, "src_endpoint_ip", keys)
 
     {keys, maps}
   end
@@ -9640,25 +9568,34 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     keys = Enum.map(labeled, & &1.label)
 
-    maps =
-      Map.new(labeled, fn %{label: label, port: port} ->
-        {label,
-         load_netflow_timeseries_bytes_map(
-           srql_module,
-           scope,
-           base_query,
-           bucket,
-           " dst_port:#{port}"
-         )}
-      end)
+    by_port =
+      load_netflow_keyed_series_maps(
+        srql_module,
+        scope,
+        base_query,
+        bucket,
+        "dst_endpoint_port",
+        Enum.map(labeled, &to_string(&1.port))
+      )
+
+    maps = Map.new(labeled, fn %{label: label, port: port} -> {label, Map.get(by_port, to_string(port), %{})} end)
 
     {keys, maps}
   end
 
-  defp load_netflow_timeseries_bytes_map(srql_module, scope, base_query, bucket, filter_suffix)
-       when is_binary(base_query) and is_binary(bucket) and is_binary(filter_suffix) do
+  # Every key's series in one round trip: `series:` groups by the field and the
+  # filter keeps it to the keys being charted. One query per key made the
+  # stacked chart cost nine round trips where it needs one.
+  defp load_netflow_keyed_series_maps(_srql_module, _scope, _base_query, _bucket, _field, []), do: %{}
+
+  defp load_netflow_keyed_series_maps(srql_module, scope, base_query, bucket, field, values)
+       when is_binary(base_query) and is_binary(bucket) and is_binary(field) and is_list(values) do
     query =
-      ~s|#{base_query}#{filter_suffix} bucket:#{bucket} agg:sum value_field:bytes_total limit:120|
+      base_query
+      |> upsert_query_filter(field, "(" <> Enum.join(values, ",") <> ")")
+      |> then(fn q ->
+        ~s|#{q} bucket:#{bucket} agg:sum value_field:bytes_total series:#{field} limit:#{length(values) * 120}|
+      end)
 
     rows =
       case srql_module.query(query, %{scope: scope}) do
@@ -9667,10 +9604,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       end
 
     Enum.reduce(rows, %{}, fn
-      %{"timestamp" => ts, "value" => value}, acc ->
+      %{"timestamp" => ts, "series" => series, "value" => value}, acc ->
         with {:ok, dt} <- parse_srql_datetime(ts),
              bytes when is_number(bytes) <- to_number(value) do
-          Map.update(acc, dt, bytes, &(&1 + bytes))
+          put_netflow_series_value(acc, to_string(series), dt, bytes)
         else
           _ -> acc
         end
@@ -10041,8 +9978,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       span <= 60 * 60 -> 60
       span <= 6 * 60 * 60 -> 300
       span <= 24 * 60 * 60 -> 900
-      span <= 7 * 24 * 60 * 60 -> 3600
-      true -> 6 * 3600
+      span <= 5 * 24 * 60 * 60 -> 3600
+      span <= 30 * 24 * 60 * 60 -> 6 * 3600
+      true -> 24 * 3600
     end
   end
 
@@ -10051,6 +9989,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp bucket_seconds_to_srql(900), do: "15m"
   defp bucket_seconds_to_srql(3600), do: "1h"
   defp bucket_seconds_to_srql(21_600), do: "6h"
+  defp bucket_seconds_to_srql(86_400), do: "1d"
 
   defp bucket_seconds_to_srql(seconds) when is_integer(seconds) and rem(seconds, 60) == 0, do: "#{div(seconds, 60)}m"
 

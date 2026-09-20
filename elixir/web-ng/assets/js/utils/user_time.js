@@ -33,6 +33,10 @@ export const STYLE_OPTIONS = Object.freeze({
   date: Object.freeze({year: "numeric", month: "short", day: "2-digit"}),
   time: Object.freeze({hour: "2-digit", minute: "2-digit", second: "2-digit"}),
   axis: Object.freeze({hour: "2-digit", minute: "2-digit"}),
+  // A time-only tick is unreadable once a chart spans days: every tick of a
+  // multi-day window lands on the same clock time.
+  axisDayTime: Object.freeze({month: "short", day: "2-digit", hour: "2-digit"}),
+  axisDate: Object.freeze({month: "short", day: "2-digit"}),
   tooltip: Object.freeze({
     year: "numeric",
     month: "short",

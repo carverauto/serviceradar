@@ -289,7 +289,7 @@ export default {
 
     g.append("g")
       .attr("transform", `translate(0,${ih})`)
-      .call(d3.axisBottom(x).ticks(5).tickFormat(timePresentation.axisFormatter).tickSizeOuter(0))
+      .call(d3.axisBottom(x).ticks(5).tickFormat(netflowAxisTimeFormatter(timePresentation.timeZone, x.domain())).tickSizeOuter(0))
       .call(nfStyleChartAxis)
 
     g.append("g")
