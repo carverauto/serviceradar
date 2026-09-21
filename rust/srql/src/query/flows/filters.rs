@@ -548,7 +548,10 @@ fn apply_threat_filter<'a>(query: FlowsQuery<'a>, filter: &Filter) -> Result<Flo
                      AND {endpoint} AND {op}"
                 ))
                 .bind::<Text, _>(value)
-                .sql(&format!("::{cast})")),
+                // Cast through `::text` so PostgreSQL infers the bind as text; a
+                // bare `::{cast}` makes it infer cidr/inet, which a text-bound
+                // parameter cannot encode in driver-backed callers of this SQL.
+                .sql(&format!("::text::{cast})")),
             ))
         }
         "threat_severity" => {

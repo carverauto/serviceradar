@@ -408,8 +408,8 @@ fn devices_ip_range_filter_generates_range_clause() {
     assert!(lower.contains("split_part(ip, ',', 1)"));
     assert!(lower.contains("pg_input_is_valid"));
     assert!(
-        lower.contains(">= $1::inet") && lower.contains("<= $2::inet"),
-        "expected IP range inet comparison, got: {sql}"
+        lower.contains(">= $1::text::inet") && lower.contains("<= $2::text::inet"),
+        "expected IP range inet comparison cast through text, got: {sql}"
     );
 
     assert!(params

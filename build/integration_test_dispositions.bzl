@@ -368,7 +368,7 @@ SERIAL_INTEGRATION_SELECTED_TEST_COUNTS = {
     "test/serviceradar/composite_checks/readiness_test.exs": 12,
     "test/serviceradar/composite_checks/refresh_test.exs": 6,
     "test/serviceradar/composite_checks/rollup_test.exs": 6,
-    "test/serviceradar/composite_checks/srql_end_to_end_test.exs": 9,
+    "test/serviceradar/composite_checks/srql_end_to_end_test.exs": 12,
     "test/serviceradar/composite_checks/srql_validation_test.exs": 12,
     "test/serviceradar/composite_checks/validation/coverage_test.exs": 6,
     "test/serviceradar/composite_checks/validation/orchestrator_test.exs": 9,

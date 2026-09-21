@@ -33,6 +33,19 @@ defmodule ServiceRadar.CompositeChecks.SRQLEndToEndTest do
     |> Ash.create!(actor: actor())
   end
 
+  # A device with an explicit, documentation-range address, so an IP filter can
+  # assert on a known address rather than on whatever the hash-derived address
+  # `device!/1` happens to produce.
+  defp device_at!(uid, ip) do
+    Device
+    |> Ash.Changeset.for_create(:create, %{
+      uid: uid,
+      hostname: "srql-ip-#{System.unique_integer([:positive])}",
+      ip: ip
+    })
+    |> Ash.create!(actor: actor())
+  end
+
   defp verdict!(check, device_uid, verdict, status) do
     now = DateTime.utc_now()
 
@@ -189,6 +202,63 @@ defmodule ServiceRadar.CompositeChecks.SRQLEndToEndTest do
       assert row["evaluated_at"]
       assert row["changed_at"]
       assert row["check_name"] == ctx.check.name
+    end
+  end
+
+  describe "in:devices ip filters execute against Postgres" do
+    # Regression for a driver encoding failure: the CIDR and range bounds are
+    # bound as text, and a bare `::cidr`/`::inet` cast made PostgreSQL infer the
+    # parameter as `cidr`/`inet`. A text-bound parameter cannot encode for those
+    # types, so these three queries raised instead of returning rows. The
+    # translator's SQL-shape tests cannot catch that; only executing the query
+    # can. Addresses are documentation ranges on purpose.
+    setup do
+      unique = System.unique_integer([:positive])
+
+      devices = %{
+        inside: "e2e-ip-inside-#{unique}",
+        outside_a: "e2e-ip-outside-a-#{unique}",
+        outside_b: "e2e-ip-outside-b-#{unique}",
+        range_high: "e2e-ip-range-high-#{unique}"
+      }
+
+      device_at!(devices.inside, "192.0.2.10")
+      device_at!(devices.outside_a, "198.51.100.20")
+      device_at!(devices.outside_b, "203.0.113.30")
+      device_at!(devices.range_high, "192.0.2.30")
+
+      devices
+    end
+
+    test "a CIDR returns the devices inside the block", ctx do
+      {:ok, rows} = SRQLRunner.query("in:devices ip:192.0.2.0/24 limit:100")
+      returned = uids(rows)
+
+      assert ctx.inside in returned
+      # `192.0.2.30` is still inside the /24.
+      assert ctx.range_high in returned
+      refute ctx.outside_a in returned
+      refute ctx.outside_b in returned
+    end
+
+    test "an address range returns the devices inside the range", ctx do
+      {:ok, rows} = SRQLRunner.query("in:devices ip:192.0.2.10-192.0.2.20 limit:100")
+      returned = uids(rows)
+
+      assert ctx.inside in returned
+      refute ctx.range_high in returned
+      refute ctx.outside_a in returned
+      refute ctx.outside_b in returned
+    end
+
+    test "a negated CIDR excludes the devices inside the block", ctx do
+      {:ok, rows} = SRQLRunner.query("in:devices !ip:192.0.2.0/24 limit:100")
+      returned = uids(rows)
+
+      refute ctx.inside in returned
+      refute ctx.range_high in returned
+      assert ctx.outside_a in returned
+      assert ctx.outside_b in returned
     end
   end
 end
