@@ -479,6 +479,50 @@ fn devices_model_wildcard_filter_generates_ilike() {
     );
 }
 
+// vendor_name/model resolve through apply_text_filter!, which accepts list
+// membership, so the separate bind-param collector must accept it too --
+// otherwise the row builder emits `= ANY($n)` and the translate path rejects
+// the same query as a non-scalar value.
+#[test]
+fn devices_vendor_name_list_filter_binds_one_text_array() {
+    let plan = plan_for("in:devices vendor_name:(aruba,cisco)");
+
+    let (sql, params) = devices::to_sql_and_params(&plan).expect("should build devices SQL");
+
+    assert!(
+        sql.to_lowercase().contains("\"vendor_name\" = any("),
+        "expected an ANY(...) membership test on vendor_name, got: {sql}"
+    );
+    let arrays: Vec<_> = params
+        .iter()
+        .filter(|param| matches!(param, BindParam::TextArray(_)))
+        .collect();
+    assert!(
+        matches!(arrays.as_slice(), [BindParam::TextArray(values)] if values == &vec!["aruba".to_string(), "cisco".to_string()]),
+        "expected exactly one vendor_name text-array bind, got: {params:?}"
+    );
+}
+
+#[test]
+fn devices_model_list_filter_binds_one_text_array() {
+    let plan = plan_for("in:devices model:(2920,2930)");
+
+    let (sql, params) = devices::to_sql_and_params(&plan).expect("should build devices SQL");
+
+    assert!(
+        sql.to_lowercase().contains("\"model\" = any("),
+        "expected an ANY(...) membership test on model, got: {sql}"
+    );
+    let arrays: Vec<_> = params
+        .iter()
+        .filter(|param| matches!(param, BindParam::TextArray(_)))
+        .collect();
+    assert!(
+        matches!(arrays.as_slice(), [BindParam::TextArray(values)] if values == &vec!["2920".to_string(), "2930".to_string()]),
+        "expected exactly one model text-array bind, got: {params:?}"
+    );
+}
+
 #[test]
 fn devices_stats_group_by_type() {
     let query = "in:devices stats:count() as count by type";
