@@ -54,6 +54,10 @@ defmodule ServiceRadar.Dgraph.Native do
   @spec query_canonical_edges(url()) :: edges_result()
   def query_canonical_edges(_url), do: :erlang.nif_error(:nif_not_loaded)
 
+  @spec downstream_of(url(), [String.t()], [String.t()]) ::
+          {:ok, :reachable | :disjoint} | {:error, String.t()}
+  def downstream_of(_url, _from_ids, _to_ids), do: :erlang.nif_error(:nif_not_loaded)
+
   @spec query_neighbourhood(url(), String.t()) :: edges_result()
   def query_neighbourhood(_url, _device_id), do: :erlang.nif_error(:nif_not_loaded)
 

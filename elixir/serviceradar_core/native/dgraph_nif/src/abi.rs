@@ -152,13 +152,16 @@ pub struct NifChangeWrite {
     pub kind: String,
     pub status: String,
     pub source: String,
+    pub window_start: Option<String>,
+    pub window_end: Option<String>,
     pub affects_prefix_cidrs: Vec<String>,
     pub affects_device_ids: Vec<String>,
 }
 
 impl NifChangeWrite {
     pub fn into_write(self) -> ChangeWrite {
-        let mut write = ChangeWrite::new(self.id, self.kind, self.status, self.source);
+        let mut write = ChangeWrite::new(self.id, self.kind, self.status, self.source)
+            .with_window(self.window_start, self.window_end);
         for cidr in self.affects_prefix_cidrs {
             write = write.with_prefix(cidr);
         }
@@ -167,6 +170,20 @@ impl NifChangeWrite {
         }
         write
     }
+}
+
+/// Elixir `:reachable` / `:disjoint`.
+#[derive(Clone, Copy, Debug, NifUnitEnum)]
+pub enum NifDownstreamFact {
+    Reachable,
+    Disjoint,
+}
+
+/// Elixir `{:ok, :reachable | :disjoint}` / `{:error, reason}`.
+#[derive(Clone, Debug, NifTaggedEnum)]
+pub enum DownstreamResult {
+    Ok(NifDownstreamFact),
+    Error(String),
 }
 
 #[derive(Clone, Debug, NifMap)]

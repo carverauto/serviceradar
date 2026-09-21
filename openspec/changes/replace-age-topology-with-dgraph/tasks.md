@@ -155,20 +155,20 @@
 
 ## 11. Change impact
 
-- [ ] 11.1 Ash resource + migration `network_changes`: external id, source,
+- [x] 11.1 Ash resource + migration `network_changes`: external id, source,
       kind (`upgrade` | `config` | `other`), window_start, window_end,
       status, selector (device uids, IPs, CIDRs). Graph projection creates
       the `Change` node and `change.affects` edges to Device / Prefix.
-- [ ] 11.2 Typed NIF `downstream_of(from_ids, to_ids)` returning the graph
+- [x] 11.2 Typed NIF `downstream_of(from_ids, to_ids)` returning the graph
       fact (reachable / disjoint) over canonical topology after Prefix
       expansion. This is a Spaceoid hydrator, not a product verdict.
-- [ ] 11.3 Synthetic fixture: Change A affects `192.0.2.0/24`, Change B
+- [x] 11.3 Synthetic fixture: Change A affects `192.0.2.0/24`, Change B
       affects `198.51.100.0/24`, B's prefix is downstream of `192.0.2.1`.
       `downstream_of` is true. Inverse (disjoint topology, non-overlapping
       windows stored only on the CNPG row) is false. Do not return
       postpone/sequence from ServiceRadar.
-- [ ] 11.4 Do not materialize `change.blocks` edges in v1.
-- [ ] 11.5 Freeze the NMS extension snapshot + ChangeImpact contract in
+- [x] 11.4 Do not materialize `change.blocks` edges in v1.
+- [x] 11.5 Freeze the NMS extension snapshot + ChangeImpact contract in
       `specs/scrith-causal-integration` (separate Dgraphs, NMS-neutral
       snapshot, SR as reference plugin). Implement the ServiceRadar
       snapshot surface only. Do not implement scrith core, the extension

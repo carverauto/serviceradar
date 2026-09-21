@@ -12,12 +12,13 @@ mod runtime;
 use std::future::Future;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
-use dgraph_topology::TopologyClient;
+use dgraph_topology::{DownstreamFact, TopologyClient};
 
 use crate::abi::{
-    refuses_mutation, CanonicalEdgesResult, CountResult, JsonResult, NeighbourhoodResult,
-    NifCanonicalEdge, NifChangeWrite, NifDeviceWrite, NifEdgeWrite, NifHopWrite, NifInterfaceWrite,
-    NifNeighbourhoodEdge, NifPrefixWrite, WriteResult,
+    refuses_mutation, CanonicalEdgesResult, CountResult, DownstreamResult, JsonResult,
+    NeighbourhoodResult, NifCanonicalEdge, NifChangeWrite, NifDeviceWrite, NifDownstreamFact,
+    NifEdgeWrite, NifHopWrite, NifInterfaceWrite, NifNeighbourhoodEdge, NifPrefixWrite,
+    WriteResult,
 };
 use crate::runtime::{client_for, require_url, runtime};
 
@@ -139,6 +140,24 @@ fn rebuild_canonical(url: String, edges: Vec<NifEdgeWrite>) -> WriteResult {
     write_call(url, move |client| async move {
         client.rebuild_canonical(&writes).await
     })
+}
+
+#[rustler::nif(schedule = "DirtyIo")]
+fn downstream_of(url: String, from_ids: Vec<String>, to_ids: Vec<String>) -> DownstreamResult {
+    match isolate(|| {
+        require_url(&url)?;
+        let client = client_for(&url)?;
+        let fact = runtime()?
+            .block_on(client.downstream_of(&from_ids, &to_ids))
+            .map_err(|err| err.to_string())?;
+        Ok(match fact {
+            DownstreamFact::Reachable => NifDownstreamFact::Reachable,
+            DownstreamFact::Disjoint => NifDownstreamFact::Disjoint,
+        })
+    }) {
+        Ok(fact) => DownstreamResult::Ok(fact),
+        Err(reason) => DownstreamResult::Error(reason),
+    }
 }
 
 #[rustler::nif(schedule = "DirtyIo")]
