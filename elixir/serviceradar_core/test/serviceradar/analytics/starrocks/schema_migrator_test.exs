@@ -192,11 +192,38 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
            ) == :ok
   end
 
-  test "a partition rebuild that cannot run stops the migration before anything is applied" do
-    agent = start_warehouse(%{fail_on: ~r/tables_config/})
+  test "quick migrations are not held behind the rebuild; only what needs partitioned tables waits" do
+    migrations =
+      Schema.build([
+        {"0001_tables.sql", "CREATE TABLE IF NOT EXISTS serviceradar.flows (id INT);"},
+        {"0002_pid.sql", "ALTER TABLE serviceradar.flows ADD COLUMN pid INT NULL;"},
+        {"0003_rollup.sql",
+         "CREATE MATERIALIZED VIEW IF NOT EXISTS serviceradar.flows_hourly PARTITION BY day AS SELECT 1;"},
+        {"0004_comm.sql", "ALTER TABLE serviceradar.flows ADD COLUMN comm VARCHAR(256) NULL;"}
+      ])
 
-    assert {:error, {:starrocks_mysql, "boom"}} = migrate(agent)
-    assert state(agent).ledger == []
-    refute Enum.any?(state(agent).ddl, &(&1 =~ "flows"))
+    assert Enum.map(migrations, &Schema.needs_partitioned_tables?/1) == [
+             false,
+             false,
+             true,
+             false
+           ]
+
+    # The rebuild cannot run, so everything from 0003 on waits -- in order, 0004 included.
+    agent = start_warehouse(%{fail_on: ~r/tables_config/})
+    assert {:error, {:starrocks_mysql, "boom"}} = migrate(agent, migrations: migrations)
+    assert state(agent).ledger == [1, 2]
+
+    Agent.update(agent, &%{&1 | fail_on: nil})
+    assert migrate(agent, migrations: migrations) == {:ok, [3, 4]}
+  end
+
+  test "the shipped schema marks exactly the day-partitioned rollups as needing partitioned tables" do
+    waiting =
+      Schema.migrations()
+      |> Enum.filter(&Schema.needs_partitioned_tables?/1)
+      |> Enum.map(& &1.version)
+
+    assert waiting == [17]
   end
 end

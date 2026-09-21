@@ -101,6 +101,21 @@ defmodule ServiceRadar.Analytics.StarRocks.Schema do
     |> String.replace(~s("replication_num" = "3"), ~s("replication_num" = "#{replication_num}"))
   end
 
+  @doc """
+  Whether a migration can only run over partitioned telemetry tables.
+
+  StarRocks refuses a materialized view `PARTITION BY` a column that does not
+  come from a partitioned base table, so such a migration has to wait for a
+  warehouse created before partitioning to be rebuilt.
+  """
+  @spec needs_partitioned_tables?(migration()) :: boolean()
+  def needs_partitioned_tables?(%{statements: statements}) do
+    Enum.any?(
+      statements,
+      &Regex.match?(~r/^CREATE\s+MATERIALIZED\s+VIEW\b[^;]*?\bPARTITION\s+BY\b/is, &1)
+    )
+  end
+
   @spec valid_database?(term()) :: boolean()
   def valid_database?(database),
     do: is_binary(database) and Regex.match?(@database_pattern, database)

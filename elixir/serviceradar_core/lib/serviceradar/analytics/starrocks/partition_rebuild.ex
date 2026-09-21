@@ -24,12 +24,15 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
   than starting a large table again from nothing on every retry. A swap whose
   catch-up never ran gets its catch-up.
 
-  The anti-joined catch-up is what makes the result complete; skipping days
-  already copied is only an economy. It carries anything written to the old
-  table at any point before the swap, whatever its timestamp. CNPG receives
-  every write throughout, so the one thing it cannot carry -- a partial update
-  to an already copied row in the moments before the swap -- is not lost to
-  the deployment.
+  Two things keep the result complete. Rows written to the old table after
+  their day was copied are carried by the catch-up, an anti-join on the new
+  key run a day at a time so both sides prune to one partition. Rows that were
+  copied and then CHANGED -- flow attribution rewrites recent flows in place --
+  are carried by copying the most recent days again immediately before the
+  swap, while nothing else writes the new table and an upsert of whole days is
+  therefore safe. What is left is an update landing in the moments between
+  that last copy and the swap, and CNPG receives every write throughout, so
+  even that is not lost to the deployment.
 
   The copy is bounded to the retention window on purpose. A table that was
   never partitioned has never expired anything, and a single row with a
@@ -47,6 +50,10 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
   @catch_up_passes 2
   @catch_up_pause_ms 5_000
   @future_slack_days 1
+  # Days copied again just before the swap, for rows updated in place since
+  # they were first copied. In-place updates are attribution, minutes behind
+  # the flow itself; two days is generous and still one short statement each.
+  @refresh_days 2
 
   @type state :: %{
           required(:query) => (String.t() -> {:ok, map()} | {:error, term()}),
@@ -63,17 +70,30 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
     retention = Map.get_lazy(state, :retention_days, &Retention.days_by_table/0)
 
     with {:ok, layout} <- layout(state),
-         {:ok, plans} <- plan(state, retention, layout),
-         :ok <- each(plans, &copy(state, &1)) do
-      each(plans, &cut_over(state, &1))
+         {:ok, plans} <- plan(state, retention, layout) do
+      {copied, copy_failures} = attempt(plans, &copy(state, &1))
+      {_cut_over, cut_over_failures} = attempt(copied, &cut_over(state, &1))
+
+      case copy_failures ++ cut_over_failures do
+        [] -> :ok
+        failures -> {:error, {:partition_rebuild, failures}}
+      end
     end
   end
 
-  defp each(plans, fun) do
-    Enum.reduce_while(plans, :ok, fn plan, :ok ->
+  # One table that cannot be rebuilt must not keep the others unpartitioned.
+  defp attempt(plans, fun) do
+    Enum.reduce(plans, {[], []}, fn plan, {done, failures} ->
       case fun.(plan) do
-        :ok -> {:cont, :ok}
-        {:error, reason} -> {:halt, {:error, {:partition_rebuild, plan.spec.table, reason}}}
+        :ok ->
+          {done ++ [plan], failures}
+
+        {:error, reason} ->
+          Logger.error(
+            "StarRocks partition rebuild of #{plan.spec.table} failed: #{inspect(reason)}"
+          )
+
+          {done, failures ++ [{plan.spec.table, reason}]}
       end
     end)
   end
@@ -85,12 +105,12 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
           {:cont, {:ok, plans}}
 
         {:error, reason} ->
-          {:halt, {:error, {:partition_rebuild, table, reason}}}
+          {:halt, {:error, {:partition_rebuild, [{table, reason}]}}}
 
         step ->
           case spec(state, table, days) do
             {:ok, spec} -> {:cont, {:ok, plans ++ [%{step: step, spec: spec, days: days}]}}
-            {:error, reason} -> {:halt, {:error, {:partition_rebuild, table, reason}}}
+            {:error, reason} -> {:halt, {:error, {:partition_rebuild, [{table, reason}]}}}
           end
       end
     end)
@@ -117,17 +137,24 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
          {:ok, columns} <- shared_columns(state, spec.table, spec.copy),
          {:ok, wanted} <- days_in(state, spec.table, spec.time_column, days),
          {:ok, done} <- days_in(state, spec.copy, spec.time_column, days) do
-      Enum.reduce_while(wanted -- done, :ok, fn day, :ok ->
-        case exec(state, copy_day_sql(state, spec, columns, day)) do
-          :ok -> {:cont, :ok}
-          {:error, reason} -> {:halt, {:error, {:copy, day, reason}}}
-        end
-      end)
+      copy_days(state, spec, columns, wanted -- done)
     end
   end
 
-  defp cut_over(state, %{step: :rebuild, spec: spec} = plan) do
-    with :ok <-
+  defp copy_days(state, spec, columns, days) do
+    Enum.reduce_while(days, :ok, fn day, :ok ->
+      case exec(state, copy_day_sql(state, spec, columns, day)) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, {:copy, day, reason}}}
+      end
+    end)
+  end
+
+  defp cut_over(state, %{step: :rebuild, spec: spec, days: days} = plan) do
+    with {:ok, columns} <- shared_columns(state, spec.table, spec.copy),
+         {:ok, recent} <- days_in(state, spec.table, spec.time_column, days),
+         :ok <- copy_days(state, spec, columns, Enum.take(recent, @refresh_days)),
+         :ok <-
            exec(state, "DROP MATERIALIZED VIEW IF EXISTS #{qualified(state, spec.table)}_hourly"),
          :ok <- exec(state, "ALTER TABLE #{qualified(state, spec.table)} SWAP WITH #{spec.copy}") do
       cut_over(state, %{plan | step: :finish})
@@ -149,31 +176,46 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
   defp catch_up(_state, _spec, _columns, _days, 0), do: :ok
 
   defp catch_up(state, spec, columns, days, passes_left) do
-    with :ok <- exec(state, catch_up_sql(state, spec, columns, days)) do
+    with {:ok, old_days} <- days_in(state, spec.copy, spec.time_column, days),
+         :ok <- catch_up_days(state, spec, columns, old_days) do
       if passes_left > 1, do: state.sleep.(@catch_up_pause_ms)
       catch_up(state, spec, columns, days, passes_left - 1)
     end
+  end
+
+  defp catch_up_days(state, spec, columns, days) do
+    Enum.reduce_while(days, :ok, fn day, :ok ->
+      case exec(state, catch_up_day_sql(state, spec, columns, day)) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, {:catch_up, day, reason}}}
+      end
+    end)
   end
 
   @doc false
   @spec copy_day_sql(state(), map(), [String.t()], String.t()) :: String.t()
   def copy_day_sql(state, spec, columns, day) do
     list = column_list(columns)
-    column = "`#{spec.time_column}`"
 
     "INSERT INTO #{qualified(state, spec.copy)} (#{list}) SELECT #{list} FROM #{qualified(state, spec.table)} " <>
-      "WHERE #{column} >= '#{day} 00:00:00' AND #{column} < DATE_ADD('#{day} 00:00:00', INTERVAL 1 DAY)"
+      "WHERE #{on_day("`#{spec.time_column}`", day)}"
   end
 
+  # The day bounds both sides, so each reads one partition instead of joining
+  # the whole of one table to the whole of the other.
   @doc false
-  @spec catch_up_sql(state(), map(), [String.t()], pos_integer()) :: String.t()
-  def catch_up_sql(state, spec, columns, days) do
+  @spec catch_up_day_sql(state(), map(), [String.t()], String.t()) :: String.t()
+  def catch_up_day_sql(state, spec, columns, day) do
     on = Enum.map_join(spec.keys, " AND ", &"o.`#{&1}` = n.`#{&1}`")
 
     "INSERT INTO #{qualified(state, spec.table)} (#{column_list(columns)}) " <>
       "SELECT #{column_list(columns, "o.")} FROM #{qualified(state, spec.copy)} o " <>
-      "LEFT ANTI JOIN #{qualified(state, spec.table)} n ON #{on} " <>
-      "WHERE #{window("o.`#{spec.time_column}`", days)}"
+      "LEFT ANTI JOIN #{qualified(state, spec.table)} n ON #{on} AND #{on_day("n.`#{spec.time_column}`", day)} " <>
+      "WHERE #{on_day("o.`#{spec.time_column}`", day)}"
+  end
+
+  defp on_day(column, day) do
+    "#{column} >= '#{day} 00:00:00' AND #{column} < DATE_ADD('#{day} 00:00:00', INTERVAL 1 DAY)"
   end
 
   # The days, newest first, on which a table holds rows inside retention.

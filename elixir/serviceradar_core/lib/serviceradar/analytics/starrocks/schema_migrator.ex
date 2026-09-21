@@ -16,8 +16,8 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
 
   One upgrade cannot be written as a statement at all. A table created before
   daily partitioning has to be rebuilt beside itself and swapped in, which
-  `PartitionRebuild` does before any pending migration runs, because the
-  partitioned rollups in 0017 can only be created over partitioned tables.
+  `PartitionRebuild` does ahead of the first migration that needs partitioned
+  tables (0017's rollups). Migrations before that one are not held up by it.
   """
 
   alias ServiceRadar.Analytics.StarRocks.Env
@@ -203,22 +203,38 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
     end
   end
 
+  # Migrations that only need the tables to exist go first: they take seconds,
+  # and EventWriter may already be loading the columns they add. A rollup
+  # partitioned by day can only be created over partitioned tables, so from the
+  # first such migration on, everything waits for PartitionRebuild -- which on
+  # a warehouse that needs it can take hours, and on any other does nothing.
   defp apply_pending(state) do
     with :ok <- ensure_ledger(state),
-         :ok <- PartitionRebuild.run(state),
          {:ok, applied} <- applied_versions(state) do
-      state.migrations
-      |> Enum.reject(&MapSet.member?(applied, &1.version))
-      |> Enum.reduce_while({:ok, []}, fn migration, {:ok, done} ->
-        case apply_migration(state, migration) do
-          :ok -> {:cont, {:ok, [migration.version | done]}}
-          {:error, reason} -> {:halt, {:error, {migration.version, reason}}}
-        end
-      end)
-      |> case do
-        {:ok, done} -> {:ok, Enum.reverse(done)}
-        error -> error
+      {early, late} =
+        state.migrations
+        |> Enum.reject(&MapSet.member?(applied, &1.version))
+        |> Enum.split_while(&(not Schema.needs_partitioned_tables?(&1)))
+
+      with {:ok, first} <- apply_each(state, early),
+           :ok <- PartitionRebuild.run(state),
+           {:ok, rest} <- apply_each(state, late) do
+        {:ok, first ++ rest}
       end
+    end
+  end
+
+  defp apply_each(state, migrations) do
+    migrations
+    |> Enum.reduce_while({:ok, []}, fn migration, {:ok, done} ->
+      case apply_migration(state, migration) do
+        :ok -> {:cont, {:ok, [migration.version | done]}}
+        {:error, reason} -> {:halt, {:error, {migration.version, reason}}}
+      end
+    end)
+    |> case do
+      {:ok, done} -> {:ok, Enum.reverse(done)}
+      error -> error
     end
   end
 

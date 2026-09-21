@@ -134,40 +134,52 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuildTest do
     assert sent(current) == []
   end
 
-  test "a table is copied a day at a time, newest first, then swapped, caught up and dropped" do
+  test "a table is copied a day at a time, refreshed, swapped, caught up a day at a time, and dropped" do
     # The old table predates `app`, so only the columns both sides have are copied.
     agent =
-      start_warehouse(%{"flows" => old(["id", "time", "bytes"], ["2025-01-01", "2025-01-02"])})
+      start_warehouse(%{
+        "flows" => old(["id", "time", "bytes"], ["2025-01-01", "2025-01-02", "2025-01-03"])
+      })
 
     assert run(agent) == :ok
     assert kinds(agent) == %{"flows" => :partitioned}
 
-    assert [
-             "CREATE TABLE IF NOT EXISTS warehouse.flows__rebuild (",
-             "INSERT INTO warehouse.flows__rebuild (`id`, `time`, `bytes`) SELECT `id`, `time`, `bytes` " <>
-               newest,
-             "INSERT INTO warehouse.flows__rebuild (" <> oldest,
-             "DROP MATERIALIZED VIEW IF EXISTS warehouse.flows_hourly",
-             "ALTER TABLE warehouse.flows SWAP WITH flows__rebuild",
-             "INSERT INTO warehouse.flows (`id`, `time`, `bytes`) SELECT o.`id`, o.`time`, o.`bytes` " <>
-               catch_up,
-             "sleep 5000",
-             "INSERT INTO warehouse.flows (" <> _second_pass,
-             "DROP TABLE IF EXISTS warehouse.flows__rebuild FORCE"
-           ] = sent(agent)
+    copy =
+      "INSERT INTO warehouse.flows__rebuild (`id`, `time`, `bytes`) SELECT `id`, `time`, `bytes` FROM warehouse.flows WHERE "
 
-    assert newest =~
-             "FROM warehouse.flows WHERE `time` >= '2025-01-02 00:00:00' " <>
-               "AND `time` < DATE_ADD('2025-01-02 00:00:00', INTERVAL 1 DAY)"
+    catch_up =
+      "INSERT INTO warehouse.flows (`id`, `time`, `bytes`) SELECT o.`id`, o.`time`, o.`bytes` FROM warehouse.flows__rebuild o "
 
-    assert oldest =~ "`time` >= '2025-01-01 00:00:00'"
+    day = fn column, date ->
+      "#{column} >= '#{date} 00:00:00' AND #{column} < DATE_ADD('#{date} 00:00:00', INTERVAL 1 DAY)"
+    end
 
-    # Only rows the new table lacks, matched on the NEW primary key, and only
-    # inside retention: a row dated year 0 or 2099 never becomes a partition.
-    assert catch_up =~ "FROM warehouse.flows__rebuild o LEFT ANTI JOIN warehouse.flows n"
-    assert catch_up =~ "ON o.`id` = n.`id` AND o.`time` = n.`time`"
-    assert catch_up =~ "o.`time` >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 90 DAY)"
-    assert catch_up =~ "o.`time` < DATE_ADD(UTC_TIMESTAMP(), INTERVAL 1 DAY)"
+    caught_up = fn date ->
+      catch_up <>
+        "LEFT ANTI JOIN warehouse.flows n ON o.`id` = n.`id` AND o.`time` = n.`time` AND #{day.("n.`time`", date)} " <>
+        "WHERE #{day.("o.`time`", date)}"
+    end
+
+    pass = Enum.map(["2025-01-03", "2025-01-02", "2025-01-01"], caught_up)
+
+    assert sent(agent) ==
+             [
+               "CREATE TABLE IF NOT EXISTS warehouse.flows__rebuild (",
+               # Newest first, so the days people look at are ready soonest.
+               copy <> day.("`time`", "2025-01-03"),
+               copy <> day.("`time`", "2025-01-02"),
+               copy <> day.("`time`", "2025-01-01"),
+               # Rows changed in place since their day was copied: the two most
+               # recent days again, while nothing else writes the new table.
+               copy <> day.("`time`", "2025-01-03"),
+               copy <> day.("`time`", "2025-01-02"),
+               "DROP MATERIALIZED VIEW IF EXISTS warehouse.flows_hourly",
+               "ALTER TABLE warehouse.flows SWAP WITH flows__rebuild"
+             ] ++
+               pass ++
+               ["sleep 5000"] ++
+               pass ++
+               ["DROP TABLE IF EXISTS warehouse.flows__rebuild FORCE"]
 
     clear(agent)
     assert run(agent) == :ok
@@ -196,6 +208,24 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuildTest do
            )
   end
 
+  test "one table that cannot be rebuilt does not keep the others unpartitioned" do
+    agent =
+      start_warehouse(%{
+        "flows" => old(["id", "time"], ["2025-01-02"]),
+        "metrics" => old(["timestamp", "series", "value"], ["2025-01-02"])
+      })
+
+    Agent.update(agent, &%{&1 | fail_on: "INSERT INTO warehouse.flows__rebuild"})
+
+    assert {:error, {:partition_rebuild, [{"flows", {:copy, "2025-01-02", _}}]}} =
+             run(agent, %{retention_days: [{"flows", 90}, {"metrics", 90}]})
+
+    assert kinds(agent)["metrics"] == :partitioned
+    assert kinds(agent)["flows"] == :unpartitioned
+    # The table that failed kept its rollup: nothing of it was cut over.
+    refute "DROP MATERIALIZED VIEW IF EXISTS warehouse.flows_hourly" in sent(agent)
+  end
+
   test "the copy is created with the operator's retention, not the DDL default" do
     agent = start_warehouse(%{"flows" => old(["id", "time"], [])})
     parent = self()
@@ -222,7 +252,7 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuildTest do
     Agent.update(agent, &%{&1 | fail_on: ">= '2025-01-02 00:00:00'"})
 
     assert {:error,
-            {:partition_rebuild, "flows", {:copy, "2025-01-02", {:starrocks_mysql, "boom"}}}} =
+            {:partition_rebuild, [{"flows", {:copy, "2025-01-02", {:starrocks_mysql, "boom"}}}]}} =
              run(agent)
 
     # The live table and its rollup were never touched.
@@ -234,9 +264,15 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuildTest do
     assert run(agent) == :ok
     assert kinds(agent) == %{"flows" => :partitioned}
 
-    copies = Enum.filter(sent(agent), &(&1 =~ "INSERT INTO warehouse.flows__rebuild"))
-    assert length(copies) == 2
-    refute Enum.any?(copies, &(&1 =~ "2025-01-03"))
+    # Before the swap: the two unfinished days, then the refresh of the two newest.
+    copies =
+      agent
+      |> sent()
+      |> Enum.take_while(&(not (&1 =~ "SWAP")))
+      |> Enum.filter(&(&1 =~ "INSERT INTO warehouse.flows__rebuild"))
+      |> Enum.map(&(~r/>= '(\S+) / |> Regex.run(&1) |> List.last()))
+
+    assert copies == ["2025-01-02", "2025-01-01", "2025-01-03", "2025-01-02"]
   end
 
   test "a run that died after the swap is finished, not repeated" do
@@ -252,24 +288,25 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuildTest do
 
     statements = sent(agent)
     refute Enum.any?(statements, &(&1 =~ ~r/SWAP|CREATE TABLE|MATERIALIZED VIEW/))
+    # One day held, two passes.
     assert Enum.count(statements, &(&1 =~ "LEFT ANTI JOIN")) == 2
     assert List.last(statements) == "DROP TABLE IF EXISTS warehouse.flows__rebuild FORCE"
   end
 
   test "an arrangement this module never produces is an error, not a guess" do
     both_new = start_warehouse(%{"flows" => new(["id"], []), "flows__rebuild" => new(["id"], [])})
-    assert {:error, {:partition_rebuild, "flows", :unexpected_layout}} = run(both_new)
+    assert {:error, {:partition_rebuild, [{"flows", :unexpected_layout}]}} = run(both_new)
     assert sent(both_new) == []
 
     both_old = start_warehouse(%{"flows" => old(["id"], []), "flows__rebuild" => old(["id"], [])})
-    assert {:error, {:partition_rebuild, "flows", :unexpected_layout}} = run(both_old)
+    assert {:error, {:partition_rebuild, [{"flows", :unexpected_layout}]}} = run(both_old)
     assert sent(both_old) == []
   end
 
   test "a table with no partitioned definition in this release is an error, not a silent skip" do
     agent = start_warehouse(%{"mystery" => old(["id"], [])})
 
-    assert {:error, {:partition_rebuild, "mystery", :no_partitioned_definition}} =
+    assert {:error, {:partition_rebuild, [{"mystery", :no_partitioned_definition}]}} =
              run(agent, %{retention_days: [{"mystery", 30}]})
 
     assert sent(agent) == []
