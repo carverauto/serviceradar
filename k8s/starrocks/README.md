@@ -54,7 +54,12 @@ reach StarRocks 3.5.21 as `UNKNOWN_TYPE`, and a query that names such a column
 is refused at analysis, so CNPG flattens what the device lookups need:
 `device_interface_addresses_catalog` is one row per interface address, and
 `device_inventory_aliases_catalog` is one row per name the inventory knows a
-device by (it exposes five named metadata keys, never the document).
+device by (it exposes five named metadata keys, never the document). Core
+migration `20260921130000_grant_starrocks_reader_device_identity` creates both
+views and issues the grants the device lookups added -- the two views,
+`device_identifiers`, `discovered_interfaces`, and `uid_alt`/`name` on
+`ocsf_devices` -- guarded on the role existing, the way the create-role
+migration below guards its own.
 
 Nothing else is reachable: `CatalogAllowlist` rejects any other table before
 the SQL leaves core, and the grants above are column-scoped to exactly what the
