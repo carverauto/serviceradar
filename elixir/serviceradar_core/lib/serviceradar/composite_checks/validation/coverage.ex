@@ -61,10 +61,7 @@ defmodule ServiceRadar.CompositeChecks.Validation.Coverage do
   defp query_hit?(query, device_uid, _actor) do
     constrained = constrain_uid(query, device_uid)
 
-    case SRQLRunner.query(constrained,
-           limit: 1,
-           text_param_decoder: &decode_cidr_text_param/1
-         ) do
+    case SRQLRunner.query(constrained, limit: 1) do
       {:ok, rows} ->
         Enum.any?(rows, fn row ->
           Map.get(row, "uid") == device_uid or Map.get(row, :uid) == device_uid
@@ -79,17 +76,6 @@ defmodule ServiceRadar.CompositeChecks.Validation.Coverage do
   defp constrain_uid(query, device_uid) do
     escaped = String.replace(to_string(device_uid), "\"", "\\\"")
     SRQLQuery.ensure_target(query, :devices) <> ~s( uid:"#{escaped}")
-  end
-
-  defp decode_cidr_text_param(value) when is_binary(value) do
-    if String.contains?(value, "/") do
-      case ServiceRadar.Types.Cidr.dump_to_native(value, []) do
-        {:ok, inet} -> {:ok, inet}
-        _ -> {:ok, value}
-      end
-    else
-      {:ok, value}
-    end
   end
 
   defp merge_settings(groups, actor) do

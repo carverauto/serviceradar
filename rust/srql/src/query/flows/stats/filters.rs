@@ -302,10 +302,10 @@ pub(in crate::query::flows) fn build_stats_filter_clause(
                     binds.push(FlowSqlBindValue::Text(cidr));
                     match filter.op {
                         FilterOp::Eq => {
-                            Ok("(try_inet(NULLIF(f.src_endpoint_ip, '')) <<= ?::cidr)".to_string())
+                            Ok("(try_inet(NULLIF(f.src_endpoint_ip, '')) <<= ?::text::cidr)".to_string())
                         }
                         FilterOp::NotEq => Ok(
-                            "(try_inet(NULLIF(f.src_endpoint_ip, '')) IS NULL OR NOT (try_inet(NULLIF(f.src_endpoint_ip, '')) <<= ?::cidr))"
+                            "(try_inet(NULLIF(f.src_endpoint_ip, '')) IS NULL OR NOT (try_inet(NULLIF(f.src_endpoint_ip, '')) <<= ?::text::cidr))"
                                 .to_string(),
                         ),
                         _ => unreachable!(),
@@ -323,11 +323,11 @@ pub(in crate::query::flows) fn build_stats_filter_clause(
                     binds.push(FlowSqlBindValue::TextArray(out));
                     match filter.op {
                         FilterOp::In => Ok(
-                            "(try_inet(NULLIF(f.src_endpoint_ip, '')) <<= ANY(?::cidr[]))"
+                            "(try_inet(NULLIF(f.src_endpoint_ip, '')) <<= ANY(?::text[]::cidr[]))"
                                 .to_string(),
                         ),
                         FilterOp::NotIn => Ok(
-                            "(try_inet(NULLIF(f.src_endpoint_ip, '')) IS NULL OR NOT (try_inet(NULLIF(f.src_endpoint_ip, '')) <<= ANY(?::cidr[])))"
+                            "(try_inet(NULLIF(f.src_endpoint_ip, '')) IS NULL OR NOT (try_inet(NULLIF(f.src_endpoint_ip, '')) <<= ANY(?::text[]::cidr[])))"
                                 .to_string(),
                         ),
                         _ => unreachable!(),
@@ -345,10 +345,10 @@ pub(in crate::query::flows) fn build_stats_filter_clause(
                 binds.push(FlowSqlBindValue::Text(cidr));
                 match filter.op {
                         FilterOp::Eq => Ok(
-                            "(try_inet(NULLIF(f.dst_endpoint_ip, '')) <<= ?::cidr)".to_string(),
+                            "(try_inet(NULLIF(f.dst_endpoint_ip, '')) <<= ?::text::cidr)".to_string(),
                         ),
                         FilterOp::NotEq => Ok(
-                            "(try_inet(NULLIF(f.dst_endpoint_ip, '')) IS NULL OR NOT (try_inet(NULLIF(f.dst_endpoint_ip, '')) <<= ?::cidr))"
+                            "(try_inet(NULLIF(f.dst_endpoint_ip, '')) IS NULL OR NOT (try_inet(NULLIF(f.dst_endpoint_ip, '')) <<= ?::text::cidr))"
                                 .to_string(),
                         ),
                         _ => unreachable!(),
@@ -366,11 +366,11 @@ pub(in crate::query::flows) fn build_stats_filter_clause(
                 binds.push(FlowSqlBindValue::TextArray(out));
                 match filter.op {
                         FilterOp::In => Ok(
-                            "(try_inet(NULLIF(f.dst_endpoint_ip, '')) <<= ANY(?::cidr[]))"
+                            "(try_inet(NULLIF(f.dst_endpoint_ip, '')) <<= ANY(?::text[]::cidr[]))"
                                 .to_string(),
                         ),
                         FilterOp::NotIn => Ok(
-                            "(try_inet(NULLIF(f.dst_endpoint_ip, '')) IS NULL OR NOT (try_inet(NULLIF(f.dst_endpoint_ip, '')) <<= ANY(?::cidr[])))"
+                            "(try_inet(NULLIF(f.dst_endpoint_ip, '')) IS NULL OR NOT (try_inet(NULLIF(f.dst_endpoint_ip, '')) <<= ANY(?::text[]::cidr[])))"
                                 .to_string(),
                         ),
                         _ => unreachable!(),
@@ -390,14 +390,14 @@ pub(in crate::query::flows) fn build_stats_filter_clause(
                 binds.push(FlowSqlBindValue::Text(cidr));
 
                 match filter.op {
-                    FilterOp::Eq => Ok("(try_inet(NULLIF(f.src_endpoint_ip, '')) <<= ?::cidr \
-                         OR try_inet(NULLIF(f.dst_endpoint_ip, '')) <<= ?::cidr)"
+                    FilterOp::Eq => Ok("(try_inet(NULLIF(f.src_endpoint_ip, '')) <<= ?::text::cidr \
+                         OR try_inet(NULLIF(f.dst_endpoint_ip, '')) <<= ?::text::cidr)"
                         .to_string()),
                     // "Neither endpoint is inside the block": the AND of the two NULL-safe
                     // per-side negatives, not their OR.
                     FilterOp::NotEq => Ok(
-                        "((try_inet(NULLIF(f.src_endpoint_ip, '')) IS NULL OR NOT (try_inet(NULLIF(f.src_endpoint_ip, '')) <<= ?::cidr)) \
-                         AND (try_inet(NULLIF(f.dst_endpoint_ip, '')) IS NULL OR NOT (try_inet(NULLIF(f.dst_endpoint_ip, '')) <<= ?::cidr)))"
+                        "((try_inet(NULLIF(f.src_endpoint_ip, '')) IS NULL OR NOT (try_inet(NULLIF(f.src_endpoint_ip, '')) <<= ?::text::cidr)) \
+                         AND (try_inet(NULLIF(f.dst_endpoint_ip, '')) IS NULL OR NOT (try_inet(NULLIF(f.dst_endpoint_ip, '')) <<= ?::text::cidr)))"
                             .to_string(),
                     ),
                     _ => unreachable!(),

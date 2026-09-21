@@ -119,6 +119,12 @@ fn device_addr_clause(filter: &Filter) -> Result<(String, Vec<SqlBindValue>)> {
 }
 
 /// Single-side CIDR containment against a flow endpoint IP column.
+///
+/// CIDR values are bound as `text` and cast through `::text` before `::cidr`: a
+/// bare `?::cidr` makes PostgreSQL infer the parameter as `cidr`, which a
+/// text-bound parameter cannot encode in driver-backed callers of this SQL
+/// (`%Postgrex.INET{}` expected). The explicit `::text` keeps the parameter text
+/// so any driver can bind it; the value cast still runs in the database.
 fn cidr_clause(ip_col: &str, filter: &Filter) -> Result<(String, Vec<SqlBindValue>)> {
     match filter.op {
         FilterOp::Eq | FilterOp::NotEq => {
@@ -126,10 +132,10 @@ fn cidr_clause(ip_col: &str, filter: &Filter) -> Result<(String, Vec<SqlBindValu
             let binds = vec![SqlBindValue::Text(cidr)];
             let clause = match filter.op {
                 FilterOp::Eq => {
-                    format!("(try_inet(NULLIF({ip_col}, '')) <<= ?::cidr)")
+                    format!("(try_inet(NULLIF({ip_col}, '')) <<= ?::text::cidr)")
                 }
                 FilterOp::NotEq => format!(
-                    "(try_inet(NULLIF({ip_col}, '')) IS NULL OR NOT (try_inet(NULLIF({ip_col}, '')) <<= ?::cidr))"
+                    "(try_inet(NULLIF({ip_col}, '')) IS NULL OR NOT (try_inet(NULLIF({ip_col}, '')) <<= ?::text::cidr))"
                 ),
                 _ => unreachable!(),
             };
@@ -154,10 +160,10 @@ fn cidr_clause(ip_col: &str, filter: &Filter) -> Result<(String, Vec<SqlBindValu
             let binds = vec![SqlBindValue::TextArray(out)];
             let clause = match filter.op {
                 FilterOp::In => {
-                    format!("(try_inet(NULLIF({ip_col}, '')) <<= ANY(?::cidr[]))")
+                    format!("(try_inet(NULLIF({ip_col}, '')) <<= ANY(?::text[]::cidr[]))")
                 }
                 FilterOp::NotIn => format!(
-                    "(try_inet(NULLIF({ip_col}, '')) IS NULL OR NOT (try_inet(NULLIF({ip_col}, '')) <<= ANY(?::cidr[])))"
+                    "(try_inet(NULLIF({ip_col}, '')) IS NULL OR NOT (try_inet(NULLIF({ip_col}, '')) <<= ANY(?::text[]::cidr[])))"
                 ),
                 _ => unreachable!(),
             };
@@ -179,11 +185,11 @@ fn bidirectional_cidr_clause(filter: &Filter) -> Result<(String, Vec<SqlBindValu
             let cidr = normalize_cidr_literal(filter.value.as_scalar()?)?;
             let binds = vec![SqlBindValue::Text(cidr.clone()), SqlBindValue::Text(cidr)];
             let clause = match filter.op {
-                FilterOp::Eq => "(try_inet(NULLIF(src_endpoint_ip, '')) <<= ?::cidr \
-                     OR try_inet(NULLIF(dst_endpoint_ip, '')) <<= ?::cidr)"
+                FilterOp::Eq => "(try_inet(NULLIF(src_endpoint_ip, '')) <<= ?::text::cidr \
+                     OR try_inet(NULLIF(dst_endpoint_ip, '')) <<= ?::text::cidr)"
                     .to_string(),
-                FilterOp::NotEq => "((try_inet(NULLIF(src_endpoint_ip, '')) IS NULL OR NOT (try_inet(NULLIF(src_endpoint_ip, '')) <<= ?::cidr)) \
-                     AND (try_inet(NULLIF(dst_endpoint_ip, '')) IS NULL OR NOT (try_inet(NULLIF(dst_endpoint_ip, '')) <<= ?::cidr)))"
+                FilterOp::NotEq => "((try_inet(NULLIF(src_endpoint_ip, '')) IS NULL OR NOT (try_inet(NULLIF(src_endpoint_ip, '')) <<= ?::text::cidr)) \
+                     AND (try_inet(NULLIF(dst_endpoint_ip, '')) IS NULL OR NOT (try_inet(NULLIF(dst_endpoint_ip, '')) <<= ?::text::cidr)))"
                     .to_string(),
                 _ => unreachable!(),
             };

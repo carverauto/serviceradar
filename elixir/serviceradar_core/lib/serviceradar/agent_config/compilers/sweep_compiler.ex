@@ -39,7 +39,6 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepProfile
   alias ServiceRadar.SweepJobs.SweepProfile.BannerGrab
-  alias ServiceRadar.Types.Cidr
 
   require Ash.Query
   require Logger
@@ -305,7 +304,19 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     |> Map.values()
     |> Enum.sort_by(& &1["network"])
   rescue
-    _ -> []
+    error ->
+      # A group whose target query cannot run still compiles with the targets that
+      # did resolve: letting the error reach `compile/3` would fail the whole
+      # config, and a failed compile pushes an empty config to every agent. But
+      # swallowing it silently means the group quietly sweeps nothing, which is
+      # how a driver encoding failure hid until 4471. Log the group and query so
+      # the failure is visible.
+      Logger.error(
+        "SweepCompiler: SRQL target query raised for group #{inspect(group.id)} " <>
+          "(#{inspect(query)}): #{Exception.message(error)}"
+      )
+
+      []
   end
 
   defp get_device_targets_from_query(_query, _group, _actor, _modes), do: []
@@ -320,8 +331,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     case SRQLRunner.query_page(query,
            limit: srql_page_limit(),
            cursor: cursor,
-           direction: "next",
-           text_param_decoder: &decode_cidr_text_param/1
+           direction: "next"
          ) do
       {:ok, %{rows: rows, next_cursor: next_cursor}} ->
         acc = add_device_targets(acc, rows, group, modes)
@@ -333,7 +343,10 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
         end
 
       {:error, reason} ->
-        Logger.warning("SweepCompiler: SRQL query failed - #{inspect(reason)}")
+        Logger.warning(
+          "SweepCompiler: SRQL query failed for group #{inspect(group.id)} - #{inspect(reason)}"
+        )
+
         acc
     end
   end
@@ -417,17 +430,6 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
 
   defp valid_ip_address?(value) do
     value != "" and match?({:ok, _}, :inet.parse_strict_address(String.to_charlist(value)))
-  end
-
-  defp decode_cidr_text_param(value) when is_binary(value) do
-    if String.contains?(value, "/") do
-      case Cidr.dump_to_native(value, []) do
-        {:ok, inet} -> {:ok, inet}
-        _ -> {:ok, value}
-      end
-    else
-      {:ok, value}
-    end
   end
 
   defp merge_ports(nil, group), do: normalize_ports_override(group.ports, [])
