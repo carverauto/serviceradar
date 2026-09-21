@@ -98,6 +98,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.DbTimeHelpers do
       defp sparkline_bucket_for("last_24h"), do: "15 minutes"
       defp sparkline_bucket_for("last_7d"), do: "1 hour"
       defp sparkline_bucket_for("last_30d"), do: "6 hours"
+      defp sparkline_bucket_for("last_90d"), do: "1 day"
       defp sparkline_bucket_for(_), do: sparkline_bucket_for("last_24h")
 
       defp bucket_seconds_for("last_1h"), do: 60
@@ -105,6 +106,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.DbTimeHelpers do
       defp bucket_seconds_for("last_24h"), do: 900
       defp bucket_seconds_for("last_7d"), do: 3600
       defp bucket_seconds_for("last_30d"), do: 21_600
+      defp bucket_seconds_for("last_90d"), do: 86_400
       defp bucket_seconds_for(_), do: bucket_seconds_for("last_24h")
 
       defp sparkline_bucket_for_from_seconds(60), do: "1 minute"
@@ -112,6 +114,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.DbTimeHelpers do
       defp sparkline_bucket_for_from_seconds(900), do: "15 minutes"
       defp sparkline_bucket_for_from_seconds(3600), do: "1 hour"
       defp sparkline_bucket_for_from_seconds(21_600), do: "6 hours"
+      defp sparkline_bucket_for_from_seconds(86_400), do: "1 day"
       defp sparkline_bucket_for_from_seconds(_), do: sparkline_bucket_for("last_24h")
 
       defp bucket_interval_literal("1 minute"), do: "'1 minute'::interval"
@@ -119,6 +122,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.DbTimeHelpers do
       defp bucket_interval_literal("15 minutes"), do: "'15 minutes'::interval"
       defp bucket_interval_literal("1 hour"), do: "'1 hour'::interval"
       defp bucket_interval_literal("6 hours"), do: "'6 hours'::interval"
+      defp bucket_interval_literal("1 day"), do: "'1 day'::interval"
       defp bucket_interval_literal(_), do: bucket_interval_literal(sparkline_bucket_for("last_24h"))
 
       defp time_window_label(value) do
