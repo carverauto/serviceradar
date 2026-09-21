@@ -25,12 +25,15 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
   rollups alive through the copy, and a warehouse without the room fails its
   copies on every retry until it has some.
 
-  A table that fails is left alone, rollup included, and does not keep the
-  others unpartitioned. It does keep 0017 pending, though, so when any table
-  fails, the tables that did cut over get their hourly rollup back here, from
-  the newest definition this release ships. A day-partitioned rollup is valid
-  over a partitioned base table whatever state the other tables are in. With
-  no failure nothing is recreated: 0017 runs next and would discard the work.
+  A table whose copy fails is left alone, rollup included, and does not keep
+  the others unpartitioned. It does keep 0017 pending, though, so a run that
+  ends with any failure gives every table that is partitioned, finished with
+  its old table, and without an hourly rollup that rollup back, from the newest
+  definition this release ships. That is read from the warehouse like the rest,
+  so it covers a table an earlier run cut over and is tried again by every run
+  until it holds. A day-partitioned rollup is valid over a partitioned base
+  table whatever state the other tables are in. With no failure nothing is
+  recreated: 0017 runs next and would discard the work.
 
   Nothing here is recorded in the ledger. Every run reads what the warehouse
   holds and continues from there. A day is one atomic INSERT, so a copy that
@@ -92,15 +95,14 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
     with {:ok, layout} <- layout(state),
          {:ok, plans} <- plan(state, retention, layout) do
       {copied, copy_failures} = attempt(plans, &copy(state, &1))
-      {cut_over, cut_over_failures} = attempt(copied, &cut_over(state, &1))
+      {_cut_over, cut_over_failures} = attempt(copied, &cut_over(state, &1))
 
       case copy_failures ++ cut_over_failures do
         [] ->
           :ok
 
         failures ->
-          {_restored, rollup_failures} = attempt(cut_over, &restore_rollup(state, &1))
-          {:error, {:partition_rebuild, failures ++ rollup_failures}}
+          {:error, {:partition_rebuild, failures ++ restore_rollups(state, retention)}}
       end
     end
   end
@@ -190,14 +192,6 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
     end
   end
 
-  defp swap(state, %{spec: spec} = plan) do
-    with :ok <-
-           exec(state, "DROP MATERIALIZED VIEW IF EXISTS #{qualified(state, spec.table)}_hourly"),
-         :ok <- exec(state, "ALTER TABLE #{qualified(state, spec.table)} SWAP WITH #{spec.copy}") do
-      cut_over(state, %{plan | step: :finish})
-    end
-  end
-
   # From here `spec.copy` names the OLD table, and `spec.table` the new one.
   defp cut_over(state, %{step: :finish, spec: spec, days: days}) do
     with {:ok, columns} <- shared_columns(state, spec.copy, spec.table),
@@ -208,15 +202,42 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
     end
   end
 
-  # Only reached when some other table failed, which keeps the migration that
-  # owns the rollups pending. A table without one (logs) has nothing to restore.
-  defp restore_rollup(state, %{spec: spec}) do
-    pattern =
-      ~r/^CREATE\s+MATERIALIZED\s+VIEW\s+IF\s+NOT\s+EXISTS\s+\S+\.#{spec.table}_hourly\b/i
+  defp swap(state, %{spec: spec} = plan) do
+    with :ok <-
+           exec(state, "DROP MATERIALIZED VIEW IF EXISTS #{qualified(state, spec.table)}_hourly"),
+         :ok <- exec(state, "ALTER TABLE #{qualified(state, spec.table)} SWAP WITH #{spec.copy}") do
+      cut_over(state, %{plan | step: :finish})
+    end
+  end
+
+  # Only reached when some table failed, which keeps the migration that owns
+  # the rollups pending. The layout lists materialized views too, so it says
+  # which rollups are missing. A table without one (logs) has nothing to restore.
+  defp restore_rollups(state, retention) do
+    case layout(state) do
+      {:ok, layout} ->
+        for {table, _days} <- retention,
+            Map.get(layout, table) == :partitioned,
+            not Map.has_key?(layout, table <> @suffix),
+            not Map.has_key?(layout, table <> "_hourly"),
+            statement = rollup_statement(state, table),
+            {:error, reason} <- [exec(state, statement)] do
+          Logger.error("StarRocks rollup of #{table} could not be restored: #{inspect(reason)}")
+          {table, {:rollup, reason}}
+        end
+
+      {:error, reason} ->
+        Logger.error("StarRocks rollups could not be restored: #{inspect(reason)}")
+        [{:rollups, reason}]
+    end
+  end
+
+  defp rollup_statement(state, table) do
+    pattern = ~r/^CREATE\s+MATERIALIZED\s+VIEW\s+IF\s+NOT\s+EXISTS\s+\S+\.#{table}_hourly\b/i
 
     case last_statement(state, pattern) do
-      nil -> :ok
-      statement -> exec(state, Schema.retarget(statement, state.database, state.replication_num))
+      nil -> nil
+      statement -> Schema.retarget(statement, state.database, state.replication_num)
     end
   end
 

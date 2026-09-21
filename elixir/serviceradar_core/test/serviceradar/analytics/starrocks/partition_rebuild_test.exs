@@ -130,6 +130,14 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuildTest do
         swapped = %{table => state.tables[copy], copy => state.tables[table]}
         %{state | tables: Map.merge(state.tables, swapped)}
 
+      match = Regex.run(~r/^CREATE MATERIALIZED VIEW IF NOT EXISTS warehouse\.(\w+)\s/, sql) ->
+        [_, view] = match
+        put_in(state.tables, Map.put_new(state.tables, view, new([], [])))
+
+      match = Regex.run(~r/^DROP MATERIALIZED VIEW IF EXISTS warehouse\.(\w+)$/, sql) ->
+        [_, view] = match
+        %{state | tables: Map.delete(state.tables, view)}
+
       match = Regex.run(~r/^DROP TABLE IF EXISTS warehouse\.(\w+) FORCE$/, sql) ->
         [_, table] = match
         %{state | tables: Map.delete(state.tables, table)}
@@ -292,6 +300,65 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuildTest do
     assert sql =~ "FROM warehouse.metrics"
     assert sql =~ ~s("replication_num" = "1")
     refute sql =~ "serviceradar."
+  end
+
+  test "a rollup that could not be restored is restored by the next run, once" do
+    agent =
+      start_warehouse(%{
+        "flows" => old(["id", "time"], ["2025-01-02"]),
+        "metrics" => old(["timestamp", "series", "value"], ["2025-01-02"]),
+        "metrics_hourly" => new([], [])
+      })
+
+    retention = %{retention_days: [{"flows", 90}, {"metrics", 90}]}
+    flows_copy = "INSERT INTO warehouse.flows__rebuild"
+    Agent.update(agent, &%{&1 | fail_on: [flows_copy, "CREATE MATERIALIZED VIEW"]})
+
+    assert {:error, {:partition_rebuild, failures}} = run(agent, retention)
+    assert [{"flows", {:copy, "2025-01-02", _}}, {"metrics", {:rollup, _}}] = failures
+    assert kinds(agent)["metrics"] == :partitioned
+    refute Map.has_key?(kinds(agent), "metrics_hourly")
+
+    # `metrics` has nothing left to rebuild, and `flows` is still failing.
+    Agent.update(agent, &%{&1 | fail_on: flows_copy, sent: []})
+
+    assert {:error, {:partition_rebuild, [{"flows", {:copy, "2025-01-02", _}}]}} =
+             run(agent, retention)
+
+    assert "CREATE MATERIALIZED VIEW IF NOT EXISTS warehouse.metrics_hourly" in sent(agent)
+    refute Enum.any?(sent(agent), &(&1 =~ "warehouse.metrics SWAP"))
+    assert kinds(agent)["metrics_hourly"] == :partitioned
+
+    clear(agent)
+    assert {:error, _} = run(agent, retention)
+    refute Enum.any?(sent(agent), &(&1 =~ "MATERIALIZED VIEW"))
+  end
+
+  test "a table an earlier run cut over gets its rollup back; one still holding its old table waits" do
+    agent =
+      start_warehouse(%{
+        "flows" => old(["id", "time"], ["2025-01-02"]),
+        "metrics" => new(["timestamp", "series", "value"], ["2025-01-02"])
+      })
+
+    retention = %{retention_days: [{"flows", 90}, {"metrics", 90}]}
+    Agent.update(agent, &%{&1 | fail_on: "INSERT INTO warehouse.flows__rebuild"})
+
+    assert {:error, {:partition_rebuild, [{"flows", _}]}} = run(agent, retention)
+    assert "CREATE MATERIALIZED VIEW IF NOT EXISTS warehouse.metrics_hourly" in sent(agent)
+
+    unfinished =
+      start_warehouse(%{
+        "metrics" => new(["timestamp", "series", "value"], ["2025-01-02"]),
+        "metrics__rebuild" => old(["timestamp", "series", "value"], ["2025-01-02"])
+      })
+
+    Agent.update(unfinished, &%{&1 | fail_on: "LEFT ANTI JOIN"})
+
+    assert {:error, {:partition_rebuild, [{"metrics", {:catch_up, "2025-01-02", _}}]}} =
+             run(unfinished, %{retention_days: [{"metrics", 90}]})
+
+    refute Enum.any?(sent(unfinished), &(&1 =~ "MATERIALIZED VIEW"))
   end
 
   test "listing a table's days carries its own timeout, which the server's default would cut short" do
