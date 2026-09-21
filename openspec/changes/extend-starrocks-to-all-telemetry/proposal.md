@@ -13,19 +13,20 @@ than database volume, and the now-partitioned tables expire by dropping a day. O
 telemetry kept for a long time for little money, and CNPG reduced to what has to be a
 transactional database.
 
-The first production cutover also showed what the existing proposal under-specified. Cutting the
+The first cutover also showed what the existing proposal under-specified. Cutting the
 `metrics` dataset over looked correct on the queries that were checked and was wrong on the ones
-that were not: `agg:rate` was compiled as a sum of cumulative counters, so a 1 Gbit/s interface
-charted hundreds of GB/s; a series could not be split by a tag, so the per-core CPU chart failed;
+that were not: `agg:rate` was compiled as a sum of cumulative counters, so an interface charted
+rates orders of magnitude above its line speed; a series could not be split by a tag, so the per-core CPU chart failed;
 `sort:desc limit:N` kept the oldest buckets instead of the newest. An inventory of every chart
 query then found the same class of gap waiting in `logs` and `events`: `rollup_stats:` is
 silently ignored by the StarRocks dialect and returns raw rows, which the severity cards read as
 zeros with no error, and their filter vocabulary (`severity:`, `log_level:`, `event_type:`,
 `device_id:`) is refused. A clause that is ignored is worse than one that is refused.
 
-Separately, the first online partition rebuild of a real warehouse showed that a day is too
-large a unit of maintenance work: day-sized statements exceeded the compute nodes' memory limit
-and each node was OOM-killed once before a retry converged (issue #4525).
+Separately, the first online partition rebuild showed that a day is too large a unit of
+maintenance work: on a modest warehouse, day-sized statements exceed a compute node's memory
+limit and the node is OOM-killed (issue #4525). The same issue records that the migration lock
+wait is cancelled by Postgres `statement_timeout`.
 
 ## What Changes
 
@@ -47,14 +48,18 @@ and each node was OOM-killed once before a retry converged (issue #4525).
   single-owner path, SRQL dataset routing, and rollups as async materialized views.
 - **Retire telemetry from CNPG, one dataset at a time, as an explicit one-way step.** After a
   dataset's reads are cut over, its non-UI consumers are migrated and it has run clean for a
-  declared soak period, an operator action stops CNPG writes for it and a later, separate action
-  drops its hypertable and continuous aggregates. Nothing retires automatically.
+  declared soak period, an operator action stops CNPG writes for it. After a second, shorter
+  retirement hold with writes off and no reader errors, a separate action drops its hypertable
+  and continuous aggregates. Nothing retires automatically.
 - **State what stays in CNPG**: current state and anything updated in place under transactional
   guarantees -- inventory and identity, credentials, RBAC and configuration, alert and rule
   state, jobs, and the enrichment caches the warehouse joins to through the read-only catalog.
 - **Bounded maintenance.** Warehouse maintenance that moves data (the partition rebuild, future
   backfills) works in units sized to the smallest supported compute node and backs off on
   memory pressure instead of retrying into it.
+- **The migration lock wait is not cancelled by a timeout.** The transaction that holds the
+  warehouse migration lock clears Postgres `statement_timeout` and `lock_timeout` for itself, so
+  a replica waiting behind a long rebuild keeps waiting instead of failing (issue #4525).
 - **Decide log search honestly.** Free-text search over long log retention is accepted only on
   measured evidence of which index types the deployed StarRocks profile supports.
 
@@ -75,4 +80,4 @@ and each node was OOM-killed once before a retry converged (issue #4525).
 - Supersedes nothing. `add-tiered-telemetry-offload` addresses cold storage for CNPG-resident
   telemetry; once a dataset is retired from CNPG it no longer applies to that dataset.
 - Risk: write retirement removes the rollback path for that dataset. That is the purpose of the
-  soak and of making it a deliberate operator action.
+  soak that precedes it and of making it a deliberate operator action.

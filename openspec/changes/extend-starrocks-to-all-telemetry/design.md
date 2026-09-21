@@ -2,15 +2,14 @@
 
 ## Context
 
-Where things stand (demo, 2026-09-21): flows are read only from the warehouse; metrics are
-being cut over; logs and events are shadow-written and read from CNPG; nothing else is in the
-warehouse. All four warehouse tables are partitioned by day with per-dataset retention, and the
+Where things stand, in a deployment that has cut flows over: flows are read only from the
+warehouse; metrics are being cut over; logs and events are shadow-written and read from CNPG;
+nothing else is in the warehouse. All four warehouse tables are partitioned by day with per-dataset retention, and the
 three hourly rollups are day-partitioned async materialized views. CNPG still receives every
 telemetry write.
 
-CNPG telemetry by size in that deployment, to show where the money is: flows 79 GB, scalar
-metrics 24 GB, MTR 1.9 GB, logs 1.1 GB, OTel metrics 0.95 GB, events 0.57 GB, traces 0.3 GB,
-BMP and service status 0.4 GB. (Rounded figures from one lab deployment, given for proportion.)
+Where the money is: flows and scalar metrics dominate CNPG telemetry storage by roughly two
+orders of magnitude over every other dataset, which is why they are retired first.
 
 ## Goals / Non-Goals
 
@@ -26,7 +25,13 @@ BMP and service status 0.4 GB. (Rounded figures from one lab deployment, given f
 ### 1. The order is fixed, per dataset, and only the last two steps are one-way
 
 `shadow write -> dialect parity proven -> reads cut over -> non-UI consumers migrated -> soak ->
-stop CNPG writes -> drop CNPG storage`.
+stop CNPG writes -> retirement hold -> drop CNPG storage`.
+
+The two waits are distinct. The **soak** precedes "stop CNPG writes", because that is the first
+irreversible step: it runs with reads cut over, non-UI consumers migrated and CNPG still
+written, so a problem found during it is still a configuration revert. The **retirement hold**
+is the shorter wait between "stop CNPG writes" and "drop CNPG storage": it proves nothing still
+reads the now-frozen CNPG history before that history is destroyed.
 
 Everything up to and including "reads cut over" is reversible by removing the dataset from
 `cutoverDatasets`, because CNPG is still written. Flows are the existing exception: they have no
@@ -85,14 +90,14 @@ the copy.
 
 Substring search becomes a scan bounded by day partitions and the rest of the predicate.
 StarRocks offers n-gram bloom-filter and inverted indexes; whether the inverted index is
-available in shared-data mode on the deployed version is NOT established here. Task 2.6
+available in shared-data mode on the deployed version is NOT established here. Task 2.5
 measures it. If it is not available, the documented behaviour is "search is bounded by time
 range and structured filters", not a promise of fast free-text search over a year.
 
 ## Risks / Trade-offs
 
-- Retiring CNPG writes removes rollback. Mitigated by the soak, by the two separate operator
-  actions, and by doing the largest-saving, longest-proven dataset (flows) first.
+- Retiring CNPG writes removes rollback. Mitigated by the soak before it, by the retirement
+  hold before the drop, by the two separate operator actions, and by doing the largest-saving, longest-proven dataset (flows) first.
 - Freshness is the Stream Load batch interval (seconds). A live log tail shows it; dashboards do
   not. Stated in operator docs rather than hidden.
 - Trace-by-id is a point lookup against object storage: tens to low hundreds of milliseconds
@@ -109,6 +114,7 @@ before the next starts its one-way steps; reversible steps may overlap.
 ## Open Questions
 
 - Soak period before write retirement: proposed 14 days of clean operation per dataset.
+  Retirement hold before the storage drop: proposed 7 days with no reader errors.
 - Whether history already in CNPG is backfilled into the warehouse before its hypertable is
   dropped, or allowed to age out. Proposed: backfill flows and metrics (large, valuable), let
   the rest age out under their existing CNPG retention before the drop.

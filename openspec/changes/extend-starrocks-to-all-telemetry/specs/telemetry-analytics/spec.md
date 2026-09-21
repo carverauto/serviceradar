@@ -39,12 +39,17 @@ The system SHALL keep in CNPG the data that is updated in place under transactio
 - **AND** that relation is not copied into the warehouse as telemetry
 
 ### Requirement: Telemetry is retired from CNPG by explicit one-way steps
-The system SHALL stop CNPG writes for a dataset only by an explicit per-dataset operator setting, SHALL refuse that setting while the dataset's reads are not cut over, and SHALL drop the dataset's CNPG storage only by a separate, later, reviewed migration.
-Neither step is implied by the other, by a cutover, or by an upgrade.
+The system SHALL stop CNPG writes for a dataset only by an explicit per-dataset operator setting, SHALL refuse that setting unless the dataset's reads are cut over, its non-UI consumer inventory is recorded complete with every consumer migrated, and the declared soak period has elapsed since cutover with no reader errors, and SHALL drop the dataset's CNPG storage only by a separate, reviewed migration after a distinct, shorter retirement hold with writes off.
+The soak precedes write retirement because stopping writes is the first irreversible step; the retirement hold precedes the storage drop. Neither step is implied by the other, by a cutover, or by an upgrade.
 
 #### Scenario: Writes are disabled for a dataset still read from CNPG
 - **WHEN** an operator disables CNPG writes for a dataset that is not in the cutover list
 - **THEN** startup refuses the configuration with a reason
+- **AND** CNPG writes for that dataset continue
+
+#### Scenario: Writes are disabled before the soak has elapsed
+- **WHEN** an operator disables CNPG writes for a cut-over dataset whose declared soak period has not elapsed, or has recorded reader errors
+- **THEN** startup refuses the configuration with a reason naming the unmet condition
 - **AND** CNPG writes for that dataset continue
 
 #### Scenario: Reads are cut over but writes are not retired
@@ -54,19 +59,20 @@ Neither step is implied by the other, by a cutover, or by an upgrade.
 
 #### Scenario: A non-UI consumer still reads the CNPG table
 - **WHEN** an alert rule, promotion rule, forecast or backfill still reads a dataset's CNPG relation
-- **THEN** that dataset's CNPG writes are not retired
+- **THEN** the dataset's consumer inventory is not complete, and startup refuses to disable its CNPG writes
 - **AND** the consumer inventory is established by searching for the relation and its aggregates, not for a known module
 
 #### Scenario: Storage is dropped
-- **WHEN** CNPG writes for a dataset have been off for the declared soak period with no reader errors
+- **WHEN** CNPG writes for a dataset have been off for the declared retirement hold with no reader errors
 - **THEN** a separate migration may drop its hypertable, continuous aggregates and policies
 - **AND** the migration is not part of the release that disabled the writes
 
 ### Requirement: Warehouse maintenance is bounded by the smallest supported node
 The system SHALL perform warehouse maintenance that moves data in units sized so that a single statement stays within the memory of the smallest supported compute node, SHALL resume at that unit, and SHALL lengthen its retry interval on a memory-limit error instead of retrying at the normal rate.
+The transaction that holds the warehouse migration lock SHALL clear Postgres `statement_timeout` and `lock_timeout` for itself only, so waiting for a long maintenance run is not cancelled (issue #4525).
 
 #### Scenario: A legacy table is rebuilt on a small warehouse
-- **WHEN** a table holding several million rows per day is rebuilt onto daily partitions
+- **WHEN** a table large enough that one day exceeds a compute node's memory is rebuilt onto daily partitions
 - **THEN** no statement copies or joins more than one bounded unit of it
 - **AND** no compute node is terminated for memory by the rebuild
 
@@ -74,6 +80,11 @@ The system SHALL perform warehouse maintenance that moves data in units sized so
 - **WHEN** a maintenance statement fails with the warehouse's memory-limit error
 - **THEN** the next attempt waits substantially longer than a normal retry
 - **AND** the log states how many units remain
+
+#### Scenario: A replica waits for the migration lock behind a long rebuild
+- **WHEN** one replica holds the warehouse migration lock for longer than the database's configured `statement_timeout` or `lock_timeout`
+- **THEN** the waiting replica's lock transaction is not cancelled by either timeout, because it clears both for itself
+- **AND** the timeouts of every other transaction are unchanged
 
 ### Requirement: Log search behaviour is stated from measurement
 The system SHALL document free-text log search over warehouse retention according to measured support on the deployed StarRocks profile, and SHALL NOT present search over long retention as indexed unless an index type supporting it is verified available in that profile.
