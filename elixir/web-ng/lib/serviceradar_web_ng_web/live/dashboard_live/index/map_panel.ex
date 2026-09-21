@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.MapPanel do
 
   alias ServiceRadarWebNGWeb.DashboardLive.Index.Common
   alias ServiceRadarWebNGWeb.DashboardLive.Window
+  alias ServiceRadarWebNGWeb.DashboardLive.WindowRefresh
 
   attr(:dashboard, :map, required: true)
 
@@ -13,6 +14,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.MapPanel do
       |> Map.merge(dashboard)
       |> Map.put_new(:netflow_window, "last_15m")
       |> Map.put_new(:window_errors, %{})
+      |> Map.put_new(:window_requests, %{})
 
     ~H"""
     <Common.panel title={map_panel_title(@map_view)} class="sr-ops-map-panel">
@@ -43,6 +45,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.MapPanel do
           id="dashboard-netflow-window"
           phx-hook="DashboardWindowSelect"
           data-window-kind="netflow"
+          aria-busy={to_string(WindowRefresh.busy?(@window_requests, "netflow"))}
           data-window={@netflow_window}
           class="sr-ops-select"
           aria-label="NetFlow map time window"

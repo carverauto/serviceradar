@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.ObservabilityPanel do
   alias ServiceRadarWebNGWeb.DashboardLive.Index.EventsPanel
   alias ServiceRadarWebNGWeb.DashboardLive.Index.MetricsPanel
   alias ServiceRadarWebNGWeb.DashboardLive.Window
+  alias ServiceRadarWebNGWeb.DashboardLive.WindowRefresh
 
   attr(:dashboard, :map, required: true)
   attr(:timezone, :string, default: "Etc/UTC")
@@ -17,6 +18,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.ObservabilityPanel do
       assigns
       |> assign(:events_window, Map.get(dashboard, :events_window, "last_24h"))
       |> assign(:window_errors, Map.get(dashboard, :window_errors, %{}))
+      |> assign(:window_requests, Map.get(dashboard, :window_requests, %{}))
 
     ~H"""
     <Common.panel title="Events Over Time" class="sr-ops-observability-panel">
@@ -25,6 +27,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.ObservabilityPanel do
           id="dashboard-events-window"
           phx-hook="DashboardWindowSelect"
           data-window-kind="events"
+          aria-busy={to_string(WindowRefresh.busy?(@window_requests, "events"))}
           data-window={@events_window}
           class="sr-ops-select"
           aria-label="Events time window"

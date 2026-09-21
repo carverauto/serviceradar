@@ -3754,6 +3754,13 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
   max-width: 11rem;
 }
 
+/* A window reload keeps the previous data on screen; the select shows that
+   fresher data is on its way. */
+.sr-ops-select[aria-busy="true"] {
+  cursor: progress;
+  opacity: 0.72;
+}
+
 .sr-ops-button {
   display: inline-flex;
   align-items: center;
