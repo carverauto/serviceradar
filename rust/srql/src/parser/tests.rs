@@ -86,6 +86,19 @@ fn implicitly_promotes_mtr_error_wildcards_to_like() {
     assert_implicit_wildcard_filter_is_like("error");
 }
 
+// `vendor` was on the implicit-LIKE allowlist but `vendor_name` (the OCSF
+// device field the UI and docs use) was not, so `vendor_name:%aruba%` stayed an
+// equality match on the literal `%aruba%` and found nothing.
+#[test]
+fn implicitly_promotes_device_vendor_name_wildcards_to_like() {
+    assert_implicit_wildcard_filter_is_like("vendor_name");
+}
+
+#[test]
+fn implicitly_promotes_device_model_wildcards_to_like() {
+    assert_implicit_wildcard_filter_is_like("model");
+}
+
 #[test]
 fn implicitly_promotes_device_type_wildcards_to_like() {
     for query in ["in:devices type:%rids%", "in:devices device_type:%rids%"] {

@@ -164,15 +164,14 @@ pub(super) fn apply_filter<'a>(
                 "type_id filter only supports equality"
             )?;
         }
-        // OCSF vendor_name
-        "vendor_name" => {
-            query = apply_eq_filter!(
-                query,
-                filter,
-                col_vendor_name,
-                filter.value.as_scalar()?.to_string(),
-                "vendor_name filter only supports equality"
-            )?;
+        // OCSF vendor_name, plus the `vendor` alias. The stats path aliases the
+        // two, the docs use both (`in:devices vendor:"Ubiquiti"` alongside
+        // `vendor_name:Cisco`), and without the alias here the plain path
+        // rejected `vendor` as an unsupported field. Text filter, not
+        // equality-only: `vendor_name:%aruba%` is an implicit-LIKE pattern (see
+        // `supports_implicit_like`), and equality-only matched the literal.
+        "vendor_name" | "vendor" => {
+            query = apply_text_filter!(query, filter, col_vendor_name)?;
         }
         "vlan_uid" => {
             query = apply_text_filter!(query, filter, col_vlan_uid)?;
@@ -191,14 +190,9 @@ pub(super) fn apply_filter<'a>(
         "switch_port_attachment.source" => {
             query = apply_jsonb_text_filter(query, filter, "switch_port_attachment", "source")?;
         }
+        // Same text-vs-equality bug as vendor_name: `model:%2920%` is a pattern.
         "model" => {
-            query = apply_eq_filter!(
-                query,
-                filter,
-                col_model,
-                filter.value.as_scalar()?.to_string(),
-                "model filter only supports equality"
-            )?;
+            query = apply_text_filter!(query, filter, col_model)?;
         }
         // OCSF risk_level
         "risk_level" => {
