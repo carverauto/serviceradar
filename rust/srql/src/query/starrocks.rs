@@ -1,3 +1,4 @@
+use super::flows::normalize_cidr_literal;
 use super::{PaginationMeta, QueryPlan, TranslateResponse, types::BindParam};
 use crate::{
     error::{Result, ServiceError},
@@ -223,7 +224,8 @@ fn dataset_sql(
 
     let joins = catalog_joins(plan, dataset)?;
     let direction = plan_mentions(plan, &["direction"]);
-    let hour_grained = if joins.is_empty() && !direction {
+    let derived = direction || filters_on_flow_cidr(plan);
+    let hour_grained = if joins.is_empty() && !derived {
         hourly_rollup(plan, dataset)
     } else {
         None
@@ -237,8 +239,12 @@ fn dataset_sql(
         "{database}.{}",
         rollup.map_or(dataset.raw_table, |rollup| rollup.table)
     );
-    let from = if direction {
-        let base = direction_source(&qualified);
+    let from = if derived {
+        let base = if direction {
+            direction_source(&qualified)
+        } else {
+            ip_hex_source(&qualified)
+        };
         if joins.is_empty() {
             format!("{base} AS f")
         } else {
@@ -250,7 +256,7 @@ fn dataset_sql(
     let (mut where_sql, params) = time_predicate(
         plan,
         time_column,
-        direction || !joins.is_empty(),
+        derived || !joins.is_empty(),
         hour_grained.is_some(),
     );
     if let Some(scope) = dataset.scope {
@@ -308,6 +314,7 @@ enum CatalogJoin {
     Devices,
     InputInterface,
     OutputInterface,
+    Exporter,
     SrcGeo,
     DstGeo,
 }
@@ -323,6 +330,11 @@ impl CatalogJoin {
             }
             Self::OutputInterface => {
                 "LEFT JOIN cnpg_platform.platform.netflow_interface_cache AS out_if ON out_if.sampler_address = f.sampler_address AND out_if.if_index = f.output_snmp"
+            }
+            // `sampler_address` is the cache's primary key, so this join can
+            // never count a flow twice.
+            Self::Exporter => {
+                "LEFT JOIN cnpg_platform.platform.netflow_exporter_cache AS exp ON exp.sampler_address = f.sampler_address"
             }
             // Country is never stored on the flow row, on either backend: GeoIP
             // answers change and expire, so it is resolved against the cache at
@@ -344,11 +356,13 @@ fn catalog_joins(plan: &QueryPlan, dataset: Dataset) -> Result<Vec<CatalogJoin>>
     let wants_device = plan_mentions(plan, &["hostname", "device_name"]);
     let wants_input_interface = plan_mentions(plan, &["in_if_name", "in_if_speed_bps"]);
     let wants_output_interface = plan_mentions(plan, &["out_if_name", "out_if_speed_bps"]);
+    let wants_exporter = plan_mentions(plan, &["exporter_name"]);
     let wants_src_geo = plan_mentions(plan, &["src_country_iso2", "src_country"]);
     let wants_dst_geo = plan_mentions(plan, &["dst_country_iso2", "dst_country"]);
     if !wants_device
         && !wants_input_interface
         && !wants_output_interface
+        && !wants_exporter
         && !wants_src_geo
         && !wants_dst_geo
     {
@@ -368,6 +382,9 @@ fn catalog_joins(plan: &QueryPlan, dataset: Dataset) -> Result<Vec<CatalogJoin>>
     }
     if wants_output_interface {
         joins.push(CatalogJoin::OutputInterface);
+    }
+    if wants_exporter {
+        joins.push(CatalogJoin::Exporter);
     }
     if wants_src_geo {
         joins.push(CatalogJoin::SrcGeo);
@@ -464,6 +481,8 @@ fn group_alias(col: &str) -> String {
         "dst_port" => "dst_endpoint_port".to_string(),
         "src_port" => "src_endpoint_port".to_string(),
         "app" => "app".to_string(),
+        "tcp_flag" => "tcp_flags_label".to_string(),
+        "duration" => "duration_bucket".to_string(),
         // `partition` is reserved in StarRocks and cannot stand as a bare alias.
         "partition" => "flow_partition".to_string(),
         other => other.to_string(),
@@ -1152,8 +1171,10 @@ fn validate_identifier(value: &str) -> Result<()> {
 fn field_sql(plan: &QueryPlan, field: &str) -> Result<String> {
     let dataset = dataset_for(&plan.entity).unwrap();
     let flow = matches!(plan.entity, Entity::Flows | Entity::AttributedFlows);
-    let qualified =
-        flow && (plan_mentions(plan, &["direction"]) || !catalog_joins(plan, dataset)?.is_empty());
+    let qualified = flow
+        && (plan_mentions(plan, &["direction"])
+            || filters_on_flow_cidr(plan)
+            || !catalog_joins(plan, dataset)?.is_empty());
     let column = |name: &str| {
         if qualified {
             format!("f.{name}")
@@ -1203,6 +1224,16 @@ fn field_sql(plan: &QueryPlan, field: &str) -> Result<String> {
             }
             "out_if_speed_bps" => {
                 return Ok("COALESCE(CAST(out_if.if_speed_bps AS STRING), 'Unknown')".into());
+            }
+            "exporter_name" => return Ok("COALESCE(exp.exporter_name, 'Unknown')".into()),
+            "tcp_flags_label" | "tcp_flag" => {
+                return Ok(tcp_flags_label_sql(&column("tcp_flags")));
+            }
+            "duration_bucket" | "duration" => {
+                return Ok(duration_bucket_sql(
+                    &column("start_time"),
+                    &column("end_time"),
+                ));
             }
             "src_country_iso2" | "src_country" => {
                 return Ok("COALESCE(src_geo.country_iso2, 'Unknown')".into());
@@ -1263,6 +1294,49 @@ fn field_sql(plan: &QueryPlan, field: &str) -> Result<String> {
     }
 }
 
+// Bit order and names are `FlowEnrichment.@tcp_flag_bits`; the warehouse keeps
+// only the integer, so the label is rebuilt from it, in CWR..FIN order joined
+// by ','.
+//
+// A flow without TCP flags is labelled 'none': a NULL mask (ingest writes a zero
+// mask as NULL, so this is every UDP and ICMP flow), a zero mask, a mask with
+// none of the eight known bits, and a negative mask, which the enrichment
+// decodes to no labels rather than reading its sign-extended bits. CNPG
+// labelled these '', which charts as a blank slice that the UI's 'unknown'
+// fallback does not catch. Flows have no CNPG read path any more, so 'none' is
+// the product's behaviour and a deliberate improvement on that '', not a parity
+// break. It is not 'Unknown' either: the flags are known, and there are none.
+const TCP_FLAG_BITS: [(u16, &str); 8] = [
+    (128, "CWR"),
+    (64, "ECE"),
+    (32, "URG"),
+    (16, "ACK"),
+    (8, "PSH"),
+    (4, "RST"),
+    (2, "SYN"),
+    (1, "FIN"),
+];
+
+fn tcp_flags_label_sql(tcp_flags: &str) -> String {
+    let labels = TCP_FLAG_BITS
+        .iter()
+        .map(|(bit, name)| format!("IF(BITAND({tcp_flags}, {bit}) = 0, NULL, '{name}')"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "CASE WHEN {tcp_flags} IS NULL OR {tcp_flags} < 0 OR BITAND({tcp_flags}, 255) = 0 THEN 'none' ELSE CONCAT_WS(',', {labels}) END"
+    )
+}
+
+// Same edges as CNPG's FLOW_DURATION_BUCKET_EXPR, in whole milliseconds so the
+// comparison stays integral.
+fn duration_bucket_sql(start_time: &str, end_time: &str) -> String {
+    let elapsed = format!("MILLISECONDS_DIFF({end_time}, {start_time})");
+    format!(
+        "CASE WHEN {start_time} IS NULL OR {end_time} IS NULL THEN 'unknown' WHEN {elapsed} < 1000 THEN '<1s' WHEN {elapsed} < 10000 THEN '1-10s' WHEN {elapsed} < 60000 THEN '10-60s' WHEN {elapsed} < 300000 THEN '1-5m' ELSE '>5m' END"
+    )
+}
+
 /// The tag a metric field names, if it names one: `tags.<key>`, or `core_id`,
 /// the shorter spelling the per-core CPU chart has always used for
 /// `tags.core_id`. CNPG reads these with `tags->>'<key>'`
@@ -1319,20 +1393,124 @@ fn local_cidrs_sql() -> String {
 }
 
 fn direction_source(table: &str) -> String {
+    format!(
+        "(SELECT f.*, {} AS direction FROM {} f CROSS JOIN {})",
+        direction_sql(),
+        ip_hex_source(table),
+        local_cidrs_sql()
+    )
+}
+
+// The flow table with each endpoint as fixed-width lowercase hex -- 8 digits
+// for IPv4, 32 for IPv6 -- so that address order is string order. StarRocks has
+// no inet type; this is the one representation every containment test here
+// compares against.
+fn ip_hex_source(table: &str) -> String {
     let normalized = |col: &str| {
         format!(
             "LOWER(CASE WHEN LOCATE(':', {col}) > 0 AND LOCATE('.', {col}) > 0 THEN CONCAT(REGEXP_REPLACE({col}, '[^:]+$', ''), SUBSTRING(LPAD(HEX(INET_ATON(SUBSTRING_INDEX({col}, ':', -1))), 8, '0'), 1, 4), ':', SUBSTRING(LPAD(HEX(INET_ATON(SUBSTRING_INDEX({col}, ':', -1))), 8, '0'), 5, 4)) ELSE {col} END)"
         )
     };
     format!(
-        "(SELECT f.*, {} AS direction FROM (SELECT normalized.*, {} AS src_ip_hex, {} AS dst_ip_hex FROM (SELECT *, {} AS src_ip_normalized, {} AS dst_ip_normalized FROM {table}) normalized) f CROSS JOIN {})",
-        direction_sql(),
+        "(SELECT normalized.*, {} AS src_ip_hex, {} AS dst_ip_hex FROM (SELECT *, {} AS src_ip_normalized, {} AS dst_ip_normalized FROM {table}) normalized)",
         ip_hex_sql("src_ip_normalized"),
         ip_hex_sql("dst_ip_normalized"),
         normalized("src_endpoint_ip"),
         normalized("dst_endpoint_ip"),
-        local_cidrs_sql()
     )
+}
+
+fn filters_on_flow_cidr(plan: &QueryPlan) -> bool {
+    matches!(plan.entity, Entity::Flows | Entity::AttributedFlows)
+        && plan
+            .filters
+            .iter()
+            .any(|filter| matches!(filter.field.as_str(), "src_cidr" | "dst_cidr"))
+}
+
+// CNPG asks `try_inet(ip) <<= cidr`, or `<<= ANY(cidr[])` for a list. Here each
+// CIDR becomes its first and last address in the `ip_hex_source` encoding. The
+// length test keeps the families apart, as inet containment does: an IPv4 flow
+// is never inside an IPv6 prefix.
+//
+// An address that is NULL or does not parse has a NULL hex. It is inside no
+// CIDR, so it fails the positive test and passes the negated one -- the
+// `try_inet(...) IS NULL OR NOT (...)` of CNPG's stats path, which is the path
+// these aggregate queries took.
+//
+// The lambda is there to name the hex once. StarRocks inlines the derived
+// column into the predicate, and the three references a plain range test makes
+// put the expression past its 10000-node analyzer limit ("Expression too
+// complex"). A list ORs its ranges inside the same lambda for the same reason.
+fn flow_cidr_filter_sql(filter: &Filter, endpoint: &str) -> Result<String> {
+    use crate::parser::FilterOp;
+    let (cidrs, negated): (Vec<&str>, bool) = match filter.op {
+        FilterOp::Eq | FilterOp::NotEq => (
+            vec![filter.value.as_scalar()?],
+            matches!(filter.op, FilterOp::NotEq),
+        ),
+        FilterOp::In | FilterOp::NotIn => (
+            filter.value.as_list()?.iter().map(String::as_str).collect(),
+            matches!(filter.op, FilterOp::NotIn),
+        ),
+        _ => {
+            return Err(ServiceError::InvalidRequest(format!(
+                "{endpoint}_cidr filter only supports equality or list matching"
+            )));
+        }
+    };
+    if cidrs.is_empty() {
+        return Err(ServiceError::InvalidRequest("empty filter list".into()));
+    }
+    let ranges = cidrs
+        .iter()
+        .map(|cidr| {
+            let (first, last) = cidr_hex_bounds(cidr)?;
+            Ok(format!(
+                "(LENGTH(h) = {} AND h BETWEEN '{first}' AND '{last}')",
+                first.len()
+            ))
+        })
+        .collect::<Result<Vec<_>>>()?
+        .join(" OR ");
+    let test = if negated {
+        format!("h IS NULL OR NOT ({ranges})")
+    } else {
+        ranges
+    };
+    Ok(format!("any_match(h -> {test}, [f.{endpoint}_ip_hex])"))
+}
+
+fn cidr_hex_bounds(value: &str) -> Result<(String, String)> {
+    let cidr = normalize_cidr_literal(value)?;
+    let (ip, prefix) = cidr
+        .split_once('/')
+        .ok_or_else(|| ServiceError::InvalidRequest("CIDR must be like 10.0.0.0/24".into()))?;
+    let prefix: u32 = prefix.parse().map_err(|_| {
+        ServiceError::InvalidRequest("CIDR must contain a valid prefix length".into())
+    })?;
+    let ip: std::net::IpAddr = ip.parse().map_err(|_| {
+        ServiceError::InvalidRequest("CIDR must contain a valid IPv4/IPv6 address".into())
+    })?;
+    let (address, bits, digits) = match ip {
+        std::net::IpAddr::V4(v4) => (u128::from(u32::from(v4)), 32, 8),
+        std::net::IpAddr::V6(v6) => (u128::from(v6), 128, 32),
+    };
+    let host_mask = match bits - prefix {
+        0 => 0,
+        host_bits => u128::MAX >> (128 - host_bits),
+    };
+    // Postgres refuses a `cidr` with bits set right of the mask, so CNPG never
+    // answers such a filter; widening it to its network here would.
+    if address & host_mask != 0 {
+        return Err(ServiceError::InvalidRequest(
+            "CIDR must not have bits set to the right of the prefix".into(),
+        ));
+    }
+    Ok((
+        format!("{address:0digits$x}"),
+        format!("{:0digits$x}", address | host_mask),
+    ))
 }
 
 fn ip_hex_sql(ip: &str) -> String {
@@ -1356,6 +1534,8 @@ fn filter_sql(plan: &QueryPlan, filter: &Filter) -> Result<String> {
     if matches!(plan.entity, Entity::Flows | Entity::AttributedFlows) {
         match filter.field.as_str() {
             "device_id" => return device_scope_sql(plan, filter),
+            "src_cidr" => return flow_cidr_filter_sql(filter, "src"),
+            "dst_cidr" => return flow_cidr_filter_sql(filter, "dst"),
             "device_addr" | "device_address" => {
                 if !matches!(filter.op, FilterOp::Eq | FilterOp::In) {
                     return Err(ServiceError::InvalidRequest(
@@ -3226,6 +3406,423 @@ mod tests {
         let err = translate(&plan("in:devices time:last_1h limit:5"), "serviceradar")
             .expect_err("devices");
         assert!(err.to_string().contains("starrocks_unsupported_entity"));
+    }
+
+    #[test]
+    fn tcp_flag_labels_are_rebuilt_from_the_bitmask() {
+        for group in ["tcp_flags_label", "tcp_flag"] {
+            let compiled = translate(
+                &plan(&format!(
+                    r#"in:flows time:last_1h stats:"count(*) as flows by {group}" limit:10"#
+                )),
+                "serviceradar",
+            )
+            .expect(group);
+            let sql = &compiled.sql;
+            let label = "CASE WHEN tcp_flags IS NULL OR tcp_flags < 0 OR BITAND(tcp_flags, 255) = 0 THEN 'none' ELSE CONCAT_WS(',', IF(BITAND(tcp_flags, 128) = 0, NULL, 'CWR'), IF(BITAND(tcp_flags, 64) = 0, NULL, 'ECE'), IF(BITAND(tcp_flags, 32) = 0, NULL, 'URG'), IF(BITAND(tcp_flags, 16) = 0, NULL, 'ACK'), IF(BITAND(tcp_flags, 8) = 0, NULL, 'PSH'), IF(BITAND(tcp_flags, 4) = 0, NULL, 'RST'), IF(BITAND(tcp_flags, 2) = 0, NULL, 'SYN'), IF(BITAND(tcp_flags, 1) = 0, NULL, 'FIN')) END";
+            assert!(
+                sql.contains(&format!("{label} AS tcp_flags_label")),
+                "{sql}"
+            );
+            assert!(sql.contains(&format!(" GROUP BY {label}")), "{sql}");
+            // The warehouse row has no label array, and needs no catalog.
+            assert!(!sql.contains("tcp_flags_labels"), "{sql}");
+            assert!(!sql.contains("array_to_string"), "{sql}");
+            assert!(!sql.contains("cnpg_platform"), "{sql}");
+        }
+    }
+
+    // Evaluates the emitted label expression the way the warehouse does:
+    // BITAND on the integer, CONCAT_WS skipping NULL arguments, and a NULL
+    // comparison never being true.
+    fn eval_tcp_flags_label(sql: &str, mask: Option<i64>) -> String {
+        let rest = sql
+            .strip_prefix("CASE WHEN m IS NULL OR m < 0 OR BITAND(m, ")
+            .expect("guard");
+        let (known, rest) = rest.split_once(") = 0 THEN '").expect("known bits");
+        let known: i64 = known.parse().expect("known bits literal");
+        let (empty, rest) = rest.split_once("' ELSE CONCAT_WS('").expect("empty label");
+        let (separator, rest) = rest.split_once("', ").expect("separator");
+        let terms = rest.strip_suffix(") END").expect("end");
+        let Some(mask) = mask.filter(|mask| *mask >= 0 && mask & known != 0) else {
+            return empty.to_string();
+        };
+        terms
+            .split("), ")
+            .filter_map(|term| {
+                let term = term.strip_prefix("IF(BITAND(m, ").expect("term");
+                let (bit, name) = term.split_once(") = 0, NULL, '").expect("bit");
+                let bit: i64 = bit.parse().expect("bit literal");
+                let name = name.trim_end_matches(')').trim_end_matches('\'');
+                (mask & bit != 0).then_some(name)
+            })
+            .collect::<Vec<_>>()
+            .join(separator)
+    }
+
+    #[test]
+    fn tcp_flag_labels_name_set_bits_in_order_and_none_otherwise() {
+        let sql = tcp_flags_label_sql("m");
+        for (mask, label) in [
+            (None, "none"),
+            (Some(0), "none"),
+            (Some(256), "none"),
+            (Some(-1), "none"),
+            (Some(2), "SYN"),
+            (Some(18), "ACK,SYN"),
+            (Some(255), "CWR,ECE,URG,ACK,PSH,RST,SYN,FIN"),
+        ] {
+            assert_eq!(eval_tcp_flags_label(&sql, mask), label, "{mask:?}");
+        }
+    }
+
+    #[test]
+    fn duration_buckets_use_the_cnpg_edges() {
+        for group in ["duration_bucket", "duration"] {
+            let compiled = translate(
+                &plan(&format!(
+                    r#"in:flows time:last_1h stats:"count(*) as flows by {group}" limit:10"#
+                )),
+                "serviceradar",
+            )
+            .expect(group);
+            let sql = &compiled.sql;
+            let bucket = "CASE WHEN start_time IS NULL OR end_time IS NULL THEN 'unknown' WHEN MILLISECONDS_DIFF(end_time, start_time) < 1000 THEN '<1s' WHEN MILLISECONDS_DIFF(end_time, start_time) < 10000 THEN '1-10s' WHEN MILLISECONDS_DIFF(end_time, start_time) < 60000 THEN '10-60s' WHEN MILLISECONDS_DIFF(end_time, start_time) < 300000 THEN '1-5m' ELSE '>5m' END";
+            assert!(
+                sql.contains(&format!("{bucket} AS duration_bucket")),
+                "{sql}"
+            );
+            assert!(sql.contains(&format!(" GROUP BY {bucket}")), "{sql}");
+            assert!(!sql.contains("EXTRACT(EPOCH"), "{sql}");
+            assert!(!sql.contains("cnpg_platform"), "{sql}");
+        }
+    }
+
+    #[test]
+    fn exporter_names_resolve_against_the_cnpg_exporter_cache() {
+        let compiled = translate(
+            &plan(
+                r#"in:flows time:last_1h stats:"sum(bytes_total) as bytes by exporter_name" sort:bytes:desc limit:10"#,
+            ),
+            "serviceradar",
+        )
+        .expect("exporter_name grouping");
+        let sql = &compiled.sql;
+        assert!(
+            sql.contains(
+                "FROM serviceradar.ocsf_network_activity AS f LEFT JOIN cnpg_platform.platform.netflow_exporter_cache AS exp ON exp.sampler_address = f.sampler_address"
+            ),
+            "{sql}"
+        );
+        assert!(
+            sql.contains("COALESCE(exp.exporter_name, 'Unknown') AS exporter_name"),
+            "{sql}"
+        );
+        assert!(
+            sql.contains(" GROUP BY COALESCE(exp.exporter_name, 'Unknown')"),
+            "{sql}"
+        );
+        // Both tables carry `sampler_address`, so the flow side is qualified.
+        assert!(sql.contains("f.bytes_total"), "{sql}");
+        assert!(sql.contains("f.`time` >= "), "{sql}");
+        assert!(!sql.contains("ocsf_network_activity_hourly"), "{sql}");
+        assert!(!sql.contains("(SELECT ec.exporter_name"), "{sql}");
+
+        let series = translate(
+            &plan("in:flows time:last_24h bucket:1h agg:sum value_field:bytes_total series:exporter_name"),
+            "serviceradar",
+        )
+        .expect("exporter_name series");
+        assert!(
+            series.sql.contains("netflow_exporter_cache AS exp"),
+            "{}",
+            series.sql
+        );
+        assert!(
+            !series.sql.contains("ocsf_network_activity_hourly"),
+            "{}",
+            series.sql
+        );
+
+        let plain = translate(
+            &plan(r#"in:flows time:last_1h stats:"count(*) as flows by sampler_address""#),
+            "serviceradar",
+        )
+        .expect("plain grouping");
+        assert!(
+            !plain.sql.contains("netflow_exporter_cache"),
+            "{}",
+            plain.sql
+        );
+    }
+
+    #[test]
+    fn cidr_filters_become_a_hex_range_over_the_endpoint() {
+        for (query, endpoint, other, width, first, last) in [
+            (
+                "src_cidr:192.0.2.0/24",
+                "src",
+                "dst",
+                8,
+                "c0000200",
+                "c00002ff",
+            ),
+            (
+                "dst_cidr:198.51.100.64/26",
+                "dst",
+                "src",
+                8,
+                "c6336440",
+                "c633647f",
+            ),
+            (
+                "dst_cidr:203.0.113.7/32",
+                "dst",
+                "src",
+                8,
+                "cb007107",
+                "cb007107",
+            ),
+            (
+                "src_cidr:0.0.0.0/0",
+                "src",
+                "dst",
+                8,
+                "00000000",
+                "ffffffff",
+            ),
+            (
+                "src_cidr:2001:db8:12::/48",
+                "src",
+                "dst",
+                32,
+                "20010db8001200000000000000000000",
+                "20010db80012ffffffffffffffffffff",
+            ),
+            (
+                "dst_cidr:2001:db8::1/128",
+                "dst",
+                "src",
+                32,
+                "20010db8000000000000000000000001",
+                "20010db8000000000000000000000001",
+            ),
+        ] {
+            let compiled = translate(
+                &plan(&format!(
+                    r#"in:flows time:last_1h {query} stats:"count(*) as flows" limit:10"#
+                )),
+                "serviceradar",
+            )
+            .expect(query);
+            let sql = &compiled.sql;
+            assert!(
+                sql.contains(&format!(
+                    " AND any_match(h -> (LENGTH(h) = {width} AND h BETWEEN '{first}' AND '{last}'), [f.{endpoint}_ip_hex])"
+                )),
+                "{query}: {sql}"
+            );
+            assert!(
+                !sql.contains(&format!("[f.{other}_ip_hex]")),
+                "{query}: {sql}"
+            );
+            assert!(
+                sql.contains("AS src_ip_hex") && sql.contains("AS dst_ip_hex"),
+                "{query}: {sql}"
+            );
+            assert!(sql.contains(") AS f WHERE f.`time` >= "), "{query}: {sql}");
+            // Containment against a literal needs neither the catalog nor the
+            // configured local CIDRs.
+            assert!(!sql.contains("cnpg_platform"), "{query}: {sql}");
+            assert!(!sql.contains("lc.firsts"), "{query}: {sql}");
+            // More than one reference to the derived hex trips the analyzer's
+            // expression-size limit on the warehouse.
+            assert_eq!(
+                sql.matches(&format!("f.{endpoint}_ip_hex")).count(),
+                1,
+                "{query}: {sql}"
+            );
+            assert!(!sql.contains("<<="), "{query}: {sql}");
+            assert!(
+                !sql.contains("ocsf_network_activity_hourly"),
+                "{query}: {sql}"
+            );
+        }
+    }
+
+    #[test]
+    fn negated_cidr_filters_keep_flows_without_a_parseable_address() {
+        let compiled = translate(
+            &plan(r#"in:flows time:last_1h !src_cidr:192.0.2.0/24 stats:"count(*) as flows""#),
+            "serviceradar",
+        )
+        .expect("negated src_cidr");
+        assert!(
+            compiled.sql.contains(
+                " AND any_match(h -> h IS NULL OR NOT ((LENGTH(h) = 8 AND h BETWEEN 'c0000200' AND 'c00002ff')), [f.src_ip_hex])"
+            ),
+            "{}",
+            compiled.sql
+        );
+        assert_eq!(compiled.sql.matches("f.src_ip_hex").count(), 1);
+    }
+
+    #[test]
+    fn cidr_lists_test_every_range_inside_one_lambda() {
+        let ranges = "(LENGTH(h) = 8 AND h BETWEEN 'c0000200' AND 'c00002ff') OR (LENGTH(h) = 32 AND h BETWEEN '20010db8001200000000000000000000' AND '20010db80012ffffffffffffffffffff')";
+        for (query, endpoint, test) in [
+            (
+                "src_cidr:(192.0.2.0/24,2001:db8:12::/48)",
+                "src",
+                ranges.to_string(),
+            ),
+            (
+                "!dst_cidr:(192.0.2.0/24,2001:db8:12::/48)",
+                "dst",
+                format!("h IS NULL OR NOT ({ranges})"),
+            ),
+        ] {
+            let compiled = translate(
+                &plan(&format!(
+                    r#"in:flows time:last_1h {query} stats:"count(*) as flows""#
+                )),
+                "serviceradar",
+            )
+            .expect(query);
+            let sql = &compiled.sql;
+            assert!(
+                sql.contains(&format!(
+                    " AND any_match(h -> {test}, [f.{endpoint}_ip_hex])"
+                )),
+                "{query}: {sql}"
+            );
+            assert_eq!(
+                sql.matches(&format!("f.{endpoint}_ip_hex")).count(),
+                1,
+                "{query}: {sql}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_cidr_list_with_one_malformed_entry_is_rejected() {
+        for (list, message) in [
+            ("(192.0.2.0/24,198.51.100.0/33)", "CIDR prefix length"),
+            ("(192.0.2.5/24,198.51.100.0/24)", "bits set to the right"),
+        ] {
+            for prefix in ["", "!"] {
+                let err = translate(
+                    &plan(&format!("in:flows time:last_1h {prefix}src_cidr:{list}")),
+                    "serviceradar",
+                )
+                .expect_err(list);
+                assert!(matches!(err, ServiceError::InvalidRequest(_)), "{err}");
+                assert!(err.to_string().contains(message), "{list}: {err}");
+            }
+        }
+    }
+
+    #[test]
+    fn cidr_filters_compose_with_catalog_joins_and_direction() {
+        let joined = translate(
+            &plan(
+                r#"in:flows time:last_1h src_cidr:192.0.2.0/24 stats:"count(*) as flows by exporter_name""#,
+            ),
+            "serviceradar",
+        )
+        .expect("cidr with exporter join");
+        assert!(
+            joined.sql.contains(
+                "normalized) AS f LEFT JOIN cnpg_platform.platform.netflow_exporter_cache AS exp"
+            ),
+            "{}",
+            joined.sql
+        );
+        assert!(
+            joined
+                .sql
+                .contains("BETWEEN 'c0000200' AND 'c00002ff'), [f.src_ip_hex])"),
+            "{}",
+            joined.sql
+        );
+
+        let directed = translate(
+            &plan(
+                r#"in:flows time:last_1h dst_cidr:192.0.2.0/24 stats:"count(*) as flows by direction""#,
+            ),
+            "serviceradar",
+        )
+        .expect("cidr with direction");
+        assert_eq!(directed.sql.matches("AS src_ip_hex").count(), 1);
+        assert!(
+            directed
+                .sql
+                .contains("BETWEEN 'c0000200' AND 'c00002ff'), [f.dst_ip_hex])"),
+            "{}",
+            directed.sql
+        );
+        assert!(directed.sql.contains("lc.firsts"), "{}", directed.sql);
+    }
+
+    #[test]
+    fn cidr_prefix_grouping_does_not_pay_for_the_hex_source() {
+        let compiled = translate(
+            &plan(r#"in:flows time:last_1h stats:"count(*) as flows by src_cidr:24""#),
+            "serviceradar",
+        )
+        .expect("prefix grouping");
+        assert!(!compiled.sql.contains("ip_hex"), "{}", compiled.sql);
+    }
+
+    #[test]
+    fn malformed_cidr_filters_are_rejected() {
+        for (value, message) in [
+            ("192.0.2.0", "CIDR must be like"),
+            ("192.0.2.0/33", "CIDR prefix length must be <= 32"),
+            ("2001:db8::/129", "CIDR prefix length must be <= 128"),
+            ("192.0.2.999/24", "valid IPv4/IPv6 address"),
+            ("192.0.2.0/abc", "valid prefix length"),
+            ("192.0.2.5/24", "bits set to the right of the prefix"),
+            ("2001:db8::1/32", "bits set to the right of the prefix"),
+        ] {
+            for field in ["src_cidr", "dst_cidr"] {
+                let err = translate(
+                    &plan(&format!("in:flows time:last_1h {field}:{value}")),
+                    "serviceradar",
+                )
+                .expect_err(value);
+                assert!(
+                    matches!(err, ServiceError::InvalidRequest(_)),
+                    "{field}:{value}: {err}"
+                );
+                assert!(err.to_string().contains(message), "{field}:{value}: {err}");
+            }
+        }
+    }
+
+    #[test]
+    fn cidr_filters_support_only_equality() {
+        for (field, query) in [
+            ("src_cidr", "src_cidr:>192.0.2.0/24"),
+            ("dst_cidr", "dst_cidr:>=2001:db8::/32"),
+            ("src_cidr", "src_cidr:<192.0.2.0/24"),
+        ] {
+            let err = translate(
+                &plan(&format!("in:flows time:last_1h {query}")),
+                "serviceradar",
+            )
+            .expect_err(query);
+            assert!(
+                matches!(err, ServiceError::InvalidRequest(_)),
+                "{query}: {err}"
+            );
+            assert!(
+                err.to_string().contains(&format!(
+                    "{field} filter only supports equality or list matching"
+                )),
+                "{query}: {err}"
+            );
+        }
     }
 
     fn refute_postgres(sql: &str) {

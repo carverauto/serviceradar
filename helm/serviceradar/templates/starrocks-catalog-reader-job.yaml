@@ -149,7 +149,7 @@ data:
     GRANT SELECT (uid, hostname, ip) ON platform.ocsf_devices TO {{ $reader }};
     GRANT SELECT (device_id, alias_type, state, alias_value)
       ON platform.device_alias_states TO {{ $reader }};
-    GRANT SELECT (device_uid, sampler_address)
+    GRANT SELECT (device_uid, sampler_address, exporter_name)
       ON platform.netflow_exporter_cache TO {{ $reader }};
     GRANT SELECT (sampler_address, if_index, if_name, if_speed_bps)
       ON platform.netflow_interface_cache TO {{ $reader }};
