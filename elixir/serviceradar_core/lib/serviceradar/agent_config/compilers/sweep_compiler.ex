@@ -39,7 +39,6 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepProfile
   alias ServiceRadar.SweepJobs.SweepProfile.BannerGrab
-  alias ServiceRadar.Types.Cidr
 
   require Ash.Query
   require Logger
@@ -332,8 +331,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     case SRQLRunner.query_page(query,
            limit: srql_page_limit(),
            cursor: cursor,
-           direction: "next",
-           text_param_decoder: &decode_cidr_text_param/1
+           direction: "next"
          ) do
       {:ok, %{rows: rows, next_cursor: next_cursor}} ->
         acc = add_device_targets(acc, rows, group, modes)
@@ -432,17 +430,6 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
 
   defp valid_ip_address?(value) do
     value != "" and match?({:ok, _}, :inet.parse_strict_address(String.to_charlist(value)))
-  end
-
-  defp decode_cidr_text_param(value) when is_binary(value) do
-    if String.contains?(value, "/") do
-      case Cidr.dump_to_native(value, []) do
-        {:ok, inet} -> {:ok, inet}
-        _ -> {:ok, value}
-      end
-    else
-      {:ok, value}
-    end
   end
 
   defp merge_ports(nil, group), do: normalize_ports_override(group.ports, [])
