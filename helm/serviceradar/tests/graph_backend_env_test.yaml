@@ -164,7 +164,7 @@ tests:
           any: true
           content:
             name: dgraph-ca
-  - it: demo overlay dual-writes to the standalone cluster and still reads AGE
+  - it: demo overlay dual-writes to the standalone cluster and reads Dgraph
     values:
       - ../values-demo.yaml
     documentSelector:
@@ -180,7 +180,7 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: GRAPH_READ
-            value: age
+            value: dgraph
       - contains:
           path: spec.template.spec.containers[0].env
           content:
