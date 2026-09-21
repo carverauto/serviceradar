@@ -1,5 +1,9 @@
 defmodule ServiceRadar.Analytics.StarRocks.QueryTest do
-  use ExUnit.Case, async: true
+  # This module mutates shared `:serviceradar_core` application env (via
+  # `Application.put_env/3`) and reads it back through `StarRocks.Env`. An async
+  # module that writes global env races every other module that reads it, so this
+  # is serial like the other StarRocks test modules that also mutate env (#4517).
+  use ExUnit.Case, async: false
 
   alias ServiceRadar.Analytics.StarRocks
   alias ServiceRadar.Analytics.StarRocks.Env
