@@ -230,7 +230,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.EventsPanel do
 
     points
     |> Enum.with_index()
-    |> Enum.filter(fn {_point, idx} -> idx == 0 or idx == count - 1 or rem(idx, step) == 0 end)
+    |> Enum.filter(fn {_point, idx} -> event_axis_tick?(idx, count, step) end)
     |> Enum.map(fn {point, idx} ->
       {x, _y} = event_xy(idx, count, 0, 1)
       canonical = canonical_bucket(point.bucket)
@@ -241,6 +241,21 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.EventsPanel do
         iso: DateTime.to_iso8601(canonical)
       }
     end)
+  end
+
+  # The first and last points are always labelled, plus every `step`-th between.
+  # When the count is not a multiple of the step, the last regular tick lands
+  # right beside the final point and the two labels overlap, so a regular tick
+  # less than a full step from the end gives way to it. Measured on a 29-point
+  # week, a tick 0.6 of a step from the end still overlapped its neighbour.
+  defp event_axis_tick?(idx, count, step) do
+    last = count - 1
+
+    cond do
+      idx == 0 or idx == last -> true
+      rem(idx, step) != 0 -> false
+      true -> last - idx >= step
+    end
   end
 
   # A clock time can only tell ticks apart within a day. Past that, the buckets

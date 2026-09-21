@@ -139,6 +139,27 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.EventsPanelTest do
       assert axis_styles(quarter) == ["axisDate"]
     end
 
+    test "the last regular tick gives way when it would crowd the final point" do
+      # 29 hourly-ish buckets: step 5 puts a tick at index 25, three points from
+      # the final one at 28, and their date labels overlapped on screen.
+      start = ~U[2026-09-13 00:00:00Z]
+      points = for n <- 0..28, do: point(DateTime.add(start, n * 6 * 3600, :second), "p#{n}", n + 1)
+
+      xs =
+        points
+        |> render_events(29)
+        |> LazyHTML.query(".sr-ops-events-axis text[phx-hook='UserTime']")
+        |> LazyHTML.attribute("x")
+        |> Enum.map(&String.to_integer/1)
+
+      gaps = xs |> Enum.chunk_every(2, 1, :discard) |> Enum.map(fn [a, b] -> b - a end)
+
+      assert List.first(xs) == 36
+      assert length(xs) == 6
+      # Evenly spread: no gap is less than half the typical one.
+      assert Enum.min(gaps) * 2 >= Enum.max(gaps)
+    end
+
     test "y labels stay short enough for the margin they are drawn in" do
       # "812.4K" was clipped at the chart's left edge and read as "12.4K".
       document =
