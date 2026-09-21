@@ -2733,8 +2733,7 @@ analytics:
     shadowDatasets: []
     cutoverDatasets: []
     # JDBC catalog onto CNPG current-state tables for attribution/enrichment
-    # joins. Default chart stays off; values-demo.yaml enables it. Cutover
-    # stays empty.
+    # joins. Default chart stays off; values-demo.yaml enables it.
     catalog:
       enabled: false
       name: cnpg_platform
