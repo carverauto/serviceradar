@@ -156,13 +156,25 @@ defmodule ServiceRadar.Inventory.Identity.InterfaceMacs do
     end
   end
 
+  # This is a second, deliberately looser normalizer than Mac.normalize_mac/1:
+  # it strips every non-hex character, because SNMP ifPhysAddress arrives in
+  # more shapes than the identifier path has to cope with. Keep that difference,
+  # but take the reserved-value rule from Mac rather than restating it, so the
+  # two copies cannot drift on the question that matters for identity.
+  #
+  # Without the Mac.reserved_mac_value?/1 call, an interface reporting an
+  # all-zero ifPhysAddress was written to device_interface_macs and then joined
+  # against another device's :mac identifier by the duplicate sweep's
+  # interface_mac_chassis_groups/0, producing an unattended two-device merge of
+  # entirely unrelated hardware.
   defp normalize(value) when is_binary(value) do
     normalized =
       value
       |> String.replace(~r/[^0-9A-Fa-f]/, "")
       |> String.upcase()
 
-    if String.length(normalized) == 12, do: normalized
+    if String.length(normalized) == 12 and not Mac.reserved_mac_value?(normalized),
+      do: normalized
   end
 
   defp normalize(_value), do: nil
