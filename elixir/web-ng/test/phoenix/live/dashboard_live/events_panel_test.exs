@@ -96,6 +96,71 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.EventsPanelTest do
            ) == ["/observability/events"]
   end
 
+  describe "axis labels" do
+    defp axis_styles(document) do
+      document
+      |> LazyHTML.query(".sr-ops-events-axis text[phx-hook='UserTime']")
+      |> LazyHTML.attribute("data-user-time-style")
+      |> Enum.uniq()
+    end
+
+    defp y_labels(document) do
+      document
+      |> LazyHTML.query(".sr-ops-events-y-label")
+      |> Enum.map(&(&1 |> LazyHTML.text() |> String.trim()))
+    end
+
+    test "a window inside one day labels its ticks with clock time" do
+      document =
+        render_events([
+          point(~U[2026-08-27 10:00:00Z], "10:00", 2),
+          point(~U[2026-08-27 22:00:00Z], "22:00", 5)
+        ])
+
+      assert axis_styles(document) == ["axis"]
+    end
+
+    test "a multi-day window adds the date, and a long one drops the time" do
+      week =
+        render_events([
+          point(~U[2026-08-21 00:00:00Z], "a", 2),
+          point(~U[2026-08-27 00:00:00Z], "b", 5)
+        ])
+
+      # Daily buckets all fall on the same time of day, so clock-time ticks on a
+      # 90-day chart read "07:00 PM" six times over.
+      quarter =
+        render_events([
+          point(~U[2026-06-23 00:00:00Z], "a", 2),
+          point(~U[2026-09-21 00:00:00Z], "b", 5)
+        ])
+
+      assert axis_styles(week) == ["axisDayTime"]
+      assert axis_styles(quarter) == ["axisDate"]
+    end
+
+    test "y labels stay short enough for the margin they are drawn in" do
+      # "812.4K" was clipped at the chart's left edge and read as "12.4K".
+      document =
+        render_events(
+          [
+            point(~U[2026-08-27 10:00:00Z], "10:00", 1_083_200),
+            point(~U[2026-08-27 11:00:00Z], "11:00", 12_400)
+          ],
+          1_083_200
+        )
+
+      assert y_labels(document) == ["1.1M", "812K", "542K", "271K", "0"]
+      assert Enum.all?(y_labels(document), &(String.length(&1) <= 5))
+    end
+
+    test "small and mid-range maxima keep their precision" do
+      document = render_events([point(~U[2026-08-27 10:00:00Z], "10:00", 12_400)], 12_400)
+
+      assert y_labels(document) == ["12.4K", "9.3K", "6.2K", "3.1K", "0"]
+    end
+  end
+
   test "keeps a true one-bucket chart selectable at the plot origin" do
     document = render_events([point(~U[2026-08-27 10:00:00Z], "10:00", 4)])
     selector = LazyHTML.query(document, "#dashboard-events-range-selector")
