@@ -304,7 +304,7 @@ PostgreSQL holding the same synthetic rows (`host01.example.com`,
 `192.0.2.0/24`), with the catalog reader holding exactly the grants above. The
 SQL on each side was the SRQL compiler's own output for the same query.
 
-- All 31 statements executed on StarRocks, including the anomaly rollup's
+- All 38 statements executed on StarRocks, including the anomaly rollup's
   boolean-valued derived columns, every catalog subquery, and the event device
   filter's non-equality join against the device's alias set. StarRocks refuses
   that test as a correlated subquery, which is how CNPG writes it; as a join
@@ -322,8 +322,17 @@ SQL on each side was the SRQL compiler's own output for the same query.
   device; that arm is deliberately left three-valued here, and the alias and
   scan arms are two-valued as CNPG's are.
 - `device_id:` on events found, on both engines, an event that names the
-  device only inside an observable and one whose hostname differs from the
-  inventory's in case. An alias containing `_` matched only itself.
+  device only inside an observable, one whose hostname differs from the
+  inventory's in case, and one whose only mention is `HOSTNAME=<alias>`
+  inside a label string. The same alias under a key CNPG does not accept
+  (`owner=`) matched on neither. An alias containing `_` matched only itself.
+- `other:true` on flow stats (one group key, the three-key Sankey shape, and
+  two aggregates with a limit above the group count) returned the same rows
+  in the same order on both engines, including which of two tied groups falls
+  on each side of the cut. The top rows plus the tail summed to the ungrouped
+  total, and no tail row was emitted when nothing was left over. CNPG answers
+  the one-key form from its hourly talkers aggregate, which the comparison
+  stood in for with a view over the same rows.
 - `device_id:` on events differs from CNPG in three ways. The first two are
   rows the warehouse returns and CNPG does not; the third is the reverse:
   - Inside CNPG's alias `EXISTS`, the unqualified `metadata` resolves to the
@@ -332,9 +341,10 @@ SQL on each side was the SRQL compiler's own output for the same query.
     hostname, a `uid_alt`, or a dotted key such as `host.name`. The warehouse
     reads the event's metadata and does find it.
   - CNPG requires one of its identity or host keys somewhere ahead of the
-    alias in the document text. The warehouse requires only that the alias
-    appear as a quoted JSON string, so an alias held under a key outside that
-    list (`device.name`, for one) matches here and not on CNPG.
+    alias in the document text. For a quoted JSON string the warehouse
+    requires only that the alias appear as one, so an alias held under a key
+    outside that list (`device.name`, for one) matches here and not on CNPG.
+    The `key=value` form is held to CNPG's key list on both.
   - `dst_endpoint` is not stored in the warehouse, and `src_endpoint` only as
     `src_endpoint_ip`. An event that names the device only inside
     `dst_endpoint`, or in `src_endpoint` under a key other than `ip`, is found

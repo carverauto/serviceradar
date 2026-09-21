@@ -296,11 +296,19 @@ fn dataset_sql(
     }
     let (select, group) = stats_select(plan, dataset)?;
     let order = order_sql(plan, time_column)?;
-    let sql = format!(
-        "SELECT {select} FROM {from}{where_sql}{group}{order} LIMIT {limit} OFFSET {offset}",
-        limit = plan.limit.max(1),
-        offset = plan.offset.max(0)
-    );
+    let sql = if plan.other {
+        other_rollup_sql(
+            plan,
+            &format!("SELECT {select} FROM {from}{where_sql}{group}"),
+            &order,
+        )?
+    } else {
+        format!(
+            "SELECT {select} FROM {from}{where_sql}{group}{order} LIMIT {limit} OFFSET {offset}",
+            limit = plan.limit.max(1),
+            offset = plan.offset.max(0)
+        )
+    };
 
     Ok(TranslateResponse {
         sql,
@@ -324,11 +332,29 @@ fn dataset_sql(
 /// `include_deleted` is not refused: only the device inventory has tombstones
 /// (`query/devices.rs`), no warehouse dataset does, and CNPG ignores it for
 /// these entities too, so dropping it cannot change a result.
+///
+/// `other:true` is implemented, not refused, where CNPG implements it: grouped
+/// flow and metric stats (`other_rollup_sql`). Flows are read from the
+/// warehouse alone and the NetFlow Sankey always asks for the tail, so a
+/// refusal there is a blank chart with no other backend to fall back to. It
+/// stays refused for every other dataset and for the shapes that have no
+/// top-N to take a tail of.
 fn refuse_unimplemented_features(plan: &QueryPlan) -> Result<()> {
     if plan.other {
-        return Err(ServiceError::InvalidRequest(
-            "StarRocks does not implement other:true (top-N with an Other tail)".into(),
-        ));
+        let dataset = dataset_for(&plan.entity).map(|dataset| dataset.raw_table);
+        if !matches!(
+            dataset,
+            Some("ocsf_network_activity" | "timeseries_metrics")
+        ) {
+            return Err(ServiceError::InvalidRequest(
+                "other:true is currently supported only for flow or timeseries stats".into(),
+            ));
+        }
+        if plan.downsample.is_some() || stats_group_by(plan.stats.as_ref()).is_none() {
+            return Err(ServiceError::InvalidRequest(
+                "other:true requires a grouped stats query".into(),
+            ));
+        }
     }
     let Some(kind) = rollup_stats_kind(plan) else {
         return Ok(());
@@ -356,6 +382,65 @@ fn refuse_unimplemented_features(plan: &QueryPlan) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// `other:true`: the top `limit` groups, then one row folding the rest, as
+/// `build_other_rollup_sql` writes it for CNPG. Groups are ranked by the
+/// query's own sort with every group key as an ascending tie-break, so the cut
+/// is deterministic; the tail row carries NULL group keys, the sum of each
+/// aggregate over the groups it folds, and `__other__` set, and it is absent
+/// when nothing is left over. Only sum and count re-aggregate by summing, so
+/// those are the only aggregates either backend accepts here, and `offset` is
+/// not part of the cut on either.
+fn other_rollup_sql(plan: &QueryPlan, grouped: &str, order: &str) -> Result<String> {
+    let stats = plan.stats.as_ref().ok_or_else(|| {
+        ServiceError::InvalidRequest("other:true requires a grouped stats query".into())
+    })?;
+    let mut aggregates = Vec::new();
+    for (function, _, alias) in parse_aggregations(stats)? {
+        if !matches!(function.to_ascii_lowercase().as_str(), "sum" | "count") {
+            return Err(ServiceError::InvalidRequest(
+                "other:true currently supports only sum(...) and count(...) aggregations".into(),
+            ));
+        }
+        aggregates.push(alias);
+    }
+    let groups = stats_group_by(Some(stats))
+        .unwrap_or_default()
+        .split(',')
+        .map(str::trim)
+        .filter(|col| !col.is_empty())
+        .map(group_alias)
+        .collect::<Vec<_>>();
+    let mut rank = order
+        .strip_prefix(" ORDER BY ")
+        .map(|terms| vec![terms.to_string()])
+        .ok_or_else(|| {
+            ServiceError::InvalidRequest("other:true requires an explicit sort".into())
+        })?;
+    for group in &groups {
+        if !plan.order.iter().any(|order| order.field == *group) {
+            rank.push(format!("{group} ASC"));
+        }
+    }
+    let limit = plan.limit.max(1);
+    let columns = aggregates
+        .iter()
+        .map(|alias| alias.to_string())
+        .chain(groups.iter().cloned())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let tail = aggregates
+        .iter()
+        .map(|alias| format!("COALESCE(SUM({alias}), 0) AS {alias}"))
+        .chain(groups.iter().map(|group| format!("NULL AS {group}")))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Ok(format!(
+        "WITH grouped AS ({grouped}), ranked AS (SELECT grouped.*, ROW_NUMBER() OVER (ORDER BY {rank}) AS rn FROM grouped) SELECT {columns}, `__other__` FROM (SELECT rn AS sort_rn, {columns}, FALSE AS `__other__` FROM ranked WHERE rn <= {limit} UNION ALL SELECT {tail_rn} AS sort_rn, {tail}, TRUE AS `__other__` FROM ranked WHERE rn > {limit} HAVING COUNT(*) > 0) final ORDER BY sort_rn",
+        rank = rank.join(", "),
+        tail_rn = limit + 1,
+    ))
 }
 
 fn rollup_stats_kind(plan: &QueryPlan) -> Option<&str> {
@@ -694,6 +779,24 @@ const EVENT_HOST_PATHS: &[EventPath] = &[
     ("device", &["name"]),
     ("device", &["hostname"]),
 ];
+// EVENT_DEVICE_HOST_KEYS in query/events/filters.rs: with the identity keys
+// below, the keys CNPG's alias arm accepts in a `key=value` label string.
+const EVENT_DEVICE_HOST_KEYS: &[&str] = &[
+    "service_radar.device_hostname",
+    "service_radar.source_instance",
+    "service_radar.node_name",
+    "service_radar.device_ip",
+    "service_radar.source_ip",
+    "hostname",
+    "host",
+    "host.name",
+    "k8s.node.name",
+    "source.host",
+    "source.hostname",
+    "source.ip",
+    "server_identity",
+    "ip",
+];
 // EVENT_DEVICE_IDENTITY_KEYS in query/events/filters.rs: the key names the
 // free-text fallback looks for ahead of a raw, pre-re-key device id.
 const EVENT_DEVICE_IDENTITY_KEYS: &[&str] = &[
@@ -768,21 +871,33 @@ fn device_inventory_aliases_sql(uid: &str) -> String {
     )
 }
 
-/// The events, within the query's own bounds, whose stored documents hold one
-/// of the device's aliases as a quoted JSON string. CNPG finds them with an
-/// EXISTS whose LIKE pattern comes from the device row, a non-equality
+/// The events, within the query's own bounds, whose stored documents name one
+/// of the device's aliases: as a quoted JSON string, or as the value of a
+/// `key=value` pair under one of the keys CNPG accepts there. CNPG finds them
+/// with an EXISTS whose LIKE pattern comes from the device row, a non-equality
 /// correlated subquery StarRocks refuses; a join against the handful of
 /// aliases is the same test, and the outer predicate stays an uncorrelated
 /// `id IN (...)`. LIKE wildcards in an alias are escaped, as CNPG escapes them.
 fn events_naming_an_alias_sql(table: &str, bounds: &str, aliases: &str) -> String {
-    let pattern = r#"CONCAT('%"', REPLACE(REPLACE(REPLACE(da.alias, '\\', '\\\\'), '%', '\\%'), '_', '\\_'), '"%')"#;
+    let alias = r"REPLACE(REPLACE(REPLACE(da.alias, '\\', '\\\\'), '%', '\\%'), '_', '\\_')";
+    let mut patterns = vec![format!(r#"CONCAT('%"', {alias}, '"%')"#)];
+    for key in EVENT_DEVICE_HOST_KEYS
+        .iter()
+        .chain(EVENT_DEVICE_IDENTITY_KEYS)
+    {
+        patterns.push(format!(
+            "CONCAT({}, {alias}, '%')",
+            sql_literal(&format!("%{}=", escape_like_fragment(key)))
+        ));
+    }
     let mentions = EVENT_DOCUMENTS
         .iter()
-        .map(|document| format!("LOWER(e.{document}) LIKE da.pattern"))
+        .map(|document| format!("LOWER(e.{document}) LIKE dp.pattern"))
         .collect::<Vec<_>>()
         .join(" OR ");
     format!(
-        "SELECT e.id FROM {table} e JOIN (SELECT {pattern} AS pattern FROM ({aliases}) da) da ON {mentions}{bounds}"
+        "SELECT e.id FROM {table} e JOIN (SELECT p.pattern FROM ({aliases}) da, unnest([{}]) AS p(pattern)) dp ON {mentions}{bounds}",
+        patterns.join(", ")
     )
 }
 
@@ -4840,11 +4955,75 @@ mod tests {
     }
 
     #[test]
-    fn a_top_n_with_an_other_tail_is_refused_not_truncated() {
-        let message = refused(
-            "in:flows time:last_1h stats:sum(bytes_total) as bytes_total by src_endpoint_ip sort:bytes_total:desc limit:10 other:true",
+    fn a_flow_top_n_keeps_its_other_tail() {
+        let query = "in:flows time:[1999-06-15T00:00:00Z,1999-06-16T00:00:00Z] stats:\"sum(bytes_total) as total_bytes by src_endpoint_ip\" sort:total_bytes:desc limit:3";
+        let plain = translate(&plan(query), "serviceradar").expect("plain").sql;
+        let grouped = plain
+            .strip_suffix(" ORDER BY total_bytes DESC LIMIT 3 OFFSET 0")
+            .expect(&plain);
+        // The sampling-rate weighting is the grouped query's, untouched.
+        assert!(grouped.contains("sampling_rate"), "{grouped}");
+
+        let sql = translate(&plan(&format!("{query} other:true")), "serviceradar")
+            .expect("other")
+            .sql;
+        assert_eq!(
+            sql,
+            format!(
+                "WITH grouped AS ({grouped}), ranked AS (SELECT grouped.*, ROW_NUMBER() OVER (ORDER BY total_bytes DESC, src_endpoint_ip ASC) AS rn FROM grouped) SELECT total_bytes, src_endpoint_ip, `__other__` FROM (SELECT rn AS sort_rn, total_bytes, src_endpoint_ip, FALSE AS `__other__` FROM ranked WHERE rn <= 3 UNION ALL SELECT 4 AS sort_rn, COALESCE(SUM(total_bytes), 0) AS total_bytes, NULL AS src_endpoint_ip, TRUE AS `__other__` FROM ranked WHERE rn > 3 HAVING COUNT(*) > 0) final ORDER BY sort_rn"
+            )
         );
-        assert!(message.contains("other:true"), "{message}");
+    }
+
+    #[test]
+    fn the_sankey_shape_ranks_and_folds_every_dimension() {
+        let sql = translate(
+            &plan("in:flows time:last_1h stats:\"sum(bytes_total) as total_bytes by src_endpoint_ip, dst_endpoint_port, dst_endpoint_ip\" sort:total_bytes:desc limit:40 other:true"),
+            "serviceradar",
+        )
+        .expect("sankey")
+        .sql;
+        assert!(
+            sql.contains("ROW_NUMBER() OVER (ORDER BY total_bytes DESC, src_endpoint_ip ASC, dst_endpoint_port ASC, dst_endpoint_ip ASC) AS rn"),
+            "{sql}"
+        );
+        assert!(sql.contains("FROM ranked WHERE rn <= 40 UNION ALL SELECT 41 AS sort_rn, COALESCE(SUM(total_bytes), 0) AS total_bytes, NULL AS src_endpoint_ip, NULL AS dst_endpoint_port, NULL AS dst_endpoint_ip, TRUE AS `__other__` FROM ranked WHERE rn > 40 HAVING COUNT(*) > 0"), "{sql}");
+    }
+
+    #[test]
+    fn a_metric_top_n_keeps_its_other_tail() {
+        let sql = translate(
+            &plan("in:timeseries_metrics time:last_1h stats:\"count(*) as samples by device_id\" sort:samples:desc limit:5 other:true"),
+            "serviceradar",
+        )
+        .expect("metrics")
+        .sql;
+        assert!(
+            sql.contains("ROW_NUMBER() OVER (ORDER BY samples DESC, device_id ASC) AS rn"),
+            "{sql}"
+        );
+        assert!(sql.contains("SELECT 6 AS sort_rn, COALESCE(SUM(samples), 0) AS samples, NULL AS device_id, TRUE AS `__other__`"), "{sql}");
+    }
+
+    #[test]
+    fn an_other_tail_is_refused_where_nothing_can_be_folded_into_it() {
+        // An average of averages is not the average of the tail.
+        let message = refused(
+            "in:flows time:last_1h stats:\"avg(bytes_total) as mean_bytes by src_endpoint_ip\" sort:mean_bytes:desc limit:10 other:true",
+        );
+        assert!(
+            message.contains("only sum(...) and count(...)"),
+            "{message}"
+        );
+
+        // The plan builder refuses it for logs; the dialect does too.
+        let mut logs = plan(
+            "in:logs time:last_1h stats:\"count(*) as total by service_name\" sort:total:desc limit:10",
+        );
+        logs.other = true;
+        let err = translate(&logs, "serviceradar").expect_err("logs");
+        assert!(matches!(err, ServiceError::InvalidRequest(_)), "{err:?}");
+        assert!(err.to_string().contains("other:true"), "{err}");
     }
 
     #[test]
@@ -5128,12 +5307,21 @@ mod tests {
                 )),
                 "{entity}: {sql}"
             );
+            let alias = "REPLACE(REPLACE(REPLACE(da.alias, '\\\\', '\\\\\\\\'), '%', '\\\\%'), '_', '\\\\_')";
             assert!(
                 sql.contains(&format!(
-                    "id IN (SELECT e.id FROM serviceradar.events e JOIN (SELECT CONCAT('%\"', REPLACE(REPLACE(REPLACE(da.alias, '\\\\', '\\\\\\\\'), '%', '\\\\%'), '_', '\\\\_'), '\"%') AS pattern FROM ({aliases}) da) da ON LOWER(e.device) LIKE da.pattern OR LOWER(e.metadata) LIKE da.pattern OR LOWER(e.unmapped) LIKE da.pattern OR LOWER(e.observables) LIKE da.pattern WHERE `time` >= '1999-06-15T00:00:00Z' AND `time` < '1999-06-16T00:00:00Z'{scope})"
+                    "id IN (SELECT e.id FROM serviceradar.events e JOIN (SELECT p.pattern FROM ({aliases}) da, unnest([CONCAT('%\"', {alias}, '\"%'), CONCAT('%service\\\\_radar.device\\\\_hostname=', {alias}, '%'), "
                 )),
                 "{entity}: {sql}"
             );
+            // Every key CNPG accepts in a label string, the last one included.
+            assert!(
+                sql.contains(&format!(
+                    "CONCAT('%id=', {alias}, '%')]) AS p(pattern)) dp ON LOWER(e.device) LIKE dp.pattern OR LOWER(e.metadata) LIKE dp.pattern OR LOWER(e.unmapped) LIKE dp.pattern OR LOWER(e.observables) LIKE dp.pattern WHERE `time` >= '1999-06-15T00:00:00Z' AND `time` < '1999-06-16T00:00:00Z'{scope})"
+                )),
+                "{entity}: {sql}"
+            );
+            assert_eq!(sql.matches("=', REPLACE(").count(), 25, "{sql}");
             assert!(!sql.contains("EXISTS"), "{sql}");
         }
     }
