@@ -24,6 +24,10 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
 
   @stateful_cleanup_worker "ServiceRadar.Observability.StatefulAlertCleanupWorker"
 
+  # Bounds for the lookup-lag regression tests; this file runs in a serial lane.
+  @lookup_lag_iterations 12
+  @lookup_lag_flooders 64
+
   @moduletag :integration
 
   setup_all do
@@ -1545,9 +1549,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
   #
   # The failure that motivated this (Horde populates its name-lookup ETS from
   # asynchronous CRDT diffs, so a lookup can lag a just-started shard) needs
-  # registry contention to reproduce and is not forced here; this test pins the
-  # deterministic half of the contract — a terminated shard is restarted and the
-  # next batch is evaluated rather than dropped.
+  # registry contention to reproduce. The lookup-lag tests below force it; this
+  # test pins the other half of the contract — a terminated shard is restarted
+  # and the next batch is evaluated rather than dropped.
   test "a shard terminated out-of-band is restarted and takes the next batch", %{actor: actor} do
     previous_shards = Application.get_env(:serviceradar_core, :stateful_alert_engine_shards)
     Application.put_env(:serviceradar_core, :stateful_alert_engine_shards, 1)
@@ -1615,7 +1619,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     assert_receive {:DOWN, ^monitor_ref, :process, ^pid, _reason}, 5_000
 
     # Evaluate after the out-of-band termination: the engine must start a fresh
-    # shard and hand it this batch. This does not force the registry lookup lag.
+    # shard and hand it this batch. The registry is idle here, so the lookup does
+    # not lag; the lookup-lag tests below cover that.
     assert :ok = StatefulAlertEngine.evaluate_events([event.("#{unique}-after")])
 
     # The restarted shard took the batch (the second group's alert exists), and a
@@ -1629,6 +1634,93 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
              )
 
     assert Process.alive?(new_pid)
+  end
+
+  # Regression for the dropped batch itself. Horde replies to a registration
+  # before it writes the keys ETS row that name resolution reads; that row is
+  # written when the registry handles the asynchronous CRDT diff. Keeping the
+  # registry mailbox busy makes the diff queue, so a shard that was just started
+  # is live and registered but not yet resolvable by name. Dispatching by name
+  # in that window reported `{:error, :engine_not_running}` and dropped the
+  # batch; dispatching to the pid `ensure_started/1` returned does not.
+  #
+  # The contention is read-only on purpose: `:members` is answered from registry
+  # state and writes nothing to the CRDT, so it does not grow Horde's causal
+  # context the way churning registrations would.
+  test "a batch sent to a just-started shard is evaluated while the registry lookup lags" do
+    single_shard()
+
+    results =
+      for _ <- 1..@lookup_lag_iterations do
+        reset_engine()
+
+        with_registry_contention(fn ->
+          StatefulAlertEngine.evaluate_events([lookup_lag_event()])
+        end)
+      end
+
+    assert Enum.uniq(results) == [:ok]
+  end
+
+  test "a resolve sweep sent to a just-started shard runs while the registry lookup lags" do
+    single_shard()
+    now = DateTime.utc_now()
+
+    results =
+      for _ <- 1..@lookup_lag_iterations do
+        reset_engine()
+
+        with_registry_contention(fn ->
+          StatefulAlertEngine.resolve_stale_anomalies(
+            "lookup-lag-no-such-rule",
+            DateTime.add(now, -3600, :second),
+            now
+          )
+        end)
+      end
+
+    assert Enum.uniq(results) == [{:ok, 0}]
+  end
+
+  defp single_shard do
+    previous_shards = Application.get_env(:serviceradar_core, :stateful_alert_engine_shards)
+    Application.put_env(:serviceradar_core, :stateful_alert_engine_shards, 1)
+    on_exit(fn -> restore_env(:stateful_alert_engine_shards, previous_shards) end)
+  end
+
+  defp lookup_lag_event do
+    %{
+      id: Ash.UUID.generate(),
+      time: DateTime.utc_now(),
+      severity_id: OCSF.severity_high(),
+      severity: OCSF.severity_name(OCSF.severity_high()),
+      message: "lookup lag",
+      log_name: "lookup_lag",
+      log_provider: "lookup_lag",
+      unmapped: %{}
+    }
+  end
+
+  # Runs `fun` while flooders keep the registry mailbox full, then kills every
+  # flooder so no contention outlives the call.
+  defp with_registry_contention(fun) do
+    registry = ProcessRegistry.registry_name()
+
+    flooders =
+      for _ <- 1..@lookup_lag_flooders, do: spawn(fn -> flood_registry(registry) end)
+
+    try do
+      # Let the flooders fill the mailbox before the shard is started.
+      Process.sleep(20)
+      fun.()
+    after
+      Enum.each(flooders, &Process.exit(&1, :kill))
+    end
+  end
+
+  defp flood_registry(registry) do
+    _ = GenServer.call(registry, :members, :infinity)
+    flood_registry(registry)
   end
 
   defp active_alerts_by_title(actor, title) do
