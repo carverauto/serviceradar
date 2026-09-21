@@ -111,7 +111,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   end
 
   def handle_event("attributed_custom_range", %{"window" => params}, socket) do
-    case MetricWindowComponents.custom_range(params) do
+    case MetricWindowComponents.custom_range(params, max_days: 90) do
       {:ok, range} -> {:noreply, patch_attributed_window(socket, range)}
       {:error, message} -> {:noreply, put_flash(socket, :error, message)}
     end

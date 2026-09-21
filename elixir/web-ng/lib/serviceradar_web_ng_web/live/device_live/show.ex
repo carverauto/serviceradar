@@ -932,7 +932,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp sysmon_time_range(socket) do
     range = Map.get(socket.assigns, :sysmon_time_range)
-    if sysmon_range?(range), do: range, else: "last_24h"
+    if sysmon_range?(range), do: range, else: MetricWindowComponents.default_range()
   end
 
   # Switch the sysmon charts to a new window and re-run the metric load using the

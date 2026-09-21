@@ -12,12 +12,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetricSectionComponents do
   attr(:device_uid, :string, required: true)
   attr(:timezone, :string, required: true)
   attr(:chart_focus, :any, default: nil)
-  attr(:time_range, :string, default: "last_24h")
+  attr(:time_range, :string, default: MetricWindowComponents.default_range())
 
   def metric_sections_content(assigns) do
+    assigns =
+      assign(
+        assigns,
+        :window_controls_visible,
+        assigns.sections != [] or assigns.time_range != MetricWindowComponents.default_range()
+      )
+
     ~H"""
     <.metric_window_controls
-      :if={@sections != []}
+      :if={@window_controls_visible}
       id={"device-#{@device_uid}-metric-window"}
       range={@time_range}
       event="sysmon_set_range"
@@ -45,6 +52,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetricSectionComponents do
         style={:compact}
         fallback=""
       />
+    </p>
+    <p
+      :if={@window_controls_visible and @sections == []}
+      id={"device-#{@device_uid}-metric-window-empty"}
+      class="rounded-xl border border-sr-line bg-sr-surface px-4 py-3 text-sm text-sr-muted"
+    >
+      No metrics in this window.
     </p>
 
     <%= for {section, section_index} <- Enum.with_index(@sections) do %>

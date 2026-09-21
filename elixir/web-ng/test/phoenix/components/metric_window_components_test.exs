@@ -102,6 +102,26 @@ defmodule ServiceRadarWebNGWeb.MetricWindowComponentsTest do
              MetricWindowComponents.absolute_bounds("[2025-01-01T00:00:00Z,2025-01-08T00:00:00Z]")
   end
 
+  test "a caller whose queries are not rollup-eligible gets SRQL's 90-day limit" do
+    ninety_days = %{"start" => "2025-01-01T00:00", "end" => "2025-04-01T00:00"}
+    over_ninety = %{"start" => "2025-01-01T00:00", "end" => "2025-04-01T00:01"}
+
+    assert {:ok, "[2025-01-01T00:00:00Z,2025-04-01T00:00:00Z]"} =
+             MetricWindowComponents.custom_range(ninety_days, max_days: 90)
+
+    assert {:error, message} = MetricWindowComponents.custom_range(over_ninety, max_days: 90)
+    assert message =~ "90 days"
+    refute message =~ "395"
+
+    assert {:ok, _} = MetricWindowComponents.custom_range(over_ninety)
+    assert {:ok, _} = MetricWindowComponents.custom_range(over_ninety, max_days: 395)
+  end
+
+  test "the default window is the one an unknown range normalizes to" do
+    assert MetricWindowComponents.default_range() == MetricWindowComponents.normalize_range("not-a-range")
+    assert MetricWindowComponents.default_range() in MetricWindowComponents.ranges()
+  end
+
   test "accepts only a well-formed, ordered absolute range" do
     assert MetricWindowComponents.absolute_range?("[2025-01-01T00:00:00Z,2025-01-08T00:00:00Z]")
 
