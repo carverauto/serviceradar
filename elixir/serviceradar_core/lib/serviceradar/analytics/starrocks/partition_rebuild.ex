@@ -47,15 +47,28 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
   copied and then CHANGED -- flow attribution rewrites recent flows in place --
   are carried by copying the most recent days again immediately before the
   swap, while nothing else writes the new table and an upsert of whole days is
-  therefore safe. What is left is an update landing in the moments between
-  that last copy and the swap, and CNPG receives every write throughout, so
-  even that is not lost to the deployment.
+  therefore safe.
+
+  Two gaps are left, both narrow. One is an in-place update landing between
+  that last copy and the swap: it reaches the old table and is not carried.
+  The other is its mirror image: a flow written to the old table after its day
+  was last copied, whose attribution -- a partial update by key -- reaches the
+  NEW table before the catch-up has brought the flow across. The catch-up is
+  an anti-join on the key, so it would then take the key as present. The most
+  recent days are therefore caught up in the very next statements after the
+  swap, from the columns and days already in hand, which leaves that gap the
+  instant between the swap and the first of them rather than a scan of the old
+  table. CNPG receives every write throughout, so neither is lost to the
+  deployment.
 
   The copy is bounded to the retention window on purpose. A table that was
   never partitioned has never expired anything, and a single row with a
   nonsense timestamp would otherwise become a partition of its own. The copy
   is created with the operator's retention, not the DDL default, so StarRocks
-  does not expire the far end of a longer window while it is being filled.
+  does not expire most of a longer window while it is being filled. The window
+  spans up to two calendar days more than `partition_live_number` counts
+  partitions, so StarRocks may expire the oldest one or two copied partitions
+  and a retry copy them again. That is retention working, not loss.
   """
 
   alias ServiceRadar.Analytics.StarRocks.Retention
@@ -179,13 +192,14 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
   defp cut_over(state, %{step: :rebuild, spec: spec, days: days} = plan) do
     with {:ok, columns} <- shared_columns(state, spec.table, spec.copy),
          {:ok, recent} <- days_in(state, spec.table, spec.time_column, days),
-         :ok <- copy_days(state, spec, columns, Enum.take(recent, @refresh_days)),
+         recent = Enum.take(recent, @refresh_days),
+         :ok <- copy_days(state, spec, columns, recent),
          {:ok, layout} <- layout(state) do
       # The plan is hours old by now, and SWAP is symmetric: issued by a runner
       # that lost the migration lock while another finished the job, it would
       # put the unpartitioned table back. What the warehouse says NOW decides.
       case {Map.get(layout, spec.table), Map.get(layout, spec.copy)} do
-        {:unpartitioned, :partitioned} -> swap(state, plan)
+        {:unpartitioned, :partitioned} -> swap(state, plan, columns, recent)
         {:partitioned, :unpartitioned} -> cut_over(state, %{plan | step: :finish})
         _other -> {:error, :unexpected_layout}
       end
@@ -202,10 +216,14 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
     end
   end
 
-  defp swap(state, %{spec: spec} = plan) do
+  # Attribution reaches a recent flow minutes after the flow itself, and once
+  # swapped it lands on the new table. The days it touches are caught up before
+  # anything is asked of the warehouse, with what the refresh already knew.
+  defp swap(state, %{spec: spec} = plan, columns, recent) do
     with :ok <-
            exec(state, "DROP MATERIALIZED VIEW IF EXISTS #{qualified(state, spec.table)}_hourly"),
-         :ok <- exec(state, "ALTER TABLE #{qualified(state, spec.table)} SWAP WITH #{spec.copy}") do
+         :ok <- exec(state, "ALTER TABLE #{qualified(state, spec.table)} SWAP WITH #{spec.copy}"),
+         :ok <- catch_up_days(state, spec, columns, recent) do
       cut_over(state, %{plan | step: :finish})
     end
   end

@@ -185,6 +185,7 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuildTest do
 
     pass = Enum.map(["2025-01-03", "2025-01-02", "2025-01-01"], caught_up)
 
+    # The days attribution is still reaching, before anything else.
     assert sent(agent) ==
              [
                "CREATE TABLE IF NOT EXISTS warehouse.flows__rebuild (",
@@ -199,6 +200,7 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuildTest do
                "DROP MATERIALIZED VIEW IF EXISTS warehouse.flows_hourly",
                "ALTER TABLE warehouse.flows SWAP WITH flows__rebuild"
              ] ++
+               Enum.take(pass, 2) ++
                pass ++
                ["sleep 5000"] ++
                pass ++
@@ -359,6 +361,40 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuildTest do
              run(unfinished, %{retention_days: [{"metrics", 90}]})
 
     refute Enum.any?(sent(unfinished), &(&1 =~ "MATERIALIZED VIEW"))
+  end
+
+  test "the newest days are caught up straight after the swap, before the warehouse is asked anything" do
+    agent =
+      start_warehouse(%{
+        "flows" => old(["id", "time"], ["2025-01-01", "2025-01-02", "2025-01-03"])
+      })
+
+    parent = self()
+
+    query = fn sql ->
+      send(parent, {:sql, sql})
+      Agent.get_and_update(agent, &answer(&1, sql))
+    end
+
+    assert run(agent, %{query: query}) == :ok
+
+    next_sql = fn ->
+      receive do
+        {:sql, sql} -> sql
+      after
+        0 -> nil
+      end
+    end
+
+    everything = next_sql |> Stream.repeatedly() |> Enum.take_while(& &1)
+
+    [_swap, first, second, third | _] = Enum.drop_while(everything, &(not (&1 =~ "SWAP WITH")))
+
+    assert first =~ "LEFT ANTI JOIN"
+    assert first =~ "o.`time` >= '2025-01-03 00:00:00'"
+    assert second =~ "LEFT ANTI JOIN"
+    assert second =~ "o.`time` >= '2025-01-02 00:00:00'"
+    assert String.starts_with?(third, "SELECT ")
   end
 
   test "listing a table's days carries its own timeout, which the server's default would cut short" do
