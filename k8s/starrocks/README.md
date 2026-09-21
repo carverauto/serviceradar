@@ -304,21 +304,38 @@ PostgreSQL holding the same synthetic rows (`host01.example.com`,
 `192.0.2.0/24`), with the catalog reader holding exactly the grants above. The
 SQL on each side was the SRQL compiler's own output for the same query.
 
-- All 25 statements executed on StarRocks, including the anomaly rollup's
-  boolean-valued derived columns and every catalog subquery.
+- All 31 statements executed on StarRocks, including the anomaly rollup's
+  boolean-valued derived columns, every catalog subquery, and the event device
+  filter's non-equality join against the device's alias set. StarRocks refuses
+  that test as a correlated subquery, which is how CNPG writes it; as a join
+  inside an uncorrelated `id IN (...)` the planner accepts it.
 - `rollup_stats:severity` (with and without a `service_name` LIKE),
   `rollup_stats:anomaly_findings`, the three `finding_rollup` drill-downs,
   `event_type`, `source`, `hostname`, `severity_match:any`, the log
   `device_id` filter in both polarities, and the text filters (mixed-case
   LIKE, and `!=` / `NOT IN` / `NOT LIKE` over NULL rows) returned the same
   rows or counters on both engines.
-- `device_id:` on events differs for one class of row, and the difference is
-  on the CNPG side: inside its alias `EXISTS`, the unqualified `metadata`
-  resolves to the device row's own `metadata` column rather than the event's,
-  so CNPG does not find an event that names the device only in its metadata
-  (a hostname, or a `uid_alt`). The warehouse reads the event's metadata and
-  does find it. Every other arm agreed.
-
-The warehouse matches an alias at the paths an emitter writes one, where CNPG
-scans the document text for it; an alias recorded under some other key is
-found by CNPG and not here.
+- `!device_id:` on events returned the same rows on both engines for a
+  canonical uid, a raw id and a device with no events. CNPG's canonical
+  equality is NULL, not FALSE, for an event that carries neither canonical
+  path, so both engines return only the events known to be about another
+  device; that arm is deliberately left three-valued here, and the alias and
+  scan arms are two-valued as CNPG's are.
+- `device_id:` on events found, on both engines, an event that names the
+  device only inside an observable and one whose hostname differs from the
+  inventory's in case. An alias containing `_` matched only itself.
+- `device_id:` on events differs from CNPG in three ways. The first two are
+  rows the warehouse returns and CNPG does not; the third is the reverse:
+  - Inside CNPG's alias `EXISTS`, the unqualified `metadata` resolves to the
+    device row's own `metadata` column rather than the event's, so CNPG does
+    not find an event that names the device only in its metadata -- a
+    hostname, a `uid_alt`, or a dotted key such as `host.name`. The warehouse
+    reads the event's metadata and does find it.
+  - CNPG requires one of its identity or host keys somewhere ahead of the
+    alias in the document text. The warehouse requires only that the alias
+    appear as a quoted JSON string, so an alias held under a key outside that
+    list (`device.name`, for one) matches here and not on CNPG.
+  - `dst_endpoint` is not stored in the warehouse, and `src_endpoint` only as
+    `src_endpoint_ip`. An event that names the device only inside
+    `dst_endpoint`, or in `src_endpoint` under a key other than `ip`, is found
+    by CNPG and not here. This is the one case the warehouse misses.

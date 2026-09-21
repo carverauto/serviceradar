@@ -268,7 +268,8 @@ fn dataset_sql(
     if let Some(scope) = dataset.scope {
         where_sql.push_str(&format!(" AND ({scope})"));
     }
-    for predicate in filter_predicates(plan, dataset)? {
+    let raw_table = format!("{database}.{}", dataset.raw_table);
+    for predicate in filter_predicates(plan, dataset, &raw_table, &where_sql)? {
         where_sql.push_str(" AND ");
         where_sql.push_str(&predicate);
     }
@@ -755,48 +756,33 @@ fn escape_like_fragment(value: &str) -> String {
         .replace('_', r"\_")
 }
 
-/// Where an event names the device it is about: the identity and host keys
-/// CNPG's alias arm looks for (EVENT_DEVICE_IDENTITY_KEYS and
-/// EVENT_DEVICE_HOST_KEYS), at the paths an emitter writes them.
-const EVENT_DEVICE_ALIAS_PATHS: &[EventPath] = &[
-    ("metadata", &["service_radar", "device_uid"]),
-    ("metadata", &["service_radar", "device_id"]),
-    ("metadata", &["service_radar", "device_hostname"]),
-    ("metadata", &["service_radar", "source_instance"]),
-    ("metadata", &["service_radar", "node_name"]),
-    ("metadata", &["service_radar", "device_ip"]),
-    ("metadata", &["service_radar", "source_ip"]),
-    ("metadata", &["serviceradar", "device_id"]),
-    ("metadata", &["device_id"]),
-    ("metadata", &["device_uid"]),
-    ("metadata", &["source_device_uid"]),
-    ("metadata", &["target_device_uid"]),
-    ("metadata", &["hostname"]),
-    ("metadata", &["host"]),
-    ("metadata", &["ip"]),
-    ("metadata", &["server_identity"]),
-    ("unmapped", &["device_id"]),
-    ("unmapped", &["device_uid"]),
-    ("unmapped", &["source_device_uid"]),
-    ("unmapped", &["target_device_uid"]),
-    ("unmapped", &["hostname"]),
-    ("unmapped", &["host"]),
-    ("unmapped", &["ip"]),
-    ("unmapped", &["server_identity"]),
-    ("device", &["uid"]),
-    ("device", &["id"]),
-    ("device", &["hostname"]),
-    ("device", &["ip"]),
-];
-
-/// Every alias the inventory holds for one device, as a subquery that names no
-/// event column. The list is DEVICE_INVENTORY_ALIAS_EXPRESSIONS in
-/// query/events/filters.rs, and five of its members are keys of the device's
-/// jsonb metadata, which the JDBC catalog cannot carry; CNPG unpivots them into
-/// `device_inventory_aliases_catalog`, blank and NULL aliases already dropped.
+/// Every alias the inventory holds for one device, lowercased, as a subquery
+/// that names no event column. The list is DEVICE_INVENTORY_ALIAS_EXPRESSIONS
+/// in query/events/filters.rs, and five of its members are keys of the
+/// device's jsonb metadata, which the JDBC catalog cannot carry; CNPG unpivots
+/// them into `device_inventory_aliases_catalog`, blank and NULL aliases already
+/// dropped.
 fn device_inventory_aliases_sql(uid: &str) -> String {
     format!(
-        "SELECT a.alias FROM {CNPG_CATALOG}.device_inventory_aliases_catalog a WHERE a.uid = {uid} OR a.uid_alt = {uid}"
+        "SELECT LOWER(a.alias) AS alias FROM {CNPG_CATALOG}.device_inventory_aliases_catalog a WHERE a.uid = {uid} OR a.uid_alt = {uid}"
+    )
+}
+
+/// The events, within the query's own bounds, whose stored documents hold one
+/// of the device's aliases as a quoted JSON string. CNPG finds them with an
+/// EXISTS whose LIKE pattern comes from the device row, a non-equality
+/// correlated subquery StarRocks refuses; a join against the handful of
+/// aliases is the same test, and the outer predicate stays an uncorrelated
+/// `id IN (...)`. LIKE wildcards in an alias are escaped, as CNPG escapes them.
+fn events_naming_an_alias_sql(table: &str, bounds: &str, aliases: &str) -> String {
+    let pattern = r#"CONCAT('%"', REPLACE(REPLACE(REPLACE(da.alias, '\\', '\\\\'), '%', '\\%'), '_', '\\_'), '"%')"#;
+    let mentions = EVENT_DOCUMENTS
+        .iter()
+        .map(|document| format!("LOWER(e.{document}) LIKE da.pattern"))
+        .collect::<Vec<_>>()
+        .join(" OR ");
+    format!(
+        "SELECT e.id FROM {table} e JOIN (SELECT {pattern} AS pattern FROM ({aliases}) da) da ON {mentions}{bounds}"
     )
 }
 
@@ -807,26 +793,26 @@ fn device_inventory_aliases_sql(uid: &str) -> String {
 /// of the uid. A raw id additionally gets the case-insensitive scan of the
 /// documents for a `"<identity key>" ... "<value>"` pair.
 ///
-/// CNPG's alias arm is an EXISTS whose LIKE pattern comes from the device row,
-/// a non-equality correlated subquery StarRocks refuses. Here the aliases are
-/// an uncorrelated subquery and the event's identity paths are tested against
-/// it with IN, so an alias matches where an emitter records one rather than
-/// anywhere in the document text.
-fn event_device_identity_filter_sql(filter: &Filter) -> Result<String> {
+/// Under negation each arm keeps CNPG's truth values. The canonical equality
+/// is NULL for an event that carries neither path, there and here, so
+/// `!device_id:` returns the events known to be about another device. CNPG's
+/// alias arm is an EXISTS and its scan reads NOT NULL jsonb, so both are FALSE
+/// rather than NULL for an event that names no device; the warehouse documents
+/// are nullable, and the same arms are made two-valued to match.
+fn event_device_identity_filter_sql(filter: &Filter, table: &str, bounds: &str) -> Result<String> {
     let (values, negate) = exact_values(filter, &filter.field)?;
     let mut clauses = Vec::new();
     for value in values {
         clauses.push(event_paths_equal(EVENT_CANONICAL_DEVICE_PATHS, value)?);
 
         let aliases = device_inventory_aliases_sql(&sql_literal(value));
-        let mut alias_matches = vec![format!("src_endpoint_ip IN ({aliases})")];
-        for (document, path) in EVENT_DEVICE_ALIAS_PATHS {
-            alias_matches.push(format!(
-                "{} IN ({aliases})",
-                event_json_text(document, path)?
-            ));
-        }
-        clauses.push(alias_matches.join(" OR "));
+        clauses.push(format!(
+            "COALESCE(LOWER(src_endpoint_ip), '') IN ({aliases})"
+        ));
+        clauses.push(format!(
+            "id IN ({})",
+            events_naming_an_alias_sql(table, bounds, &aliases)
+        ));
 
         if value.starts_with("sr:") {
             continue;
@@ -840,13 +826,14 @@ fn event_device_identity_filter_sql(filter: &Filter) -> Result<String> {
                 )
                 .to_lowercase(),
             );
-            clauses.push(
+            clauses.push(format!(
+                "COALESCE({}, FALSE)",
                 EVENT_DOCUMENTS
                     .iter()
                     .map(|document| format!("LOWER({document}) LIKE {pattern}"))
                     .collect::<Vec<_>>()
-                    .join(" OR "),
-            );
+                    .join(" OR ")
+            ));
         }
     }
     Ok(any_of(clauses, negate))
@@ -953,8 +940,16 @@ fn events_anomaly_findings_rollup_sql(
 
 /// Every WHERE predicate the plan's filters compile to. Almost all are one
 /// filter each; `severity_match:any` is the exception, a marker that joins the
-/// log severity text and number filters into one predicate.
-fn filter_predicates(plan: &QueryPlan, dataset: Dataset) -> Result<Vec<String>> {
+/// log severity text and number filters into one predicate. The event device
+/// filter is compiled here rather than in `filter_sql` because one of its arms
+/// reads the events table again, inside `bounds`, the WHERE the query itself
+/// has built so far.
+fn filter_predicates(
+    plan: &QueryPlan,
+    dataset: Dataset,
+    table: &str,
+    bounds: &str,
+) -> Result<Vec<String>> {
     let severity_any = dataset.raw_table == "logs" && logs_severity_match_any(plan);
     let mut predicates = Vec::new();
     let mut severity_text = None;
@@ -964,6 +959,9 @@ fn filter_predicates(plan: &QueryPlan, dataset: Dataset) -> Result<Vec<String>> 
             "severity_match" if severity_any => {}
             "severity_text" | "severity" | "level" if severity_any => severity_text = Some(filter),
             "severity_number" if severity_any => severity_number = Some(filter),
+            "device_id" | "uid" | "source_device_uid" if dataset.raw_table == "events" => {
+                predicates.push(event_device_identity_filter_sql(filter, table, bounds)?)
+            }
             _ => predicates.push(filter_sql(plan, filter)?),
         }
     }
@@ -1139,9 +1137,6 @@ fn dataset_filter_sql(dataset: Dataset, filter: &Filter) -> Result<Option<String
         }
         ("events", "finding_rollup") => event_finding_rollup_filter_sql(filter)?,
         ("events", "source" | "source_type" | "addon_id") => event_source_filter_sql(filter)?,
-        ("events", "device_id" | "uid" | "source_device_uid") => {
-            event_device_identity_filter_sql(filter)?
-        }
         ("events", "device_uid_exact") => {
             event_exact_filter_sql(filter, EVENT_DEVICE_UID_EXACT_PATHS, field)?
         }
@@ -5080,12 +5075,17 @@ mod tests {
         .expect("canonical");
         assert!(
             canonical.sql.contains(
-                "((get_json_string(metadata, '$.\"service_radar\".\"device_uid\"') = 'sr:device-0001' OR get_json_string(device, '$.\"uid\"') = 'sr:device-0001') OR (src_endpoint_ip IN ("
+                "((get_json_string(metadata, '$.\"service_radar\".\"device_uid\"') = 'sr:device-0001' OR get_json_string(device, '$.\"uid\"') = 'sr:device-0001') OR (COALESCE(LOWER(src_endpoint_ip), '') IN ("
             ),
             "{}",
             canonical.sql
         );
-        assert!(!canonical.sql.contains(" LIKE "), "{}", canonical.sql);
+        // The raw-id scan names an identity key ahead of the value.
+        assert!(
+            !canonical.sql.contains("\"device\\\\_uid\"%"),
+            "{}",
+            canonical.sql
+        );
 
         let raw = translate(
             &plan("in:events device_id:\"Host_01.example.com\" time:last_1h"),
@@ -5106,30 +5106,65 @@ mod tests {
     }
 
     #[test]
-    fn an_event_device_filter_finds_events_keyed_under_an_inventory_alias() {
-        let aliases = "SELECT a.alias FROM cnpg_platform.platform.device_inventory_aliases_catalog a WHERE a.uid = 'sr:device-0001' OR a.uid_alt = 'sr:device-0001'";
-        // The scoped event entities share the lookup, as they do on CNPG.
-        for entity in ["events", "security_findings"] {
+    fn an_event_device_filter_finds_events_whose_documents_name_an_inventory_alias() {
+        let aliases = "SELECT LOWER(a.alias) AS alias FROM cnpg_platform.platform.device_inventory_aliases_catalog a WHERE a.uid = 'sr:device-0001' OR a.uid_alt = 'sr:device-0001'";
+        // The scoped event entities share the lookup, as they do on CNPG, and
+        // the inner read of the table carries the same scope and bounds.
+        for (entity, scope) in [
+            ("events", ""),
+            ("security_findings", " AND (category_uid = 2)"),
+        ] {
             let compiled = translate(
                 &plan(&format!(
-                    "in:{entity} device_id:\"sr:device-0001\" time:last_1h"
+                    "in:{entity} device_id:\"sr:device-0001\" time:[1999-06-15T00:00:00Z,1999-06-16T00:00:00Z]"
                 )),
                 "serviceradar",
             )
             .expect(entity);
             let sql = &compiled.sql;
-            for identity in [
-                "src_endpoint_ip",
-                "get_json_string(metadata, '$.\"service_radar\".\"device_hostname\"')",
-                "get_json_string(unmapped, '$.\"hostname\"')",
-                "get_json_string(device, '$.\"ip\"')",
-            ] {
-                assert!(
-                    sql.contains(&format!("{identity} IN ({aliases})")),
-                    "{entity} {identity}: {sql}"
-                );
-            }
+            assert!(
+                sql.contains(&format!(
+                    "COALESCE(LOWER(src_endpoint_ip), '') IN ({aliases})"
+                )),
+                "{entity}: {sql}"
+            );
+            assert!(
+                sql.contains(&format!(
+                    "id IN (SELECT e.id FROM serviceradar.events e JOIN (SELECT CONCAT('%\"', REPLACE(REPLACE(REPLACE(da.alias, '\\\\', '\\\\\\\\'), '%', '\\\\%'), '_', '\\\\_'), '\"%') AS pattern FROM ({aliases}) da) da ON LOWER(e.device) LIKE da.pattern OR LOWER(e.metadata) LIKE da.pattern OR LOWER(e.unmapped) LIKE da.pattern OR LOWER(e.observables) LIKE da.pattern WHERE `time` >= '1999-06-15T00:00:00Z' AND `time` < '1999-06-16T00:00:00Z'{scope})"
+                )),
+                "{entity}: {sql}"
+            );
             assert!(!sql.contains("EXISTS"), "{sql}");
+        }
+    }
+
+    #[test]
+    fn a_negated_event_device_filter_keeps_only_the_canonical_arm_three_valued() {
+        let compiled = translate(
+            &plan("in:events !device_id:\"host02.example.com\" time:last_1h"),
+            "serviceradar",
+        )
+        .expect("negated");
+        let sql = &compiled.sql;
+        let start = sql.find(" AND NOT (").expect(sql) + " AND NOT (".len();
+        let end = sql.find(" ORDER BY ").expect(sql);
+        let arms = sql[start..end]
+            .trim_end_matches(')')
+            .split(") OR (")
+            .map(|arm| arm.trim_start_matches('('))
+            .collect::<Vec<_>>();
+        // CNPG's canonical equality is NULL for an event with neither path.
+        assert!(
+            arms[0].starts_with("get_json_string(metadata, "),
+            "{}",
+            arms[0]
+        );
+        // Its alias EXISTS and its scan of NOT NULL jsonb never are.
+        for arm in &arms[1..] {
+            assert!(
+                arm.starts_with("COALESCE(") || arm.starts_with("id IN ("),
+                "{arm}"
+            );
         }
     }
 
