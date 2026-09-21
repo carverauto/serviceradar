@@ -14,6 +14,7 @@ defmodule ServiceRadarWebNG.SRQL do
 
   alias Ecto.Adapters.SQL
   alias ServiceRadar.Analytics.StarRocks.CatalogAllowlist
+  alias ServiceRadar.Analytics.StarRocks.EventDocuments
   alias ServiceRadar.Analytics.StarRocks.Query, as: StarRocksQuery
   alias ServiceRadar.Analytics.StarRocks.Readers
   alias ServiceRadar.Analytics.StarRocks.RollupFreshness
@@ -56,7 +57,7 @@ defmodule ServiceRadarWebNG.SRQL do
              &translate(query, limit, cursor, direction, &1)
            ),
          {:ok, result} <- execute_backend_raw(translation, mode),
-         {:ok, payload} <- encode_result_arrow(result) do
+         {:ok, payload} <- encode_result_arrow(result, warehouse_shape(query, mode)) do
       {:ok,
        %{
          payload: payload,
@@ -152,8 +153,16 @@ defmodule ServiceRadarWebNG.SRQL do
        when is_binary(sql) and mode in ["starrocks", "starrocks_raw"] do
     with :ok <- CatalogAllowlist.assert_sql_executable(sql) do
       case StarRocksQuery.execute(sql) do
-        {:ok, result} -> {:ok, build_response(translation, result, &build_arrow_rows/2)}
-        {:error, reason} -> {:error, reason}
+        {:ok, result} ->
+          shape = warehouse_shape(Map.get(translation, "_query"), mode)
+
+          {:ok,
+           build_response(translation, result, fn columns, rows ->
+             columns |> build_arrow_rows(rows) |> shape.()
+           end)}
+
+        {:error, reason} ->
+          {:error, reason}
       end
     end
   end
@@ -357,8 +366,18 @@ defmodule ServiceRadarWebNG.SRQL do
     }
   end
 
-  defp encode_result_arrow(%Postgrex.Result{columns: columns, rows: rows}) do
-    row_maps = build_arrow_rows(columns, rows)
+  # A warehouse event row carries its documents as JSON text; CNPG hands back
+  # maps. Rows are reshaped where they are built, so neither the JSON nor the
+  # Arrow consumer can tell which backend answered.
+  defp warehouse_shape(query, mode) when is_binary(query) and mode in ["starrocks", "starrocks_raw"] do
+    entity = EntityAccess.extract_entity(query)
+    &EventDocuments.decode_rows(&1, entity)
+  end
+
+  defp warehouse_shape(_query, _mode), do: & &1
+
+  defp encode_result_arrow(%Postgrex.Result{columns: columns, rows: rows}, shape) do
+    row_maps = columns |> build_arrow_rows(rows) |> shape.()
 
     with {:ok, rows_json} <- Jason.encode(row_maps) do
       Native.encode_arrow_json(columns, rows_json)

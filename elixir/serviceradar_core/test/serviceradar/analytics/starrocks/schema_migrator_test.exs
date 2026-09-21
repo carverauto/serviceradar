@@ -234,6 +234,50 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
     assert migrate(agent, migrations: migrations) == {:ok, [3, 4]}
   end
 
+  test "each events document column is added only after the previous ALTER has finished" do
+    migration = Enum.find(Schema.migrations(), &(&1.version == 18))
+    added = ~w(log_level metadata unmapped device observables)
+
+    # StarRocks refuses a second ALTER on a table while one is running, so this
+    # warehouse does too, and every schema change takes two polls to finish.
+    {:ok, agent} = Agent.start_link(fn -> %{running: nil, polls: 0, added: [], refused: []} end)
+
+    query = fn sql ->
+      Agent.get_and_update(agent, fn state ->
+        cond do
+          match = Regex.run(~r/ADD COLUMN `?([a-z_]+)`?/, sql) ->
+            [_, column] = match
+
+            if state.running,
+              do:
+                {{:error, {:starrocks_mysql, "schema change in progress"}},
+                 %{state | refused: state.refused ++ [column]}},
+              else: {{:ok, %{columns: [], rows: []}}, %{state | running: column, polls: 0}}
+
+          String.starts_with?(sql, "SHOW ALTER TABLE COLUMN") and state.polls == 0 ->
+            {{:ok, %{columns: ["State"], rows: [["RUNNING"]]}}, %{state | polls: 1}}
+
+          String.starts_with?(sql, "SHOW ALTER TABLE COLUMN") ->
+            {{:ok, %{columns: ["State"], rows: [["FINISHED"]]}},
+             %{state | running: nil, added: state.added ++ [state.running]}}
+
+          String.starts_with?(sql, "SHOW BACKENDS") ->
+            {{:ok, %{columns: ["BackendId", "Alive"], rows: [[1, "true"]]}}, state}
+
+          true ->
+            {{:ok, %{columns: [], rows: []}}, state}
+        end
+      end)
+    end
+
+    assert migrate(agent, query: query, migrations: [migration]) == {:ok, [18]}
+
+    result = Agent.get(agent, & &1)
+    assert result.refused == []
+    assert result.added == added
+    assert result.running == nil
+  end
+
   test "the shipped schema marks exactly the day-partitioned rollups as needing partitioned tables" do
     waiting =
       Schema.migrations()

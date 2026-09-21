@@ -312,6 +312,53 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
              SRQL.query("in:logs time:last_1h limit:1", %{scope: %{permissions: MapSet.new()}})
   end
 
+  # CNPG returns an event's jsonb documents as maps; the warehouse stores them
+  # as JSON text. The event pages index into them, so the row has to arrive in
+  # CNPG's shape whichever backend answered.
+  test "a cut-over event row carries its documents as maps, and a log row is left alone",
+       %{prev: prev} do
+    events_scope = %{permissions: MapSet.new(["observability.events.view"])}
+    logs_scope = %{permissions: MapSet.new(["observability.logs.view"])}
+    columns = ["id", "metadata", "unmapped", "device", "observables"]
+
+    documents = [
+      "row-alpha-0002",
+      ~s({"security_signal":{"finding_uid":"finding-0001"}}),
+      "{}",
+      nil,
+      "not json"
+    ]
+
+    mysql = fn _sql -> {:ok, postgrex_result(columns, [documents])} end
+
+    Application.put_env(
+      :serviceradar_core,
+      StarRocks,
+      prev
+      |> Keyword.put(:cutover_datasets, [:logs, :events])
+      |> Keyword.put(:mysql, mysql)
+    )
+
+    assert {:ok, %{"results" => [event_row]}} =
+             SRQL.query("in:events time:last_1h limit:1", %{scope: events_scope})
+
+    assert event_row["metadata"] == %{"security_signal" => %{"finding_uid" => "finding-0001"}}
+    assert event_row["unmapped"] == %{}
+    assert event_row["device"] == nil
+    # One undecodable document is kept as it was; the row still renders.
+    assert event_row["observables"] == "not json"
+
+    assert {:ok, %{"results" => [log_row]}} =
+             SRQL.query("in:logs time:last_1h limit:1", %{scope: logs_scope})
+
+    assert log_row["metadata"] == ~s({"security_signal":{"finding_uid":"finding-0001"}})
+
+    assert {:ok, %{payload: payload}} =
+             SRQL.query_arrow("in:events time:last_1h limit:1", %{scope: events_scope})
+
+    assert is_binary(payload)
+  end
+
   test "single warehouse aggregates retain their column names", %{prev: prev} do
     mysql = fn _sql ->
       {:ok, postgrex_result(["unique_talkers"], [[2]])}

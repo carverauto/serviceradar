@@ -29,7 +29,13 @@ fn translate_inner(
     allow_rollup: bool,
 ) -> Result<TranslateResponse> {
     match dataset_for(&plan.entity) {
-        Some(dataset) => dataset_sql(plan, dataset, database, allow_rollup),
+        Some(dataset) => {
+            refuse_unimplemented_features(plan)?;
+            if let Some(kind) = rollup_stats_kind(plan) {
+                return rollup_stats_sql(plan, dataset, database, kind);
+            }
+            dataset_sql(plan, dataset, database, allow_rollup)
+        }
         None => Err(ServiceError::NotImplemented(format!(
             "starrocks_unsupported_entity: {:?}",
             plan.entity
@@ -262,9 +268,10 @@ fn dataset_sql(
     if let Some(scope) = dataset.scope {
         where_sql.push_str(&format!(" AND ({scope})"));
     }
-    for filter in &plan.filters {
+    let raw_table = format!("{database}.{}", dataset.raw_table);
+    for predicate in filter_predicates(plan, dataset, &raw_table, &where_sql)? {
         where_sql.push_str(" AND ");
-        where_sql.push_str(&filter_sql(plan, filter)?);
+        where_sql.push_str(&predicate);
     }
     if let Some(downsample) = plan.downsample.as_ref() {
         let sql = downsample_sql(
@@ -289,11 +296,19 @@ fn dataset_sql(
     }
     let (select, group) = stats_select(plan, dataset)?;
     let order = order_sql(plan, time_column)?;
-    let sql = format!(
-        "SELECT {select} FROM {from}{where_sql}{group}{order} LIMIT {limit} OFFSET {offset}",
-        limit = plan.limit.max(1),
-        offset = plan.offset.max(0)
-    );
+    let sql = if plan.other {
+        other_rollup_sql(
+            plan,
+            &format!("SELECT {select} FROM {from}{where_sql}{group}"),
+            &order,
+        )?
+    } else {
+        format!(
+            "SELECT {select} FROM {from}{where_sql}{group}{order} LIMIT {limit} OFFSET {offset}",
+            limit = plan.limit.max(1),
+            offset = plan.offset.max(0)
+        )
+    };
 
     Ok(TranslateResponse {
         sql,
@@ -305,6 +320,956 @@ fn dataset_sql(
         },
         viz: None,
     })
+}
+
+/// A plan feature this dialect has no translation for is an error, never a
+/// no-op. `rollup_stats:` used to be dropped here: the query compiled to
+/// `SELECT *`, and the stat cards read their counters off a raw row as zeros
+/// inside an `{:ok, ...}` response. Anything the compile below does not consume
+/// is refused by name instead, so the caller sees a failure rather than a
+/// wrong answer.
+///
+/// `include_deleted` is not refused: only the device inventory has tombstones
+/// (`query/devices.rs`), no warehouse dataset does, and CNPG ignores it for
+/// these entities too, so dropping it cannot change a result.
+///
+/// `other:true` is implemented, not refused, where CNPG implements it: grouped
+/// flow and metric stats (`other_rollup_sql`). Flows are read from the
+/// warehouse alone and the NetFlow Sankey always asks for the tail, so a
+/// refusal there is a blank chart with no other backend to fall back to. It
+/// stays refused for every other dataset and for the shapes that have no
+/// top-N to take a tail of.
+fn refuse_unimplemented_features(plan: &QueryPlan) -> Result<()> {
+    if plan.other {
+        let dataset = dataset_for(&plan.entity).map(|dataset| dataset.raw_table);
+        if !matches!(
+            dataset,
+            Some("ocsf_network_activity" | "timeseries_metrics")
+        ) {
+            return Err(ServiceError::InvalidRequest(
+                "other:true is currently supported only for flow or timeseries stats".into(),
+            ));
+        }
+        if plan.downsample.is_some() || stats_group_by(plan.stats.as_ref()).is_none() {
+            return Err(ServiceError::InvalidRequest(
+                "other:true requires a grouped stats query".into(),
+            ));
+        }
+    }
+    let Some(kind) = rollup_stats_kind(plan) else {
+        return Ok(());
+    };
+    if !matches!(
+        (&plan.entity, kind),
+        (Entity::Logs, "severity") | (Entity::Events, "anomaly_findings")
+    ) {
+        return Err(ServiceError::InvalidRequest(format!(
+            "StarRocks does not implement rollup_stats:{kind} for {:?}",
+            plan.entity
+        )));
+    }
+    // A rollup is one fixed aggregate. CNPG answers it before it looks at
+    // anything else in the plan; here a clause that cannot shape the answer is
+    // refused rather than dropped.
+    for (present, clause) in [
+        (plan.stats.is_some(), "stats:"),
+        (plan.downsample.is_some(), "bucket:"),
+    ] {
+        if present {
+            return Err(ServiceError::InvalidRequest(format!(
+                "StarRocks rollup_stats:{kind} cannot be combined with {clause}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// `other:true`: the top `limit` groups, then one row folding the rest, as
+/// `build_other_rollup_sql` writes it for CNPG. Groups are ranked by the
+/// query's own sort with every group key as an ascending tie-break, so the cut
+/// is deterministic; the tail row carries NULL group keys, the sum of each
+/// aggregate over the groups it folds, and `__other__` set, and it is absent
+/// when nothing is left over. Only sum and count re-aggregate by summing, so
+/// those are the only aggregates either backend accepts here, and `offset` is
+/// not part of the cut on either.
+fn other_rollup_sql(plan: &QueryPlan, grouped: &str, order: &str) -> Result<String> {
+    let stats = plan.stats.as_ref().ok_or_else(|| {
+        ServiceError::InvalidRequest("other:true requires a grouped stats query".into())
+    })?;
+    let mut aggregates = Vec::new();
+    for (function, _, alias) in parse_aggregations(stats)? {
+        if !matches!(function.to_ascii_lowercase().as_str(), "sum" | "count") {
+            return Err(ServiceError::InvalidRequest(
+                "other:true currently supports only sum(...) and count(...) aggregations".into(),
+            ));
+        }
+        aggregates.push(alias);
+    }
+    let groups = stats_group_by(Some(stats))
+        .unwrap_or_default()
+        .split(',')
+        .map(str::trim)
+        .filter(|col| !col.is_empty())
+        .map(group_alias)
+        .collect::<Vec<_>>();
+    let mut rank = order
+        .strip_prefix(" ORDER BY ")
+        .map(|terms| vec![terms.to_string()])
+        .ok_or_else(|| {
+            ServiceError::InvalidRequest("other:true requires an explicit sort".into())
+        })?;
+    for group in &groups {
+        if !plan.order.iter().any(|order| order.field == *group) {
+            rank.push(format!("{group} ASC"));
+        }
+    }
+    let limit = plan.limit.max(1);
+    let columns = aggregates
+        .iter()
+        .map(|alias| alias.to_string())
+        .chain(groups.iter().cloned())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let tail = aggregates
+        .iter()
+        .map(|alias| format!("COALESCE(SUM({alias}), 0) AS {alias}"))
+        .chain(groups.iter().map(|group| format!("NULL AS {group}")))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Ok(format!(
+        "WITH grouped AS ({grouped}), ranked AS (SELECT grouped.*, ROW_NUMBER() OVER (ORDER BY {rank}) AS rn FROM grouped) SELECT {columns}, `__other__` FROM (SELECT rn AS sort_rn, {columns}, FALSE AS `__other__` FROM ranked WHERE rn <= {limit} UNION ALL SELECT {tail_rn} AS sort_rn, {tail}, TRUE AS `__other__` FROM ranked WHERE rn > {limit} HAVING COUNT(*) > 0) final ORDER BY sort_rn",
+        rank = rank.join(", "),
+        tail_rn = limit + 1,
+    ))
+}
+
+fn rollup_stats_kind(plan: &QueryPlan) -> Option<&str> {
+    plan.rollup_stats
+        .as_deref()
+        .map(str::trim)
+        .filter(|kind| !kind.is_empty())
+}
+
+/// CNPG answers these from continuous aggregates and hands back one `payload`
+/// jsonb, which the SRQL response unwraps into a single result map. A
+/// warehouse result is already one map per row keyed by column name, so the
+/// same counters are emitted as plain columns under the payload's key names;
+/// `Stats.Extract` reads the identical `results` shape from either backend.
+fn rollup_stats_sql(
+    plan: &QueryPlan,
+    dataset: Dataset,
+    database: &str,
+    kind: &str,
+) -> Result<TranslateResponse> {
+    let table = format!("{database}.{}", dataset.raw_table);
+    let (where_sql, params) = time_predicate(plan, dataset.time_column, false, false);
+    let sql = match (&plan.entity, kind) {
+        (Entity::Logs, "severity") => logs_severity_rollup_sql(plan, &table, &where_sql)?,
+        (Entity::Events, "anomaly_findings") => {
+            events_anomaly_findings_rollup_sql(plan, &table, &where_sql)?
+        }
+        _ => {
+            return Err(ServiceError::InvalidRequest(format!(
+                "StarRocks does not implement rollup_stats:{kind} for {:?}",
+                plan.entity
+            )));
+        }
+    };
+    Ok(TranslateResponse {
+        sql,
+        params,
+        pagination: PaginationMeta {
+            next_cursor: None,
+            prev_cursor: None,
+            limit: Some(plan.limit),
+        },
+        viz: None,
+    })
+}
+
+// platform.serviceradar_log_severity_bucket, the classifier behind the
+// logs_severity_stats_5m aggregate: recognized severity text decides the
+// bucket, and the OTEL severity number only speaks for a row whose text is
+// absent or unrecognized. `critical` is an error, not a fatal.
+const LOG_SEVERITY_BUCKETS: &[(&str, &[&str], (i32, i32))] = &[
+    (
+        "fatal",
+        &[
+            "fatal",
+            "emergency",
+            "alert",
+            "severity_number_fatal",
+            "severity_number_fatal2",
+            "severity_number_fatal3",
+            "severity_number_fatal4",
+        ],
+        (21, 24),
+    ),
+    (
+        "error",
+        &[
+            "error",
+            "err",
+            "critical",
+            "severity_number_error",
+            "severity_number_error2",
+            "severity_number_error3",
+            "severity_number_error4",
+        ],
+        (17, 20),
+    ),
+    (
+        "warning",
+        &[
+            "warning",
+            "warn",
+            "severity_number_warn",
+            "severity_number_warn2",
+            "severity_number_warn3",
+            "severity_number_warn4",
+        ],
+        (13, 16),
+    ),
+    (
+        "info",
+        &[
+            "info",
+            "information",
+            "informational",
+            "notice",
+            "severity_number_info",
+            "severity_number_info2",
+            "severity_number_info3",
+            "severity_number_info4",
+        ],
+        (9, 12),
+    ),
+    (
+        "debug",
+        &[
+            "debug",
+            "trace",
+            "severity_number_debug",
+            "severity_number_debug2",
+            "severity_number_debug3",
+            "severity_number_debug4",
+            "severity_number_trace",
+            "severity_number_trace2",
+            "severity_number_trace3",
+            "severity_number_trace4",
+        ],
+        (1, 8),
+    ),
+];
+
+fn log_severity_bucket_sql() -> String {
+    let mut arms = String::new();
+    for (bucket, texts, _) in LOG_SEVERITY_BUCKETS {
+        arms.push_str(&format!(
+            " WHEN LOWER(COALESCE(severity_text, '')) IN ({}) THEN '{bucket}'",
+            literal_list(texts.iter().copied())
+        ));
+    }
+    for (bucket, _, (low, high)) in LOG_SEVERITY_BUCKETS {
+        arms.push_str(&format!(
+            " WHEN severity_number BETWEEN {low} AND {high} THEN '{bucket}'"
+        ));
+    }
+    format!("CASE{arms} ELSE NULL END")
+}
+
+fn literal_list<'a>(values: impl Iterator<Item = &'a str>) -> String {
+    values.map(sql_literal).collect::<Vec<_>>().join(", ")
+}
+
+/// `rollup_stats:severity`, computed from the raw log rows. The aggregate it
+/// mirrors groups by service_name alone, so that is the only filter either
+/// backend accepts here.
+fn logs_severity_rollup_sql(plan: &QueryPlan, table: &str, where_sql: &str) -> Result<String> {
+    let mut where_sql = where_sql.to_string();
+    for filter in &plan.filters {
+        match filter.field.as_str() {
+            "service_name" | "service" => {
+                where_sql.push_str(" AND ");
+                where_sql.push_str(&text_filter_sql("service_name", filter, false)?);
+            }
+            other => {
+                return Err(ServiceError::InvalidRequest(format!(
+                    "rollup_stats:severity only supports service_name filter, got: '{other}'"
+                )));
+            }
+        }
+    }
+    let counters = LOG_SEVERITY_BUCKETS
+        .iter()
+        .map(|(bucket, _, _)| {
+            format!("COUNT(CASE WHEN severity_bucket = '{bucket}' THEN 1 END) AS `{bucket}`")
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    Ok(format!(
+        "SELECT COUNT(*) AS `total`, {counters} FROM (SELECT {} AS severity_bucket FROM {table}{where_sql}) s",
+        log_severity_bucket_sql()
+    ))
+}
+
+/// A text comparison as CNPG writes one: equality and lists are exact, LIKE is
+/// ILIKE. `keep_null` is the difference between its two callers. An ordinary
+/// column filter (`apply_text_filter!`) keeps a NULL row under every negation,
+/// `col IS NULL OR col <> v`; the severity rollup's own clause builder
+/// (query/logs/rollup.rs) does not.
+fn text_filter_sql(column: &str, filter: &Filter, keep_null: bool) -> Result<String> {
+    use crate::parser::FilterOp;
+    let negation = |predicate: String| {
+        if keep_null {
+            format!("({column} IS NULL OR {predicate})")
+        } else {
+            predicate
+        }
+    };
+    Ok(match filter.op {
+        FilterOp::Eq => format!("{column} = {}", sql_literal(filter.value.as_scalar()?)),
+        FilterOp::NotEq => negation(format!(
+            "{column} != {}",
+            sql_literal(filter.value.as_scalar()?)
+        )),
+        FilterOp::Like => format!(
+            "LOWER({column}) LIKE {}",
+            sql_literal(&filter.value.as_scalar()?.to_lowercase())
+        ),
+        FilterOp::NotLike => negation(format!(
+            "LOWER({column}) NOT LIKE {}",
+            sql_literal(&filter.value.as_scalar()?.to_lowercase())
+        )),
+        FilterOp::In => format!(
+            "{column} IN ({})",
+            literal_list(list_values(filter)?.iter().map(String::as_str))
+        ),
+        FilterOp::NotIn => negation(format!(
+            "{column} NOT IN ({})",
+            literal_list(list_values(filter)?.iter().map(String::as_str))
+        )),
+        _ => {
+            return Err(ServiceError::InvalidRequest(format!(
+                "unsupported operator for text filter: {:?}",
+                filter.op
+            )));
+        }
+    })
+}
+
+// CNPG caps a log list filter at 200 values (query/logs/mod.rs).
+const MAX_LIST_FILTER_VALUES: usize = 200;
+
+fn list_values(filter: &Filter) -> Result<&[String]> {
+    let values = filter.value.as_list()?;
+    if values.is_empty() {
+        return Err(ServiceError::InvalidRequest("empty filter list".into()));
+    }
+    if values.len() > MAX_LIST_FILTER_VALUES {
+        return Err(ServiceError::InvalidRequest(format!(
+            "{} filters support at most {MAX_LIST_FILTER_VALUES} values",
+            filter.field
+        )));
+    }
+    Ok(values)
+}
+
+/// The values of an equality-or-list filter and whether it negates -- the only
+/// operators CNPG's document filters accept.
+fn exact_values<'a>(filter: &'a Filter, label: &str) -> Result<(Vec<&'a str>, bool)> {
+    use crate::parser::FilterOp;
+    let negate = matches!(filter.op, FilterOp::NotEq | FilterOp::NotIn);
+    let values = match filter.op {
+        FilterOp::Eq | FilterOp::NotEq => vec![filter.value.as_scalar()?],
+        FilterOp::In | FilterOp::NotIn => list_values(filter)?.iter().map(String::as_str).collect(),
+        _ => {
+            return Err(ServiceError::InvalidRequest(format!(
+                "{label} filter only supports equality and IN/NOT IN comparisons"
+            )));
+        }
+    };
+    Ok((values, negate))
+}
+
+fn any_of(clauses: Vec<String>, negate: bool) -> String {
+    let clause = clauses
+        .into_iter()
+        .map(|clause| format!("({clause})"))
+        .collect::<Vec<_>>()
+        .join(" OR ");
+    if negate {
+        format!("NOT ({clause})")
+    } else {
+        format!("({clause})")
+    }
+}
+
+/// A text value inside one of the `events` JSON documents (`metadata`,
+/// `unmapped`, `device`), which the warehouse keeps as VARCHAR. CNPG reads the
+/// same path with `->>` / `#>>`; both return NULL for a missing key, a JSON
+/// null or a NULL document. Every key is quoted into the path, so each one is
+/// validated before it is interpolated.
+fn event_json_text(document: &str, path: &[&str]) -> Result<String> {
+    let mut json_path = String::from("$");
+    for key in path {
+        if !super::filters_common::is_valid_jsonb_key(key) {
+            return Err(ServiceError::InvalidRequest(format!(
+                "invalid JSON key '{key}'"
+            )));
+        }
+        json_path.push_str(&format!(".\"{key}\""));
+    }
+    Ok(format!("get_json_string({document}, '{json_path}')"))
+}
+
+// (document, path) pairs, mirroring the clause lists in query/events/filters.rs
+// and query/events/rollup.rs one for one.
+type EventPath = (&'static str, &'static [&'static str]);
+
+const EVENT_TYPE_PATHS: &[EventPath] = &[
+    ("metadata", &["event_type"]),
+    ("metadata", &["service_radar", "event_type"]),
+    ("unmapped", &["event_type"]),
+];
+const EVENT_FINDING_UID_PATHS: &[EventPath] = &[
+    ("metadata", &["finding_info", "uid"]),
+    ("metadata", &["security_signal", "finding_uid"]),
+    ("metadata", &["uid"]),
+    ("metadata", &["event_id"]),
+];
+const EVENT_SOURCE_PATHS: &[EventPath] = &[
+    ("metadata", &["service_radar", "source_type"]),
+    ("metadata", &["service_radar", "addon_id"]),
+    ("metadata", &["serviceradar", "source_type"]),
+    ("metadata", &["serviceradar", "addon_id"]),
+    ("metadata", &["source"]),
+    ("unmapped", &["source_type"]),
+    ("unmapped", &["addon_id"]),
+];
+const EVENT_CANONICAL_DEVICE_PATHS: &[EventPath] = &[
+    ("metadata", &["service_radar", "device_uid"]),
+    ("device", &["uid"]),
+];
+const EVENT_DEVICE_UID_EXACT_PATHS: &[EventPath] = &[
+    ("metadata", &["service_radar", "device_uid"]),
+    ("metadata", &["device_uid"]),
+    ("metadata", &["source_device_uid"]),
+    ("unmapped", &["device_uid"]),
+    ("unmapped", &["source_device_uid"]),
+    ("device", &["uid"]),
+];
+const EVENT_SERVICE_RADAR_DEVICE_UID_PATHS: &[EventPath] =
+    &[("metadata", &["service_radar", "device_uid"])];
+const EVENT_AGENT_ID_PATHS: &[EventPath] = &[
+    ("metadata", &["service_radar", "agent_id"]),
+    ("metadata", &["service_radar", "device_uid"]),
+    ("metadata", &["agent_id"]),
+    ("unmapped", &["agent_id"]),
+    ("device", &["uid"]),
+];
+const EVENT_HOST_PATHS: &[EventPath] = &[
+    ("metadata", &["service_radar", "device_hostname"]),
+    ("metadata", &["service_radar", "source_instance"]),
+    ("metadata", &["service_radar", "device_uid"]),
+    ("metadata", &["hostname"]),
+    ("metadata", &["host_id"]),
+    ("unmapped", &["hostname"]),
+    ("unmapped", &["host_id"]),
+    ("device", &["name"]),
+    ("device", &["hostname"]),
+];
+// EVENT_DEVICE_HOST_KEYS in query/events/filters.rs: with the identity keys
+// below, the keys CNPG's alias arm accepts in a `key=value` label string.
+const EVENT_DEVICE_HOST_KEYS: &[&str] = &[
+    "service_radar.device_hostname",
+    "service_radar.source_instance",
+    "service_radar.node_name",
+    "service_radar.device_ip",
+    "service_radar.source_ip",
+    "hostname",
+    "host",
+    "host.name",
+    "k8s.node.name",
+    "source.host",
+    "source.hostname",
+    "source.ip",
+    "server_identity",
+    "ip",
+];
+// EVENT_DEVICE_IDENTITY_KEYS in query/events/filters.rs: the key names the
+// free-text fallback looks for ahead of a raw, pre-re-key device id.
+const EVENT_DEVICE_IDENTITY_KEYS: &[&str] = &[
+    "service_radar.device_uid",
+    "service_radar.device.uid",
+    "service_radar.device_id",
+    "serviceradar.device_id",
+    "serviceradar.device.uid",
+    "device_id",
+    "device_uid",
+    "source_device_uid",
+    "target_device_uid",
+    "uid",
+    "id",
+];
+const EVENT_DOCUMENTS: &[&str] = &["device", "metadata", "unmapped", "observables"];
+
+fn event_paths_equal(paths: &[EventPath], value: &str) -> Result<String> {
+    let literal = sql_literal(value);
+    Ok(paths
+        .iter()
+        .map(|(document, path)| Ok(format!("{} = {literal}", event_json_text(document, path)?)))
+        .collect::<Result<Vec<_>>>()?
+        .join(" OR "))
+}
+
+fn event_exact_filter_sql(filter: &Filter, paths: &[EventPath], label: &str) -> Result<String> {
+    let (values, negate) = exact_values(filter, label)?;
+    let clauses = values
+        .into_iter()
+        .map(|value| event_paths_equal(paths, value))
+        .collect::<Result<Vec<_>>>()?;
+    Ok(any_of(clauses, negate))
+}
+
+/// `source:` / `source_type:` / `addon_id:` name where an event came from, and
+/// an emitter may record that in the provider, the log name or any of the
+/// metadata spellings. The warehouse's flattened `source_type` column is the
+/// first two of those spellings, which is what lets a row written before the
+/// documents were stored still match.
+fn event_source_filter_sql(filter: &Filter) -> Result<String> {
+    let (values, negate) = exact_values(filter, &filter.field)?;
+    let clauses = values
+        .into_iter()
+        .map(|value| {
+            let literal = sql_literal(value);
+            Ok(format!(
+                "log_provider = {literal} OR log_name = {literal} OR source_type = {literal} OR {}",
+                event_paths_equal(EVENT_SOURCE_PATHS, value)?
+            ))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(any_of(clauses, negate))
+}
+
+fn escape_like_fragment(value: &str) -> String {
+    value
+        .replace('\\', r"\\")
+        .replace('%', r"\%")
+        .replace('_', r"\_")
+}
+
+/// Every alias the inventory holds for one device, lowercased, as a subquery
+/// that names no event column. The list is DEVICE_INVENTORY_ALIAS_EXPRESSIONS
+/// in query/events/filters.rs, and five of its members are keys of the
+/// device's jsonb metadata, which the JDBC catalog cannot carry; CNPG unpivots
+/// them into `device_inventory_aliases_catalog`, blank and NULL aliases already
+/// dropped.
+fn device_inventory_aliases_sql(uid: &str) -> String {
+    format!(
+        "SELECT LOWER(a.alias) AS alias FROM {CNPG_CATALOG}.device_inventory_aliases_catalog a WHERE a.uid = {uid} OR a.uid_alt = {uid}"
+    )
+}
+
+/// The events, within the query's own bounds, whose stored documents name one
+/// of the device's aliases: as a quoted JSON string, or as the value of a
+/// `key=value` pair under one of the keys CNPG accepts there. CNPG finds them
+/// with an EXISTS whose LIKE pattern comes from the device row, a non-equality
+/// correlated subquery StarRocks refuses; a join against the handful of
+/// aliases is the same test, and the outer predicate stays an uncorrelated
+/// `id IN (...)`. LIKE wildcards in an alias are escaped, as CNPG escapes them.
+fn events_naming_an_alias_sql(table: &str, bounds: &str, aliases: &str) -> String {
+    let alias = r"REPLACE(REPLACE(REPLACE(da.alias, '\\', '\\\\'), '%', '\\%'), '_', '\\_')";
+    let mut patterns = vec![format!(r#"CONCAT('%"', {alias}, '"%')"#)];
+    for key in EVENT_DEVICE_HOST_KEYS
+        .iter()
+        .chain(EVENT_DEVICE_IDENTITY_KEYS)
+    {
+        patterns.push(format!(
+            "CONCAT({}, {alias}, '%')",
+            sql_literal(&format!("%{}=", escape_like_fragment(key)))
+        ));
+    }
+    let mentions = EVENT_DOCUMENTS
+        .iter()
+        .map(|document| format!("LOWER(e.{document}) LIKE dp.pattern"))
+        .collect::<Vec<_>>()
+        .join(" OR ");
+    format!(
+        "SELECT e.id FROM {table} e JOIN (SELECT p.pattern FROM ({aliases}) da, unnest([{}]) AS p(pattern)) dp ON {mentions}{bounds}",
+        patterns.join(", ")
+    )
+}
+
+/// `device_id:` on events, arm for arm as CNPG builds it. A canonical `sr:`
+/// uid is an anchored equality on the two paths an emitter writes after the
+/// ingest re-key. Every value also resolves the device's inventory aliases,
+/// which is what finds an event keyed under a hostname or an address instead
+/// of the uid. A raw id additionally gets the case-insensitive scan of the
+/// documents for a `"<identity key>" ... "<value>"` pair.
+///
+/// Under negation each arm keeps CNPG's truth values. The canonical equality
+/// is NULL for an event that carries neither path, there and here, so
+/// `!device_id:` returns the events known to be about another device. CNPG's
+/// alias arm is an EXISTS and its scan reads NOT NULL jsonb, so both are FALSE
+/// rather than NULL for an event that names no device; the warehouse documents
+/// are nullable, and the same arms are made two-valued to match.
+fn event_device_identity_filter_sql(filter: &Filter, table: &str, bounds: &str) -> Result<String> {
+    let (values, negate) = exact_values(filter, &filter.field)?;
+    let mut clauses = Vec::new();
+    for value in values {
+        clauses.push(event_paths_equal(EVENT_CANONICAL_DEVICE_PATHS, value)?);
+
+        let aliases = device_inventory_aliases_sql(&sql_literal(value));
+        clauses.push(format!(
+            "COALESCE(LOWER(src_endpoint_ip), '') IN ({aliases})"
+        ));
+        clauses.push(format!(
+            "id IN ({})",
+            events_naming_an_alias_sql(table, bounds, &aliases)
+        ));
+
+        if value.starts_with("sr:") {
+            continue;
+        }
+        for key in EVENT_DEVICE_IDENTITY_KEYS {
+            let pattern = sql_literal(
+                &format!(
+                    "%\"{}\"%\"{}\"%",
+                    escape_like_fragment(key),
+                    escape_like_fragment(value)
+                )
+                .to_lowercase(),
+            );
+            clauses.push(format!(
+                "COALESCE({}, FALSE)",
+                EVENT_DOCUMENTS
+                    .iter()
+                    .map(|document| format!("LOWER({document}) LIKE {pattern}"))
+                    .collect::<Vec<_>>()
+                    .join(" OR ")
+            ));
+        }
+    }
+    Ok(any_of(clauses, negate))
+}
+
+// The three predicates behind the anomaly finding cards, from
+// query/events/rollup.rs, path for path. They are deliberately not widened to
+// the flattened `source_type` column: the anomaly verdict is `source AND NOT
+// capacity`, and the capacity test is NULL -- so the verdict is NULL -- for a
+// row stored before the documents were kept, whatever its flattened columns
+// say. Such a row is outside these counts until it ages out or is backfilled.
+fn event_anomaly_source_sql() -> Result<String> {
+    Ok(format!(
+        "({} = 'anomaly_detection' OR {} = 'anomaly-detection' OR {} = 'anomaly' OR {} = 'anomaly_detection' OR log_provider = 'anomaly_detection' OR {} IN ('anomaly', 'anomaly_detection'))",
+        event_json_text("metadata", &["service_radar", "source_type"])?,
+        event_json_text("metadata", &["service_radar", "addon_id"])?,
+        event_json_text("metadata", &["detection_finding", "type"])?,
+        event_json_text("metadata", &["security_signal", "source"])?,
+        event_json_text("unmapped", &["event_type"])?,
+    ))
+}
+
+fn event_capacity_source_sql() -> Result<String> {
+    Ok(format!(
+        "({} = 'capacity_forecast' OR {} = 'capacity_forecast' OR log_provider = 'capacity_forecasting')",
+        event_json_text("metadata", &["event_type"])?,
+        event_json_text("unmapped", &["event_type"])?,
+    ))
+}
+
+fn event_capacity_at_risk_sql() -> Result<String> {
+    Ok(format!(
+        "({} AND (COALESCE(severity_id, 0) >= 3 OR {} IN ('projected', 'at_risk', 'exhaustion_projected') OR NULLIF({}, '') IS NOT NULL))",
+        event_capacity_source_sql()?,
+        event_json_text("unmapped", &["capacity_forecast", "status"])?,
+        event_json_text(
+            "unmapped",
+            &["capacity_forecast", "projected_exhaustion_at"]
+        )?,
+    ))
+}
+
+fn event_anomaly_count_sql() -> Result<String> {
+    Ok(format!(
+        "({} AND NOT {})",
+        event_anomaly_source_sql()?,
+        event_capacity_source_sql()?
+    ))
+}
+
+const DETECTION_FINDING_GATE: &str = "class_uid = 2004 AND category_uid = 2";
+
+fn event_finding_rollup_filter_sql(filter: &Filter) -> Result<String> {
+    let (values, negate) = exact_values(filter, "finding_rollup")?;
+    let clauses = values
+        .into_iter()
+        .map(|value| {
+            let body = match value {
+                "anomaly" | "anomaly_findings" => event_anomaly_count_sql()?,
+                "capacity_at_risk" | "at_risk_capacity" => event_capacity_at_risk_sql()?,
+                "health" | "health_findings" => format!(
+                    "({} OR {})",
+                    event_anomaly_count_sql()?,
+                    event_capacity_at_risk_sql()?
+                ),
+                other => {
+                    return Err(ServiceError::InvalidRequest(format!(
+                        "unsupported finding_rollup value '{other}' (supported: anomaly, capacity_at_risk, health)"
+                    )));
+                }
+            };
+            Ok(format!("{DETECTION_FINDING_GATE} AND {body}"))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(any_of(clauses, negate))
+}
+
+/// `rollup_stats:anomaly_findings`, the same counters CNPG builds in
+/// query/events/rollup.rs. The two verdicts are evaluated once per row in the
+/// inner select; a NULL verdict counts as false in both the outer WHERE and
+/// the CASE, exactly as it does under PostgreSQL's `FILTER (WHERE ...)`.
+fn events_anomaly_findings_rollup_sql(
+    plan: &QueryPlan,
+    table: &str,
+    where_sql: &str,
+) -> Result<String> {
+    if !plan.filters.is_empty() {
+        let fields = plan
+            .filters
+            .iter()
+            .map(|filter| filter.field.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(ServiceError::InvalidRequest(format!(
+            "rollup_stats:anomaly_findings does not support filters, got: '{fields}'"
+        )));
+    }
+    Ok(format!(
+        "SELECT COUNT(*) AS `total`, COUNT(CASE WHEN is_anomaly THEN 1 END) AS `anomalies`, COUNT(CASE WHEN is_at_risk THEN 1 END) AS `at_risk`, COUNT(CASE WHEN is_anomaly AND COALESCE(severity_id, 0) >= 5 THEN 1 END) AS `critical`, COUNT(CASE WHEN is_anomaly AND COALESCE(severity_id, 0) = 4 THEN 1 END) AS `high` FROM (SELECT severity_id, {} AS is_anomaly, {} AS is_at_risk FROM {table}{where_sql} AND {DETECTION_FINDING_GATE}) f WHERE is_anomaly OR is_at_risk",
+        event_anomaly_count_sql()?,
+        event_capacity_at_risk_sql()?
+    ))
+}
+
+/// Every WHERE predicate the plan's filters compile to. Almost all are one
+/// filter each; `severity_match:any` is the exception, a marker that joins the
+/// log severity text and number filters into one predicate. The event device
+/// filter is compiled here rather than in `filter_sql` because one of its arms
+/// reads the events table again, inside `bounds`, the WHERE the query itself
+/// has built so far.
+fn filter_predicates(
+    plan: &QueryPlan,
+    dataset: Dataset,
+    table: &str,
+    bounds: &str,
+) -> Result<Vec<String>> {
+    let severity_any = dataset.raw_table == "logs" && logs_severity_match_any(plan);
+    let mut predicates = Vec::new();
+    let mut severity_text = None;
+    let mut severity_number = None;
+    for filter in &plan.filters {
+        match filter.field.as_str() {
+            "severity_match" if severity_any => {}
+            "severity_text" | "severity" | "level" if severity_any => severity_text = Some(filter),
+            "severity_number" if severity_any => severity_number = Some(filter),
+            "device_id" | "uid" | "source_device_uid" if dataset.raw_table == "events" => {
+                predicates.push(event_device_identity_filter_sql(filter, table, bounds)?)
+            }
+            _ => predicates.push(filter_sql(plan, filter)?),
+        }
+    }
+    if severity_any {
+        predicates.push(logs_severity_any_sql(severity_text, severity_number)?);
+    }
+    Ok(predicates)
+}
+
+fn logs_severity_match_any(plan: &QueryPlan) -> bool {
+    plan.filters.iter().any(|filter| {
+        filter.field == "severity_match"
+            && matches!(filter.op, crate::parser::FilterOp::Eq)
+            && matches!(filter.value.as_scalar(), Ok("any"))
+    })
+}
+
+/// The log cards group rows by `serviceradar_log_severity_bucket`, where
+/// recognized text is authoritative and the number only speaks for a row whose
+/// text is absent or unrecognized. `severity_match:any` selects the same rows,
+/// so it is not a plain OR of the two lists (query/logs/filters.rs).
+fn logs_severity_any_sql(text: Option<&Filter>, number: Option<&Filter>) -> Result<String> {
+    use crate::parser::FilterOp;
+    let (Some(text), Some(number)) = (text, number) else {
+        return Err(ServiceError::InvalidRequest(
+            "severity_match:any requires severity and severity_number filters".into(),
+        ));
+    };
+    if !matches!(text.op, FilterOp::In) || !matches!(number.op, FilterOp::In) {
+        return Err(ServiceError::InvalidRequest(
+            "severity_match:any requires IN-list filters".into(),
+        ));
+    }
+    let texts = list_values(text)?
+        .iter()
+        .map(|value| value.to_lowercase())
+        .collect::<Vec<_>>();
+    let numbers = severity_numbers(list_values(number)?)?;
+    Ok(format!(
+        "(LOWER(severity_text) IN ({}) OR ((severity_text IS NULL OR LOWER(severity_text) NOT IN ({})) AND severity_number IN ({})))",
+        literal_list(texts.iter().map(String::as_str)),
+        literal_list(super::logs::RECOGNIZED_SEVERITY_TEXTS.iter().copied()),
+        numbers
+    ))
+}
+
+fn severity_numbers(values: &[String]) -> Result<String> {
+    Ok(values
+        .iter()
+        .map(|value| value.parse::<i32>().map(|n| n.to_string()))
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|_| ServiceError::InvalidRequest("severity_number list must be integers".into()))?
+        .join(", "))
+}
+
+/// `severity:` / `level:` are the log's severity text, compared without regard
+/// to case as CNPG does (`lower(severity_text)`, ILIKE).
+fn logs_severity_text_filter_sql(filter: &Filter) -> Result<String> {
+    use crate::parser::FilterOp;
+    let column = "LOWER(severity_text)";
+    Ok(match filter.op {
+        FilterOp::Eq | FilterOp::NotEq | FilterOp::Like | FilterOp::NotLike => {
+            let op = match filter.op {
+                FilterOp::Eq => "=",
+                FilterOp::NotEq => "!=",
+                FilterOp::Like => "LIKE",
+                _ => "NOT LIKE",
+            };
+            format!(
+                "{column} {op} {}",
+                sql_literal(&filter.value.as_scalar()?.to_lowercase())
+            )
+        }
+        FilterOp::In | FilterOp::NotIn => {
+            let values = list_values(filter)?
+                .iter()
+                .map(|value| value.to_lowercase())
+                .collect::<Vec<_>>();
+            let op = if matches!(filter.op, FilterOp::In) {
+                "IN"
+            } else {
+                "NOT IN"
+            };
+            format!(
+                "{column} {op} ({})",
+                literal_list(values.iter().map(String::as_str))
+            )
+        }
+        _ => {
+            return Err(ServiceError::InvalidRequest(format!(
+                "unsupported operator for text filter: {:?}",
+                filter.op
+            )));
+        }
+    })
+}
+
+/// `device_id:` on logs. A log row carries no device uid; CNPG resolves the
+/// uid to the addresses and names the inventory knows and matches the syslog
+/// `source` / `source_ip` columns against them, with uncorrelated subqueries so
+/// each is evaluated once (query/logs/metadata.rs). The same eight lookups run
+/// here through the JDBC catalog. An interface's addresses are a PostgreSQL
+/// array, which the catalog cannot carry, so that one reads the view CNPG
+/// unnests them into.
+fn logs_device_identity_filter_sql(filter: &Filter) -> Result<String> {
+    let (values, negate) = exact_values(filter, &filter.field)?;
+    let clauses = values
+        .into_iter()
+        .map(|value| {
+            let uid = sql_literal(value);
+            let device = |column: &str| {
+                format!(
+                    "SELECT d.{column} FROM {CNPG_CATALOG}.ocsf_devices d WHERE (d.uid = {uid} OR d.uid_alt = {uid}) AND d.{column} IS NOT NULL"
+                )
+            };
+            let identifiers = format!(
+                "SELECT di.identifier_value FROM {CNPG_CATALOG}.device_identifiers di WHERE di.device_id = {uid} AND di.identifier_type IN ('ip', 'hostname') AND di.identifier_value IS NOT NULL"
+            );
+            let interface_addresses = format!(
+                "SELECT ia.ip FROM {CNPG_CATALOG}.device_interface_addresses_catalog ia WHERE ia.device_id = {uid}"
+            );
+            let interface_device_ip = format!(
+                "SELECT di_if.device_ip FROM {CNPG_CATALOG}.discovered_interfaces di_if WHERE di_if.device_id = {uid} AND di_if.device_ip IS NOT NULL"
+            );
+            format!(
+                "source_ip IN ({ip}) OR source IN ({ip}) OR source IN ({hostname}) OR source IN ({name}) OR source_ip IN ({identifiers}) OR source IN ({identifiers}) OR source_ip IN ({interface_addresses}) OR source_ip IN ({interface_device_ip})",
+                ip = device("ip"),
+                hostname = device("hostname"),
+                name = device("name"),
+            )
+        })
+        .collect();
+    Ok(any_of(clauses, negate))
+}
+
+// The columns CNPG compares with `apply_text_filter!` (query/logs/filters.rs,
+// query/events/filters.rs).
+const LOG_TEXT_FILTER_FIELDS: &[&str] = &[
+    "trace_id",
+    "span_id",
+    "service_name",
+    "service_version",
+    "source",
+    "source_ip",
+    "event_name",
+    "body",
+    "ingest_identity",
+    "ingest_agent_id",
+    "ingest_partition",
+];
+const EVENT_TEXT_FILTER_FIELDS: &[&str] = &[
+    "activity_name",
+    "severity",
+    "message",
+    "log_name",
+    "log_provider",
+    "log_level",
+    "status",
+    "trace_id",
+    "span_id",
+];
+
+/// Filter fields whose meaning is more than one warehouse column. `None` means
+/// the field is an ordinary column and the generic comparison applies.
+fn dataset_filter_sql(dataset: Dataset, filter: &Filter) -> Result<Option<String>> {
+    let field = filter.field.as_str();
+    Ok(Some(match (dataset.raw_table, field) {
+        ("logs", "severity_text" | "severity" | "level") => logs_severity_text_filter_sql(filter)?,
+        ("logs", "device_id" | "uid") => logs_device_identity_filter_sql(filter)?,
+        ("events", "event_type") => event_exact_filter_sql(filter, EVENT_TYPE_PATHS, field)?,
+        ("events", "finding_uid") => {
+            event_exact_filter_sql(filter, EVENT_FINDING_UID_PATHS, field)?
+        }
+        ("events", "finding_rollup") => event_finding_rollup_filter_sql(filter)?,
+        ("events", "source" | "source_type" | "addon_id") => event_source_filter_sql(filter)?,
+        ("events", "device_uid_exact") => {
+            event_exact_filter_sql(filter, EVENT_DEVICE_UID_EXACT_PATHS, field)?
+        }
+        ("events", "service_radar_device_uid") => {
+            event_exact_filter_sql(filter, EVENT_SERVICE_RADAR_DEVICE_UID_PATHS, field)?
+        }
+        ("events", "agent_id") => event_exact_filter_sql(filter, EVENT_AGENT_ID_PATHS, field)?,
+        ("events", "host_id" | "hostname") => {
+            event_exact_filter_sql(filter, EVENT_HOST_PATHS, "host_id")?
+        }
+        ("logs", _) if LOG_TEXT_FILTER_FIELDS.contains(&field) => {
+            text_filter_sql(field, filter, true)?
+        }
+        ("events", _) if EVENT_TEXT_FILTER_FIELDS.contains(&field) => {
+            text_filter_sql(field, filter, true)?
+        }
+        _ => return Ok(None),
+    }))
 }
 
 const CNPG_CATALOG: &str = "cnpg_platform.platform";
@@ -353,7 +1318,9 @@ fn catalog_joins(plan: &QueryPlan, dataset: Dataset) -> Result<Vec<CatalogJoin>>
     // pid/comm and prefix tags are persisted warehouse columns, read off the
     // observation row. The JDBC catalog carries live device identity and the
     // exporter interface names/speeds the warehouse row does not store.
-    let wants_device = plan_mentions(plan, &["hostname", "device_name"]);
+    // On the event tables `hostname` is a document filter, not a device join.
+    let wants_device =
+        dataset.raw_table != "events" && plan_mentions(plan, &["hostname", "device_name"]);
     let wants_input_interface = plan_mentions(plan, &["in_if_name", "in_if_speed_bps"]);
     let wants_output_interface = plan_mentions(plan, &["out_if_name", "out_if_speed_bps"]);
     let wants_exporter = plan_mentions(plan, &["exporter_name"]);
@@ -1278,7 +2245,7 @@ fn field_sql(plan: &QueryPlan, field: &str) -> Result<String> {
             "id timestamp ingest_identity severity_text severity_number body service_name source ingest_agent_id ingest_partition trace_id span_id event_name source_ip service_version observed_timestamp"
         }
         "events" => {
-            "id time class_uid category_uid type_uid activity_id severity_id severity source src_endpoint_ip firewall_rule_name source_type message activity_name status status_id log_name log_provider trace_id span_id"
+            "id time class_uid category_uid type_uid activity_id severity_id severity source src_endpoint_ip firewall_rule_name source_type message activity_name status status_id log_name log_provider log_level trace_id span_id"
         }
         _ => "",
     };
@@ -1558,6 +2525,11 @@ fn filter_sql(plan: &QueryPlan, filter: &Filter) -> Result<String> {
             }
             _ => {}
         }
+    }
+    if let Some(dataset) = dataset_for(&plan.entity)
+        && let Some(predicate) = dataset_filter_sql(dataset, filter)?
+    {
+        return Ok(predicate);
     }
     let field = field_sql(plan, &filter.field)?;
     let is_direction = matches!(plan.entity, Entity::Flows | Entity::AttributedFlows)
@@ -3823,6 +4795,715 @@ mod tests {
                 "{query}: {err}"
             );
         }
+    }
+
+    fn refused(query: &str) -> String {
+        match translate(&plan(query), "serviceradar") {
+            Ok(compiled) => panic!("expected a refusal, compiled: {}", compiled.sql),
+            Err(err) => {
+                assert!(
+                    matches!(err, ServiceError::InvalidRequest(_)),
+                    "expected InvalidRequest, got {err:?}"
+                );
+                err.to_string()
+            }
+        }
+    }
+
+    #[test]
+    fn the_log_severity_rollup_counts_raw_rows_under_the_payload_keys() {
+        let compiled = translate(
+            &plan("in:logs time:[2026-09-19T10:00:00Z,2026-09-19T16:00:00Z] rollup_stats:severity"),
+            "serviceradar",
+        )
+        .expect("severity rollup");
+        let sql = &compiled.sql;
+
+        // The card extractor reads these six keys off the first result row.
+        for alias in ["total", "fatal", "error", "warning", "info", "debug"] {
+            assert!(sql.contains(&format!("AS `{alias}`")), "{alias}: {sql}");
+        }
+        assert!(sql.starts_with("SELECT COUNT(*) AS `total`"), "{sql}");
+        assert!(!sql.contains("SELECT *"), "{sql}");
+        assert!(sql.contains("FROM serviceradar.logs"), "{sql}");
+        assert!(
+            sql.contains(
+                "`timestamp` >= '2026-09-19T10:00:00Z' AND `timestamp` < '2026-09-19T16:00:00Z'"
+            ),
+            "{sql}"
+        );
+        // Text decides before the number does, and critical is an error.
+        let text_arm = sql
+            .find("IN ('error', 'err', 'critical'")
+            .expect("error texts");
+        let number_arm = sql
+            .find("severity_number BETWEEN 21 AND 24")
+            .expect("fatal numbers");
+        assert!(text_arm < number_arm, "{sql}");
+        assert!(sql.contains("IN ('fatal', 'emergency', 'alert',"), "{sql}");
+        assert!(
+            sql.contains("severity_number BETWEEN 1 AND 8 THEN 'debug'"),
+            "{sql}"
+        );
+        refute_postgres(sql);
+        assert!(!sql.contains("jsonb_build_object"), "{sql}");
+        assert!(!sql.contains("logs_severity_stats_5m"), "{sql}");
+    }
+
+    #[test]
+    fn the_log_severity_rollup_accepts_only_the_service_name_filter() {
+        let compiled = translate(
+            &plan("in:logs time:last_1h rollup_stats:severity service_name:(alpha,beta)"),
+            "serviceradar",
+        )
+        .expect("service filter");
+        assert!(
+            compiled.sql.contains("service_name IN ('alpha', 'beta')"),
+            "{}",
+            compiled.sql
+        );
+
+        let message = refused("in:logs time:last_1h rollup_stats:severity source:host01");
+        assert!(
+            message.contains("rollup_stats:severity only supports service_name"),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn the_anomaly_findings_rollup_counts_raw_rows_under_the_payload_keys() {
+        let compiled = translate(
+            &plan(
+                "in:events time:[2026-09-19T10:00:00Z,2026-09-19T16:00:00Z] rollup_stats:anomaly_findings limit:1",
+            ),
+            "serviceradar",
+        )
+        .expect("anomaly rollup");
+        let sql = &compiled.sql;
+
+        for alias in ["total", "anomalies", "at_risk", "critical", "high"] {
+            assert!(sql.contains(&format!("AS `{alias}`")), "{alias}: {sql}");
+        }
+        assert!(!sql.contains("SELECT *"), "{sql}");
+        assert!(sql.contains("FROM serviceradar.events"), "{sql}");
+        assert!(
+            sql.contains("`time` >= '2026-09-19T10:00:00Z' AND `time` < '2026-09-19T16:00:00Z'"),
+            "{sql}"
+        );
+        assert!(
+            sql.contains("class_uid = 2004 AND category_uid = 2"),
+            "{sql}"
+        );
+        assert!(
+            sql.contains(
+                "get_json_string(metadata, '$.\"service_radar\".\"source_type\"') = 'anomaly_detection'"
+            ),
+            "{sql}"
+        );
+        assert!(
+            sql.contains(
+                "get_json_string(unmapped, '$.\"capacity_forecast\".\"status\"') IN ('projected', 'at_risk', 'exhaustion_projected')"
+            ),
+            "{sql}"
+        );
+        assert!(sql.contains("COALESCE(severity_id, 0) >= 5"), "{sql}");
+        assert!(sql.contains("COALESCE(severity_id, 0) = 4"), "{sql}");
+        assert!(sql.ends_with("WHERE is_anomaly OR is_at_risk"), "{sql}");
+        refute_postgres(sql);
+        assert!(!sql.contains("#>>"), "{sql}");
+        assert!(!sql.contains("FILTER (WHERE"), "{sql}");
+
+        let message = refused("in:events time:last_1h rollup_stats:anomaly_findings severity:High");
+        assert!(message.contains("does not support filters"), "{message}");
+    }
+
+    #[test]
+    fn a_rollup_this_dialect_does_not_implement_is_refused_by_name() {
+        for (query, feature) in [
+            (
+                "in:flows time:last_1h rollup_stats:summary",
+                "rollup_stats:summary",
+            ),
+            (
+                "in:logs time:last_1h rollup_stats:summary",
+                "rollup_stats:summary",
+            ),
+            (
+                "in:events time:last_1h rollup_stats:severity",
+                "rollup_stats:severity",
+            ),
+            // The scoped event entities share the table but not the rollup.
+            (
+                "in:security_findings time:last_1h rollup_stats:anomaly_findings",
+                "rollup_stats:anomaly_findings",
+            ),
+            (
+                "in:timeseries_metrics time:last_1h rollup_stats:availability",
+                "rollup_stats:availability",
+            ),
+        ] {
+            let message = refused(query);
+            assert!(message.contains(feature), "{query}: {message}");
+        }
+    }
+
+    #[test]
+    fn a_rollup_combined_with_stats_is_refused() {
+        let message = refused("in:logs time:last_1h rollup_stats:severity stats:count() as total");
+        assert!(message.contains("rollup_stats:severity"), "{message}");
+        assert!(message.contains("stats:"), "{message}");
+    }
+
+    #[test]
+    fn a_flow_top_n_keeps_its_other_tail() {
+        let query = "in:flows time:[1999-06-15T00:00:00Z,1999-06-16T00:00:00Z] stats:\"sum(bytes_total) as total_bytes by src_endpoint_ip\" sort:total_bytes:desc limit:3";
+        let plain = translate(&plan(query), "serviceradar").expect("plain").sql;
+        let grouped = plain
+            .strip_suffix(" ORDER BY total_bytes DESC LIMIT 3 OFFSET 0")
+            .expect(&plain);
+        // The sampling-rate weighting is the grouped query's, untouched.
+        assert!(grouped.contains("sampling_rate"), "{grouped}");
+
+        let sql = translate(&plan(&format!("{query} other:true")), "serviceradar")
+            .expect("other")
+            .sql;
+        assert_eq!(
+            sql,
+            format!(
+                "WITH grouped AS ({grouped}), ranked AS (SELECT grouped.*, ROW_NUMBER() OVER (ORDER BY total_bytes DESC, src_endpoint_ip ASC) AS rn FROM grouped) SELECT total_bytes, src_endpoint_ip, `__other__` FROM (SELECT rn AS sort_rn, total_bytes, src_endpoint_ip, FALSE AS `__other__` FROM ranked WHERE rn <= 3 UNION ALL SELECT 4 AS sort_rn, COALESCE(SUM(total_bytes), 0) AS total_bytes, NULL AS src_endpoint_ip, TRUE AS `__other__` FROM ranked WHERE rn > 3 HAVING COUNT(*) > 0) final ORDER BY sort_rn"
+            )
+        );
+    }
+
+    #[test]
+    fn the_sankey_shape_ranks_and_folds_every_dimension() {
+        let sql = translate(
+            &plan("in:flows time:last_1h stats:\"sum(bytes_total) as total_bytes by src_endpoint_ip, dst_endpoint_port, dst_endpoint_ip\" sort:total_bytes:desc limit:40 other:true"),
+            "serviceradar",
+        )
+        .expect("sankey")
+        .sql;
+        assert!(
+            sql.contains("ROW_NUMBER() OVER (ORDER BY total_bytes DESC, src_endpoint_ip ASC, dst_endpoint_port ASC, dst_endpoint_ip ASC) AS rn"),
+            "{sql}"
+        );
+        assert!(sql.contains("FROM ranked WHERE rn <= 40 UNION ALL SELECT 41 AS sort_rn, COALESCE(SUM(total_bytes), 0) AS total_bytes, NULL AS src_endpoint_ip, NULL AS dst_endpoint_port, NULL AS dst_endpoint_ip, TRUE AS `__other__` FROM ranked WHERE rn > 40 HAVING COUNT(*) > 0"), "{sql}");
+    }
+
+    #[test]
+    fn a_metric_top_n_keeps_its_other_tail() {
+        let sql = translate(
+            &plan("in:timeseries_metrics time:last_1h stats:\"count(*) as samples by device_id\" sort:samples:desc limit:5 other:true"),
+            "serviceradar",
+        )
+        .expect("metrics")
+        .sql;
+        assert!(
+            sql.contains("ROW_NUMBER() OVER (ORDER BY samples DESC, device_id ASC) AS rn"),
+            "{sql}"
+        );
+        assert!(sql.contains("SELECT 6 AS sort_rn, COALESCE(SUM(samples), 0) AS samples, NULL AS device_id, TRUE AS `__other__`"), "{sql}");
+    }
+
+    #[test]
+    fn an_other_tail_is_refused_where_nothing_can_be_folded_into_it() {
+        // An average of averages is not the average of the tail.
+        let message = refused(
+            "in:flows time:last_1h stats:\"avg(bytes_total) as mean_bytes by src_endpoint_ip\" sort:mean_bytes:desc limit:10 other:true",
+        );
+        assert!(
+            message.contains("only sum(...) and count(...)"),
+            "{message}"
+        );
+
+        // The plan builder refuses it for logs; the dialect does too.
+        let mut logs = plan(
+            "in:logs time:last_1h stats:\"count(*) as total by service_name\" sort:total:desc limit:10",
+        );
+        logs.other = true;
+        let err = translate(&logs, "serviceradar").expect_err("logs");
+        assert!(matches!(err, ServiceError::InvalidRequest(_)), "{err:?}");
+        assert!(err.to_string().contains("other:true"), "{err}");
+    }
+
+    #[test]
+    fn log_severity_filters_ignore_case_like_cnpg() {
+        for field in ["severity", "level", "severity_text"] {
+            let compiled = translate(
+                &plan(&format!("in:logs time:last_1h {field}:ERROR")),
+                "serviceradar",
+            )
+            .expect(field);
+            assert!(
+                compiled.sql.contains("LOWER(severity_text) = 'error'"),
+                "{field}: {}",
+                compiled.sql
+            );
+        }
+
+        let list = translate(
+            &plan("in:logs time:last_1h severity:(Fatal,ERROR)"),
+            "serviceradar",
+        )
+        .expect("list");
+        assert!(
+            list.sql
+                .contains("LOWER(severity_text) IN ('fatal', 'error')"),
+            "{}",
+            list.sql
+        );
+
+        let negated =
+            translate(&plan("in:logs time:last_1h !level:Debug"), "serviceradar").expect("negated");
+        assert!(
+            negated.sql.contains("LOWER(severity_text) != 'debug'"),
+            "{}",
+            negated.sql
+        );
+    }
+
+    #[test]
+    fn severity_match_any_joins_text_and_number_the_way_the_cards_bucket_them() {
+        let compiled = translate(
+            &plan(
+                "in:logs time:last_1h severity:(ERROR,err) severity_number:(17,18,19,20) severity_match:any",
+            ),
+            "serviceradar",
+        )
+        .expect("severity any");
+        let sql = &compiled.sql;
+
+        assert!(
+            sql.contains(
+                "(LOWER(severity_text) IN ('error', 'err') OR ((severity_text IS NULL OR LOWER(severity_text) NOT IN ('fatal', 'critical',"
+            ),
+            "{sql}"
+        );
+        assert!(
+            sql.contains("AND severity_number IN (17, 18, 19, 20)))"),
+            "{sql}"
+        );
+        // The marker and the two lists become one predicate, not three ANDed.
+        assert!(!sql.contains("severity_match"), "{sql}");
+        assert!(!sql.contains("AND severity_number IN ('17'"), "{sql}");
+        assert_eq!(sql.matches("LOWER(severity_text) IN (").count(), 1, "{sql}");
+
+        let message = refused("in:logs time:last_1h severity:(ERROR) severity_match:any");
+        assert!(
+            message.contains("severity_match:any requires severity and severity_number"),
+            "{message}"
+        );
+        let message =
+            refused("in:logs time:last_1h severity:ERROR severity_number:17 severity_match:any");
+        assert!(message.contains("requires IN-list filters"), "{message}");
+        let message = refused(
+            "in:logs time:last_1h severity:(ERROR) severity_number:(high) severity_match:any",
+        );
+        assert!(message.contains("must be integers"), "{message}");
+    }
+
+    #[test]
+    fn a_log_device_filter_resolves_the_uid_through_the_inventory_catalog() {
+        let compiled = translate(
+            &plan("in:logs time:last_1h device_id:\"sr:device-0001\""),
+            "serviceradar",
+        )
+        .expect("device_id");
+        let sql = &compiled.sql;
+
+        assert!(
+            sql.contains(
+                "source_ip IN (SELECT d.ip FROM cnpg_platform.platform.ocsf_devices d WHERE (d.uid = 'sr:device-0001' OR d.uid_alt = 'sr:device-0001') AND d.ip IS NOT NULL)"
+            ),
+            "{sql}"
+        );
+        assert!(sql.contains("source IN (SELECT d.hostname FROM"), "{sql}");
+        assert!(sql.contains("source IN (SELECT d.name FROM"), "{sql}");
+        for column in ["source_ip", "source"] {
+            assert!(
+                sql.contains(&format!(
+                    "{column} IN (SELECT di.identifier_value FROM cnpg_platform.platform.device_identifiers di WHERE di.device_id = 'sr:device-0001' AND di.identifier_type IN ('ip', 'hostname') AND di.identifier_value IS NOT NULL)"
+                )),
+                "{column}: {sql}"
+            );
+        }
+        assert!(
+            sql.contains(
+                "source_ip IN (SELECT ia.ip FROM cnpg_platform.platform.device_interface_addresses_catalog ia WHERE ia.device_id = 'sr:device-0001')"
+            ),
+            "{sql}"
+        );
+        assert!(
+            sql.contains(
+                "source_ip IN (SELECT di_if.device_ip FROM cnpg_platform.platform.discovered_interfaces di_if WHERE di_if.device_id = 'sr:device-0001' AND di_if.device_ip IS NOT NULL)"
+            ),
+            "{sql}"
+        );
+        // The alias table is the flow scope's lookup, not one CNPG makes here.
+        assert!(!sql.contains("device_alias_states"), "{sql}");
+        // Correlated lookups are what timed out on CNPG, and StarRocks refuses
+        // the non-equality kind outright.
+        assert!(!sql.contains("EXISTS"), "{sql}");
+
+        let negated = translate(
+            &plan("in:logs time:last_1h !device_id:\"sr:device-0001\""),
+            "serviceradar",
+        )
+        .expect("negated");
+        assert!(
+            negated.sql.contains("AND NOT ((source_ip IN ("),
+            "{}",
+            negated.sql
+        );
+    }
+
+    #[test]
+    fn log_fields_with_no_warehouse_column_stay_refused() {
+        for field in ["gateway_id", "agent_id", "scope_name", "source_device_uid"] {
+            let message = refused(&format!("in:logs time:last_1h {field}:alpha"));
+            assert!(
+                message.contains("unsupported StarRocks field"),
+                "{field}: {message}"
+            );
+        }
+    }
+
+    #[test]
+    fn event_log_level_is_a_plain_column_filter() {
+        let compiled = translate(
+            &plan("in:events log_level:(ERROR,error) time:last_1h sort:time:desc limit:100"),
+            "serviceradar",
+        )
+        .expect("log_level");
+        assert!(
+            compiled.sql.contains("log_level IN ('ERROR', 'error')"),
+            "{}",
+            compiled.sql
+        );
+    }
+
+    #[test]
+    fn event_type_reads_every_document_path_cnpg_reads() {
+        let compiled = translate(
+            &plan("in:events event_type:(anomaly,anomaly_detection) time:last_1h"),
+            "serviceradar",
+        )
+        .expect("event_type");
+        let sql = &compiled.sql;
+
+        assert!(
+            sql.contains(
+                "((get_json_string(metadata, '$.\"event_type\"') = 'anomaly' OR get_json_string(metadata, '$.\"service_radar\".\"event_type\"') = 'anomaly' OR get_json_string(unmapped, '$.\"event_type\"') = 'anomaly') OR (get_json_string(metadata, '$.\"event_type\"') = 'anomaly_detection'"
+            ),
+            "{sql}"
+        );
+        assert!(!sql.contains("->>"), "{sql}");
+
+        let negated = translate(
+            &plan("in:events !event_type:anomaly time:last_1h"),
+            "serviceradar",
+        )
+        .expect("negated");
+        assert!(
+            negated.sql.contains("AND NOT ((get_json_string("),
+            "{}",
+            negated.sql
+        );
+
+        let message = refused("in:events event_type:>anomaly time:last_1h");
+        assert!(message.contains("equality and IN/NOT IN"), "{message}");
+    }
+
+    #[test]
+    fn event_finding_uid_reads_the_finding_identity_paths() {
+        let compiled = translate(
+            &plan(
+                "in:events source_type:capacity_forecasting finding_uid:finding-0001 time:last_1h",
+            ),
+            "serviceradar",
+        )
+        .expect("finding_uid");
+        let sql = &compiled.sql;
+
+        for path in [
+            "'$.\"finding_info\".\"uid\"'",
+            "'$.\"security_signal\".\"finding_uid\"'",
+            "'$.\"uid\"'",
+            "'$.\"event_id\"'",
+        ] {
+            assert!(
+                sql.contains(&format!(
+                    "get_json_string(metadata, {path}) = 'finding-0001'"
+                )),
+                "{path}: {sql}"
+            );
+        }
+        // source_type is where the event came from, however the emitter spelled it.
+        assert!(
+            sql.contains("(log_provider = 'capacity_forecasting' OR log_name = 'capacity_forecasting' OR source_type = 'capacity_forecasting' OR get_json_string(metadata, '$.\"service_radar\".\"source_type\"') = 'capacity_forecasting'"),
+            "{sql}"
+        );
+    }
+
+    #[test]
+    fn an_event_device_filter_anchors_a_canonical_uid_and_scans_only_for_a_raw_id() {
+        let canonical = translate(
+            &plan("in:events device_id:\"sr:device-0001\" time:last_1h"),
+            "serviceradar",
+        )
+        .expect("canonical");
+        assert!(
+            canonical.sql.contains(
+                "((get_json_string(metadata, '$.\"service_radar\".\"device_uid\"') = 'sr:device-0001' OR get_json_string(device, '$.\"uid\"') = 'sr:device-0001') OR (COALESCE(LOWER(src_endpoint_ip), '') IN ("
+            ),
+            "{}",
+            canonical.sql
+        );
+        // The raw-id scan names an identity key ahead of the value.
+        assert!(
+            !canonical.sql.contains("\"device\\\\_uid\"%"),
+            "{}",
+            canonical.sql
+        );
+
+        let raw = translate(
+            &plan("in:events device_id:\"Host_01.example.com\" time:last_1h"),
+            "serviceradar",
+        )
+        .expect("raw");
+        // Case-insensitive, with the LIKE wildcard in the value escaped.
+        assert!(
+            raw.sql.contains(
+                "LOWER(metadata) LIKE '%\"device\\\\_uid\"%\"host\\\\_01.example.com\"%'"
+            ),
+            "{}",
+            raw.sql
+        );
+        assert!(raw.sql.contains("LOWER(device) LIKE "), "{}", raw.sql);
+        assert!(raw.sql.contains("LOWER(unmapped) LIKE "), "{}", raw.sql);
+        assert!(raw.sql.contains("LOWER(observables) LIKE "), "{}", raw.sql);
+    }
+
+    #[test]
+    fn an_event_device_filter_finds_events_whose_documents_name_an_inventory_alias() {
+        let aliases = "SELECT LOWER(a.alias) AS alias FROM cnpg_platform.platform.device_inventory_aliases_catalog a WHERE a.uid = 'sr:device-0001' OR a.uid_alt = 'sr:device-0001'";
+        // The scoped event entities share the lookup, as they do on CNPG, and
+        // the inner read of the table carries the same scope and bounds.
+        for (entity, scope) in [
+            ("events", ""),
+            ("security_findings", " AND (category_uid = 2)"),
+        ] {
+            let compiled = translate(
+                &plan(&format!(
+                    "in:{entity} device_id:\"sr:device-0001\" time:[1999-06-15T00:00:00Z,1999-06-16T00:00:00Z]"
+                )),
+                "serviceradar",
+            )
+            .expect(entity);
+            let sql = &compiled.sql;
+            assert!(
+                sql.contains(&format!(
+                    "COALESCE(LOWER(src_endpoint_ip), '') IN ({aliases})"
+                )),
+                "{entity}: {sql}"
+            );
+            let alias = "REPLACE(REPLACE(REPLACE(da.alias, '\\\\', '\\\\\\\\'), '%', '\\\\%'), '_', '\\\\_')";
+            assert!(
+                sql.contains(&format!(
+                    "id IN (SELECT e.id FROM serviceradar.events e JOIN (SELECT p.pattern FROM ({aliases}) da, unnest([CONCAT('%\"', {alias}, '\"%'), CONCAT('%service\\\\_radar.device\\\\_hostname=', {alias}, '%'), "
+                )),
+                "{entity}: {sql}"
+            );
+            // Every key CNPG accepts in a label string, the last one included.
+            assert!(
+                sql.contains(&format!(
+                    "CONCAT('%id=', {alias}, '%')]) AS p(pattern)) dp ON LOWER(e.device) LIKE dp.pattern OR LOWER(e.metadata) LIKE dp.pattern OR LOWER(e.unmapped) LIKE dp.pattern OR LOWER(e.observables) LIKE dp.pattern WHERE `time` >= '1999-06-15T00:00:00Z' AND `time` < '1999-06-16T00:00:00Z'{scope})"
+                )),
+                "{entity}: {sql}"
+            );
+            assert_eq!(sql.matches("=', REPLACE(").count(), 25, "{sql}");
+            assert!(!sql.contains("EXISTS"), "{sql}");
+        }
+    }
+
+    #[test]
+    fn a_negated_event_device_filter_keeps_only_the_canonical_arm_three_valued() {
+        let compiled = translate(
+            &plan("in:events !device_id:\"host02.example.com\" time:last_1h"),
+            "serviceradar",
+        )
+        .expect("negated");
+        let sql = &compiled.sql;
+        let start = sql.find(" AND NOT (").expect(sql) + " AND NOT (".len();
+        let end = sql.find(" ORDER BY ").expect(sql);
+        let arms = sql[start..end]
+            .trim_end_matches(')')
+            .split(") OR (")
+            .map(|arm| arm.trim_start_matches('('))
+            .collect::<Vec<_>>();
+        // CNPG's canonical equality is NULL for an event with neither path.
+        assert!(
+            arms[0].starts_with("get_json_string(metadata, "),
+            "{}",
+            arms[0]
+        );
+        // Its alias EXISTS and its scan of NOT NULL jsonb never are.
+        for arm in &arms[1..] {
+            assert!(
+                arm.starts_with("COALESCE(") || arm.starts_with("id IN ("),
+                "{arm}"
+            );
+        }
+    }
+
+    #[test]
+    fn log_and_event_text_filters_ignore_case_and_keep_null_rows_under_negation() {
+        for (query, predicate) in [
+            (
+                "in:logs time:last_1h event_name:\"%Timeout%\"",
+                "AND LOWER(event_name) LIKE '%timeout%'",
+            ),
+            (
+                "in:logs time:last_1h !event_name:\"%Timeout%\"",
+                "AND (event_name IS NULL OR LOWER(event_name) NOT LIKE '%timeout%')",
+            ),
+            (
+                "in:logs time:last_1h !service_name:core",
+                "AND (service_name IS NULL OR service_name != 'core')",
+            ),
+            (
+                "in:logs time:last_1h !source_ip:(192.0.2.10,192.0.2.11)",
+                "AND (source_ip IS NULL OR source_ip NOT IN ('192.0.2.10', '192.0.2.11'))",
+            ),
+            (
+                "in:logs time:last_1h service_name:Core",
+                "AND service_name = 'Core'",
+            ),
+            (
+                "in:events time:last_1h message:\"%Link Down%\"",
+                "AND LOWER(message) LIKE '%link down%'",
+            ),
+            (
+                "in:events time:last_1h !message:\"%Link Down%\"",
+                "AND (message IS NULL OR LOWER(message) NOT LIKE '%link down%')",
+            ),
+            (
+                "in:events time:last_1h !log_provider:falco",
+                "AND (log_provider IS NULL OR log_provider != 'falco')",
+            ),
+            (
+                "in:events time:last_1h !status:(open,new)",
+                "AND (status IS NULL OR status NOT IN ('open', 'new'))",
+            ),
+        ] {
+            let compiled = translate(&plan(query), "serviceradar").expect(query);
+            assert!(
+                compiled.sql.contains(predicate),
+                "{query}: {}",
+                compiled.sql
+            );
+        }
+    }
+
+    #[test]
+    fn flow_and_metric_text_filters_are_unchanged() {
+        let compiled = translate(
+            &plan("in:flows time:last_1h !app:\"%HTTP%\""),
+            "serviceradar",
+        )
+        .expect("flows");
+        assert!(
+            compiled
+                .sql
+                .contains("AND COALESCE(dst_service_label, 'unknown') NOT LIKE '%HTTP%'"),
+            "{}",
+            compiled.sql
+        );
+    }
+
+    #[test]
+    fn event_host_filters_read_the_host_identity_paths() {
+        for field in ["hostname", "host_id"] {
+            let compiled = translate(
+                &plan(&format!(
+                    "in:events {field}:host01.example.com time:last_1h"
+                )),
+                "serviceradar",
+            )
+            .expect(field);
+            let sql = &compiled.sql;
+            assert!(
+                sql.contains("get_json_string(metadata, '$.\"service_radar\".\"device_hostname\"') = 'host01.example.com'"),
+                "{sql}"
+            );
+            assert!(
+                sql.contains("get_json_string(device, '$.\"hostname\"') = 'host01.example.com'"),
+                "{sql}"
+            );
+        }
+        // CNPG has no `host` field on events either.
+        let message = refused("in:events host:host01.example.com time:last_1h");
+        assert!(
+            message.contains("unsupported StarRocks field: host"),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn the_finding_rollup_drill_down_selects_the_rows_the_rollup_counts() {
+        let rollup = translate(
+            &plan("in:events time:last_1h rollup_stats:anomaly_findings"),
+            "serviceradar",
+        )
+        .expect("rollup");
+        for (kind, verdict) in [
+            ("anomaly", event_anomaly_count_sql().expect("anomaly")),
+            (
+                "capacity_at_risk",
+                event_capacity_at_risk_sql().expect("capacity"),
+            ),
+        ] {
+            let compiled = translate(
+                &plan(&format!(
+                    "in:events finding_rollup:{kind} time:last_1h sort:time:desc"
+                )),
+                "serviceradar",
+            )
+            .expect(kind);
+            assert!(
+                compiled.sql.contains(&format!(
+                    "(class_uid = 2004 AND category_uid = 2 AND {verdict})"
+                )),
+                "{kind}: {}",
+                compiled.sql
+            );
+            assert!(rollup.sql.contains(&verdict), "{kind}: {}", rollup.sql);
+        }
+        let message = refused("in:events finding_rollup:everything time:last_1h");
+        assert!(
+            message.contains("unsupported finding_rollup value"),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn an_event_document_key_cannot_carry_sql() {
+        assert!(event_json_text("metadata", &["service_radar", "x') OR 1=1 --"]).is_err());
+        assert!(event_json_text("metadata", &["a\"b"]).is_err());
+        assert_eq!(
+            event_json_text("unmapped", &["capacity_forecast", "status"]).expect("path"),
+            "get_json_string(unmapped, '$.\"capacity_forecast\".\"status\"')"
+        );
+        let compiled = translate(
+            &plan("in:events event_type:\"x' OR '1'='1\" time:last_1h"),
+            "serviceradar",
+        )
+        .expect("quoted value");
+        assert!(
+            compiled.sql.contains("= 'x'' OR ''1''=''1'"),
+            "{}",
+            compiled.sql
+        );
     }
 
     fn refute_postgres(sql: &str) {

@@ -146,7 +146,16 @@ data:
     GRANT USAGE ON SCHEMA platform TO {{ $reader }};
 
     GRANT SELECT ON platform.netflow_local_cidrs_catalog TO {{ $reader }};
-    GRANT SELECT (uid, hostname, ip) ON platform.ocsf_devices TO {{ $reader }};
+    GRANT SELECT (uid, uid_alt, hostname, name, ip)
+      ON platform.ocsf_devices TO {{ $reader }};
+    GRANT SELECT (device_id, identifier_type, identifier_value)
+      ON platform.device_identifiers TO {{ $reader }};
+    GRANT SELECT (device_id, device_ip)
+      ON platform.discovered_interfaces TO {{ $reader }};
+    GRANT SELECT (device_id, ip)
+      ON platform.device_interface_addresses_catalog TO {{ $reader }};
+    GRANT SELECT (uid, uid_alt, alias)
+      ON platform.device_inventory_aliases_catalog TO {{ $reader }};
     GRANT SELECT (device_id, alias_type, state, alias_value)
       ON platform.device_alias_states TO {{ $reader }};
     GRANT SELECT (device_uid, sampler_address, exporter_name)

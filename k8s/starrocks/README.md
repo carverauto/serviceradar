@@ -39,10 +39,27 @@ converge that role, so there is nothing to grant by hand:
 | --- | --- |
 | schema `platform` | `USAGE` |
 | `platform.netflow_local_cidrs_catalog` | `SELECT` |
-| `platform.ocsf_devices` | `SELECT (uid, hostname, ip)` |
+| `platform.ocsf_devices` | `SELECT (uid, uid_alt, hostname, name, ip)` |
+| `platform.device_identifiers` | `SELECT (device_id, identifier_type, identifier_value)` |
+| `platform.discovered_interfaces` | `SELECT (device_id, device_ip)` |
+| `platform.device_interface_addresses_catalog` | `SELECT (device_id, ip)` |
+| `platform.device_inventory_aliases_catalog` | `SELECT (uid, uid_alt, alias)` |
 | `platform.device_alias_states` | `SELECT (device_id, alias_type, state, alias_value)` |
 | `platform.netflow_exporter_cache` | `SELECT (device_uid, sampler_address, exporter_name)` |
 | `platform.netflow_interface_cache` | `SELECT (sampler_address, if_index, if_name, if_speed_bps)` |
+| `platform.ip_geo_enrichment_cache` | `SELECT (ip, country_iso2, expires_at)` |
+
+Two of those are views, not tables. A PostgreSQL `text[]` and a `jsonb` both
+reach StarRocks 3.5.21 as `UNKNOWN_TYPE`, and a query that names such a column
+is refused at analysis, so CNPG flattens what the device lookups need:
+`device_interface_addresses_catalog` is one row per interface address, and
+`device_inventory_aliases_catalog` is one row per name the inventory knows a
+device by (it exposes five named metadata keys, never the document). Core
+migration `20260921130000_grant_starrocks_reader_device_identity` creates both
+views and issues the grants the device lookups added -- the two views,
+`device_identifiers`, `discovered_interfaces`, and `uid_alt`/`name` on
+`ocsf_devices` -- guarded on the role existing, the way the create-role
+migration below guards its own.
 
 Nothing else is reachable: `CatalogAllowlist` rejects any other table before
 the SQL leaves core, and the grants above are column-scoped to exactly what the
@@ -284,3 +301,72 @@ seccomp) or farm01 `serviceradar`.
 | CRD | `starrocksclusters.starrocks.com` from operator tag `v1.11.7` |
 | Namespace | `starrocks`, PSS `baseline` (audit/warn `restricted`) |
 | Profile | farm01: 3 FE + 3 BE shared-nothing; carverauto: 3 FE + 3 CN shared-data |
+
+## Logs and events parity check
+
+The logs and events dialect was checked against a real StarRocks 3.5.21 and a
+PostgreSQL holding the same synthetic rows (`host01.example.com`,
+`192.0.2.0/24`), with the catalog reader holding exactly the grants above. The
+SQL on each side was the SRQL compiler's own output for the same query.
+
+- All 38 statements executed on StarRocks, including the anomaly rollup's
+  boolean-valued derived columns, every catalog subquery, and the event device
+  filter's non-equality join against the device's alias set. StarRocks refuses
+  that test as a correlated subquery, which is how CNPG writes it; as a join
+  inside an uncorrelated `id IN (...)` the planner accepts it.
+- `rollup_stats:severity` (with and without a `service_name` LIKE),
+  `rollup_stats:anomaly_findings`, the three `finding_rollup` drill-downs,
+  `event_type`, `source`, `hostname`, `severity_match:any`, the log
+  `device_id` filter in both polarities, and the text filters (mixed-case
+  LIKE, and `!=` / `NOT IN` / `NOT LIKE` over NULL rows) returned the same
+  rows or counters on both engines.
+- `!device_id:` on events returned the same rows on both engines for a
+  canonical uid, a raw id and a device with no events. CNPG's canonical
+  equality is NULL, not FALSE, for an event that carries neither canonical
+  path, so both engines return only the events known to be about another
+  device; that arm is deliberately left three-valued here, and the alias and
+  scan arms are two-valued as CNPG's are.
+- `device_id:` on events found, on both engines, an event that names the
+  device only inside an observable, one whose hostname differs from the
+  inventory's in case, and one whose only mention is `HOSTNAME=<alias>`
+  inside a label string. The same alias under a key CNPG does not accept
+  (`owner=`) matched on neither. An alias containing `_` matched only itself.
+- `other:true` on flow stats (one group key, the three-key Sankey shape, and
+  two aggregates with a limit above the group count) returned the same rows
+  in the same order on both engines, including which of two tied groups falls
+  on each side of the cut. The top rows plus the tail summed to the ungrouped
+  total, and no tail row was emitted when nothing was left over. CNPG answers
+  the one-key form from its hourly talkers aggregate, which the comparison
+  stood in for with a view over the same rows.
+- `device_id:` on events differs from CNPG in three ways. The first two are
+  rows the warehouse returns and CNPG does not; the third is the reverse:
+  - Inside CNPG's alias `EXISTS`, the unqualified `metadata` resolves to the
+    device row's own `metadata` column rather than the event's, so CNPG does
+    not find an event that names the device only in its metadata -- a
+    hostname, a `uid_alt`, or a dotted key such as `host.name`. The warehouse
+    reads the event's metadata and does find it.
+  - CNPG requires one of its identity or host keys somewhere ahead of the
+    alias in the document text. For a quoted JSON string the warehouse
+    requires only that the alias appear as one, so an alias held under a key
+    outside that list (`device.name`, for one) matches here and not on CNPG.
+    The `key=value` form is held to CNPG's key list on both.
+  - `dst_endpoint` is not stored in the warehouse, and `src_endpoint` only as
+    `src_endpoint_ip`. An event that names the device only inside
+    `dst_endpoint`, or in `src_endpoint` under a key other than `ip`, is found
+    by CNPG and not here. This is the one case the warehouse misses.
+
+### Event row shape
+
+An event row read from the warehouse reaches its caller in CNPG's shape:
+`metadata`, `unmapped`, `device` and `observables` are stored as JSON text and
+decoded back to maps and lists where warehouse rows are built
+(`ServiceRadar.Analytics.StarRocks.EventDocuments`, used by the web API's JSON
+and Arrow paths and by `SRQLRunner`). A NULL document stays nil, and one that
+does not decode is left as text rather than failing the row.
+
+The event detail page also reads `actor`, `raw_data`, `src_endpoint`,
+`dst_endpoint` and `enrichment`, which the warehouse does not store. Those
+keys are absent from a warehouse row, the page falls back to its empty
+defaults, and the sections built from them render empty where CNPG fills them
+in. Nothing raises, but it is a visible difference to settle before events are
+cut over.

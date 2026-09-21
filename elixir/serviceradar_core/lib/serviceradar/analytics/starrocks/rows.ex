@@ -135,8 +135,62 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
       "log_name" => stringify(field(row, :log_name)),
       "log_provider" => stringify(field(row, :log_provider)),
       "trace_id" => stringify(field(row, :trace_id)),
-      "span_id" => stringify(field(row, :span_id))
+      "span_id" => stringify(field(row, :span_id)),
+      "log_level" => stringify(field(row, :log_level)),
+      "metadata" => document(row, :metadata),
+      "unmapped" => document(row, :unmapped),
+      "device" => document(row, :device),
+      "observables" => document(row, :observables)
     }
+  end
+
+  # priv/starrocks/0018: the documents are VARCHAR(1048576), and a value wider
+  # than its column is a load error. An oversized document is dropped so the
+  # event itself still lands. That event is then outside every document-path
+  # filter, so the drop is reported rather than left invisible.
+  @max_document_bytes 1_048_576
+
+  defp document(row, key) do
+    value = field(row, key)
+
+    case json_text(decode_document(key, value)) do
+      json when is_binary(json) and byte_size(json) <= @max_document_bytes ->
+        json
+
+      json when is_binary(json) ->
+        document_dropped(key, :too_large, byte_size(json))
+
+      nil when is_nil(value) ->
+        nil
+
+      nil ->
+        document_dropped(key, :not_a_document, document_bytes(value))
+    end
+  end
+
+  # OCSF observables are an array of objects; the other three are objects.
+  defp decode_document(:observables, value) when is_list(value), do: value
+
+  defp decode_document(:observables, value) when is_binary(value) do
+    case Jason.decode(value) do
+      {:ok, decoded} when is_list(decoded) or is_map(decoded) -> decoded
+      _ -> nil
+    end
+  end
+
+  defp decode_document(_key, value), do: decode_object(value)
+
+  defp document_bytes(value) when is_binary(value), do: byte_size(value)
+  defp document_bytes(_value), do: 0
+
+  defp document_dropped(key, reason, bytes) do
+    :telemetry.execute(
+      [:serviceradar, :starrocks, :events, :document_dropped],
+      %{bytes: bytes},
+      %{field: Atom.to_string(key), reason: reason}
+    )
+
+    nil
   end
 
   defp field(row, key) when is_atom(key) do
