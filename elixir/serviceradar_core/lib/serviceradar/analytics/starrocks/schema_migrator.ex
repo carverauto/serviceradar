@@ -151,6 +151,12 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
       ServiceRadar.Repo.transaction(
         fn ->
           ServiceRadar.Repo.query!("SELECT pg_advisory_xact_lock($1)", [@lock_key])
+
+          # The lock is this transaction, which then sits idle for as long as
+          # StarRocks works -- hours, for a partition rebuild. A deployment that
+          # sets idle_in_transaction_session_timeout would have it killed, the
+          # lock released, and a second replica start rebuilding the same tables.
+          ServiceRadar.Repo.query!("SET LOCAL idle_in_transaction_session_timeout = 0")
           fun.()
         end,
         timeout: :infinity
