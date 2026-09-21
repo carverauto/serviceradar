@@ -1,0 +1,35 @@
+suite: a change to the StarRocks analytics settings rolls the pods that read them
+templates:
+  - templates/web.yaml
+  - templates/core.yaml
+tests:
+  - it: stamps the analytics checksum on web-ng and core when StarRocks is enabled
+    set:
+      analytics.starrocks.enabled: true
+      analytics.starrocks.cutoverDatasets: [flows]
+    asserts:
+      - matchRegex:
+          path: spec.template.metadata.annotations['checksum/starrocks-analytics']
+          pattern: ^[0-9a-f]{64}$
+        documentSelector:
+          path: kind
+          value: Deployment
+        template: templates/web.yaml
+      - matchRegex:
+          path: spec.template.metadata.annotations['checksum/starrocks-analytics']
+          pattern: ^[0-9a-f]{64}$
+        documentSelector:
+          path: kind
+          value: Deployment
+        template: templates/core.yaml
+
+  - it: leaves the annotation off when StarRocks is not enabled
+    set:
+      analytics.starrocks.enabled: false
+    asserts:
+      - notExists:
+          path: spec.template.metadata.annotations['checksum/starrocks-analytics']
+        documentSelector:
+          path: kind
+          value: Deployment
+        template: templates/web.yaml
