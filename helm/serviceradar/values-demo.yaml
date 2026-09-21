@@ -74,7 +74,10 @@ analytics:
     # StarRocks SRQL dialect answers every query the UI sends for it the way
     # CNPG does; `logs` and `events` are not there yet (their severity rollups
     # and several filters are unimplemented, and would read as zeros or errors).
-    # CNPG keeps receiving every write, so removing a dataset is a safe rollback.
+    # Rollback differs per dataset. CNPG keeps receiving every write, so removing
+    # `metrics` (or `logs`/`events` once listed) falls back to CNPG and is safe.
+    # `flows` is warehouse-only: removing it does not fall back, it refuses every
+    # flow read and blanks the NetFlow pages.
     cutoverDatasets:
       - flows
       - metrics
