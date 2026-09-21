@@ -89,6 +89,19 @@ defmodule ServiceRadarWebNGWeb.MetricWindowComponentsTest do
     refute summary_class(render.("last_24h")) =~ "font-semibold"
   end
 
+  test "refuses a span SRQL would refuse, at the form and on the way back in" do
+    assert {:ok, _} = MetricWindowComponents.custom_range(%{"start" => "2024-01-01T00:00", "end" => "2025-01-30T00:00"})
+
+    assert {:error, message} =
+             MetricWindowComponents.custom_range(%{"start" => "2024-01-01T00:00", "end" => "2025-01-31T00:01"})
+
+    assert message =~ "395 days"
+    refute MetricWindowComponents.absolute_range?("[2024-01-01T00:00:00Z,2025-01-31T00:01:00Z]")
+
+    assert {:ok, ~U[2025-01-01 00:00:00Z], ~U[2025-01-08 00:00:00Z]} =
+             MetricWindowComponents.absolute_bounds("[2025-01-01T00:00:00Z,2025-01-08T00:00:00Z]")
+  end
+
   test "accepts only a well-formed, ordered absolute range" do
     assert MetricWindowComponents.absolute_range?("[2025-01-01T00:00:00Z,2025-01-08T00:00:00Z]")
 

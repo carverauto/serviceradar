@@ -16,6 +16,10 @@ defmodule ServiceRadarWebNGWeb.MetricWindowComponents do
   ]
   @ranges Enum.map(@options, &elem(&1, 1))
 
+  # SRQL refuses a window longer than this; refuse it at the form instead, where
+  # the message can say why.
+  @max_span_days 395
+
   def ranges, do: @ranges
   def normalize_range(range) when range in @ranges, do: range
   def normalize_range(_range), do: "last_24h"
@@ -88,9 +92,11 @@ defmodule ServiceRadarWebNGWeb.MetricWindowComponents do
   def custom_range(%{"start" => start_raw, "end" => end_raw}) do
     with {:ok, start_time} <- utc_input(start_raw),
          {:ok, end_time} <- utc_input(end_raw),
+         {:span, true} <- {:span, within_max_span?(start_time, end_time)},
          :lt <- DateTime.compare(start_time, end_time) do
       {:ok, "[#{DateTime.to_iso8601(start_time)},#{DateTime.to_iso8601(end_time)}]"}
     else
+      {:span, false} -> {:error, "Choose a range of #{@max_span_days} days or less."}
       _ -> {:error, "Choose valid UTC dates with the end after the start."}
     end
   end
@@ -106,18 +112,26 @@ defmodule ServiceRadarWebNGWeb.MetricWindowComponents do
   absolute one cannot be.
   """
   @spec absolute_range?(term()) :: boolean()
-  def absolute_range?("[" <> _ = range) do
+  def absolute_range?(range), do: match?({:ok, _start, _end}, absolute_bounds(range))
+
+  @doc "The two instants of a well-formed absolute range, for showing it to a person."
+  @spec absolute_bounds(term()) :: {:ok, DateTime.t(), DateTime.t()} | :error
+  def absolute_bounds("[" <> _ = range) do
     with true <- String.ends_with?(range, "]"),
          [start_raw, end_raw] <- range |> String.slice(1..-2//1) |> String.split(",", parts: 2),
          {:ok, start_time, 0} <- DateTime.from_iso8601(start_raw),
-         {:ok, end_time, 0} <- DateTime.from_iso8601(end_raw) do
-      DateTime.before?(start_time, end_time)
+         {:ok, end_time, 0} <- DateTime.from_iso8601(end_raw),
+         true <- DateTime.before?(start_time, end_time),
+         true <- within_max_span?(start_time, end_time) do
+      {:ok, start_time, end_time}
     else
-      _ -> false
+      _ -> :error
     end
   end
 
-  def absolute_range?(_range), do: false
+  def absolute_bounds(_range), do: :error
+
+  defp within_max_span?(start_time, end_time), do: DateTime.diff(end_time, start_time, :second) <= @max_span_days * 86_400
 
   def query_for_range(query, range) do
     Builder.with_time_range(query, range, bucket: Query.bucket_for_time_range(range))

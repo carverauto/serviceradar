@@ -7,7 +7,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Sections do
   alias ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.ReferenceLines
   alias ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Series
 
-  @metrics_limit 300
+  # The longest window SRQL accepts is 395 days, which is 395 daily buckets.
+  @metrics_limit 400
   # 24h at 5m buckets is 288 points per core; keep CPU above the SRQL default cap.
   @cpu_metrics_limit 20_000
   @disk_metrics_limit @metrics_limit
@@ -179,10 +180,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Sections do
   end
 
   defp cpu_display_subtitle(rows, opts) when is_list(rows) do
-    Series.sysmon_display_subtitle(rows, "core_id", "core", "cores",
-      prefix: "overall + ",
-      window_label: window_label(opts)
-    )
+    subtitle =
+      Series.sysmon_display_subtitle(rows, "core_id", "core", "cores",
+        prefix: "overall + ",
+        window_label: window_label(opts)
+      )
+
+    # The hourly rollup has no per-core series, so the core panels are read
+    # from raw samples and stop where those do, while the overall line runs the
+    # whole window. Say so rather than let one subtitle describe both.
+    if Query.beyond_raw_retention?(Keyword.get(opts, :time_range, "last_24h")) do
+      subtitle <> " · per-core detail only as far back as raw samples are kept"
+    else
+      subtitle
+    end
   end
 
   defp metric_query_opts(opts) do
@@ -210,16 +221,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Sections do
     "#{range_label(to_string(time_range))} · #{resolve_bucket(opts, time_range)} buckets"
   end
 
-  # An absolute range is an SRQL token, not something to show a person.
-  defp range_label("[" <> _ = range) do
-    with [start_raw, end_raw] <- range |> String.trim_leading("[") |> String.trim_trailing("]") |> String.split(","),
-         {:ok, start_time, _} <- DateTime.from_iso8601(start_raw),
-         {:ok, end_time, _} <- DateTime.from_iso8601(end_raw) do
-      "#{Calendar.strftime(start_time, "%Y-%m-%d %H:%M")} – #{Calendar.strftime(end_time, "%Y-%m-%d %H:%M")} UTC"
-    else
-      _ -> range
-    end
-  end
-
+  # An absolute range is an SRQL token, not something to show a person. Its
+  # bounds are rendered beside the window controls, in the viewer's timezone.
+  defp range_label("[" <> _), do: "custom range"
   defp range_label(range), do: String.replace(range, "_", " ")
 end

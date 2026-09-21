@@ -6,6 +6,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetricSectionComponents do
   import ServiceRadarWebNGWeb.MetricWindowComponents, only: [metric_window_controls: 1]
   import ServiceRadarWebNGWeb.SRQLComponents, only: [srql_results_table: 1]
 
+  alias ServiceRadarWebNGWeb.MetricWindowComponents
+
   attr(:sections, :list, default: [])
   attr(:device_uid, :string, required: true)
   attr(:timezone, :string, required: true)
@@ -23,6 +25,27 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetricSectionComponents do
       custom_submit_label="Apply"
       custom_hint="Show these charts for a specific period. Times are UTC."
     />
+    <p
+      :if={match?({:ok, _, _}, MetricWindowComponents.absolute_bounds(@time_range))}
+      id={"device-#{@device_uid}-metric-window-bounds"}
+      class="text-right text-xs text-sr-muted"
+    >
+      <% {:ok, range_start, range_end} = MetricWindowComponents.absolute_bounds(@time_range) %>
+      <.user_time
+        id={"device-#{@device_uid}-metric-window-start"}
+        value={range_start}
+        timezone={@timezone}
+        style={:compact}
+        fallback=""
+      /> –
+      <.user_time
+        id={"device-#{@device_uid}-metric-window-end"}
+        value={range_end}
+        timezone={@timezone}
+        style={:compact}
+        fallback=""
+      />
+    </p>
 
     <%= for {section, section_index} <- Enum.with_index(@sections) do %>
       <div class="rounded-xl border border-sr-line bg-sr-surface">

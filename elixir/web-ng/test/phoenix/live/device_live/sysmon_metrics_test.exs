@@ -74,7 +74,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
           assert query =~ "agg:avg"
           refute query =~ "series:core_id"
           assert query =~ ~s|device_id:"sysmon-core-test"|
-          assert query =~ "limit:300"
+          assert query =~ "limit:400"
 
           {:ok,
            %{
@@ -115,7 +115,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
     assert cpu.subtitle == "last 24h · 5m buckets · overall + top 6 of 8 cores by max"
     assert cpu.query =~ "agg:avg"
     refute cpu.query =~ "series:core_id"
-    assert cpu.query =~ "limit:300"
+    assert cpu.query =~ "limit:400"
     assert cpu.header_value == 33.3
     assert cpu.header_stats == %{min: 25.0, max: 33.3, avg: 29.15}
 
@@ -179,7 +179,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
            ]
   end
 
-  test "a custom range is labelled as dates, and picks its own bucket" do
+  test "a custom range is labelled without its raw token, and picks its own bucket" do
     previous_responder = Application.get_env(:serviceradar_web_ng, :sysmon_metrics_test_responder)
 
     Application.put_env(:serviceradar_web_ng, :sysmon_metrics_test_responder, fn query, _opts ->
@@ -200,11 +200,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
       )
 
     assert [subtitle | _] = Enum.map(sections, & &1.subtitle)
-    assert subtitle == "2025-01-01 00:00 – 2025-01-31 00:00 UTC · 6h buckets · overall utilization"
+    assert subtitle == "custom range · 6h buckets · overall utilization"
 
     assert_received {:custom_range_query, query}
     assert query =~ "time:[2025-01-01T00:00:00Z,2025-01-31T00:00:00Z]"
     assert query =~ "bucket:6h"
+  end
+
+  test "a window reaching past raw retention reads the hourly rollup, however short it is" do
+    now = ~U[2025-06-30 00:00:00Z]
+
+    # Three days would pick 15m, which SRQL serves from raw samples that are gone.
+    assert SysmonMetrics.Query.bucket_for_time_range("[2025-06-01T00:00:00Z,2025-06-04T00:00:00Z]", now) == "1h"
+    assert SysmonMetrics.Query.bucket_for_time_range("[2025-06-27T00:00:00Z,2025-06-30T00:00:00Z]", now) == "15m"
+    assert SysmonMetrics.Query.bucket_for_time_range("last_24h", now) == "5m"
+    assert SysmonMetrics.Query.bucket_for_time_range("last_30d", now) == "6h"
+
+    assert SysmonMetrics.Query.beyond_raw_retention?("last_30d", now)
+    refute SysmonMetrics.Query.beyond_raw_retention?("last_7d", now)
+    refute SysmonMetrics.Query.beyond_raw_retention?("nonsense", now)
   end
 
   test "CPU section attributes a failed per-core query to the core response" do

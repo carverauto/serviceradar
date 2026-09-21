@@ -30,6 +30,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Query do
 
   @default_bucket "5m"
 
+  @raw_retention_seconds 7 * 86_400
+  @rollup_bucket_seconds 3_600
+
   @unit_seconds %{
     "s" => 1,
     "m" => 60,
@@ -49,14 +52,47 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Query do
 
   Falls back to `"5m"` when the range cannot be interpreted.
   """
-  @spec bucket_for_time_range(term()) :: String.t()
-  def bucket_for_time_range(time_range) do
+  @spec bucket_for_time_range(term(), DateTime.t()) :: String.t()
+  def bucket_for_time_range(time_range, now \\ DateTime.utc_now()) do
     case window_seconds(time_range) do
       seconds when is_integer(seconds) and seconds > 0 ->
-        pick_bucket(seconds / @bucket_target_points)
+        target = seconds / @bucket_target_points
+        pick_bucket(if beyond_raw_retention?(time_range, now), do: max(target, @rollup_bucket_seconds), else: target)
 
       _ ->
         @default_bucket
+    end
+  end
+
+  @doc """
+  Whether a window starts before the raw metric table's retention.
+
+  Raw samples are kept for a week; older history lives in the hourly rollup,
+  which SRQL only reads for a bucket of an hour or more. A short window far in
+  the past would otherwise pick a fine bucket, read the raw table, and draw
+  nothing for a period the rollup covers.
+  """
+  @spec beyond_raw_retention?(term(), DateTime.t()) :: boolean()
+  def beyond_raw_retention?(time_range, now \\ DateTime.utc_now()) do
+    case window_start(time_range, now) do
+      %DateTime{} = start -> DateTime.diff(now, start, :second) > @raw_retention_seconds
+      nil -> false
+    end
+  end
+
+  defp window_start("[" <> _ = range, _now) do
+    with [start_raw, _end_raw] <- range |> String.trim_leading("[") |> String.split(",", parts: 2),
+         {:ok, start, _} <- DateTime.from_iso8601(String.trim(start_raw)) do
+      start
+    else
+      _ -> nil
+    end
+  end
+
+  defp window_start(range, now) do
+    case window_seconds(range) do
+      seconds when is_integer(seconds) -> DateTime.add(now, -seconds, :second)
+      _ -> nil
     end
   end
 
