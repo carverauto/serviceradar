@@ -18,6 +18,13 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
   daily partitioning has to be rebuilt beside itself and swapped in, which
   `PartitionRebuild` does ahead of the first migration that needs partitioned
   tables (0017's rollups). Migrations before that one are not held up by it.
+
+  The advisory lock is a PostgreSQL transaction, and a connection that drops
+  releases it while this process carries on. So the lock is checked, with a
+  query inside that transaction, before every statement sent to StarRocks: a
+  runner that has lost the lock raises there, stops, and contends for the lock
+  again like any other replica. What this does not cover is the one statement
+  already in flight when the lock is lost. That one completes.
   """
 
   alias ServiceRadar.Analytics.StarRocks.Env
@@ -109,7 +116,19 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
 
         with {:ok, replication_num} <- replication_num(query) do
           with_lock = Keyword.get(opts, :with_lock, &with_advisory_lock/1)
-          with_lock.(fn -> apply_pending(Map.put(state, :replication_num, replication_num)) end)
+          state = Map.put(state, :replication_num, replication_num)
+
+          try do
+            with_lock.(fn still_locked ->
+              apply_pending(Map.put(state, :still_locked, still_locked))
+            end)
+          rescue
+            # A connection that drops under an hours-long transaction raises,
+            # from the transaction or from the lock check. Returned as an error
+            # it is retried like any other; raised, it ends the migrator for
+            # the life of the node.
+            exception -> {:error, exception}
+          end
         end
       end)
     else
@@ -162,7 +181,13 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
           # sets idle_in_transaction_session_timeout would have it killed, the
           # lock released, and a second replica start rebuilding the same tables.
           ServiceRadar.Repo.query!("SET LOCAL idle_in_transaction_session_timeout = 0")
-          fun.()
+
+          # Inside this transaction, so it raises once the connection holding
+          # the lock is gone.
+          fun.(fn ->
+            ServiceRadar.Repo.query!("SELECT 1")
+            :ok
+          end)
         end,
         timeout: :infinity
       )
@@ -171,11 +196,6 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
       {:ok, value} -> value
       {:error, reason} -> {:error, reason}
     end
-  rescue
-    # A connection that drops under an hours-long transaction raises. Returned
-    # as an error it is retried like any other; raised, it ends the migrator
-    # for the life of the node.
-    exception -> {:error, exception}
   end
 
   # Shared-nothing warehouses place replicas on backends, so a single-node
@@ -275,6 +295,7 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
     result =
       Enum.reduce_while(migration.statements, :ok, fn statement, :ok ->
         statement = Schema.retarget(statement, state.database, state.replication_num)
+        state.still_locked.()
 
         case execute(state, statement) do
           :ok -> {:cont, :ok}

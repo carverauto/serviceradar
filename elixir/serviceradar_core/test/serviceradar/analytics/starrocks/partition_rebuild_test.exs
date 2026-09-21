@@ -397,6 +397,45 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuildTest do
     assert String.starts_with?(third, "SELECT ")
   end
 
+  test "a runner that has lost the migration lock stops before its next statement" do
+    agent =
+      start_warehouse(%{
+        "flows" => old(["id", "time"], ["2025-01-01", "2025-01-02", "2025-01-03"])
+      })
+
+    parent = self()
+
+    query = fn sql ->
+      send(parent, {:sql, sql})
+      Agent.get_and_update(agent, &answer(&1, sql))
+    end
+
+    # Held until the first day has been copied, lost before the second.
+    still_locked = fn ->
+      if Enum.any?(sent(agent), &(&1 =~ "INSERT INTO")), do: raise("lock lost"), else: :ok
+    end
+
+    assert_raise RuntimeError, "lock lost", fn ->
+      run(agent, %{query: query, still_locked: still_locked})
+    end
+
+    assert List.last(sent(agent)) =~ ">= '2025-01-03 00:00:00'"
+    assert Enum.count(sent(agent), &(&1 =~ "INSERT INTO")) == 1
+    assert kinds(agent) == %{"flows" => :unpartitioned, "flows__rebuild" => :partitioned}
+
+    # Nothing reached the warehouse after the copy the lock was lost behind.
+    next_sql = fn ->
+      receive do
+        {:sql, sql} -> sql
+      after
+        0 -> nil
+      end
+    end
+
+    received = next_sql |> Stream.repeatedly() |> Enum.take_while(& &1)
+    assert List.last(received) =~ "INSERT INTO warehouse.flows__rebuild"
+  end
+
   test "listing a table's days carries its own timeout, which the server's default would cut short" do
     agent = start_warehouse(%{"flows" => old(["id", "time"], ["2025-01-02"])})
     parent = self()

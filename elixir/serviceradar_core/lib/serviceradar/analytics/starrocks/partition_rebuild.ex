@@ -61,6 +61,14 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
   table. CNPG receives every write throughout, so neither is lost to the
   deployment.
 
+  The migrator's lock can be lost while this runs: it is a PostgreSQL
+  transaction, and the rebuild is hours of StarRocks work. `:still_locked` is
+  called before every statement and raises once the lock is gone, so a runner
+  that lost it stops before its next statement and leaves the tables to
+  whoever holds the lock now. The statement in flight at that moment still
+  completes; for a day copy that is an upsert of rows the old table holds,
+  which the other runner's copy of the same day merely repeats.
+
   The copy is bounded to the retention window on purpose. A table that was
   never partitioned has never expired anything, and a single row with a
   nonsense timestamp would otherwise become a partition of its own. The copy
@@ -97,6 +105,7 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
           required(:replication_num) => pos_integer(),
           required(:migrations) => [Schema.migration()],
           required(:sleep) => (non_neg_integer() -> term()),
+          optional(:still_locked) => (-> :ok),
           optional(:retention_days) => [{String.t(), pos_integer()}]
         }
 
@@ -315,7 +324,7 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
         "date_trunc('day', #{column}) FROM #{qualified(state, table)} " <>
         "WHERE #{window(column, days)} ORDER BY 1 DESC"
 
-    case state.query.(sql) do
+    case query(state, sql) do
       {:ok, %{rows: rows}} ->
         {:ok, Enum.map(rows, fn [day | _] -> day |> to_string() |> String.slice(0, 10) end)}
 
@@ -380,7 +389,7 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
       "SELECT TABLE_NAME, PARTITION_KEY FROM information_schema.tables_config " <>
         "WHERE TABLE_SCHEMA = '#{state.database}'"
 
-    case state.query.(sql) do
+    case query(state, sql) do
       {:ok, %{rows: rows}} ->
         {:ok,
          Map.new(rows, fn [table, partition_key | _] ->
@@ -412,14 +421,22 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
       "SELECT COLUMN_NAME FROM information_schema.columns WHERE table_schema = '#{state.database}' " <>
         "AND table_name = '#{table}' ORDER BY ORDINAL_POSITION"
 
-    case state.query.(sql) do
+    case query(state, sql) do
       {:ok, %{rows: rows}} -> {:ok, Enum.map(rows, fn [column | _] -> to_string(column) end)}
       {:error, reason} -> {:error, reason}
     end
   end
 
+  # Every statement goes through here. The migration lock lives in PostgreSQL
+  # and can be lost while this runs, so it is checked before each one; a runner
+  # without it raises here rather than work beside the one that took over.
+  defp query(state, sql) do
+    Map.get(state, :still_locked, fn -> :ok end).()
+    state.query.(sql)
+  end
+
   defp exec(state, sql) do
-    case state.query.(sql) do
+    case query(state, sql) do
       {:ok, _result} -> :ok
       {:error, reason} -> {:error, reason}
     end

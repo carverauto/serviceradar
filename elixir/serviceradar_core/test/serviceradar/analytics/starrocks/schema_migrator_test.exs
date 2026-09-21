@@ -90,7 +90,7 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
   defp migrate(agent, opts \\ []) do
     [
       query: query_fun(agent),
-      with_lock: fn fun -> fun.() end,
+      with_lock: fn fun -> fun.(fn -> :ok end) end,
       migrations: @migrations,
       database: "serviceradar",
       sleep: fn _ms -> :ok end
@@ -148,6 +148,22 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
     assert migrate(agent) == {:ok, [3]}
   end
 
+  test "a runner that has lost the lock stops before its next statement and records nothing more" do
+    agent = start_warehouse()
+    {:ok, checks} = Agent.start_link(fn -> 0 end)
+
+    # Holds for the first migration's statement, gone by the second's.
+    still_locked = fn ->
+      if Agent.get_and_update(checks, &{&1, &1 + 1}) >= 1, do: raise("lock lost"), else: :ok
+    end
+
+    assert {:error, %RuntimeError{message: "lock lost"}} =
+             migrate(agent, with_lock: fn fun -> fun.(still_locked) end)
+
+    assert state(agent).ledger == [1]
+    refute Enum.any?(state(agent).ddl, &(&1 =~ "ADD COLUMN"))
+  end
+
   test "replication follows the live backends; shared-data keeps the pinned factor" do
     single = start_warehouse(%{backends: 1})
     assert {:ok, _} = migrate(single)
@@ -184,7 +200,7 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
 
     assert SchemaMigrator.run(
              query: query_fun(agent),
-             with_lock: fn fun -> fun.() end,
+             with_lock: fn fun -> fun.(fn -> :ok end) end,
              migrations: @migrations,
              database: "serviceradar",
              attempts: 2,
