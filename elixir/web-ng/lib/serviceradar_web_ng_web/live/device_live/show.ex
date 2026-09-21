@@ -865,7 +865,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     can_view_anomaly_capacity? = RBAC.can?(scope, "observability.alerts.view")
     anomaly_filters = Map.get(socket.assigns, :anomaly_capacity_filters, %{})
     time_range = sysmon_time_range(socket)
-    metric_opts = [time_range: time_range]
 
     # Remember the resolved identity + range so the range selector can re-run
     # this async load without re-deriving the device identity.
@@ -875,23 +874,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> assign(:sysmon_time_range, time_range)
 
     if Application.get_env(:serviceradar_web_ng, :env) == :test do
-      sysmon_filters =
-        SysmonMetrics.resolve_sysmon_filter_tokens(srql_module, sysmon_identity, scope, metric_opts)
-
-      assigns = %{
-        metric_sections: SysmonMetrics.load_metric_sections(srql_module, sysmon_filters, scope, metric_opts),
-        process_metrics: SysmonMetrics.load_process_metrics(srql_module, sysmon_filters, scope),
-        sysmon_presence: sysmon_filters != [],
-        can_view_anomaly_capacity: can_view_anomaly_capacity?,
-        anomaly_capacity:
-          maybe_load_anomaly_capacity(
-            can_view_anomaly_capacity?,
-            srql_module,
-            sysmon_identity,
-            scope,
-            anomaly_filters
-          )
-      }
+      assigns =
+        srql_module
+        |> SysmonMetrics.load_device_metrics(sysmon_identity, scope, time_range)
+        |> Map.merge(%{
+          can_view_anomaly_capacity: can_view_anomaly_capacity?,
+          anomaly_capacity:
+            maybe_load_anomaly_capacity(
+              can_view_anomaly_capacity?,
+              srql_module,
+              sysmon_identity,
+              scope,
+              anomaly_filters
+            )
+        })
 
       socket
       |> assign(:device_metrics_request_ref, request_ref)
@@ -902,13 +898,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> assign(:device_metrics_request_ref, request_ref)
       |> assign(:metrics_loading, true)
       |> start_async({:device_metrics, uid, request_ref}, fn ->
-        sysmon_filters =
-          SysmonMetrics.resolve_sysmon_filter_tokens(srql_module, sysmon_identity, scope, metric_opts)
-
-        %{
-          metric_sections: SysmonMetrics.load_metric_sections(srql_module, sysmon_filters, scope, metric_opts),
-          process_metrics: SysmonMetrics.load_process_metrics(srql_module, sysmon_filters, scope),
-          sysmon_presence: sysmon_filters != [],
+        srql_module
+        |> SysmonMetrics.load_device_metrics(sysmon_identity, scope, time_range)
+        |> Map.merge(%{
           can_view_anomaly_capacity: can_view_anomaly_capacity?,
           anomaly_capacity:
             maybe_load_anomaly_capacity(
@@ -918,7 +910,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               scope,
               anomaly_filters
             )
-        }
+        })
       end)
     end
   end

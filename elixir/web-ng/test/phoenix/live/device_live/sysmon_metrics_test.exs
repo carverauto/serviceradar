@@ -207,7 +207,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
     assert query =~ "bucket:6h"
   end
 
-  test "the presence probe looks across the selected window, and the last 24 hours by default" do
+  test "the probe reads one raw row by default and buckets across a selected window" do
     previous_responder = Application.get_env(:serviceradar_web_ng, :sysmon_metrics_test_responder)
 
     Application.put_env(:serviceradar_web_ng, :sysmon_metrics_test_responder, fn query, _opts ->
@@ -226,7 +226,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
     assert SysmonMetrics.resolve_sysmon_filter_tokens(RecordingSRQLStub, identity, :scope) == tokens
     assert_received {:presence_probe, default_query}
     assert default_query =~ "time:last_24h"
-    assert default_query =~ "bucket:5m"
+    assert default_query =~ "sort:timestamp:desc limit:1"
+    refute default_query =~ "bucket:"
+    refute default_query =~ "agg:"
 
     assert SysmonMetrics.resolve_sysmon_filter_tokens(RecordingSRQLStub, identity, :scope, time_range: "last_30d") ==
              tokens
@@ -263,6 +265,93 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
 
     assert SysmonMetrics.resolve_sysmon_filter_tokens(RecordingSRQLStub, identity, :scope, time_range: "last_30d") ==
              [~s|agent_id:"agent-silent-for-a-day"|]
+  end
+
+  describe "load_device_metrics/4" do
+    setup do
+      previous_responder = Application.get_env(:serviceradar_web_ng, :sysmon_metrics_test_responder)
+      on_exit(fn -> restore_env(:sysmon_metrics_test_responder, previous_responder) end)
+      :ok
+    end
+
+    defp respond_with(rows_for) do
+      test_pid = self()
+
+      Application.put_env(:serviceradar_web_ng, :sysmon_metrics_test_responder, fn query, _opts ->
+        send(test_pid, {:device_metrics_query, query})
+        {:ok, %{"results" => rows_for.(query), "pagination" => %{}}}
+      end)
+    end
+
+    defp issued_queries do
+      fn ->
+        receive do
+          {:device_metrics_query, query} -> query
+        after
+          0 -> nil
+        end
+      end
+      |> Stream.repeatedly()
+      |> Enum.take_while(&is_binary/1)
+    end
+
+    defp probe?(query), do: String.ends_with?(query, "limit:1")
+
+    test "the default window resolves the device once, with the unbucketed single-row probe" do
+      respond_with(fn query -> if probe?(query), do: [%{"value" => 1.0}], else: [] end)
+
+      result =
+        SysmonMetrics.load_device_metrics(RecordingSRQLStub, %{agent_id: "agent-default-window"}, :scope, "last_24h")
+
+      assert result.sysmon_presence
+
+      assert [probe] = Enum.filter(issued_queries(), &probe?/1)
+      assert probe =~ "time:last_24h"
+      assert probe =~ "sort:timestamp:desc limit:1"
+      refute probe =~ "bucket:"
+    end
+
+    test "a window with no data empties the charts and leaves live presence and processes alone" do
+      empty_window = "[2025-01-01T00:00:00Z,2025-01-31T00:00:00Z]"
+
+      process_row = %{
+        "timestamp" => "2025-03-01T00:00:00Z",
+        "value" => 12.5,
+        "tags" => %{"pid" => 4242, "name" => "example-daemon"}
+      }
+
+      respond_with(fn query ->
+        cond do
+          String.contains?(query, empty_window) -> []
+          String.contains?(query, "process.cpu_usage") -> [process_row]
+          true -> [%{"value" => 1.0}]
+        end
+      end)
+
+      identity = %{agent_id: "agent-reporting-now"}
+      default = SysmonMetrics.load_device_metrics(RecordingSRQLStub, identity, :scope, "last_24h")
+      _ = issued_queries()
+
+      result = SysmonMetrics.load_device_metrics(RecordingSRQLStub, identity, :scope, empty_window)
+
+      assert result.sysmon_presence
+      assert [%{"name" => "example-daemon", "cpu_usage" => 12.5}] = result.process_metrics
+      assert result.process_metrics == default.process_metrics
+      assert result.metric_sections == []
+
+      queries = issued_queries()
+      assert Enum.any?(queries, &(probe?(&1) and &1 =~ "time:last_24h" and not (&1 =~ "bucket:")))
+      assert Enum.any?(queries, &(probe?(&1) and &1 =~ "time:#{empty_window}" and &1 =~ "bucket:6h"))
+    end
+
+    test "a device that is not reporting has no presence and no sections on the default window" do
+      respond_with(fn _query -> [] end)
+
+      result =
+        SysmonMetrics.load_device_metrics(RecordingSRQLStub, %{agent_id: "agent-never-reported"}, :scope, "last_24h")
+
+      assert result == %{metric_sections: [], process_metrics: [], sysmon_presence: false}
+    end
   end
 
   test "a window reaching past raw retention gets a bucket of at least an hour" do
