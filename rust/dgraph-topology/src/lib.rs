@@ -23,6 +23,7 @@
 //! the schema string and the typed mutations.
 
 mod client;
+mod downstream;
 mod errors;
 mod schema;
 mod types;
@@ -31,6 +32,7 @@ mod types;
 mod cutover_tests;
 
 pub use crate::client::TopologyClient;
+pub use crate::downstream::{DownstreamFact, looks_like_cidr, reachable_on_canonical};
 pub use crate::errors::{TopologyError, TopologyErrorEnum};
 pub use crate::schema::{
     PRED_CHANGE_ID, PRED_DEVICE_ID, PRED_LINK_KEY, PRED_PREFIX_CIDR, PREDICATES, SCHEMA, TYPES,

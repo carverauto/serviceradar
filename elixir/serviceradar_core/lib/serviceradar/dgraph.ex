@@ -125,6 +125,22 @@ defmodule ServiceRadar.Dgraph do
     end
   end
 
+  @doc """
+  Graph fact after Prefix expansion. Returns `:reachable` or `:disjoint`.
+  Does not return postpone/sequence.
+  """
+  @spec downstream_of([String.t()], [String.t()]) ::
+          {:ok, :reachable | :disjoint} | {:error, String.t()}
+  def downstream_of(from_ids, to_ids) when is_list(from_ids) and is_list(to_ids) do
+    with {:ok, url} <- url() do
+      case Native.downstream_of(url, from_ids, to_ids) do
+        {:ok, fact} when fact in [:reachable, :disjoint] -> {:ok, fact}
+        {:error, reason} -> {:error, reason}
+        other -> {:error, "unexpected downstream_of result: #{inspect(other)}"}
+      end
+    end
+  end
+
   @spec query_neighbourhood(String.t()) :: edges_result()
   def query_neighbourhood(device_id) when is_binary(device_id) do
     with {:ok, url} <- url() do
@@ -253,6 +269,8 @@ defmodule ServiceRadar.Dgraph do
       kind: fetch!(attrs, :kind),
       status: fetch!(attrs, :status),
       source: fetch!(attrs, :source),
+      window_start: attr(attrs, :window_start),
+      window_end: attr(attrs, :window_end),
       affects_prefix_cidrs: List.wrap(attr(attrs, :affects_prefix_cidrs)),
       affects_device_ids: List.wrap(attr(attrs, :affects_device_ids))
     }

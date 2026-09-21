@@ -21,6 +21,7 @@ use dgraph_client::{DgraphClient, Mutation};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use crate::downstream::{DownstreamFact, looks_like_cidr, reachable_on_canonical};
 use crate::errors::TopologyError;
 use crate::types::{
     CanonicalEdge, ChangeWrite, DeviceWrite, EdgeWrite, HopWrite, InterfaceWrite, PrefixWrite,
@@ -216,7 +217,7 @@ impl TopologyClient {
             }));
         }
         let query = format!("{{\n  {}\n}}", blocks.join("\n  "));
-        let node = json!({
+        let mut node = json!({
             "uid": "uid(v)",
             "dgraph.type": "Change",
             "change.id": change.id(),
@@ -225,6 +226,12 @@ impl TopologyClient {
             "change.source": change.source(),
             "change.affects": affects,
         });
+        if let Some(start) = change.window_start() {
+            node["change.window_start"] = json!(start);
+        }
+        if let Some(end) = change.window_end() {
+            node["change.window_end"] = json!(end);
+        }
         let _: Value = self
             .upsert(&query, "@if(ge(len(v), 0))", &node, None)
             .await?;
@@ -487,6 +494,55 @@ impl TopologyClient {
     ///
     /// Returns [`TopologyError`] if the query fails or the response is the
     /// wrong shape.
+    /// Expand selectors (device ids and CIDRs) then walk canonical topology.
+    /// Returns reachable or disjoint — never a postpone/sequence verdict.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::query_canonical_edges`].
+    pub async fn downstream_of(
+        &self,
+        from_ids: &[String],
+        to_ids: &[String],
+    ) -> Result<DownstreamFact, TopologyError> {
+        let from = self.expand_to_devices(from_ids).await?;
+        let to = self.expand_to_devices(to_ids).await?;
+        let edges = self.query_canonical_edges().await?;
+        Ok(reachable_on_canonical(&edges, &from, &to))
+    }
+
+    async fn expand_to_devices(
+        &self,
+        ids: &[String],
+    ) -> Result<std::collections::HashSet<String>, TopologyError> {
+        let mut devices = std::collections::HashSet::new();
+        for id in ids {
+            if looks_like_cidr(id) {
+                devices.extend(self.devices_for_prefix(id).await?);
+            } else if !id.is_empty() {
+                devices.insert(id.clone());
+            }
+        }
+        Ok(devices)
+    }
+
+    async fn devices_for_prefix(&self, cidr: &str) -> Result<Vec<String>, TopologyError> {
+        let cidr_q = dql_string(cidr)?;
+        let query = format!(
+            "{{
+  q(func: eq(prefix.cidr, {cidr_q})) {{
+    ~iface.prefixes {{
+      ~device.interfaces {{
+        device.id
+      }}
+    }}
+  }}
+}}"
+        );
+        let parsed: PrefixExpandQuery = self.query(&query).await?;
+        Ok(parsed.device_ids())
+    }
+
     pub async fn query_canonical_edges(&self) -> Result<Vec<CanonicalEdge>, TopologyError> {
         let query = r#"{
   edges(func: type(TopologyEdge)) @filter(eq(topo.kind, "CANONICAL_TOPOLOGY") AND NOT eq(topo.stale, true)) {
@@ -696,6 +752,41 @@ impl CanonicalEdgeRow {
 }
 
 #[derive(Debug, Deserialize, Default)]
+struct PrefixExpandQuery {
+    #[serde(default)]
+    q: Vec<PrefixExpandPrefix>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PrefixExpandPrefix {
+    #[serde(default, rename = "~iface.prefixes")]
+    ifaces: Vec<PrefixExpandIface>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PrefixExpandIface {
+    #[serde(default, rename = "~device.interfaces")]
+    devices: Vec<PrefixExpandDevice>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PrefixExpandDevice {
+    #[serde(default, rename = "device.id")]
+    device_id: Option<String>,
+}
+
+impl PrefixExpandQuery {
+    fn device_ids(&self) -> Vec<String> {
+        self.q
+            .iter()
+            .flat_map(|prefix| prefix.ifaces.iter())
+            .flat_map(|iface| iface.devices.iter())
+            .filter_map(|device| device.device_id.clone())
+            .collect()
+    }
+}
+
+#[derive(Debug, Deserialize)]
 struct CanonicalQuery {
     #[serde(default)]
     edges: Vec<CanonicalEdgeRow>,

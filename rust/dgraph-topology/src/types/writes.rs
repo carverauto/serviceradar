@@ -246,6 +246,8 @@ pub struct ChangeWrite {
     kind: String,
     status: String,
     source: String,
+    window_start: Option<String>,
+    window_end: Option<String>,
     affects_prefix_cidrs: Vec<String>,
     affects_device_ids: Vec<String>,
 }
@@ -263,9 +265,18 @@ impl ChangeWrite {
             kind: kind.into(),
             status: status.into(),
             source: source.into(),
+            window_start: None,
+            window_end: None,
             affects_prefix_cidrs: Vec::new(),
             affects_device_ids: Vec::new(),
         }
+    }
+
+    #[must_use]
+    pub fn with_window(mut self, start: Option<String>, end: Option<String>) -> Self {
+        self.window_start = start;
+        self.window_end = end;
+        self
     }
 
     #[must_use]
@@ -298,6 +309,16 @@ impl ChangeWrite {
     #[must_use]
     pub fn source(&self) -> &str {
         &self.source
+    }
+
+    #[must_use]
+    pub fn window_start(&self) -> Option<&str> {
+        self.window_start.as_deref()
+    }
+
+    #[must_use]
+    pub fn window_end(&self) -> Option<&str> {
+        self.window_end.as_deref()
     }
 
     #[must_use]
