@@ -121,6 +121,8 @@
       AGE for the synthetic fixture.
 - [ ] 8.4 Demo cutover: checksum Job green, `GRAPH_READ=dgraph`, then
       `GRAPH_BACKEND=dgraph`. Record rollback as `GRAPH_READ=age`.
+      Checksum green on demo (13 edges, matching hash). `GRAPH_READ=dgraph`
+      is this change; `GRAPH_BACKEND` stays dual. Rollback: `graph.read=age`.
 - [x] 8.5 Do not remove AGE from the CNPG image in this change.
 
 ## 9. Coordination
