@@ -67,10 +67,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Query do
   @doc """
   Whether a window starts before the raw metric table's retention.
 
-  Raw samples are kept for a week; older history lives in the hourly rollup,
-  which SRQL only reads for a bucket of an hour or more. A short window far in
-  the past would otherwise pick a fine bucket, read the raw table, and draw
+  Raw samples are kept for a week; older history lives in the hourly rollup.
+  SRQL reads the rollup only when the bucket is an hour or more AND the window
+  spans at least six hours. `bucket_for_time_range/2` floors the bucket at an
+  hour for such a window, which satisfies the first condition: a window of six
+  hours or more would otherwise pick a fine bucket, read the raw table, and draw
   nothing for a period the rollup covers.
+
+  The floor does not help a window shorter than six hours. SRQL still serves
+  that one from the raw table, so it stays empty once it is older than raw
+  retention (issue #4514).
   """
   @spec beyond_raw_retention?(term(), DateTime.t()) :: boolean()
   def beyond_raw_retention?(time_range, now \\ DateTime.utc_now()) do

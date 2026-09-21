@@ -15,11 +15,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.QueryTest do
     end
 
     test "sizes the bucket from an absolute range window" do
-      range = "[2026-06-26T06:30:00Z,2026-06-26T08:30:00Z]"
+      range = "[2026-06-26T06:30:00Z,2026-06-26T18:30:00Z]"
 
-      assert Query.bucket_for_time_range(range, ~U[2026-06-26 09:00:00Z]) == "30s"
-      # The same two hours, a month later: raw samples are gone, the rollup is not.
-      assert Query.bucket_for_time_range(range, ~U[2026-07-26 09:00:00Z]) == "1h"
+      assert Query.bucket_for_time_range(range, ~U[2026-06-26 19:00:00Z]) == "5m"
+      # The same twelve hours, a month later: raw samples are gone, and a window of
+      # six hours or more at an hourly bucket is one SRQL serves from the rollup.
+      assert Query.bucket_for_time_range(range, ~U[2026-07-26 19:00:00Z]) == "1h"
     end
 
     test "falls back to 5m for unparseable or empty ranges" do

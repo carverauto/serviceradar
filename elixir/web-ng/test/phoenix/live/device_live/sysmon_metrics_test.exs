@@ -207,10 +207,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
     assert query =~ "bucket:6h"
   end
 
-  test "a window reaching past raw retention reads the hourly rollup, however short it is" do
+  test "a window reaching past raw retention gets a bucket of at least an hour" do
     now = ~U[2025-06-30 00:00:00Z]
 
-    # Three days would pick 15m, which SRQL serves from raw samples that are gone.
+    # Three days would pick 15m, which SRQL serves from raw samples that are gone. An hourly
+    # bucket lets SRQL read the rollup, which it does only for a window of six hours or more.
     assert SysmonMetrics.Query.bucket_for_time_range("[2025-06-01T00:00:00Z,2025-06-04T00:00:00Z]", now) == "1h"
     assert SysmonMetrics.Query.bucket_for_time_range("[2025-06-27T00:00:00Z,2025-06-30T00:00:00Z]", now) == "15m"
     assert SysmonMetrics.Query.bucket_for_time_range("last_24h", now) == "5m"
