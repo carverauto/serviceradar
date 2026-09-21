@@ -1325,23 +1325,24 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
     end
   end
 
+  # Started under the test supervisor, not with start_link. A process linked to
+  # the test that started it dies when that test ends -- asynchronously, so the
+  # next test could still find the dying pid registered, take the handler to be
+  # up, and then `send/2` to a name that had just been unregistered, which
+  # raises. ExUnit stops a supervised child before the next test begins, so
+  # `whereis` here only ever sees nothing or a process that will stay.
   defp ensure_status_handler_started do
-    case Process.whereis(ResultCoordinationTaskSupervisor) do
-      nil ->
-        {:ok, _pid} =
-          Task.Supervisor.start_link(
-            name: ResultCoordinationTaskSupervisor,
-            max_children: 32
-          )
-
-      _pid ->
-        :ok
+    if is_nil(Process.whereis(ResultCoordinationTaskSupervisor)) do
+      start_supervised!(
+        {Task.Supervisor, name: ResultCoordinationTaskSupervisor, max_children: 32}
+      )
     end
 
-    case Process.whereis(StatusHandler) do
-      nil -> StatusHandler.start_link([])
-      _pid -> :ok
+    if is_nil(Process.whereis(StatusHandler)) do
+      start_supervised!(StatusHandler)
     end
+
+    :ok
   end
 
   defp start_control_session(agent_id, test_pid, metadata, opts \\ []) do
