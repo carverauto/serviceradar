@@ -30,6 +30,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadarWebNGWeb.DeviceLive.RemoteAccessData
   alias ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics
   alias ServiceRadarWebNGWeb.DeviceLive.VirtualizationData
+  alias ServiceRadarWebNGWeb.MetricWindowComponents
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
   require Logger
@@ -864,7 +865,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     can_view_anomaly_capacity? = RBAC.can?(scope, "observability.alerts.view")
     anomaly_filters = Map.get(socket.assigns, :anomaly_capacity_filters, %{})
     time_range = sysmon_time_range(socket)
-    metric_opts = [time_range: time_range]
 
     # Remember the resolved identity + range so the range selector can re-run
     # this async load without re-deriving the device identity.
@@ -874,23 +874,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> assign(:sysmon_time_range, time_range)
 
     if Application.get_env(:serviceradar_web_ng, :env) == :test do
-      sysmon_filters =
-        SysmonMetrics.resolve_sysmon_filter_tokens(srql_module, sysmon_identity, scope)
-
-      assigns = %{
-        metric_sections: SysmonMetrics.load_metric_sections(srql_module, sysmon_filters, scope, metric_opts),
-        process_metrics: SysmonMetrics.load_process_metrics(srql_module, sysmon_filters, scope),
-        sysmon_presence: sysmon_filters != [],
-        can_view_anomaly_capacity: can_view_anomaly_capacity?,
-        anomaly_capacity:
-          maybe_load_anomaly_capacity(
-            can_view_anomaly_capacity?,
-            srql_module,
-            sysmon_identity,
-            scope,
-            anomaly_filters
-          )
-      }
+      assigns =
+        srql_module
+        |> SysmonMetrics.load_device_metrics(sysmon_identity, scope, time_range)
+        |> Map.merge(%{
+          can_view_anomaly_capacity: can_view_anomaly_capacity?,
+          anomaly_capacity:
+            maybe_load_anomaly_capacity(
+              can_view_anomaly_capacity?,
+              srql_module,
+              sysmon_identity,
+              scope,
+              anomaly_filters
+            )
+        })
 
       socket
       |> assign(:device_metrics_request_ref, request_ref)
@@ -901,13 +898,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> assign(:device_metrics_request_ref, request_ref)
       |> assign(:metrics_loading, true)
       |> start_async({:device_metrics, uid, request_ref}, fn ->
-        sysmon_filters =
-          SysmonMetrics.resolve_sysmon_filter_tokens(srql_module, sysmon_identity, scope)
-
-        %{
-          metric_sections: SysmonMetrics.load_metric_sections(srql_module, sysmon_filters, scope, metric_opts),
-          process_metrics: SysmonMetrics.load_process_metrics(srql_module, sysmon_filters, scope),
-          sysmon_presence: sysmon_filters != [],
+        srql_module
+        |> SysmonMetrics.load_device_metrics(sysmon_identity, scope, time_range)
+        |> Map.merge(%{
           can_view_anomaly_capacity: can_view_anomaly_capacity?,
           anomaly_capacity:
             maybe_load_anomaly_capacity(
@@ -917,24 +910,27 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               scope,
               anomaly_filters
             )
-        }
+        })
       end)
     end
   end
 
-  @sysmon_time_ranges ~w(last_1h last_6h last_24h last_7d)
+  # The relative windows are the shared allowlist. An absolute `[start,end]`
+  # window comes from the Custom form and is checked for shape before it can
+  # reach a query.
+  defp sysmon_range?(range) do
+    range in MetricWindowComponents.ranges() or MetricWindowComponents.absolute_range?(range)
+  end
 
   defp sysmon_time_range(socket) do
-    case Map.get(socket.assigns, :sysmon_time_range) do
-      range when range in @sysmon_time_ranges -> range
-      _ -> "last_24h"
-    end
+    range = Map.get(socket.assigns, :sysmon_time_range)
+    if sysmon_range?(range), do: range, else: MetricWindowComponents.default_range()
   end
 
   # Switch the sysmon charts to a new window and re-run the metric load using the
   # already-resolved device identity, so the bucket resizes to the range.
-  defp apply_sysmon_time_range(socket, range) when range in @sysmon_time_ranges do
-    if range == sysmon_time_range(socket) do
+  defp apply_sysmon_time_range(socket, range) do
+    if not sysmon_range?(range) or range == sysmon_time_range(socket) do
       socket
     else
       socket = assign(socket, :sysmon_time_range, range)
@@ -954,8 +950,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       end
     end
   end
-
-  defp apply_sysmon_time_range(socket, _range), do: socket
 
   defp maybe_load_anomaly_capacity(true, srql_module, sysmon_identity, scope, filters) do
     AnomalyCapacityData.load(srql_module, sysmon_identity, scope, anomaly_load_opts(filters))
@@ -1459,6 +1453,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   def handle_event("sysmon_set_range", %{"range" => range}, socket) do
     {:noreply, apply_sysmon_time_range(socket, range)}
+  end
+
+  def handle_event("sysmon_set_custom_range", %{"window" => params}, socket) do
+    case MetricWindowComponents.custom_range(params) do
+      {:ok, range} -> {:noreply, apply_sysmon_time_range(socket, range)}
+      {:error, message} -> {:noreply, put_flash(socket, :error, message)}
+    end
   end
 
   def handle_event("switch_tab", %{"tab" => tab}, socket) do

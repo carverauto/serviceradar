@@ -515,7 +515,7 @@
     "path": "lib/serviceradar_web_ng_web/components/metric_window_components.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 1,
-    "fingerprint": "c38dbe4484b7a967f748dcacd6ad816f1d025e1bba86b1b2ddc43133904d30f8",
+    "fingerprint": "17fe0ea0750ac8bf08ba475d694ec3ebca0a1b42b9c9b592ff3b8c590de5cffe",
     "classification": "canonical_machine",
     "reason": "custom UTC history window encoded as an SRQL time range"
   },
@@ -523,7 +523,7 @@
     "path": "lib/serviceradar_web_ng_web/components/metric_window_components.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 2,
-    "fingerprint": "60d590de02073c5f09c8a5f71766eece35d542f60952b9dec2c2b8bbc95a7084",
+    "fingerprint": "46277cf4b85411655037b525cc5ef722eb394d1da07b8c74cdbe2ac0fbd15344",
     "classification": "canonical_machine",
     "reason": "custom UTC history window encoded as an SRQL time range"
   },

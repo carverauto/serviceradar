@@ -3,32 +3,64 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetricSectionComponents do
 
   use ServiceRadarWebNGWeb, :html
 
+  import ServiceRadarWebNGWeb.MetricWindowComponents, only: [metric_window_controls: 1]
   import ServiceRadarWebNGWeb.SRQLComponents, only: [srql_results_table: 1]
+
+  alias ServiceRadarWebNGWeb.MetricWindowComponents
 
   attr(:sections, :list, default: [])
   attr(:device_uid, :string, required: true)
   attr(:timezone, :string, required: true)
   attr(:chart_focus, :any, default: nil)
-  attr(:time_range, :string, default: "last_24h")
+  attr(:time_range, :string, default: MetricWindowComponents.default_range())
+  attr(:metrics_loading, :boolean, default: false)
 
   def metric_sections_content(assigns) do
+    assigns =
+      assign(
+        assigns,
+        :window_controls_visible,
+        assigns.sections != [] or assigns.time_range != MetricWindowComponents.default_range()
+      )
+
     ~H"""
-    <div :if={@sections != []} class="flex items-center justify-end gap-2">
-      <span class="text-[11px] uppercase tracking-wide text-sr-muted">Window</span>
-      <div class="flex flex-wrap gap-1">
-        <.ui_button
-          :for={{label, value} <- sysmon_range_options()}
-          type="button"
-          phx-click="sysmon_set_range"
-          phx-value-range={value}
-          size="xs"
-          variant={if(@time_range == value, do: "primary", else: "ghost")}
-          active={@time_range == value}
-        >
-          {label}
-        </.ui_button>
-      </div>
-    </div>
+    <.metric_window_controls
+      :if={@window_controls_visible}
+      id={"device-#{@device_uid}-metric-window"}
+      range={@time_range}
+      event="sysmon_set_range"
+      custom_event="sysmon_set_custom_range"
+      custom_submit_label="Apply"
+      custom_hint="Show these charts for a specific period. Times are UTC."
+    />
+    <p
+      :if={match?({:ok, _, _}, MetricWindowComponents.absolute_bounds(@time_range))}
+      id={"device-#{@device_uid}-metric-window-bounds"}
+      class="text-right text-xs text-sr-muted"
+    >
+      <% {:ok, range_start, range_end} = MetricWindowComponents.absolute_bounds(@time_range) %>
+      <.user_time
+        id={"device-#{@device_uid}-metric-window-start"}
+        value={range_start}
+        timezone={@timezone}
+        style={:compact}
+        fallback=""
+      /> –
+      <.user_time
+        id={"device-#{@device_uid}-metric-window-end"}
+        value={range_end}
+        timezone={@timezone}
+        style={:compact}
+        fallback=""
+      />
+    </p>
+    <p
+      :if={@window_controls_visible and @sections == [] and not @metrics_loading}
+      id={"device-#{@device_uid}-metric-window-empty"}
+      class="rounded-xl border border-sr-line bg-sr-surface px-4 py-3 text-sm text-sr-muted"
+    >
+      No metrics in this window.
+    </p>
 
     <%= for {section, section_index} <- Enum.with_index(@sections) do %>
       <div class="rounded-xl border border-sr-line bg-sr-surface">
@@ -107,10 +139,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetricSectionComponents do
       </div>
     <% end %>
     """
-  end
-
-  defp sysmon_range_options do
-    [{"1h", "last_1h"}, {"6h", "last_6h"}, {"24h", "last_24h"}, {"7d", "last_7d"}]
   end
 
   defp format_pct(value) when is_float(value), do: :erlang.float_to_binary(value, decimals: 1)

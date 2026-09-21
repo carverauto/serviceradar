@@ -502,7 +502,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   def handle_event("netflow_custom_range", %{"window" => params}, socket) do
-    case MetricWindowComponents.custom_range(params) do
+    case MetricWindowComponents.custom_range(params, max_days: 90) do
       {:ok, range} ->
         opts = socket.assigns |> current_netflow_patch_opts() |> Map.put(:view, "explorer")
         patch_netflow_window(socket, range, opts)
