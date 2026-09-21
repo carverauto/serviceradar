@@ -50,7 +50,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Query do
     * relative windows like `"last_1h"`, `"last_24h"`, `"last_7d"`
     * absolute ranges like `"[2026-06-26T06:30:00Z,2026-06-26T08:30:00Z]"`
 
-  Falls back to `"5m"` when the range cannot be interpreted.
+  A window that starts before raw retention gets a bucket of at least an hour;
+  see `beyond_raw_retention?/2`. Falls back to `"5m"` when the range cannot be
+  interpreted.
   """
   @spec bucket_for_time_range(term(), DateTime.t()) :: String.t()
   def bucket_for_time_range(time_range, now \\ DateTime.utc_now()) do

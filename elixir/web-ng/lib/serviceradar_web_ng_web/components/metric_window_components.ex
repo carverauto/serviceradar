@@ -119,7 +119,8 @@ defmodule ServiceRadarWebNGWeb.MetricWindowComponents do
 
   @doc """
   Whether `range` is a well-formed absolute `[start,end]` window, as produced by
-  `custom_range/1`: two ISO 8601 instants with the end after the start.
+  `custom_range/2`: two ISO 8601 instants with the end after the start, no
+  further apart than SRQL's longest window.
 
   A page that lets a range arrive from the client checks it here before it goes
   anywhere near a query, since the relative windows are an allowlist and an
