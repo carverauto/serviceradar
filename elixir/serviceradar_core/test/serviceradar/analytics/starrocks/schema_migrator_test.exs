@@ -53,6 +53,14 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
     {result(["1"], rows), state}
   end
 
+  # No telemetry tables here, so PartitionRebuild finds nothing to rebuild;
+  # partition_rebuild_test.exs covers a warehouse that needs one.
+  defp answer(%{fail_on: fail_on} = state, "SELECT TABLE_NAME, PARTITION_KEY" <> _ = sql) do
+    if fail_on && sql =~ fail_on,
+      do: {{:error, {:starrocks_mysql, "boom"}}, state},
+      else: {result(["TABLE_NAME", "PARTITION_KEY"], []), state}
+  end
+
   defp answer(state, "SHOW ALTER TABLE COLUMN" <> _),
     do: {result(["State"], [["FINISHED"]]), state}
 
@@ -182,5 +190,13 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
              attempts: 2,
              sleep: fn _ms -> :ok end
            ) == :ok
+  end
+
+  test "a partition rebuild that cannot run stops the migration before anything is applied" do
+    agent = start_warehouse(%{fail_on: ~r/tables_config/})
+
+    assert {:error, {:starrocks_mysql, "boom"}} = migrate(agent)
+    assert state(agent).ledger == []
+    refute Enum.any?(state(agent).ddl, &(&1 =~ "flows"))
   end
 end

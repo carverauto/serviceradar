@@ -13,10 +13,17 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
   makes a migration that failed half way safe to run again, which is the only
   recovery a failed migration needs. A new statement kind that cannot be
   repeated needs a guard here before it ships.
+
+  One upgrade cannot be written as a statement at all. A table created before
+  daily partitioning has to be rebuilt beside itself and swapped in, which
+  `PartitionRebuild` does before any pending migration runs, because the
+  partitioned rollups in 0017 can only be created over partitioned tables.
   """
 
   alias ServiceRadar.Analytics.StarRocks.Env
   alias ServiceRadar.Analytics.StarRocks.MySQL
+  alias ServiceRadar.Analytics.StarRocks.PartitionRebuild
+  alias ServiceRadar.Analytics.StarRocks.Retention
   alias ServiceRadar.Analytics.StarRocks.Schema
 
   require Logger
@@ -25,7 +32,10 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
   @ledger "schema_migrations"
   # Arbitrary, but fixed: every replica must contend for the same key.
   @lock_key 7_203_950_114
-  @ddl_timeout_ms 300_000
+  # DDL answers in seconds. The ceiling is for the one statement that does not:
+  # PartitionRebuild copying a table, which StarRocks itself allows four hours
+  # (insert_timeout). A client that gives up first abandons a copy still running.
+  @ddl_timeout_ms 14_400_000
   @initial_delay_ms 5_000
   @max_delay_ms 60_000
   @alter_poll_ms 1_000
@@ -93,7 +103,8 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
           query: query,
           database: database,
           migrations: Keyword.get_lazy(opts, :migrations, &Schema.migrations/0),
-          sleep: Keyword.get(opts, :sleep, &Process.sleep/1)
+          sleep: Keyword.get(opts, :sleep, &Process.sleep/1),
+          retention_days: Keyword.get_lazy(opts, :retention_days, &Retention.days_by_table/0)
         }
 
         with {:ok, replication_num} <- replication_num(query) do
@@ -178,6 +189,7 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
 
   defp apply_pending(state) do
     with :ok <- ensure_ledger(state),
+         :ok <- PartitionRebuild.run(state),
          {:ok, applied} <- applied_versions(state) do
       state.migrations
       |> Enum.reject(&MapSet.member?(applied, &1.version))

@@ -2675,8 +2675,8 @@ analytics:
     # StarRocks keeps; anything older is dropped. Flows and metrics mirror the
     # 90-day CNPG raw policy; logs and event history carry the hosted one-year
     # retention. Re-applied on every core rollout, so changing it here is
-    # enough. A warehouse created before partitioning must be rebuilt first
-    # (priv/starrocks/0014_partitioned_telemetry_rebuild.sql).
+    # enough. A warehouse created before partitioning is rebuilt onto daily
+    # partitions by core at startup, online; retention applies once that is done.
     retentionDays:
       flows: 90
       metrics: 90
