@@ -304,7 +304,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   # with the legacy 3-tuple (no live-set). Treat it as an empty live-set sweep,
   # which is exactly the pre-live-set behavior. The reverse skew — this node's
   # 4-tuple reaching an old-code shard — cannot be patched here: the old shard
-  # crashes with a FunctionClauseError, the caller's `call/2` catch maps the
+  # crashes with a FunctionClauseError, the caller's `call/3` catch maps the
   # exit to `{:error, _}` (so the Oban job retries instead of crashing), Horde
   # restarts the shard, and the next 30-minute sweep after the deploy finishes
   # succeeds. The tradeoff is bounded by the sweep cadence.
@@ -323,11 +323,12 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   end
 
   # Call the pid `ensure_started/1` resolved, not the shard's registered name.
-  # Shards are Horde-placed, so `Horde.Registry.whereis_name/1` only resolves a
-  # key whose member is in the registry's locally materialized member set; a name
-  # lookup can therefore lag the pid `start_child`/`{:already_started, pid}` just
-  # returned and exit `:noproc` for a shard that is running. The pid is
-  # authoritative, so use it.
+  # Horde's registry replies to a registration right after the CRDT put, but the
+  # keys ETS row that `Horde.Registry.lookup/2` (and so `whereis_name/1`) reads is
+  # written later, by `process_diff/2` when the asynchronous CRDT diff is
+  # handled. A name lookup can therefore lag the pid
+  # `start_child`/`{:already_started, pid}` just returned and exit `:noproc` for
+  # a shard that is running. The pid is authoritative, so use it.
   #
   # That pid can still die between resolution and the call (shard crash, Horde
   # restart, rolling deploy). Re-resolve and retry once so a just-restarted shard

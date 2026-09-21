@@ -1609,8 +1609,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     assert :ok = ProcessRegistry.terminate_child(pid)
     assert_receive {:DOWN, ^monitor_ref, :process, ^pid, _reason}, 5_000
 
-    # The window under test: evaluate while the killed shard's registry state is
-    # still settling, so a name-based call would exit `:noproc`.
+    # Evaluate after the out-of-band termination: the engine must start a fresh
+    # shard and hand it this batch. This does not force the registry lookup lag.
     assert :ok = StatefulAlertEngine.evaluate_events([event.("#{unique}-after")])
 
     # The restarted shard took the batch (the second group's alert exists), and a
