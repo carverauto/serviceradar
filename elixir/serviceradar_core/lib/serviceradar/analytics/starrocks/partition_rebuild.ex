@@ -1,32 +1,41 @@
 defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
   @moduledoc """
-  Moves a telemetry table created before daily partitioning onto the
-  partitioned definition, while the warehouse keeps serving and taking writes.
+  Moves telemetry tables created before daily partitioning onto the partitioned
+  definition, while the warehouse keeps serving and taking writes.
 
   StarRocks can neither add partitioning to a table nor change its primary key
-  with ALTER, so an old table is rebuilt beside itself and swapped in:
+  with ALTER, so an old table is rebuilt beside itself and swapped in. The work
+  is ordered so that the slow part disturbs nothing:
 
-    1. drop the table's hourly rollup, which a swap would leave inactive
-    2. create `<table>__rebuild` from the shipped, partitioned CREATE
-    3. copy the rows still inside retention into it
-    4. `ALTER TABLE <table> SWAP WITH <table>__rebuild`, which is atomic
-    5. copy across whatever reached the old table after step 3 began
-    6. recreate the rollup, then drop the old table
+    1. For every old table, create `<table>__rebuild` from the shipped CREATE
+       and copy the rows still inside retention into it, one day a statement.
+       Readers, writers and rollups all still use the old table.
+    2. Then, table by table: drop its hourly rollup (a swap would leave it
+       inactive), `ALTER TABLE <table> SWAP WITH <table>__rebuild`, copy across
+       whatever the old table has that the new one lacks, drop the old table.
+
+  The rollups are gone only for step 2, which is short, and migration 0017
+  recreates them as soon as this returns. It is necessarily still pending: its
+  partitioned views cannot exist over a table this module has yet to rebuild.
 
   Nothing here is recorded in the ledger. Every run reads what the warehouse
-  actually holds and continues from there, so a core that dies at any step is
-  resumed by the next one to start: a half-filled copy is discarded and begun
-  again, and a swap whose catch-up never ran gets its catch-up.
+  holds and continues from there. A day is one atomic INSERT, so a copy that
+  was interrupted keeps the days it finished and resumes with the rest, rather
+  than starting a large table again from nothing on every retry. A swap whose
+  catch-up never ran gets its catch-up.
 
-  Readers are unaffected except for speed. Between steps 1 and 6 the rollup is
-  missing, which `RollupFreshness` reads as stale and answers from the raw
-  table. CNPG keeps receiving every write throughout, so the one thing the
-  catch-up cannot carry -- a partial update applied to an already copied row
-  in the seconds before the swap -- is not lost to the deployment.
+  The anti-joined catch-up is what makes the result complete; skipping days
+  already copied is only an economy. It carries anything written to the old
+  table at any point before the swap, whatever its timestamp. CNPG receives
+  every write throughout, so the one thing it cannot carry -- a partial update
+  to an already copied row in the moments before the swap -- is not lost to
+  the deployment.
 
   The copy is bounded to the retention window on purpose. A table that was
   never partitioned has never expired anything, and a single row with a
-  nonsense timestamp would otherwise become a partition of its own.
+  nonsense timestamp would otherwise become a partition of its own. The copy
+  is created with the operator's retention, not the DDL default, so StarRocks
+  does not expire the far end of a longer window while it is being filled.
   """
 
   alias ServiceRadar.Analytics.StarRocks.Retention
@@ -50,69 +59,85 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
 
   @doc "Rebuilds every telemetry table that is still unpartitioned."
   @spec run(state()) :: :ok | {:error, term()}
-  def run(%{database: database} = state) do
+  def run(state) do
     retention = Map.get_lazy(state, :retention_days, &Retention.days_by_table/0)
 
-    with {:ok, layout} <- layout(state) do
-      Enum.reduce_while(retention, :ok, fn {table, days}, :ok ->
-        case rebuild(
-               state,
-               table,
-               days,
-               Map.get(layout, table),
-               Map.get(layout, table <> @suffix)
-             ) do
-          :ok ->
-            {:cont, :ok}
+    with {:ok, layout} <- layout(state),
+         {:ok, plans} <- plan(state, retention, layout),
+         :ok <- each(plans, &copy(state, &1)) do
+      each(plans, &cut_over(state, &1))
+    end
+  end
 
-          {:error, reason} ->
-            {:halt, {:error, {:partition_rebuild, "#{database}.#{table}", reason}}}
+  defp each(plans, fun) do
+    Enum.reduce_while(plans, :ok, fn plan, :ok ->
+      case fun.(plan) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, {:partition_rebuild, plan.spec.table, reason}}}
+      end
+    end)
+  end
+
+  defp plan(state, retention, layout) do
+    Enum.reduce_while(retention, {:ok, []}, fn {table, days}, {:ok, plans} ->
+      case step(Map.get(layout, table), Map.get(layout, table <> @suffix)) do
+        :nothing ->
+          {:cont, {:ok, plans}}
+
+        {:error, reason} ->
+          {:halt, {:error, {:partition_rebuild, table, reason}}}
+
+        step ->
+          case spec(state, table, days) do
+            {:ok, spec} -> {:cont, {:ok, plans ++ [%{step: step, spec: spec, days: days}]}}
+            {:error, reason} -> {:halt, {:error, {:partition_rebuild, table, reason}}}
+          end
+      end
+    end)
+  end
+
+  # (the table, its `__rebuild` sibling) -> what is left to do.
+  # No such table is a fresh warehouse, which the shipped CREATE partitions.
+  defp step(nil, _copy), do: :nothing
+  defp step(:partitioned, nil), do: :nothing
+  defp step(:unpartitioned, nil), do: :rebuild
+  # A copy some earlier run began. Its finished days are kept.
+  defp step(:unpartitioned, :partitioned), do: :rebuild
+  # Swapped, but the run that swapped it did not live to finish.
+  defp step(:partitioned, :unpartitioned), do: :finish
+  # Neither arrangement is one this module produces, so it does not guess.
+  defp step(_table, _copy), do: {:error, :unexpected_layout}
+
+  defp copy(_state, %{step: :finish}), do: :ok
+
+  defp copy(state, %{spec: spec, days: days}) do
+    Logger.info("Copying StarRocks table #{spec.table} onto daily partitions (#{days} days kept)")
+
+    with :ok <- exec(state, spec.create_copy),
+         {:ok, columns} <- shared_columns(state, spec.table, spec.copy),
+         {:ok, wanted} <- days_in(state, spec.table, spec.time_column, days),
+         {:ok, done} <- days_in(state, spec.copy, spec.time_column, days) do
+      Enum.reduce_while(wanted -- done, :ok, fn day, :ok ->
+        case exec(state, copy_day_sql(state, spec, columns, day)) do
+          :ok -> {:cont, :ok}
+          {:error, reason} -> {:halt, {:error, {:copy, day, reason}}}
         end
       end)
     end
   end
 
-  # No such table: a fresh warehouse, which the shipped CREATE partitions.
-  defp rebuild(_state, _table, _days, nil, _old), do: :ok
-
-  defp rebuild(_state, _table, _days, :partitioned, nil), do: :ok
-
-  # Swapped, but the run that swapped it did not live to finish.
-  defp rebuild(state, table, days, :partitioned, :unpartitioned) do
-    with {:ok, spec} <- spec(state, table) do
-      Logger.info("Resuming StarRocks partition rebuild of #{table} after its swap")
-      finish(state, spec, days)
+  defp cut_over(state, %{step: :rebuild, spec: spec} = plan) do
+    with :ok <-
+           exec(state, "DROP MATERIALIZED VIEW IF EXISTS #{qualified(state, spec.table)}_hourly"),
+         :ok <- exec(state, "ALTER TABLE #{qualified(state, spec.table)} SWAP WITH #{spec.copy}") do
+      cut_over(state, %{plan | step: :finish})
     end
   end
 
-  defp rebuild(_state, table, _days, :partitioned, :partitioned) do
-    Logger.warning(
-      "StarRocks tables #{table} and #{table}#{@suffix} are both partitioned; leaving both alone"
-    )
-
-    :ok
-  end
-
-  defp rebuild(state, table, days, :unpartitioned, _half_built_copy) do
-    with {:ok, spec} <- spec(state, table) do
-      Logger.info("Rebuilding StarRocks table #{table} with daily partitions (#{days} days kept)")
-
-      with :ok <- exec(state, "DROP MATERIALIZED VIEW IF EXISTS #{rollup(state, table)}"),
-           :ok <- exec(state, "DROP TABLE IF EXISTS #{qualified(state, spec.copy)} FORCE"),
-           :ok <- exec(state, spec.create_copy),
-           {:ok, columns} <- shared_columns(state, table, spec.copy),
-           :ok <- exec(state, copy_sql(state, spec, columns, days)),
-           :ok <- exec(state, "ALTER TABLE #{qualified(state, table)} SWAP WITH #{spec.copy}") do
-        finish(state, spec, days)
-      end
-    end
-  end
-
-  # After the swap `spec.copy` names the OLD table, and `spec.table` the new one.
-  defp finish(state, spec, days) do
+  # From here `spec.copy` names the OLD table, and `spec.table` the new one.
+  defp cut_over(state, %{step: :finish, spec: spec, days: days}) do
     with {:ok, columns} <- shared_columns(state, spec.copy, spec.table),
          :ok <- catch_up(state, spec, columns, days, @catch_up_passes),
-         :ok <- recreate_rollup(state, spec.table),
          :ok <- exec(state, "DROP TABLE IF EXISTS #{qualified(state, spec.copy)} FORCE") do
       Logger.info("StarRocks table #{spec.table} is now partitioned by day")
       :ok
@@ -130,23 +155,14 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
     end
   end
 
-  defp recreate_rollup(state, table) do
-    name = "#{table}_hourly"
-    pattern = ~r/^CREATE\s+MATERIALIZED\s+VIEW\s+IF\s+NOT\s+EXISTS\s+\S+\.#{name}\s/i
-
-    case last_statement(state, pattern) do
-      nil -> :ok
-      statement -> exec(state, Schema.retarget(statement, state.database, state.replication_num))
-    end
-  end
-
   @doc false
-  @spec copy_sql(state(), map(), [String.t()], pos_integer()) :: String.t()
-  def copy_sql(state, spec, columns, days) do
+  @spec copy_day_sql(state(), map(), [String.t()], String.t()) :: String.t()
+  def copy_day_sql(state, spec, columns, day) do
     list = column_list(columns)
+    column = "`#{spec.time_column}`"
 
     "INSERT INTO #{qualified(state, spec.copy)} (#{list}) SELECT #{list} FROM #{qualified(state, spec.table)} " <>
-      "WHERE #{window(spec.time_column, days)}"
+      "WHERE #{column} >= '#{day} 00:00:00' AND #{column} < DATE_ADD('#{day} 00:00:00', INTERVAL 1 DAY)"
   end
 
   @doc false
@@ -160,10 +176,24 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
       "WHERE #{window("o.`#{spec.time_column}`", days)}"
   end
 
-  defp window("o." <> _ = column, days), do: window_on(column, days)
-  defp window(column, days), do: window_on("`#{column}`", days)
+  # The days, newest first, on which a table holds rows inside retention.
+  defp days_in(state, table, time_column, days) do
+    column = "`#{time_column}`"
 
-  defp window_on(column, days) do
+    sql =
+      "SELECT DISTINCT date_trunc('day', #{column}) FROM #{qualified(state, table)} " <>
+        "WHERE #{window(column, days)} ORDER BY 1 DESC"
+
+    case state.query.(sql) do
+      {:ok, %{rows: rows}} ->
+        {:ok, Enum.map(rows, fn [day | _] -> day |> to_string() |> String.slice(0, 10) end)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp window(column, days) do
     "#{column} >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL #{days} DAY) " <>
       "AND #{column} < DATE_ADD(UTC_TIMESTAMP(), INTERVAL #{@future_slack_days} DAY)"
   end
@@ -172,7 +202,7 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
 
   # The partitioned definition is whatever this release ships, read out of the
   # same migrations a fresh warehouse is built from, so the two cannot drift.
-  defp spec(state, table) do
+  defp spec(state, table, days) do
     pattern = ~r/^CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+\S+\.#{table}\s*\(/i
 
     with statement when is_binary(statement) <- last_statement(state, pattern),
@@ -186,7 +216,13 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
         |> Schema.retarget(state.database, state.replication_num)
         |> String.replace(
           ~r/(CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+\S+\.)#{table}\b/i,
-          "\\1#{copy}", global: false)
+          "\\1#{copy}",
+          global: false
+        )
+        |> String.replace(
+          ~r/"partition_live_number"\s*=\s*"\d+"/,
+          ~s("partition_live_number" = "#{days}")
+        )
 
       {:ok,
        %{
@@ -256,7 +292,6 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
     end
   end
 
-  defp rollup(state, table), do: qualified(state, "#{table}_hourly")
   defp qualified(state, table), do: "#{state.database}.#{table}"
 
   defp blank?(nil), do: true

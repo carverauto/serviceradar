@@ -150,7 +150,12 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
     result =
       ServiceRadar.Repo.transaction(
         fn ->
-          ServiceRadar.Repo.query!("SELECT pg_advisory_xact_lock($1)", [@lock_key])
+          # Another replica may hold this for as long as a rebuild takes. The
+          # default query timeout would raise here after 15s and take the
+          # migrator down with it, leaving nobody to resume if that replica dies.
+          ServiceRadar.Repo.query!("SELECT pg_advisory_xact_lock($1)", [@lock_key],
+            timeout: :infinity
+          )
 
           # The lock is this transaction, which then sits idle for as long as
           # StarRocks works -- hours, for a partition rebuild. A deployment that
@@ -166,6 +171,11 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
       {:ok, value} -> value
       {:error, reason} -> {:error, reason}
     end
+  rescue
+    # A connection that drops under an hours-long transaction raises. Returned
+    # as an error it is retried like any other; raised, it ends the migrator
+    # for the life of the node.
+    exception -> {:error, exception}
   end
 
   # Shared-nothing warehouses place replicas on backends, so a single-node
