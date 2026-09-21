@@ -1,6 +1,27 @@
 defmodule ServiceRadarWebNGWeb.DashboardLive.Data.TrafficSparklines do
   @moduledoc false
 
+  alias ServiceRadar.Analytics.StarRocks.FlowConsumers
+
+  @sparkline_points 48 * 2
+
+  @doc """
+  The throughput sparkline's buckets from the warehouse, or `:cnpg` when flows
+  are not cut over and the caller should read its CNPG relations instead.
+
+  Flows cut over to the warehouse are read there: with the warehouse in use the
+  CNPG relations are a copy that may no longer be written. It lives outside the
+  `__using__` block so that block stays a list of loaders.
+  """
+  @spec warehouse_traffic_rows(DateTime.t(), pos_integer()) :: {:ok, [list()]} | {:error, term()} | :cnpg
+  def warehouse_traffic_rows(cutoff, bucket_seconds) do
+    if FlowConsumers.cut_over?() do
+      FlowConsumers.traffic_rows(cutoff, bucket_seconds, @sparkline_points)
+    else
+      :cnpg
+    end
+  end
+
   defmacro __using__(_opts) do
     quote do
       defp dashboard_sparklines(time_window, security_trend) do
@@ -34,6 +55,18 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.TrafficSparklines do
       end
 
       defp flow_traffic_sparkline(time_window, metric) do
+        seconds = bucket_seconds_for(time_window)
+
+        case unquote(__MODULE__).warehouse_traffic_rows(cutoff_for_time_window(time_window), seconds) do
+          {:ok, rows} -> sparkline_values(rows, metric, seconds)
+          :cnpg -> cnpg_flow_traffic_sparkline(time_window, metric)
+          {:error, _reason} -> []
+        end
+      rescue
+        _ -> []
+      end
+
+      defp cnpg_flow_traffic_sparkline(time_window, metric) do
         cutoff = cutoff_for_time_window(time_window)
 
         Enum.find_value(flow_sparkline_sources(time_window), [], fn
@@ -116,21 +149,22 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.TrafficSparklines do
       @sobelow_skip ["SQL.Query"]
       defp sparkline_query_values(sql, params, metric, seconds) do
         case ServiceRadarWebNG.Repo.query(sql, params) do
-          {:ok, %{rows: rows}} ->
-            rows
-            |> Enum.map(fn [_bucket, bytes, packets, flows] ->
-              case metric do
-                :bps -> to_float(bytes) * 8 / max(seconds, 1)
-                :pps -> to_float(packets) / max(seconds, 1)
-                :flows -> to_float(flows)
-                _ -> to_float(bytes)
-              end
-            end)
-            |> sparkline_tail()
-
-          _ ->
-            []
+          {:ok, %{rows: rows}} -> sparkline_values(rows, metric, seconds)
+          _ -> []
         end
+      end
+
+      defp sparkline_values(rows, metric, seconds) do
+        rows
+        |> Enum.map(fn [_bucket, bytes, packets, flows] ->
+          case metric do
+            :bps -> to_float(bytes) * 8 / max(seconds, 1)
+            :pps -> to_float(packets) / max(seconds, 1)
+            :flows -> to_float(flows)
+            _ -> to_float(bytes)
+          end
+        end)
+        |> sparkline_tail()
       end
     end
   end
