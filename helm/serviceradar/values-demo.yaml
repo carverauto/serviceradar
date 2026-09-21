@@ -70,7 +70,14 @@ analytics:
     enabled: true
     profile: sharedData
     shadowDatasets: []
-    cutoverDatasets: []
+    # Demo charts read the warehouse, not CNPG. A dataset belongs here once the
+    # StarRocks SRQL dialect answers every query the UI sends for it the way
+    # CNPG does; `logs` and `events` are not there yet (their severity rollups
+    # and several filters are unimplemented, and would read as zeros or errors).
+    # CNPG keeps receiving every write, so removing a dataset is a safe rollback.
+    cutoverDatasets:
+      - flows
+      - metrics
     sharedData:
       objectStorageBucket: serviceradar-demo-analytics
       objectStorageEndpoint: https://us-ord-10.linodeobjects.com
