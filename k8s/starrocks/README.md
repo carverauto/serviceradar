@@ -29,8 +29,8 @@ container; do not roll those until the jar is available in-cluster.
 Demo CNPG now has an additive NetworkPolicy allowing namespace
 `starrocks` on 5432. Lab FE has `cnpg_platform`, created by the chart's
 catalog Job from a generated reader Secret. Helm default catalog stays
-off; `values-demo.yaml` enables it with empty cutover. Do not let the
-Frontend download Maven at catalog-create time.
+off; `values-demo.yaml` enables it. Do not let the Frontend download
+Maven at catalog-create time.
 
 The catalog connects to CNPG as `serviceradar_starrocks_reader`. Two things
 converge that role, so there is nothing to grant by hand:

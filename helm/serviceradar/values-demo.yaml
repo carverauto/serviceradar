@@ -70,7 +70,17 @@ analytics:
     enabled: true
     profile: sharedData
     shadowDatasets: []
-    cutoverDatasets: []
+    # Demo charts read the warehouse, not CNPG. A dataset belongs here once the
+    # StarRocks SRQL dialect answers every query the UI sends for it the way
+    # CNPG does; `logs` and `events` are not there yet (their severity rollups
+    # and several filters are unimplemented, and would read as zeros or errors).
+    # Rollback differs per dataset. CNPG keeps receiving every write, so removing
+    # `metrics` (or `logs`/`events` once listed) falls back to CNPG and is safe.
+    # `flows` is warehouse-only: removing it does not fall back, it refuses every
+    # flow read and blanks the NetFlow pages.
+    cutoverDatasets:
+      - flows
+      - metrics
     sharedData:
       objectStorageBucket: serviceradar-demo-analytics
       objectStorageEndpoint: https://us-ord-10.linodeobjects.com
