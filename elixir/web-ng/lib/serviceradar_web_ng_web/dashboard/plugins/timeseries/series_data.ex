@@ -274,8 +274,10 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
   end
 
   defp point_data(points, geometry) when is_list(points) do
+    domain = Paths.time_domain(points)
+
     Enum.map(points, fn {dt, v} ->
-      %{dt: canonical_time(dt), v: v, x: Paths.datetime_to_x(dt, points, geometry)}
+      %{dt: canonical_time(dt), v: v, x: Paths.datetime_to_x(dt, domain, geometry)}
     end)
   end
 
