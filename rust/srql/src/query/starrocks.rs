@@ -543,7 +543,10 @@ fn rollup_agg(
             _ => None,
         },
         "timeseries_metrics_hourly" => match (downsample.agg, field) {
-            (Sum | Rate | RateSum, "value") => Some("SUM(avg_value * sample_count)".to_string()),
+            // No Rate here: `value` holds cumulative counters, and an hourly
+            // average of a counter cannot give back the delta between two
+            // samples. Rate stays on the raw table (`counter_rate_sql`).
+            (Sum, "value") => Some("SUM(avg_value * sample_count)".to_string()),
             (Avg, "value") => {
                 Some("SUM(avg_value * sample_count) / NULLIF(SUM(sample_count), 0)".to_string())
             }
@@ -904,6 +907,9 @@ fn downsample_sql(
 ) -> Result<String> {
     let bucket = downsample.bucket_seconds.max(1);
     let default_field = default_value_field(dataset);
+    if is_counter_rate(dataset, downsample) {
+        return counter_rate_sql(plan, downsample, from, where_sql, time, default_field);
+    }
     let agg = match rollup.and_then(|rollup| rollup_agg(rollup, downsample, default_field)) {
         Some(agg) => agg,
         None => {
@@ -917,6 +923,8 @@ fn downsample_sql(
                 crate::parser::DownsampleAgg::Min => format!("MIN({value})"),
                 crate::parser::DownsampleAgg::Max => format!("MAX({value})"),
                 crate::parser::DownsampleAgg::Count => "COUNT(*)".to_string(),
+                // Only flows reach this arm (`is_counter_rate` takes the metric
+                // tables). A flow row is already a delta, so its total is the sum.
                 crate::parser::DownsampleAgg::Rate | crate::parser::DownsampleAgg::RateSum => {
                     format!("SUM({value})")
                 }
@@ -929,6 +937,81 @@ fn downsample_sql(
     };
     Ok(format!(
         "SELECT time_slice({time}, INTERVAL {bucket} SECOND) AS timestamp, {series} AS series, {agg} AS value FROM {from}{where_sql} GROUP BY 1, 2 ORDER BY 1 LIMIT {limit} OFFSET {offset}",
+        limit = plan.limit.max(1),
+        offset = plan.offset.max(0)
+    ))
+}
+
+/// `timeseries_metrics` stores SNMP-style cumulative counters, so a rate over
+/// it is the change between consecutive samples, never an aggregate of the
+/// stored values. Summing them draws the counter itself: a 1 Gbit/s port whose
+/// counter has reached 450 GB reads as "450 GB/s".
+fn is_counter_rate(dataset: Dataset, downsample: &crate::parser::DownsampleSpec) -> bool {
+    use crate::parser::DownsampleAgg::{Rate, RateSum};
+    dataset.raw_table == "timeseries_metrics" && matches!(downsample.agg, Rate | RateSum)
+}
+
+/// The StarRocks half of the CNPG rate query (`downsample/sql.rs`), and meant
+/// to agree with it sample for sample:
+///
+/// * the previous sample is found per physical counter -- gateway, agent,
+///   metric type, metric name, series key -- not per display series, so one
+///   display series collapsing several counters never subtracts one device's
+///   counter from another's;
+/// * the rate is the delta over the real elapsed time between the two samples;
+/// * a decrease is a wrap when adding 2^32 gives a rate a 32-bit counter could
+///   produce, and otherwise a reset, which yields no rate rather than a huge
+///   negative or positive one;
+/// * a display bucket combines its per-sample rates with AVG (`rate`) or SUM
+///   (`rate_sum`).
+///
+/// One CNPG rule has no equivalent: the producer-supplied
+/// `max_counter_rate_per_second` ceiling lives in a `metadata` column the
+/// warehouse table does not carry. Without it CNPG never adds the 2^64 modulus
+/// either, so the two agree wherever that ceiling is absent.
+fn counter_rate_sql(
+    plan: &QueryPlan,
+    downsample: &crate::parser::DownsampleSpec,
+    from: &str,
+    where_sql: &str,
+    time: &str,
+    default_field: &str,
+) -> Result<String> {
+    const WRAP_32: &str = "4294967296";
+    const COUNTER: &str =
+        "gateway_id, COALESCE(agent_id, ''), metric_type, metric_name, series_key";
+
+    let value = aggregate_field_sql(
+        plan,
+        downsample.value_field.as_deref().unwrap_or(default_field),
+    )?;
+    let series = match downsample.series.as_deref() {
+        Some(field) => format!("CAST({} AS STRING)", field_sql(plan, field)?),
+        None => "'all'".to_string(),
+    };
+    let combine = match downsample.agg {
+        crate::parser::DownsampleAgg::RateSum => "SUM",
+        _ => "AVG",
+    };
+    let bucket = downsample.bucket_seconds.max(1);
+    let elapsed = "NULLIF(milliseconds_diff(ts, prev_ts) / 1000.0, 0)";
+    let wrapped = format!("(v + {WRAP_32} - prev_v) / {elapsed}");
+
+    Ok(format!(
+        "WITH ordered AS (\
+SELECT {time} AS ts, {series} AS series, {value} AS v, counter_width, \
+LAG({value}) OVER (PARTITION BY {COUNTER} ORDER BY {time}) AS prev_v, \
+LAG({time}) OVER (PARTITION BY {COUNTER} ORDER BY {time}) AS prev_ts \
+FROM {from}{where_sql}), \
+rated AS (\
+SELECT ts, series, CASE \
+WHEN v >= prev_v THEN (v - prev_v) / {elapsed} \
+WHEN counter_width = 32 AND {wrapped} <= {WRAP_32} THEN {wrapped} \
+WHEN prev_v < {WRAP_32} AND {wrapped} <= {WRAP_32} THEN {wrapped} \
+ELSE NULL END AS rate_value \
+FROM ordered WHERE prev_v IS NOT NULL) \
+SELECT time_slice(ts, INTERVAL {bucket} SECOND) AS timestamp, series, {combine}(rate_value) AS value \
+FROM rated WHERE rate_value IS NOT NULL GROUP BY 1, 2 ORDER BY 1 LIMIT {limit} OFFSET {offset}",
         limit = plan.limit.max(1),
         offset = plan.offset.max(0)
     ))
@@ -2244,6 +2327,118 @@ mod tests {
         )
         .expect("totals");
         assert!(!totals.sql.contains("_hourly"), "{}", totals.sql);
+    }
+
+    /// `value` holds cumulative counters. Summing them draws the counter, not the
+    /// rate: a 1 Gbit/s port charted "476 GB/s" because its counter had reached
+    /// 454 GB. The rate is the change between consecutive samples of ONE counter.
+    #[test]
+    fn metric_rate_differentiates_each_counter_instead_of_summing_it() {
+        let chart = translate(
+            &plan(
+                r#"in:snmp_metrics device_id:"dev-1" if_index:7 time:last_24h bucket:5m agg:rate series:metric_name"#,
+            ),
+            "serviceradar",
+        )
+        .expect("interface rate chart");
+        let sql = &chart.sql;
+
+        assert!(!sql.contains("SUM(value)"), "{sql}");
+        assert!(
+            sql.contains(
+                "LAG(value) OVER (PARTITION BY gateway_id, COALESCE(agent_id, ''), metric_type, \
+                 metric_name, series_key ORDER BY timestamp) AS prev_v"
+            ),
+            "the previous sample must come from the same physical counter: {sql}"
+        );
+        assert!(
+            sql.contains("(v - prev_v) / NULLIF(milliseconds_diff(ts, prev_ts) / 1000.0, 0)"),
+            "a rate is a delta over real elapsed time: {sql}"
+        );
+        assert!(sql.contains("AVG(rate_value) AS value"), "{sql}");
+        assert!(sql.contains("time_slice(ts, INTERVAL 300 SECOND)"), "{sql}");
+        assert!(
+            sql.contains("WHERE rate_value IS NOT NULL"),
+            "a reset yields no rate: {sql}"
+        );
+        // The request's own predicates still bound the scan inside the CTE.
+        assert!(
+            sql.contains("FROM serviceradar.timeseries_metrics"),
+            "{sql}"
+        );
+        assert!(sql.contains("if_index"), "{sql}");
+        refute_postgres(sql);
+    }
+
+    /// A decrease is a wrap only when adding 2^32 gives a rate a 32-bit counter
+    /// could produce; anything else is a reset and must not become a spike.
+    #[test]
+    fn metric_rate_recovers_a_32_bit_wrap_and_drops_a_reset() {
+        let chart = translate(
+            &plan("in:snmp_metrics time:last_1h bucket:1m agg:rate series:metric_name"),
+            "serviceradar",
+        )
+        .expect("rate chart");
+        let sql = &chart.sql;
+        let wrapped =
+            "(v + 4294967296 - prev_v) / NULLIF(milliseconds_diff(ts, prev_ts) / 1000.0, 0)";
+
+        assert!(
+            sql.contains(&format!(
+                "WHEN counter_width = 32 AND {wrapped} <= 4294967296 THEN {wrapped}"
+            )),
+            "{sql}"
+        );
+        assert!(
+            sql.contains(&format!(
+                "WHEN prev_v < 4294967296 AND {wrapped} <= 4294967296 THEN {wrapped}"
+            )),
+            "{sql}"
+        );
+        assert!(sql.contains("ELSE NULL END AS rate_value"), "{sql}");
+    }
+
+    #[test]
+    fn metric_rate_sum_adds_the_per_counter_rates() {
+        let chart = translate(
+            &plan("in:timeseries_metrics time:last_1h bucket:1m agg:rate_sum series:metric_name"),
+            "serviceradar",
+        )
+        .expect("fleet rate chart");
+
+        assert!(
+            chart.sql.contains("SUM(rate_value) AS value"),
+            "{}",
+            chart.sql
+        );
+        assert!(chart.sql.contains("LAG(value) OVER"), "{}", chart.sql);
+    }
+
+    /// An hourly average of a counter cannot give back a delta, so a rate is
+    /// never served from the rollup, however coarse the bucket.
+    #[test]
+    fn metric_rate_never_reads_the_hourly_rollup() {
+        let chart = translate(
+            &plan("in:snmp_metrics time:last_30d bucket:6h agg:rate series:device_id"),
+            "serviceradar",
+        )
+        .expect("long rate chart");
+
+        assert!(!chart.sql.contains("_hourly"), "{}", chart.sql);
+        assert!(chart.sql.contains("LAG(value) OVER"), "{}", chart.sql);
+    }
+
+    /// A flow row is already a delta, so a flow "rate" stays the bucket total.
+    #[test]
+    fn flow_rate_is_still_the_bucket_total() {
+        let chart = translate(
+            &plan("in:flows time:last_1h bucket:5m agg:rate value_field:bytes_total"),
+            "serviceradar",
+        )
+        .expect("flow rate chart");
+
+        assert!(!chart.sql.contains("LAG("), "{}", chart.sql);
+        assert!(chart.sql.contains("SUM("), "{}", chart.sql);
     }
 
     #[test]
