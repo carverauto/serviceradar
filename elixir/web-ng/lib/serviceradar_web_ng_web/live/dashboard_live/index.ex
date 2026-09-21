@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   alias ServiceRadarWebNGWeb.DashboardLive.EventRange
   alias ServiceRadarWebNGWeb.DashboardLive.Index.Page
   alias ServiceRadarWebNGWeb.DashboardLive.Window
+  alias ServiceRadarWebNGWeb.DashboardLive.WindowRefresh
   alias ServiceRadarWebNGWeb.ObservabilityPaths
 
   require Logger
@@ -67,7 +68,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
 
   def handle_async({:dashboard_window, kind, ref}, {:exit, _reason}, socket) do
     if socket.assigns.window_requests[kind] == ref do
-      loaded = if kind == "netflow", do: [netflow: true], else: [security_events: true]
+      {updates, loaded} = WindowRefresh.on_failure(kind)
       kpi_loading = if kind == "events", do: [events: false, threat: false], else: []
 
       socket =
@@ -77,7 +78,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
           :window_errors,
           Map.put(socket.assigns.window_errors, kind, "Unable to load this window. Select a window to retry.")
         )
-        |> put_sources(%{}, loaded: loaded, kpi_loading: kpi_loading)
+        |> put_sources(updates, loaded: loaded, kpi_loading: kpi_loading)
 
       {:noreply, socket}
     else
@@ -315,15 +316,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
         _ -> socket
       end
 
-    empty =
-      if kind == "netflow" do
-        %{flow_summary: Data.empty().flow_summary, traffic_links: [], traffic_links_json: "[]"}
-      else
-        %{security_trend: [], event_summary: Data.empty().event_summary}
-      end
+    {updates, loaded} = WindowRefresh.on_start(kind)
 
     socket
-    |> put_sources(empty, loaded: [{if(kind == "netflow", do: :netflow, else: :security_events), false}])
+    |> put_sources(updates, loaded: loaded)
     |> assign(:window_requests, Map.put(socket.assigns.window_requests, kind, ref))
     |> assign(:window_errors, Map.delete(socket.assigns.window_errors, kind))
     |> start_async({:dashboard_window, kind, ref}, fn ->
