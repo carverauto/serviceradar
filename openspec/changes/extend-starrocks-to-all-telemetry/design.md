@@ -4,9 +4,9 @@
 
 Where things stand, in a deployment that has cut flows over: flows are read only from the
 warehouse; metrics are being cut over; logs and events are shadow-written and read from CNPG;
-nothing else is in the warehouse. All four warehouse tables are partitioned by day with per-dataset retention, and the
-three hourly rollups are day-partitioned async materialized views. CNPG still receives every
-telemetry write.
+nothing else is in the warehouse. All four warehouse tables are partitioned by day with
+per-dataset retention, and the three hourly rollups are day-partitioned async materialized
+views. CNPG still receives every telemetry write.
 
 Where the money is: flows and scalar metrics dominate CNPG telemetry storage by roughly two
 orders of magnitude over every other dataset, which is why they are retired first.
@@ -97,7 +97,8 @@ range and structured filters", not a promise of fast free-text search over a yea
 ## Risks / Trade-offs
 
 - Retiring CNPG writes removes rollback. Mitigated by the soak before it, by the retirement
-  hold before the drop, by the two separate operator actions, and by doing the largest-saving, longest-proven dataset (flows) first.
+  hold before the drop, by the two separate operator actions, and by doing the
+  largest-saving, longest-proven dataset (flows) first.
 - Freshness is the Stream Load batch interval (seconds). A live log tail shows it; dashboards do
   not. Stated in operator docs rather than hidden.
 - Trace-by-id is a point lookup against object storage: tens to low hundreds of milliseconds

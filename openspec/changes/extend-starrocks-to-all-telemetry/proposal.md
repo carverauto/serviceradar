@@ -16,8 +16,9 @@ transactional database.
 The first cutover also showed what the existing proposal under-specified. Cutting the
 `metrics` dataset over looked correct on the queries that were checked and was wrong on the ones
 that were not: `agg:rate` was compiled as a sum of cumulative counters, so an interface charted
-rates orders of magnitude above its line speed; a series could not be split by a tag, so the per-core CPU chart failed;
-`sort:desc limit:N` kept the oldest buckets instead of the newest. An inventory of every chart
+rates orders of magnitude above its line speed; a series could not be split by a tag, so the
+per-core CPU chart failed; `sort:desc limit:N` kept the oldest buckets instead of the newest.
+An inventory of every chart
 query then found the same class of gap waiting in `logs` and `events`: `rollup_stats:` is
 silently ignored by the StarRocks dialect and returns raw rows, which the severity cards read as
 zeros with no error, and their filter vocabulary (`severity:`, `log_level:`, `event_type:`,
