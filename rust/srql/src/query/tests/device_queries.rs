@@ -460,6 +460,36 @@ fn devices_vendor_name_wildcard_filter_generates_ilike() {
     );
 }
 
+// `vendor` is the alias the device stats path and several docs use
+// (`in:devices vendor:"Ubiquiti"`); the plain path rejected it outright as an
+// unsupported filter field.
+#[test]
+fn devices_vendor_alias_wildcard_filter_generates_ilike() {
+    let plan = plan_for("in:devices vendor:%aruba%");
+
+    let (sql, params) = devices::to_sql_and_params(&plan).expect("vendor alias must build");
+    let lower = sql.to_lowercase();
+
+    assert!(
+        lower.contains("ilike") && lower.contains("vendor_name"),
+        "expected vendor to resolve to a vendor_name ILIKE, got: {sql}"
+    );
+    assert!(
+        params
+            .iter()
+            .any(|param| matches!(param, BindParam::Text(value) if value == "%aruba%")),
+        "expected the vendor pattern as a text bind, got: {params:?}"
+    );
+}
+
+#[test]
+fn devices_vendor_alias_equality_filter_builds() {
+    let plan = plan_for(r#"in:devices vendor:"Ubiquiti""#);
+
+    let (sql, _params) = devices::to_sql_and_params(&plan).expect("vendor alias must build");
+    assert!(sql.to_lowercase().contains("vendor_name"));
+}
+
 #[test]
 fn devices_model_wildcard_filter_generates_ilike() {
     let plan = plan_for("in:devices model:%2920%");

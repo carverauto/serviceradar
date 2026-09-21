@@ -23,8 +23,9 @@ pub(in crate::query::devices) fn collect_filter_params(
         "partition" => collect_text_params(params, filter, true),
         // Resolved by apply_text_filter! in the row builder, so the operator
         // set here must match it: Eq/NotEq/Like/NotLike bind one Text, In/NotIn
-        // bind one TextArray for the `= ANY($n)` form.
-        "vendor_name" | "model" => collect_text_params(params, filter, true),
+        // bind one TextArray for the `= ANY($n)` form. `vendor` is the alias the
+        // stats path also accepts.
+        "vendor_name" | "vendor" | "model" => collect_text_params(params, filter, true),
         "mac" => collect_mac_params(params, filter),
         "ip" => collect_ip_params(params, filter),
         "gateway_id"
