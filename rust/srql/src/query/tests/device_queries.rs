@@ -437,6 +437,48 @@ fn devices_vendor_filter_default_order_uses_safe_ip_cast() {
     );
 }
 
+// Regression: the plain device path wired vendor_name/model to an equality-only
+// filter while the stats path used the LIKE-capable text clause builder, so a
+// `vendor_name:%aruba%` pattern compiled to `vendor_name = '%aruba%'` and
+// matched zero devices even though the vendor existed.
+#[test]
+fn devices_vendor_name_wildcard_filter_generates_ilike() {
+    let plan = plan_for("in:devices vendor_name:%aruba%");
+
+    let (sql, params) = devices::to_sql_and_params(&plan).expect("should build devices SQL");
+    let lower = sql.to_lowercase();
+
+    assert!(
+        lower.contains("ilike") && lower.contains("vendor_name"),
+        "expected an ILIKE on vendor_name, got: {sql}"
+    );
+    assert!(
+        params
+            .iter()
+            .any(|param| matches!(param, BindParam::Text(value) if value == "%aruba%")),
+        "expected the vendor_name pattern as a text bind, got: {params:?}"
+    );
+}
+
+#[test]
+fn devices_model_wildcard_filter_generates_ilike() {
+    let plan = plan_for("in:devices model:%2920%");
+
+    let (sql, params) = devices::to_sql_and_params(&plan).expect("should build devices SQL");
+    let lower = sql.to_lowercase();
+
+    assert!(
+        lower.contains("ilike") && lower.contains("model"),
+        "expected an ILIKE on model, got: {sql}"
+    );
+    assert!(
+        params
+            .iter()
+            .any(|param| matches!(param, BindParam::Text(value) if value == "%2920%")),
+        "expected the model pattern as a text bind, got: {params:?}"
+    );
+}
+
 #[test]
 fn devices_stats_group_by_type() {
     let query = "in:devices stats:count() as count by type";
