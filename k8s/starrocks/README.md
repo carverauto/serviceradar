@@ -39,10 +39,22 @@ converge that role, so there is nothing to grant by hand:
 | --- | --- |
 | schema `platform` | `USAGE` |
 | `platform.netflow_local_cidrs_catalog` | `SELECT` |
-| `platform.ocsf_devices` | `SELECT (uid, hostname, ip)` |
+| `platform.ocsf_devices` | `SELECT (uid, uid_alt, hostname, name, ip)` |
+| `platform.device_identifiers` | `SELECT (device_id, identifier_type, identifier_value)` |
+| `platform.discovered_interfaces` | `SELECT (device_id, device_ip)` |
+| `platform.device_interface_addresses_catalog` | `SELECT (device_id, ip)` |
+| `platform.device_inventory_aliases_catalog` | `SELECT (uid, uid_alt, alias)` |
 | `platform.device_alias_states` | `SELECT (device_id, alias_type, state, alias_value)` |
 | `platform.netflow_exporter_cache` | `SELECT (device_uid, sampler_address, exporter_name)` |
 | `platform.netflow_interface_cache` | `SELECT (sampler_address, if_index, if_name, if_speed_bps)` |
+| `platform.ip_geo_enrichment_cache` | `SELECT (ip, country_iso2, expires_at)` |
+
+Two of those are views, not tables. A PostgreSQL `text[]` and a `jsonb` both
+reach StarRocks 3.5.21 as `UNKNOWN_TYPE`, and a query that names such a column
+is refused at analysis, so CNPG flattens what the device lookups need:
+`device_interface_addresses_catalog` is one row per interface address, and
+`device_inventory_aliases_catalog` is one row per name the inventory knows a
+device by (it exposes five named metadata keys, never the document).
 
 Nothing else is reachable: `CatalogAllowlist` rejects any other table before
 the SQL leaves core, and the grants above are column-scoped to exactly what the
@@ -284,3 +296,29 @@ seccomp) or farm01 `serviceradar`.
 | CRD | `starrocksclusters.starrocks.com` from operator tag `v1.11.7` |
 | Namespace | `starrocks`, PSS `baseline` (audit/warn `restricted`) |
 | Profile | farm01: 3 FE + 3 BE shared-nothing; carverauto: 3 FE + 3 CN shared-data |
+
+## Logs and events parity check
+
+The logs and events dialect was checked against a real StarRocks 3.5.21 and a
+PostgreSQL holding the same synthetic rows (`host01.example.com`,
+`192.0.2.0/24`), with the catalog reader holding exactly the grants above. The
+SQL on each side was the SRQL compiler's own output for the same query.
+
+- All 25 statements executed on StarRocks, including the anomaly rollup's
+  boolean-valued derived columns and every catalog subquery.
+- `rollup_stats:severity` (with and without a `service_name` LIKE),
+  `rollup_stats:anomaly_findings`, the three `finding_rollup` drill-downs,
+  `event_type`, `source`, `hostname`, `severity_match:any`, the log
+  `device_id` filter in both polarities, and the text filters (mixed-case
+  LIKE, and `!=` / `NOT IN` / `NOT LIKE` over NULL rows) returned the same
+  rows or counters on both engines.
+- `device_id:` on events differs for one class of row, and the difference is
+  on the CNPG side: inside its alias `EXISTS`, the unqualified `metadata`
+  resolves to the device row's own `metadata` column rather than the event's,
+  so CNPG does not find an event that names the device only in its metadata
+  (a hostname, or a `uid_alt`). The warehouse reads the event's metadata and
+  does find it. Every other arm agreed.
+
+The warehouse matches an alias at the paths an emitter writes one, where CNPG
+scans the document text for it; an alias recorded under some other key is
+found by CNPG and not here.

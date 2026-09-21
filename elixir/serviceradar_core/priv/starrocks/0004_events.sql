@@ -27,7 +27,8 @@ CREATE TABLE IF NOT EXISTS serviceradar.events (
   log_level VARCHAR(32),
   metadata VARCHAR(1048576),
   unmapped VARCHAR(1048576),
-  device VARCHAR(1048576)
+  device VARCHAR(1048576),
+  observables VARCHAR(1048576)
 )
 PRIMARY KEY (id, `time`)
 PARTITION BY date_trunc('day', `time`)

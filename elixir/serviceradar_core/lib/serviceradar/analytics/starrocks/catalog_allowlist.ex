@@ -11,6 +11,12 @@ defmodule ServiceRadar.Analytics.StarRocks.CatalogAllowlist do
   prefix tags off the observation row rather than joining current-state, so
   neither `flow_process_attribution_current` nor `prefix_tags_catalog` is a
   catalog target.
+
+  `device_identifiers` and `discovered_interfaces` are here because a log row
+  carries no device uid: `device_id:` on logs resolves the uid to the addresses
+  and names the inventory knows, and CNPG reads those two relations to do it.
+  The two `_catalog` views carry what JDBC cannot: an interface's address array
+  and the metadata-derived device aliases, flattened to text rows.
   """
 
   @catalog "cnpg_platform"
@@ -19,6 +25,10 @@ defmodule ServiceRadar.Analytics.StarRocks.CatalogAllowlist do
   @allowed_tables ~w(
     ocsf_devices
     device_alias_states
+    device_identifiers
+    discovered_interfaces
+    device_interface_addresses_catalog
+    device_inventory_aliases_catalog
     netflow_exporter_cache
     netflow_interface_cache
     netflow_local_cidrs_catalog

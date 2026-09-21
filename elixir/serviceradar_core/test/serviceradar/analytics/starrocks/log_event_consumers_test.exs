@@ -67,7 +67,8 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumersTest do
           log_level: "error",
           metadata: %{"service_radar" => %{"device_uid" => "sr:device-0001"}},
           unmapped: ~s({"event_type":"anomaly"}),
-          device: %{}
+          device: %{},
+          observables: [%{"name" => "hostname", "value" => "host01.example.com"}]
         }
       ])
 
@@ -80,6 +81,51 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumersTest do
     assert Jason.decode!(encoded["unmapped"]) == %{"event_type" => "anomaly"}
     # An empty document is stored as one; NULL is left to mean "never written".
     assert encoded["device"] == "{}"
+
+    assert Jason.decode!(encoded["observables"]) == [
+             %{"name" => "hostname", "value" => "host01.example.com"}
+           ]
+  end
+
+  test "a dropped event document is reported with its field and size" do
+    handler = "document-dropped-#{System.unique_integer([:positive])}"
+    test_pid = self()
+
+    :telemetry.attach(
+      handler,
+      [:serviceradar, :starrocks, :events, :document_dropped],
+      fn _event, measurements, metadata, _config ->
+        send(test_pid, {:document_dropped, measurements, metadata})
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+
+    oversized = %{"blob" => String.duplicate("x", 1_048_576)}
+
+    Rows.encode(:events, [
+      %{
+        id: "evt-alpha-0004",
+        time: ~U[1999-06-15 12:00:00Z],
+        class_uid: 2004,
+        metadata: oversized,
+        unmapped: "not json",
+        device: %{"uid" => "sr:device-0001"},
+        observables: nil
+      }
+    ])
+
+    oversized_bytes = byte_size(Jason.encode!(oversized))
+
+    assert_received {:document_dropped, %{bytes: ^oversized_bytes},
+                     %{field: "metadata", reason: :too_large}}
+
+    assert_received {:document_dropped, %{bytes: 8},
+                     %{field: "unmapped", reason: :not_a_document}}
+
+    # A document that was stored, and one that was never written, report nothing.
+    refute_received {:document_dropped, _measurements, _metadata}
   end
 
   test "event encode drops a document wider than its warehouse column, not the event" do

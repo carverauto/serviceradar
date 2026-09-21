@@ -505,7 +505,7 @@ fn logs_severity_rollup_sql(plan: &QueryPlan, table: &str, where_sql: &str) -> R
         match filter.field.as_str() {
             "service_name" | "service" => {
                 where_sql.push_str(" AND ");
-                where_sql.push_str(&insensitive_like_text_filter_sql("service_name", filter)?);
+                where_sql.push_str(&text_filter_sql("service_name", filter, false)?);
             }
             other => {
                 return Err(ServiceError::InvalidRequest(format!(
@@ -527,37 +527,46 @@ fn logs_severity_rollup_sql(plan: &QueryPlan, table: &str, where_sql: &str) -> R
     ))
 }
 
-/// The text filter CNPG's `apply_text_filter!` builds: equality and lists are
-/// exact, LIKE is ILIKE.
-fn insensitive_like_text_filter_sql(column: &str, filter: &Filter) -> Result<String> {
+/// A text comparison as CNPG writes one: equality and lists are exact, LIKE is
+/// ILIKE. `keep_null` is the difference between its two callers. An ordinary
+/// column filter (`apply_text_filter!`) keeps a NULL row under every negation,
+/// `col IS NULL OR col <> v`; the severity rollup's own clause builder
+/// (query/logs/rollup.rs) does not.
+fn text_filter_sql(column: &str, filter: &Filter, keep_null: bool) -> Result<String> {
     use crate::parser::FilterOp;
+    let negation = |predicate: String| {
+        if keep_null {
+            format!("({column} IS NULL OR {predicate})")
+        } else {
+            predicate
+        }
+    };
     Ok(match filter.op {
         FilterOp::Eq => format!("{column} = {}", sql_literal(filter.value.as_scalar()?)),
-        FilterOp::NotEq => format!("{column} != {}", sql_literal(filter.value.as_scalar()?)),
+        FilterOp::NotEq => negation(format!(
+            "{column} != {}",
+            sql_literal(filter.value.as_scalar()?)
+        )),
         FilterOp::Like => format!(
             "LOWER({column}) LIKE {}",
             sql_literal(&filter.value.as_scalar()?.to_lowercase())
         ),
-        FilterOp::NotLike => format!(
+        FilterOp::NotLike => negation(format!(
             "LOWER({column}) NOT LIKE {}",
             sql_literal(&filter.value.as_scalar()?.to_lowercase())
+        )),
+        FilterOp::In => format!(
+            "{column} IN ({})",
+            literal_list(list_values(filter)?.iter().map(String::as_str))
         ),
-        FilterOp::In | FilterOp::NotIn => {
-            let values = list_values(filter)?;
-            let op = if matches!(filter.op, FilterOp::In) {
-                "IN"
-            } else {
-                "NOT IN"
-            };
-            format!(
-                "{column} {op} ({})",
-                literal_list(values.iter().map(String::as_str))
-            )
-        }
+        FilterOp::NotIn => negation(format!(
+            "{column} NOT IN ({})",
+            literal_list(list_values(filter)?.iter().map(String::as_str))
+        )),
         _ => {
             return Err(ServiceError::InvalidRequest(format!(
-                "{} filter does not support operator {:?}",
-                filter.field, filter.op
+                "unsupported operator for text filter: {:?}",
+                filter.op
             )));
         }
     })
@@ -699,7 +708,7 @@ const EVENT_DEVICE_IDENTITY_KEYS: &[&str] = &[
     "uid",
     "id",
 ];
-const EVENT_DOCUMENTS: &[&str] = &["device", "metadata", "unmapped"];
+const EVENT_DOCUMENTS: &[&str] = &["device", "metadata", "unmapped", "observables"];
 
 fn event_paths_equal(paths: &[EventPath], value: &str) -> Result<String> {
     let literal = sql_literal(value);
@@ -746,18 +755,79 @@ fn escape_like_fragment(value: &str) -> String {
         .replace('_', r"\_")
 }
 
-/// `device_id:` on events. A canonical `sr:` uid is an anchored equality on
-/// the two paths an emitter writes after the ingest re-key; anything else is a
-/// raw id and also gets CNPG's case-insensitive scan of the documents for a
-/// `"<identity key>" ... "<value>"` pair. CNPG's third arm -- resolving the
-/// device's inventory aliases to find findings keyed under a hostname or IP
-/// before the re-key -- is not reproduced: StarRocks refuses the non-equality
-/// correlated subquery it needs, and those rows predate the stored documents.
+/// Where an event names the device it is about: the identity and host keys
+/// CNPG's alias arm looks for (EVENT_DEVICE_IDENTITY_KEYS and
+/// EVENT_DEVICE_HOST_KEYS), at the paths an emitter writes them.
+const EVENT_DEVICE_ALIAS_PATHS: &[EventPath] = &[
+    ("metadata", &["service_radar", "device_uid"]),
+    ("metadata", &["service_radar", "device_id"]),
+    ("metadata", &["service_radar", "device_hostname"]),
+    ("metadata", &["service_radar", "source_instance"]),
+    ("metadata", &["service_radar", "node_name"]),
+    ("metadata", &["service_radar", "device_ip"]),
+    ("metadata", &["service_radar", "source_ip"]),
+    ("metadata", &["serviceradar", "device_id"]),
+    ("metadata", &["device_id"]),
+    ("metadata", &["device_uid"]),
+    ("metadata", &["source_device_uid"]),
+    ("metadata", &["target_device_uid"]),
+    ("metadata", &["hostname"]),
+    ("metadata", &["host"]),
+    ("metadata", &["ip"]),
+    ("metadata", &["server_identity"]),
+    ("unmapped", &["device_id"]),
+    ("unmapped", &["device_uid"]),
+    ("unmapped", &["source_device_uid"]),
+    ("unmapped", &["target_device_uid"]),
+    ("unmapped", &["hostname"]),
+    ("unmapped", &["host"]),
+    ("unmapped", &["ip"]),
+    ("unmapped", &["server_identity"]),
+    ("device", &["uid"]),
+    ("device", &["id"]),
+    ("device", &["hostname"]),
+    ("device", &["ip"]),
+];
+
+/// Every alias the inventory holds for one device, as a subquery that names no
+/// event column. The list is DEVICE_INVENTORY_ALIAS_EXPRESSIONS in
+/// query/events/filters.rs, and five of its members are keys of the device's
+/// jsonb metadata, which the JDBC catalog cannot carry; CNPG unpivots them into
+/// `device_inventory_aliases_catalog`, blank and NULL aliases already dropped.
+fn device_inventory_aliases_sql(uid: &str) -> String {
+    format!(
+        "SELECT a.alias FROM {CNPG_CATALOG}.device_inventory_aliases_catalog a WHERE a.uid = {uid} OR a.uid_alt = {uid}"
+    )
+}
+
+/// `device_id:` on events, arm for arm as CNPG builds it. A canonical `sr:`
+/// uid is an anchored equality on the two paths an emitter writes after the
+/// ingest re-key. Every value also resolves the device's inventory aliases,
+/// which is what finds an event keyed under a hostname or an address instead
+/// of the uid. A raw id additionally gets the case-insensitive scan of the
+/// documents for a `"<identity key>" ... "<value>"` pair.
+///
+/// CNPG's alias arm is an EXISTS whose LIKE pattern comes from the device row,
+/// a non-equality correlated subquery StarRocks refuses. Here the aliases are
+/// an uncorrelated subquery and the event's identity paths are tested against
+/// it with IN, so an alias matches where an emitter records one rather than
+/// anywhere in the document text.
 fn event_device_identity_filter_sql(filter: &Filter) -> Result<String> {
     let (values, negate) = exact_values(filter, &filter.field)?;
     let mut clauses = Vec::new();
     for value in values {
         clauses.push(event_paths_equal(EVENT_CANONICAL_DEVICE_PATHS, value)?);
+
+        let aliases = device_inventory_aliases_sql(&sql_literal(value));
+        let mut alias_matches = vec![format!("src_endpoint_ip IN ({aliases})")];
+        for (document, path) in EVENT_DEVICE_ALIAS_PATHS {
+            alias_matches.push(format!(
+                "{} IN ({aliases})",
+                event_json_text(document, path)?
+            ));
+        }
+        clauses.push(alias_matches.join(" OR "));
+
         if value.starts_with("sr:") {
             continue;
         }
@@ -994,10 +1064,10 @@ fn logs_severity_text_filter_sql(filter: &Filter) -> Result<String> {
 /// `device_id:` on logs. A log row carries no device uid; CNPG resolves the
 /// uid to the addresses and names the inventory knows and matches the syslog
 /// `source` / `source_ip` columns against them, with uncorrelated subqueries so
-/// each is evaluated once. The same lookups run here through the JDBC catalog.
-/// CNPG also consults `device_identifiers` and `discovered_interfaces`, which
-/// the catalog does not expose; the device's active IP aliases, the set the
-/// flow device scope already uses, stand in for them.
+/// each is evaluated once (query/logs/metadata.rs). The same eight lookups run
+/// here through the JDBC catalog. An interface's addresses are a PostgreSQL
+/// array, which the catalog cannot carry, so that one reads the view CNPG
+/// unnests them into.
 fn logs_device_identity_filter_sql(filter: &Filter) -> Result<String> {
     let (values, negate) = exact_values(filter, &filter.field)?;
     let clauses = values
@@ -1009,11 +1079,17 @@ fn logs_device_identity_filter_sql(filter: &Filter) -> Result<String> {
                     "SELECT d.{column} FROM {CNPG_CATALOG}.ocsf_devices d WHERE (d.uid = {uid} OR d.uid_alt = {uid}) AND d.{column} IS NOT NULL"
                 )
             };
-            let aliases = format!(
-                "SELECT das.alias_value FROM {CNPG_CATALOG}.device_alias_states das WHERE das.device_id = {uid} AND das.alias_type = 'ip' AND das.state IN ('detected', 'confirmed', 'updated')"
+            let identifiers = format!(
+                "SELECT di.identifier_value FROM {CNPG_CATALOG}.device_identifiers di WHERE di.device_id = {uid} AND di.identifier_type IN ('ip', 'hostname') AND di.identifier_value IS NOT NULL"
+            );
+            let interface_addresses = format!(
+                "SELECT ia.ip FROM {CNPG_CATALOG}.device_interface_addresses_catalog ia WHERE ia.device_id = {uid}"
+            );
+            let interface_device_ip = format!(
+                "SELECT di_if.device_ip FROM {CNPG_CATALOG}.discovered_interfaces di_if WHERE di_if.device_id = {uid} AND di_if.device_ip IS NOT NULL"
             );
             format!(
-                "source_ip IN ({ip}) OR source IN ({ip}) OR source IN ({hostname}) OR source IN ({name}) OR source_ip IN ({aliases}) OR source IN ({aliases})",
+                "source_ip IN ({ip}) OR source IN ({ip}) OR source IN ({hostname}) OR source IN ({name}) OR source_ip IN ({identifiers}) OR source IN ({identifiers}) OR source_ip IN ({interface_addresses}) OR source_ip IN ({interface_device_ip})",
                 ip = device("ip"),
                 hostname = device("hostname"),
                 name = device("name"),
@@ -1022,6 +1098,33 @@ fn logs_device_identity_filter_sql(filter: &Filter) -> Result<String> {
         .collect();
     Ok(any_of(clauses, negate))
 }
+
+// The columns CNPG compares with `apply_text_filter!` (query/logs/filters.rs,
+// query/events/filters.rs).
+const LOG_TEXT_FILTER_FIELDS: &[&str] = &[
+    "trace_id",
+    "span_id",
+    "service_name",
+    "service_version",
+    "source",
+    "source_ip",
+    "event_name",
+    "body",
+    "ingest_identity",
+    "ingest_agent_id",
+    "ingest_partition",
+];
+const EVENT_TEXT_FILTER_FIELDS: &[&str] = &[
+    "activity_name",
+    "severity",
+    "message",
+    "log_name",
+    "log_provider",
+    "log_level",
+    "status",
+    "trace_id",
+    "span_id",
+];
 
 /// Filter fields whose meaning is more than one warehouse column. `None` means
 /// the field is an ordinary column and the generic comparison applies.
@@ -1048,6 +1151,12 @@ fn dataset_filter_sql(dataset: Dataset, filter: &Filter) -> Result<Option<String
         ("events", "agent_id") => event_exact_filter_sql(filter, EVENT_AGENT_ID_PATHS, field)?,
         ("events", "host_id" | "hostname") => {
             event_exact_filter_sql(filter, EVENT_HOST_PATHS, "host_id")?
+        }
+        ("logs", _) if LOG_TEXT_FILTER_FIELDS.contains(&field) => {
+            text_filter_sql(field, filter, true)?
+        }
+        ("events", _) if EVENT_TEXT_FILTER_FIELDS.contains(&field) => {
+            text_filter_sql(field, filter, true)?
         }
         _ => return Ok(None),
     }))
@@ -4836,10 +4945,28 @@ mod tests {
         );
         assert!(sql.contains("source IN (SELECT d.hostname FROM"), "{sql}");
         assert!(sql.contains("source IN (SELECT d.name FROM"), "{sql}");
+        for column in ["source_ip", "source"] {
+            assert!(
+                sql.contains(&format!(
+                    "{column} IN (SELECT di.identifier_value FROM cnpg_platform.platform.device_identifiers di WHERE di.device_id = 'sr:device-0001' AND di.identifier_type IN ('ip', 'hostname') AND di.identifier_value IS NOT NULL)"
+                )),
+                "{column}: {sql}"
+            );
+        }
         assert!(
-            sql.contains("cnpg_platform.platform.device_alias_states das WHERE das.device_id = 'sr:device-0001'"),
+            sql.contains(
+                "source_ip IN (SELECT ia.ip FROM cnpg_platform.platform.device_interface_addresses_catalog ia WHERE ia.device_id = 'sr:device-0001')"
+            ),
             "{sql}"
         );
+        assert!(
+            sql.contains(
+                "source_ip IN (SELECT di_if.device_ip FROM cnpg_platform.platform.discovered_interfaces di_if WHERE di_if.device_id = 'sr:device-0001' AND di_if.device_ip IS NOT NULL)"
+            ),
+            "{sql}"
+        );
+        // The alias table is the flow scope's lookup, not one CNPG makes here.
+        assert!(!sql.contains("device_alias_states"), "{sql}");
         // Correlated lookups are what timed out on CNPG, and StarRocks refuses
         // the non-equality kind outright.
         assert!(!sql.contains("EXISTS"), "{sql}");
@@ -4953,7 +5080,7 @@ mod tests {
         .expect("canonical");
         assert!(
             canonical.sql.contains(
-                "((get_json_string(metadata, '$.\"service_radar\".\"device_uid\"') = 'sr:device-0001' OR get_json_string(device, '$.\"uid\"') = 'sr:device-0001'))"
+                "((get_json_string(metadata, '$.\"service_radar\".\"device_uid\"') = 'sr:device-0001' OR get_json_string(device, '$.\"uid\"') = 'sr:device-0001') OR (src_endpoint_ip IN ("
             ),
             "{}",
             canonical.sql
@@ -4975,6 +5102,100 @@ mod tests {
         );
         assert!(raw.sql.contains("LOWER(device) LIKE "), "{}", raw.sql);
         assert!(raw.sql.contains("LOWER(unmapped) LIKE "), "{}", raw.sql);
+        assert!(raw.sql.contains("LOWER(observables) LIKE "), "{}", raw.sql);
+    }
+
+    #[test]
+    fn an_event_device_filter_finds_events_keyed_under_an_inventory_alias() {
+        let aliases = "SELECT a.alias FROM cnpg_platform.platform.device_inventory_aliases_catalog a WHERE a.uid = 'sr:device-0001' OR a.uid_alt = 'sr:device-0001'";
+        // The scoped event entities share the lookup, as they do on CNPG.
+        for entity in ["events", "security_findings"] {
+            let compiled = translate(
+                &plan(&format!(
+                    "in:{entity} device_id:\"sr:device-0001\" time:last_1h"
+                )),
+                "serviceradar",
+            )
+            .expect(entity);
+            let sql = &compiled.sql;
+            for identity in [
+                "src_endpoint_ip",
+                "get_json_string(metadata, '$.\"service_radar\".\"device_hostname\"')",
+                "get_json_string(unmapped, '$.\"hostname\"')",
+                "get_json_string(device, '$.\"ip\"')",
+            ] {
+                assert!(
+                    sql.contains(&format!("{identity} IN ({aliases})")),
+                    "{entity} {identity}: {sql}"
+                );
+            }
+            assert!(!sql.contains("EXISTS"), "{sql}");
+        }
+    }
+
+    #[test]
+    fn log_and_event_text_filters_ignore_case_and_keep_null_rows_under_negation() {
+        for (query, predicate) in [
+            (
+                "in:logs time:last_1h event_name:\"%Timeout%\"",
+                "AND LOWER(event_name) LIKE '%timeout%'",
+            ),
+            (
+                "in:logs time:last_1h !event_name:\"%Timeout%\"",
+                "AND (event_name IS NULL OR LOWER(event_name) NOT LIKE '%timeout%')",
+            ),
+            (
+                "in:logs time:last_1h !service_name:core",
+                "AND (service_name IS NULL OR service_name != 'core')",
+            ),
+            (
+                "in:logs time:last_1h !source_ip:(192.0.2.10,192.0.2.11)",
+                "AND (source_ip IS NULL OR source_ip NOT IN ('192.0.2.10', '192.0.2.11'))",
+            ),
+            (
+                "in:logs time:last_1h service_name:Core",
+                "AND service_name = 'Core'",
+            ),
+            (
+                "in:events time:last_1h message:\"%Link Down%\"",
+                "AND LOWER(message) LIKE '%link down%'",
+            ),
+            (
+                "in:events time:last_1h !message:\"%Link Down%\"",
+                "AND (message IS NULL OR LOWER(message) NOT LIKE '%link down%')",
+            ),
+            (
+                "in:events time:last_1h !log_provider:falco",
+                "AND (log_provider IS NULL OR log_provider != 'falco')",
+            ),
+            (
+                "in:events time:last_1h !status:(open,new)",
+                "AND (status IS NULL OR status NOT IN ('open', 'new'))",
+            ),
+        ] {
+            let compiled = translate(&plan(query), "serviceradar").expect(query);
+            assert!(
+                compiled.sql.contains(predicate),
+                "{query}: {}",
+                compiled.sql
+            );
+        }
+    }
+
+    #[test]
+    fn flow_and_metric_text_filters_are_unchanged() {
+        let compiled = translate(
+            &plan("in:flows time:last_1h !app:\"%HTTP%\""),
+            "serviceradar",
+        )
+        .expect("flows");
+        assert!(
+            compiled
+                .sql
+                .contains("AND COALESCE(dst_service_label, 'unknown') NOT LIKE '%HTTP%'"),
+            "{}",
+            compiled.sql
+        );
     }
 
     #[test]

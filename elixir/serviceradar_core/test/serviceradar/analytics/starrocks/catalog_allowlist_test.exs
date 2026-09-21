@@ -29,6 +29,14 @@ defmodule ServiceRadar.Analytics.StarRocks.CatalogAllowlistTest do
     assert {:ok, "cnpg_platform.platform.ip_geo_enrichment_cache"} =
              CatalogAllowlist.qualify("ip_geo_enrichment_cache")
 
+    # A log row carries no device uid, so `device_id:` on logs resolves it
+    # through the same inventory relations CNPG reads.
+    for table <-
+          ~w(device_identifiers discovered_interfaces device_interface_addresses_catalog device_inventory_aliases_catalog) do
+      assert CatalogAllowlist.allowed?(table)
+      assert {:ok, "cnpg_platform.platform.#{table}"} == CatalogAllowlist.qualify(table)
+    end
+
     # Attributed flows read persisted pid/comm off the observation row, so the
     # compiler never joins current-state attribution and the reader is granted
     # nothing on it. Allowlisting it would let a re-enable reach the Frontend
@@ -55,6 +63,31 @@ defmodule ServiceRadar.Analytics.StarRocks.CatalogAllowlistTest do
 
     assert {:error, {:starrocks_catalog_disabled, "cnpg_platform"}} =
              CatalogAllowlist.assert_sql_executable(sql)
+  end
+
+  test "the log device lookup is executable once the catalog is on" do
+    prev = Application.get_env(:serviceradar_core, StarRocks, [])
+
+    try do
+      Application.put_env(
+        :serviceradar_core,
+        StarRocks,
+        Keyword.put(prev, :catalog_enabled, true)
+      )
+
+      sql =
+        "SELECT * FROM serviceradar.logs WHERE source_ip IN (" <>
+          "SELECT di.identifier_value FROM cnpg_platform.platform.device_identifiers di " <>
+          "WHERE di.device_id = 'sr:device-0001') OR source_ip IN (" <>
+          "SELECT di_if.device_ip FROM cnpg_platform.platform.discovered_interfaces di_if " <>
+          "WHERE di_if.device_id = 'sr:device-0001') OR source_ip IN (" <>
+          "SELECT ia.ip FROM cnpg_platform.platform.device_interface_addresses_catalog ia " <>
+          "WHERE ia.device_id = 'sr:device-0001')"
+
+      assert :ok == CatalogAllowlist.assert_sql_executable(sql)
+    after
+      Application.put_env(:serviceradar_core, StarRocks, prev)
+    end
   end
 
   test "SQL naming a forbidden CNPG table is rejected even if the catalog is on" do
