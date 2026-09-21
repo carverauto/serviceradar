@@ -105,8 +105,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Query do
   end
 
   defp window_start("[" <> _ = range, _now) do
-    with [start_raw, _end_raw] <- range |> String.trim_leading("[") |> String.split(",", parts: 2),
-         {:ok, start, _} <- DateTime.from_iso8601(String.trim(start_raw)) do
+    with {:ok, start_raw, _end_raw} <- absolute_parts(range),
+         {:ok, start, _} <- DateTime.from_iso8601(start_raw) do
       start
     else
       _ -> nil
@@ -121,8 +121,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Query do
   end
 
   defp window_finish("[" <> _ = range, _now) do
-    with [_start_raw, end_raw] <- range |> String.trim_leading("[") |> String.split(",", parts: 2),
-         {:ok, finish, _} <- DateTime.from_iso8601(String.trim(end_raw)) do
+    with {:ok, _start_raw, end_raw} <- absolute_parts(range),
+         {:ok, finish, _} <- DateTime.from_iso8601(end_raw) do
       finish
     else
       _ -> nil
@@ -169,12 +169,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Query do
     end
   end
 
-  defp absolute_window_seconds(bracketed) do
+  defp absolute_parts(bracketed) do
     inner = bracketed |> String.trim_leading("[") |> String.trim_trailing("]")
 
-    with [start_raw, end_raw] <- String.split(inner, ",", parts: 2),
-         {:ok, start_dt, _} <- DateTime.from_iso8601(String.trim(start_raw)),
-         {:ok, end_dt, _} <- DateTime.from_iso8601(String.trim(end_raw)) do
+    case String.split(inner, ",", parts: 2) do
+      [start_raw, end_raw] -> {:ok, String.trim(start_raw), String.trim(end_raw)}
+      _ -> :error
+    end
+  end
+
+  defp absolute_window_seconds(bracketed) do
+    with {:ok, start_raw, end_raw} <- absolute_parts(bracketed),
+         {:ok, start_dt, _} <- DateTime.from_iso8601(start_raw),
+         {:ok, end_dt, _} <- DateTime.from_iso8601(end_raw) do
       case DateTime.diff(end_dt, start_dt, :second) do
         seconds when seconds > 0 -> seconds
         _ -> nil
