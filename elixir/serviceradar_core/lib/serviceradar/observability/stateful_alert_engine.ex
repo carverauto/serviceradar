@@ -168,8 +168,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   end
 
   defp dispatch_shard(shard, message_tag, records) do
-    with {:ok, _pid} <- ensure_started(shard) do
-      call(shard, {message_tag, records})
+    with {:ok, pid} <- ensure_started(shard) do
+      call(shard, pid, {message_tag, records})
     end
   end
 
@@ -199,8 +199,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   end
 
   defp dispatch_resolve_shard(shard, message) do
-    with {:ok, _pid} <- ensure_started(shard) do
-      call(shard, message)
+    with {:ok, pid} <- ensure_started(shard) do
+      call(shard, pid, message)
     end
   end
 
@@ -322,8 +322,32 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     end)
   end
 
-  defp call(shard, message) do
-    GenServer.call(via_tuple(shard), message, to_timeout(second: 15))
+  # Call the pid `ensure_started/1` resolved, not the shard's registered name.
+  # Shards are Horde-placed, so `Horde.Registry.whereis_name/1` only resolves a
+  # key whose member is in the registry's locally materialized member set; a name
+  # lookup can therefore lag the pid `start_child`/`{:already_started, pid}` just
+  # returned and exit `:noproc` for a shard that is running. The pid is
+  # authoritative, so use it.
+  #
+  # That pid can still die between resolution and the call (shard crash, Horde
+  # restart, rolling deploy). Re-resolve and retry once so a just-restarted shard
+  # takes the batch instead of dropping it; only then report the shard as not
+  # running.
+  defp call(shard, pid, message) when is_pid(pid) do
+    case call_pid(pid, message) do
+      {:error, :engine_not_running} -> retry_call(shard, message)
+      result -> result
+    end
+  end
+
+  defp retry_call(shard, message) do
+    with {:ok, pid} <- ensure_started(shard) do
+      call_pid(pid, message)
+    end
+  end
+
+  defp call_pid(pid, message) do
+    GenServer.call(pid, message, to_timeout(second: 15))
   catch
     :exit, {:noproc, _} ->
       {:error, :engine_not_running}

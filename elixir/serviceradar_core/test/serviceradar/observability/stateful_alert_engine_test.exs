@@ -18,6 +18,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
   alias ServiceRadar.Observability.StatefulAlertEngine
   alias ServiceRadar.Observability.StatefulAlertRule
   alias ServiceRadar.Observability.StatefulAlertRuleHistory
+  alias ServiceRadar.ProcessRegistry
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
 
@@ -1535,6 +1536,88 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
       assert Enum.count(active_alerts, fn alert -> alert.title == title end) == 1,
              "expected exactly one active alert titled #{title}"
     end
+  end
+
+  # Guards the dispatch path against dropping a batch when a shard is (re)started:
+  # `dispatch_shard/3` must call the pid `ensure_started/1` resolved and restart a
+  # shard that is genuinely gone, instead of resolving the registered name a
+  # second time and reporting `{:error, :engine_not_running}`.
+  #
+  # The failure that motivated this (Horde populates its name-lookup ETS from
+  # asynchronous CRDT diffs, so a lookup can lag a just-started shard) needs
+  # registry contention to reproduce and is not forced here; this test pins the
+  # deterministic half of the contract — a terminated shard is restarted and the
+  # next batch is evaluated rather than dropped.
+  test "a shard terminated out-of-band is restarted and takes the next batch", %{actor: actor} do
+    previous_shards = Application.get_env(:serviceradar_core, :stateful_alert_engine_shards)
+    Application.put_env(:serviceradar_core, :stateful_alert_engine_shards, 1)
+    on_exit(fn -> restore_env(:stateful_alert_engine_shards, previous_shards) end)
+
+    reset_engine()
+
+    unique = System.unique_integer([:positive])
+    alert_title = "Restarted shard #{unique}"
+
+    {:ok, _rule} =
+      StatefulAlertRule
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "restarted-shard-#{unique}",
+          enabled: true,
+          signal: :event,
+          match: %{"always" => true},
+          group_by: ["serviceradar.sync.integration_source_id"],
+          threshold: 1,
+          window_seconds: 120,
+          bucket_seconds: 60,
+          cooldown_seconds: 60,
+          renotify_seconds: 3600,
+          event: %{
+            "log_name" => "alert.test.restarted_shard",
+            "message" => "Restarted shard finding"
+          },
+          alert: %{"title" => alert_title, "severity" => "warning"}
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    event = fn source_id ->
+      %{
+        id: Ash.UUID.generate(),
+        time: DateTime.utc_now(),
+        severity_id: OCSF.severity_high(),
+        severity: OCSF.severity_name(OCSF.severity_high()),
+        message: "sync failed",
+        log_name: "sync",
+        log_provider: "sync",
+        unmapped: %{
+          "log_attributes" => %{
+            "serviceradar" => %{"sync" => %{"integration_source_id" => source_id}}
+          }
+        }
+      }
+    end
+
+    # Start the shard and prove it evaluates before we kill it.
+    assert :ok = StatefulAlertEngine.evaluate_events([event.("#{unique}-before")])
+    assert length(active_alerts_by_title(actor, alert_title)) == 1
+
+    [{pid, _metadata}] = ProcessRegistry.lookup(:stateful_alert_engine)
+    monitor_ref = Process.monitor(pid)
+    assert :ok = ProcessRegistry.terminate_child(pid)
+    assert_receive {:DOWN, ^monitor_ref, :process, ^pid, _reason}, 5_000
+
+    # The window under test: evaluate while the killed shard's registry state is
+    # still settling, so a name-based call would exit `:noproc`.
+    assert :ok = StatefulAlertEngine.evaluate_events([event.("#{unique}-after")])
+
+    # The restarted shard took the batch (the second group's alert exists), and a
+    # live engine is registered under the shard key again.
+    assert length(active_alerts_by_title(actor, alert_title)) == 2
+    assert [{new_pid, _metadata}] = ProcessRegistry.lookup(:stateful_alert_engine)
+    assert Process.alive?(new_pid)
   end
 
   defp active_alerts_by_title(actor, title) do
