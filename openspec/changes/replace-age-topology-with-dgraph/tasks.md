@@ -119,10 +119,11 @@
       current cluster.
 - [x] 8.3 Stale-edge TTL and MTR path prune behave the same on Dgraph as on
       AGE for the synthetic fixture.
-- [ ] 8.4 Demo cutover: checksum Job green, `GRAPH_READ=dgraph`, then
+- [x] 8.4 Demo cutover: checksum Job green, `GRAPH_READ=dgraph`, then
       `GRAPH_BACKEND=dgraph`. Record rollback as `GRAPH_READ=age`.
-      Checksum green on demo (13 edges, matching hash). `GRAPH_READ=dgraph`
-      is this change; `GRAPH_BACKEND` stays dual. Rollback: `graph.read=age`.
+      Checksum green (13 edges, matching hash). Demo overlay is
+      `graph.backend=dgraph` / `graph.read=dgraph`. Rollback: `graph.read=age`
+      (restore `graph.backend=dual` if AGE must be refreshed).
 - [x] 8.5 Do not remove AGE from the CNPG image in this change.
 
 ## 9. Coordination
