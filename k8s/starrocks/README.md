@@ -41,7 +41,7 @@ converge that role, so there is nothing to grant by hand:
 | `platform.netflow_local_cidrs_catalog` | `SELECT` |
 | `platform.ocsf_devices` | `SELECT (uid, hostname, ip)` |
 | `platform.device_alias_states` | `SELECT (device_id, alias_type, state, alias_value)` |
-| `platform.netflow_exporter_cache` | `SELECT (device_uid, sampler_address)` |
+| `platform.netflow_exporter_cache` | `SELECT (device_uid, sampler_address, exporter_name)` |
 | `platform.netflow_interface_cache` | `SELECT (sampler_address, if_index, if_name, if_speed_bps)` |
 
 Nothing else is reachable: `CatalogAllowlist` rejects any other table before
