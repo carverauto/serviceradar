@@ -1604,7 +1604,12 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     assert :ok = StatefulAlertEngine.evaluate_events([event.("#{unique}-before")])
     assert length(active_alerts_by_title(actor, alert_title)) == 1
 
-    [{pid, _metadata}] = ProcessRegistry.lookup(:stateful_alert_engine)
+    [{pid, _metadata}] =
+      eventually(
+        fn -> ProcessRegistry.lookup(:stateful_alert_engine) end,
+        &match?([{_, _}], &1)
+      )
+
     monitor_ref = Process.monitor(pid)
     assert :ok = ProcessRegistry.terminate_child(pid)
     assert_receive {:DOWN, ^monitor_ref, :process, ^pid, _reason}, 5_000
@@ -1616,7 +1621,13 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     # The restarted shard took the batch (the second group's alert exists), and a
     # live engine is registered under the shard key again.
     assert length(active_alerts_by_title(actor, alert_title)) == 2
-    assert [{new_pid, _metadata}] = ProcessRegistry.lookup(:stateful_alert_engine)
+
+    assert [{new_pid, _metadata}] =
+             eventually(
+               fn -> ProcessRegistry.lookup(:stateful_alert_engine) end,
+               &match?([{registered, _}] when registered != pid, &1)
+             )
+
     assert Process.alive?(new_pid)
   end
 
