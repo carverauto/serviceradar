@@ -36,6 +36,10 @@ ddc5367687b6cbb2303b4b6a14954a3529773490:scripts/sign-wasm-plugin-publish.sh:gen
 9ab295e3fb7e1e0f7e838166194e818bc877044f:elixir/serviceradar_core/test/serviceradar/notifications/transports/slack_test.exs:slack-bot-token:51
 9ab295e3fb7e1e0f7e838166194e818bc877044f:elixir/serviceradar_core/test/serviceradar/notifications/transports/stream_test.exs:generic-api-key:108
 9ab295e3fb7e1e0f7e838166194e818bc877044f:elixir/serviceradar_core/test/serviceradar/notifications/transports/stream_test.exs:generic-api-key:254
+# Synthetic PKCS#1 / PKCS#8 PEMs for host01.example.com. Invented for
+# age-to-dgraph CNPG client-key parsing tests; not a live dump.
+94c52d45044125ef11cdaa61eadeda36973572e5:rust/age-to-dgraph/src/tls.rs:private-key:125
+94c52d45044125ef11cdaa61eadeda36973572e5:rust/age-to-dgraph/src/tls.rs:private-key:154
 
 # Vendored Rust dependency file-integrity manifest, not a credential.
 #
