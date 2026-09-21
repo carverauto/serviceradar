@@ -12,6 +12,10 @@ func runPlugin() error {
 		return submitPluginError(err)
 	}
 
+	if loadRuntimeActionID() == configRetrieveActionID {
+		return runConfigRetrieve(cfg)
+	}
+
 	snapshot, err := NewCollector(SDKHTTPDoer{}).Collect(context.Background(), cfg)
 	if err != nil {
 		return submitPluginError(err)
@@ -22,6 +26,51 @@ func runPlugin() error {
 		return submitPluginError(err)
 	}
 	return sdk.Execute(func() (*sdk.Result, error) { return result, nil })
+}
+
+func runConfigRetrieve(cfg Config) error {
+	deviceID, deviceUID := loadRuntimeDeviceIdentity()
+	retrieved, err := NewCollector(SDKHTTPDoer{}).RetrieveRunningConfig(
+		context.Background(),
+		cfg,
+		deviceID,
+		deviceUID,
+	)
+	if err != nil {
+		return submitPluginError(err)
+	}
+	artifact, _ := stageRunningConfigArtifact(retrieved)
+	result := buildConfigRetrieveResult(retrieved, artifact)
+	return sdk.Execute(func() (*sdk.Result, error) { return result, nil })
+}
+
+func stageRunningConfigArtifact(cfg RunningConfig) (*sdk.ArtifactCommitResponse, error) {
+	stream, err := sdk.OpenArtifactStream(sdk.ArtifactOpenRequest{
+		ObjectKey:   "opentext-nom/running-config/" + cfg.DeviceID,
+		ContentType: "text/plain",
+		SHA256:      cfg.Hash,
+		SizeBytes:   int64(len(cfg.Body)),
+		Attributes: map[string]string{
+			"kind":       "running_config",
+			"device_uid": cfg.DeviceUID,
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if _, err := stream.Write([]byte(cfg.Body)); err != nil {
+		_ = stream.Abort()
+		return nil, err
+	}
+	committed, err := stream.Commit(sdk.ArtifactCommitRequest{
+		SHA256:    cfg.Hash,
+		SizeBytes: int64(len(cfg.Body)),
+	})
+	if err != nil {
+		_ = stream.Abort()
+		return nil, err
+	}
+	return committed, nil
 }
 
 func submitPluginError(err error) error {

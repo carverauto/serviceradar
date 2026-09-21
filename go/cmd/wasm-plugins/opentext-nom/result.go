@@ -103,6 +103,36 @@ func buildPluginResult(snapshot Snapshot, maxResultBytes int) (*sdk.Result, erro
 	return result, nil
 }
 
+func buildConfigRetrieveResult(cfg RunningConfig, artifact *sdk.ArtifactCommitResponse) *sdk.Result {
+	details, _ := json.Marshal(map[string]any{
+		"kind":         "running_config",
+		"config_kind":  "running",
+		"source":       "opentext-nom",
+		"device_id":    cfg.DeviceID,
+		"device_uid":   cfg.DeviceUID,
+		"content_hash": cfg.Hash,
+		"body":         cfg.Body,
+		"artifact":     artifactMeta(artifact),
+	})
+	return sdk.Ok("OpenText NOM running-config retrieved").
+		WithLabel("source", "opentext-nom").
+		WithLabel("kind", "running_config").
+		WithLabel("device_uid", cfg.DeviceUID).
+		WithDetails(string(details))
+}
+
+func artifactMeta(artifact *sdk.ArtifactCommitResponse) map[string]any {
+	if artifact == nil {
+		return nil
+	}
+	return map[string]any{
+		"object_key":   artifact.ObjectKey,
+		"sha256":       artifact.SHA256,
+		"size_bytes":   artifact.SizeBytes,
+		"content_type": artifact.ContentType,
+	}
+}
+
 func managementAvailable(status string, excluded *bool) *bool {
 	if excluded != nil && *excluded {
 		value := false

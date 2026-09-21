@@ -1700,6 +1700,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
 
   defp platform_contract_handlers do
     [
+      ServiceRadar.NetworkConfig.PluginIngestor,
       DeviceDiscoveryIngestor,
       HypervisorEnrichmentIngestor,
       ProxmoxEnrichmentIngestor,

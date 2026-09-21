@@ -83,3 +83,74 @@ func runtimeConfigPayload(raw map[string]json.RawMessage) ([]byte, error) {
 
 	return json.Marshal(raw)
 }
+
+func loadRuntimeActionID() string {
+	raw := loadRawConfigMap()
+	if raw == nil {
+		return ""
+	}
+	invocationJSON, ok := raw["action_invocation"]
+	if !ok || len(bytes.TrimSpace(invocationJSON)) == 0 {
+		return ""
+	}
+	var invocation struct {
+		ActionID string `json:"action_id"`
+	}
+	if err := json.Unmarshal(invocationJSON, &invocation); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(invocation.ActionID)
+}
+
+func loadRuntimeDeviceIdentity() (deviceID, deviceUID string) {
+	raw := loadRawConfigMap()
+	if raw == nil {
+		return "", ""
+	}
+	deviceID = stringFromRaw(raw, "device_id")
+	deviceUID = stringFromRaw(raw, "device_uid")
+	if invocationJSON, ok := raw["action_invocation"]; ok && len(bytes.TrimSpace(invocationJSON)) > 0 {
+		var invocation struct {
+			ActionID    string           `json:"action_id"`
+			InputValues map[string]any   `json:"input_values"`
+			Targets     []map[string]any `json:"targets"`
+		}
+		if err := json.Unmarshal(invocationJSON, &invocation); err == nil {
+			if deviceID == "" {
+				deviceID = stringFromAny(invocation.InputValues["device_id"])
+			}
+			if deviceUID == "" {
+				deviceUID = stringFromAny(invocation.InputValues["device_uid"])
+			}
+			if deviceUID == "" && len(invocation.Targets) > 0 {
+				deviceUID = stringFromAny(invocation.Targets[0]["device_uid"])
+			}
+		}
+	}
+	return deviceID, deviceUID
+}
+
+func loadRawConfigMap() map[string]json.RawMessage {
+	var raw map[string]json.RawMessage
+	if err := sdk.LoadConfig(&raw); err != nil {
+		return nil
+	}
+	return raw
+}
+
+func stringFromRaw(raw map[string]json.RawMessage, key string) string {
+	value, ok := raw[key]
+	if !ok {
+		return ""
+	}
+	var text string
+	if err := json.Unmarshal(value, &text); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(text)
+}
+
+func stringFromAny(value any) string {
+	text, _ := value.(string)
+	return strings.TrimSpace(text)
+}
