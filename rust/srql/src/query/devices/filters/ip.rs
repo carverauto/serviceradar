@@ -19,16 +19,22 @@ pub(super) fn apply_ip_filter<'a>(
     match filter.op {
         FilterOp::Eq | FilterOp::NotEq => {
             let value = filter.value.as_scalar()?.to_string();
+            // CIDR and range bounds are bound as `text` and cast through `::text`
+            // before `::cidr`/`::inet`. A bare `$1::cidr` makes PostgreSQL infer the
+            // parameter as `cidr`/`inet`, and a text-bound parameter then fails to
+            // encode in driver-backed callers of this SQL (`%Postgrex.INET{}`
+            // expected). The explicit `::text` keeps the parameter text so every
+            // driver can bind it, and the value cast still runs in the database.
             if let Some(cidr) = parse_cidr(&value)? {
                 let ip_expr = safe_device_ip_inet_sql();
                 let expr = if matches!(filter.op, FilterOp::NotEq) {
                     sql::<Bool>(&format!("({ip_expr} IS NOT NULL AND NOT ({ip_expr} <<= "))
                         .bind::<Text, _>(cidr)
-                        .sql("::cidr))")
+                        .sql("::text::cidr))")
                 } else {
                     sql::<Bool>(&format!("({ip_expr} IS NOT NULL AND {ip_expr} <<= "))
                         .bind::<Text, _>(cidr)
-                        .sql("::cidr)")
+                        .sql("::text::cidr)")
                 };
                 return Ok(query.filter(expr));
             }
@@ -38,15 +44,15 @@ pub(super) fn apply_ip_filter<'a>(
                 let expr = if matches!(filter.op, FilterOp::NotEq) {
                     sql::<Bool>(&format!("({ip_expr} IS NOT NULL AND NOT ({ip_expr} >= "))
                         .bind::<Text, _>(start)
-                        .sql(&format!("::inet AND {ip_expr} <= "))
+                        .sql(&format!("::text::inet AND {ip_expr} <= "))
                         .bind::<Text, _>(end)
-                        .sql("::inet))")
+                        .sql("::text::inet))")
                 } else {
                     sql::<Bool>(&format!("({ip_expr} IS NOT NULL AND {ip_expr} >= "))
                         .bind::<Text, _>(start)
-                        .sql(&format!("::inet AND {ip_expr} <= "))
+                        .sql(&format!("::text::inet AND {ip_expr} <= "))
                         .bind::<Text, _>(end)
-                        .sql("::inet)")
+                        .sql("::text::inet)")
                 };
                 return Ok(query.filter(expr));
             }

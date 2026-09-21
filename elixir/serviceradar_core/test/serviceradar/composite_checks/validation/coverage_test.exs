@@ -110,6 +110,21 @@ defmodule ServiceRadar.CompositeChecks.Validation.CoverageTest do
     assert settings.profile_ids == [profile.id]
   end
 
+  test "a host inside the group's SRQL CIDR is covered" do
+    ip = "198.51.100.77"
+    device = create_device!(ip)
+    profile = create_profile!(%{ports: [22], sweep_modes: ["icmp"]})
+
+    create_group!(%{
+      agent_id: "agent-cidr-cover",
+      target_query: "in:devices ip:198.51.100.0/24",
+      profile_id: profile.id
+    })
+
+    assert {:ok, settings} = Coverage.cover(device.uid, ip, "default", "agent-cidr-cover")
+    assert settings.profile_ids == [profile.id]
+  end
+
   test "a host outside the group's SRQL is uncovered" do
     ip = unique_ip()
     device = create_device!(ip)

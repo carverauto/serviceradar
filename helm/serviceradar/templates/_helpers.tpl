@@ -288,6 +288,17 @@ serviceradar.io/runtime-tls-revision: {{ default "initial" (default (dict) .Valu
 {{- $shadow | join "," -}}
 {{- end -}}
 
+{{/*
+A digest of every StarRocks analytics setting, for a pod annotation. It hashes
+the values rather than the rendered ConfigMap so a template that is rendered on
+its own, as the chart tests do, does not need the ConfigMap template loaded.
+The shadow list is included explicitly because it is derived, not set.
+*/}}
+{{- define "serviceradar.starrocksAnalyticsChecksum" -}}
+{{- $sr := default (dict) (default (dict) .Values.analytics).starrocks -}}
+{{- printf "%s|%s" (toJson $sr) (include "serviceradar.starrocksShadowDatasets" .) | sha256sum -}}
+{{- end -}}
+
 {{- define "serviceradar.starrocksAnalyticsEnv" -}}
 {{- $sr := default (dict) (default (dict) .Values.analytics).starrocks -}}
 {{- if $sr.enabled }}

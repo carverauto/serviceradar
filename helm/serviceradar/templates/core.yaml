@@ -155,6 +155,12 @@ spec:
       annotations:
         {{- include "serviceradar.runtimeCertRollAnnotations" . | nindent 8 }}
         checksum/db-credentials: {{ include "serviceradar.dbCredentialsChecksum" . }}
+        {{- if and .Values.analytics .Values.analytics.starrocks .Values.analytics.starrocks.enabled }}
+        # The analytics settings reach the pod as environment read once at boot,
+        # so a change to them -- cutting a dataset over, or back -- has to roll
+        # the pod or it keeps reading from wherever it read before.
+        checksum/starrocks-analytics: {{ include "serviceradar.starrocksAnalyticsChecksum" . }}
+        {{- end }}
         {{- if .Values.global.forceRolloutOnUpgrade }}
         serviceradar.io/release-revision: {{ .Release.Revision | quote }}
         {{- end }}

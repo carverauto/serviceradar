@@ -516,6 +516,12 @@ warehouse-only.** Until `flows` is listed there, the NetFlow dashboard and
 `in:flows` are refused with a warehouse-required error rather than answered from
 CNPG, which stays the flow write target only.
 
+web-ng and core read these settings once at boot, so the chart stamps a digest
+of `analytics.starrocks.*` on both pods: a `helm upgrade` that changes the
+cut-over or shadow datasets rolls them without a manual restart. Removing
+`metrics`, `logs` or `events` from the list falls back to CNPG; removing `flows`
+does not, it refuses flow reads again.
+
 The chart does not create the warehouse schema. Cluster install, the DDL under
 `elixir/serviceradar_core/priv/starrocks/`, the CNPG JDBC catalog and its reader
 role are documented in `k8s/starrocks/README.md`. Per-key defaults, including
