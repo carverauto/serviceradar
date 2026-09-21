@@ -91,6 +91,64 @@ defmodule ServiceRadar.Observability.SRQLRunnerTest do
              )
   end
 
+  # CNPG hands an event's jsonb documents back as maps. The warehouse stores
+  # them as JSON text, and a job that indexes into one must not have to know
+  # which backend answered.
+  test "a cut-over event row carries its documents as maps, as it does on CNPG" do
+    put_cutover([:events])
+
+    sql = "SELECT * FROM serviceradar.events"
+
+    translate_fn = fn _query, 1, nil, nil, "starrocks" ->
+      {:ok, Jason.encode!(%{"sql" => sql, "params" => []})}
+    end
+
+    query_fn = fn ^sql, [] ->
+      {:ok,
+       %Postgrex.Result{
+         columns: ["id", "metadata", "unmapped"],
+         rows: [["evt-alpha-0001", ~s({"security_signal":{"source":"synthetic"}}), nil]]
+       }}
+    end
+
+    assert {:ok,
+            [
+              %{
+                "id" => "evt-alpha-0001",
+                "metadata" => %{"security_signal" => %{"source" => "synthetic"}},
+                "unmapped" => nil
+              }
+            ]} =
+             SRQLRunner.query("in:events limit:1",
+               limit: 1,
+               translate_fn: translate_fn,
+               query_fn: query_fn
+             )
+  end
+
+  test "an event row read from CNPG is passed through as Postgrex returned it" do
+    put_cutover([])
+
+    translate_fn = fn _query, 1, nil, nil, _mode ->
+      {:ok,
+       Jason.encode!(%{
+         "sql" => "SELECT id, metadata FROM platform.ocsf_events",
+         "params" => []
+       })}
+    end
+
+    query_fn = fn _sql, [] ->
+      {:ok, %Postgrex.Result{columns: ["id", "metadata"], rows: [["evt-alpha-0002", "{}"]]}}
+    end
+
+    assert {:ok, [%{"metadata" => "{}"}]} =
+             SRQLRunner.query("in:events limit:1",
+               limit: 1,
+               translate_fn: translate_fn,
+               query_fn: query_fn
+             )
+  end
+
   test "a dataset that is not cut over still compiles for CNPG" do
     put_cutover([])
 

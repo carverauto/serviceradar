@@ -9,6 +9,7 @@ defmodule ServiceRadar.Observability.SRQLRunner do
   """
 
   alias ServiceRadar.Analytics.StarRocks.CatalogAllowlist
+  alias ServiceRadar.Analytics.StarRocks.EventDocuments
   alias ServiceRadar.Analytics.StarRocks.Query, as: StarRocksQuery
   alias ServiceRadar.Analytics.StarRocks.Readers
   alias ServiceRadar.Analytics.StarRocks.RollupFreshness
@@ -45,9 +46,18 @@ defmodule ServiceRadar.Observability.SRQLRunner do
          {:ok, params} <- decode_params(Map.get(translation, "params", []), opts),
          {:ok, %Postgrex.Result{columns: columns, rows: rows} = result} <-
            run_sql(sql, params, mode, opts) do
-      {:ok, %{rows: rows_to_maps(columns, rows), next_cursor: next_cursor(translation, result)}}
+      {:ok,
+       %{
+         rows: columns |> rows_to_maps(rows) |> warehouse_shape(query, mode),
+         next_cursor: next_cursor(translation, result)
+       }}
     end
   end
+
+  defp warehouse_shape(rows, query, mode) when mode in ["starrocks", "starrocks_raw"],
+    do: EventDocuments.decode_rows(rows, Readers.entity_for_query(query))
+
+  defp warehouse_shape(rows, _query, _mode), do: rows
 
   # Same two guards the web API applies before submitting compiled StarRocks
   # SQL: `RollupFreshness.settle/3` above, and a catalog reference refused
