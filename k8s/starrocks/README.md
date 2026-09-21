@@ -210,10 +210,17 @@ To see what a warehouse has:
 SELECT version, name, applied_at FROM serviceradar.schema_migrations ORDER BY version;
 ```
 
-`0014` is the exception the migrator cannot close. StarRocks cannot add
-partitioning or change a primary key with `ALTER`, so a warehouse created
-unpartitioned stays that way until its tables are rebuilt as that file
-describes, and retention logs `is not range partitioned` until then. A fresh
+A warehouse created before daily partitioning is rebuilt by core itself.
+StarRocks cannot add partitioning or change a primary key with `ALTER`, so at
+startup core copies each unpartitioned table onto a partitioned one beside it,
+swaps the two, and drops the old one, while the warehouse keeps serving and
+taking writes. Nothing is run by hand. Migration `0017`, which creates the
+day-partitioned hourly rollups, waits for the rebuild; earlier migrations do
+not. Every table is copied before any old table is dropped, so peak storage is
+about twice the in-retention warehouse. A failure is logged as
+`StarRocks partition rebuild of <table> failed` and retried on the migrator's
+backoff, continuing from the days already copied; retention logs
+`is not range partitioned` for a table until its rebuild completes. A fresh
 warehouse is partitioned from `0001` and is not affected.
 
 `cutoverDatasets` defaults to empty, so metric, log and event panels stay on

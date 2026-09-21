@@ -1,43 +1,19 @@
--- Rebuild for a warehouse created before daily partitioning.
--- This file DOCUMENTS a destructive recovery procedure. It does not run it.
--- Applying 0001-0014 in order on a fresh warehouse must be a no-op here, so
--- the DROP statements below are commented out. Run them by hand,
--- deliberately, only after reading this.
+-- Marker for a warehouse created before daily partitioning. Executes nothing.
+-- Not a Mix/Postgres migration; BUILD.bazel here says how these are applied.
 --
--- When it applies: 0001-0004 previously created these tables with
--- PRIMARY KEY (id) and no PARTITION BY. StarRocks can neither add
--- partitioning to an existing table nor change a primary key with ALTER, so
--- the retention property those tables now carry (`partition_live_number`) is
--- rejected on them and the warehouse grows without bound. Core logs a
--- retention warning on such a warehouse; that warning is the signal to run
--- this procedure.
+-- 0001-0004 once created the telemetry tables with PRIMARY KEY (id) and no
+-- PARTITION BY. StarRocks can neither add partitioning to an existing table
+-- nor change a primary key with ALTER, so on such a warehouse the retention
+-- property (`partition_live_number`) is rejected, nothing ever expires, and the
+-- hourly rollups can only refresh in full.
 --
--- When it does NOT apply: a warehouse created from the partitioned DDL
--- already has everything this would rebuild. Skip the file entirely.
+-- This used to document a destructive procedure to run by hand, and only on a
+-- warehouse that was not yet serving reads. It is now done for you: at startup
+-- ServiceRadar.Analytics.StarRocks.PartitionRebuild rebuilds each such table
+-- beside itself, swaps it in atomically and copies across what arrived during
+-- the copy, while the warehouse keeps serving and taking writes. It is driven
+-- by what the warehouse holds rather than by this ledger, so it is not a
+-- numbered migration and there is nothing to apply here.
 --
--- Preconditions: StarRocks must still be a shadow copy, i.e.
--- `cutoverDatasets` is empty, so CNPG stays authoritative and EventWriter
--- refills the warehouse from JetStream as new telemetry arrives. Do NOT run
--- this on a warehouse that already serves a cut-over dataset until that
--- dataset has been returned to CNPG.
---
--- Procedure, in order. The hourly materialized views read the base tables, so
--- they are dropped first and rebuilt by re-applying 0005:
---
---   DROP MATERIALIZED VIEW IF EXISTS serviceradar.ocsf_network_activity_hourly;
---   DROP MATERIALIZED VIEW IF EXISTS serviceradar.timeseries_metrics_hourly;
---   DROP MATERIALIZED VIEW IF EXISTS serviceradar.events_hourly;
---
---   DROP TABLE IF EXISTS serviceradar.ocsf_network_activity;
---   DROP TABLE IF EXISTS serviceradar.timeseries_metrics;
---   DROP TABLE IF EXISTS serviceradar.logs;
---   DROP TABLE IF EXISTS serviceradar.events;
---
--- then:
---   1. re-apply 0001, 0002, 0003, 0004 (they now create partitioned tables)
---   2. re-apply 0005 (hourly materialized views)
---   3. backfill history, newest first, from CNPG
---
--- Do NOT replay 0006-0015. Every column they add is already declared in
--- 0001-0004, and re-running an ADD COLUMN fails once the column exists.
-SELECT 'partitioned telemetry rebuild is documented; not executed' AS status;
+-- The version stays because warehouses have already recorded it.
+SELECT 'partitioned telemetry rebuild is automatic; nothing to apply' AS status;

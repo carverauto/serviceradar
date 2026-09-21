@@ -13,10 +13,24 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
   makes a migration that failed half way safe to run again, which is the only
   recovery a failed migration needs. A new statement kind that cannot be
   repeated needs a guard here before it ships.
+
+  One upgrade cannot be written as a statement at all. A table created before
+  daily partitioning has to be rebuilt beside itself and swapped in, which
+  `PartitionRebuild` does ahead of the first migration that needs partitioned
+  tables (0017's rollups). Migrations before that one are not held up by it.
+
+  The advisory lock is a PostgreSQL transaction, and a connection that drops
+  releases it while this process carries on. So the lock is checked, with a
+  query inside that transaction, before every statement sent to StarRocks: a
+  runner that has lost the lock raises there, stops, and contends for the lock
+  again like any other replica. What this does not cover is the one statement
+  already in flight when the lock is lost. That one completes.
   """
 
   alias ServiceRadar.Analytics.StarRocks.Env
   alias ServiceRadar.Analytics.StarRocks.MySQL
+  alias ServiceRadar.Analytics.StarRocks.PartitionRebuild
+  alias ServiceRadar.Analytics.StarRocks.Retention
   alias ServiceRadar.Analytics.StarRocks.Schema
 
   require Logger
@@ -25,7 +39,10 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
   @ledger "schema_migrations"
   # Arbitrary, but fixed: every replica must contend for the same key.
   @lock_key 7_203_950_114
-  @ddl_timeout_ms 300_000
+  # DDL answers in seconds. The ceiling is for the one statement that does not:
+  # PartitionRebuild copying a table, which StarRocks itself allows four hours
+  # (insert_timeout). A client that gives up first abandons a copy still running.
+  @ddl_timeout_ms 14_400_000
   @initial_delay_ms 5_000
   @max_delay_ms 60_000
   @alter_poll_ms 1_000
@@ -93,12 +110,25 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
           query: query,
           database: database,
           migrations: Keyword.get_lazy(opts, :migrations, &Schema.migrations/0),
-          sleep: Keyword.get(opts, :sleep, &Process.sleep/1)
+          sleep: Keyword.get(opts, :sleep, &Process.sleep/1),
+          retention_days: Keyword.get_lazy(opts, :retention_days, &Retention.days_by_table/0)
         }
 
         with {:ok, replication_num} <- replication_num(query) do
           with_lock = Keyword.get(opts, :with_lock, &with_advisory_lock/1)
-          with_lock.(fn -> apply_pending(Map.put(state, :replication_num, replication_num)) end)
+          state = Map.put(state, :replication_num, replication_num)
+
+          try do
+            with_lock.(fn still_locked ->
+              apply_pending(Map.put(state, :still_locked, still_locked))
+            end)
+          rescue
+            # A connection that drops under an hours-long transaction raises,
+            # from the transaction or from the lock check. Returned as an error
+            # it is retried like any other; raised, it ends the migrator for
+            # the life of the node.
+            exception -> {:error, exception}
+          end
         end
       end)
     else
@@ -139,8 +169,25 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
     result =
       ServiceRadar.Repo.transaction(
         fn ->
-          ServiceRadar.Repo.query!("SELECT pg_advisory_xact_lock($1)", [@lock_key])
-          fun.()
+          # Another replica may hold this for as long as a rebuild takes. The
+          # default query timeout would raise here after 15s and take the
+          # migrator down with it, leaving nobody to resume if that replica dies.
+          ServiceRadar.Repo.query!("SELECT pg_advisory_xact_lock($1)", [@lock_key],
+            timeout: :infinity
+          )
+
+          # The lock is this transaction, which then sits idle for as long as
+          # StarRocks works -- hours, for a partition rebuild. A deployment that
+          # sets idle_in_transaction_session_timeout would have it killed, the
+          # lock released, and a second replica start rebuilding the same tables.
+          ServiceRadar.Repo.query!("SET LOCAL idle_in_transaction_session_timeout = 0")
+
+          # Inside this transaction, so it raises once the connection holding
+          # the lock is gone.
+          fun.(fn ->
+            ServiceRadar.Repo.query!("SELECT 1")
+            :ok
+          end)
         end,
         timeout: :infinity
       )
@@ -176,21 +223,38 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
     end
   end
 
+  # Migrations that only need the tables to exist go first: they take seconds,
+  # and EventWriter may already be loading the columns they add. A rollup
+  # partitioned by day can only be created over partitioned tables, so from the
+  # first such migration on, everything waits for PartitionRebuild -- which on
+  # a warehouse that needs it can take hours, and on any other does nothing.
   defp apply_pending(state) do
     with :ok <- ensure_ledger(state),
          {:ok, applied} <- applied_versions(state) do
-      state.migrations
-      |> Enum.reject(&MapSet.member?(applied, &1.version))
-      |> Enum.reduce_while({:ok, []}, fn migration, {:ok, done} ->
-        case apply_migration(state, migration) do
-          :ok -> {:cont, {:ok, [migration.version | done]}}
-          {:error, reason} -> {:halt, {:error, {migration.version, reason}}}
-        end
-      end)
-      |> case do
-        {:ok, done} -> {:ok, Enum.reverse(done)}
-        error -> error
+      {early, late} =
+        state.migrations
+        |> Enum.reject(&MapSet.member?(applied, &1.version))
+        |> Enum.split_while(&(not Schema.needs_partitioned_tables?(&1)))
+
+      with {:ok, first} <- apply_each(state, early),
+           :ok <- PartitionRebuild.run(state),
+           {:ok, rest} <- apply_each(state, late) do
+        {:ok, first ++ rest}
       end
+    end
+  end
+
+  defp apply_each(state, migrations) do
+    migrations
+    |> Enum.reduce_while({:ok, []}, fn migration, {:ok, done} ->
+      case apply_migration(state, migration) do
+        :ok -> {:cont, {:ok, [migration.version | done]}}
+        {:error, reason} -> {:halt, {:error, {migration.version, reason}}}
+      end
+    end)
+    |> case do
+      {:ok, done} -> {:ok, Enum.reverse(done)}
+      error -> error
     end
   end
 
@@ -231,6 +295,7 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
     result =
       Enum.reduce_while(migration.statements, :ok, fn statement, :ok ->
         statement = Schema.retarget(statement, state.database, state.replication_num)
+        state.still_locked.()
 
         case execute(state, statement) do
           :ok -> {:cont, :ok}

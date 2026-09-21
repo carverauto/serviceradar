@@ -44,7 +44,7 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumers do
     end
   end
 
-  # events_hourly (priv/starrocks/0005) already groups by hour and severity, so
+  # events_hourly (priv/starrocks/0017) already groups by hour and severity, so
   # a whole-hour bucket re-aggregates from it with SUM(total_count). A sub-hour
   # bucket cannot, and stays on the raw table. A stale view also falls back to
   # the raw StarRocks table: an unrefreshed async MV returns short counts.

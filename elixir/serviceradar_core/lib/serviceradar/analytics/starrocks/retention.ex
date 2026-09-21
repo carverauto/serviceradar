@@ -37,17 +37,19 @@ defmodule ServiceRadar.Analytics.StarRocks.Retention do
 
   @spec statements(keyword()) :: [String.t()]
   def statements(config) when is_list(config) do
+    Enum.map(days_by_table(config), fn {table, days} ->
+      "ALTER TABLE `#{table}` SET (\"partition_live_number\" = \"#{days}\")"
+    end)
+  end
+
+  @doc "The days each telemetry table keeps, in table order."
+  @spec days_by_table(keyword()) :: [{String.t(), pos_integer()}]
+  def days_by_table(config \\ Env.config()) when is_list(config) do
     retention = Keyword.get(config, :retention_days, [])
 
     Enum.map(@tables, fn {dataset, table} ->
-      days =
-        Keyword.get(
-          retention,
-          dataset,
-          Keyword.fetch!(Env.default_retention_days(), dataset)
-        )
-
-      "ALTER TABLE `#{table}` SET (\"partition_live_number\" = \"#{days}\")"
+      {table,
+       Keyword.get(retention, dataset, Keyword.fetch!(Env.default_retention_days(), dataset))}
     end)
   end
 

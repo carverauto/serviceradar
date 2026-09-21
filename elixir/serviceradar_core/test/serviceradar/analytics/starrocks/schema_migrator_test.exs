@@ -53,6 +53,14 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
     {result(["1"], rows), state}
   end
 
+  # No telemetry tables here, so PartitionRebuild finds nothing to rebuild;
+  # partition_rebuild_test.exs covers a warehouse that needs one.
+  defp answer(%{fail_on: fail_on} = state, "SELECT TABLE_NAME, PARTITION_KEY" <> _ = sql) do
+    if fail_on && sql =~ fail_on,
+      do: {{:error, {:starrocks_mysql, "boom"}}, state},
+      else: {result(["TABLE_NAME", "PARTITION_KEY"], []), state}
+  end
+
   defp answer(state, "SHOW ALTER TABLE COLUMN" <> _),
     do: {result(["State"], [["FINISHED"]]), state}
 
@@ -82,7 +90,7 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
   defp migrate(agent, opts \\ []) do
     [
       query: query_fun(agent),
-      with_lock: fn fun -> fun.() end,
+      with_lock: fn fun -> fun.(fn -> :ok end) end,
       migrations: @migrations,
       database: "serviceradar",
       sleep: fn _ms -> :ok end
@@ -140,6 +148,22 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
     assert migrate(agent) == {:ok, [3]}
   end
 
+  test "a runner that has lost the lock stops before its next statement and records nothing more" do
+    agent = start_warehouse()
+    {:ok, checks} = Agent.start_link(fn -> 0 end)
+
+    # Holds for the first migration's statement, gone by the second's.
+    still_locked = fn ->
+      if Agent.get_and_update(checks, &{&1, &1 + 1}) >= 1, do: raise("lock lost"), else: :ok
+    end
+
+    assert {:error, %RuntimeError{message: "lock lost"}} =
+             migrate(agent, with_lock: fn fun -> fun.(still_locked) end)
+
+    assert state(agent).ledger == [1]
+    refute Enum.any?(state(agent).ddl, &(&1 =~ "ADD COLUMN"))
+  end
+
   test "replication follows the live backends; shared-data keeps the pinned factor" do
     single = start_warehouse(%{backends: 1})
     assert {:ok, _} = migrate(single)
@@ -176,11 +200,46 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
 
     assert SchemaMigrator.run(
              query: query_fun(agent),
-             with_lock: fn fun -> fun.() end,
+             with_lock: fn fun -> fun.(fn -> :ok end) end,
              migrations: @migrations,
              database: "serviceradar",
              attempts: 2,
              sleep: fn _ms -> :ok end
            ) == :ok
+  end
+
+  test "quick migrations are not held behind the rebuild; only what needs partitioned tables waits" do
+    migrations =
+      Schema.build([
+        {"0001_tables.sql", "CREATE TABLE IF NOT EXISTS serviceradar.flows (id INT);"},
+        {"0002_pid.sql", "ALTER TABLE serviceradar.flows ADD COLUMN pid INT NULL;"},
+        {"0003_rollup.sql",
+         "CREATE MATERIALIZED VIEW IF NOT EXISTS serviceradar.flows_hourly PARTITION BY day AS SELECT 1;"},
+        {"0004_comm.sql", "ALTER TABLE serviceradar.flows ADD COLUMN comm VARCHAR(256) NULL;"}
+      ])
+
+    assert Enum.map(migrations, &Schema.needs_partitioned_tables?/1) == [
+             false,
+             false,
+             true,
+             false
+           ]
+
+    # The rebuild cannot run, so everything from 0003 on waits -- in order, 0004 included.
+    agent = start_warehouse(%{fail_on: ~r/tables_config/})
+    assert {:error, {:starrocks_mysql, "boom"}} = migrate(agent, migrations: migrations)
+    assert state(agent).ledger == [1, 2]
+
+    Agent.update(agent, &%{&1 | fail_on: nil})
+    assert migrate(agent, migrations: migrations) == {:ok, [3, 4]}
+  end
+
+  test "the shipped schema marks exactly the day-partitioned rollups as needing partitioned tables" do
+    waiting =
+      Schema.migrations()
+      |> Enum.filter(&Schema.needs_partitioned_tables?/1)
+      |> Enum.map(& &1.version)
+
+    assert waiting == [17]
   end
 end

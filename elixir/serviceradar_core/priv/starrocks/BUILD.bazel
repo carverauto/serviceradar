@@ -8,9 +8,13 @@
 # StarRocks has no ADD COLUMN IF NOT EXISTS). A new statement kind that cannot
 # be repeated needs a guard in the migrator first.
 # 0001-0005 are the CREATEs; 0006+ are upgrades for already-deployed tables.
-# 0014 documents, but does not execute, the rebuild an unpartitioned warehouse
-# needs, because StarRocks cannot add partitioning or change a primary key with
-# ALTER. 0016 DROPs and recreates the flow hourly rollup.
+# StarRocks cannot add partitioning or change a primary key with ALTER, so a
+# warehouse created before daily partitioning is rebuilt by
+# ServiceRadar.Analytics.StarRocks.PartitionRebuild, which runs before pending
+# migrations and is driven by the warehouse's state, not by a version here.
+# 0014 is the marker left where that used to be a by-hand procedure.
+# 0016 DROPs and recreates the flow hourly rollup; 0017 recreates all three
+# partitioned by day, so a refresh touches only the days that changed.
 # The cnpg_platform JDBC catalog is not here: it is created by
 # helm/serviceradar/templates/starrocks-catalog-job.yaml, and the relations it
 # may expose are owned by ServiceRadar.Analytics.StarRocks.CatalogAllowlist.

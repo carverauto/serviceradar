@@ -44,9 +44,10 @@ struct Dataset {
     hourly: Option<HourlyRollup>,
 }
 
-/// An hourly materialized view (priv/starrocks/0005) a bucketed query may read
-/// instead of the raw table. `dimensions` is every column the view groups by,
-/// so a filter or series outside that list has no equivalent there.
+/// An hourly materialized view (priv/starrocks/0017) a bucketed query may read
+/// instead of the raw table. `dimensions` is every column the view groups by
+/// besides `bucket` and its partition column `day`, so a filter or series
+/// outside that list has no equivalent there.
 #[derive(Clone, Copy)]
 struct HourlyRollup {
     table: &'static str,
