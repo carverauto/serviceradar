@@ -3,12 +3,13 @@
 
 namespace: demo
 
-# Dual-write into the standalone Dgraph; God View still reads AGE until the
-# checksum Job is green (OpenSpec 8.4). Do not enable the product subchart:
-# that would create a second cluster next to Helm release `dgraph`.
+# Dual-write into the standalone Dgraph; God View reads Dgraph after a green
+# checksum (OpenSpec 8.4). Rollback is GRAPH_READ=age. Do not enable the
+# product subchart: that would create a second cluster next to Helm release
+# `dgraph`. GRAPH_BACKEND stays dual until AGE is retired.
 graph:
   backend: dual
-  read: age
+  read: dgraph
 
 # HA Dgraph is already running in this namespace as Helm release `dgraph`
 # (k8s/dgraph/deploy-dgraph.sh demo). Keep the chart subchart off so Argo
