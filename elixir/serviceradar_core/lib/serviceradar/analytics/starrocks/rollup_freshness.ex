@@ -2,10 +2,11 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshness do
   @moduledoc """
   Guards hourly-rollup reads against stale async materialized views.
 
-  The `*_hourly` views come from `priv/starrocks/0005` -- the flow one from
-  `0016`, which rebuilds it -- and are `REFRESH ASYNC` with no schedule, so a
-  reader must verify the view has caught up before trusting it: an unrefreshed
-  view returns short counts with no error.
+  The `*_hourly` views come from `priv/starrocks/0017`, which replaces the
+  unpartitioned ones of `0005` and `0016` with views partitioned by day. They
+  are `REFRESH ASYNC` with no schedule, so a reader must verify the view has
+  caught up before trusting it: an unrefreshed view returns short counts with
+  no error.
 
   Staleness is the view's lag behind its own source table, never the wall
   clock, so a dataset that simply stopped receiving rows keeps its rollup

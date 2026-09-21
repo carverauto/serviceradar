@@ -32,6 +32,18 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuildTest do
                  PARTITION BY date_trunc('day', `timestamp`)
                  DISTRIBUTED BY HASH(series) BUCKETS 16
                  PROPERTIES ("replication_num" = "3", "partition_live_number" = "90");
+                 """},
+                {"0003_metrics_hourly.sql",
+                 """
+                 CREATE MATERIALIZED VIEW IF NOT EXISTS serviceradar.metrics_hourly
+                 PARTITION BY day
+                 DISTRIBUTED BY HASH(series) BUCKETS 8
+                 REFRESH ASYNC
+                 PROPERTIES ("replication_num" = "3")
+                 AS
+                 SELECT date_trunc('day', `timestamp`) AS day, series, SUM(value) AS value
+                 FROM serviceradar.metrics
+                 GROUP BY date_trunc('day', `timestamp`), series;
                  """}
               ])
 
@@ -81,7 +93,10 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuildTest do
     {ok(Enum.map(state.tables[table].columns, &[&1])), state}
   end
 
-  defp answer(state, "SELECT DISTINCT date_trunc" <> _ = sql) do
+  defp answer(
+         state,
+         "SELECT /*+ SET_VAR(query_timeout = 14400) */ DISTINCT date_trunc" <> _ = sql
+       ) do
     [_, table] = Regex.run(~r/FROM warehouse\.(\w+) /, sql)
     days = state.tables[table].days |> Enum.sort(:desc) |> Enum.map(&["#{&1} 00:00:00"])
     {ok(days), state}
@@ -201,6 +216,9 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuildTest do
     first_drop = Enum.find_index(statements, &(&1 =~ "DROP MATERIALIZED VIEW"))
     assert last_copy < first_drop
 
+    # Nothing failed, so the rollups are left to the migration that owns them.
+    refute Enum.any?(statements, &(&1 =~ "CREATE MATERIALIZED VIEW"))
+
     # The catch-up joins on each table's own key.
     assert Enum.any?(
              statements,
@@ -224,6 +242,114 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuildTest do
     assert kinds(agent)["flows"] == :unpartitioned
     # The table that failed kept its rollup: nothing of it was cut over.
     refute "DROP MATERIALIZED VIEW IF EXISTS warehouse.flows_hourly" in sent(agent)
+  end
+
+  test "when a table fails, the tables that did cut over get their rollup back" do
+    agent =
+      start_warehouse(%{
+        "flows" => old(["id", "time"], ["2025-01-02"]),
+        "metrics" => old(["timestamp", "series", "value"], ["2025-01-02"])
+      })
+
+    Agent.update(agent, &%{&1 | fail_on: "INSERT INTO warehouse.flows__rebuild"})
+    parent = self()
+
+    query = fn sql ->
+      if sql =~ "CREATE MATERIALIZED VIEW", do: send(parent, {:rollup, sql})
+      Agent.get_and_update(agent, &answer(&1, sql))
+    end
+
+    # The failure is still reported: the migration that owns the rollups waits.
+    assert {:error, {:partition_rebuild, [{"flows", {:copy, "2025-01-02", _}}]}} =
+             run(agent, %{query: query, retention_days: [{"flows", 90}, {"metrics", 90}]})
+
+    statements = sent(agent)
+
+    swap =
+      Enum.find_index(
+        statements,
+        &(&1 == "ALTER TABLE warehouse.metrics SWAP WITH metrics__rebuild")
+      )
+
+    drop =
+      Enum.find_index(
+        statements,
+        &(&1 == "DROP TABLE IF EXISTS warehouse.metrics__rebuild FORCE")
+      )
+
+    rollup =
+      Enum.find_index(
+        statements,
+        &(&1 == "CREATE MATERIALIZED VIEW IF NOT EXISTS warehouse.metrics_hourly")
+      )
+
+    assert swap < drop
+    assert drop < rollup
+    assert Enum.count(statements, &(&1 =~ "CREATE MATERIALIZED VIEW")) == 1
+
+    # Retargeted like every other shipped statement.
+    assert_received {:rollup, sql}
+    assert sql =~ "FROM warehouse.metrics"
+    assert sql =~ ~s("replication_num" = "1")
+    refute sql =~ "serviceradar."
+  end
+
+  test "listing a table's days carries its own timeout, which the server's default would cut short" do
+    agent = start_warehouse(%{"flows" => old(["id", "time"], ["2025-01-02"])})
+    parent = self()
+
+    query = fn sql ->
+      if sql =~ "DISTINCT date_trunc", do: send(parent, {:days, sql})
+      Agent.get_and_update(agent, &answer(&1, sql))
+    end
+
+    assert run(agent, %{query: query}) == :ok
+    assert_received {:days, sql}
+    assert String.starts_with?(sql, "SELECT /*+ SET_VAR(query_timeout = 14400) */ DISTINCT ")
+  end
+
+  test "a table another runner swapped during the copy is finished, never swapped back" do
+    agent = start_warehouse(%{"flows" => old(["id", "time"], ["2025-01-01", "2025-01-02"])})
+
+    # The plan is made on the first read of the layout. By the second, just
+    # before the cut-over, a runner that took over the lock has swapped already.
+    query = fn sql ->
+      if String.starts_with?(sql, "SELECT TABLE_NAME") and sent(agent) != [] do
+        Agent.update(
+          agent,
+          &apply_ddl(&1, "ALTER TABLE warehouse.flows SWAP WITH flows__rebuild")
+        )
+      end
+
+      Agent.get_and_update(agent, &answer(&1, sql))
+    end
+
+    assert run(agent, %{query: query}) == :ok
+    assert kinds(agent) == %{"flows" => :partitioned}
+    days = tables(agent)["flows"].days
+    assert days |> Enum.uniq() |> Enum.sort() == ["2025-01-01", "2025-01-02"]
+
+    statements = sent(agent)
+    refute Enum.any?(statements, &(&1 =~ ~r/SWAP|MATERIALIZED VIEW/))
+    assert Enum.count(statements, &(&1 =~ "LEFT ANTI JOIN")) == 4
+    assert List.last(statements) == "DROP TABLE IF EXISTS warehouse.flows__rebuild FORCE"
+  end
+
+  test "a layout that is neither arrangement at the cut-over stops before the swap" do
+    agent = start_warehouse(%{"flows" => old(["id", "time"], ["2025-01-02"])})
+
+    query = fn sql ->
+      if String.starts_with?(sql, "SELECT TABLE_NAME") and sent(agent) != [] do
+        Agent.update(agent, &put_in(&1.tables["flows"].kind, :partitioned))
+      end
+
+      Agent.get_and_update(agent, &answer(&1, sql))
+    end
+
+    assert {:error, {:partition_rebuild, [{"flows", :unexpected_layout}]}} =
+             run(agent, %{query: query})
+
+    refute Enum.any?(sent(agent), &(&1 =~ ~r/SWAP|DROP/))
   end
 
   test "the copy is created with the operator's retention, not the DDL default" do

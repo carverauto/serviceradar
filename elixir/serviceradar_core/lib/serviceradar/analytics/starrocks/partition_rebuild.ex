@@ -14,9 +14,23 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
        inactive), `ALTER TABLE <table> SWAP WITH <table>__rebuild`, copy across
        whatever the old table has that the new one lacks, drop the old table.
 
-  The rollups are gone only for step 2, which is short, and migration 0017
-  recreates them as soon as this returns. It is necessarily still pending: its
-  partitioned views cannot exist over a table this module has yet to rebuild.
+  The rollups are gone only for step 2, and migration 0017 recreates them as
+  soon as this returns. It is necessarily still pending: its partitioned views
+  cannot exist over a table this module has yet to rebuild. Step 2 runs two
+  day-bounded anti-join passes per held day, so on a long retention it is
+  minutes, not seconds.
+
+  Every table is copied before any old table is dropped, so peak storage is
+  about twice the in-retention warehouse. That is the price of keeping the
+  rollups alive through the copy, and a warehouse without the room fails its
+  copies on every retry until it has some.
+
+  A table that fails is left alone, rollup included, and does not keep the
+  others unpartitioned. It does keep 0017 pending, though, so when any table
+  fails, the tables that did cut over get their hourly rollup back here, from
+  the newest definition this release ships. A day-partitioned rollup is valid
+  over a partitioned base table whatever state the other tables are in. With
+  no failure nothing is recreated: 0017 runs next and would discard the work.
 
   Nothing here is recorded in the ledger. Every run reads what the warehouse
   holds and continues from there. A day is one atomic INSERT, so a copy that
@@ -54,6 +68,12 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
   # they were first copied. In-place updates are attribution, minutes behind
   # the flow itself; two days is generous and still one short statement each.
   @refresh_days 2
+  # Listing a table's days scans the time column of an unpartitioned table
+  # whose key does not prune it. A SELECT is bounded by the server's
+  # query_timeout (300s by default), not insert_timeout, so without a ceiling
+  # of its own a large table fails the same way on every retry. Four hours
+  # matches what the copy statements are allowed.
+  @scan_timeout_s 14_400
 
   @type state :: %{
           required(:query) => (String.t() -> {:ok, map()} | {:error, term()}),
@@ -72,11 +92,15 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
     with {:ok, layout} <- layout(state),
          {:ok, plans} <- plan(state, retention, layout) do
       {copied, copy_failures} = attempt(plans, &copy(state, &1))
-      {_cut_over, cut_over_failures} = attempt(copied, &cut_over(state, &1))
+      {cut_over, cut_over_failures} = attempt(copied, &cut_over(state, &1))
 
       case copy_failures ++ cut_over_failures do
-        [] -> :ok
-        failures -> {:error, {:partition_rebuild, failures}}
+        [] ->
+          :ok
+
+        failures ->
+          {_restored, rollup_failures} = attempt(cut_over, &restore_rollup(state, &1))
+          {:error, {:partition_rebuild, failures ++ rollup_failures}}
       end
     end
   end
@@ -154,7 +178,20 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
     with {:ok, columns} <- shared_columns(state, spec.table, spec.copy),
          {:ok, recent} <- days_in(state, spec.table, spec.time_column, days),
          :ok <- copy_days(state, spec, columns, Enum.take(recent, @refresh_days)),
-         :ok <-
+         {:ok, layout} <- layout(state) do
+      # The plan is hours old by now, and SWAP is symmetric: issued by a runner
+      # that lost the migration lock while another finished the job, it would
+      # put the unpartitioned table back. What the warehouse says NOW decides.
+      case {Map.get(layout, spec.table), Map.get(layout, spec.copy)} do
+        {:unpartitioned, :partitioned} -> swap(state, plan)
+        {:partitioned, :unpartitioned} -> cut_over(state, %{plan | step: :finish})
+        _other -> {:error, :unexpected_layout}
+      end
+    end
+  end
+
+  defp swap(state, %{spec: spec} = plan) do
+    with :ok <-
            exec(state, "DROP MATERIALIZED VIEW IF EXISTS #{qualified(state, spec.table)}_hourly"),
          :ok <- exec(state, "ALTER TABLE #{qualified(state, spec.table)} SWAP WITH #{spec.copy}") do
       cut_over(state, %{plan | step: :finish})
@@ -168,6 +205,18 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
          :ok <- exec(state, "DROP TABLE IF EXISTS #{qualified(state, spec.copy)} FORCE") do
       Logger.info("StarRocks table #{spec.table} is now partitioned by day")
       :ok
+    end
+  end
+
+  # Only reached when some other table failed, which keeps the migration that
+  # owns the rollups pending. A table without one (logs) has nothing to restore.
+  defp restore_rollup(state, %{spec: spec}) do
+    pattern =
+      ~r/^CREATE\s+MATERIALIZED\s+VIEW\s+IF\s+NOT\s+EXISTS\s+\S+\.#{spec.table}_hourly\b/i
+
+    case last_statement(state, pattern) do
+      nil -> :ok
+      statement -> exec(state, Schema.retarget(statement, state.database, state.replication_num))
     end
   end
 
@@ -223,7 +272,8 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
     column = "`#{time_column}`"
 
     sql =
-      "SELECT DISTINCT date_trunc('day', #{column}) FROM #{qualified(state, table)} " <>
+      "SELECT /*+ SET_VAR(query_timeout = #{@scan_timeout_s}) */ DISTINCT " <>
+        "date_trunc('day', #{column}) FROM #{qualified(state, table)} " <>
         "WHERE #{window(column, days)} ORDER BY 1 DESC"
 
     case state.query.(sql) do
@@ -303,9 +353,11 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
     end
   end
 
-  # Copy by name, and only what both sides have: a warehouse that stopped
-  # upgrading a few versions back lacks the newest columns, and the migrations
-  # that add them run after this and find them already there.
+  # Copy by name, and only what both sides have. Migrations ahead of the first
+  # one that needs partitioned tables run BEFORE this, so an up-to-date release
+  # finds the same columns on both sides. The intersection is for a warehouse
+  # that is behind in some way those did not repair, and for a column a future
+  # release adds to the shipped CREATE in a migration that runs after this.
   defp shared_columns(state, from, to) do
     with {:ok, from_columns} <- columns(state, from),
          {:ok, to_columns} <- columns(state, to) do
