@@ -936,11 +936,38 @@ fn downsample_sql(
         Some(field) => format!("CAST({} AS STRING)", field_sql(plan, field)?),
         None => "'all'".to_string(),
     };
-    Ok(format!(
-        "SELECT time_slice({time}, INTERVAL {bucket} SECOND) AS timestamp, {series} AS series, {agg} AS value FROM {from}{where_sql} GROUP BY 1, 2 ORDER BY 1 LIMIT {limit} OFFSET {offset}",
-        limit = plan.limit.max(1),
-        offset = plan.offset.max(0)
-    ))
+    let body = format!(
+        "SELECT time_slice({time}, INTERVAL {bucket} SECOND) AS timestamp, {series} AS series, {agg} AS value FROM {from}{where_sql} GROUP BY 1, 2"
+    );
+    Ok(finalize_downsample(plan, "", &body))
+}
+
+/// Orders and limits a downsample. `body` is the bucketing `SELECT`, ending
+/// after its `GROUP BY 1, 2`; `with` is any CTE prefix it reads from, kept at
+/// the top level so the wrapped form can still see it.
+///
+/// A chart is always returned oldest bucket first. When `limit:` is smaller
+/// than the number of buckets in the window, `sort:<time>:desc` says which end
+/// survives: the newest. That is CNPG's rule (`downsample_keeps_newest`), and
+/// every sysmon chart sends it. Ignoring it kept the OLDEST buckets, so a
+/// 30-day chart capped at 300 points showed its first 300 hours and stopped.
+/// The newest are therefore cut descending inside a derived table and sorted
+/// ascending on the way out.
+fn finalize_downsample(plan: &QueryPlan, with: &str, body: &str) -> String {
+    let limit = plan.limit.max(1);
+    let offset = plan.offset.max(0);
+    let newest = plan
+        .order
+        .first()
+        .is_some_and(|clause| matches!(clause.direction, crate::parser::OrderDirection::Desc));
+    if newest {
+        format!(
+            "{with}SELECT timestamp, series, value FROM ({body} ORDER BY 1 DESC, 2 ASC \
+LIMIT {limit} OFFSET {offset}) windowed ORDER BY 1 ASC, 2 ASC"
+        )
+    } else {
+        format!("{with}{body} ORDER BY 1 ASC, 2 ASC LIMIT {limit} OFFSET {offset}")
+    }
 }
 
 /// `timeseries_metrics` stores SNMP-style cumulative counters, so a rate over
@@ -998,7 +1025,7 @@ fn counter_rate_sql(
     let elapsed = "NULLIF(milliseconds_diff(ts, prev_ts) / 1000.0, 0)";
     let wrapped = format!("(v + {WRAP_32} - prev_v) / {elapsed}");
 
-    Ok(format!(
+    let with = format!(
         "WITH ordered AS (\
 SELECT {time} AS ts, {series} AS series, {value} AS v, counter_width, \
 LAG({value}) OVER (PARTITION BY {COUNTER} ORDER BY {time}) AS prev_v, \
@@ -1010,12 +1037,13 @@ WHEN v >= prev_v THEN (v - prev_v) / {elapsed} \
 WHEN counter_width = 32 AND {wrapped} <= {WRAP_32} THEN {wrapped} \
 WHEN prev_v < {WRAP_32} AND {wrapped} <= {WRAP_32} THEN {wrapped} \
 ELSE NULL END AS rate_value \
-FROM ordered WHERE prev_v IS NOT NULL) \
-SELECT time_slice(ts, INTERVAL {bucket} SECOND) AS timestamp, series, {combine}(rate_value) AS value \
-FROM rated WHERE rate_value IS NOT NULL GROUP BY 1, 2 ORDER BY 1 LIMIT {limit} OFFSET {offset}",
-        limit = plan.limit.max(1),
-        offset = plan.offset.max(0)
-    ))
+FROM ordered WHERE prev_v IS NOT NULL) "
+    );
+    let body = format!(
+        "SELECT time_slice(ts, INTERVAL {bucket} SECOND) AS timestamp, series, \
+{combine}(rate_value) AS value FROM rated WHERE rate_value IS NOT NULL GROUP BY 1, 2"
+    );
+    Ok(finalize_downsample(plan, &with, &body))
 }
 
 fn stats_group_by(stats: Option<&crate::parser::StatsSpec>) -> Option<String> {
@@ -1198,6 +1226,16 @@ fn field_sql(plan: &QueryPlan, field: &str) -> Result<String> {
             }
         }
     }
+    if dataset.raw_table == "timeseries_metrics"
+        && let Some(key) = metric_tag_key(field)?
+    {
+        // `tags` is a JSON document in a VARCHAR. The key is quoted in the path
+        // so a hyphen in it is part of the name, not an operator.
+        return Ok(format!(
+            "get_json_string({}, '$.\"{key}\"')",
+            column("tags")
+        ));
+    }
     let fields = match dataset.raw_table {
         "ocsf_network_activity" => {
             "id device_uid time event_type src_endpoint_ip dst_endpoint_ip src_endpoint_port dst_endpoint_port protocol_num protocol_name direction_label dst_service_label start_time end_time src_as_number dst_as_number tcp_flags partition input_snmp output_snmp src_mac dst_mac src_mac_vendor dst_mac_vendor src_hosting_provider dst_hosting_provider protocol_source direction_source dst_service_source src_prefix_tags dst_prefix_tags bytes_in bytes_out packets_in packets_out sampling_rate attribution_version sampler_address pid comm cmdline workload_identity"
@@ -1223,6 +1261,30 @@ fn field_sql(plan: &QueryPlan, field: &str) -> Result<String> {
             "unsupported StarRocks field: {field}"
         )))
     }
+}
+
+/// The tag a metric field names, if it names one: `tags.<key>`, or `core_id`,
+/// the shorter spelling the per-core CPU chart has always used for
+/// `tags.core_id`. CNPG reads these with `tags->>'<key>'`
+/// (`downsample/fields.rs`); without them here that chart, and any series split
+/// by a tag, failed outright the moment metrics were read from the warehouse.
+///
+/// The key is interpolated into SQL, so it passes the same validator CNPG uses
+/// before it gets anywhere near a string.
+fn metric_tag_key(field: &str) -> Result<Option<&str>> {
+    let key = match field {
+        "core_id" => "core_id",
+        other => match other.strip_prefix("tags.") {
+            Some(key) => key,
+            None => return Ok(None),
+        },
+    };
+    if !super::filters_common::is_valid_jsonb_key(key) {
+        return Err(ServiceError::InvalidRequest(format!(
+            "invalid tag key '{key}'"
+        )));
+    }
+    Ok(Some(key))
 }
 
 // Whether an endpoint falls inside a configured local CIDR, for the flow's
@@ -2440,6 +2502,127 @@ mod tests {
 
         assert!(!chart.sql.contains("LAG("), "{}", chart.sql);
         assert!(chart.sql.contains("SUM("), "{}", chart.sql);
+    }
+
+    /// The per-core CPU chart splits by `core_id`, which lives in `tags`. With no
+    /// way to name it the chart failed outright once metrics read the warehouse.
+    #[test]
+    fn metric_series_can_split_by_a_tag() {
+        let chart = translate(
+            &plan(
+                r#"in:timeseries_metrics metric_type:"sysmon.cpu" time:last_24h bucket:5m agg:max series:core_id"#,
+            ),
+            "serviceradar",
+        )
+        .expect("per-core chart");
+        assert!(
+            chart
+                .sql
+                .contains(r#"CAST(get_json_string(tags, '$."core_id"') AS STRING) AS series"#),
+            "{}",
+            chart.sql
+        );
+
+        let by_tag = translate(
+            &plan("in:timeseries_metrics time:last_1h bucket:1m agg:rate_sum series:tags.radius-server"),
+            "serviceradar",
+        )
+        .expect("split by an arbitrary tag");
+        assert!(
+            by_tag
+                .sql
+                .contains(r#"get_json_string(tags, '$."radius-server"')"#),
+            "a hyphen is part of the key, not an operator: {}",
+            by_tag.sql
+        );
+    }
+
+    /// The key reaches a SQL string, so it goes through CNPG's validator first.
+    #[test]
+    fn metric_tag_key_cannot_carry_sql() {
+        let mut refused_by_the_dialect = 0;
+        for series in ["tags.a'b", "tags.", r#"tags.a"b"#, "tags.a.b", "tags.a;b"] {
+            let query =
+                format!("in:timeseries_metrics time:last_1h bucket:1m agg:avg series:{series}");
+            let Ok(parsed) = std::panic::catch_unwind(|| plan(&query)) else {
+                continue; // refused by the parser, which is also a refusal
+            };
+            assert!(
+                translate(&parsed, "serviceradar").is_err(),
+                "{series} must be refused"
+            );
+            refused_by_the_dialect += 1;
+        }
+        assert!(
+            refused_by_the_dialect > 0,
+            "every case was stopped by the parser, so this proved nothing about the dialect"
+        );
+    }
+
+    /// `sort:<time>:desc limit:N` keeps the NEWEST N buckets and still returns
+    /// them oldest first. Ascending-only kept the oldest, so a long chart capped
+    /// at 300 points stopped weeks before the present.
+    #[test]
+    fn downsample_limit_keeps_the_newest_buckets_in_chart_order() {
+        let newest = translate(
+            &plan("in:timeseries_metrics time:last_30d bucket:5m agg:avg sort:timestamp:desc limit:300"),
+            "serviceradar",
+        )
+        .expect("newest buckets");
+        assert!(
+            newest
+                .sql
+                .starts_with("SELECT timestamp, series, value FROM (SELECT time_slice("),
+            "{}",
+            newest.sql
+        );
+        assert!(
+            newest
+                .sql
+                .ends_with("GROUP BY 1, 2 ORDER BY 1 DESC, 2 ASC LIMIT 300 OFFSET 0) windowed ORDER BY 1 ASC, 2 ASC"),
+            "{}",
+            newest.sql
+        );
+
+        let oldest = translate(
+            &plan("in:timeseries_metrics time:last_30d bucket:5m agg:avg limit:300"),
+            "serviceradar",
+        )
+        .expect("default order");
+        assert!(
+            oldest
+                .sql
+                .ends_with("GROUP BY 1, 2 ORDER BY 1 ASC, 2 ASC LIMIT 300 OFFSET 0"),
+            "{}",
+            oldest.sql
+        );
+        assert!(!oldest.sql.contains("windowed"), "{}", oldest.sql);
+    }
+
+    /// The rate query reads CTEs, which must stay at the top level for the
+    /// wrapped form to see them.
+    #[test]
+    fn rate_limit_keeps_the_newest_buckets_without_burying_its_ctes() {
+        let chart = translate(
+            &plan("in:snmp_metrics time:last_24h bucket:5m agg:rate series:metric_name sort:timestamp:desc limit:4"),
+            "serviceradar",
+        )
+        .expect("newest rate buckets");
+        assert!(chart.sql.starts_with("WITH ordered AS ("), "{}", chart.sql);
+        assert!(
+            chart.sql.contains(
+                "SELECT timestamp, series, value FROM (SELECT time_slice(ts, INTERVAL 300 SECOND)"
+            ),
+            "{}",
+            chart.sql
+        );
+        assert!(
+            chart.sql.ends_with(
+                "ORDER BY 1 DESC, 2 ASC LIMIT 4 OFFSET 0) windowed ORDER BY 1 ASC, 2 ASC"
+            ),
+            "{}",
+            chart.sql
+        );
     }
 
     #[test]
