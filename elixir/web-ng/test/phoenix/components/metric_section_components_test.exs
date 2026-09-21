@@ -144,6 +144,25 @@ defmodule ServiceRadarWebNGWeb.Components.MetricSectionComponentsTest do
       assert datetimes == ["2025-01-01T00:00:00Z", "2025-01-08T00:00:00Z"]
     end
 
+    test "an empty window does not claim to be empty while its load is in flight" do
+      render = fn loading? ->
+        render_component(&MetricSectionComponents.metric_sections_content/1, %{
+          device_uid: "sr:test",
+          timezone: "Etc/UTC",
+          chart_focus: nil,
+          time_range: "last_90d",
+          metrics_loading: loading?,
+          sections: []
+        })
+      end
+
+      loading = render.(true)
+      assert present?(loading, @controls)
+      refute present?(loading, @empty)
+
+      assert present?(render.(false), @empty)
+    end
+
     test "sections on any window show the controls and no empty state" do
       for range <- [MetricWindowComponents.default_range(), "last_30d"] do
         html = render_sections([@error_section], range)

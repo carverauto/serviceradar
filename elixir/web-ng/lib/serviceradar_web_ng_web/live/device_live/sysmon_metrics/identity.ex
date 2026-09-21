@@ -46,9 +46,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Identity do
     |> maybe_put_identity(:host_id, host_id)
   end
 
-  def resolve_sysmon_filter_tokens(_srql_module, identity, _scope) when identity == %{} or identity == nil, do: []
+  @doc """
+  The filter tokens that select this device's sysmon series, or `[]` when it has
+  none in the window.
 
-  def resolve_sysmon_filter_tokens(srql_module, identity, scope) do
+  `:time_range` is the window the presence probe looks across. It defaults to the
+  last 24 hours; a page showing a longer or older window passes it, so a device
+  that stopped reporting is still found over the period it did report.
+  """
+  def resolve_sysmon_filter_tokens(srql_module, identity, scope, opts \\ [])
+
+  def resolve_sysmon_filter_tokens(_srql_module, identity, _scope, _opts) when identity == %{} or identity == nil, do: []
+
+  def resolve_sysmon_filter_tokens(srql_module, identity, scope, opts) do
+    time_range = Keyword.get(opts, :time_range, "last_24h")
+
     # Widen the device dimension across every UID this device has been keyed by
     # (current canonical UID + all pre-merge UIDs recorded in merge_audit) so a
     # merged device's detail page shows the full metric history instead of only
@@ -64,13 +76,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Identity do
     host_tokens = sysmon_filter_tokens(identity, :host_id, "agent_id")
 
     cond do
-      device_tokens != [] and sysmon_filter_has_data?(srql_module, device_tokens, scope) ->
+      device_tokens != [] and sysmon_filter_has_data?(srql_module, device_tokens, scope, time_range) ->
         device_tokens
 
-      agent_tokens != [] and sysmon_filter_has_data?(srql_module, agent_tokens, scope) ->
+      agent_tokens != [] and sysmon_filter_has_data?(srql_module, agent_tokens, scope, time_range) ->
         agent_tokens
 
-      host_tokens != [] and sysmon_filter_has_data?(srql_module, host_tokens, scope) ->
+      host_tokens != [] and sysmon_filter_has_data?(srql_module, host_tokens, scope, time_range) ->
         host_tokens
 
       true ->
@@ -154,7 +166,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Identity do
     end
   end
 
-  defp sysmon_filter_has_data?(srql_module, filter_tokens, scope) do
+  defp sysmon_filter_has_data?(srql_module, filter_tokens, scope, time_range) do
     Enum.any?(
       [
         {"sysmon.cpu", "cpu.usage_percent"},
@@ -164,12 +176,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Identity do
         {"sysmon.process", "process.count"}
       ],
       fn {metric_type, metric_name} ->
-        sysmon_timeseries_has_data?(srql_module, metric_type, metric_name, filter_tokens, scope)
+        sysmon_timeseries_has_data?(srql_module, metric_type, metric_name, filter_tokens, scope, time_range)
       end
     )
   end
 
-  defp sysmon_timeseries_has_data?(srql_module, metric_type, metric_name, filter_tokens, scope) do
+  defp sysmon_timeseries_has_data?(srql_module, metric_type, metric_name, filter_tokens, scope, time_range) do
     query =
       timeseries_metric_query(
         metric_type,
@@ -177,8 +189,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Identity do
         filter_tokens,
         nil,
         1,
-        time_range: "last_24h",
-        bucket?: false
+        time_range: time_range,
+        bucket: bucket_for_time_range(time_range)
       )
 
     case srql_module.query(query, %{scope: scope}) do

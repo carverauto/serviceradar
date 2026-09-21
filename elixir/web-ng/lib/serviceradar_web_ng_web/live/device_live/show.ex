@@ -876,7 +876,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     if Application.get_env(:serviceradar_web_ng, :env) == :test do
       sysmon_filters =
-        SysmonMetrics.resolve_sysmon_filter_tokens(srql_module, sysmon_identity, scope)
+        SysmonMetrics.resolve_sysmon_filter_tokens(srql_module, sysmon_identity, scope, metric_opts)
 
       assigns = %{
         metric_sections: SysmonMetrics.load_metric_sections(srql_module, sysmon_filters, scope, metric_opts),
@@ -903,7 +903,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> assign(:metrics_loading, true)
       |> start_async({:device_metrics, uid, request_ref}, fn ->
         sysmon_filters =
-          SysmonMetrics.resolve_sysmon_filter_tokens(srql_module, sysmon_identity, scope)
+          SysmonMetrics.resolve_sysmon_filter_tokens(srql_module, sysmon_identity, scope, metric_opts)
 
         %{
           metric_sections: SysmonMetrics.load_metric_sections(srql_module, sysmon_filters, scope, metric_opts),

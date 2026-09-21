@@ -207,6 +207,64 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
     assert query =~ "bucket:6h"
   end
 
+  test "the presence probe looks across the selected window, and the last 24 hours by default" do
+    previous_responder = Application.get_env(:serviceradar_web_ng, :sysmon_metrics_test_responder)
+
+    Application.put_env(:serviceradar_web_ng, :sysmon_metrics_test_responder, fn query, _opts ->
+      send(self(), {:presence_probe, query})
+      {:ok, %{"results" => [%{"value" => 1.0}], "pagination" => %{}}}
+    end)
+
+    on_exit(fn ->
+      restore_env(:sysmon_metrics_test_responder, previous_responder)
+    end)
+
+    identity = %{agent_id: "agent-presence-probe-test"}
+    tokens = [~s|agent_id:"agent-presence-probe-test"|]
+    absolute = "[2025-01-01T00:00:00Z,2025-01-31T00:00:00Z]"
+
+    assert SysmonMetrics.resolve_sysmon_filter_tokens(RecordingSRQLStub, identity, :scope) == tokens
+    assert_received {:presence_probe, default_query}
+    assert default_query =~ "time:last_24h"
+    assert default_query =~ "bucket:5m"
+
+    assert SysmonMetrics.resolve_sysmon_filter_tokens(RecordingSRQLStub, identity, :scope, time_range: "last_30d") ==
+             tokens
+
+    assert_received {:presence_probe, long_query}
+    assert long_query =~ "time:last_30d"
+    assert long_query =~ "bucket:6h"
+    refute long_query =~ "last_24h"
+
+    assert SysmonMetrics.resolve_sysmon_filter_tokens(RecordingSRQLStub, identity, :scope, time_range: absolute) ==
+             tokens
+
+    assert_received {:presence_probe, absolute_query}
+    assert absolute_query =~ "time:#{absolute}"
+    assert absolute_query =~ "bucket:6h"
+    refute absolute_query =~ "last_24h"
+  end
+
+  test "a device silent in the selected window resolves to no filters" do
+    previous_responder = Application.get_env(:serviceradar_web_ng, :sysmon_metrics_test_responder)
+
+    Application.put_env(:serviceradar_web_ng, :sysmon_metrics_test_responder, fn query, _opts ->
+      rows = if String.contains?(query, "time:last_30d"), do: [%{"value" => 1.0}], else: []
+      {:ok, %{"results" => rows, "pagination" => %{}}}
+    end)
+
+    on_exit(fn ->
+      restore_env(:sysmon_metrics_test_responder, previous_responder)
+    end)
+
+    identity = %{agent_id: "agent-silent-for-a-day"}
+
+    assert SysmonMetrics.resolve_sysmon_filter_tokens(RecordingSRQLStub, identity, :scope) == []
+
+    assert SysmonMetrics.resolve_sysmon_filter_tokens(RecordingSRQLStub, identity, :scope, time_range: "last_30d") ==
+             [~s|agent_id:"agent-silent-for-a-day"|]
+  end
+
   test "a window reaching past raw retention gets a bucket of at least an hour" do
     now = ~U[2025-06-30 00:00:00Z]
 

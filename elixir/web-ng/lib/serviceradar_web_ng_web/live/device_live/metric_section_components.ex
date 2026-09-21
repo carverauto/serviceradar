@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetricSectionComponents do
   attr(:timezone, :string, required: true)
   attr(:chart_focus, :any, default: nil)
   attr(:time_range, :string, default: MetricWindowComponents.default_range())
+  attr(:metrics_loading, :boolean, default: false)
 
   def metric_sections_content(assigns) do
     assigns =
@@ -54,7 +55,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetricSectionComponents do
       />
     </p>
     <p
-      :if={@window_controls_visible and @sections == []}
+      :if={@window_controls_visible and @sections == [] and not @metrics_loading}
       id={"device-#{@device_uid}-metric-window-empty"}
       class="rounded-xl border border-sr-line bg-sr-surface px-4 py-3 text-sm text-sr-muted"
     >
