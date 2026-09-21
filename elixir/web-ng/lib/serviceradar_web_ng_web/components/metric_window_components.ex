@@ -26,6 +26,8 @@ defmodule ServiceRadarWebNGWeb.MetricWindowComponents do
   attr :custom_event, :string, required: true
   attr :custom_options, :list, default: []
   attr :custom_enabled, :boolean, default: true
+  attr :custom_submit_label, :string, default: "Open SRQL"
+  attr :custom_hint, :string, default: "Open this time range in the SRQL query editor."
 
   def metric_window_controls(assigns) do
     form = to_form(%{"start" => "", "end" => "", "metric" => ""}, as: :window)
@@ -56,7 +58,10 @@ defmodule ServiceRadarWebNGWeb.MetricWindowComponents do
           Custom
         </button>
         <details :if={@custom_enabled} id={"#{@id}-custom"} class="relative">
-          <summary class="cursor-pointer rounded-sr-control px-2 py-1 text-xs text-sr-ink hover:bg-sr-subtle">
+          <summary class={[
+            "cursor-pointer rounded-sr-control px-2 py-1 text-xs text-sr-ink hover:bg-sr-subtle",
+            absolute_range?(@range) && "bg-sr-subtle font-semibold"
+          ]}>
             Custom
           </summary>
           <div class="absolute right-0 z-30 mt-2 w-80 rounded-xl border border-sr-line bg-sr-surface p-4 shadow-lg">
@@ -70,8 +75,8 @@ defmodule ServiceRadarWebNGWeb.MetricWindowComponents do
               />
               <.input field={@form[:start]} type="datetime-local" label="Start (UTC)" required />
               <.input field={@form[:end]} type="datetime-local" label="End (UTC)" required />
-              <p class="text-xs text-sr-muted">Open this time range in the SRQL query editor.</p>
-              <.ui_button type="submit" size="sm" variant="primary">Open SRQL</.ui_button>
+              <p class="text-xs text-sr-muted">{@custom_hint}</p>
+              <.ui_button type="submit" size="sm" variant="primary">{@custom_submit_label}</.ui_button>
             </.form>
           </div>
         </details>
@@ -91,6 +96,28 @@ defmodule ServiceRadarWebNGWeb.MetricWindowComponents do
   end
 
   def custom_range(_), do: {:error, "Choose a start and end date."}
+
+  @doc """
+  Whether `range` is a well-formed absolute `[start,end]` window, as produced by
+  `custom_range/1`: two ISO 8601 instants with the end after the start.
+
+  A page that lets a range arrive from the client checks it here before it goes
+  anywhere near a query, since the relative windows are an allowlist and an
+  absolute one cannot be.
+  """
+  @spec absolute_range?(term()) :: boolean()
+  def absolute_range?("[" <> _ = range) do
+    with true <- String.ends_with?(range, "]"),
+         [start_raw, end_raw] <- range |> String.slice(1..-2//1) |> String.split(",", parts: 2),
+         {:ok, start_time, 0} <- DateTime.from_iso8601(start_raw),
+         {:ok, end_time, 0} <- DateTime.from_iso8601(end_raw) do
+      DateTime.before?(start_time, end_time)
+    else
+      _ -> false
+    end
+  end
+
+  def absolute_range?(_range), do: false
 
   def query_for_range(query, range) do
     Builder.with_time_range(query, range, bucket: Query.bucket_for_time_range(range))

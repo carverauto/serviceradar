@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetricSectionComponents do
 
   use ServiceRadarWebNGWeb, :html
 
+  import ServiceRadarWebNGWeb.MetricWindowComponents, only: [metric_window_controls: 1]
   import ServiceRadarWebNGWeb.SRQLComponents, only: [srql_results_table: 1]
 
   attr(:sections, :list, default: [])
@@ -13,22 +14,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetricSectionComponents do
 
   def metric_sections_content(assigns) do
     ~H"""
-    <div :if={@sections != []} class="flex items-center justify-end gap-2">
-      <span class="text-[11px] uppercase tracking-wide text-sr-muted">Window</span>
-      <div class="flex flex-wrap gap-1">
-        <.ui_button
-          :for={{label, value} <- sysmon_range_options()}
-          type="button"
-          phx-click="sysmon_set_range"
-          phx-value-range={value}
-          size="xs"
-          variant={if(@time_range == value, do: "primary", else: "ghost")}
-          active={@time_range == value}
-        >
-          {label}
-        </.ui_button>
-      </div>
-    </div>
+    <.metric_window_controls
+      :if={@sections != []}
+      id={"device-#{@device_uid}-metric-window"}
+      range={@time_range}
+      event="sysmon_set_range"
+      custom_event="sysmon_set_custom_range"
+      custom_submit_label="Apply"
+      custom_hint="Show these charts for a specific period. Times are UTC."
+    />
 
     <%= for {section, section_index} <- Enum.with_index(@sections) do %>
       <div class="rounded-xl border border-sr-line bg-sr-surface">
@@ -107,10 +101,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetricSectionComponents do
       </div>
     <% end %>
     """
-  end
-
-  defp sysmon_range_options do
-    [{"1h", "last_1h"}, {"6h", "last_6h"}, {"24h", "last_24h"}, {"7d", "last_7d"}]
   end
 
   defp format_pct(value) when is_float(value), do: :erlang.float_to_binary(value, decimals: 1)

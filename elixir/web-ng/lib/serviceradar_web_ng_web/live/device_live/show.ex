@@ -30,6 +30,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadarWebNGWeb.DeviceLive.RemoteAccessData
   alias ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics
   alias ServiceRadarWebNGWeb.DeviceLive.VirtualizationData
+  alias ServiceRadarWebNGWeb.MetricWindowComponents
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
   require Logger
@@ -922,19 +923,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
-  @sysmon_time_ranges ~w(last_1h last_6h last_24h last_7d)
+  # The relative windows are the shared allowlist. An absolute `[start,end]`
+  # window comes from the Custom form and is checked for shape before it can
+  # reach a query.
+  defp sysmon_range?(range) do
+    range in MetricWindowComponents.ranges() or MetricWindowComponents.absolute_range?(range)
+  end
 
   defp sysmon_time_range(socket) do
-    case Map.get(socket.assigns, :sysmon_time_range) do
-      range when range in @sysmon_time_ranges -> range
-      _ -> "last_24h"
-    end
+    range = Map.get(socket.assigns, :sysmon_time_range)
+    if sysmon_range?(range), do: range, else: "last_24h"
   end
 
   # Switch the sysmon charts to a new window and re-run the metric load using the
   # already-resolved device identity, so the bucket resizes to the range.
-  defp apply_sysmon_time_range(socket, range) when range in @sysmon_time_ranges do
-    if range == sysmon_time_range(socket) do
+  defp apply_sysmon_time_range(socket, range) do
+    if not sysmon_range?(range) or range == sysmon_time_range(socket) do
       socket
     else
       socket = assign(socket, :sysmon_time_range, range)
@@ -954,8 +958,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       end
     end
   end
-
-  defp apply_sysmon_time_range(socket, _range), do: socket
 
   defp maybe_load_anomaly_capacity(true, srql_module, sysmon_identity, scope, filters) do
     AnomalyCapacityData.load(srql_module, sysmon_identity, scope, anomaly_load_opts(filters))
@@ -1459,6 +1461,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   def handle_event("sysmon_set_range", %{"range" => range}, socket) do
     {:noreply, apply_sysmon_time_range(socket, range)}
+  end
+
+  def handle_event("sysmon_set_custom_range", %{"window" => params}, socket) do
+    case MetricWindowComponents.custom_range(params) do
+      {:ok, range} -> {:noreply, apply_sysmon_time_range(socket, range)}
+      {:error, message} -> {:noreply, put_flash(socket, :error, message)}
+    end
   end
 
   def handle_event("switch_tab", %{"tab" => tab}, socket) do

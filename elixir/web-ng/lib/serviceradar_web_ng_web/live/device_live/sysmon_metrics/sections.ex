@@ -207,11 +207,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Sections do
   defp default_window_label(opts) do
     time_range = Keyword.get(opts, :time_range, "last_24h")
 
-    label =
-      time_range
-      |> to_string()
-      |> String.replace("_", " ")
-
-    "#{label} · #{resolve_bucket(opts, time_range)} buckets"
+    "#{range_label(to_string(time_range))} · #{resolve_bucket(opts, time_range)} buckets"
   end
+
+  # An absolute range is an SRQL token, not something to show a person.
+  defp range_label("[" <> _ = range) do
+    with [start_raw, end_raw] <- range |> String.trim_leading("[") |> String.trim_trailing("]") |> String.split(","),
+         {:ok, start_time, _} <- DateTime.from_iso8601(start_raw),
+         {:ok, end_time, _} <- DateTime.from_iso8601(end_raw) do
+      "#{Calendar.strftime(start_time, "%Y-%m-%d %H:%M")} – #{Calendar.strftime(end_time, "%Y-%m-%d %H:%M")} UTC"
+    else
+      _ -> range
+    end
+  end
+
+  defp range_label(range), do: String.replace(range, "_", " ")
 end

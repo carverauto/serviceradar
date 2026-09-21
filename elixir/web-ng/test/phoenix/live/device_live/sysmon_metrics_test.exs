@@ -179,6 +179,34 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
            ]
   end
 
+  test "a custom range is labelled as dates, and picks its own bucket" do
+    previous_responder = Application.get_env(:serviceradar_web_ng, :sysmon_metrics_test_responder)
+
+    Application.put_env(:serviceradar_web_ng, :sysmon_metrics_test_responder, fn query, _opts ->
+      if String.contains?(query, "in:timeseries_metrics"), do: send(self(), {:custom_range_query, query})
+      {:ok, %{"results" => [], "pagination" => %{}}}
+    end)
+
+    on_exit(fn ->
+      restore_env(:sysmon_metrics_test_responder, previous_responder)
+    end)
+
+    sections =
+      SysmonMetrics.load_metric_sections(
+        RecordingSRQLStub,
+        [~s|device_id:"sysmon-custom-range-test"|],
+        :scope,
+        time_range: "[2025-01-01T00:00:00Z,2025-01-31T00:00:00Z]"
+      )
+
+    assert [subtitle | _] = Enum.map(sections, & &1.subtitle)
+    assert subtitle == "2025-01-01 00:00 – 2025-01-31 00:00 UTC · 6h buckets · overall utilization"
+
+    assert_received {:custom_range_query, query}
+    assert query =~ "time:[2025-01-01T00:00:00Z,2025-01-31T00:00:00Z]"
+    assert query =~ "bucket:6h"
+  end
+
   test "CPU section attributes a failed per-core query to the core response" do
     previous_responder = Application.get_env(:serviceradar_web_ng, :sysmon_metrics_test_responder)
 
