@@ -1256,10 +1256,18 @@ fn field_sql(plan: &QueryPlan, field: &str) -> Result<String> {
     }
 }
 
-// Bit order and names are `FlowEnrichment.@tcp_flag_bits`, which is what fills
-// CNPG's `tcp_flags_labels`; the warehouse keeps only the integer, so the label
-// is rebuilt from it. CONCAT_WS drops NULL arguments, which leaves a mask with
-// no known bit as '' -- what `array_to_string` makes of CNPG's empty array.
+// Bit order and names are `FlowEnrichment.@tcp_flag_bits`; the warehouse keeps
+// only the integer, so the label is rebuilt from it, in CWR..FIN order joined
+// by ','.
+//
+// A flow without TCP flags is labelled 'none': a NULL mask (ingest writes a zero
+// mask as NULL, so this is every UDP and ICMP flow), a zero mask, a mask with
+// none of the eight known bits, and a negative mask, which the enrichment
+// decodes to no labels rather than reading its sign-extended bits. CNPG
+// labelled these '', which charts as a blank slice that the UI's 'unknown'
+// fallback does not catch. Flows have no CNPG read path any more, so 'none' is
+// the product's behaviour and a deliberate improvement on that '', not a parity
+// break. It is not 'Unknown' either: the flags are known, and there are none.
 const TCP_FLAG_BITS: [(u16, &str); 8] = [
     (128, "CWR"),
     (64, "ECE"),
@@ -1277,10 +1285,8 @@ fn tcp_flags_label_sql(tcp_flags: &str) -> String {
         .map(|(bit, name)| format!("IF(BITAND({tcp_flags}, {bit}) = 0, NULL, '{name}')"))
         .collect::<Vec<_>>()
         .join(", ");
-    // The enrichment decodes a negative mask to no labels rather than reading
-    // its sign-extended bits.
     format!(
-        "CASE WHEN {tcp_flags} IS NULL THEN 'Unknown' WHEN {tcp_flags} < 0 THEN '' ELSE CONCAT_WS(',', {labels}) END"
+        "CASE WHEN {tcp_flags} IS NULL OR {tcp_flags} < 0 OR BITAND({tcp_flags}, 255) = 0 THEN 'none' ELSE CONCAT_WS(',', {labels}) END"
     )
 }
 
@@ -1360,33 +1366,57 @@ fn filters_on_flow_cidr(plan: &QueryPlan) -> bool {
             .any(|filter| matches!(filter.field.as_str(), "src_cidr" | "dst_cidr"))
 }
 
-// CNPG asks `try_inet(ip) <<= cidr`. Here the CIDR becomes its first and last
-// address in the `ip_hex_source` encoding. The length test keeps the families
-// apart, as inet containment does: an IPv4 flow is never inside an IPv6 prefix.
-// An address that does not parse has a NULL hex, so it fails the test and its
-// negation alike, which is also what `try_inet` returning NULL does on CNPG.
+// CNPG asks `try_inet(ip) <<= cidr`, or `<<= ANY(cidr[])` for a list. Here each
+// CIDR becomes its first and last address in the `ip_hex_source` encoding. The
+// length test keeps the families apart, as inet containment does: an IPv4 flow
+// is never inside an IPv6 prefix.
+//
+// An address that is NULL or does not parse has a NULL hex. It is inside no
+// CIDR, so it fails the positive test and passes the negated one -- the
+// `try_inet(...) IS NULL OR NOT (...)` of CNPG's stats path, which is the path
+// these aggregate queries took.
 //
 // The lambda is there to name the hex once. StarRocks inlines the derived
 // column into the predicate, and the three references a plain range test makes
 // put the expression past its 10000-node analyzer limit ("Expression too
-// complex").
+// complex"). A list ORs its ranges inside the same lambda for the same reason.
 fn flow_cidr_filter_sql(filter: &Filter, endpoint: &str) -> Result<String> {
     use crate::parser::FilterOp;
-    let (first, last) = cidr_hex_bounds(filter.value.as_scalar()?)?;
-    if !matches!(filter.op, FilterOp::Eq | FilterOp::NotEq) {
-        return Err(ServiceError::InvalidRequest(format!(
-            "{endpoint}_cidr filter only supports equality"
-        )));
+    let (cidrs, negated): (Vec<&str>, bool) = match filter.op {
+        FilterOp::Eq | FilterOp::NotEq => (
+            vec![filter.value.as_scalar()?],
+            matches!(filter.op, FilterOp::NotEq),
+        ),
+        FilterOp::In | FilterOp::NotIn => (
+            filter.value.as_list()?.iter().map(String::as_str).collect(),
+            matches!(filter.op, FilterOp::NotIn),
+        ),
+        _ => {
+            return Err(ServiceError::InvalidRequest(format!(
+                "{endpoint}_cidr filter only supports equality or list matching"
+            )));
+        }
+    };
+    if cidrs.is_empty() {
+        return Err(ServiceError::InvalidRequest("empty filter list".into()));
     }
-    let within = format!(
-        "any_match(h -> LENGTH(h) = {} AND h BETWEEN '{first}' AND '{last}', [f.{endpoint}_ip_hex])",
-        first.len()
-    );
-    Ok(if matches!(filter.op, FilterOp::NotEq) {
-        format!("NOT {within}")
+    let ranges = cidrs
+        .iter()
+        .map(|cidr| {
+            let (first, last) = cidr_hex_bounds(cidr)?;
+            Ok(format!(
+                "(LENGTH(h) = {} AND h BETWEEN '{first}' AND '{last}')",
+                first.len()
+            ))
+        })
+        .collect::<Result<Vec<_>>>()?
+        .join(" OR ");
+    let test = if negated {
+        format!("h IS NULL OR NOT ({ranges})")
     } else {
-        within
-    })
+        ranges
+    };
+    Ok(format!("any_match(h -> {test}, [f.{endpoint}_ip_hex])"))
 }
 
 fn cidr_hex_bounds(value: &str) -> Result<(String, String)> {
@@ -3206,7 +3236,7 @@ mod tests {
             )
             .expect(group);
             let sql = &compiled.sql;
-            let label = "CASE WHEN tcp_flags IS NULL THEN 'Unknown' WHEN tcp_flags < 0 THEN '' ELSE CONCAT_WS(',', IF(BITAND(tcp_flags, 128) = 0, NULL, 'CWR'), IF(BITAND(tcp_flags, 64) = 0, NULL, 'ECE'), IF(BITAND(tcp_flags, 32) = 0, NULL, 'URG'), IF(BITAND(tcp_flags, 16) = 0, NULL, 'ACK'), IF(BITAND(tcp_flags, 8) = 0, NULL, 'PSH'), IF(BITAND(tcp_flags, 4) = 0, NULL, 'RST'), IF(BITAND(tcp_flags, 2) = 0, NULL, 'SYN'), IF(BITAND(tcp_flags, 1) = 0, NULL, 'FIN')) END";
+            let label = "CASE WHEN tcp_flags IS NULL OR tcp_flags < 0 OR BITAND(tcp_flags, 255) = 0 THEN 'none' ELSE CONCAT_WS(',', IF(BITAND(tcp_flags, 128) = 0, NULL, 'CWR'), IF(BITAND(tcp_flags, 64) = 0, NULL, 'ECE'), IF(BITAND(tcp_flags, 32) = 0, NULL, 'URG'), IF(BITAND(tcp_flags, 16) = 0, NULL, 'ACK'), IF(BITAND(tcp_flags, 8) = 0, NULL, 'PSH'), IF(BITAND(tcp_flags, 4) = 0, NULL, 'RST'), IF(BITAND(tcp_flags, 2) = 0, NULL, 'SYN'), IF(BITAND(tcp_flags, 1) = 0, NULL, 'FIN')) END";
             assert!(
                 sql.contains(&format!("{label} AS tcp_flags_label")),
                 "{sql}"
@@ -3216,6 +3246,50 @@ mod tests {
             assert!(!sql.contains("tcp_flags_labels"), "{sql}");
             assert!(!sql.contains("array_to_string"), "{sql}");
             assert!(!sql.contains("cnpg_platform"), "{sql}");
+        }
+    }
+
+    // Evaluates the emitted label expression the way the warehouse does:
+    // BITAND on the integer, CONCAT_WS skipping NULL arguments, and a NULL
+    // comparison never being true.
+    fn eval_tcp_flags_label(sql: &str, mask: Option<i64>) -> String {
+        let rest = sql
+            .strip_prefix("CASE WHEN m IS NULL OR m < 0 OR BITAND(m, ")
+            .expect("guard");
+        let (known, rest) = rest.split_once(") = 0 THEN '").expect("known bits");
+        let known: i64 = known.parse().expect("known bits literal");
+        let (empty, rest) = rest.split_once("' ELSE CONCAT_WS('").expect("empty label");
+        let (separator, rest) = rest.split_once("', ").expect("separator");
+        let terms = rest.strip_suffix(") END").expect("end");
+        let Some(mask) = mask.filter(|mask| *mask >= 0 && mask & known != 0) else {
+            return empty.to_string();
+        };
+        terms
+            .split("), ")
+            .filter_map(|term| {
+                let term = term.strip_prefix("IF(BITAND(m, ").expect("term");
+                let (bit, name) = term.split_once(") = 0, NULL, '").expect("bit");
+                let bit: i64 = bit.parse().expect("bit literal");
+                let name = name.trim_end_matches(')').trim_end_matches('\'');
+                (mask & bit != 0).then_some(name)
+            })
+            .collect::<Vec<_>>()
+            .join(separator)
+    }
+
+    #[test]
+    fn tcp_flag_labels_name_set_bits_in_order_and_none_otherwise() {
+        let sql = tcp_flags_label_sql("m");
+        for (mask, label) in [
+            (None, "none"),
+            (Some(0), "none"),
+            (Some(256), "none"),
+            (Some(-1), "none"),
+            (Some(2), "SYN"),
+            (Some(18), "ACK,SYN"),
+            (Some(255), "CWR,ECE,URG,ACK,PSH,RST,SYN,FIN"),
+        ] {
+            assert_eq!(eval_tcp_flags_label(&sql, mask), label, "{mask:?}");
         }
     }
 
@@ -3361,7 +3435,7 @@ mod tests {
             let sql = &compiled.sql;
             assert!(
                 sql.contains(&format!(
-                    " AND any_match(h -> LENGTH(h) = {width} AND h BETWEEN '{first}' AND '{last}', [f.{endpoint}_ip_hex])"
+                    " AND any_match(h -> (LENGTH(h) = {width} AND h BETWEEN '{first}' AND '{last}'), [f.{endpoint}_ip_hex])"
                 )),
                 "{query}: {sql}"
             );
@@ -3394,7 +3468,7 @@ mod tests {
     }
 
     #[test]
-    fn negated_cidr_filters_negate_the_whole_range_test() {
+    fn negated_cidr_filters_keep_flows_without_a_parseable_address() {
         let compiled = translate(
             &plan(r#"in:flows time:last_1h !src_cidr:192.0.2.0/24 stats:"count(*) as flows""#),
             "serviceradar",
@@ -3402,11 +3476,67 @@ mod tests {
         .expect("negated src_cidr");
         assert!(
             compiled.sql.contains(
-                " AND NOT any_match(h -> LENGTH(h) = 8 AND h BETWEEN 'c0000200' AND 'c00002ff', [f.src_ip_hex])"
+                " AND any_match(h -> h IS NULL OR NOT ((LENGTH(h) = 8 AND h BETWEEN 'c0000200' AND 'c00002ff')), [f.src_ip_hex])"
             ),
             "{}",
             compiled.sql
         );
+        assert_eq!(compiled.sql.matches("f.src_ip_hex").count(), 1);
+    }
+
+    #[test]
+    fn cidr_lists_test_every_range_inside_one_lambda() {
+        let ranges = "(LENGTH(h) = 8 AND h BETWEEN 'c0000200' AND 'c00002ff') OR (LENGTH(h) = 32 AND h BETWEEN '20010db8001200000000000000000000' AND '20010db80012ffffffffffffffffffff')";
+        for (query, endpoint, test) in [
+            (
+                "src_cidr:(192.0.2.0/24,2001:db8:12::/48)",
+                "src",
+                ranges.to_string(),
+            ),
+            (
+                "!dst_cidr:(192.0.2.0/24,2001:db8:12::/48)",
+                "dst",
+                format!("h IS NULL OR NOT ({ranges})"),
+            ),
+        ] {
+            let compiled = translate(
+                &plan(&format!(
+                    r#"in:flows time:last_1h {query} stats:"count(*) as flows""#
+                )),
+                "serviceradar",
+            )
+            .expect(query);
+            let sql = &compiled.sql;
+            assert!(
+                sql.contains(&format!(
+                    " AND any_match(h -> {test}, [f.{endpoint}_ip_hex])"
+                )),
+                "{query}: {sql}"
+            );
+            assert_eq!(
+                sql.matches(&format!("f.{endpoint}_ip_hex")).count(),
+                1,
+                "{query}: {sql}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_cidr_list_with_one_malformed_entry_is_rejected() {
+        for (list, message) in [
+            ("(192.0.2.0/24,198.51.100.0/33)", "CIDR prefix length"),
+            ("(192.0.2.5/24,198.51.100.0/24)", "bits set to the right"),
+        ] {
+            for prefix in ["", "!"] {
+                let err = translate(
+                    &plan(&format!("in:flows time:last_1h {prefix}src_cidr:{list}")),
+                    "serviceradar",
+                )
+                .expect_err(list);
+                assert!(matches!(err, ServiceError::InvalidRequest(_)), "{err}");
+                assert!(err.to_string().contains(message), "{list}: {err}");
+            }
+        }
     }
 
     #[test]
@@ -3428,7 +3558,7 @@ mod tests {
         assert!(
             joined
                 .sql
-                .contains("BETWEEN 'c0000200' AND 'c00002ff', [f.src_ip_hex])"),
+                .contains("BETWEEN 'c0000200' AND 'c00002ff'), [f.src_ip_hex])"),
             "{}",
             joined.sql
         );
@@ -3444,7 +3574,7 @@ mod tests {
         assert!(
             directed
                 .sql
-                .contains("BETWEEN 'c0000200' AND 'c00002ff', [f.dst_ip_hex])"),
+                .contains("BETWEEN 'c0000200' AND 'c00002ff'), [f.dst_ip_hex])"),
             "{}",
             directed.sql
         );
@@ -3504,22 +3634,12 @@ mod tests {
                 "{query}: {err}"
             );
             assert!(
-                err.to_string()
-                    .contains(&format!("{field} filter only supports equality")),
+                err.to_string().contains(&format!(
+                    "{field} filter only supports equality or list matching"
+                )),
                 "{query}: {err}"
             );
         }
-    }
-
-    #[test]
-    fn cidr_filters_reject_a_list_like_cnpg() {
-        let err = translate(
-            &plan("in:flows time:last_1h src_cidr:(192.0.2.0/24,198.51.100.0/24)"),
-            "serviceradar",
-        )
-        .expect_err("cidr list");
-        assert!(matches!(err, ServiceError::InvalidRequest(_)), "{err}");
-        assert!(err.to_string().contains("expected scalar value"), "{err}");
     }
 
     fn refute_postgres(sql: &str) {
