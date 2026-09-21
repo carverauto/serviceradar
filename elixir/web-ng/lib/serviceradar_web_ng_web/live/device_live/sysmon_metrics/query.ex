@@ -67,6 +67,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Query do
   end
 
   @doc """
+  The start and finish of a relative or absolute window.
+
+  Relative windows end at `now`. A window that cannot be read returns `:error`.
+  """
+  @spec window_bounds(term(), DateTime.t()) :: {:ok, DateTime.t(), DateTime.t()} | :error
+  def window_bounds(range, now \\ DateTime.utc_now()) do
+    with %DateTime{} = start <- window_start(range, now),
+         %DateTime{} = finish <- window_finish(range, now),
+         :lt <- DateTime.compare(start, finish) do
+      {:ok, start, finish}
+    else
+      _ -> :error
+    end
+  end
+
+  @doc """
   Whether a window starts before the raw metric table's retention.
 
   Raw samples are kept for a week; older history lives in the hourly rollup.
@@ -102,6 +118,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Query do
       seconds when is_integer(seconds) -> DateTime.add(now, -seconds, :second)
       _ -> nil
     end
+  end
+
+  defp window_finish("[" <> _ = range, _now) do
+    with [_start_raw, end_raw] <- range |> String.trim_leading("[") |> String.split(",", parts: 2),
+         {:ok, finish, _} <- DateTime.from_iso8601(String.trim(end_raw)) do
+      finish
+    else
+      _ -> nil
+    end
+  end
+
+  defp window_finish(range, now) do
+    if is_integer(window_seconds(range)), do: now
   end
 
   defp pick_bucket(target_seconds) do
