@@ -56,6 +56,51 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumersTest do
     refute Map.has_key?(hd(encoded), "bytes_in")
   end
 
+  test "event encode keeps the documents SRQL filters by path" do
+    [encoded] =
+      Rows.encode(:events, [
+        %{
+          id: "evt-alpha-0002",
+          time: ~U[1999-06-15 12:00:00Z],
+          class_uid: 2004,
+          category_uid: 2,
+          log_level: "error",
+          metadata: %{"service_radar" => %{"device_uid" => "sr:device-0001"}},
+          unmapped: ~s({"event_type":"anomaly"}),
+          device: %{}
+        }
+      ])
+
+    assert encoded["log_level"] == "error"
+
+    assert Jason.decode!(encoded["metadata"]) == %{
+             "service_radar" => %{"device_uid" => "sr:device-0001"}
+           }
+
+    assert Jason.decode!(encoded["unmapped"]) == %{"event_type" => "anomaly"}
+    # An empty document is stored as one; NULL is left to mean "never written".
+    assert encoded["device"] == "{}"
+  end
+
+  test "event encode drops a document wider than its warehouse column, not the event" do
+    [encoded] =
+      Rows.encode(:events, [
+        %{
+          id: "evt-alpha-0003",
+          time: ~U[1999-06-15 12:00:00Z],
+          class_uid: 2004,
+          metadata: %{"blob" => String.duplicate("x", 1_048_576)},
+          unmapped: "not json",
+          device: nil
+        }
+      ])
+
+    assert encoded["id"]
+    assert is_nil(encoded["metadata"])
+    assert is_nil(encoded["unmapped"])
+    assert is_nil(encoded["device"])
+  end
+
   test "whole-hour event windows read the rollup while row helpers stay on raw events",
        %{prev: prev} do
     Application.put_env(

@@ -135,8 +135,24 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
       "log_name" => stringify(field(row, :log_name)),
       "log_provider" => stringify(field(row, :log_provider)),
       "trace_id" => stringify(field(row, :trace_id)),
-      "span_id" => stringify(field(row, :span_id))
+      "span_id" => stringify(field(row, :span_id)),
+      "log_level" => stringify(field(row, :log_level)),
+      "metadata" => document(field(row, :metadata)),
+      "unmapped" => document(field(row, :unmapped)),
+      "device" => document(field(row, :device))
     }
+  end
+
+  # priv/starrocks/0018: the documents are VARCHAR(1048576), and a value wider
+  # than its column is a load error. An oversized document is dropped so the
+  # event itself still lands.
+  @max_document_bytes 1_048_576
+
+  defp document(value) do
+    case json_text(decode_object(value)) do
+      json when is_binary(json) and byte_size(json) <= @max_document_bytes -> json
+      _ -> nil
+    end
   end
 
   defp field(row, key) when is_atom(key) do
