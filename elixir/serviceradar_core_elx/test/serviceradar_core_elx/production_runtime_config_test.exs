@@ -323,6 +323,40 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     end
   end
 
+  test "prod config enables automated MTR by default" do
+    core_config = read_prod_config()[:serviceradar_core]
+
+    # Asserted here rather than in serviceradar_core because only this tree is
+    # evaluated by the release; core's copy of these keys is inert in production.
+    assert core_config[:mtr_automation_enabled] == true
+    assert core_config[:mtr_automation_baseline_enabled] == true
+    assert core_config[:mtr_automation_trigger_enabled] == true
+    assert core_config[:mtr_automation_consensus_enabled] == true
+  end
+
+  test "prod config lets MTR_AUTOMATION_ENABLED seed the unset stage flags" do
+    with_env("MTR_AUTOMATION_ENABLED", "false")
+
+    core_config = read_prod_config()[:serviceradar_core]
+
+    # `enabled` gates no worker itself -- it is the fallback each stage flag
+    # inherits, which is why the chart renders all four.
+    assert core_config[:mtr_automation_enabled] == false
+    assert core_config[:mtr_automation_baseline_enabled] == false
+    assert core_config[:mtr_automation_trigger_enabled] == false
+    assert core_config[:mtr_automation_consensus_enabled] == false
+  end
+
+  test "prod config honours a per-stage MTR opt-out over the master value" do
+    with_env("MTR_AUTOMATION_CONSENSUS_ENABLED", "false")
+
+    core_config = read_prod_config()[:serviceradar_core]
+
+    assert core_config[:mtr_automation_consensus_enabled] == false
+    assert core_config[:mtr_automation_baseline_enabled] == true
+    assert core_config[:mtr_automation_trigger_enabled] == true
+  end
+
   test "prod config enables StarRocks shadow from Helm env" do
     with_env("SERVICERADAR_STARROCKS_ENABLED", "true")
     with_env("SERVICERADAR_STARROCKS_CATALOG_ENABLED", "true")

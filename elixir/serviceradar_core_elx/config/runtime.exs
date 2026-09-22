@@ -428,6 +428,25 @@ otx_raw_storage =
     _ -> :file
   end
 
+# Automated MTR, mirrored from elixir/serviceradar_core/config/runtime.exs.
+# A release evaluates ONLY this file (see the block note above), so core's copy
+# never reaches production -- without this block every MTR_AUTOMATION_* variable
+# the chart and docker-compose render is inert on a release install and
+# CoordinatorChildren falls through to the compiled false.
+#
+# `MTR_AUTOMATION_ENABLED` is NOT a master switch: it is the value the three
+# stage flags inherit when their own variable is unset, and each worker is gated
+# on its own flag. Automation is on by default (#4542); set a stage variable, or
+# all four, to false to narrow or disable it.
+mtr_automation_enabled = System.get_env("MTR_AUTOMATION_ENABLED", "true") in ~w(true 1 yes)
+
+mtr_stage_enabled = fn env_name ->
+  case System.get_env(env_name) do
+    nil -> mtr_automation_enabled
+    value -> value in ~w(true 1 yes)
+  end
+end
+
 # ---------------------------------------------------------------------------
 # Config blocks owned by the serviceradar_core APPLICATION.
 #
@@ -518,6 +537,13 @@ config :serviceradar_core,
 
 config :serviceradar_core,
   mapper_topology_edge_stale_minutes: parse_int_env.("SERVICERADAR_MAPPER_TOPOLOGY_EDGE_STALE_MINUTES", 180)
+
+config :serviceradar_core,
+  mtr_automation_enabled: mtr_automation_enabled,
+  mtr_retention_days: "MTR_RETENTION_DAYS" |> parse_int_env.(30) |> max(1) |> min(395),
+  mtr_automation_baseline_enabled: mtr_stage_enabled.("MTR_AUTOMATION_BASELINE_ENABLED"),
+  mtr_automation_trigger_enabled: mtr_stage_enabled.("MTR_AUTOMATION_TRIGGER_ENABLED"),
+  mtr_automation_consensus_enabled: mtr_stage_enabled.("MTR_AUTOMATION_CONSENSUS_ENABLED")
 
 # Keep authenticated desktop viewers and ingress actors bounded. These are
 # deliberately runtime-tunable so operators can size the media plane without
