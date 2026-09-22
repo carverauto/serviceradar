@@ -311,7 +311,12 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Record do
   def group_value_for_key(key, record, sources) do
     sources
     |> group_source_list()
-    |> Enum.find_value(fn source -> get_nested_value(source, key) end)
+    |> Enum.reduce_while(nil, fn source, _acc ->
+      case get_nested_value(source, key) do
+        value when is_binary(value) or is_number(value) or is_boolean(value) -> {:halt, value}
+        _ -> {:cont, nil}
+      end
+    end)
     |> case do
       nil -> record_field_value(record, key)
       value -> value

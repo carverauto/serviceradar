@@ -61,4 +61,35 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.RecordRenderTemplateTes
     assert Record.render_template("Kubernetes node is NotReady", node_event("worker")) ==
              "Kubernetes node is NotReady"
   end
+
+  test "a structured source device does not mask the canonical device identity" do
+    record = %{
+      device: %{"uid" => "synthetic-device"},
+      unmapped: %{"device" => %{"uid" => "synthetic-device"}}
+    }
+
+    assert Record.build_group(["device"], record) ==
+             {:ok, "device=synthetic-device", %{"device" => "synthetic-device"}}
+
+    assert Record.render_template("Device {device}", record) == "Device synthetic-device"
+  end
+
+  test "structured group values are unresolved instead of crashing evaluation" do
+    for value <- [%{"uid" => "synthetic-device"}, ["synthetic-device"]] do
+      record = %{attributes: %{"subject" => value}}
+      assert Record.build_group(["subject"], record) == :error
+      assert Record.render_template("Subject {subject}", record) == "Subject {subject}"
+    end
+  end
+
+  test "source lookup skips objects and preserves scalar values including false" do
+    record = %{
+      attributes: %{"subject" => %{"name" => "ignored"}},
+      resource_attributes: %{"subject" => "synthetic-subject", "active" => false, "index" => 7}
+    }
+
+    assert Record.build_group(["subject", "active", "index"], record) ==
+             {:ok, "subject=synthetic-subject|active=false|index=7",
+              %{"subject" => "synthetic-subject", "active" => "false", "index" => "7"}}
+  end
 end
