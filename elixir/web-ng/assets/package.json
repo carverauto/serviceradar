@@ -64,6 +64,11 @@
     "wgsl_reflect": "1.2.3"
   },
   "pnpm": {
+    "onlyBuiltDependencies": [
+      "@parcel/watcher",
+      "@tailwindcss/oxide",
+      "esbuild"
+    ],
     "overrides": {
       "@luma.gl/core": "9.2.6",
       "@luma.gl/engine": "9.2.6",
