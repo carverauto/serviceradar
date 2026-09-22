@@ -338,6 +338,35 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    mtr_hops (time, id) {
+        time -> Timestamptz,
+        id -> Uuid,
+        trace_id -> Uuid,
+        hop_number -> Int4,
+        addr -> Nullable<Text>,
+        hostname -> Nullable<Text>,
+        ecmp_addrs -> Nullable<Array<Text>>,
+        asn -> Nullable<Int4>,
+        asn_org -> Nullable<Text>,
+        mpls_labels -> Nullable<Jsonb>,
+        sent -> Int4,
+        received -> Int4,
+        loss_pct -> Float8,
+        last_us -> Nullable<Int8>,
+        avg_us -> Nullable<Int8>,
+        min_us -> Nullable<Int8>,
+        max_us -> Nullable<Int8>,
+        stddev_us -> Nullable<Int8>,
+        jitter_us -> Nullable<Int8>,
+        jitter_worst_us -> Nullable<Int8>,
+        jitter_interarrival_us -> Nullable<Int8>,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     mtr_traces (time, id) {
         time -> Timestamptz,
         id -> Uuid,

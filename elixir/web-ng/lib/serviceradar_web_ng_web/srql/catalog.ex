@@ -1881,6 +1881,28 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       downsample: false
     },
     %{
+      id: "mtr_hops",
+      label: "MTR Hops",
+      route: "/diagnostics/mtr",
+      default_time: "last_24h",
+      default_sort_field: "time",
+      default_sort_dir: "desc",
+      default_filter_field: "addr",
+      filter_fields: [
+        "trace_id",
+        "addr",
+        "hostname",
+        "asn",
+        "asn_org",
+        "hop_number"
+      ],
+      boolean_fields: [],
+      downsample: false,
+      stats: true,
+      stats_agg_fields: ["loss_pct", "avg_us", "min_us", "max_us", "jitter_us", "sent", "received"],
+      stats_group_fields: ["addr", "asn", "asn_org", "hop_number"]
+    },
+    %{
       id: "mtr_traces",
       label: "MTR Traces",
       route: "/diagnostics/mtr",

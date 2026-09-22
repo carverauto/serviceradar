@@ -64,6 +64,58 @@ pub(super) fn traces() -> VizMeta {
     }
 }
 
+pub(super) fn mtr_hops() -> VizMeta {
+    VizMeta {
+        columns: vec![
+            col("time", ColumnType::Timestamptz, Some(ColumnSemantic::Time)),
+            col("id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("trace_id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("hop_number", ColumnType::Int, Some(ColumnSemantic::Value)),
+            col("addr", ColumnType::Text, Some(ColumnSemantic::Label)),
+            col("hostname", ColumnType::Text, Some(ColumnSemantic::Label)),
+            col("ecmp_addrs", ColumnType::TextArray, None),
+            col("asn", ColumnType::Int, None),
+            col("asn_org", ColumnType::Text, None),
+            col("mpls_labels", ColumnType::Jsonb, None),
+            col("sent", ColumnType::Int, Some(ColumnSemantic::Value)),
+            col("received", ColumnType::Int, Some(ColumnSemantic::Value)),
+            col("loss_pct", ColumnType::Float, Some(ColumnSemantic::Value))
+                .with_unit("%"),
+            col("last_us", ColumnType::Int, Some(ColumnSemantic::Value))
+                .with_unit("µs"),
+            col("avg_us", ColumnType::Int, Some(ColumnSemantic::Value))
+                .with_unit("µs"),
+            col("min_us", ColumnType::Int, Some(ColumnSemantic::Value))
+                .with_unit("µs"),
+            col("max_us", ColumnType::Int, Some(ColumnSemantic::Value))
+                .with_unit("µs"),
+            col("stddev_us", ColumnType::Int, Some(ColumnSemantic::Value))
+                .with_unit("µs"),
+            col("jitter_us", ColumnType::Int, Some(ColumnSemantic::Value))
+                .with_unit("µs"),
+            col("jitter_worst_us", ColumnType::Int, Some(ColumnSemantic::Value))
+                .with_unit("µs"),
+            col(
+                "jitter_interarrival_us",
+                ColumnType::Int,
+                Some(ColumnSemantic::Value),
+            )
+            .with_unit("µs"),
+            col(
+                "created_at",
+                ColumnType::Timestamptz,
+                Some(ColumnSemantic::Time),
+            ),
+        ],
+        suggestions: vec![VizSuggestion {
+            kind: VizKind::Table,
+            x: None,
+            y: None,
+            series: None,
+        }],
+    }
+}
+
 pub(super) fn mtr_traces() -> VizMeta {
     VizMeta {
         columns: vec![
