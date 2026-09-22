@@ -41,7 +41,12 @@ SHARED_FIXTURE_SOURCES = {
 
 class WebNgDbRunnerContractTest(unittest.TestCase):
     def test_evaluated_runner_attributes(self):
-        query = ET.parse(os.environ.get("WEB_DB_TARGET_QUERY", ROOT / "web_ng_db_target_query"))
+        query = ET.parse(
+            os.environ.get(
+                "WEB_DB_TARGET_QUERY",
+                ROOT / "build/contracts/web_ng_db_target_query",
+            )
+        )
         rules = query.findall("rule")
         self.assertEqual(len(rules), 1)
         rule = rules[0]

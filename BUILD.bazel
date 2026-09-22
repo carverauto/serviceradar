@@ -45,12 +45,15 @@ gazelle(
 # exports_files
 ###############################################################################
 exports_files([
+    ".bazelrc",
     ".github/workflows/external-wasm-plugin.yml",
     ".github/workflows/image-security.yml",
     ".github/workflows/native-addons.yml",
+    ".github/workflows/publish-oci.yml",
     ".github/workflows/release.yml",
     ".github/workflows/source-security.yml",
     ".github/workflows/wasm-plugins.yml",
+    "MODULE.bazel",
     "VERSION",
     "Cargo.toml",
     "Cargo.lock",
@@ -64,6 +67,7 @@ exports_files([
     "buildbuddy.yaml",
     "buildbuddy_setup_fixture_env.sh",
     "docker-compose.yml",
+    "openspec/changes/parallelize-core-integration-tests/benchmark.md",
 ])
 
 ###############################################################################

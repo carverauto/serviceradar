@@ -1,3 +1,6 @@
+load("@rules_python//python:py_binary.bzl", "py_binary")
+load("@rules_python//python:py_test.bzl", "py_test")
+
 package(default_visibility = ["//visibility:public"])
 
 # Contract tests that used to sit in the repository root. They stay Bazel targets.
@@ -34,10 +37,10 @@ py_test(
     data = [
         "//:.bazelrc",
         "//:.github/workflows/release.yml",
-        "//:BUILD.bazel",
         "//:MODULE.bazel",
         "//:buildbuddy.yaml",
         "//:openspec/changes/parallelize-core-integration-tests/benchmark.md",
+        "//build/contracts:BUILD.bazel",
         "//build:BUILD.bazel",
         "//build:integration_shards.bzl",
         "//build:integration_test_dispositions.bzl",
