@@ -202,6 +202,7 @@ defmodule ServiceRadar.Inventory.Device do
 
       filter expr(is_nil(deleted_at) or ^arg(:include_deleted))
       pagination keyset?: true, default_limit: 5000
+      prepare build(sort: [uid: :asc])
     end
 
     read :by_uid do

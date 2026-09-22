@@ -220,6 +220,31 @@ defmodule ServiceRadar.Inventory.DeviceSoftDeleteTest do
     assert remaining.deleted_at
   end
 
+  test "keyset pagination completeness: single large-limit page returns all matching rows", %{
+    actor: actor
+  } do
+    tag = "pagn-#{System.unique_integer([:positive])}"
+
+    created_uids =
+      for i <- 1..8 do
+        uid = "#{tag}-#{i}"
+        {:ok, _} = create_device(actor, uid, "198.51.100.#{i}", unique_mac())
+        uid
+      end
+
+    query =
+      Device
+      |> Ash.Query.for_read(:read, %{include_deleted: false})
+      |> Ash.Query.filter(like(uid, ^"#{tag}-%"))
+
+    expected_count = Ash.count!(query, actor: actor)
+    assert expected_count == 8
+
+    {:ok, page} = Ash.read(query, actor: actor, page: [limit: 100, count: true])
+    assert page.more? == false
+    assert length(page.results) == expected_count
+  end
+
   defp create_device(actor, uid, ip, mac, extra_attrs \\ %{}) do
     attrs = Map.merge(%{uid: uid, ip: ip, mac: mac, hostname: "device-#{uid}"}, extra_attrs)
 
