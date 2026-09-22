@@ -110,19 +110,56 @@ publication is a prerequisite task and is listed as such.
 
 ## D5: Dashboard seeding
 
-The dashboard is a public `AuthoredDashboard` with `DashboardPanel` rows whose
-`srql_query` carries the SRQL text, seeded by the existing `SystemReports`
-GenServer. There is no dashboard SDK package, no renderer artifact, no new route
-and no new LiveView; `FirstPartyPackages` is the SDK-style path and is not used.
+"Seeded" is avoided here because it was actively misleading: it suggests stored
+content. Nothing about the dashboard's content is stored. What ships is a
+**definition** — a public `AuthoredDashboard` row plus `DashboardPanel` rows whose
+`srql_query` holds SRQL text — and every panel executes that SRQL against live
+data on each load.
+
+The definition is created by the existing `SystemReports` GenServer. There is no
+dashboard SDK package, no renderer artifact, no new route and no new LiveView;
+`FirstPartyPackages` is the SDK-style path and is deliberately not used.
 
 `SystemReports` is currently hardcoded for one dashboard — every function is
-named `*_new_devices_*`. It becomes a list of dashboard specs with a generic
-reconcile, because adding a second dashboard otherwise duplicates roughly a
-hundred lines. Seeding stays idempotent: read by slug, reconcile drifted fields,
-create when absent.
+named `*_new_devices_*`. It becomes a list of dashboard specs, because adding a
+second dashboard otherwise duplicates roughly a hundred lines.
+
+### The reconcile must not write shipped values back
+
+The existing reconcile is a latent bug, so it is removed rather than copied.
+`maybe_update_new_devices_panel/2` calls
+`maybe_put(:srql_query, panel.srql_query, @new_devices_query)`, and `maybe_put`
+writes the constant back whenever the current value differs. An operator who
+edits the shipped `new-devices` query therefore has it silently reverted on the
+next boot — a divergence that appears long after the edit succeeded. Copying that
+pattern would make this change's dashboard un-editable in the way hardest to
+notice.
+
+The replacement is **create when absent, never rewrite content**. The single
+exception is a dashboard record carrying zero panels, which is an interrupted
+creation rather than an operator choice, so its panels may be created. Title,
+description, time range and every panel query are left alone once they exist.
+The fix covers `new-devices` too, since it shares the code path.
+
+### Authorization is already enforced, so it is verified rather than added
+
+Changing a panel's SRQL goes through `DashboardPanel`'s
+`[:create, :update, :destroy]` policy, which authorizes on the
+`analytics.dashboards.edit` permission or an explicit per-dashboard grant
+(`ActorCanEditDashboardChild` → `SubjectGrant.parent_dashboard_edit/1`) and fails
+closed when neither matches. `AuthoredDashboard` carries the equivalent on
+`[:update, :restore]`. `system_bypass()` is what lets the definition step create
+the record. No new permission is introduced.
+
+Two properties are asserted by tests rather than assumed. The built-in case —
+public visibility, no owner, no grants — is the combination least covered today,
+and an Ash policy does not run at all when no actor is supplied, which is the
+usual way a correct policy gets bypassed. So: a view-only actor is refused a
+panel query update, and the interactive edit path passes the acting user as actor.
 
 Panel `data_binding` uses the builder's own key names (`label_field`,
-`value_field`), so a seeded panel and a hand-built one are the same shape.
+`value_field`, `time_field`), so a shipped panel and a hand-built one are the same
+shape and the builder can edit either.
 
 ## Resolved gates
 
@@ -144,8 +181,21 @@ change does not migrate it. The finding is handed to
 step before an MTR warehouse destination can satisfy the
 JetStream-first/EventWriter-single-owner rule.
 
-## Open gates
+**ASN panel scope — resolved, and narrower than specified.** `mtr_hops.asn` is
+populated only by `MtrMetricsIngestor.lookup_hop_asn/1` → `GeoIP.lookup/1`, which
+reads GeoLite2 MMDB databases (`geoip.ex:3`). There is a fallback to an
+agent-supplied value, but no agent resolves ASN — the only BGP/ASN parsing in the
+repository is `rust/bmp-collector`, which feeds the separate `bmp_events` entity
+and is never joined to MTR hops.
 
-- Whether `asn_org` or `asn` is the ASN panel's group dimension. `asn_org` reads
-  as a provider name and is the better label; `asn` is the precise identifier.
-  The superseded delta specified `asn`. Decide before task 7.5.
+GeoLite2 maps public addresses to public ASNs. It carries no private ASNs and no
+RFC1918 addresses, so `asn` is NULL for every internal hop and for every
+internal-eBGP private AS. The panel therefore groups by `asn` restricted to
+resolved ASNs with `asn:>0` — NULL fails the comparison — and is labelled as
+external/transit rather than presented as fleet-wide. Grouping without that filter
+would collapse every unresolved hop into one bucket that reads as a finding when
+it is an absence of data. Ordered comparisons were added to the `asn` filter for
+this; equality alone could not express it.
+
+Real internal ASNs would have to come from the BMP feed, which needs a
+cross-entity join SRQL cannot express today. That is out of scope here.
