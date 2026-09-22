@@ -1462,6 +1462,7 @@ fn group_alias(col: &str) -> String {
         "duration" => "duration_bucket".to_string(),
         // `partition` is reserved in StarRocks and cannot stand as a bare alias.
         "partition" => "flow_partition".to_string(),
+        other if other.starts_with("time:") => "bucket".to_string(),
         other => other.to_string(),
     }
 }
@@ -3299,6 +3300,20 @@ mod tests {
             let query = format!("in:flows time:last_1h stats:\"{expression}\"");
             assert!(translate(&plan(&query), "serviceradar").is_err(), "{query}");
         }
+    }
+
+    #[test]
+    fn stats_time_bucket_dimension_accepts_sort_by_bucket() {
+        let compiled = translate(
+            &plan(r#"in:flows time:last_1h stats:"sum(bytes_in) as volume by time:5m" sort:bucket:asc limit:288"#),
+            "serviceradar",
+        )
+        .expect("sort:bucket:asc on a by time: dimension must compile");
+        assert!(
+            compiled.sql.to_lowercase().contains("order by"),
+            "{}",
+            compiled.sql
+        );
     }
 
     #[test]

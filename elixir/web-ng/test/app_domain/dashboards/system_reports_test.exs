@@ -92,8 +92,21 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReportsTest do
       # panel with no error, which is the failure mode this guards.
       for spec <- SystemReports.dashboard_specs(), panel <- spec.panels do
         for {_key, field} <- panel.data_binding do
+          by_clause_tokens =
+            case :binary.split(panel.srql_query, " by ") do
+              [_, after_by] ->
+                after_by
+                |> String.split(~r/ sort:| limit:/, parts: 2)
+                |> hd()
+                |> String.split()
+
+              _ ->
+                []
+            end
+
           selected? =
-            String.contains?(panel.srql_query, field) or
+            String.contains?(panel.srql_query, " as #{field}") or
+              field in by_clause_tokens or
               (field == @implicit_bucket_field and
                  String.contains?(panel.srql_query, "by time:"))
 
