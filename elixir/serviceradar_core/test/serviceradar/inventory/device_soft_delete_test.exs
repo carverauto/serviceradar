@@ -220,6 +220,42 @@ defmodule ServiceRadar.Inventory.DeviceSoftDeleteTest do
     assert remaining.deleted_at
   end
 
+  test "keyset pagination returns all matching devices from a single large-limit page", %{
+    actor: actor
+  } do
+    # Regression guard for the truncation observed in the field:
+    # Ash.read!(query, page: [limit: 5000, count: true]) returned 251 results
+    # with more?: false when Ash.count! returned 345 -- all rows were present
+    # but the query came back short without signalling it. Root cause: no
+    # explicit ORDER BY, so the database's chosen scan stopped early.
+    # Device.read now declares sort: [uid: :asc] via prepare build(...).
+    tag = "pagn-regression-#{System.unique_integer([:positive])}"
+
+    created_uids =
+      for i <- 1..8 do
+        uid = "#{tag}-#{i}"
+        ip = "198.51.100.#{i}"
+        mac = unique_mac()
+        {:ok, _} = create_device(actor, uid, ip, mac)
+        uid
+      end
+
+    query =
+      Device
+      |> Ash.Query.for_read(:read, %{include_deleted: false})
+      |> Ash.Query.filter(like(uid, ^"#{tag}-%"))
+
+    expected_count = Ash.count!(query, actor: actor)
+    assert expected_count == 8
+
+    {:ok, page} = Ash.read(query, actor: actor, page: [limit: 100, count: true])
+    assert page.more? == false
+    assert length(page.results) == expected_count
+
+    returned_uids = page.results |> Enum.map(& &1.uid) |> Enum.sort()
+    assert returned_uids == Enum.sort(created_uids)
+  end
+
   defp create_device(actor, uid, ip, mac, extra_attrs \\ %{}) do
     attrs = Map.merge(%{uid: uid, ip: ip, mac: mac, hostname: "device-#{uid}"}, extra_attrs)
 

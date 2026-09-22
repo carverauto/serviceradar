@@ -202,6 +202,12 @@ defmodule ServiceRadar.Inventory.Device do
 
       filter expr(is_nil(deleted_at) or ^arg(:include_deleted))
       pagination keyset?: true, default_limit: 5000
+
+      # Without an explicit sort, a large-limit keyset page silently returns
+      # fewer rows than Ash.count reports (measured: 251 of 345 with more?:
+      # false). Declaring the sort here guarantees ORDER BY uid ASC in every
+      # keyset query, making pagination deterministic regardless of page size.
+      prepare build(sort: [uid: :asc])
     end
 
     read :by_uid do
