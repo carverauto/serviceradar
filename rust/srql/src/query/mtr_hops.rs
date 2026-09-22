@@ -1240,6 +1240,77 @@ mod tests {
         );
     }
 
+    /// The exact SRQL carried by the built-in MTR path analytics dashboard's
+    /// panels, in `SystemReports`.
+    ///
+    /// These strings live in an Elixir constant, so nothing on that side would
+    /// catch a grammar change breaking them — the dashboard would simply render
+    /// an error at load time. Guarding them here means a grammar change fails a
+    /// test instead.
+    const DASHBOARD_PANEL_QUERIES: &[&str] = &[
+        "in:mtr_hops time:last_24h stats:loss_ratio(sent, received) as loss by addr sort:loss:desc limit:20",
+        "in:mtr_hops time:last_24h stats:wavg(avg_us, received) as latency by addr sort:latency:desc limit:20",
+        "in:mtr_hops time:last_24h asn:>0 stats:loss_ratio(sent, received) as loss by asn sort:loss:desc limit:20",
+        "in:mtr_hops time:last_24h stats:loss_ratio(sent, received) as loss by time:1h limit:500",
+    ];
+
+    #[test]
+    fn built_in_dashboard_panel_queries_compile() {
+        for query in DASHBOARD_PANEL_QUERIES {
+            let ast = crate::parser::parse(query)
+                .unwrap_or_else(|err| panic!("panel query must parse: {query}\n{err}"));
+            let _ = ast;
+            let plan = plan_for(query);
+            let (sql, _) = to_sql_and_params(&plan)
+                .unwrap_or_else(|err| panic!("panel query must compile: {query}\n{err}"));
+            assert!(
+                sql.to_lowercase().contains("group by"),
+                "every panel query is an aggregation: {query}"
+            );
+        }
+    }
+
+    #[test]
+    fn built_in_dashboard_loss_panels_never_average_a_percentage() {
+        // The whole point of the dashboard: if a panel query regresses to
+        // avg(loss_pct) it ships a wrong number that still renders.
+        for query in DASHBOARD_PANEL_QUERIES {
+            let plan = plan_for(query);
+            let (sql, _) = to_sql_and_params(&plan).expect("panel query must compile");
+            let lower = sql.to_lowercase();
+            assert!(
+                !lower.contains("avg(loss_pct)"),
+                "panel must not average a percentage: {query}"
+            );
+        }
+    }
+
+    #[test]
+    fn built_in_asn_panel_excludes_unresolved_asns() {
+        // asn is populated only by a GeoLite2 lookup, so it is NULL for every
+        // internal hop and every private AS. Without the filter the group-by
+        // collects all of them into one bucket that reads as a finding.
+        let asn_query = DASHBOARD_PANEL_QUERIES[2];
+        let plan = plan_for(asn_query);
+        let (sql, _) = to_sql_and_params(&plan).expect("ASN panel query must compile");
+        let lower = sql.to_lowercase();
+
+        assert!(lower.contains("asn >"), "{sql}");
+        assert!(lower.contains("group by asn"), "{sql}");
+    }
+
+    #[test]
+    fn built_in_trend_panel_groups_by_time_alone() {
+        let trend_query = DASHBOARD_PANEL_QUERIES[3];
+        let plan = plan_for(trend_query);
+        let (sql, _) = to_sql_and_params(&plan).expect("trend panel query must compile");
+        let lower = sql.to_lowercase();
+
+        assert!(lower.contains("extract(epoch from time) / 3600"), "{sql}");
+        assert!(lower.contains("'bucket'"), "{sql}");
+        assert!(lower.contains("order by __bucket asc"), "{sql}");
+    }
+
     #[test]
     fn two_argument_aggregation_survives_comma_splitting_alongside_another_agg() {
         // Splitting the projection on every comma would tear
