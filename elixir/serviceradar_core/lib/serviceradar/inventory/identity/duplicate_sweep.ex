@@ -15,6 +15,7 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
   alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.Identity.Mac
   alias ServiceRadar.Inventory.Identity.MergeEngine
+  alias ServiceRadar.Inventory.Identity.MergePolicy
   alias ServiceRadar.Inventory.Identity.ReconciliationRun
   alias ServiceRadar.Inventory.Identity.Resolver
 
@@ -538,7 +539,6 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
           where: di.device_id != im.device_id,
           where: not like(im.device_id, "serviceradar:%"),
           where: not like(di.device_id, "serviceradar:%"),
-          where: owner.partition == other.partition,
           select: {im.mac, im.device_id, di.device_id, di.partition}
         )
       )
@@ -551,15 +551,13 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
   # without a database. Locally-administered MACs are rejected here as well as by
   # the writer: tap/veth/dummy addresses are synthesised, not hardware, and that
   # guarantee must not depend on which rows the query happens to return.
-  # Reserved MACs (all-zeros, broadcast) carry no device identity and must not
-  # drive a merge even if pre-fix rows already exist in DeviceInterfaceMac.
   @spec interface_mac_chassis_groups_from_rows([
           {String.t(), String.t(), String.t(), String.t()}
         ]) :: [{{String.t(), atom(), String.t()}, MapSet.t()}]
   def interface_mac_chassis_groups_from_rows(rows) when is_list(rows) do
     rows
     |> Enum.reject(fn {mac, _owner, _other, _partition} ->
-      Mac.locally_administered_mac?(mac) or Mac.reserved_mac_value?(mac)
+      Mac.locally_administered_mac?(mac)
     end)
     |> Enum.map(fn {mac, owner, other, partition} ->
       {{partition, :interface_mac_chassis, mac}, MapSet.new([owner, other])}
@@ -580,10 +578,16 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
       |> Enum.filter(&(length(&1.device_ids) > 1))
       |> Enum.sort_by(& &1.device_ids)
 
-    {mergeable, blocked} =
+    {size_ok, size_blocked} =
       Enum.split_with(components, &(length(&1.device_ids) == 2))
 
-    %{mergeable: mergeable, blocked: blocked}
+    {policy_ok, policy_blocked} =
+      Enum.split_with(size_ok, fn component ->
+        matches = Enum.map(component.evidence, &{&1.type, %{value: &1.value}})
+        MergePolicy.merge_allowed_for_matches?(matches)
+      end)
+
+    %{mergeable: policy_ok, blocked: size_blocked ++ policy_blocked}
   end
 
   defp build_duplicate_components(duplicate_entries) do
