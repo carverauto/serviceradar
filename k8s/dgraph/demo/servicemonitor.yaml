@@ -1,0 +1,71 @@
+# Scrape Dgraph in the demo namespace. Applied by deploy-dgraph.sh alongside
+# certificate.yaml.
+#
+# Dgraph here runs TLS everywhere (see values.yaml: alpha and zero both terminate
+# TLS, and alpha dials zero over TLS with internal-port=true), so the metrics
+# endpoints are HTTPS, not HTTP. A plain http scrape gets a 400 and the job looks
+# broken for no obvious reason.
+#
+# The metrics paths are Dgraph's own, not /metrics:
+#   alpha  :8080/debug/prometheus_metrics
+#   zero   :6080/debug/prometheus_metrics
+#
+# insecureSkipVerify is deliberate. The serving cert is issued by the in-cluster
+# CA into the demo namespace, but a ServiceMonitor's tlsConfig can only reference
+# a Secret in Prometheus's own namespace (monitoring), so pinning the CA would
+# mean replicating it there. This is ClusterIP traffic inside the cluster and the
+# scrape carries no credentials, so skipping verification costs little; replicate
+# the CA into monitoring and set `ca.secret` here if that changes.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: dgraph-alpha
+  namespace: demo
+  labels:
+    app: dgraph
+    component: alpha
+    app.kubernetes.io/managed-by: serviceradar
+    release: kube-prom
+spec:
+  selector:
+    matchLabels:
+      app: dgraph
+      component: alpha
+  endpoints:
+    - port: http-alpha
+      scheme: https
+      path: /debug/prometheus_metrics
+      interval: 30s
+      tlsConfig:
+        insecureSkipVerify: true
+      metricRelabelings:
+        - targetLabel: job
+          replacement: dgraph-alpha
+          action: replace
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: dgraph-zero
+  namespace: demo
+  labels:
+    app: dgraph
+    component: zero
+    app.kubernetes.io/managed-by: serviceradar
+    release: kube-prom
+spec:
+  selector:
+    matchLabels:
+      app: dgraph
+      component: zero
+  endpoints:
+    - port: http-zero
+      scheme: https
+      path: /debug/prometheus_metrics
+      interval: 30s
+      tlsConfig:
+        insecureSkipVerify: true
+      metricRelabelings:
+        - targetLabel: job
+          replacement: dgraph-zero
+          action: replace

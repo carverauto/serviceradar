@@ -105,6 +105,16 @@ deploy() {
     -f "$values" \
     --wait --timeout 15m
 
+  # Monitoring. The ServiceMonitors scrape Dgraph's own
+  # /debug/prometheus_metrics over HTTPS (TLS is on everywhere here), and the
+  # dashboard ConfigMap is picked up by Grafana's sidecar from any namespace.
+  # Both are additive and safe to re-apply; neither touches the Dgraph pods.
+  for extra in servicemonitor.yaml dashboard-configmap.yaml; do
+    if [[ -f "${here}/${env}/${extra}" ]]; then
+      kubectl apply -n "$namespace" --server-side -f "${here}/${env}/${extra}"
+    fi
+  done
+
   # CI publishes ca.crt as the Envoy backend. Same live-cluster exception as
   # certificate.yaml above: this is not a build artifact. HTTPRoutes are owned
   # by carverauto/gitops (Argo) and must not be applied from this script.
