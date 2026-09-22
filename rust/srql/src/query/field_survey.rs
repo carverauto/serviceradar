@@ -22,6 +22,7 @@ struct JsonPayload {
 
 pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> Result<Vec<Value>> {
     ensure_entity(plan)?;
+    super::reject_stats(plan, "field_survey")?;
     // Execution goes through `to_sql_and_params`, not around it, so the SQL that
     // runs IS the SQL translate returns. Building it twice let the execute side
     // send the `?` form straight to Diesel, which does not translate `?` for
@@ -57,6 +58,7 @@ pub(super) fn execution_query(plan: &QueryPlan) -> Result<BoxedSqlQuery<'static,
 
 pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
     ensure_entity(plan)?;
+    super::reject_stats(plan, "field_survey")?;
     let built = build_sql(plan)?;
     Ok((rewrite_placeholders(&built.sql), built.binds))
 }
