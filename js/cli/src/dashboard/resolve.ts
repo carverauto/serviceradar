@@ -186,4 +186,11 @@ export function assertReactResolvable(projectDir: string, aliases: ReactAliases)
       )
     }
   }
+  if (!existsSync(`${aliases["react-dom/client"]}.js`)) {
+    throw new Error(
+      `cannot resolve "react-dom/client" from this dashboard project\n` +
+        `→ looked for it at ${aliases["react-dom/client"]}\n` +
+        `→ run \`npm install\` (or add "react-dom" to this project's dependencies)`,
+    )
+  }
 }

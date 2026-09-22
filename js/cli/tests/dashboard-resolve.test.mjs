@@ -174,6 +174,30 @@ describe("assertReactResolvable", () => {
 
     assert.doesNotThrow(() => assertReactResolvable(projectDir, projectReactAliases(projectDir)))
   })
+
+  test("names react-dom/client and suggests an install when client entry is missing", async () => {
+    const root = await tempRoot("sr-assert-no-client-")
+    const modules = join(root, "node_modules")
+    await installPackage(modules, "react")
+    // Install react-dom package directory but without client.js
+    const reactDomDir = join(modules, "react-dom")
+    await mkdir(reactDomDir, {recursive: true})
+    await writeFile(
+      join(reactDomDir, "package.json"),
+      JSON.stringify({name: "react-dom", version: "18.0.0", main: "index.js", exports: {".": "./index.js", "./package.json": "./package.json"}}),
+    )
+    await writeFile(join(reactDomDir, "index.js"), "export default {}\n")
+    const projectDir = await makeProject(join(root, "dashboards"), "rids")
+
+    assert.throws(
+      () => assertReactResolvable(projectDir, projectReactAliases(projectDir)),
+      (error) => {
+        assert.match(error.message, /cannot resolve "react-dom\/client"/)
+        assert.match(error.message, /npm install/)
+        return true
+      },
+    )
+  })
 })
 
 describe("devViteAliases precedence", () => {
