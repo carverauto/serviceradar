@@ -313,43 +313,8 @@ for the failure mode and recovery instructions.
 
 ### MTR Automation Rollout
 
-Use `core.mtrAutomation` to stage automated MTR behavior on core-elx:
+Automated MTR is **on by default** on core-elx:
 
-```yaml
-core:
-  mtrAutomation:
-    enabled: false
-    baselineEnabled: false
-    triggerEnabled: false
-    consensusEnabled: false
-    baselineTickMs: 60000
-    consensusCohortRetentionMs: 300000
-```
-
-Recommended staged enablement:
-1. Baseline only:
-```yaml
-core:
-  mtrAutomation:
-    enabled: true
-    baselineEnabled: true
-    triggerEnabled: false
-    consensusEnabled: false
-    baselineTickMs: 60000
-    consensusCohortRetentionMs: 300000
-```
-2. Trigger capture:
-```yaml
-core:
-  mtrAutomation:
-    enabled: true
-    baselineEnabled: true
-    triggerEnabled: true
-    consensusEnabled: false
-    baselineTickMs: 60000
-    consensusCohortRetentionMs: 300000
-```
-3. Full consensus:
 ```yaml
 core:
   mtrAutomation:
@@ -357,6 +322,45 @@ core:
     baselineEnabled: true
     triggerEnabled: true
     consensusEnabled: true
+    baselineTickMs: 60000
+    consensusCohortRetentionMs: 300000
+```
+
+`enabled` is not a master switch. It is the value the three stage flags fall
+back to when they are unset, and each stage's own flag is what starts its
+worker. Because this chart renders all four, the block above is what a fresh
+install runs and narrowing the rollout means setting the stage flags:
+
+1. Baseline only (no trigger capture, no consensus):
+```yaml
+core:
+  mtrAutomation:
+    enabled: true
+    baselineEnabled: true
+    triggerEnabled: false
+    consensusEnabled: false
+    baselineTickMs: 60000
+    consensusCohortRetentionMs: 300000
+```
+2. Baseline plus trigger capture (no consensus):
+```yaml
+core:
+  mtrAutomation:
+    enabled: true
+    baselineEnabled: true
+    triggerEnabled: true
+    consensusEnabled: false
+    baselineTickMs: 60000
+    consensusCohortRetentionMs: 300000
+```
+3. Everything off:
+```yaml
+core:
+  mtrAutomation:
+    enabled: false
+    baselineEnabled: false
+    triggerEnabled: false
+    consensusEnabled: false
     baselineTickMs: 60000
     consensusCohortRetentionMs: 300000
 ```

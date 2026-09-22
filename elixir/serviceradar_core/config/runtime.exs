@@ -560,7 +560,14 @@ if config_env() == :prod do
     end
   end
 
-  mtr_automation_enabled = parse_bool.("MTR_AUTOMATION_ENABLED", false)
+  # Automated MTR defaults on (issue #4542).
+  #
+  # This sits inside the `config_env() == :prod` block above, so the default is
+  # a release default only. The dev/test base is config/config.exs, which
+  # deliberately keeps all four flags false so the test suite does not start the
+  # baseline/trigger/consensus workers. Set MTR_AUTOMATION_ENABLED=false to turn
+  # the automation off; the three specific flags fall back to this value.
+  mtr_automation_enabled = parse_bool.("MTR_AUTOMATION_ENABLED", true)
   mtr_retention_days = "MTR_RETENTION_DAYS" |> parse_int_env.(30) |> max(1) |> min(395)
 
   observability_retention_batch_size =

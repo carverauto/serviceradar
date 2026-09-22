@@ -477,12 +477,13 @@ services:
       - SYNC_INGESTOR_MAX_INFLIGHT=${SYNC_INGESTOR_MAX_INFLIGHT:-2}
       - SYNC_INGESTOR_QUEUE_MAX_CHUNKS=${SYNC_INGESTOR_QUEUE_MAX_CHUNKS:-10}
       - SYNC_INGESTOR_ASYNC=${SYNC_INGESTOR_ASYNC:-true}
-      # Compose should exercise saved MTR automation profiles by default.
-      # Keep the rollout conservative: baseline scheduling on, trigger/consensus off.
+      # Compose should exercise saved MTR automation profiles by default. All
+      # four flags default on (issue #4542); override any of them in .env to
+      # narrow the rollout.
       - MTR_AUTOMATION_ENABLED=${MTR_AUTOMATION_ENABLED:-true}
       - MTR_AUTOMATION_BASELINE_ENABLED=${MTR_AUTOMATION_BASELINE_ENABLED:-true}
-      - MTR_AUTOMATION_TRIGGER_ENABLED=${MTR_AUTOMATION_TRIGGER_ENABLED:-false}
-      - MTR_AUTOMATION_CONSENSUS_ENABLED=${MTR_AUTOMATION_CONSENSUS_ENABLED:-false}
+      - MTR_AUTOMATION_TRIGGER_ENABLED=${MTR_AUTOMATION_TRIGGER_ENABLED:-true}
+      - MTR_AUTOMATION_CONSENSUS_ENABLED=${MTR_AUTOMATION_CONSENSUS_ENABLED:-true}
       - MTR_RETENTION_DAYS=${MTR_RETENTION_DAYS:-30}
       # Ansible integration. RetentionWorker treats 0 for run_detail_days
       # as "disabled"; unset / 0 for run_summary_days means "keep forever".
