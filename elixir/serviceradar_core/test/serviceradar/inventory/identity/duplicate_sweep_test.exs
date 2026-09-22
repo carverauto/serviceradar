@@ -54,6 +54,24 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweepTest do
 
       assert MapSet.equal?(members, MapSet.new(["sr:keep-a", "sr:keep-b"]))
     end
+
+    test "never merges on a reserved MAC value" do
+      # All-zeros and broadcast carry no device identity. Pre-fix rows may still
+      # exist in DeviceInterfaceMac; the pure guard here means the query result
+      # cannot drive a merge regardless of what is in the table.
+      rows = [
+        {"000000000000", "sr:a", "sr:b", "default"},
+        {"FFFFFFFFFFFF", "sr:c", "sr:d", "default"},
+        {"F492BF75C72B", "sr:keep-a", "sr:keep-b", "default"}
+      ]
+
+      result = DuplicateSweep.interface_mac_chassis_groups_from_rows(rows)
+      macs = Enum.map(result, fn {{_partition, _type, mac}, _} -> mac end)
+
+      refute "000000000000" in macs
+      refute "FFFFFFFFFFFF" in macs
+      assert "F492BF75C72B" in macs
+    end
   end
 
   describe "column_mac_groups_from_rows/1" do
