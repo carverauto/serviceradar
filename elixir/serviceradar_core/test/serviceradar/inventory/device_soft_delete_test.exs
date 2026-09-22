@@ -80,6 +80,61 @@ defmodule ServiceRadar.Inventory.DeviceSoftDeleteTest do
     assert is_nil(restored.deleted_reason)
   end
 
+  describe "managed-state actions" do
+    test ":mark_managed sets is_managed true", %{actor: actor} do
+      {:ok, device} = create_device(actor, unique_uid(), unique_ip(), unique_mac())
+
+      # A fresh device defaults to unmanaged, so assert the default first and
+      # then the transition -- otherwise this only proves the create default.
+      refute device.is_managed
+
+      assert {:ok, managed} = mark_device(device, :mark_managed, actor)
+      assert managed.is_managed
+    end
+
+    test ":mark_unmanaged clears is_managed for a device with no agent_id", %{actor: actor} do
+      {:ok, device} = create_device(actor, unique_uid(), unique_ip(), unique_mac())
+
+      # Start from managed, or this asserts the create-time default rather than
+      # the action clearing the flag.
+      assert {:ok, managed} = mark_device(device, :mark_managed, actor)
+      assert managed.is_managed
+
+      assert {:ok, unmanaged} = mark_device(managed, :mark_unmanaged, actor)
+      refute unmanaged.is_managed
+    end
+
+    test ":mark_unmanaged refuses an agent-backed device", %{actor: actor} do
+      uid = unique_uid()
+      agent_id = "agent-#{System.unique_integer([:positive])}"
+
+      {:ok, device} = create_device(actor, uid, unique_ip(), unique_mac(), %{agent_id: agent_id})
+
+      # Mark it managed first. Without this the device is already unmanaged by
+      # default, so "it is still unmanaged" would prove nothing about the guard.
+      assert {:ok, managed} = mark_device(device, :mark_managed, actor)
+      assert managed.is_managed
+
+      # The validator runs while the changeset for the action is built, so an
+      # agent-backed device is rejected before the update touches the row. The
+      # bulk path cannot rely on this -- see BulkState's is_nil(agent_id)
+      # filter, because Ash skips a validation whose atomic/3 returns :ok.
+      changeset = Ash.Changeset.for_update(managed, :mark_unmanaged, %{}, actor: actor)
+
+      refute changeset.valid?
+      assert changeset.errors != []
+      assert {:error, _error} = Ash.update(changeset)
+
+      assert {:ok, [reloaded]} =
+               Device
+               |> Ash.Query.filter(uid == ^uid)
+               |> read_results(actor)
+
+      assert reloaded.agent_id == agent_id
+      assert reloaded.is_managed
+    end
+  end
+
   test "sync ingestor restores deleted devices when identity matches", %{actor: actor} do
     ip = unique_ip()
     mac = unique_mac()
@@ -165,17 +220,18 @@ defmodule ServiceRadar.Inventory.DeviceSoftDeleteTest do
     assert remaining.deleted_at
   end
 
-  defp create_device(actor, uid, ip, mac) do
-    attrs = %{
-      uid: uid,
-      ip: ip,
-      mac: mac,
-      hostname: "device-#{uid}"
-    }
+  defp create_device(actor, uid, ip, mac, extra_attrs \\ %{}) do
+    attrs = Map.merge(%{uid: uid, ip: ip, mac: mac, hostname: "device-#{uid}"}, extra_attrs)
 
     Device
     |> Ash.Changeset.for_create(:create, attrs)
     |> Ash.create(actor: actor)
+  end
+
+  defp mark_device(device, action, actor) do
+    device
+    |> Ash.Changeset.for_update(action, %{}, actor: actor)
+    |> Ash.update()
   end
 
   defp soft_delete_device(actor, device, reason) do

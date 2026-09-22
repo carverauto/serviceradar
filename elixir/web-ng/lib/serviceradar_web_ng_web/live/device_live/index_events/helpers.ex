@@ -41,6 +41,36 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Helpers do
     IndexPath.list_path(Keyword.put(opts, :query, query))
   end
 
+  # Shared form builders for the bulk-edit controls. The modal opener (Selection)
+  # and the handlers (BulkState) need the same field shapes, so they live here
+  # rather than being duplicated per module.
+  #
+  # Scope is deliberately its own form. One control at the top of the modal
+  # governs BOTH submits: it reports through phx-change into the modal-local
+  # `bulk_target_scope`, and that is what Selection.selected_uids_for_scope/2
+  # resolves targets from for the tag AND the state handler. It stays separate
+  # from the toolbar's shared `select_all_matching` so cancelling the modal is a
+  # no-op for the toolbar selection. While scope sat inside the state form it
+  # read as if it only scoped the state changes, while the tag submit quietly
+  # acted on the toolbar selection instead.
+  def bulk_scope_form(scope \\ "selected") when is_binary(scope) do
+    to_form(%{"scope" => scope}, as: :bulk_scope)
+  end
+
+  def bulk_state_form(overrides \\ %{}) when is_map(overrides) do
+    default_bulk_state_params()
+    |> Map.merge(overrides)
+    |> then(fn params -> to_form(params, as: :bulk_state) end)
+  end
+
+  def default_bulk_state_params do
+    %{"service_state" => "no_change", "managed_state" => "no_change"}
+  end
+
+  def format_transaction_error(reason) when is_binary(reason), do: reason
+  def format_transaction_error(reason) when is_exception(reason), do: Exception.message(reason)
+  def format_transaction_error(reason), do: inspect(reason)
+
   def handle_bulk_update_result(result, existing_count, requested_count) do
     case result do
       %Ash.BulkResult{status: :success} ->
