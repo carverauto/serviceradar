@@ -1,7 +1,4 @@
 load("@bazel_gazelle//:def.bzl", "gazelle")
-load("@platforms//host:extension.bzl", "host_platform")
-load("@rules_python//python:py_binary.bzl", "py_binary")
-load("@rules_python//python:py_test.bzl", "py_test")
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 
 ###############################################################################
