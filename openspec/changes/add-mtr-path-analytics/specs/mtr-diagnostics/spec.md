@@ -111,7 +111,14 @@ Every interactive path that edits a panel SHALL supply the acting user as the ac
 - **THEN** the change is saved
 - **AND** subsequent loads run the narrowed query
 
-#### Scenario: A per-dashboard grant is sufficient without the global permission
+#### Scenario: A per-dashboard grant is accepted by the data layer
 - **GIVEN** an actor without `analytics.dashboards.edit` who holds an edit grant on that dashboard
-- **WHEN** that actor changes a panel's SRQL
+- **WHEN** that actor changes a panel's SRQL through the data layer
 - **THEN** the change is saved
+
+#### Scenario: The interactive path is no more permissive than the data layer
+- **GIVEN** any actor and any built-in dashboard
+- **WHEN** the interactive panel editor decides whether to permit an edit
+- **THEN** it refuses in every case the data layer would refuse
+
+Today the interactive editor is strictly narrower than the data layer: its check is dashboard ownership or the `analytics.dashboards.edit` permission, and it does not consult a per-dashboard edit grant. That direction is safe and is what this requirement constrains. The reverse — an interactive path permitting an edit the data layer would refuse — is prohibited.

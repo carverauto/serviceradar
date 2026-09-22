@@ -112,19 +112,19 @@ here stores panel content.
       a bare field name after `by`, so offering `time` would produce `by time`,
       which the entity rejects because `time` is not a groupable column. The
       dimension requires `time:<duration>`, which the builder cannot express yet.
-- [ ] 7.9 Tests for the definition step: creates when absent; is idempotent across
+- [x] 7.9 Tests for the definition step: creates when absent; is idempotent across
       repeated runs; **does not revert an edited panel query, title or
       description**; does not remove an operator-added panel; completes a dashboard
       row that has no panels; leaves `new-devices` content untouched. Add a row to
       `elixir/serviceradar_core/test/INTEGRATION_SOURCE_DISPOSITIONS.tsv` if a new
       `serviceradar_core` test file is introduced.
-- [ ] 7.10 Tests for edit authority on the built-in dashboard, whose public /
+- [x] 7.10 Tests for edit authority on the built-in dashboard, whose public /
       no-owner / no-grant combination is the least covered today: an actor with
       view permission but neither `analytics.dashboards.edit` nor a per-dashboard
       grant is refused a panel `srql_query` update and the stored query is
       unchanged; an actor holding the permission succeeds; an actor holding only a
       per-dashboard grant succeeds.
-- [ ] 7.11 Verify the interactive panel-edit path supplies the acting user as
+- [x] 7.11 Verify the interactive panel-edit path supplies the acting user as
       `actor`, since an Ash policy does not run when no actor is given. Read the
       LiveView event handler and assert the refusal through the path it uses.
 
@@ -168,3 +168,39 @@ already exist there rather than being added under cutover pressure.
       startup does not duplicate it.
 - [ ] 9.7 Verify a `stats:` clause against each module from section 5 errors
       rather than returning rows.
+
+## 10. Coverage limits found while testing, recorded rather than papered over
+
+- **web-ng has no DB-backed Bazel target.** `elixir/web-ng/BUILD.bazel` states it
+  directly: `test/integration/**` and `test/property/**` are excluded because
+  nothing in them is `:db_free`, and "they belong in a DB-backed target; until one
+  exists they are not covered by Bazel". `test_helper.exs` is an allow-list
+  (`exclude: [:test], include: [:db_free]`) with an `after_suite` hook that fails
+  a target executing zero tests — added after two targets reported PASSED on
+  "0 tests, 0 failures (11 excluded)".
+
+  So an end-to-end authorization test — create the built-in dashboard, attempt a
+  panel update as a view-only user, assert the stored query is unchanged — has no
+  home that executes today. Rather than write a test that never runs, the
+  properties are asserted where they can run:
+  - The no-clobber rule is a pure function (`SystemReports.definition_action/1`),
+    asserted directly. Confirmed to fail when the `:keep` branch is broken.
+  - Edit authority is asserted against `DashboardPanel`'s own policy model via
+    `Ash.Policy.Info.policies/1` — a typed structure, not its source text — so a
+    behaviour-preserving rewrite passes and dropping the authorization fails.
+  - The interactive path's decision is a pure function
+    (`AccessControls.can_manage?/2`), asserted for the built-in shape: public,
+    no owner, no edit permission.
+
+- **The interactive editor is stricter than the data layer, and the spec now says
+  so.** `can_manage?/2` is dashboard ownership or `analytics.dashboards.edit`; it
+  never consults a per-dashboard edit grant, which `ActorCanEditDashboardChild`
+  does honour. A grant-only actor is therefore refused through the UI and
+  permitted through the data layer. That direction is fail-closed, so it is
+  recorded as current behaviour rather than changed here. The requirement
+  constrains only the dangerous direction: the interactive path must never permit
+  what the data layer would refuse.
+
+- [ ] 10.1 Decide whether a DB-backed web-ng test target is worth adding, which
+      would let the end-to-end authorization and definition-idempotency tests run.
+      Out of scope here; it affects every web-ng DB test, not just this change.

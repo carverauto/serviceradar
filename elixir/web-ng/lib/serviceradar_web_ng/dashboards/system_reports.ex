@@ -67,8 +67,7 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReports do
     %{
       slug: @new_devices_slug,
       title: "New devices",
-      description:
-        "Devices first seen in the last 30 days. Schedule this dashboard to email the list.",
+      description: "Devices first seen in the last 30 days. Schedule this dashboard to email the list.",
       default_time_range: "last_30d",
       report_kind: "new_devices",
       panels: [
@@ -181,7 +180,8 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReports do
     if repo_enabled?() do
       actor = Keyword.get(opts, :actor) || SystemActor.system(:system_reports)
 
-      Enum.reduce_while(@dashboards, {:ok, []}, fn spec, {:ok, acc} ->
+      @dashboards
+      |> Enum.reduce_while({:ok, []}, fn spec, {:ok, acc} ->
         case ensure_dashboard(actor, spec) do
           {:ok, dashboard} -> {:cont, {:ok, [dashboard | acc]}}
           {:error, reason} -> {:halt, {:error, reason}}
@@ -197,18 +197,40 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReports do
   end
 
   @doc """
+  Decides what to do about a dashboard definition, given what is already stored.
+
+  Pure, and deliberately separated from the Ash calls so the rule that matters —
+  an existing definition is never rewritten — is assertable without a database.
+
+  * `nil` (nothing stored) → `:create`
+  * a dashboard with no panels → `:create_panels`, an interrupted creation
+  * anything else → `:keep`, because every remaining field is operator-editable
+
+  There is no branch that updates a title, description, time range or panel
+  query. That is the point: the previous implementation had one, and it silently
+  restored shipped values over operator edits on the next boot.
+  """
+  @spec definition_action(nil | map()) :: :create | :create_panels | :keep
+  def definition_action(nil), do: :create
+
+  def definition_action(dashboard) do
+    if Enum.empty?(List.wrap(Map.get(dashboard, :panels))) do
+      :create_panels
+    else
+      :keep
+    end
+  end
+
+  @doc """
   Ensures one dashboard definition exists, without altering an existing one.
   """
   @spec ensure_dashboard(map(), map()) :: {:ok, AuthoredDashboard.t()} | {:error, term()}
   def ensure_dashboard(actor, spec) do
     case existing_dashboard(actor, spec.slug) do
-      # Present already: leave every operator-editable field alone. Only an
-      # empty panel list is completed, since that is an interrupted creation.
       {:ok, dashboard} ->
-        if Enum.empty?(List.wrap(dashboard.panels)) do
-          create_panels(actor, dashboard, spec)
-        else
-          {:ok, dashboard}
+        case definition_action(dashboard) do
+          :create_panels -> create_panels(actor, dashboard, spec)
+          :keep -> {:ok, dashboard}
         end
 
       {:error, :not_found} ->
