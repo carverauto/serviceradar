@@ -229,7 +229,7 @@ HEX_PACKAGES = [
     ("phoenix_live_view", "phoenix_live_view", "1.2.12", "656810d716e3369545dd63981196a5d68b77fdb253afe02ef0c6fa14cfd8dc2b"),
     ("phoenix_pubsub", "phoenix_pubsub", "2.3.0", "eec7be6e9cf02e2551d389b558402d6c637cd3973796326e7ba4bb03c6b2e91d"),
     ("phoenix_react_ng", "phoenix_react_ng", "0.8.5", "602a0bdc7986595610a0e5dd0413e55e03be1f9267c1ab5578093407e3e795ee"),
-    ("phoenix_template", "phoenix_template", "1.0.4", "2c0c81f0e5c6753faf5cca2f229c9709919aba34fab866d3bc05060c9c444206"),
+    ("phoenix_template", "phoenix_template", "1.1.0", "eba70070de79b2c3501ef205a74a69f98ab352f3785aa15da9ed161f9fe0fd5d"),
     ("phoenix_view", "phoenix_view", "2.0.4", "4e992022ce14f31fe57335db27a28154afcc94e9983266835bb3040243eb620b"),
     ("plug", "plug", "1.20.3", "be266aee1b8536ef6409d58cf39a3121319f0ec47cfa1b24024485aa0e76ad76"),
     ("plug_crypto", "plug_crypto", "2.2.0", "83a95744ab1c75876542b6fab135fcc176280e0f301a111c1f757fddcec95d2c"),
