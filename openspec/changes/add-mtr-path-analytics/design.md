@@ -57,11 +57,12 @@ raw tables.
 
 StarRocks `date_trunc` accepts only named units, and `starrocks.rs` hardcodes
 `date_trunc('hour', ...)`. Arbitrary durations therefore need either
-`time_slice` or the equivalent epoch-floor arithmetic. **Open gate:** the exact
-StarRocks function and its availability in the deployed version must be confirmed
-before implementation; until confirmed, the StarRocks path accepts only durations
-that map to a named `date_trunc` unit and refuses others with `InvalidRequest`
-rather than silently rounding to the hour.
+`time_slice` or the equivalent epoch-floor arithmetic. **Open gate (resolved;
+see §Resolved gates below):** the exact StarRocks function and its availability
+in the deployed version must be confirmed before implementation; until
+confirmed, the StarRocks path accepts only durations that map to a named
+`date_trunc` unit and refuses others with `InvalidRequest` rather than silently
+rounding to the hour.
 
 ### Bucket boundary and limit interaction
 

@@ -1,7 +1,6 @@
 defmodule ServiceRadarWebNG.Dashboards.SystemReports do
   @moduledoc """
-  Creates the built-in SRQL dashboard definitions that ship with the product
-  (issue 4976).
+  Creates the built-in SRQL dashboard definitions that ship with the product.
 
   Only definitions are created: an authored dashboard record and its panels,
   each panel holding SRQL text. Nothing about a panel's contents is stored —
