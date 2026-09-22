@@ -1173,6 +1173,24 @@ mod tests {
     }
 
     #[test]
+    fn every_two_argument_aggregate_compiles_on_the_relational_backend() {
+        // Parity guard: adding a name to TWO_ARG_AGGREGATES without implementing
+        // it here fails this test, rather than shipping an aggregate that works
+        // on one backend only.
+        for name in crate::parser::TWO_ARG_AGGREGATES {
+            let args = match *name {
+                "loss_ratio" => "sent, received",
+                "wavg" => "avg_us, received",
+                other => panic!("no relational test arguments defined for '{other}'"),
+            };
+            let query = format!("in:mtr_hops stats:{name}({args}) as v by addr limit:10");
+            let plan = plan_for(&query);
+            to_sql_and_params(&plan)
+                .unwrap_or_else(|err| panic!("{name} must compile for mtr_hops: {err}"));
+        }
+    }
+
+    #[test]
     fn plain_avg_still_compiles_to_avg() {
         // The new aggregates must not redefine the old ones.
         let plan = plan_for("in:mtr_hops stats:avg(loss_pct) as avg_loss by addr limit:20");
@@ -1207,10 +1225,10 @@ mod tests {
 
         let inner = lower
             .find("order by __bucket desc")
-            .expect(&format!("inner truncation must be descending: {sql}"));
+            .unwrap_or_else(|| panic!("inner truncation must be descending: {sql}"));
         let outer = lower
             .find("order by __bucket asc")
-            .expect(&format!("outer render must be ascending: {sql}"));
+            .unwrap_or_else(|| panic!("outer render must be ascending: {sql}"));
         assert!(
             inner < outer,
             "descending truncation must happen inside the ascending render: {sql}"

@@ -20,6 +20,8 @@ pub use ast::{
 // Sharing these keeps a builder from disagreeing with the parser about where one
 // aggregation ends and the next begins.
 pub(crate) use duration::parse_bucket_seconds as parse_group_bucket_seconds;
+#[cfg(test)]
+pub(crate) use stats::TWO_ARG_AGGREGATES;
 pub(crate) use stats::split_top_level_commas;
 
 use crate::{

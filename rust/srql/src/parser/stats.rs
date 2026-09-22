@@ -142,6 +142,15 @@ fn parse_single_stats_agg(expr: &str) -> Option<StatsAggregation> {
     None
 }
 
+/// Every two-argument aggregate the grammar accepts.
+///
+/// Each dialect asserts that it can compile every name here, so adding a name
+/// without implementing it in both the relational and warehouse builders fails a
+/// test rather than shipping an aggregate that works on one backend and errors —
+/// or worse, silently differs — on the other.
+#[cfg(test)]
+pub(crate) const TWO_ARG_AGGREGATES: &[&str] = &["loss_ratio", "wavg"];
+
 /// Split on commas that are not inside parentheses.
 ///
 /// A two-argument aggregation contains a comma of its own, so splitting a

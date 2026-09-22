@@ -4072,6 +4072,24 @@ mod tests {
     }
 
     #[test]
+    fn every_two_argument_aggregate_compiles_on_the_warehouse_backend() {
+        // Parity guard, the warehouse half: adding a name to TWO_ARG_AGGREGATES
+        // without implementing it in this dialect fails here, so an aggregate
+        // cannot ship working on one backend and erroring on the other.
+        for name in crate::parser::TWO_ARG_AGGREGATES {
+            let args = match *name {
+                "loss_ratio" => "packets_in, packets_out",
+                "wavg" => "bytes_in, packets_in",
+                other => panic!("no warehouse test arguments defined for '{other}'"),
+            };
+            let query =
+                format!(r#"in:flows time:last_1h stats:"{name}({args}) as v by app" limit:10"#);
+            translate(&plan(&query), "serviceradar")
+                .unwrap_or_else(|err| panic!("{name} must compile for StarRocks: {err}"));
+        }
+    }
+
+    #[test]
     fn two_argument_aggregations_reject_a_single_argument_in_starrocks() {
         for query in [
             r#"in:flows time:last_1h stats:"loss_ratio(packets_in) as loss by app" limit:10"#,
