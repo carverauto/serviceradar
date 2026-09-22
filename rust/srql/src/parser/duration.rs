@@ -5,7 +5,7 @@ use crate::{
 
 const MAX_DOWNSAMPLE_BUCKET_SECS: i64 = 31 * 24 * 60 * 60;
 
-pub(super) fn parse_bucket_seconds(raw: &str) -> Result<i64> {
+pub(crate) fn parse_bucket_seconds(raw: &str) -> Result<i64> {
     let raw = raw.trim();
     if raw.is_empty() {
         return Err(ServiceError::InvalidRequest(

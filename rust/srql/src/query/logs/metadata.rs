@@ -1,4 +1,4 @@
-use super::{enforce_list_limit, LogsQuery};
+use super::{LogsQuery, enforce_list_limit};
 use crate::{
     error::{Result, ServiceError},
     parser::{Filter, FilterOp},

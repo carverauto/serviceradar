@@ -79,22 +79,19 @@ pub(super) fn mtr_hops() -> VizMeta {
             col("mpls_labels", ColumnType::Jsonb, None),
             col("sent", ColumnType::Int, Some(ColumnSemantic::Value)),
             col("received", ColumnType::Int, Some(ColumnSemantic::Value)),
-            col("loss_pct", ColumnType::Float, Some(ColumnSemantic::Value))
-                .with_unit("%"),
-            col("last_us", ColumnType::Int, Some(ColumnSemantic::Value))
-                .with_unit("µs"),
-            col("avg_us", ColumnType::Int, Some(ColumnSemantic::Value))
-                .with_unit("µs"),
-            col("min_us", ColumnType::Int, Some(ColumnSemantic::Value))
-                .with_unit("µs"),
-            col("max_us", ColumnType::Int, Some(ColumnSemantic::Value))
-                .with_unit("µs"),
-            col("stddev_us", ColumnType::Int, Some(ColumnSemantic::Value))
-                .with_unit("µs"),
-            col("jitter_us", ColumnType::Int, Some(ColumnSemantic::Value))
-                .with_unit("µs"),
-            col("jitter_worst_us", ColumnType::Int, Some(ColumnSemantic::Value))
-                .with_unit("µs"),
+            col("loss_pct", ColumnType::Float, Some(ColumnSemantic::Value)).with_unit("%"),
+            col("last_us", ColumnType::Int, Some(ColumnSemantic::Value)).with_unit("µs"),
+            col("avg_us", ColumnType::Int, Some(ColumnSemantic::Value)).with_unit("µs"),
+            col("min_us", ColumnType::Int, Some(ColumnSemantic::Value)).with_unit("µs"),
+            col("max_us", ColumnType::Int, Some(ColumnSemantic::Value)).with_unit("µs"),
+            col("stddev_us", ColumnType::Int, Some(ColumnSemantic::Value)).with_unit("µs"),
+            col("jitter_us", ColumnType::Int, Some(ColumnSemantic::Value)).with_unit("µs"),
+            col(
+                "jitter_worst_us",
+                ColumnType::Int,
+                Some(ColumnSemantic::Value),
+            )
+            .with_unit("µs"),
             col(
                 "jitter_interarrival_us",
                 ColumnType::Int,

@@ -15,6 +15,13 @@ pub use ast::{
     OrderDirection, QueryAst, StatsAggType, StatsAggregation, StatsSpec,
 };
 
+// Entity stats builders parse their own `by` clause and projection, so they need
+// the same duration grammar `bucket:` uses and the same paren-aware comma split.
+// Sharing these keeps a builder from disagreeing with the parser about where one
+// aggregation ends and the next begins.
+pub(crate) use duration::parse_bucket_seconds as parse_group_bucket_seconds;
+pub(crate) use stats::split_top_level_commas;
+
 use crate::{
     error::{Result, ServiceError},
     time::parse_time_value,
@@ -131,9 +138,15 @@ pub fn parse(input: &str) -> Result<QueryAst> {
                                 .into(),
                         )
                     })?;
-                    if field_token.contains(':') {
+                    // A colon here usually means the group-by field was omitted
+                    // and the next clause was swallowed instead, as in
+                    // `stats:count() as n by limit:10`. The one legitimate colon
+                    // is the `time:<duration>` bucket dimension, so allow that
+                    // and keep refusing everything else.
+                    if !group_by_colons_are_time_dimensions(field_token.as_str()) {
                         return Err(ServiceError::InvalidRequest(
-                            "stats group by must be of the form 'stats:expr as alias by field'"
+                            "stats group by must be of the form 'stats:expr as alias by field'; \
+                             only the 'time' dimension takes a duration"
                                 .into(),
                         ));
                     }
@@ -232,4 +245,22 @@ fn parse_bool_flag(raw: &str, key: &str) -> Result<bool> {
             "{key} expects boolean true/false, got '{other}'"
         ))),
     }
+}
+
+/// Whether every colon in a stats `by` token belongs to a `time:<duration>`
+/// dimension.
+///
+/// Entity stats builders validate the duration itself; this only decides whether
+/// the token is a group-by clause at all, or a following clause that was
+/// swallowed because the field was omitted.
+fn group_by_colons_are_time_dimensions(token: &str) -> bool {
+    token.split(',').all(|segment| {
+        let segment = segment.trim();
+        match segment.split_once(':') {
+            None => true,
+            Some((key, value)) => {
+                key.trim().eq_ignore_ascii_case("time") && !value.trim().is_empty()
+            }
+        }
+    })
 }

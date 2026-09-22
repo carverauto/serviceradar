@@ -56,8 +56,8 @@ pub(super) fn merge_stats_exprs(existing: &str, next: &str) -> Result<String> {
 pub(super) fn parse_stats_expr(raw: &str) -> StatsSpec {
     let raw = raw.trim().trim_matches('"').trim_matches('\'');
     let (agg_expr, _group_by) = split_stats_group_by(raw);
-    let aggregations = agg_expr
-        .split(',')
+    let aggregations = split_top_level_commas(&agg_expr)
+        .into_iter()
         .filter_map(|part| parse_single_stats_agg(part.trim()))
         .collect();
 
@@ -92,65 +92,96 @@ fn parse_single_stats_agg(expr: &str) -> Option<StatsAggregation> {
         return Some(StatsAggregation {
             agg_type: StatsAggType::Count,
             field: None,
+            field2: None,
             alias: alias.to_string(),
         });
     }
 
-    if let Some(inner) = func_part
-        .strip_prefix("sum(")
-        .and_then(|s| s.strip_suffix(')'))
-    {
-        let field = inner.trim();
-        if !field.is_empty() {
-            return Some(StatsAggregation {
-                agg_type: StatsAggType::Sum,
-                field: Some(field.to_string()),
-                alias: alias.to_string(),
-            });
+    for (prefix, agg_type) in [
+        ("sum(", StatsAggType::Sum),
+        ("avg(", StatsAggType::Avg),
+        ("min(", StatsAggType::Min),
+        ("max(", StatsAggType::Max),
+    ] {
+        if let Some(inner) = func_part
+            .strip_prefix(prefix)
+            .and_then(|s| s.strip_suffix(')'))
+        {
+            let field = inner.trim();
+            if !field.is_empty() {
+                return Some(StatsAggregation {
+                    agg_type,
+                    field: Some(field.to_string()),
+                    field2: None,
+                    alias: alias.to_string(),
+                });
+            }
         }
     }
 
-    if let Some(inner) = func_part
-        .strip_prefix("avg(")
-        .and_then(|s| s.strip_suffix(')'))
-    {
-        let field = inner.trim();
-        if !field.is_empty() {
+    // Two-argument aggregations. `strip_prefix` is anchored, so "wavg(" does not
+    // collide with the "avg(" arm above.
+    for (prefix, agg_type) in [
+        ("loss_ratio(", StatsAggType::LossRatio),
+        ("wavg(", StatsAggType::Wavg),
+    ] {
+        if let Some((first, second)) = func_part
+            .strip_prefix(prefix)
+            .and_then(|s| s.strip_suffix(')'))
+            .and_then(split_two_args)
+        {
             return Some(StatsAggregation {
-                agg_type: StatsAggType::Avg,
-                field: Some(field.to_string()),
-                alias: alias.to_string(),
-            });
-        }
-    }
-
-    if let Some(inner) = func_part
-        .strip_prefix("min(")
-        .and_then(|s| s.strip_suffix(')'))
-    {
-        let field = inner.trim();
-        if !field.is_empty() {
-            return Some(StatsAggregation {
-                agg_type: StatsAggType::Min,
-                field: Some(field.to_string()),
-                alias: alias.to_string(),
-            });
-        }
-    }
-
-    if let Some(inner) = func_part
-        .strip_prefix("max(")
-        .and_then(|s| s.strip_suffix(')'))
-    {
-        let field = inner.trim();
-        if !field.is_empty() {
-            return Some(StatsAggregation {
-                agg_type: StatsAggType::Max,
-                field: Some(field.to_string()),
+                agg_type,
+                field: Some(first),
+                field2: Some(second),
                 alias: alias.to_string(),
             });
         }
     }
 
     None
+}
+
+/// Split on commas that are not inside parentheses.
+///
+/// A two-argument aggregation contains a comma of its own, so splitting a
+/// projection on every comma tears `loss_ratio(sent, received)` into two
+/// unparseable halves — which `filter_map` would then silently discard, leaving
+/// an aggregation-free stats spec.
+pub(crate) fn split_top_level_commas(s: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut depth = 0usize;
+    let mut start = 0usize;
+
+    for (idx, ch) in s.char_indices() {
+        match ch {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                parts.push(&s[start..idx]);
+                start = idx + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(&s[start..]);
+    parts
+}
+
+/// Split the inner text of a two-argument aggregation into its operands.
+///
+/// Returns None for any arity other than two, or for an empty operand, so a
+/// malformed call does not silently become a one-argument aggregation. Callers
+/// that need an error rather than a skip validate the raw expression themselves;
+/// see the entity stats builders.
+fn split_two_args(inner: &str) -> Option<(String, String)> {
+    let mut parts = inner.split(',');
+    let first = parts.next()?.trim();
+    let second = parts.next()?.trim();
+
+    if parts.next().is_some() || first.is_empty() || second.is_empty() {
+        return None;
+    }
+
+    Some((first.to_string(), second.to_string()))
 }

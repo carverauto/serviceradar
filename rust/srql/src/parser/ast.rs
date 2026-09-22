@@ -135,6 +135,9 @@ pub struct StatsAggregation {
     pub agg_type: StatsAggType,
     /// The field to aggregate (None for count())
     pub field: Option<String>,
+    /// The second field of a two-argument aggregation: the denominator of
+    /// `loss_ratio`, the weight of `wavg`. None for single-argument functions.
+    pub field2: Option<String>,
     /// The alias for the result
     pub alias: String,
 }
@@ -148,6 +151,13 @@ pub enum StatsAggType {
     Avg,
     Min,
     Max,
+    /// `loss_ratio(sent, received)`: a ratio of sums, not a mean of per-row
+    /// ratios. The two disagree whenever the rows in a group carry unequal
+    /// denominators, which for probe counts is the normal case.
+    LossRatio,
+    /// `wavg(value, weight)`: a weight-weighted mean, so a low-sample row does
+    /// not carry the same weight as a high-sample one.
+    Wavg,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
