@@ -397,13 +397,13 @@ fn other_rollup_sql(plan: &QueryPlan, grouped: &str, order: &str) -> Result<Stri
         ServiceError::InvalidRequest("other:true requires a grouped stats query".into())
     })?;
     let mut aggregates = Vec::new();
-    for (function, _, alias) in parse_aggregations(stats)? {
-        if !matches!(function.to_ascii_lowercase().as_str(), "sum" | "count") {
+    for agg in parse_aggregations(stats)? {
+        if !matches!(agg.function.to_ascii_lowercase().as_str(), "sum" | "count") {
             return Err(ServiceError::InvalidRequest(
                 "other:true currently supports only sum(...) and count(...) aggregations".into(),
             ));
         }
-        aggregates.push(alias);
+        aggregates.push(agg.alias);
     }
     let groups = stats_group_by(Some(stats))
         .unwrap_or_default()
@@ -1413,14 +1413,24 @@ fn stats_select(plan: &QueryPlan, dataset: Dataset) -> Result<(String, String)> 
     };
 
     let mut select = Vec::new();
-    for (function, field, alias) in parse_aggregations(stats)? {
-        select.push(starrocks_agg(plan, function, field, alias)?);
+    for agg in parse_aggregations(stats)? {
+        select.push(starrocks_agg(plan, &agg)?);
     }
     if let Some(group_cols) = stats_group_by(Some(stats)) {
         let mut rewritten = Vec::new();
         for col in group_cols.split(',') {
             let col = col.trim();
             if col.is_empty() {
+                continue;
+            }
+            // `time:<duration>` is a time-bucket dimension, not a column.
+            if let Some(duration) = col
+                .split_once(':')
+                .and_then(|(key, value)| key.trim().eq_ignore_ascii_case("time").then_some(value))
+            {
+                let expr = starrocks_time_bucket(dataset.time_column, duration.trim())?;
+                select.push(format!("{expr} AS bucket"));
+                rewritten.push(expr);
                 continue;
             }
             let expr = field_sql(plan, col)?;
@@ -2044,12 +2054,36 @@ fn stats_group_by(stats: Option<&crate::parser::StatsSpec>) -> Option<String> {
     }
 }
 
-fn parse_aggregations(stats: &crate::parser::StatsSpec) -> Result<Vec<(&str, &str, &str)>> {
+/// SQL for the `time:<duration>` stats group dimension in the StarRocks dialect.
+///
+/// `date_trunc` accepts only named units, and the profile builder hardcodes
+/// `'hour'`, so an arbitrary duration needs `time_slice`, available in the
+/// deployed StarRocks 3.5. Seconds are used directly rather than being reduced to
+/// a coarser named unit: silently rounding a requested bucket is the failure this
+/// dimension is specified to avoid.
+fn starrocks_time_bucket(time_column: &str, duration: &str) -> Result<String> {
+    let seconds = crate::parser::parse_group_bucket_seconds(duration)?;
+    Ok(format!(
+        "time_slice(`{time_column}`, INTERVAL {seconds} SECOND)"
+    ))
+}
+
+/// One parsed aggregation. `field2` is set only for the two-argument functions.
+struct ParsedAgg<'a> {
+    function: &'a str,
+    field: &'a str,
+    field2: Option<&'a str>,
+    alias: &'a str,
+}
+
+fn parse_aggregations(stats: &crate::parser::StatsSpec) -> Result<Vec<ParsedAgg<'_>>> {
     let raw = stats.as_raw();
     let lowered = raw.to_ascii_lowercase();
     let aggregates = &raw[..lowered.find(" by ").unwrap_or(raw.len())];
-    aggregates
-        .split(',')
+    // Paren-aware: `loss_ratio(sent, received)` carries a comma of its own, and
+    // splitting on every comma would tear it into two unparseable halves.
+    crate::parser::split_top_level_commas(aggregates)
+        .into_iter()
         .map(|term| {
             let term = term.trim();
             let lowered = term.to_ascii_lowercase();
@@ -2067,25 +2101,85 @@ fn parse_aggregations(stats: &crate::parser::StatsSpec) -> Result<Vec<(&str, &st
                         .map(|arg| (function.trim(), arg.trim()))
                 })
                 .ok_or_else(|| ServiceError::InvalidRequest("invalid aggregation".into()))?;
+
+            let function_lower = function.to_ascii_lowercase();
             if !matches!(
-                function.to_ascii_lowercase().as_str(),
-                "count" | "count_distinct" | "sum" | "avg" | "min" | "max"
+                function_lower.as_str(),
+                "count" | "count_distinct" | "sum" | "avg" | "min" | "max" | "loss_ratio" | "wavg"
             ) {
                 return Err(ServiceError::InvalidRequest(
                     "unsupported aggregation".into(),
                 ));
             }
+
+            if matches!(function_lower.as_str(), "loss_ratio" | "wavg") {
+                let mut parts = argument.split(',');
+                let first = parts.next().unwrap_or("").trim();
+                let second = parts.next().unwrap_or("").trim();
+                if parts.next().is_some() || first.is_empty() || second.is_empty() {
+                    return Err(ServiceError::InvalidRequest(format!(
+                        "{function_lower} requires exactly two arguments"
+                    )));
+                }
+                return Ok(ParsedAgg {
+                    function,
+                    field: first,
+                    field2: Some(second),
+                    alias,
+                });
+            }
+
             let argument = if argument.is_empty() && function.eq_ignore_ascii_case("count") {
                 "*"
             } else {
                 argument
             };
-            Ok((function, argument, alias))
+            Ok(ParsedAgg {
+                function,
+                field: argument,
+                field2: None,
+                alias,
+            })
         })
         .collect()
 }
 
-fn starrocks_agg(plan: &QueryPlan, function: &str, field: &str, alias: &str) -> Result<String> {
+fn starrocks_agg(plan: &QueryPlan, agg: &ParsedAgg<'_>) -> Result<String> {
+    let ParsedAgg {
+        function,
+        field,
+        field2,
+        alias,
+    } = *agg;
+
+    // Two-argument aggregations. Both must produce the same number the relational
+    // builder produces for the same query: a ratio of sums rather than a mean of
+    // ratios, and a weighted mean rather than a plain average. A zero or absent
+    // denominator yields NULL, never a fabricated zero and never a division
+    // error, so "no samples" stays distinguishable from "no loss".
+    if let Some(second) = field2 {
+        let lhs = aggregate_field_sql(plan, field)?;
+        let rhs = aggregate_field_sql(plan, second)?;
+        let expr = match function.to_ascii_lowercase().as_str() {
+            "loss_ratio" => format!(
+                "CASE WHEN COALESCE(SUM({lhs}), 0) > 0 THEN \
+                 100.0 * (CAST(SUM({lhs}) AS DOUBLE) - CAST(COALESCE(SUM({rhs}), 0) AS DOUBLE)) \
+                 / CAST(SUM({lhs}) AS DOUBLE) ELSE NULL END"
+            ),
+            "wavg" => format!(
+                "CASE WHEN SUM(COALESCE({rhs}, 0)) > 0 THEN \
+                 SUM(CAST({lhs} AS DOUBLE) * CAST(COALESCE({rhs}, 0) AS DOUBLE)) \
+                 / CAST(SUM(COALESCE({rhs}, 0)) AS DOUBLE) ELSE NULL END"
+            ),
+            other => {
+                return Err(ServiceError::InvalidRequest(format!(
+                    "unsupported two-argument aggregation '{other}'"
+                )));
+            }
+        };
+        return Ok(format!("{expr} AS {alias}"));
+    }
+
     let function = function.to_ascii_uppercase();
     let value = match (function.as_str(), field) {
         ("COUNT", "*") => "*".to_string(),
@@ -2641,7 +2735,7 @@ fn order_sql(plan: &QueryPlan, time_column: &str) -> Result<String> {
         let field = if let Some(stats) = &plan.stats {
             if !parse_aggregations(stats)?
                 .iter()
-                .any(|(_, _, alias)| *alias == order.field)
+                .any(|agg| agg.alias == order.field)
                 && !groups.split(',').any(|col| group_alias(col) == order.field)
             {
                 return Err(ServiceError::InvalidRequest(
@@ -3925,6 +4019,104 @@ mod tests {
         );
         assert!(compiled.sql.contains("SUM((CAST(COALESCE(bytes_in, 0) AS DOUBLE) * GREATEST(COALESCE(sampling_rate, 1), 1))) AS bytes_in"));
         assert!(compiled.sql.contains("LIMIT 10"));
+        refute_postgres(&compiled.sql);
+    }
+
+    // The aggregates below are exercised on a dataset StarRocks already serves,
+    // because MTR is not a warehouse dataset yet. What is being verified is that
+    // the dialect emits the correct SHAPE — a ratio of sums, a weighted mean, a
+    // NULL guard — so the numbers match the relational builder when MTR does
+    // arrive there.
+
+    #[test]
+    fn loss_ratio_compiles_to_a_ratio_of_sums_in_starrocks() {
+        let compiled = translate(
+            &plan(
+                r#"in:flows time:last_1h stats:"loss_ratio(packets_in, packets_out) as loss by app" limit:10"#,
+            ),
+            "serviceradar",
+        )
+        .expect("compile");
+
+        let sql = compiled.sql.to_uppercase();
+        assert!(sql.contains("CASE WHEN"), "{}", compiled.sql);
+        assert!(sql.contains("ELSE NULL END"), "{}", compiled.sql);
+        assert!(sql.contains("SUM("), "{}", compiled.sql);
+        assert!(
+            !sql.contains("AVG("),
+            "loss must not compile to an average: {}",
+            compiled.sql
+        );
+        refute_postgres(&compiled.sql);
+    }
+
+    #[test]
+    fn wavg_compiles_to_a_weighted_mean_in_starrocks() {
+        let compiled = translate(
+            &plan(
+                r#"in:flows time:last_1h stats:"wavg(bytes_in, packets_in) as avg_size by app" limit:10"#,
+            ),
+            "serviceradar",
+        )
+        .expect("compile");
+
+        let sql = compiled.sql.to_uppercase();
+        assert!(sql.contains("CASE WHEN"), "{}", compiled.sql);
+        assert!(sql.contains("ELSE NULL END"), "{}", compiled.sql);
+        assert!(
+            !sql.contains("AVG("),
+            "a weighted mean must not compile to AVG: {}",
+            compiled.sql
+        );
+        refute_postgres(&compiled.sql);
+    }
+
+    #[test]
+    fn two_argument_aggregations_reject_a_single_argument_in_starrocks() {
+        for query in [
+            r#"in:flows time:last_1h stats:"loss_ratio(packets_in) as loss by app" limit:10"#,
+            r#"in:flows time:last_1h stats:"wavg(bytes_in) as avg_size by app" limit:10"#,
+        ] {
+            let result = translate(&plan(query), "serviceradar");
+            assert!(result.is_err(), "{query} should be refused");
+        }
+    }
+
+    #[test]
+    fn two_argument_aggregation_survives_comma_splitting_in_starrocks() {
+        // Splitting the projection on every comma would tear the two-argument
+        // call in half, leaving an aggregation the dialect cannot parse.
+        let compiled = translate(
+            &plan(
+                r#"in:flows time:last_1h stats:"loss_ratio(packets_in, packets_out) as loss, sum(bytes_in) as bytes_in by app" limit:10"#,
+            ),
+            "serviceradar",
+        )
+        .expect("compile");
+
+        assert!(compiled.sql.contains("AS loss"), "{}", compiled.sql);
+        assert!(compiled.sql.contains("AS bytes_in"), "{}", compiled.sql);
+    }
+
+    #[test]
+    fn time_bucket_group_dimension_uses_the_requested_duration() {
+        // date_trunc takes only named units and the profile builder hardcodes
+        // 'hour', so a 5m bucket must not be silently widened to an hour.
+        let compiled = translate(
+            &plan(
+                r#"in:flows time:last_1h stats:"sum(bytes_in) as bytes_in by time:5m" limit:100"#,
+            ),
+            "serviceradar",
+        )
+        .expect("compile");
+
+        assert!(compiled.sql.contains("time_slice("), "{}", compiled.sql);
+        assert!(
+            compiled.sql.contains("INTERVAL 300 SECOND"),
+            "the requested 5m bucket must survive: {}",
+            compiled.sql
+        );
+        assert!(compiled.sql.contains("AS bucket"), "{}", compiled.sql);
         refute_postgres(&compiled.sql);
     }
 
