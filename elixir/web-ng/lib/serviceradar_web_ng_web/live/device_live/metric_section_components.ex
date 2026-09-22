@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetricSectionComponents do
   import ServiceRadarWebNGWeb.MetricWindowComponents, only: [metric_window_controls: 1]
   import ServiceRadarWebNGWeb.SRQLComponents, only: [srql_results_table: 1]
 
+  alias ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Query
   alias ServiceRadarWebNGWeb.MetricWindowComponents
 
   attr(:sections, :list, default: [])
@@ -131,7 +132,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetricSectionComponents do
                 module={panel.plugin}
                 id={"device-#{@device_uid}-#{section.key}-#{panel.id}-#{idx}"}
                 title={Map.get(panel, :title) || section.title}
-                panel_assigns={panel_assigns(panel, @chart_focus, @timezone)}
+                panel_assigns={panel_assigns(panel, @chart_focus, @timezone, @time_range)}
               />
             <% end %>
           <% end %>
@@ -182,10 +183,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetricSectionComponents do
 
   defp percent_width(_), do: 0
 
-  defp panel_assigns(panel, chart_focus, timezone) do
+  defp panel_assigns(panel, chart_focus, timezone, time_range) do
     panel.assigns
     |> Map.put(:compact, true)
     |> Map.put(:timezone, timezone)
+    |> Map.put(:time_window, Query.window_bounds(time_range))
     |> maybe_put_chart_focus(chart_focus)
   end
 

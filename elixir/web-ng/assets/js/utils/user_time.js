@@ -37,6 +37,10 @@ export const STYLE_OPTIONS = Object.freeze({
   // multi-day window lands on the same clock time.
   axisDayTime: Object.freeze({month: "short", day: "2-digit", hour: "2-digit"}),
   axisDate: Object.freeze({month: "short", day: "2-digit"}),
+  // A 90 day window is a sequence of months. Day numbers on those ticks repeat
+  // the same idea four times and hide that the axis is the window.
+  axisMonth: Object.freeze({month: "short"}),
+  axisMonthYear: Object.freeze({month: "short", year: "numeric"}),
   tooltip: Object.freeze({
     year: "numeric",
     month: "short",
@@ -202,6 +206,33 @@ export function userTimeFormatter(options = {}) {
   }
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000
+
+// Clock time within a day, date and hour within a week, the date out to about
+// a month and a half, then the month. A 90 day sysmon window lands on months.
+export function axisStyleForSpanMs(spanMs) {
+  if (!Number.isFinite(spanMs) || spanMs <= DAY_MS) return "axis"
+  if (spanMs <= 7 * DAY_MS) return "axisDayTime"
+  if (spanMs <= 45 * DAY_MS) return "axisDate"
+  return "axisMonth"
+}
+
+export function axisStyleForInstants(instants) {
+  const times = (instants || [])
+    .map((value) => new Date(value).getTime())
+    .filter((time) => Number.isFinite(time))
+    .sort((left, right) => left - right)
+
+  if (times.length < 2) return "axis"
+
+  const style = axisStyleForSpanMs(times[times.length - 1] - times[0])
+  if (style !== "axisMonth") return style
+
+  const startYear = new Date(times[0]).getUTCFullYear()
+  const endYear = new Date(times[times.length - 1]).getUTCFullYear()
+  return startYear === endYear ? "axisMonth" : "axisMonthYear"
+}
+
 export function axisUserTimeFormatter(options = {}) {
-  return userTimeFormatter({...options, style: "axis"})
+  return userTimeFormatter({style: "axis", ...options})
 }

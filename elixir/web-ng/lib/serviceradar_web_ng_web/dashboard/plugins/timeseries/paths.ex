@@ -151,17 +151,41 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths do
   def datetime_to_x(%DateTime{} = dt, points), do: datetime_to_x(dt, points, %{})
 
   def datetime_to_x(%DateTime{} = dt, points, opts) when is_list(points) do
-    datetime_to_x(dt, time_domain(points), opts)
+    datetime_to_x(dt, widen_time_domain(time_domain(points), opts), opts)
   end
 
-  def datetime_to_x(%DateTime{}, %{count: 0}, _opts), do: nil
+  def datetime_to_x(%DateTime{} = dt, domain, opts) when is_map(domain) do
+    place_datetime(dt, widen_time_domain(domain, opts), opts)
+  end
 
-  def datetime_to_x(%DateTime{} = dt, %{count: 1, first: only}, opts) do
+  def datetime_to_x(_dt, _points, _opts), do: nil
+
+  # A long selected window is the axis, not the samples that happen to exist
+  # inside it. `time_first` / `time_last` are unix milliseconds.
+  def widen_time_domain(domain, opts) when is_map(domain) do
+    first = earlier(Map.get(domain, :first), window_bound(opts, :time_first))
+    last = later(Map.get(domain, :last), window_bound(opts, :time_last))
+
+    count =
+      if is_integer(first) and is_integer(last) and last > first do
+        max(Map.get(domain, :count) || 0, 2)
+      else
+        Map.get(domain, :count) || 0
+      end
+
+    %{count: count, first: first, last: last}
+  end
+
+  def widen_time_domain(domain, _opts), do: domain
+
+  defp place_datetime(_dt, %{count: 0}, _opts), do: nil
+
+  defp place_datetime(%DateTime{} = dt, %{count: 1, first: only}, opts) do
     if DateTime.to_unix(dt, :millisecond) == only, do: geometry(opts).left_pad
   end
 
-  def datetime_to_x(%DateTime{} = dt, %{count: count, first: first, last: last}, opts)
-      when is_integer(count) and count > 1 do
+  defp place_datetime(%DateTime{} = dt, %{count: count, first: first, last: last}, opts)
+       when is_integer(count) and count > 1 do
     target = DateTime.to_unix(dt, :millisecond)
 
     cond do
@@ -178,7 +202,26 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths do
     end
   end
 
-  def datetime_to_x(_dt, _points, _opts), do: nil
+  defp place_datetime(_dt, _domain, _opts), do: nil
+
+  defp window_bound(opts, key) when is_map(opts) do
+    case Map.get(opts, key) do
+      value when is_integer(value) -> value
+      _ -> nil
+    end
+  end
+
+  defp window_bound(_opts, _key), do: nil
+
+  defp earlier(nil, other), do: other
+  defp earlier(current, nil), do: current
+  defp earlier(current, other) when other < current, do: other
+  defp earlier(current, _other), do: current
+
+  defp later(nil, other), do: other
+  defp later(current, nil), do: current
+  defp later(current, other) when other > current, do: other
+  defp later(current, _other), do: current
 
   def value_to_y(_v, min_v, max_v) when min_v == max_v, do: round(@chart_height / 2)
 

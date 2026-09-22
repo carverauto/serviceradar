@@ -5,6 +5,10 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Points do
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths
 
   @max_points 800
+  # A window this long is labeled by month. Shorter windows keep the sample ticks.
+  @month_axis_ms 60 * 86_400 * 1_000
+
+  def month_axis_ms, do: @month_axis_ms
   @linear_padding_ratio 0.05
   @constant_padding_ratio 0.05
   @log_padding_ratio 0.05
@@ -51,6 +55,18 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Points do
   def x_ticks(points, compact, opts \\ %{})
 
   def x_ticks(points, compact, opts) when is_list(points) do
+    domain = Paths.widen_time_domain(Paths.time_domain(points), opts)
+
+    if month_axis?(domain) do
+      month_ticks(domain, opts)
+    else
+      index_ticks(points, compact, opts)
+    end
+  end
+
+  def x_ticks(_points, _compact, _opts), do: []
+
+  defp index_ticks(points, compact, opts) do
     len = length(points)
 
     case len do
@@ -78,7 +94,53 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Points do
     end
   end
 
-  def x_ticks(_points, _compact, _opts), do: []
+  defp month_axis?(%{first: first, last: last}) when is_integer(first) and is_integer(last) do
+    last - first >= @month_axis_ms
+  end
+
+  defp month_axis?(_domain), do: false
+
+  defp month_ticks(%{first: first, last: last}, opts) do
+    start = DateTime.from_unix!(first, :millisecond)
+    finish = DateTime.from_unix!(last, :millisecond)
+    domain = %{count: 2, first: first, last: last}
+
+    start
+    |> month_instants(finish)
+    |> Enum.map(fn dt ->
+      {Paths.datetime_to_x(dt, domain, opts), canonical_time(dt)}
+    end)
+    |> Enum.reject(fn {x, _iso} -> is_nil(x) end)
+  end
+
+  defp month_instants(start, finish) do
+    first = month_anchor(start)
+    anchor = if DateTime.before?(first, start), do: start, else: first
+    collect_months(anchor, finish, [])
+  end
+
+  defp collect_months(current, finish, acc) do
+    if DateTime.after?(current, finish) do
+      Enum.reverse(acc)
+    else
+      collect_months(next_month_noon(current), finish, [current | acc])
+    end
+  end
+
+  defp month_anchor(%DateTime{} = dt) do
+    {:ok, noon, _} = DateTime.from_iso8601("#{dt.year}-#{pad(dt.month)}-01T12:00:00Z")
+    noon
+  end
+
+  defp next_month_noon(%DateTime{} = dt) do
+    month = dt.month + 1
+    {year, month} = if month == 13, do: {dt.year + 1, 1}, else: {dt.year, month}
+    {:ok, noon, _} = DateTime.from_iso8601("#{year}-#{pad(month)}-01T12:00:00Z")
+    noon
+  end
+
+  defp pad(month) when month < 10, do: "0#{month}"
+  defp pad(month), do: Integer.to_string(month)
 
   def y_ticks(%{min: min_v, max: max_v, scale: scale}, compact, unit)
       when is_number(min_v) and is_number(max_v) and max_v > min_v do
