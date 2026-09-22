@@ -36,6 +36,7 @@ defmodule ServiceRadar.Inventory.Device do
 
   alias ServiceRadar.Inventory.Changes.BumpIdentityRevision
   alias ServiceRadar.Inventory.IdentityReconciler
+  alias ServiceRadar.Inventory.Validations.AgentManaged
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   require Ash.Query
@@ -183,6 +184,8 @@ defmodule ServiceRadar.Inventory.Device do
     define :bump_identity_revision, action: :bump_identity_revision
     define :mark_active, action: :mark_active
     define :mark_inactive, action: :mark_inactive
+    define :mark_managed, action: :mark_managed
+    define :mark_unmanaged, action: :mark_unmanaged
     define :bulk_soft_delete, action: :bulk_soft_delete, args: [:device_uids, :deleted_reason]
   end
 
@@ -285,7 +288,7 @@ defmodule ServiceRadar.Inventory.Device do
       accept @device_update_fields
 
       change set_attribute(:modified_time, &DateTime.utc_now/0)
-      validate ServiceRadar.Inventory.Validations.AgentManaged
+      validate AgentManaged
     end
 
     update :gateway_sync do
@@ -401,6 +404,21 @@ defmodule ServiceRadar.Inventory.Device do
 
       change set_attribute(:is_active, false)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
+    end
+
+    update :mark_managed do
+      description "Mark a device as managed"
+
+      change set_attribute(:is_managed, true)
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+    end
+
+    update :mark_unmanaged do
+      description "Mark a device as unmanaged"
+
+      change set_attribute(:is_managed, false)
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+      validate AgentManaged
     end
 
     action :bulk_soft_delete do

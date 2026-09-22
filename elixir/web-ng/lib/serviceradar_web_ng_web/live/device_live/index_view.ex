@@ -112,7 +112,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView do
       <.bulk_edit_modal
         :if={@show_bulk_edit_modal}
         form={@bulk_edit_form}
-        selected_count={@effective_count}
+        state_form={@bulk_state_form}
+        scope_form={@bulk_scope_form}
+        selected_count={@selected_count}
+        total_matching_count={@total_matching_count}
+        select_all_matching={@select_all_matching}
+        srql={@srql}
       />
 
       <!-- Bulk Delete Modal -->

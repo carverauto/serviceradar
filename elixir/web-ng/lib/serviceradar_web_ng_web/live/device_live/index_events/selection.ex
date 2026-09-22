@@ -2,8 +2,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Selection do
   @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
+  import ServiceRadarWebNGWeb.DeviceLive.IndexView.Rows, only: [has_any_filter?: 1]
+
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.DeviceLive.IndexData
+  alias ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Helpers
 
   def handle_event("toggle_device_select", %{"uid" => uid}, socket) do
     selected = socket.assigns.selected_devices
@@ -88,7 +91,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Selection do
 
   def handle_event("open_bulk_edit_modal", _params, socket) do
     if RBAC.can?(socket.assigns.current_scope, "devices.bulk_edit") do
-      {:noreply, assign(socket, :show_bulk_edit_modal, true)}
+      {:noreply,
+       socket
+       |> assign(:show_bulk_edit_modal, true)
+       |> assign_bulk_state_defaults()}
     else
       {:noreply, put_flash(socket, :error, "You are not authorized to bulk edit devices")}
     end
@@ -114,7 +120,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Selection do
     {:noreply,
      socket
      |> assign(:show_bulk_edit_modal, false)
-     |> assign(:bulk_edit_form, to_form(%{"tags" => ""}, as: :bulk))}
+     |> assign(:bulk_edit_form, to_form(%{"tags" => ""}, as: :bulk))
+     |> assign(:bulk_scope_form, Helpers.bulk_scope_form())
+     |> assign(:bulk_state_form, Helpers.bulk_state_form())}
   end
 
   def handle_event("close_bulk_delete_modal", _params, socket) do
@@ -148,6 +156,33 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Selection do
       end
 
     {:noreply, socket}
+  end
+
+  defp assign_bulk_state_defaults(socket) do
+    default_scope = if socket.assigns.select_all_matching, do: "all_matching", else: "selected"
+
+    socket
+    |> assign(:bulk_scope_form, Helpers.bulk_scope_form(default_scope))
+    |> assign(:bulk_state_form, Helpers.bulk_state_form())
+    |> maybe_assign_total_matching_count()
+  end
+
+  # The modal's "All N matching" option needs N up front. Only run the count
+  # when a filter is present, mirroring the toolbar, which offers the
+  # all-matching scope under the same condition.
+  defp maybe_assign_total_matching_count(socket) do
+    cond do
+      is_integer(socket.assigns.total_matching_count) ->
+        socket
+
+      has_any_filter?(socket.assigns.srql) ->
+        scope = socket.assigns.current_scope
+        query = Map.get(socket.assigns.srql || %{}, :query, "")
+        assign(socket, :total_matching_count, IndexData.get_total_matching_count(scope, query))
+
+      true ->
+        socket
+    end
   end
 
   def selected_uids(socket) do
