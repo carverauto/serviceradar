@@ -10,7 +10,10 @@ filegroup(
         "BUILD.bazel",
         "tests/support/harness.rs",
     ],
-    visibility = ["//:__pkg__"],
+    visibility = [
+        "//:__pkg__",
+        "//build/contracts:__pkg__",
+    ],
 )
 
 # Complete checked-in workload inputs for the controlled IntegrationBenchmark CPU arms. The
@@ -19,7 +22,10 @@ filegroup(
 filegroup(
     name = "integration_benchmark_input_files",
     srcs = glob(["**"]),
-    visibility = ["//:__pkg__"],
+    visibility = [
+        "//:__pkg__",
+        "//build/contracts:__pkg__",
+    ],
 )
 
 # SRQL integration tests.

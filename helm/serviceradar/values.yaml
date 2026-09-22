@@ -1184,7 +1184,7 @@ webNg:
     # verifier fails closed rather than importing an unverified artifact.
     # Override only when serving first-party plugins signed with your own key.
     # Kept in step with docs/cosign.pub and the web-ng compiled-in default by
-    # //:first_party_plugin_cosign_key_consistency_test.
+    # //build/contracts:first_party_plugin_cosign_key_consistency_test.
     cosignPublicKey: |
       -----BEGIN PUBLIC KEY-----
       MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEhJcdPbybyipSl8sNHSKStAYiqhP7

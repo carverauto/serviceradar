@@ -46,4 +46,4 @@ Do not port archive driver selection, hybrid raw/file query routing, pg_duckdb e
 
 ## Validation ownership
 
-Each later PR owns focused tests plus required `make test` before opening a PR. New core tests need disposition rows and `python3 -m unittest ci_heavy_gate_contract_test`. Source snapshot evidence is historical only; no final live acceptance occurred. Integration parity requires synthetic data and real supported databases; browser acceptance includes canceled requests, errors, sparse history, preference reloads and both viewport sizes.
+Each later PR owns focused tests plus required `make test` before opening a PR. New core tests need disposition rows and `python3 -m unittest build/contracts/ci_heavy_gate_contract_test.py`. Source snapshot evidence is historical only; no final live acceptance occurred. Integration parity requires synthetic data and real supported databases; browser acceptance includes canceled requests, errors, sparse history, preference reloads and both viewport sizes.

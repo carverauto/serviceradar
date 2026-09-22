@@ -98,7 +98,7 @@ exports_files([
     "integration_test_dispositions.bzl",
     "integration_tests.bzl",
     "repo_alias.bzl",
-    # Read as text by //:ci_heavy_gate_contract_test, which pins the authority marker written
+    # Read as text by //build/contracts:ci_heavy_gate_contract_test, which pins the authority marker written
     # here against the two consumers that must agree with it.
     "template_authority.bzl",
 ])

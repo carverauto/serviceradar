@@ -9,7 +9,7 @@
 - [ ] 1.2 Register the new test source in `test/INTEGRATION_SOURCE_DISPOSITIONS.tsv` and project
   it into `build/integration_test_dispositions.bzl`, or add it to an existing registered source
   with the same disposition and update that source's selected-test count. There is no generator;
-  `//:ci_heavy_gate_contract_test`, `//build:integration_selection_equivalence_test` and
+  `//build/contracts:ci_heavy_gate_contract_test`, `//build:integration_selection_equivalence_test` and
   `//build:integration_shards_topology_test` all enforce the projection.
 
 ## 2. Classify the source

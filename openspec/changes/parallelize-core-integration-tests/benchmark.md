@@ -20,7 +20,7 @@ The comparison has two named revisions:
 Both revisions therefore contain the identical benchmark harness, flags, observer, action name,
 runner image, workflow pool, explicit CPU request, and Repo pool size 12. A harness hash covers the
 normalized action block, observer sources, and observer Bazel rule and is emitted by the checked-in
-`//:integration_benchmark_harness_hash` target. The before revision changes measurement only; its
+`//build/contracts:integration_benchmark_harness_hash` target. The before revision changes measurement only; its
 ordinary workload still embeds both ingestion gates plus cold bootstrap and runs with
 `max_cases: 1`. The intermediate safety wave reports `max_cases: 2`; the after revision must report
 `max_cases: 8`. Neither authoritative action enables
@@ -161,7 +161,7 @@ only when its untrimmed median lifecycle is at least 10% below the 2-CPU median;
 wins deterministically. There is no post-result tuning or subjective tie-break.
 
 CPU evidence may carry to the frozen after SHA only when the checked-in
-`//:integration_cpu_diagnostic_input_hash` value is identical. That hash covers every selected core
+`//build/contracts:integration_cpu_diagnostic_input_hash` value is identical. That hash covers every selected core
 test source, its complete disposition/source map, relevant Bazel/Elixir configuration and helpers,
 the PostgreSQL baseline, the integration database lifecycle, the complete invariant SRQL workload,
 runner image/pool, and normalized base/CPU2/CPU12 action blocks. It deliberately excludes the later

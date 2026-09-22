@@ -399,7 +399,7 @@ Verify locally before pushing: `bash scripts/check-native-addon-version-bumps.sh
 ### Adding a new `elixir/serviceradar_core` test file
 
 Every test source selected by
-[`ordinary_core_test_sources()`](ci_heavy_gate_contract_test.py) must have a row in
+[`ordinary_core_test_sources()`](build/contracts/ci_heavy_gate_contract_test.py) must have a row in
 `elixir/serviceradar_core/test/INTEGRATION_SOURCE_DISPOSITIONS.tsv`, or
 `ci_heavy_gate_contract_test.py`'s
 `test_integration_disposition_inventory_is_exhaustive_and_concrete` fails.
@@ -437,7 +437,7 @@ Two dispositions cover almost everything:
   describe the actual file, not just repeat the reason.
 
 Verify locally before pushing (no Bazel/Docker required):
-`python3 -m unittest ci_heavy_gate_contract_test` from the repo root.
+`python3 -m unittest build/contracts/ci_heavy_gate_contract_test.py` from the repo root.
 
 ## Socket Firewall
 
@@ -1133,7 +1133,7 @@ The three targets that write it -- `//elixir/serviceradar_core:migrate_template`
 `//rust/integration-db:prepare_template` and `//rust/integration-db:reset_template` -- now
 **refuse** without `--//build:template_authority=true`, which is the caller declaring "this
 checkout is trunk". Only `LargeIngestionGate` passes it, and
-`//:ci_heavy_gate_contract_test` pins that. Do not pass it to get past a refusal: the flag is a
+`//build/contracts:ci_heavy_gate_contract_test` pins that. Do not pass it to get past a refusal: the flag is a
 statement about the checkout, not a way to unblock a step, and a branch that sets it reproduces
 the original outage exactly. It fails closed -- an absent or empty marker is a refusal -- so
 adding the flag to a target that does not declare `//build:template_authority_file` changes

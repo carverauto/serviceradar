@@ -38,7 +38,7 @@ import unittest
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[2]
 CANONICAL_KEY = ROOT / "docs/cosign.pub"
 WEB_NG_CONFIG = ROOT / "elixir/web-ng/config/config.exs"
 CHART_VALUES = (

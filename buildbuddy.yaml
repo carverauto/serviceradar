@@ -690,7 +690,7 @@ actions:
           bazel test $FLAGS //elixir/serviceradar_core:large_ingestion_release_gate
 
   # This is deliberately a branch-only measurement action, not a pull-request gate. Its
-  # command block is hashed by //:integration_benchmark_harness_hash and stays identical
+  # command block is hashed by //build/contracts:integration_benchmark_harness_hash and stays identical
   # between the before and after revisions of the parallelization benchmark.
   - name: "IntegrationBenchmark"
     env:
