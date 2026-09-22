@@ -101,7 +101,17 @@ here stores panel content.
       hop and every private AS.
 - [x] 7.7 Loss trend panel using the `time:<duration>` group dimension and a
       `:line` visual type, with a `time_field` binding.
-- [ ] 7.8 Update `mtr_hops` in the web-ng SRQL catalog for the new aggregates.
+- [x] 7.8 Update `mtr_hops` in the web-ng SRQL catalog for the new aggregates.
+      **No change needed — verified, not assumed.** The catalog has no notion of
+      aggregate function names, and `stats_agg_fields` / `stats_group_fields` are
+      read by nothing in the repository; they are dead declarations. The key that
+      *is* consumed is `filter_fields` (`srql/page.ex` rejects a filter field
+      absent from it), and `asn` is already listed, which is what the AS panel's
+      `asn:>0` needs.
+      `time` was deliberately NOT added to `stats_group_fields`: the builder emits
+      a bare field name after `by`, so offering `time` would produce `by time`,
+      which the entity rejects because `time` is not a groupable column. The
+      dimension requires `time:<duration>`, which the builder cannot express yet.
 - [ ] 7.9 Tests for the definition step: creates when absent; is idempotent across
       repeated runs; **does not revert an edited panel query, title or
       description**; does not remove an operator-added panel; completes a dashboard
@@ -131,10 +141,10 @@ already exist there rather than being added under cutover pressure.
 - [x] 8.1 Confirm the aggregates and the time-bucket dimension from section 4 are
       reachable for any entity `starrocks.rs` serves, so no per-entity work is
       needed when MTR is added there.
-- [ ] 8.2 Record in `extend-starrocks-to-all-telemetry` that MTR's warehouse
+- [x] 8.2 Record in `extend-starrocks-to-all-telemetry` that MTR's warehouse
       rollups should use `loss_ratio` and `wavg`, so its task 3.4 does not
       materialize a rollup built on `AVG(loss_pct)`.
-- [ ] 8.3 Note the finding from gate 1.3 in that change: MTR results are not
+- [x] 8.3 Note the finding from gate 1.3 in that change: MTR results are not
       published to JetStream today. `MtrMetricsIngestor` receives a payload
       directly from the agent and writes CNPG, so an MTR warehouse destination
       needs a JetStream publication step first to satisfy the
