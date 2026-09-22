@@ -35,6 +35,23 @@ defmodule ServiceRadar.NetworkConfig.PluginIngestor do
     end)
   end
 
+  def ingest(payload, _status, opts) when is_map(payload) do
+    case extract(payload) do
+      {:error, reason} ->
+        {:error, reason}
+
+      {:ok, attrs} ->
+        case Ingest.submit(
+               attrs,
+               Keyword.take(opts, [:actor, :parser, :projector])
+             ) do
+          {:ok, _status, _revision} -> :ok
+          {:ok, _status, _revision, _facts} -> :ok
+          {:error, reason} -> {:error, reason}
+        end
+    end
+  end
+
   @spec extract(map()) :: {:ok, map()} | {:error, term()}
   def extract(payload) when is_map(payload) do
     device_uid = extract_device_uid(payload)
@@ -50,23 +67,6 @@ defmodule ServiceRadar.NetworkConfig.PluginIngestor do
          config_kind: :running,
          body: body
        }}
-    end
-  end
-
-  def ingest(payload, _status, opts) when is_map(payload) do
-    case extract(payload) do
-      {:error, reason} ->
-        {:error, reason}
-
-      {:ok, attrs} ->
-        case Ingest.submit(
-               attrs,
-               Keyword.take(opts, [:actor, :parser, :projector])
-             ) do
-          {:ok, _status, _revision} -> :ok
-          {:ok, _status, _revision, _facts} -> :ok
-          {:error, reason} -> {:error, reason}
-        end
     end
   end
 
@@ -97,7 +97,9 @@ defmodule ServiceRadar.NetworkConfig.PluginIngestor do
 
   defp details_map(payload) do
     case Map.get(payload, "details") || Map.get(payload, :details) do
-      details when is_map(details) -> details
+      details when is_map(details) ->
+        details
+
       details when is_binary(details) ->
         case Jason.decode(details) do
           {:ok, map} when is_map(map) -> map

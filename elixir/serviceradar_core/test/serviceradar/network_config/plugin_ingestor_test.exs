@@ -11,8 +11,7 @@ defmodule ServiceRadar.NetworkConfig.PluginIngestorTest do
         "kind" => "running_config",
         "config_kind" => "running",
         "device_uid" => "sr:host01.example.com",
-        "body" =>
-          "interface GigabitEthernet0/1\n ip address 192.0.2.1 255.255.255.0\n"
+        "body" => "interface GigabitEthernet0/1\n ip address 192.0.2.1 255.255.255.0\n"
       })
   }
 
