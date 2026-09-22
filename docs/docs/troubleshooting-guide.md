@@ -546,41 +546,66 @@ sudo timeout 30 tcpdump -i any -n port 2055 -w netflow-capture.pcap
 
 ## MTR Automation
 
-ServiceRadar can run automated MTR (My Traceroute) captures to baseline network
-paths and react to state transitions. The behavior is controlled with feature
-flags in `serviceradar_core` — no code changes required.
+ServiceRadar runs automated MTR (My Traceroute) captures by default to baseline
+network paths and react to state transitions. The behavior is controlled with
+feature flags in `serviceradar_core` - no code changes required.
 
 ### Feature Flags
 
-- `MTR_AUTOMATION_ENABLED`: global default for all automated MTR workers.
+- `MTR_AUTOMATION_ENABLED`: the value the three stage flags below inherit when
+  they are unset. It is not a master switch.
 - `MTR_AUTOMATION_BASELINE_ENABLED`: baseline scheduler.
 - `MTR_AUTOMATION_TRIGGER_ENABLED`: state-transition trigger worker.
 - `MTR_AUTOMATION_CONSENSUS_ENABLED`: cohort consensus and causal emitter worker.
 
-Each `MTR_AUTOMATION_*_ENABLED` flag defaults to the global value when unset.
-After changing any flag, restart or redeploy `serviceradar_core` so the
-supervision tree is rebuilt with the new worker set.
+All four default to `true`. Each stage's own flag gates its worker and is read
+first; `MTR_AUTOMATION_ENABLED` only supplies the default for a stage flag that
+is left unset. After changing any flag, restart or redeploy `serviceradar_core`
+so the supervision tree is rebuilt with the new worker set.
 
-### Recommended Staged Rollout
+### Narrowing the Rollout
 
-1. **Baseline only:**
-   - `MTR_AUTOMATION_ENABLED=true`
-   - `MTR_AUTOMATION_BASELINE_ENABLED=true`
+Automated MTR is on by default. To reduce the worker set, turn stages off
+instead of turning stages on:
+
+1. **Baseline only (no trigger capture, no consensus):**
    - `MTR_AUTOMATION_TRIGGER_ENABLED=false`
    - `MTR_AUTOMATION_CONSENSUS_ENABLED=false`
-2. **Add state-triggered capture:** set `MTR_AUTOMATION_TRIGGER_ENABLED=true`.
-3. **Add consensus + causal emission:** set `MTR_AUTOMATION_CONSENSUS_ENABLED=true`.
+2. **Baseline plus trigger capture (no consensus):**
+   - `MTR_AUTOMATION_CONSENSUS_ENABLED=false`
+3. **Everything off:**
+   - `MTR_AUTOMATION_BASELINE_ENABLED=false`
+   - `MTR_AUTOMATION_TRIGGER_ENABLED=false`
+   - `MTR_AUTOMATION_CONSENSUS_ENABLED=false`
 
 ### Rollback Switches
 
-- **Stop all automated MTR immediately**: `MTR_AUTOMATION_ENABLED=false`
+Setting `MTR_AUTOMATION_ENABLED=false` alone does not stop the workers: the
+chart and Docker Compose render all four variables, and each stage flag is read
+before the shared default. To stop a worker, set its own flag.
+
+- **Stop only baseline scheduling** while keeping incident capture: `MTR_AUTOMATION_BASELINE_ENABLED=false`
 - **Stop only event-driven runs**: `MTR_AUTOMATION_TRIGGER_ENABLED=false`
 - **Stop only causal consensus/emission** while keeping dispatch: `MTR_AUTOMATION_CONSENSUS_ENABLED=false`
-- **Stop only baseline scheduling** while keeping incident capture: `MTR_AUTOMATION_BASELINE_ENABLED=false`
+- **Stop all automated MTR**: set all three stage flags above to `false`
 
 ### Helm Values
 
-For chart-based deploys, set the same behavior under `core.mtrAutomation`:
+For chart-based deploys, set the same behavior under `core.mtrAutomation`. A
+fresh install runs all four stages:
+
+```yaml
+core:
+  mtrAutomation:
+    enabled: true
+    baselineEnabled: true
+    triggerEnabled: true
+    consensusEnabled: true
+    baselineTickMs: 60000
+    consensusCohortRetentionMs: 300000
+```
+
+To narrow the rollout, set the stage flags. Everything off:
 
 ```yaml
 core:
