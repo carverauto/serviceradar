@@ -1572,17 +1572,19 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   end
 
   defp handler_support(handler, payload, status) when is_atom(handler) do
-    supported =
-      cond do
-        function_exported?(handler, :supports?, 2) -> handler.supports?(payload, status)
-        function_exported?(handler, :supports?, 1) -> handler.supports?(payload)
-        true -> true
-      end
+    # function_exported?/3 is false for a module that has not been loaded yet,
+    # which would silently turn a handler with supports?/2 into a catch-all.
+    if Code.ensure_loaded?(handler) do
+      supported =
+        cond do
+          function_exported?(handler, :supports?, 2) -> handler.supports?(payload, status)
+          function_exported?(handler, :supports?, 1) -> handler.supports?(payload)
+          true -> true
+        end
 
-    case supported do
-      true -> {:ok, true}
-      false -> {:ok, false}
-      other -> {:error, {:unexpected_support_result, other}}
+      handler_support_result(supported)
+    else
+      {:error, {:handler_not_loadable, handler}}
     end
   rescue
     error -> {:error, {:support_check_failed, error}}
