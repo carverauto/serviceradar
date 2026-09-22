@@ -21,6 +21,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   alias ServiceRadarWebNGWeb.CompositeChecks.Catalog, as: CompositeCatalog
   alias ServiceRadarWebNGWeb.DeviceLive.IndexData
   alias ServiceRadarWebNGWeb.DeviceLive.IndexEvents
+  alias ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Helpers
   alias ServiceRadarWebNGWeb.DeviceLive.IndexView
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
@@ -75,6 +76,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
      |> assign(:show_bulk_delete_modal, false)
      |> assign(:show_bulk_availability_source_modal, false)
      |> assign(:bulk_edit_form, to_form(%{"tags" => ""}, as: :bulk))
+     |> assign(:bulk_state_form, Helpers.bulk_state_form())
+     |> assign(:bulk_scope_form, Helpers.bulk_scope_form())
+     |> assign(:bulk_target_scope, "selected")
+     |> assign(:bulk_target_matching_count, nil)
      |> assign(:availability_source_form, to_form(%{"agent_id" => ""}, as: :availability_source))
      |> assign(
        :availability_source_agent_options,

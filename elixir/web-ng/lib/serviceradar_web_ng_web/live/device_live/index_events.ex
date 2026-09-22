@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents do
 
   alias ServiceRadarWebNGWeb.DeviceLive.IndexEvents.BulkAvailability
   alias ServiceRadarWebNGWeb.DeviceLive.IndexEvents.BulkDelete
+  alias ServiceRadarWebNGWeb.DeviceLive.IndexEvents.BulkState
   alias ServiceRadarWebNGWeb.DeviceLive.IndexEvents.BulkTags
   alias ServiceRadarWebNGWeb.DeviceLive.IndexEvents.DeviceManagement
   alias ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Navigation
@@ -82,6 +83,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents do
 
   def handle_event("apply_bulk_availability_source", params, socket) do
     BulkAvailability.handle_event("apply_bulk_availability_source", params, socket)
+  end
+
+  def handle_event(event, params, socket) when event in ~w(apply_bulk_state bulk_state_scope_change) do
+    BulkState.handle_event(event, params, socket)
   end
 
   def handle_event(event, params, socket) when event in ~w(bulk_delete_devices confirm_bulk_delete) do
