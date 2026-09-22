@@ -650,6 +650,12 @@ spec:
         {{- end }}
         - name: LOG_PROMOTION_CONSUMER_ENABLED
           value: {{ default false $coreVals.logPromotionConsumerEnabled | quote }}
+        {{- /* Keep `default false` here even though the chart default in
+               values.yaml is now true. Sprig's `default` treats `false` as
+               EMPTY, so `default true $mtrAutomation.enabled` would return true
+               even when an operator explicitly sets enabled: false -- making
+               MTR impossible to turn off. The enabled-by-default behavior lives
+               in values.yaml, where an explicit false still wins. */}}
         - name: MTR_AUTOMATION_ENABLED
           value: {{ default false $mtrAutomation.enabled | quote }}
         - name: MTR_AUTOMATION_BASELINE_ENABLED

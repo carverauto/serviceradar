@@ -1,0 +1,160 @@
+suite: MTR automation defaults
+templates:
+  - templates/core.yaml
+tests:
+  # Automated MTR used to be opt-in: the chart defaulted all four flags false, so
+  # a fresh install started no baseline, trigger or consensus worker until an
+  # operator copied a staged snippet out of the README. Issue #4542 flipped the
+  # defaults on. These assertions pin the new default and prove a stage can still
+  # be narrowed deliberately -- `enabled` is only the value the three stage flags
+  # fall back to, it gates no worker itself.
+  - it: enables all four MTR automation flags by default
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MTR_AUTOMATION_ENABLED
+            value: "true"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MTR_AUTOMATION_BASELINE_ENABLED
+            value: "true"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MTR_AUTOMATION_TRIGGER_ENABLED
+            value: "true"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MTR_AUTOMATION_CONSENSUS_ENABLED
+            value: "true"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: honours an explicit opt-out per stage
+    set:
+      core.mtrAutomation:
+        baselineEnabled: true
+        triggerEnabled: false
+        consensusEnabled: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MTR_AUTOMATION_BASELINE_ENABLED
+            value: "true"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MTR_AUTOMATION_TRIGGER_ENABLED
+            value: "false"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MTR_AUTOMATION_CONSENSUS_ENABLED
+            value: "false"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: can be turned off completely
+    set:
+      core.mtrAutomation:
+        enabled: false
+        baselineEnabled: false
+        triggerEnabled: false
+        consensusEnabled: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MTR_AUTOMATION_ENABLED
+            value: "false"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MTR_AUTOMATION_BASELINE_ENABLED
+            value: "false"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MTR_AUTOMATION_TRIGGER_ENABLED
+            value: "false"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MTR_AUTOMATION_CONSENSUS_ENABLED
+            value: "false"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: the demo overlay runs the full automation
+    values:
+      - ../values-demo.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MTR_AUTOMATION_BASELINE_ENABLED
+            value: "true"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MTR_AUTOMATION_TRIGGER_ENABLED
+            value: "true"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MTR_AUTOMATION_CONSENSUS_ENABLED
+            value: "true"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment

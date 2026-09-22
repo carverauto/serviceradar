@@ -379,11 +379,18 @@ core:
       - ReadWriteOnce
     storageClassName: ""
     existingClaim: ""
+  # Automated MTR is ON by default (issue #4542).
+  #
+  # `enabled` is NOT a master switch: it is the value the three stage flags fall
+  # back to when they are unset, and each stage's own flag is what actually
+  # starts its worker (see CoordinatorChildren). The chart renders all four, so
+  # narrowing the rollout means setting the stage flags -- the staged examples
+  # in README.md are opt-outs now rather than opt-ins.
   mtrAutomation:
-    enabled: false
-    baselineEnabled: false
-    triggerEnabled: false
-    consensusEnabled: false
+    enabled: true
+    baselineEnabled: true
+    triggerEnabled: true
+    consensusEnabled: true
     baselineTickMs: 60000
     consensusCohortRetentionMs: 300000
   # Initial MTR history retention in days (1-395) for a fresh database. After
