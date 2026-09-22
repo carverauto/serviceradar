@@ -9,8 +9,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.BulkModals do
   attr(:state_form, :any, required: true)
   attr(:scope_form, :any, required: true)
   attr(:selected_count, :integer, required: true)
-  attr(:total_matching_count, :integer, default: nil)
-  attr(:select_all_matching, :boolean, default: false)
+  attr(:target_scope, :string, default: "selected")
+  attr(:matching_count, :integer, default: nil)
   attr(:srql, :map, default: %{})
 
   def bulk_edit_modal(assigns) do
@@ -19,8 +19,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.BulkModals do
       <:title>Bulk Edit Devices</:title>
 
       <p class="text-sm text-sr-muted">
-        <%= if @select_all_matching do %>
-          Targeting all {@total_matching_count} matching device(s) from the current query.
+        <%= if @target_scope == "all_matching" do %>
+          Targeting all {@matching_count} matching device(s) from the current query.
         <% else %>
           Targeting {@selected_count} selected device(s).
         <% end %>
@@ -37,7 +37,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.BulkModals do
           id="bulk-state-scope"
           type="select"
           label="Apply to"
-          options={scope_options(@srql, @selected_count, @total_matching_count)}
+          options={scope_options(@srql, @selected_count, @matching_count)}
         />
         <p class="mt-1 text-xs text-sr-muted">
           Applies to both the tags and the state changes you submit below.

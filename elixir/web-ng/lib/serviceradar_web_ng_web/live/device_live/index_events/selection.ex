@@ -116,13 +116,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Selection do
     end
   end
 
+  # Cancel/X is a no-op for the toolbar selection: the modal's target scope is
+  # modal-local, so a pre-existing `selected_devices`/`select_all_matching`
+  # survives opening and cancelling the modal.
   def handle_event("close_bulk_edit_modal", _params, socket) do
     {:noreply,
      socket
      |> assign(:show_bulk_edit_modal, false)
      |> assign(:bulk_edit_form, to_form(%{"tags" => ""}, as: :bulk))
      |> assign(:bulk_scope_form, Helpers.bulk_scope_form())
-     |> assign(:bulk_state_form, Helpers.bulk_state_form())}
+     |> assign(:bulk_state_form, Helpers.bulk_state_form())
+     |> assign(:bulk_target_scope, "selected")
+     |> assign(:bulk_target_matching_count, nil)}
   end
 
   def handle_event("close_bulk_delete_modal", _params, socket) do
@@ -158,44 +163,39 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Selection do
     {:noreply, socket}
   end
 
+  # The modal's target scope is modal-local, deliberately separate from the
+  # toolbar's shared `select_all_matching`. Cancel must not disturb the toolbar
+  # selection, and the modal must not arm the whole-result-set scope for the
+  # toolbar's Delete/Availability buttons.
   defp assign_bulk_state_defaults(socket) do
-    default_scope = if socket.assigns.select_all_matching, do: "all_matching", else: "selected"
-
     socket
-    |> assign(:bulk_scope_form, Helpers.bulk_scope_form(default_scope))
+    |> assign(:bulk_target_scope, "selected")
+    |> assign(:bulk_target_matching_count, matching_count_for_modal(socket))
+    |> assign(:bulk_scope_form, Helpers.bulk_scope_form())
     |> assign(:bulk_state_form, Helpers.bulk_state_form())
-    |> maybe_assign_total_matching_count()
   end
 
   # The modal's "All N matching" option needs N up front. Only run the count
   # when a filter is present, mirroring the toolbar, which offers the
   # all-matching scope under the same condition.
-  defp maybe_assign_total_matching_count(socket) do
-    cond do
-      is_integer(socket.assigns.total_matching_count) ->
-        socket
-
-      has_any_filter?(socket.assigns.srql) ->
-        scope = socket.assigns.current_scope
-        query = Map.get(socket.assigns.srql || %{}, :query, "")
-        assign(socket, :total_matching_count, IndexData.get_total_matching_count(scope, query))
-
-      true ->
-        socket
+  defp matching_count_for_modal(socket) do
+    if has_any_filter?(socket.assigns.srql) do
+      scope = socket.assigns.current_scope
+      query = Map.get(socket.assigns.srql || %{}, :query, "")
+      IndexData.get_total_matching_count(scope, query)
     end
   end
 
   def selected_uids(socket) do
     if socket.assigns.select_all_matching do
-      scope = socket.assigns.current_scope
-      query = Map.get(socket.assigns.srql || %{}, :query, "")
-      IndexData.get_all_matching_uids(scope, query)
+      all_matching_uids(socket)
     else
-      socket.assigns.selected_devices
-      |> Enum.filter(&is_binary/1)
-      |> Enum.uniq()
+      explicit_selected_uids(socket)
     end
   end
+
+  def selected_uids_for_scope(socket, "all_matching"), do: all_matching_uids(socket)
+  def selected_uids_for_scope(socket, _scope), do: explicit_selected_uids(socket)
 
   def validate_device_selection(socket) do
     cond do
@@ -213,5 +213,40 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Selection do
       true ->
         :ok
     end
+  end
+
+  def validate_device_selection_for_scope(socket, "all_matching") do
+    count = socket.assigns.bulk_target_matching_count
+
+    cond do
+      not is_integer(count) ->
+        {:error, "Unable to determine selection size. Please try again."}
+
+      count > 10_000 ->
+        {:error, "Too many devices selected. Narrow your filters and try again."}
+
+      true ->
+        :ok
+    end
+  end
+
+  def validate_device_selection_for_scope(socket, _scope) do
+    if MapSet.size(socket.assigns.selected_devices) == 0 do
+      {:error, "Select at least one device first."}
+    else
+      :ok
+    end
+  end
+
+  defp all_matching_uids(socket) do
+    scope = socket.assigns.current_scope
+    query = Map.get(socket.assigns.srql || %{}, :query, "")
+    IndexData.get_all_matching_uids(scope, query)
+  end
+
+  defp explicit_selected_uids(socket) do
+    socket.assigns.selected_devices
+    |> Enum.filter(&is_binary/1)
+    |> Enum.uniq()
   end
 end

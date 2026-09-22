@@ -27,7 +27,7 @@ defmodule ServiceRadarWebNGWeb.Components.BulkEditModalTest do
     html =
       render_modal(
         srql: %{query: "in:devices hostname:%host01%"},
-        total_matching_count: 42
+        matching_count: 42
       )
 
     # The existing tag behaviour is untouched: the same form and submit event.
@@ -53,21 +53,33 @@ defmodule ServiceRadarWebNGWeb.Components.BulkEditModalTest do
     html =
       render_modal(
         srql: %{query: "in:devices hostname:%host01%"},
-        total_matching_count: 42
+        matching_count: 42
       )
 
-    # Scope reports on change into socket state (select_all_matching), which is
-    # what Selection.selected_uids/1 resolves targets from -- so the tag submit
-    # honours the same choice. It must NOT ride along with the state submit, or
-    # picking "All matching" would silently apply tags to the toolbar selection.
+    # Scope reports on change into the modal-local bulk_target_scope, which is
+    # what Selection.selected_uids_for_scope/2 resolves targets from -- so the
+    # tag submit honours the same choice. It must NOT ride along with the state
+    # submit, or picking "All matching" would silently apply tags to the
+    # toolbar selection.
     assert html =~ ~s(id="bulk-scope-form")
     assert html =~ ~s(phx-change="bulk_state_scope_change")
     assert html =~ ~s(name="bulk_scope[scope]")
     refute html =~ ~s(name="bulk_state[scope]")
   end
 
+  test "renders the all-matching target when the modal-local scope selects it" do
+    html =
+      render_modal(
+        srql: %{query: "in:devices hostname:%host01%"},
+        matching_count: 42,
+        target_scope: "all_matching"
+      )
+
+    assert html =~ "Targeting all 42 matching device(s) from the current query."
+  end
+
   test "only offers all-matching when the query actually carries a filter" do
-    html = render_modal(srql: %{query: ""}, total_matching_count: nil)
+    html = render_modal(srql: %{query: ""}, matching_count: nil)
 
     assert html =~ "Selected (7)"
     refute html =~ "all_matching"
@@ -82,8 +94,8 @@ defmodule ServiceRadarWebNGWeb.Components.BulkEditModalTest do
           state_form: Helpers.bulk_state_form(),
           scope_form: Helpers.bulk_scope_form(),
           selected_count: 7,
-          total_matching_count: nil,
-          select_all_matching: false,
+          target_scope: "selected",
+          matching_count: nil,
           srql: %{query: ""}
         },
         Map.new(overrides)

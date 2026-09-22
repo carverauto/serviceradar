@@ -34,6 +34,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.BulkTags do
            socket
            |> assign(:show_bulk_edit_modal, false)
            |> assign(:bulk_edit_form, to_form(%{"tags" => ""}, as: :bulk))
+           |> assign(:bulk_scope_form, Helpers.bulk_scope_form())
+           |> assign(:bulk_state_form, Helpers.bulk_state_form())
+           |> assign(:bulk_target_scope, "selected")
+           |> assign(:bulk_target_matching_count, nil)
            |> assign(:selected_devices, MapSet.new())
            |> assign(:select_all_matching, false)
            |> assign(:total_matching_count, nil)
@@ -49,12 +53,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.BulkTags do
   end
 
   defp apply_tags_to_devices(scope, socket, tags) do
-    case Selection.validate_device_selection(socket) do
+    target_scope = socket.assigns.bulk_target_scope
+
+    case Selection.validate_device_selection_for_scope(socket, target_scope) do
       {:error, reason} ->
         {:error, reason}
 
       :ok ->
-        case Selection.selected_uids(socket) do
+        case Selection.selected_uids_for_scope(socket, target_scope) do
           [] -> {:error, "No devices selected"}
           uids -> update_tags_for_uids(scope, uids, tags)
         end

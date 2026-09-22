@@ -115,8 +115,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView do
         state_form={@bulk_state_form}
         scope_form={@bulk_scope_form}
         selected_count={@selected_count}
-        total_matching_count={@total_matching_count}
-        select_all_matching={@select_all_matching}
+        target_scope={@bulk_target_scope}
+        matching_count={@bulk_target_matching_count}
         srql={@srql}
       />
 

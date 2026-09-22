@@ -4,7 +4,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.BulkState do
 
   alias ServiceRadar.Inventory.Device
   alias ServiceRadarWebNG.RBAC
-  alias ServiceRadarWebNGWeb.DeviceLive.IndexData
   alias ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Helpers
   alias ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Selection
 
@@ -24,14 +23,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.BulkState do
     end
   end
 
-  # The modal's scope control is its own form and reports here on change, so the
-  # choice governs the tag submit as well as this one -- both resolve their
-  # targets through Selection.selected_uids/1.
+  # The modal's scope control is its own form and reports here on change. The
+  # choice stays modal-local (`bulk_target_scope`) and governs both submits,
+  # which resolve targets through Selection.selected_uids_for_scope/2. It must
+  # not write the shared `select_all_matching`, or cancelling the modal would
+  # leave the whole-result-set scope armed for the toolbar buttons.
   def handle_event("bulk_state_scope_change", %{"bulk_scope" => params}, socket) do
     {:noreply,
      socket
      |> assign(:bulk_scope_form, to_form(params, as: :bulk_scope))
-     |> resolve_scope(Map.get(params, "scope", "selected"))}
+     |> assign(:bulk_target_scope, Map.get(params, "scope", "selected"))}
   end
 
   def handle_event("bulk_state_scope_change", _params, socket), do: {:noreply, socket}
@@ -50,28 +51,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.BulkState do
     end
   end
 
-  # `all_matching` flips the same assign the toolbar's "Select all matching
-  # filter" uses, and Selection.selected_uids/1 then materialises the full SRQL
-  # result set; the 10_000-device cap in Selection.validate_device_selection/1
-  # still applies.
-  defp resolve_scope(socket, "all_matching") do
-    socket
-    |> assign(:select_all_matching, true)
-    |> assign(:total_matching_count, socket.assigns.total_matching_count || count_matching(socket))
-  end
-
-  defp resolve_scope(socket, _selected) do
-    assign(socket, :select_all_matching, false)
-  end
-
-  defp count_matching(socket) do
-    scope = socket.assigns.current_scope
-    query = Map.get(socket.assigns.srql || %{}, :query, "")
-    IndexData.get_total_matching_count(scope, query)
-  end
-
   defp run_changes(socket, params, service_state, managed_state) do
-    case Selection.validate_device_selection(socket) do
+    target_scope = socket.assigns.bulk_target_scope
+
+    case Selection.validate_device_selection_for_scope(socket, target_scope) do
       {:error, reason} ->
         {:noreply,
          socket
@@ -79,7 +62,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.BulkState do
          |> put_flash(:error, reason)}
 
       :ok ->
-        case Selection.selected_uids(socket) do
+        case Selection.selected_uids_for_scope(socket, target_scope) do
           [] ->
             {:noreply,
              socket
@@ -107,6 +90,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.BulkState do
        |> assign(:bulk_state_form, Helpers.bulk_state_form())
        |> assign(:bulk_scope_form, Helpers.bulk_scope_form())
        |> assign(:bulk_edit_form, to_form(%{"tags" => ""}, as: :bulk))
+       |> assign(:bulk_target_scope, "selected")
+       |> assign(:bulk_target_matching_count, nil)
        |> assign(:selected_devices, MapSet.new())
        |> assign(:select_all_matching, false)
        |> assign(:total_matching_count, nil)
