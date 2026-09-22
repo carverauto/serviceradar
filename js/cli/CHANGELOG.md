@@ -1,5 +1,29 @@
 # `@carverauto/serviceradar-cli` Changelog
 
+## 0.1.6
+
+- Resolve the dashboard project's `react`, `react-dom`, and
+  `@carverauto/serviceradar-dashboard-sdk` through Node's module resolution
+  instead of a literal `<projectDir>/node_modules/<package>` path. A hand-joined
+  path is only correct when the project sits at the root of its own install tree,
+  so any dashboard whose dependencies were hoisted — every npm-workspaces
+  monorepo — had the CLI looking in the one directory the package is not.
+  `dashboard dev` failed in esbuild with `Cannot read file: …/node_modules/react`,
+  `dashboard build` failed in vite with `Could not load …`, and `doctor` reported
+  an installed SDK as "not resolvable from this project". Project-local installs
+  resolve exactly as before and produce byte-identical renderer output.
+- Let a `vite.resolve.alias` entry from `dashboard.config.mjs` override the CLI's
+  own alias in `dashboard dev`, as it already did in `dashboard build`. `dev`
+  built its alias **array** with the CLI's entries first and the config's appended
+  last; because alias matching is first-match-wins, the CLI's `react` entry always
+  shadowed the author's. Overriding React in `dev` was silently impossible while
+  the identical config worked in `build`. Author entries now come first in both.
+- Fail with an actionable message when a dashboard dependency genuinely cannot be
+  resolved — naming the package and suggesting `npm install` — instead of letting
+  esbuild or vite report a bare filesystem path from inside `node_modules`.
+- Consumers carrying a workaround that symlinks `react` / `react-dom` / the SDK
+  into each dashboard to satisfy the old path can drop it once on this release.
+
 ## 0.1.5
 
 - Report why a request failed instead of printing a bare `fetch failed`. Node
