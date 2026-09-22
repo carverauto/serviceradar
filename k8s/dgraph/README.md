@@ -246,3 +246,43 @@ Sources: [architecture](https://docs.dgraph.io/installation/dgraph-architecture)
 [deployment patterns](https://docs.dgraph.io/installation/deployment-patterns) ·
 [TLS configuration](https://docs.dgraph.io/admin/security/tls-configuration/) ·
 [write scaling](https://github.com/orgs/dgraph-io/discussions/9685)
+
+## Monitoring (demo)
+
+| File | What |
+|---|---|
+| `demo/servicemonitor.yaml` | scrapes alpha and zero |
+| `demo/gen_dashboard.py` | generates `demo/dashboard.json` |
+| `demo/render_configmap.py` | wraps that JSON into `demo/dashboard-configmap.yaml` |
+
+`deploy-dgraph.sh` applies both after the Helm upgrade. Grafana: **Dgraph ->
+Dgraph (demo)**, uid `dgraph-demo`.
+
+To change the dashboard, edit the generator and re-render:
+
+```bash
+python3 k8s/dgraph/demo/gen_dashboard.py
+python3 k8s/dgraph/demo/render_configmap.py
+```
+
+Three things about scraping Dgraph here that are easy to get wrong:
+
+- **The endpoints are HTTPS.** TLS is on everywhere in this deployment (alpha
+  and zero both terminate it, and alpha dials zero with `internal-port=true`),
+  so a plain http scrape returns 400 and the target just looks broken.
+- **The paths are Dgraph's own**, `/debug/prometheus_metrics` on alpha `:8080`
+  and zero `:6080`, not `/metrics`.
+- **`job` is pinned with `metricRelabelings`, not `relabelings`.** The operator
+  sets `job` from the Service name *after* user relabelings run, so a relabeling
+  is silently overwritten — the dashboard would come up empty with no error.
+  The two "up" panels match on `endpoint` instead, because `up` is synthesised
+  by Prometheus and keeps the original job label either way.
+
+`tlsConfig.insecureSkipVerify` is deliberate: a ServiceMonitor can only
+reference a CA Secret in Prometheus's own namespace, so pinning the in-cluster
+CA would mean replicating it into `monitoring`. This is ClusterIP traffic and
+the scrape carries no credentials.
+
+Every panel query was run against Prometheus before committing (27/27 returning
+data). An empty panel looks like idle infrastructure rather than a mistake,
+which is how two wrong label matchers were caught here.
