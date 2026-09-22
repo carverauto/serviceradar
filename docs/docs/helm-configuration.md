@@ -39,8 +39,13 @@ OCI chart quick start
     application it deploys are released together, so this is normally what you
     want and needs no configuration.
 - Pin images explicitly (immutable rollouts):
-  - `--set global.imageTag="sha-<gitsha>"`, or pin per-service digests with
-    `image.digests.*`.
+  - Pin per-service digests with `image.digests.*`; `serviceradar-cnpg` is
+    already pinned this way.
+  - `global.imageTag` overrides every first-party tag at once. For a published
+    chart it must be `v<chart-version>`; any other tag (for example a
+    `sha-<gitsha>` build tag) is valid only when the chart content matches that
+    build, or the core migrations `expectedVersion` and the rendered templates
+    drift from the images.
 - Track mutable images (staging/dev):
   - `--set global.imageTag="latest" --set global.imagePullPolicy="Always"`
 
@@ -58,6 +63,7 @@ HA profile overlay
 - **flowCollector** stays at **`replicaCount: 1`** (IPFIX/NetFlow template state is process-local) with **Recreate** and a **1 GiB RWO data PVC** so rehome/ownership/readiness markers survive pod replacement. Stream HA is `config.stream_replicas` (JetStream), not pod count.
 - `bmpCollector` is not scaled by the HA overlay unless another values file sets it.
 - The profile disables PVC-backed local state for the multi-replica services above where shared NATS/JetStream state is the real source of truth (flow-collector is the deliberate exception).
+- `dgraph.zero` and `dgraph.alpha` run `3` replicas each with replication factor `3`, on their own PVCs. Dgraph persists its own topology graph and is not part of the shared-NATS state model above.
 
 Optional public endpoint inventory
 - `k8sInventory.enabled` (default `false`) deploys a cluster-plane collector that
