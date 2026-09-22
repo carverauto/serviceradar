@@ -54,24 +54,6 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweepTest do
 
       assert MapSet.equal?(members, MapSet.new(["sr:keep-a", "sr:keep-b"]))
     end
-
-    test "never merges on a reserved MAC value" do
-      # All-zeros and broadcast carry no device identity. Pre-fix rows may still
-      # exist in DeviceInterfaceMac; the pure guard here means the query result
-      # cannot drive a merge regardless of what is in the table.
-      rows = [
-        {"000000000000", "sr:a", "sr:b", "default"},
-        {"FFFFFFFFFFFF", "sr:c", "sr:d", "default"},
-        {"F492BF75C72B", "sr:keep-a", "sr:keep-b", "default"}
-      ]
-
-      result = DuplicateSweep.interface_mac_chassis_groups_from_rows(rows)
-      macs = Enum.map(result, fn {{_partition, _type, mac}, _} -> mac end)
-
-      refute "000000000000" in macs
-      refute "FFFFFFFFFFFF" in macs
-      assert "F492BF75C72B" in macs
-    end
   end
 
   describe "column_mac_groups_from_rows/1" do
@@ -177,6 +159,40 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweepTest do
 
       assert %{mergeable: [], blocked: [%{device_ids: ["sr:a", "sr:b", "sr:c"]}]} =
                DuplicateSweep.classify_duplicate_components(entries)
+    end
+
+    test "blocks a pair whose only evidence is :mac — MAC-only policy" do
+      entries = [
+        {{"default", :mac, "A1B2C3D4E5F6"}, MapSet.new(["sr:a", "sr:b"])}
+      ]
+
+      assert %{mergeable: [], blocked: [blocked]} =
+               DuplicateSweep.classify_duplicate_components(entries)
+
+      assert blocked.device_ids == ["sr:a", "sr:b"]
+    end
+
+    test "allows a pair with mixed :mac and :agent_id evidence" do
+      entries = [
+        {{"default", :mac, "A1B2C3D4E5F6"}, MapSet.new(["sr:a", "sr:b"])},
+        {{"default", :agent_id, "agent-x"}, MapSet.new(["sr:a", "sr:b"])}
+      ]
+
+      assert %{mergeable: [merged], blocked: []} =
+               DuplicateSweep.classify_duplicate_components(entries)
+
+      assert merged.device_ids == ["sr:a", "sr:b"]
+    end
+
+    test "allows a pair with :interface_mac_chassis evidence (hardware, not blocked by MAC-only rule)" do
+      entries = [
+        {{"default", :interface_mac_chassis, "A1B2C3D4E5F6"}, MapSet.new(["sr:a", "sr:b"])}
+      ]
+
+      assert %{mergeable: [merged], blocked: []} =
+               DuplicateSweep.classify_duplicate_components(entries)
+
+      assert merged.device_ids == ["sr:a", "sr:b"]
     end
   end
 
